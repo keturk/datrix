@@ -4,6 +4,10 @@ Documentation for the Datrix code generation platform.
 
 ---
 
+## Why Datrix
+
+- [Why Datrix](why-datrix.md) — Datrix vs vibe coding, the AI pairing, and what's under the hood
+
 ## Architecture
 
 - [Architecture Overview](architecture/architecture-overview.md) — System pipeline, repository structure, core principles
