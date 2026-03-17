@@ -1,0 +1,39 @@
+
+// 'from ... import' brings shared types from the common module
+from social.common import BaseEntity;
+
+// Define a service in the 'social' namespace
+service social.NotificationService : version('1.0.0'), description('notification management service') {
+
+    // Service infrastructure configuration
+    config('config/notification-service/notification-service-config.yaml');
+    registration('config/notification-service/registration.yaml');
+    // discovery block declares dependencies on other services
+    discovery {
+        UserService { loadBalance: roundRobin, healthyOnly: true }
+    }
+    resilience('config/notification-service/resilience.yaml');
+
+    // Relational database block - groups entities (tables) under a named datasource
+    rdbms db('config/notification-service/datasources.yaml') {
+
+        entity Notification extends BaseEntity {
+            // UUID field referencing another service's entity (cross-service foreign key)
+            UUID userId : index;
+            // 'trim' auto-trims whitespace on input
+            String(200) title : trim;
+            // '?' suffix makes the field nullable (optional)
+            Text? body;
+            // Boolean with default value
+            Boolean read = false;
+            // Explicit index declaration for query performance
+            index(userId);
+        }
+    }
+
+    // REST API block - generates CRUD endpoints and custom routes
+    rest_api NotificationAPI : basePath("/api/v1/notifications") {
+        // 'resource' auto-generates standard CRUD endpoints (list, get, create, update, delete)
+        resource db.Notification;
+    }
+}

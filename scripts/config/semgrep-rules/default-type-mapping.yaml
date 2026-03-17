@@ -1,0 +1,8 @@
+rules:
+  - id: datrix.default-type-mapping
+    pattern: $MAP.get($TYPE, "Any")
+    message: >
+      Default type mapping fallback to "Any". Type mappings MUST be exhaustive;
+      raise UnmappedTypeError on unknown types.
+    languages: [python]
+    severity: ERROR

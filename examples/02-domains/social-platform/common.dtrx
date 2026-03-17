@@ -1,0 +1,11 @@
+
+// Shared module - defines reusable types across all social platform services
+module social.common {
+
+    // Abstract entities provide reusable field definitions; they don't generate tables
+    abstract entity BaseEntity {
+        @UUID id : primaryKey = uuid();
+        @DateTime createdAt = now();
+        @DateTime updatedAt = now();
+    }
+}

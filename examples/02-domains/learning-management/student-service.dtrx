@@ -1,0 +1,35 @@
+
+// 'from ... import' brings shared types from the common module
+from learning.common import BaseEntity;
+
+// Define a service in the 'learning' namespace with version and description
+service learning.StudentService : version('1.0.0'), description('student management service') {
+
+    // Service infrastructure configuration
+    config('config/student-service/student-service-config.yaml');
+    registration('config/student-service/registration.yaml');
+    discovery { }                                                    // Service discovery (auto-configured)
+    resilience('config/student-service/resilience.yaml');
+
+    // Relational database block - groups entities (tables) under a named datasource
+    rdbms db('config/student-service/datasources.yaml') {
+
+        entity Student extends BaseEntity {
+            // 'trim' auto-trims whitespace on input
+            String(100) firstName : trim;
+            String(100) lastName : trim;
+            // Email is a semantic type that validates email format
+            // 'unique' ensures no duplicate values across rows
+            Email email : unique;
+            String(20) studentNumber : unique;
+            // Creates a database index for query performance
+            index(email);
+        }
+    }
+
+    // REST API block - generates CRUD endpoints and custom routes
+    rest_api StudentAPI : basePath("/api/v1/students") {
+        // 'resource' auto-generates all standard CRUD endpoints (list, get, create, update, delete)
+        resource db.Student;
+    }
+}

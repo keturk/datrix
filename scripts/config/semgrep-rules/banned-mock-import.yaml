@@ -1,0 +1,14 @@
+rules:
+  - id: datrix.banned-mock-import
+    pattern-either:
+      - pattern: from unittest.mock import $NAME
+      - pattern: from unittest import mock
+    message: >
+      MagicMock/Mock/patch are banned in tests. Use real objects, real I/O,
+      and .dtrx fixtures per test guidelines.
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "*/tests/*"
+        - "test_*.py"

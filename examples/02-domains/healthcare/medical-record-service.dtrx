@@ -1,0 +1,729 @@
+
+from healthcare.common import BaseEntity, AuditedEntity, Confidential;
+
+service healthcare.MedicalRecordService : version('1.0.0'), description('medical record management service') {
+
+    config('config/medical-record-service/medical-record-service-config.yaml');
+    registration('config/medical-record-service/registration.yaml');
+    // Depends on both PatientService and AppointmentService
+    discovery {
+        PatientService { loadBalance: roundRobin, healthyOnly: true }
+        AppointmentService { loadBalance: roundRobin, healthyOnly: true }
+    }
+    resilience('config/medical-record-service/resilience.yaml');
+
+    // Storage block - defines file upload folders with constraints
+    storage store('config/medical-record-service/storage.yaml') {
+        // Path templates with dynamic segments for organized storage
+        folder attachments : path('attachments/{patientId}/{recordId}'), allowed(['application/pdf', 'image/jpeg', 'image/png', 'image/dicom']), maxSize('50mb')
+        folder images : path('images/{patientId}'), allowed(['image/jpeg', 'image/png', 'image/dicom']), maxSize('100mb')
+    }
+
+    enum RecordType {
+        Diagnosis,
+        Prescription,
+        LabResult,
+        Imaging,
+        Note,
+        Procedure,
+        Referral,
+        Discharge,
+        Consultation
+    }
+
+    enum RecordStatus {
+        Draft,
+        Final,
+        Amended,
+        Voided
+    }
+
+    enum PrescriptionStatus {
+        Active,
+        Completed,
+        Cancelled,
+        OnHold
+    }
+
+    struct RecordSearchResult {
+        Array<db.MedicalRecord> records;
+        JSON pagination;
+    }
+
+    struct PatientHistory {
+        Array<db.MedicalRecord> records;
+        Array<db.Prescription> activePrescriptions;
+        Int totalRecords;
+        Int totalPrescriptions;
+    }
+
+    struct CreateRecordRequest {
+        UUID patientId;
+        RecordType type;
+        String title;
+        Text content;
+        String providerName;
+        DateTime recordDate;
+        UUID? appointmentId;
+        UUID? providerId;
+        Boolean? isConfidential;
+    }
+
+    struct CreatePrescriptionRequest {
+        UUID patientId;
+        String medicationName;
+        String prescribingDoctor;
+        Int quantity;
+        DateTime startDate;
+        String? dosage;
+        String? frequency;
+        String? route;
+        String? instructions;
+        Int? refillsAllowed;
+        DateTime? endDate;
+        UUID? appointmentId;
+        UUID? providerId;
+        String? pharmacyName;
+        Phone? pharmacyPhone;
+    }
+
+    struct UpdateRecordRequest {
+        String? title;
+        Text? content;
+    }
+
+    struct AmendRecordRequest {
+        String reason;
+        Text? updatedContent;
+    }
+
+    struct VoidRecordRequest {
+        String reason;
+    }
+
+    struct AddAttachmentRequest {
+        // 'Blob' type for binary file uploads
+        Blob file;
+        String filename;
+        String? description;
+    }
+
+    struct DiscontinuePrescriptionRequest {
+        String reason;
+    }
+
+    struct CreateRecordFromAppointmentRequest {
+        UUID appointmentId;
+        RecordType type;
+        String title;
+        Text content;
+        String providerName;
+    }
+
+    rdbms db('config/medical-record-service/datasources.yaml') {
+        alert queryDuration(p95) over(5m) > 200ms @severity(warning);
+        alert connectionPool(utilization) over(1m) > 80% @severity(critical);
+
+        // Extends AuditedEntity for change tracking; mixes in Confidential trait; ': audit' enables audit logging
+        entity MedicalRecord extends AuditedEntity with Confidential : audit {
+            UUID patientId : index;
+            UUID? appointmentId : index;
+            UUID? providerId : index;
+            String(100) providerName : trim;
+
+            RecordType type;
+            RecordStatus status = RecordStatus.Draft;
+            String(200) title : trim;
+            // 'encrypted, sensitive' marks content for encryption and access logging
+            Text content : encrypted, sensitive;
+
+            DateTime recordDate;
+            JSON? metadata;
+            JSON attachments = [];
+
+            Boolean isDraft := status == RecordStatus.Draft;
+            Boolean isFinal := status == RecordStatus.Final;
+            Boolean canEdit := status == RecordStatus.Draft;
+
+            index(patientId, recordDate);
+            index(patientId, type);
+            index(appointmentId);
+            index(providerId, recordDate);
+            fulltext(title, content);
+
+            validate {
+                if (recordDate > now())
+                    ValidationError("Record date cannot be in the future");
+            }
+
+            beforeCreate {
+                createdBy = Auth.userId();
+            }
+
+            beforeUpdate {
+                updatedAt = now();
+                updatedBy = Auth.userId();
+            }
+
+            afterCreate {
+                emit RecordCreated(id, patientId, type, providerId);
+
+                Log.info("Medical record created", {
+                    recordId: id,
+                    patientId: patientId,
+                    type: type,
+                    action: "record.create",
+                    userId: Auth.userId()
+                });
+            }
+
+            afterUpdate {
+                if (isChanged(status) && status == RecordStatus.Final) {
+                    emit RecordFinalized(id, patientId, type);
+                }
+
+                Log.info("Medical record updated", {
+                    recordId: id,
+                    patientId: patientId,
+                    action: "record.update",
+                    userId: Auth.userId()
+                });
+            }
+
+            // State transition methods for record lifecycle
+            fn finalize() {
+                if (status != RecordStatus.Draft) {
+                    throw ValidationException("Only draft records can be finalized");
+                }
+                status = RecordStatus.Final;
+                this.save();
+            }
+
+            fn amend(String reason) {
+                if (status != RecordStatus.Final) {
+                    throw ValidationException("Only final records can be amended");
+                }
+                status = RecordStatus.Amended;
+                changeReason = reason;
+                this.save();
+            }
+
+            fn void(String reason) {
+                status = RecordStatus.Voided;
+                changeReason = reason;
+                this.save();
+            }
+        }
+
+        entity Prescription extends BaseEntity {
+            UUID patientId : index;
+            UUID? appointmentId;
+            UUID? providerId;
+            String(100) prescribingDoctor;
+
+            String(200) medicationName;
+            String(100)? dosage;
+            String(100)? frequency;
+            String(100)? route;
+            String(500)? instructions;
+
+            Int quantity;
+            Int refillsAllowed = 0;
+            Int refillsUsed = 0;
+
+            DateTime startDate;
+            DateTime? endDate;
+            PrescriptionStatus status = PrescriptionStatus.Active;
+
+            String? pharmacyName;
+            Phone? pharmacyPhone;
+
+            String? discontinuationReason;
+
+            // Complex computed field with multiple conditions
+            Boolean isActive := status == PrescriptionStatus.Active && (endDate == null || endDate >= today());
+            Boolean hasRefillsRemaining := refillsUsed < refillsAllowed;
+            Int refillsRemaining := refillsAllowed - refillsUsed;
+
+            index(patientId, startDate);
+            index(patientId, status);
+            index(medicationName);
+
+            validate {
+                if (quantity <= 0)
+                    ValidationError("Quantity must be positive");
+
+                if (refillsAllowed < 0)
+                    ValidationError("Refills cannot be negative");
+
+                if (endDate != null && endDate < startDate)
+                    ValidationError("End date must be after start date");
+            }
+
+            afterCreate {
+                emit PrescriptionCreated(id, patientId, medicationName, prescribingDoctor);
+
+                Log.info("Prescription created", {
+                    prescriptionId: id,
+                    patientId: patientId,
+                    medication: medicationName,
+                    action: "prescription.create"
+                });
+            }
+
+            fn refill() {
+                if (!hasRefillsRemaining) {
+                    throw ValidationException("No refills remaining");
+                }
+                if (!isActive) {
+                    throw ValidationException("Prescription is not active");
+                }
+                refillsUsed = refillsUsed + 1;
+                this.save();
+            }
+
+            fn discontinue(String reason) {
+                status = PrescriptionStatus.Cancelled;
+                discontinuationReason = reason;
+                endDate = today();
+                this.save();
+            }
+        }
+
+        entity Attachment extends BaseEntity {
+            String(200) filename;
+            String(100) contentType;
+            Int fileSize;
+            String(500) storagePath;
+            String? description;
+
+            // 'as record' aliases the relationship field name
+            belongsTo MedicalRecord as record : index;
+        }
+    }
+
+    cache redis('config/medical-record-service/cache.yaml') {
+        hash RecordCache : prefix('record:'), ttl(900) {
+            UUID recordId : key;
+            UUID patientId;
+            RecordType type;
+            RecordStatus status;
+        }
+
+        // 'list' is an ordered collection with max length
+        list RecentRecords : prefix('patient:records:'), ttl(1800), maxLength(20) {
+            UUID recordId;
+        }
+    }
+
+    pubsub mq('config/medical-record-service/pubsub.yaml') {
+        alert consumerLag(max) over(5m) > 500 @severity(warning);
+
+        topic RecordEvents {
+            publish RecordCreated(UUID recordId, UUID patientId, RecordType type, UUID? providerId);
+            publish RecordFinalized(UUID recordId, UUID patientId, RecordType type);
+            publish RecordAmended(UUID recordId, UUID patientId, String reason);
+            publish PrescriptionCreated(UUID prescriptionId, UUID patientId, String medication, String prescriber);
+        }
+
+        subscribe RecordEvents {
+
+            on RecordCreated(UUID recordId, UUID patientId, RecordType type, UUID? providerId) {
+                Log.info("Medical record created", { recordId: recordId, patientId: patientId, type: type, providerId: providerId });
+            }
+
+            on RecordFinalized(UUID recordId, UUID patientId, RecordType type) {
+                Log.info("Medical record finalized", { recordId: recordId, patientId: patientId, type: type });
+            }
+
+            on RecordAmended(UUID recordId, UUID patientId, String reason) {
+                Log.info("Medical record amended", { recordId: recordId, patientId: patientId, reason: reason });
+            }
+
+            on PrescriptionCreated(UUID prescriptionId, UUID patientId, String medication, String prescriber) {
+                Log.info("Prescription created", { prescriptionId: prescriptionId, patientId: patientId, medication: medication, prescriber: prescriber });
+            }
+        }
+
+        // Auto-create draft records when appointments complete
+        subscribe AppointmentEvents {
+
+            on AppointmentCompleted(UUID appointmentId, UUID patientId, UUID? providerId, String providerName, String type) {
+                #MedicalRecord record = db.MedicalRecord.create({
+                    patientId: patientId,
+                    appointmentId: appointmentId,
+                    providerId: providerId,
+                    providerName: providerName,
+                    type: RecordType.Note,
+                    title: #"{type} note - {providerName}",
+                    content: "",
+                    recordDate: now(),
+                    status: RecordStatus.Draft
+                });
+
+                // Push to recent records list for fast retrieval
+                redis.RecentRecords.lpush(#"patient:records:{patientId}", record.id);
+
+                Log.info("Draft record created for completed appointment", {
+                    recordId: record.id,
+                    appointmentId: appointmentId,
+                    patientId: patientId,
+                    providerId: providerId
+                });
+            }
+        }
+    }
+
+    rest_api MedicalRecordAPI : basePath('/api/v1/records') {
+        alert responseTime(p95) over(5m) > 500ms @severity(warning);
+        alert errorRate(ratio) over(5m) > 5% @severity(critical);
+
+        get(UUID patientId, RecordType? type, DateTime? startDate, DateTime? endDate, Int page = 1, Int perPage = 20) -> RecordSearchResult {
+            #JSON query = db.MedicalRecord.where(patientId: patientId);
+
+            if (type != null) {
+                query = query.where(type: type);
+            }
+
+            if (startDate != null) {
+                query = query.where(recordDate: gte(startDate));
+            }
+
+            if (endDate != null) {
+                query = query.where(recordDate: lte(endDate));
+            }
+
+            // 'whereNot(...)' excludes records matching the condition
+            query = query.whereNot(status: RecordStatus.Voided);
+
+            #Int total = query.count();
+            #Array<MedicalRecord> records = query
+                .orderBy(recordDate: desc)
+                .offset((page - 1) * perPage)
+                .limit(Math.min(perPage, 50))
+                .all();
+
+            Log.info("Records accessed", {
+                patientId: patientId,
+                resultCount: records.length(),
+                action: "record.list",
+                userId: Auth.userId()
+            });
+
+            return {
+                records: records,
+                pagination: {
+                    page: page,
+                    perPage: perPage,
+                    total: total,
+                    totalPages: Math.ceil(total / perPage)
+                }
+            };
+        }
+
+        @path('/:id')
+        get(UUID id) -> db.MedicalRecord {
+            #MedicalRecord record = db.MedicalRecord.findOrFail(id);
+
+            Log.info("Record viewed", {
+                recordId: id,
+                patientId: record.patientId,
+                action: "record.view",
+                userId: Auth.userId()
+            });
+
+            return record;
+        }
+
+        post(CreateRecordRequest request) -> db.MedicalRecord {
+            // Cross-service validation
+            #Boolean patientValid = PatientService.PatientAPI.post('/internal/validate', { patientId: request.patientId });
+            if (!patientValid) {
+                throw ValidationException("Patient not found or inactive");
+            }
+
+            if (request.appointmentId != null) {
+                try {
+                    // Verify appointment belongs to this patient
+                    #JSON appointment = AppointmentService.AppointmentAPI.get('/internal/:id', request.appointmentId);
+                    if (appointment.patientId != request.patientId) {
+                        throw ValidationException("Appointment does not belong to this patient");
+                    }
+                } catch (Exception e) {
+                    throw ValidationException("Invalid appointment ID");
+                }
+            }
+
+            #MedicalRecord record = db.MedicalRecord.create({
+                patientId: request.patientId,
+                appointmentId: request.appointmentId,
+                providerId: request.providerId,
+                providerName: request.providerName,
+                type: request.type,
+                title: request.title,
+                content: request.content,
+                recordDate: request.recordDate,
+                status: RecordStatus.Draft,
+                isConfidential: request.isConfidential ?? false
+            });
+
+            redis.RecordCache.set(record.id, {
+                recordId: record.id,
+                patientId: request.patientId,
+                type: request.type,
+                status: record.status
+            });
+            redis.RecentRecords.lpush(#"patient:records:{request.patientId}", record.id);
+
+            return record;
+        }
+
+        @path('/:id')
+        put(UUID id, UpdateRecordRequest request) -> db.MedicalRecord {
+            #MedicalRecord record = db.MedicalRecord.findOrFail(id);
+
+            if (!record.canEdit) {
+                throw ValidationException(#"Cannot edit record in status: {record.status}");
+            }
+
+            if (request.title != null) record.title = request.title;
+            if (request.content != null) record.content = request.content;
+
+            record.save();
+
+            return record;
+        }
+
+        // Record state transition endpoints
+        @path('/:id/finalize')
+        put(UUID id) -> db.MedicalRecord {
+            #MedicalRecord record = db.MedicalRecord.findOrFail(id);
+            record.finalize();
+
+            redis.RecordCache.set(record.id, {
+                recordId: record.id,
+                patientId: record.patientId,
+                type: record.type,
+                status: record.status
+            });
+
+            return record;
+        }
+
+        @path('/:id/amend')
+        put(UUID id, AmendRecordRequest request) -> db.MedicalRecord {
+            #MedicalRecord record = db.MedicalRecord.findOrFail(id);
+
+            if (request.updatedContent != null) {
+                record.content = request.updatedContent;
+            }
+            record.amend(request.reason);
+
+            emit RecordAmended(record.id, record.patientId, request.reason);
+
+            return record;
+        }
+
+        @path('/:id/void')
+        put(UUID id, VoidRecordRequest request) : access(admin) -> db.MedicalRecord {
+            #MedicalRecord record = db.MedicalRecord.findOrFail(id);
+            record.void(request.reason);
+
+            redis.RecordCache.delete(record.id);
+
+            return record;
+        }
+
+        // File upload endpoint
+        @path('/:id/attachments')
+        post(UUID id, AddAttachmentRequest request) -> db.Attachment {
+            #MedicalRecord record = db.MedicalRecord.findOrFail(id);
+
+            // Upload file to storage and get the path
+            #String storagePath = store.upload(request.file, {
+                folder: 'attachments',
+                patientId: record.patientId,
+                recordId: record.id,
+                filename: request.filename
+            });
+
+            #Attachment attachment = db.Attachment.create({
+                record: record,
+                filename: request.filename,
+                contentType: request.file.contentType,
+                fileSize: request.file.size,
+                storagePath: storagePath,
+                description: request.description
+            });
+
+            record.attachments.push({
+                id: attachment.id,
+                filename: request.filename,
+                contentType: request.file.contentType,
+                size: request.file.size
+            });
+            record.save();
+
+            Log.info("Attachment uploaded", {
+                recordId: id,
+                attachmentId: attachment.id,
+                filename: request.filename,
+                action: "attachment.create"
+            });
+
+            return attachment;
+        }
+
+        // File download endpoint
+        @path('/:id/attachments/:attachmentId/download')
+        get(UUID id, UUID attachmentId) -> Blob {
+            #Attachment attachment = db.Attachment.findOrFail(attachmentId);
+
+            if (attachment.recordId != id) {
+                throw ValidationException("Attachment does not belong to this record");
+            }
+
+            Log.info("Attachment downloaded", {
+                recordId: id,
+                attachmentId: attachmentId,
+                action: "attachment.download",
+                userId: Auth.userId()
+            });
+
+            return store.download(attachment.storagePath);
+        }
+
+        // Prescription management endpoints
+        @path('/prescriptions')
+        get(UUID patientId, Boolean? activeOnly) -> Array<db.Prescription> {
+            #JSON query = db.Prescription.where(patientId: patientId);
+
+            if (activeOnly == true) {
+                query = query.where(status: PrescriptionStatus.Active);
+            }
+
+            return query.orderBy(startDate: desc).all();
+        }
+
+        @path('/prescriptions/:id')
+        get(UUID id) -> db.Prescription {
+            return db.Prescription.findOrFail(id);
+        }
+
+        @path('/prescriptions')
+        post(CreatePrescriptionRequest request) -> db.Prescription {
+            #Boolean patientValid = PatientService.PatientAPI.post('/internal/validate', { patientId: request.patientId });
+            if (!patientValid) {
+                throw ValidationException("Patient not found or inactive");
+            }
+
+            #Prescription prescription = db.Prescription.create({
+                patientId: request.patientId,
+                appointmentId: request.appointmentId,
+                providerId: request.providerId,
+                prescribingDoctor: request.prescribingDoctor,
+                medicationName: request.medicationName,
+                dosage: request.dosage,
+                frequency: request.frequency,
+                route: request.route,
+                instructions: request.instructions,
+                quantity: request.quantity,
+                refillsAllowed: request.refillsAllowed ?? 0,
+                startDate: request.startDate,
+                endDate: request.endDate,
+                pharmacyName: request.pharmacyName,
+                pharmacyPhone: request.pharmacyPhone,
+                status: PrescriptionStatus.Active
+            });
+
+            return prescription;
+        }
+
+        @path('/prescriptions/:id/refill')
+        post(UUID id) -> db.Prescription {
+            #Prescription prescription = db.Prescription.findOrFail(id);
+            prescription.refill();
+
+            Log.info("Prescription refilled", {
+                prescriptionId: id,
+                refillsUsed: prescription.refillsUsed,
+                refillsRemaining: prescription.refillsRemaining
+            });
+
+            return prescription;
+        }
+
+        @path('/prescriptions/:id/discontinue')
+        put(UUID id, DiscontinuePrescriptionRequest request) -> db.Prescription {
+            #Prescription prescription = db.Prescription.findOrFail(id);
+            prescription.discontinue(request.reason);
+            return prescription;
+        }
+
+        // Comprehensive patient history view
+        @path('/patient/:patientId/history')
+        get(UUID patientId) -> PatientHistory {
+            #Array<MedicalRecord> records = db.MedicalRecord
+                .where(patientId: patientId)
+                .whereNot(status: RecordStatus.Voided)
+                .orderBy(recordDate: desc)
+                .limit(50)
+                .all();
+
+            #Array<Prescription> activePrescriptions = db.Prescription
+                .where(patientId: patientId)
+                .where(status: PrescriptionStatus.Active)
+                .all();
+
+            #Int totalRecords = db.MedicalRecord
+                .where(patientId: patientId)
+                .whereNot(status: RecordStatus.Voided)
+                .count();
+
+            #Int totalPrescriptions = db.Prescription
+                .where(patientId: patientId)
+                .count();
+
+            Log.info("Patient history accessed", {
+                patientId: patientId,
+                action: "history.view",
+                userId: Auth.userId()
+            });
+
+            return {
+                records: records,
+                activePrescriptions: activePrescriptions,
+                totalRecords: totalRecords,
+                totalPrescriptions: totalPrescriptions
+            };
+        }
+
+        @path('/internal/patient/:patientId')
+        get(UUID patientId) : internal -> Array<db.MedicalRecord> {
+            return db.MedicalRecord
+                .where(patientId: patientId)
+                .whereNot(status: RecordStatus.Voided)
+                .orderBy(recordDate: desc)
+                .limit(100)
+                .all();
+        }
+
+        @path('/internal/from-appointment')
+        post(CreateRecordFromAppointmentRequest request) : internal -> db.MedicalRecord {
+            // Cross-service call to get appointment details
+            #JSON appointment = AppointmentService.AppointmentAPI.get('/internal/:id', request.appointmentId);
+
+            return db.MedicalRecord.create({
+                patientId: appointment.patientId,
+                appointmentId: request.appointmentId,
+                providerId: appointment.providerId,
+                providerName: request.providerName,
+                type: request.type,
+                title: request.title,
+                content: request.content,
+                recordDate: now(),
+                status: RecordStatus.Draft
+            });
+        }
+    }
+}

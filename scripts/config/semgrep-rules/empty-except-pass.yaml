@@ -1,0 +1,18 @@
+rules:
+  - id: datrix.empty-except-pass
+    pattern-either:
+      - pattern: |
+          try:
+              ...
+          except:
+              pass
+      - pattern: |
+          try:
+              ...
+          except $EXC:
+              pass
+    message: >
+      Empty exception block (except: pass). Handle the error or re-raise
+      with context per .cursorrules fail-fast philosophy.
+    languages: [python]
+    severity: WARNING

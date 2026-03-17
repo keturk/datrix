@@ -1,0 +1,836 @@
+
+// Define a service in the 'library' namespace with version and description
+service library.BookService : version('1.0.0'), description('book management service') {
+
+    // Service infrastructure configuration
+    config('config/book-service/book-service-config.yaml');   // Service-specific settings
+    registration('config/book-service/registration.yaml');     // Service registry entry
+    discovery { }                                              // Service discovery (auto-configured)
+    resilience('config/book-service/resilience.yaml');          // Circuit breakers, retries, timeouts
+    // 'integrations' declares third-party service connectors (email, SMS, payment, etc.)
+    integrations('config/book-service/integrations.yaml');
+
+    // Enums define a fixed set of allowed values for type-safe fields
+    enum BookStatus {
+        Available,
+        CheckedOut,
+        Reserved,
+        Maintenance
+    }
+
+    enum BookFormat {
+        Hardcover,
+        Paperback,
+        eBook,
+        Audiobook
+    }
+
+    // Roles enum for role-based access control (RBAC)
+    enum UserRole {
+        Member,
+        Librarian,
+        Admin
+    }
+
+    // Additional enum for tracking physical condition of books
+    enum BookCondition {
+        New,
+        Good,
+        Fair,
+        Poor,
+        Damaged
+    }
+
+    // Enum for categorizing audit trail actions in the reporting database
+    enum AuditAction {
+        Created,
+        Updated,
+        Deleted,
+        CheckedOut,
+        Returned,
+        ConditionChanged
+    }
+
+    // 'const' declares compile-time constants reusable across the service
+    const MAX_CHECKOUT_DAYS = 30;
+    const MAX_RENEWALS = 3;
+    // Constants can hold regex patterns for field validation
+    const ISBN_PATTERN = "^[0-9\-]{10,13}$";
+
+    // Structs define reusable value objects (not database entities)
+    struct BookAvailabilityResponse {
+        Boolean available;
+    }
+
+    // Structs can contain semantic types and define functions
+    // Latitude, Longitude are semantic types with built-in validation
+    struct GeoLocation {
+        Latitude lat;
+        Longitude lng;
+        String(200)? label;
+
+        // Structs can have instance-level functions just like entities
+        fn distanceLabel() -> String {
+            return #"{lat}, {lng}";
+        }
+    }
+
+    // Structs can also have computed fields derived from their own data
+    struct PriceRange {
+        Decimal(10, 2) minPrice;
+        Decimal(10, 2) maxPrice;
+
+        Boolean isValid := minPrice <= maxPrice;
+    }
+
+    struct UpdateBookConditionRequest {
+        BookCondition newCondition;
+    }
+
+    // Module-level functions are defined at service scope, outside any entity or API block
+    // They provide shared logic reusable across the entire service
+    fn calculateLateFee(Int daysOverdue) -> Decimal {
+        #Float baseFee = 0.50;
+        return baseFee * daysOverdue;
+    }
+
+    // Module-level function using string interpolation for formatting
+    fn formatBookReference(String title, String author, Int year) -> String {
+        return #"{author} ({year}). {title}";
+    }
+
+    // A service can have multiple rdbms blocks pointing to different databases
+    // This first block named 'catalog' holds the primary book data
+    rdbms catalog('config/book-service/catalog-db.yaml') {
+        // 'alert' defines monitoring rules that trigger when thresholds are exceeded
+        alert queryDuration(p95) over(5m) > 200ms @severity(warning);
+        alert connectionPool(utilization) over(1m) > 80% @severity(critical);
+
+        // 'trait' defines reusable behavior that entities can mix in with 'with'
+        // Traits add fields and lifecycle hooks without inheritance
+        trait Auditable {
+            String? createdBy;
+            String? updatedBy;
+
+            // Trait lifecycle hooks execute automatically for entities that use this trait
+            on create {
+                createdBy = Auth.userId();
+            }
+
+            on update {
+                updatedBy = Auth.userId();
+                updatedAt = now();
+            }
+        }
+
+        // Traits can define computed fields and instance functions
+        trait SoftDeletable {
+            @DateTime? deletedAt;
+            String? deletedBy;
+            Boolean isDeleted := deletedAt != null;
+
+            fn softDelete() {
+                deletedAt = now();
+                deletedBy = Auth.userId();
+            }
+
+            fn restore() {
+                deletedAt = null;
+                deletedBy = null;
+            }
+        }
+
+        // Abstract entities provide reusable field definitions; they don't generate tables
+        abstract entity BaseEntity {
+            @UUID id : primaryKey = uuid();
+            @DateTime createdAt = now();
+            @DateTime updatedAt = now();
+        }
+
+        entity Category extends BaseEntity {
+            String(100) name : unique, trim;
+            String(500)? description;
+            hasMany Book as books;
+        }
+
+        // User entity for authentication
+        entity User extends BaseEntity {
+            String(255) email : unique, trim;
+            // Password is a semantic type for securely stored passwords
+            Password passwordHash;
+            UserRole role = UserRole.Member;
+
+            beforeCreate {
+                passwordHash = Auth.hashPassword(passwordHash);
+            }
+        }
+
+        // Tag entity for categorizing books with multiple labels
+        entity Tag extends BaseEntity {
+            String(50) name : unique, trim;
+            String(200)? description;
+            hasMany BookTag as bookTags;
+        }
+
+        // Join entity for many-to-many relationship between Book and Tag
+        entity BookTag extends BaseEntity {
+            belongsTo Book : index;
+            belongsTo Tag : index;
+            // Composite unique index prevents duplicate Book-Tag pairs
+            index(bookId, tagId) : unique;
+        }
+
+        // Branch entity uses semantic types for geographic and locale data
+        // CountryCode and PostalCode are validated semantic types
+        entity Branch extends BaseEntity {
+            String(200) name : trim;
+            Latitude latitude;
+            Longitude longitude;
+            CountryCode country;
+            PostalCode? postalCode;
+
+            hasMany ShelfLocation as shelves : cascade(delete);
+        }
+
+        entity ShelfLocation extends BaseEntity {
+            String(50) aisle;
+            String(10) shelf;
+            Int capacity;
+
+            belongsTo Branch : index;
+        }
+
+        // 'with' mixes in trait behaviors - Book gets Auditable and SoftDeletable fields/hooks
+        entity Book extends BaseEntity with Auditable, SoftDeletable {
+            String(200) title : trim;
+            // 'regex(CONST)' validates the field value against a constant regex pattern
+            String(10, 13) isbn : regex(ISBN_PATTERN);
+            String(100) author : trim;
+            Int publicationYear;
+            BookStatus status = BookStatus.Available;
+            BookFormat format = BookFormat.Hardcover;
+            String(50)? catalogNumber;
+            Array<String> keywords = [];
+            Decimal(3, 2) rating = 0.0;
+
+            Decimal(10, 2) price;
+            // 'Map<K, V>' is a key-value collection type for flexible metadata
+            Map<String, String> metadata;
+            // 'Set<T>' is an unordered collection of unique values
+            Set<String> tags;
+
+            BookCondition condition = BookCondition.New;
+            Int renewalCount = 0;
+
+            // Computed fields (':=') are derived at runtime, not stored in the database
+            Boolean isAvailable := status == BookStatus.Available;
+            // #"..." is string interpolation syntax
+            String displayTitle := #"{title} ({publicationYear})";
+            Boolean isOldBook := publicationYear < 2000;
+            String titleLower := title.toLowerCase();
+            Int titleLength := title.length();
+            Array<String> titleWords := title.split(" ");
+            Int keywordCount := keywords.length();
+            String keywordsJoined := keywords.join(", ");
+            Decimal ratingRounded := Math.round(rating, 1);
+
+            // 'belongsTo' defines a many-to-one relationship with an indexed foreign key
+            belongsTo Category : index;
+            belongsTo Branch : index;
+            // 'hasMany' with 'cascade(delete)' removes related BookTags when a Book is deleted
+            hasMany BookTag as bookTags : cascade(delete);
+            hasMany Review as reviews : cascade(delete);
+
+            // 'fn' inside an entity defines instance-level functions
+            // Entity functions can access the entity's fields directly
+            fn getStatusLabel() -> String {
+                switch (status) {
+                    case BookStatus.Available {
+                        return "On Shelf";
+                    }
+                    case BookStatus.CheckedOut {
+                        return "Checked Out";
+                    }
+                    case BookStatus.Reserved {
+                        return "On Hold";
+                    }
+                    case BookStatus.Maintenance {
+                        return "Under Repair";
+                    }
+                    default {
+                        return "Unknown";
+                    }
+                }
+            }
+
+            // Entity function that derives a boolean from the entity's own fields
+            fn isRecentlyPublished() -> Boolean {
+                return publicationYear >= now().year() - 2;
+            }
+
+            // Entity function referencing a const for business rule enforcement
+            fn canRenew() -> Boolean {
+                return renewalCount < MAX_RENEWALS && status == BookStatus.CheckedOut;
+            }
+
+            // Custom validation block - runs before create and update operations
+            validate {
+                if (title.trim().isEmpty())
+                    ValidationError("Title cannot be empty");
+                if (publicationYear > now().year())
+                    ValidationError("Publication year cannot be in the future");
+                if (price < 0)
+                    ValidationError("Price cannot be negative");
+            }
+
+            // Lifecycle hook - runs before a new record is persisted
+            beforeCreate {
+                catalogNumber = #"CAT-{Random.string(8).toUpperCase()}";
+            }
+
+            // Lifecycle hook - runs after a new record is created
+            afterCreate {
+                status = BookStatus.Available;
+                // 'emit' publishes an event to the message bus
+                emit BookAdded(id, title);
+            }
+
+            // Lifecycle hook - runs after an existing record is updated
+            afterUpdate {
+                if (isChanged(status)) {
+                    emit BookStatusChanged(id, oldValue(status), status);
+                }
+                if (isChanged(condition)) {
+                    emit BookConditionChanged(id, oldValue(condition), condition);
+                }
+            }
+        }
+
+        // Review entity with validation on rating range
+        entity Review extends BaseEntity {
+            Int rating;
+            // 'Text' is an unbounded string type for long-form content
+            Text? comment;
+
+            belongsTo Book : index;
+
+            validate {
+                if (rating < 1 || rating > 5)
+                    ValidationError("Rating must be between 1 and 5");
+            }
+        }
+
+        // Checkout entity uses 'with Auditable' to track who created/updated it
+        entity Checkout extends BaseEntity with Auditable {
+            DateTime checkoutDate = now();
+            DateTime dueDate;
+            DateTime? returnDate;
+            Int renewals = 0;
+
+            belongsTo Book : index;
+        }
+    }
+
+    // Second rdbms block - a separate database for reporting and audit data
+    // Multiple rdbms blocks let a single service write to different databases
+    rdbms reporting('config/book-service/reporting-db.yaml') {
+
+        abstract entity BaseReportEntity {
+            @UUID id : primaryKey = uuid();
+            @DateTime createdAt = now();
+        }
+
+        // Audit log entity records every significant action for compliance/analytics
+        entity BookAuditLog extends BaseReportEntity {
+            UUID bookId : index;
+            AuditAction action;
+            String(100)? performedBy;
+            // 'JSON' type stores arbitrary change data without a fixed schema
+            JSON? changes;
+            @DateTime occurredAt = now();
+
+            // Composite index for time-range queries per book
+            index(bookId, occurredAt);
+        }
+
+        // Aggregated daily statistics for dashboard reporting
+        entity DailyBookStats extends BaseReportEntity {
+            DateTime reportDate : unique;
+            Int totalCheckouts = 0;
+            Int totalReturns = 0;
+            Int newBooks = 0;
+            Int activeMembers = 0;
+            @DateTime generatedAt = now();
+        }
+    }
+
+    // Pub/sub messaging block - defines event-driven communication
+    pubsub mq('config/book-service/pubsub.yaml') {
+        // Alert on consumer lag exceeding threshold
+        alert consumerLag(max) over(5m) > 1000 @severity(critical);
+        topic BookEvents {
+            publish BookAdded(UUID bookId, String title);
+            publish BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus);
+            // Event emitted by the CheckOverdueBooks background job
+            publish OverdueBooksProcessed(Int count);
+
+            // Events for condition tracking and checkout lifecycle
+            publish BookConditionChanged(UUID bookId, BookCondition oldCondition, BookCondition newCondition);
+            publish CheckoutCreated(UUID checkoutId, UUID bookId);
+            publish CheckoutReturned(UUID checkoutId, UUID bookId);
+        }
+
+        subscribe BookEvents {
+            on BookAdded(UUID bookId, String title) {
+                Log.info("New book added", { bookId: bookId, title: title });
+
+                // Cross-database write: event handler writes to the reporting database
+                #BookAuditLog auditLog = reporting.BookAuditLog.create({
+                    bookId: bookId,
+                    action: AuditAction.Created,
+                    performedBy: "system",
+                    occurredAt: now()
+                });
+                auditLog.save();
+            }
+
+            on BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
+                // Reference 'catalog' (not 'db') since the primary rdbms block is named 'catalog'
+                book = catalog.Book.findById(bookId);
+                if (book != null) {
+                    Log.info(#"Book '{book.title}' status changed from {oldStatus} to {newStatus}");
+                }
+
+                #AuditAction auditAction = AuditAction.Updated;
+                if (newStatus == BookStatus.CheckedOut) {
+                    auditAction = AuditAction.CheckedOut;
+                }
+
+                // Write audit trail to the separate reporting database
+                #BookAuditLog auditLog = reporting.BookAuditLog.create({
+                    bookId: bookId,
+                    action: auditAction,
+                    changes: { oldStatus: oldStatus, newStatus: newStatus },
+                    occurredAt: now()
+                });
+                auditLog.save();
+            }
+
+            on OverdueBooksProcessed(Int count) {
+                Log.info("Overdue books processed", { count: count });
+            }
+
+            on BookConditionChanged(UUID bookId, BookCondition oldCondition, BookCondition newCondition) {
+                Log.info("Book condition changed", { bookId: bookId, oldCondition: oldCondition, newCondition: newCondition });
+
+                #BookAuditLog auditLog = reporting.BookAuditLog.create({
+                    bookId: bookId,
+                    action: AuditAction.ConditionChanged,
+                    changes: { oldCondition: oldCondition, newCondition: newCondition },
+                    occurredAt: now()
+                });
+                auditLog.save();
+            }
+
+            on CheckoutCreated(UUID checkoutId, UUID bookId) {
+                Log.info("Checkout created", { checkoutId: checkoutId, bookId: bookId });
+            }
+
+            on CheckoutReturned(UUID checkoutId, UUID bookId) {
+                Log.info("Checkout returned", { checkoutId: checkoutId, bookId: bookId });
+            }
+        }
+    }
+
+    // Cache block - defines an in-memory data store for fast reads
+    cache redis('config/book-service/cache.yaml') {
+        // 'hash' defines a key-value structure cached in Redis
+        hash BookCache {
+            UUID bookId : primaryKey;
+            String title;
+            BookStatus status;
+            Boolean isAvailable;
+        }
+
+        // 'counter' defines an atomic increment/decrement value in cache
+        counter BookViewCount : prefix('book:views');
+    }
+
+    // CQRS block - separates read (query) and write (command) operations
+    // Commands mutate state; queries read from optimized views
+    cqrs {
+        // 'view' defines a read-optimized data model for queries
+        // Views are denormalized projections of entity data
+        view BookCatalogView {
+            @UUID id : primaryKey;
+            String title;
+            String author;
+            Int publicationYear;
+            BookStatus status;
+            DateTime lastUpdated;
+
+            // Indexes on views optimize query performance
+            index author;
+            index status;
+        }
+
+        // 'command' defines a write operation that mutates state and may emit events
+        // References 'catalog.Book' to target the correct rdbms block
+        command UpdateBookStatus(UUID bookId, BookStatus newStatus) -> catalog.Book {
+            #Book? book = catalog.Book.findById(bookId);
+            #BookStatus oldStatus = book.status;
+            book.status = newStatus;
+            book.save();
+            emit BookStatusChanged(bookId, oldStatus, newStatus);
+            return book;
+        }
+
+        // 'query' defines a read operation against the CQRS view
+        query GetAvailableBooks() -> Array<BookCatalogView> {
+            return BookCatalogView.where(status: BookStatus.Available).all();
+        }
+
+        query SearchCatalog(String authorName) -> Array<BookCatalogView> {
+            return BookCatalogView.where(author: authorName).all();
+        }
+
+        // 'projection' listens to events and updates views accordingly
+        // Projections keep read models in sync with write-side changes
+        projection BookCatalogProjection {
+            // When a book is added, create or update the catalog view entry
+            on BookAdded(UUID bookId, String title) {
+                #Book? book = catalog.Book.findById(bookId);
+                BookCatalogView.upsert(bookId, {
+                    id: bookId,
+                    title: title,
+                    author: book.author,
+                    publicationYear: book.publicationYear,
+                    status: BookStatus.Available,
+                    lastUpdated: now()
+                });
+            }
+
+            // When a book's status changes, update only the affected view fields
+            on BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
+                #BookCatalogView? view = BookCatalogView.findById(bookId);
+                view.status = newStatus;
+                view.lastUpdated = now();
+                view.save();
+            }
+        }
+    }
+
+    // 'jobs' block defines background tasks that run asynchronously
+    // Jobs are configured via an external YAML file for scheduling, retries, etc.
+    jobs('config/book-service/jobs.yaml') {
+        // 'job' defines a named background task with inline logic
+        // Jobs can query the database and emit events like any other block
+        job CheckOverdueBooks {
+            #Array<Book> checkedOut = catalog.Book.where(status: BookStatus.CheckedOut).all();
+            #Int processed = 0;
+
+            foreach book in checkedOut {
+                Log.info(#"Checking overdue status for book {book.id}");
+                processed = processed + 1;
+            }
+
+            // Jobs can emit events to notify other parts of the system
+            emit OverdueBooksProcessed(processed);
+        }
+
+        // Another background job that refreshes the cache layer
+        job RefreshBookCache {
+            #Array<Book> books = catalog.Book.where(status: BookStatus.Available).all();
+            foreach book in books {
+                Log.info(#"Refreshing cache for book {book.id}");
+            }
+        }
+
+        // Job using 'while' loop with 'continue' and 'break' for flow control
+        job ProcessOverdueCheckouts {
+            #Array<Checkout> checkouts = catalog.Checkout.where(returnDate: null).all();
+            #Int processed = 0;
+            #Int index = 0;
+
+            // 'while' loops iterate until the condition is false
+            while (index < checkouts.length()) {
+                #Checkout checkout = checkouts[index];
+                index += 1;
+
+                if (checkout.returnDate != null) {
+                    // 'continue' skips the rest of the loop body for this iteration
+                    continue;
+                }
+
+                if (processed >= 100) {
+                    // 'break' exits the loop entirely
+                    break;
+                }
+
+                if (checkout.dueDate < now()) {
+                    Log.warn(#"Overdue checkout: {checkout.id}");
+                    processed += 1;
+                }
+            }
+
+            emit OverdueBooksProcessed(processed);
+        }
+
+        // Cross-database job: reads from 'catalog' and writes to 'reporting'
+        job AggregateDailyStats {
+            #DateTime today = now();
+            #Array<Checkout> checkouts = catalog.Checkout.where(checkoutDate: today).all();
+            #Array<Checkout> returns = catalog.Checkout.where(returnDate: today).all();
+
+            // Write aggregated stats to the reporting database
+            #DailyBookStats stats = reporting.DailyBookStats.create({
+                reportDate: today,
+                totalCheckouts: checkouts.length(),
+                totalReturns: returns.length(),
+                newBooks: 0,
+                activeMembers: 0,
+                generatedAt: now()
+            });
+            stats.save();
+
+            Log.info("Daily stats aggregated", { date: today, checkouts: checkouts.length(), returns: returns.length() });
+        }
+    }
+
+    // 'nosql' block defines a document database for schema-flexible data
+    // Unlike rdbms entities, collections store documents without rigid table schemas
+    nosql docdb('config/book-service/nosql-db.yaml') {
+
+        // 'collection' defines a document collection (analogous to a table in NoSQL)
+        collection ReadingActivity {
+            UUID bookId : index;
+            UUID memberId : index;
+            String action;
+            // 'JSON' type stores arbitrary structured data without a fixed schema
+            JSON metadata;
+            DateTime timestamp = now();
+
+            // Composite indexes for efficient time-range queries per book or member
+            index(bookId, timestamp);
+            index(memberId, timestamp);
+        }
+
+        collection BookRating {
+            UUID bookId : index;
+            UUID memberId : index;
+            Int rating;
+            Text? review;
+            @DateTime createdAt = now();
+
+            index(bookId, createdAt);
+        }
+    }
+
+    // 'storage' block defines file/blob storage with named folders
+    // Configured via an external YAML file for provider settings (S3, Azure Blob, etc.)
+    storage store('config/book-service/storage.yaml') {
+        // 'folder' declares a storage location with path prefix, MIME type restrictions, and size limits
+        // 'allowed' restricts uploads to specific content types; 'maxSize' caps file size
+        folder covers : path('covers/'), allowed(['image/jpeg', 'image/png', 'image/webp']), maxSize('5mb')
+        folder ebooks : path('ebooks/'), allowed(['application/pdf', 'application/epub+zip']), maxSize('50mb')
+    }
+
+    // REST API block - generates CRUD endpoints and custom routes
+    // All entity references now use 'catalog.' prefix to target the named rdbms block
+    rest_api BookServiceAPI : basePath("/api/v1") {
+        // 'resource' auto-generates standard CRUD endpoints
+        // 'only(...)' restricts which CRUD operations are generated
+        // 'public' makes endpoints accessible without authentication
+        resource catalog.Book : only(list, get), public;
+        // 'access(role)' restricts endpoints to users with the specified role
+        resource catalog.Book : only(create, update, delete), access(librarian);
+        resource catalog.Category : only(list, get), public;
+        resource catalog.Category : only(create, update, delete), access(librarian);
+
+        // 'fn' inside a rest_api block defines API-level helper functions
+        fn findBooksByFilter(String? titleFilter, String? authorFilter) -> Array<catalog.Book> {
+            #Array<Book> results = catalog.Book.all();
+            if (titleFilter != null) {
+                results = results.filter(b => b.title == titleFilter);
+            }
+            if (authorFilter != null) {
+                results = results.filter(b => b.author == authorFilter);
+            }
+            return results;
+        }
+
+        // '@rateLimit' enforces request throttling at the gateway level
+        // 'requests' is the max number of calls; 'window' is the time period in seconds
+        @rateLimit(requests: 100, window: 60)
+        // '@retry' adds automatic retry logic for transient failures
+        @retry(maxAttempts: 3)
+        @path('/books/search')
+        get(String query) : public -> Array<catalog.Book> {
+            return catalog.Book.where(title: query).all();
+        }
+
+        // Endpoint that delegates to the API-level helper function
+        @path('/books/filter')
+        get(String? title, String? author) : public -> Array<catalog.Book> {
+            return findBooksByFilter(title, author);
+        }
+
+        // Rate-limited catalog endpoint to protect high-traffic read paths
+        @rateLimit(requests: 200, window: 60)
+        // Endpoints querying the CQRS view instead of the entity table
+        // Views provide faster reads from denormalized, pre-projected data
+        @path('/books/catalog')
+        get() : public -> Array<BookCatalogView> {
+            return BookCatalogView.all();
+        }
+
+        @path('/books/available')
+        get() : public -> Array<BookCatalogView> {
+            return BookCatalogView.where(status: BookStatus.Available).all();
+        }
+
+        @path('/books/category/:categoryId')
+        get(UUID categoryId) : public -> Array<catalog.Book> {
+            return catalog.Book.where(categoryId: categoryId).all();
+        }
+
+        // Query through the join entity to find books by tag (many-to-many traversal)
+        @path('/books/by-tag/:tagId')
+        get(UUID tagId) : public -> Array<catalog.Book> {
+            #Array<BookTag> bookTags = catalog.BookTag.where(tagId: tagId).all();
+            return bookTags.map(bt => catalog.Book.findOrFail(bt.bookId));
+        }
+
+        // Filter books by their physical branch location
+        @path('/books/by-branch/:branchId')
+        get(UUID branchId) : public -> Array<catalog.Book> {
+            return catalog.Book.where(branchId: branchId).all();
+        }
+
+        // Return a struct constructed from entity data
+        @path('/books/:id/price-range')
+        get(UUID id) : public -> PriceRange {
+            #Book book = catalog.Book.findOrFail(id);
+            #Decimal min = book.price;
+            #Decimal max = book.price;
+            return PriceRange { minPrice: min, maxPrice: max };
+        }
+
+        // '@cache' enables response caching with a time-to-live in seconds
+        @cache(ttl: 300)
+        @path('/books/popular')
+        get() : public -> Array<catalog.Book> {
+            return catalog.Book.where(status: BookStatus.Available).all();
+        }
+
+        // '@deprecated' marks an endpoint as deprecated; clients should migrate away
+        @deprecated
+        @path('/books/legacy-search')
+        get(String q) : public -> Array<catalog.Book> {
+            return catalog.Book.where(title: q).all();
+        }
+
+        // Endpoint returning a projected array of scalar values via .map()
+        @path('/books/titles')
+        get() : public -> Array<String> {
+            #Array<Book> books = catalog.Book.where(status: BookStatus.Available).all();
+            return books.map(b => b.title);
+        }
+
+        @path('/books/by-condition')
+        get(String condition) : public -> Array<catalog.Book> {
+            #Array<Book> allBooks = catalog.Book.all();
+            return allBooks.filter(b => b.condition == condition);
+        }
+
+        // Checkout endpoint uses 'try/catch/finally' for comprehensive error handling
+        // 'finally' always runs, whether or not an exception was thrown
+        @path('/books/:id/checkout')
+        post(UUID id) : access(member) -> catalog.Checkout {
+            try {
+                #Book book = catalog.Book.findOrFail(id);
+
+                if (book.status != BookStatus.Available)
+                    ValidationError("Book is not available for checkout");
+
+                book.status = BookStatus.CheckedOut;
+                book.save();
+
+                // Uses the MAX_CHECKOUT_DAYS const for the due date calculation
+                #Checkout checkout = catalog.Checkout.create({
+                    bookId: id,
+                    checkoutDate: now(),
+                    dueDate: now().addDays(MAX_CHECKOUT_DAYS)
+                });
+                checkout.save();
+
+                emit CheckoutCreated(checkout.id, id);
+                return checkout;
+            } catch (Exception e) {
+                Log.error(#"Checkout failed for book {id}: {e}");
+                throw e;
+            } finally {
+                Log.info(#"Checkout attempt completed for book {id}");
+            }
+        }
+
+        // Endpoint using switch/case for conditional logic based on enum value
+        @path('/books/:id/condition')
+        put(UUID id, UpdateBookConditionRequest request) : access(librarian) -> catalog.Book {
+            #Book book = catalog.Book.findOrFail(id);
+            #BookCondition oldCondition = book.condition;
+
+            switch (request.newCondition) {
+                case BookCondition.Damaged {
+                    book.status = BookStatus.Maintenance;
+                }
+                case BookCondition.Poor {
+                    Log.warn(#"Book {id} marked as poor condition");
+                }
+                default {
+                    Log.info(#"Book {id} condition updated to {request.newCondition}");
+                }
+            }
+
+            book.condition = request.newCondition;
+            book.save();
+            emit BookConditionChanged(id, oldCondition, request.newCondition);
+            return book;
+        }
+
+        // '@timeout' sets a maximum response time; the request fails if exceeded
+        @timeout(ms: 5000)
+        // 'internal' restricts this endpoint to service-to-service calls only
+        // Internal endpoints are not exposed through the API gateway
+        @path('/books/internal/:id')
+        get(UUID id) : internal -> catalog.Book {
+            return catalog.Book.findOrFail(id);
+        }
+
+        // '@timeout' on internal endpoints protects against slow downstream calls
+        @timeout(ms: 5000)
+        // Internal endpoint returning a struct instead of a full entity
+        @path('/books/internal/availability/:id')
+        get(UUID id) : internal -> BookAvailabilityResponse {
+            #Book book = catalog.Book.findOrFail(id);
+            return { available: book.isAvailable };
+        }
+
+        // Reporting endpoints read from the second 'reporting' rdbms block
+        // This demonstrates cross-database reads within a single API
+        @path('/reporting/audit-log/:bookId')
+        get(UUID bookId) : access(librarian) -> Array<reporting.BookAuditLog> {
+            return reporting.BookAuditLog.where(bookId: bookId).all();
+        }
+
+        @path('/reporting/daily-stats')
+        get() : access(librarian) -> Array<reporting.DailyBookStats> {
+            return reporting.DailyBookStats.all();
+        }
+
+        @path('/reporting/daily-stats/:date')
+        get(DateTime date) : access(librarian) -> reporting.DailyBookStats {
+            return reporting.DailyBookStats.where(reportDate: date).firstOrFail();
+        }
+    }
+}

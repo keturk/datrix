@@ -1,0 +1,159 @@
+
+// Shared module - defines reusable types and functions across all healthcare services
+module healthcare.common {
+
+    // Abstract entities provide reusable field definitions; they don't generate tables
+    abstract entity BaseEntity {
+        @UUID id : primaryKey = uuid();
+        @DateTime createdAt = now();
+        @DateTime updatedAt = now();
+    }
+
+    // Extends BaseEntity with audit tracking fields for compliance
+    abstract entity AuditedEntity extends BaseEntity {
+        UUID? createdBy;
+        UUID? updatedBy;
+        String? changeReason;
+    }
+
+    // Traits add reusable behavior to entities via 'with' keyword
+    trait SoftDeletable {
+        @DateTime? deletedAt;
+        UUID? deletedBy;
+        // Computed field derived at runtime
+        Boolean isDeleted := deletedAt != null;
+
+        fn softDelete() {
+            deletedAt = now();
+            deletedBy = Auth.userId();
+            this.save();
+        }
+
+        fn restore() {
+            deletedAt = null;
+            deletedBy = null;
+            this.save();
+        }
+    }
+
+    // Trait for marking records with access restrictions
+    trait Confidential {
+        Boolean isConfidential = false;
+        String? accessLevel;
+
+        fn markConfidential(String level = "restricted") {
+            isConfidential = true;
+            accessLevel = level;
+            this.save();
+        }
+    }
+
+    // Structs define reusable value objects (not database entities)
+    struct Address {
+        String(200) street;
+        String(100) city;
+        String(100) state;
+        String(10) zipCode;
+        CountryCode country;
+
+        fn format() -> String {
+            // #"..." is string interpolation syntax
+            return #"{street}, {city}, {state} {zipCode}";
+        }
+    }
+
+    struct ContactInfo {
+        Email? email;
+        Phone? phone;
+        Phone? alternatePhone;
+        Address? address;
+    }
+
+    struct EmergencyContact {
+        String(100) name;
+        String(50) relationship;
+        Phone phone;
+        Phone? alternatePhone;
+    }
+
+    struct InsuranceInfo {
+        String(100) provider;
+        String(50) policyNumber;
+        String(50)? groupNumber;
+        String(100) subscriberName;
+        // 'Date' type for calendar dates without time
+        Date? effectiveDate;
+        Date? expirationDate;
+    }
+
+    // Struct with validation constraints and computed fields
+    struct Pagination {
+        Int page : min(1) = 1;
+        // 'min(...), max(...)' set value range constraints
+        Int perPage : min(1), max(100) = 20;
+        Int offset := (page - 1) * perPage;
+    }
+
+    // Enums define a fixed set of allowed values for type-safe fields
+    enum Gender {
+        Male,
+        Female,
+        Other,
+        PreferNotToSay
+    }
+
+    // Enum variants with custom serialization values via 'value(...)'
+    enum BloodType {
+        APositive  : value('A+'),
+        ANegative  : value('A-'),
+        BPositive  : value('B+'),
+        BNegative  : value('B-'),
+        ABPositive : value('AB+'),
+        ABNegative : value('AB-'),
+        OPositive  : value('O+'),
+        ONegative  : value('O-'),
+        Unknown    : value('Unknown')
+    }
+
+    // Constants define named values reusable across the module
+    const MAX_PAGE_SIZE = 100;
+    const DEFAULT_PAGE_SIZE = 20;
+    const APPOINTMENT_DURATION_DEFAULT = 30;
+    const PRESCRIPTION_REFILL_MAX = 5;
+
+    // Shared utility functions
+    fn calculateAge(Date birthDate) -> Int {
+        return DateTime.diffInYears(birthDate, now());
+    }
+
+    fn formatPatientName(String firstName, String lastName, String? middleName) -> String {
+        if (middleName != null && !middleName.isEmpty()) {
+            return #"{lastName}, {firstName} {middleName.substring(0, 1)}.";
+        }
+        return #"{lastName}, {firstName}";
+    }
+
+    fn generateMRN() -> String {
+        return #"MRN-{now().format('YYYYMMDD')}-{Random.digits(6)}";
+    }
+
+    fn isValidInsurance(InsuranceInfo? insurance) -> Boolean {
+        if (insurance == null) return false;
+        if (insurance.expirationDate != null && insurance.expirationDate < today()) {
+            return false;
+        }
+        return true;
+    }
+
+    fn paginate(Int total, Pagination p) -> JSON {
+        #Int totalPages = Math.ceil(total / p.perPage);
+        return {
+            page: p.page,
+            perPage: p.perPage,
+            total: total,
+            totalPages: totalPages,
+            hasNext: p.page < totalPages,
+            hasPrev: p.page > 1
+        };
+    }
+}

@@ -1,0 +1,148 @@
+
+// Define a service in the 'library' namespace with version and description
+service library.BookService : version('1.0.0'), description('book management service') {
+
+    // Service infrastructure configuration
+    config('config/book-service/book-service-config.yaml');   // Service-specific settings
+    registration('config/book-service/registration.yaml');     // Service registry entry
+    discovery { }                                              // Service discovery (auto-configured)
+    resilience('config/book-service/resilience.yaml');          // Circuit breakers, retries, timeouts
+
+    // Enums define a fixed set of allowed values for type-safe fields
+    enum BookStatus {
+        Available,
+        CheckedOut,
+        Reserved,
+        Maintenance
+    }
+
+    enum BookFormat {
+        Hardcover,
+        Paperback,
+        eBook,
+        Audiobook
+    }
+
+    // Roles enum for role-based access control (RBAC)
+    enum UserRole {
+        Member,
+        Librarian,
+        Admin
+    }
+
+    // Relational database block - groups entities (tables) under a named datasource
+    rdbms db('config/book-service/datasources.yaml') {
+
+        // Abstract entities provide reusable field definitions; they don't generate tables
+        abstract entity BaseEntity {
+            @UUID id : primaryKey = uuid();
+            @DateTime createdAt = now();
+            @DateTime updatedAt = now();
+        }
+
+        entity Category extends BaseEntity {
+            String(100) name : unique, trim;
+            String(500)? description;
+            hasMany Book as books;
+        }
+
+        // User entity for authentication
+        entity User extends BaseEntity {
+            String(255) email : unique, trim;
+            // Password is a semantic type for securely stored passwords
+            Password passwordHash;
+            UserRole role = UserRole.Member;
+
+            beforeCreate {
+                passwordHash = Auth.hashPassword(passwordHash);
+            }
+        }
+
+        entity Book extends BaseEntity {
+            String(200) title : trim;
+            String(10, 13) isbn;
+            String(100) author : trim;
+            Int publicationYear;
+            BookStatus status = BookStatus.Available;
+            BookFormat format = BookFormat.Hardcover;
+            String(50)? catalogNumber;
+            Array<String> keywords = [];
+            Decimal(3, 2) rating = 0.0;
+
+            // Computed fields (':=') are derived at runtime, not stored in the database
+            Boolean isAvailable := status == BookStatus.Available;
+            String displayTitle := #"{title} ({publicationYear})";
+            Boolean isOldBook := publicationYear < 2000;
+            String titleLower := title.toLowerCase();
+            Int titleLength := title.length();
+            Array<String> titleWords := title.split(" ");
+            Int keywordCount := keywords.length();
+            String keywordsJoined := keywords.join(", ");
+            Decimal ratingRounded := Math.round(rating, 1);
+
+            belongsTo Category : index;
+
+            validate {
+                if (title.trim().isEmpty())
+                    ValidationError("Title cannot be empty");
+                if (publicationYear > now().year())
+                    ValidationError("Publication year cannot be in the future");
+            }
+
+            beforeCreate {
+                catalogNumber = #"CAT-{Random.string(8).toUpperCase()}";
+            }
+
+            afterCreate {
+                status = BookStatus.Available;
+                // 'emit' publishes an event to the message bus
+                emit BookAdded(id, title);
+            }
+
+            afterUpdate {
+                if (isChanged(status)) {
+                    emit BookStatusChanged(id, oldValue(status), status);
+                }
+            }
+        }
+    }
+
+    // Pub/sub messaging block - defines event-driven communication
+    pubsub mq('config/book-service/pubsub.yaml') {
+        topic BookEvents {
+            publish BookAdded(UUID bookId, String title);
+            publish BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus);
+        }
+
+        subscribe BookEvents {
+            on BookAdded(UUID bookId, String title) {
+                Log.info("New book added", { bookId: bookId, title: title });
+            }
+
+            on BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
+                book = db.Book.findById(bookId);
+                if (book != null) {
+                    Log.info(#"Book '{book.title}' status changed from {oldStatus} to {newStatus}");
+                }
+            }
+        }
+    }
+
+    // REST API block - generates CRUD endpoints and custom routes
+    rest_api BookServiceAPI : basePath("/api/v1") {
+        resource db.Book : only(list, get), public;
+        resource db.Book : only(create, update, delete), access(librarian);
+        resource db.Category : only(list, get), public;
+        resource db.Category : only(create, update, delete), access(librarian);
+
+        @path('/books/search')
+        get(String query) : public -> Array<db.Book> {
+            return db.Book.where(title: query).all();
+        }
+
+        @path('/books/category/:categoryId')
+        get(UUID categoryId) : public -> Array<db.Book> {
+            return db.Book.where(categoryId: categoryId).all();
+        }
+    }
+}

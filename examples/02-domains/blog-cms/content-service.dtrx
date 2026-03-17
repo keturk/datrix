@@ -1,0 +1,111 @@
+
+from blog.common import BaseEntity;
+
+service blog.ContentService : version('1.0.0'), description('content management service') {
+
+    config('config/content-service/content-service-config.yaml');
+    registration('config/content-service/registration.yaml');
+    discovery {
+        AuthorService { loadBalance: roundRobin, healthyOnly: true }
+    }
+    resilience('config/content-service/resilience.yaml');
+
+    enum ContentStatus {
+        Draft,
+        Published,
+        Archived,
+        Deleted
+    }
+
+    rdbms db('config/content-service/datasources.yaml') {
+
+        entity Post extends BaseEntity {
+            UUID authorId : index;
+            String(200) title : trim;
+            // 'unique' ensures no duplicate values across rows
+            String(500)? slug : unique;
+            Text body;
+            ContentStatus status = ContentStatus.Draft;
+            DateTime? publishedAt;
+            Int approvedCommentCount = 0;
+
+            Boolean isDraft := status == ContentStatus.Draft;
+            index(authorId, status);
+        }
+    }
+
+    // Cache block - defines in-memory data structures backed by Redis
+    cache redis('config/content-service/cache.yaml') {
+        // 'hash' defines a key-value cache entry with TTL (time-to-live in seconds)
+        hash AuthorCache : prefix('author:'), ttl(3600) {
+            UUID authorId : key;
+            String fullName;
+            Boolean isActive;
+        }
+    }
+
+    pubsub mq('config/content-service/pubsub.yaml') {
+
+        // 'subscribe' listens for events published by other services
+        subscribe AuthorEvents {
+
+            on AuthorRegistered(UUID authorId, Email email, String fullName) {
+                // Cache the author locally for fast lookups
+                redis.AuthorCache.set(authorId, {
+                    authorId: authorId,
+                    fullName: fullName,
+                    isActive: false
+                });
+
+                Log.info("Author registered, cached", { authorId: authorId, fullName: fullName });
+            }
+
+            on AuthorStatusChanged(UUID authorId, String oldStatus, String newStatus) {
+                redis.AuthorCache.set(authorId, {
+                    authorId: authorId,
+                    isActive: newStatus == "Active"
+                });
+
+                // React to cross-service events: archive posts when author becomes inactive
+                if (newStatus == "Suspended" || newStatus == "Inactive") {
+                    #Array<Post> publishedPosts = db.Post
+                        .where(authorId: authorId)
+                        .where(status: ContentStatus.Published)
+                        .all();
+
+                    // 'foreach' iterates over a collection
+                    foreach post in publishedPosts {
+                        post.status = ContentStatus.Archived;
+                        post.save();
+                    }
+
+                    if (publishedPosts.length() > 0) {
+                        Log.info("Archived posts for inactive author", {
+                            authorId: authorId,
+                            newStatus: newStatus,
+                            archivedCount: publishedPosts.length()
+                        });
+                    }
+                }
+            }
+        }
+
+        // Subscribe to events from a different service's topic
+        subscribe CommentEvents {
+
+            on CommentApproved(UUID commentId, UUID contentId) {
+                #Post? post = db.Post.find(contentId);
+
+                if (post != null) {
+                    post.approvedCommentCount = post.approvedCommentCount + 1;
+                    post.save();
+                }
+            }
+        }
+    }
+
+    rest_api ContentAPI : basePath("/api/v1/posts") {
+        resource db.Post : only(list, get), public;
+        resource db.Post : only(create, update, delete), access(editor);
+    }
+}

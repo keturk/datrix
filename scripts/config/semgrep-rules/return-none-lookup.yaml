@@ -1,0 +1,15 @@
+rules:
+  - id: datrix.return-none-lookup
+    patterns:
+      - pattern: |
+          def $FUNC(...):
+              ...
+              return None
+      - metavariable-regex:
+          metavariable: $FUNC
+          regex: "^(get|find|lookup|resolve)_"
+    message: >
+      Returning None from a lookup function. Raise an explicit error (e.g.
+      EntityNotFoundError) with available values per fail-fast philosophy.
+    languages: [python]
+    severity: WARNING

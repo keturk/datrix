@@ -1,0 +1,52 @@
+
+// A separate service in the same namespace handles member management
+service library.MemberService : version('1.0.0'), description('member management service') {
+
+    // Service infrastructure configuration
+    config('config/member-service/member-service-config.yaml');
+    registration('config/member-service/registration.yaml');
+    discovery { }
+    resilience('config/member-service/resilience.yaml');
+
+    // Enums define a fixed set of allowed values for type-safe fields
+    enum MembershipType {
+        Standard,
+        Premium,
+        Student
+    }
+
+    // Each service can have its own database with independent entities
+    rdbms db('config/member-service/datasources.yaml') {
+
+        // Abstract entities provide reusable field definitions; they don't generate tables
+        abstract entity BaseEntity {
+            @UUID id : primaryKey = uuid();
+            @DateTime createdAt = now();
+            @DateTime updatedAt = now();
+        }
+
+        entity Member extends BaseEntity {
+            String(100) firstName : trim;
+            String(100) lastName : trim;
+            // Email is a semantic type that validates email format
+            Email email : unique;
+            String(20) membershipNumber : unique;
+            MembershipType membershipType = MembershipType.Standard;
+
+            // Computed field - derived at runtime from other fields
+            String fullName := #"{firstName} {lastName}";
+        }
+    }
+
+    // REST API for this service with its own base path
+    rest_api MemberAPI : basePath("/api/v1/members") {
+        resource db.Member;
+
+        // Custom lookup endpoint using a non-PK field
+        @path('/by-membership/:membershipNumber')
+        get(String membershipNumber) -> db.Member {
+            // firstOrFail() returns a single result or throws a not-found error
+            return db.Member.where(membershipNumber: membershipNumber).firstOrFail();
+        }
+    }
+}

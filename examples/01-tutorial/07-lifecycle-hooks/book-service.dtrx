@@ -1,0 +1,120 @@
+
+// Define a service in the 'library' namespace with version and description
+service library.BookService : version('1.0.0'), description('book management service') {
+
+    // Service infrastructure configuration
+    config('config/book-service/book-service-config.yaml');   // Service-specific settings
+    registration('config/book-service/registration.yaml');     // Service registry entry
+    discovery { }                                              // Service discovery (auto-configured)
+    resilience('config/book-service/resilience.yaml');          // Circuit breakers, retries, timeouts
+
+    // Enums define a fixed set of allowed values for type-safe fields
+    enum BookStatus {
+        Available,
+        CheckedOut,
+        Reserved,
+        Maintenance
+    }
+
+    enum BookFormat {
+        Hardcover,
+        Paperback,
+        eBook,
+        Audiobook
+    }
+
+    // Relational database block - groups entities (tables) under a named datasource
+    rdbms db('config/book-service/datasources.yaml') {
+
+        // Abstract entities provide reusable field definitions; they don't generate tables
+        abstract entity BaseEntity {
+            // @UUID is a semantic type; 'primaryKey' marks the PK; uuid() generates a default
+            @UUID id : primaryKey = uuid();
+            // @DateTime is a datetime type; now() sets the default to current time
+            @DateTime createdAt = now();
+            @DateTime updatedAt = now();
+        }
+
+        entity Category extends BaseEntity {
+            // 'unique' constraint ensures no duplicate values across rows
+            String(100) name : unique, trim;
+            // '?' suffix makes a field nullable (optional)
+            String(500)? description;
+            // 'hasMany' defines a one-to-many relationship; 'as books' names the collection
+            hasMany Book as books;
+        }
+
+        // Concrete entity - inherits all fields from BaseEntity and maps to a database table
+        entity Book extends BaseEntity {
+            // String(200) = varchar with max 200 chars; 'trim' auto-trims whitespace on input
+            String(200) title : trim;
+            // String(10, 13) = varchar with min 10, max 13 chars
+            String(10, 13) isbn;
+            String(100) author : trim;
+            Int publicationYear;
+            // Enum fields enforce type safety; defaults use EnumName.Value syntax
+            BookStatus status = BookStatus.Available;
+            BookFormat format = BookFormat.Hardcover;
+            // '?' suffix makes a field nullable (optional)
+            String(50)? catalogNumber;
+            // Array<Type> defines a collection field; defaults to empty array
+            Array<String> keywords = [];
+            // Decimal(precision, scale) for fixed-point numbers (e.g., 3 digits, 2 decimal places)
+            Decimal(3, 2) rating = 0.0;
+
+            // Computed fields (':=') are derived at runtime, not stored in the database
+            Boolean isAvailable := status == BookStatus.Available;
+            // #"..." is string interpolation syntax for embedding expressions in strings
+            String displayTitle := #"{title} ({publicationYear})";
+            Boolean isOldBook := publicationYear < 2000;
+            // Built-in string methods: toLowerCase(), length(), split()
+            String titleLower := title.toLowerCase();
+            Int titleLength := title.length();
+            Array<String> titleWords := title.split(" ");
+            // Array methods: length(), join()
+            Int keywordCount := keywords.length();
+            String keywordsJoined := keywords.join(", ");
+            // Math utilities available in computed expressions
+            Decimal ratingRounded := Math.round(rating, 1);
+
+            // 'belongsTo' defines the many-to-one side of a relationship
+            // 'index' creates a database index on the foreign key for query performance
+            belongsTo Category : index;
+
+            // Custom validation block - runs before create and update operations
+            validate {
+                if (title.trim().isEmpty())
+                    // ValidationError raises a validation error with a user-facing message
+                    ValidationError("Title cannot be empty");
+                if (publicationYear > now().year())
+                    ValidationError("Publication year cannot be in the future");
+            }
+
+            // Lifecycle hook - runs before a new record is inserted
+            beforeCreate {
+                // Generate a random catalog number using string interpolation and Random utility
+                catalogNumber = #"CAT-{Random.string(8).toUpperCase()}";
+            }
+
+            // Lifecycle hook - runs after a new record is inserted
+            afterCreate {
+                status = BookStatus.Available;
+            }
+
+            // Lifecycle hook - runs after a record is updated
+            afterUpdate {
+                // isChanged() detects whether a specific field was modified in this update
+                if (isChanged(status)) {
+                }
+            }
+        }
+    }
+
+    // REST API block - generates CRUD endpoints and custom routes
+    // basePath sets the URL prefix for all endpoints in this API
+    rest_api BookServiceAPI : basePath("/api/v1") {
+        // 'resource' auto-generates standard CRUD endpoints (list, get, create, update, delete)
+        resource db.Book;
+        resource db.Category;
+    }
+}

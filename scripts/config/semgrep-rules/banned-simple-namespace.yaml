@@ -1,0 +1,12 @@
+rules:
+  - id: datrix.banned-simple-namespace
+    pattern: from types import SimpleNamespace
+    message: >
+      SimpleNamespace is banned in tests as a fake stand-in. Use real
+      domain objects per .cursorrules.
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "*/tests/*"
+        - "test_*.py"

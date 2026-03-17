@@ -1,0 +1,11 @@
+rules:
+  - id: datrix.missing-encoding-write-text
+    patterns:
+      - pattern: $PATH.write_text($CONTENT)
+      - pattern-not: $PATH.write_text($CONTENT, encoding=...)
+      - pattern-not: $PATH.write_text($CONTENT, encoding="utf-8")
+    message: >
+      write_text() without encoding="utf-8". Always pass encoding explicitly
+      for cross-platform behavior.
+    languages: [python]
+    severity: WARNING

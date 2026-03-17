@@ -1,0 +1,17 @@
+
+// Include the shared module first, then service definitions
+// 'common.dtrx' defines reusable types shared across all services
+include 'common.dtrx';
+// Each service is defined in its own file for modularity
+include 'book-service.dtrx';
+include 'member-service.dtrx';
+include 'loan-service.dtrx';
+
+// The system block is the top-level container that groups services
+// and defines shared infrastructure configuration
+system library.System : version('1.0.0') {
+    config('config/system-config.yaml');          // Application-wide settings
+    registry('config/registry.yaml');              // Service registry for discovery
+    gateway('config/gateway.yaml');                // API gateway routing rules
+    observability('config/observability.yaml');     // Logging, metrics, and tracing
+}

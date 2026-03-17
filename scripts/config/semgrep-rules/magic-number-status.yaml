@@ -1,0 +1,17 @@
+rules:
+  - id: datrix.magic-number-status
+    pattern-either:
+      - pattern: |
+          if $X == 200:
+              ...
+      - pattern: |
+          if $X == 404:
+              ...
+      - pattern: |
+          if $X == 500:
+              ...
+    message: >
+      Magic number in comparison. Declare as a named constant
+      (e.g. HTTP_OK = 200) per .cursorrules.
+    languages: [python]
+    severity: WARNING

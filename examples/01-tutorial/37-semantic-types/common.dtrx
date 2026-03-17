@@ -1,0 +1,93 @@
+
+// Modules group shared definitions (entities, traits, structs, constants, functions)
+// that can be imported by multiple services
+module library.common {
+
+    // Abstract entities provide reusable field definitions; they don't generate tables
+    abstract entity BaseEntity {
+        @UUID id : primaryKey = uuid();
+        @DateTime createdAt = now();
+        @DateTime updatedAt = now();
+    }
+
+    // Traits are mixins that add fields and behavior to entities via 'with'
+    trait Auditable {
+        String? createdBy;
+        String? updatedBy;
+
+        // Trait lifecycle hooks run when the composing entity is created or updated
+        on create {
+            createdBy = Auth.userId();
+        }
+
+        on update {
+            updatedBy = Auth.userId();
+            updatedAt = now();
+        }
+    }
+
+    // SoftDeletable marks records as deleted without removing them from the database
+    trait SoftDeletable {
+        @DateTime? deletedAt;
+        String? deletedBy;
+        // Computed field - derived at runtime from other fields
+        Boolean isDeleted := deletedAt != null;
+
+        fn softDelete() {
+            deletedAt = now();
+            deletedBy = Auth.userId();
+        }
+
+        fn restore() {
+            deletedAt = null;
+            deletedBy = null;
+        }
+    }
+
+    // Structs define reusable value objects (not database entities)
+    struct GeoLocation {
+        // Latitude and Longitude are semantic types with built-in validation
+        Latitude lat;
+        Longitude lng;
+        String(200)? label;
+
+        // Struct-level function for computed display values
+        fn distanceLabel() -> String {
+            // #"..." is string interpolation syntax
+            return #"{lat}, {lng}";
+        }
+    }
+
+    struct PriceRange {
+        Decimal(10, 2) minPrice;
+        Decimal(10, 2) maxPrice;
+
+        // Computed fields (':=') are derived at runtime, not stored
+        Boolean isValid := minPrice <= maxPrice;
+    }
+
+    // Pagination struct with computed offset for query helpers
+    struct Pagination {
+        Int page = 1;
+        Int perPage = 20;
+        Int offset := (page - 1) * perPage;
+    }
+
+    // Constants define fixed values reusable across the module
+    const MAX_CHECKOUT_DAYS = 30;
+    const MAX_RENEWALS = 3;
+    const ISBN_PATTERN = "^[0-9\-]{10,13}$";
+    const MEMBERSHIP_NUMBER_PATTERN = "^[A-Z0-9]{6,20}$";
+
+    // Module-level functions are defined at module scope
+    // They provide shared logic reusable by any importing service
+    fn calculateLateFee(Int daysOverdue) -> Decimal {
+        #Float baseFee = 0.50;
+        return baseFee * daysOverdue;
+    }
+
+    // Module-level function using string interpolation for formatting
+    fn formatBookReference(String title, String author, Int year) -> String {
+        return #"{author} ({year}). {title}";
+    }
+}

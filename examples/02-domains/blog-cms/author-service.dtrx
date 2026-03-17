@@ -1,0 +1,141 @@
+
+// 'from ... import' brings shared types and functions from the common module
+from blog.common import BaseEntity, hashPassword, generateToken;
+
+// Define a service in the 'blog' namespace with version and description
+service blog.AuthorService : version('1.0.0'), description('author management service') {
+
+    // Service infrastructure configuration
+    config('config/author-service/author-service-config.yaml');
+    registration('config/author-service/registration.yaml');
+    discovery { }                                                   // Service discovery (auto-configured)
+    resilience('config/author-service/resilience.yaml');
+    integrations('config/author-service/integrations.yaml');         // Third-party integration settings
+
+    // Enums define a fixed set of allowed values for type-safe fields
+    enum AuthorRole {
+        Writer,
+        Editor,
+        Admin
+    }
+
+    enum AuthorStatus {
+        Active,
+        Inactive,
+        Suspended,
+        Pending
+    }
+
+    // Relational database block - groups entities (tables) under a named datasource
+    rdbms db('config/author-service/datasources.yaml') {
+
+        entity Author extends BaseEntity {
+            // Email is a semantic type that validates email format
+            Email email : unique;
+            // Password is a semantic type for securely stored passwords
+            Password passwordHash;
+            String(100) firstName : trim;
+            // 'regex(...)' enforces a pattern constraint on the field
+            String(100) lastName : trim, regex("^[A-Za-z][A-Za-z0-9\\s'-]{0,99}$");
+            // '?' suffix makes the field nullable
+            String(200)? bio;
+            URL? avatarUrl;
+            AuthorRole role = AuthorRole.Writer;
+            AuthorStatus status = AuthorStatus.Pending;
+
+            DateTime? lastLoginAt;
+            DateTime? emailVerifiedAt;
+            String? emailVerificationToken;
+
+            // Computed fields (':=') are derived at runtime, not stored in the database
+            String fullName := #"{firstName} {lastName}";
+            Boolean isActive := status == AuthorStatus.Active;
+            Boolean isVerified := emailVerifiedAt != null;
+            // Computed fields can reference other computed fields
+            Boolean canLogin := isActive && isVerified;
+
+            // Composite index for query performance on frequently filtered columns
+            index(status, role);
+
+            // Lifecycle hook - runs before each update
+            beforeUpdate {
+                updatedAt = now();
+            }
+
+            // Lifecycle hook - runs after creation
+            afterCreate {
+                // 'emit' publishes an event to the message bus
+                emit AuthorRegistered(id, email, fullName);
+            }
+
+            afterUpdate {
+                // 'isChanged(...)' checks if a field was modified in this update
+                if (isChanged(status)) {
+                    // 'oldValue(...)' retrieves the previous value before the update
+                    emit AuthorStatusChanged(id, oldValue(status), status);
+                }
+            }
+
+            // Custom validation block - runs before save
+            validate {
+                if (status == AuthorStatus.Active && !isVerified)
+                    ValidationError("Cannot activate unverified author");
+            }
+        }
+
+        entity AuthorSession extends BaseEntity {
+            String(255) token : unique;
+            String(100) deviceName;
+            // IPAddress is a semantic type for IP address values
+            IPAddress? ipAddress;
+            DateTime expiresAt;
+
+            Boolean isExpired := now() > expiresAt;
+            // 'belongsTo' defines a many-to-one relationship
+            belongsTo Author : index;
+            index(authorId, expiresAt);
+        }
+    }
+
+    // Pub/sub messaging block - defines event-driven communication
+    pubsub mq('config/author-service/pubsub.yaml') {
+        // Topics group related events for publishing
+        topic AuthorEvents {
+            publish AuthorRegistered(UUID authorId, Email email, String fullName);
+            publish AuthorStatusChanged(UUID authorId, String oldStatus, String newStatus);
+        }
+    }
+
+    // Structs define reusable value objects for request/response payloads
+    struct RegisterAuthorRequest {
+        Email email;
+        String password;
+        String firstName;
+        String lastName;
+    }
+
+    // REST API block - generates CRUD endpoints and custom routes
+    rest_api AuthorAPI : basePath("/api/v1/authors") {
+        // 'resource' auto-generates standard CRUD endpoints; 'access(role)' restricts by role
+        resource db.Author : access(admin);
+        // Custom endpoint with @path decorator
+        @path('/register')
+        // 'public' makes this endpoint accessible without authentication
+        post(RegisterAuthorRequest request) : public -> db.Author {
+            // '#Type' is a type hint for local variables
+            #Author? existingAuthor = db.Author.where(email: request.email).first();
+            if (existingAuthor != null)
+                throw ValidationException("Email already registered");
+            #Author author = db.Author.create({
+                email: request.email,
+                passwordHash: hashPassword(request.password),
+                firstName: request.firstName,
+                lastName: request.lastName,
+                role: AuthorRole.Writer,
+                status: AuthorStatus.Pending,
+                emailVerificationToken: generateToken()
+            });
+            return author;
+        }
+    }
+}

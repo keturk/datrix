@@ -1,0 +1,35 @@
+
+// 'from ... import' brings shared types from the common module
+from taskmgmt.common import BaseEntity;
+
+// Define a service in the 'taskmgmt' namespace with version and description
+service taskmgmt.ProjectService : version('1.0.0'), description('project management service') {
+
+    // Service infrastructure configuration
+    config('config/project-service/project-service-config.yaml');
+    registration('config/project-service/registration.yaml');
+    // discovery block declares dependencies on other services
+    // loadBalance and healthyOnly configure client-side load balancing
+    discovery {
+        UserService { loadBalance: roundRobin, healthyOnly: true }
+    }
+    resilience('config/project-service/resilience.yaml');
+
+    // Relational database block - groups entities (tables) under a named datasource
+    rdbms db('config/project-service/datasources.yaml') {
+
+        entity Project extends BaseEntity {
+            String(200) name;
+            // UUID field referencing another service's entity (cross-service foreign key)
+            UUID ownerId : index;
+            // Explicit index declaration for query performance
+            index(ownerId);
+        }
+    }
+
+    // REST API block - generates CRUD endpoints and custom routes
+    rest_api ProjectAPI : basePath("/api/v1/projects") {
+        // 'resource' auto-generates standard CRUD endpoints (list, get, create, update, delete)
+        resource db.Project;
+    }
+}

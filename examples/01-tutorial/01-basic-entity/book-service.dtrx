@@ -1,0 +1,34 @@
+
+// Define a service in the 'library' namespace with version and description
+service library.BookService : version('1.0.0'), description('Book management service') {
+
+    // Service infrastructure configuration
+    config('config/book-service/book-service-config.yaml');   // Service-specific settings
+    registration('config/book-service/registration.yaml');     // Service registry entry
+    discovery { }                                              // Service discovery (auto-configured)
+    resilience('config/book-service/resilience.yaml');          // Circuit breakers, retries, timeouts
+
+    // Relational database block - groups entities (tables) under a named datasource
+    rdbms db('config/book-service/datasources.yaml') {
+
+        // Abstract entities provide reusable field definitions; they don't generate tables
+        abstract entity BaseEntity {
+            // @UUID is a semantic type for universally unique identifiers
+            // 'primaryKey' marks this as the primary key; uuid() generates a default value
+            @UUID id : primaryKey = uuid();
+            // @UDateTime is a UTC datetime type; utcNow() sets the default to current UTC time
+            @UDateTime createdAt = utcNow();
+            @UDateTime updatedAt = utcNow();
+        }
+
+        // Concrete entity - inherits all fields from BaseEntity and maps to a database table
+        entity Book extends BaseEntity {
+            // String(200) = varchar with max 200 chars; 'trim' auto-trims whitespace on input
+            String(200) title : trim;
+            // 'regex(...)' adds a pattern validation constraint
+            String(20) isbn : regex("^[0-9\-]{10,13}$");
+            String(100) author : trim;
+            Int publicationYear;
+        }
+    }
+}

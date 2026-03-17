@@ -1,0 +1,94 @@
+test:
+  rdbms:
+    engine: postgres
+    host: localhost
+    port: 5432
+    database: ecommerce_orders
+    poolSize: 30
+    docker_image: postgres:17-alpine
+    volume_path: /var/lib/postgresql/data
+    asyncDriver: postgresql+asyncpg
+    syncDriver: postgresql+psycopg2
+    healthCheckSql: SELECT 1
+    defaultUser: postgres
+    platform: container
+  pubsub:
+    engine: kafka
+    brokers: localhost:9092
+    partitions: 3
+    replicationFactor: 1
+    docker_image: confluentinc/cp-kafka:7.8.0
+    volume_path: /var/lib/kafka/data
+    controllerPort: 9093
+    platform: container
+  cache:
+    engine: redis
+    host: localhost
+    port: 6379
+    docker_image: redis:7-alpine
+    volume_path: /data
+    healthCheckCmd: '["CMD", "redis-cli", "ping"]'
+    platform: container
+development:
+  rdbms:
+    engine: postgres
+    host: localhost
+    port: 5432
+    database: ecommerce_orders
+    poolSize: 30
+    docker_image: postgres:17-alpine
+    volume_path: /var/lib/postgresql/data
+    asyncDriver: postgresql+asyncpg
+    syncDriver: postgresql+psycopg2
+    healthCheckSql: SELECT 1
+    defaultUser: postgres
+    platform: container
+  pubsub:
+    engine: kafka
+    brokers: localhost:9092
+    partitions: 3
+    replicationFactor: 1
+    docker_image: confluentinc/cp-kafka:7.8.0
+    volume_path: /var/lib/kafka/data
+    controllerPort: 9093
+    platform: container
+  cache:
+    engine: redis
+    host: localhost
+    port: 6379
+    docker_image: redis:7-alpine
+    volume_path: /data
+    healthCheckCmd: '["CMD", "redis-cli", "ping"]'
+    platform: container
+production:
+  rdbms:
+    engine: postgres
+    host: ${ORDER_DB_HOST}
+    port: 5432
+    database: ecommerce_orders
+    poolSize: 50
+    ssl: true
+    docker_image: postgres:17-alpine
+    volume_path: /var/lib/postgresql/data
+    asyncDriver: postgresql+asyncpg
+    syncDriver: postgresql+psycopg2
+    healthCheckSql: SELECT 1
+    defaultUser: postgres
+    platform: rds
+  pubsub:
+    engine: kafka
+    brokers: ${ORDER_KAFKA_BROKERS}
+    partitions: 3
+    replicationFactor: 1
+    docker_image: confluentinc/cp-kafka:7.8.0
+    volume_path: /var/lib/kafka/data
+    controllerPort: 9093
+    platform: managed
+  cache:
+    engine: redis
+    host: ${ORDER_REDIS_HOST}
+    port: 6379
+    docker_image: redis:7-alpine
+    volume_path: /data
+    healthCheckCmd: '["CMD", "redis-cli", "ping"]'
+    platform: elasticache

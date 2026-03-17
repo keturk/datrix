@@ -1,0 +1,30 @@
+
+from taskmgmt.common import BaseEntity;
+
+// Define a service in the 'taskmgmt' namespace with version and description
+service taskmgmt.UserService : version('1.0.0'), description('user management service') {
+
+    // Service infrastructure configuration
+    config('config/user-service/user-service-config.yaml');
+    registration('config/user-service/registration.yaml');
+    discovery { }                                                    // Service discovery (auto-configured)
+    resilience('config/user-service/resilience.yaml');
+
+    // Relational database block - groups entities (tables) under a named datasource
+    rdbms db('config/user-service/datasources.yaml') {
+
+        entity User extends BaseEntity {
+            String(100) name;
+            // Email is a semantic type that validates email format
+            // 'unique' ensures no duplicate values across rows
+            Email email : unique;
+            // Creates a database index for query performance
+            index(email);
+        }
+    }
+
+    // REST API block - 'resource' auto-generates all standard CRUD endpoints
+    rest_api UserAPI : basePath("/api/v1/users") {
+        resource db.User;
+    }
+}

@@ -1,0 +1,129 @@
+test:
+  metrics:
+    provider: prometheus
+    endpoint: /metrics
+    includeDefault: true
+    labels:
+      environment: development
+      region: us-east-1
+      compliance: hipaa
+  tracing:
+    provider: jaeger
+    samplingRate: 1.0
+    propagation: w3c
+  logging:
+    level: info
+    format: json
+    includeTrace: true
+    additionalFields:
+      application: healthcare-platform
+      compliance: hipaa
+    provider: loki
+  audit:
+    enabled: true
+    storage:
+      type: elasticsearch
+      endpoint: ${AUDIT_ES_URL}
+      index: healthcare-audit
+      retention: 7y
+    events:
+    - patient.view
+    - patient.create
+    - patient.update
+    - record.view
+    - record.create
+    - record.update
+    - record.delete
+    - appointment.create
+    - appointment.update
+    - auth.login
+    - auth.logout
+    - auth.failed
+  visualization:
+    provider: grafana
+  alerting:
+    provider: alertmanager
+development:
+  metrics:
+    provider: prometheus
+    endpoint: /metrics
+    includeDefault: true
+    labels:
+      environment: development
+      region: us-east-1
+      compliance: hipaa
+  tracing:
+    provider: jaeger
+    samplingRate: 1.0
+    propagation: w3c
+  logging:
+    level: info
+    format: json
+    includeTrace: true
+    additionalFields:
+      application: healthcare-platform
+      compliance: hipaa
+    provider: loki
+  audit:
+    enabled: true
+    storage:
+      type: elasticsearch
+      endpoint: ${AUDIT_ES_URL}
+      index: healthcare-audit
+      retention: 7y
+    events:
+    - patient.view
+    - patient.create
+    - patient.update
+    - record.view
+    - record.create
+    - record.update
+    - record.delete
+    - appointment.create
+    - appointment.update
+    - auth.login
+    - auth.logout
+    - auth.failed
+  visualization:
+    provider: grafana
+production:
+  metrics:
+    provider: prometheus
+    endpoint: /metrics
+    includeDefault: true
+    labels:
+      environment: production
+      region: us-east-1
+      compliance: hipaa
+  tracing:
+    provider: jaeger
+    endpoint: ${JAEGER_URL}
+    samplingRate: 1.0
+    propagation: w3c
+  logging:
+    level: info
+    format: json
+    includeTrace: true
+    additionalFields:
+      application: healthcare-platform
+      compliance: hipaa
+  audit:
+    enabled: true
+    storage:
+      type: elasticsearch
+      endpoint: ${AUDIT_ES_URL}
+      index: healthcare-audit
+      retention: 7y
+    events:
+    - patient.view
+    - patient.create
+    - patient.update
+    - record.view
+    - record.create
+    - record.update
+    - record.delete
+    - appointment.create
+    - appointment.update
+    - auth.login
+    - auth.logout
+    - auth.failed

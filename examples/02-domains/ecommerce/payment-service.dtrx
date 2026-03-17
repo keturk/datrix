@@ -1,0 +1,377 @@
+
+from ecommerce.common import BaseEntity, MAX_PAGE_SIZE, generateTransactionId;
+
+service ecommerce.PaymentService : version('1.0.0'), description('payment management service') {
+
+    config('config/payment-service/payment-service-config.yaml');
+    registration('config/payment-service/registration.yaml');
+    discovery { }
+    resilience('config/payment-service/resilience.yaml');
+    integrations('config/payment-service/integrations.yaml');
+
+    enum PaymentMethod {
+        CreditCard,
+        DebitCard,
+        PayPal,
+        BankTransfer
+    }
+
+    enum PaymentStatus {
+        Pending,
+        Processing,
+        Completed,
+        Failed,
+        Refunded
+    }
+
+    struct ChargeResult {
+        Boolean success;
+        String? transactionId;
+        String? response;
+        String? error;
+    }
+
+    struct RefundResult {
+        Boolean success;
+        String? refundTransactionId;
+        String? error;
+    }
+
+    struct ProcessPaymentRequest {
+        UUID orderId;
+        Money amount;
+        PaymentMethod method;
+        String? cardToken;
+    }
+
+    struct RefundPaymentRequest {
+        Money amount;
+        String reason;
+    }
+
+    struct StripeWebhookRequest {
+        JSON payload;
+        String stripeSignature;
+    }
+
+    // ': audit' on the rdbms block enables audit logging for all entities
+    rdbms db('config/payment-service/datasources.yaml') : audit {
+        alert queryDuration(p95) over(5m) > 200ms @severity(warning);
+        alert transactionDuration(p99) over(1m) > 2s @severity(critical);
+
+        entity Payment extends BaseEntity {
+            UUID orderId : index;
+            UUID customerId : index;
+            Money amount;
+            PaymentMethod method;
+            PaymentStatus status = PaymentStatus.Pending;
+            String(100) transactionId : unique;
+
+            String? gatewayResponse;
+            String? errorMessage;
+            DateTime? processedAt;
+
+            Boolean isSuccessful := status == PaymentStatus.Completed;
+            Boolean canRefund := status == PaymentStatus.Completed;
+
+            hasMany Refund as refunds;
+
+            index(customerId, status);
+            index(orderId);
+            index(transactionId);
+
+            // Emit different events based on the new status value
+            afterUpdate {
+                if (isChanged(status)) {
+                    if (status == PaymentStatus.Completed) {
+                        emit PaymentProcessed(id, orderId, amount);
+                    } else if (status == PaymentStatus.Failed) {
+                        emit PaymentFailed(id, orderId, errorMessage ?? "Payment failed");
+                    } else if (status == PaymentStatus.Refunded) {
+                        emit PaymentRefunded(id, orderId, amount);
+                    }
+                }
+            }
+        }
+
+        entity Refund extends BaseEntity {
+            Money amount;
+            String(500) reason;
+            PaymentStatus status = PaymentStatus.Pending;
+            String? refundTransactionId;
+            String? errorMessage;
+            DateTime? processedAt;
+
+            belongsTo Payment : index;
+
+            Boolean isSuccessful := status == PaymentStatus.Completed;
+        }
+
+    }
+
+    pubsub mq('config/payment-service/pubsub.yaml') {
+        alert failedMessages(count) over(5m) > 5 @severity(critical);
+
+        topic PaymentEvents {
+            publish PaymentProcessed(UUID paymentId, UUID orderId, Money amount);
+            publish PaymentFailed(UUID paymentId, UUID orderId, String reason);
+            publish PaymentRefunded(UUID paymentId, UUID orderId, Money amount);
+        }
+
+        subscribe OrderEvents {
+
+            on OrderCreated(UUID orderId, String orderNumber, UUID customerId, Money total, UUID reservationId) {
+                Log.info("New order created, awaiting payment", {
+                    orderId: orderId,
+                    orderNumber: orderNumber,
+                    total: total,
+                    reservationId: reservationId
+                });
+            }
+        }
+    }
+
+    rest_api PaymentAPI : basePath('/api/v1/payments') {
+        alert responseTime(p95) over(5m) > 500ms @severity(warning);
+        alert errorRate(ratio) over(5m) > 3% @severity(critical);
+
+        resource db.Payment : only(get);
+
+        @path('/order/:orderId')
+        get(UUID orderId) -> db.Payment {
+            return db.Payment.where(orderId: orderId).firstOrFail();
+        }
+
+        @path('/my-payments')
+        get(Int page = 1, Int perPage = 20) -> Array<db.Payment> {
+            #UUID customerId = Auth.user().id;
+            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            return db.Payment
+                .where(customerId: customerId)
+                .orderBy(createdAt: desc)
+                .offset((page - 1) * cappedPerPage)
+                .limit(cappedPerPage)
+                .all();
+        }
+
+        @path('/process')
+        post(ProcessPaymentRequest request) -> db.Payment {
+            #UUID customerId = Auth.user().id;
+
+            #Payment payment = db.Payment.create({
+                orderId: request.orderId,
+                customerId: customerId,
+                amount: request.amount,
+                method: request.method,
+                transactionId: generateTransactionId(),
+                status: PaymentStatus.Pending
+            });
+
+            // Delegate to async processing function
+            processPaymentAsync(payment, request.cardToken);
+
+            return payment;
+        }
+
+        @path('/:id/refund')
+        post(UUID id, RefundPaymentRequest request) : access(admin) -> db.Refund {
+            #Payment payment = db.Payment.findOrFail(id);
+
+            if (!payment.canRefund) {
+                throw ValidationException(#"Cannot refund payment in status: {payment.status}");
+            }
+
+            // Calculate total already refunded to prevent over-refunding
+            #Money totalRefunded = Money.of(0, payment.amount.currency);
+            foreach refund in payment.refunds {
+                if (refund.isSuccessful) {
+                    totalRefunded = totalRefunded.add(refund.amount);
+                }
+            }
+
+            if (totalRefunded.add(request.amount).amount > payment.amount.amount) {
+                throw ValidationException("Refund amount exceeds original payment");
+            }
+
+            #Refund refund = db.Refund.create({
+                payment: payment,
+                amount: request.amount,
+                reason: request.reason,
+                status: PaymentStatus.Pending
+            });
+
+            #Boolean success = processRefundViaGateway(payment, refund);
+
+            if (success) {
+                refund.status = PaymentStatus.Completed;
+                refund.processedAt = now();
+                refund.save();
+
+                #Money newTotalRefunded = totalRefunded.add(request.amount);
+                if (newTotalRefunded.amount >= payment.amount.amount) {
+                    payment.status = PaymentStatus.Refunded;
+                    payment.save();
+                }
+            } else {
+                refund.status = PaymentStatus.Failed;
+                refund.save();
+            }
+
+            return refund;
+        }
+
+        // Webhook endpoint for external payment gateway callbacks
+        @path('/webhook/stripe')
+        post(StripeWebhookRequest request) : public -> Void {
+
+            #String eventType = request.payload.type;
+            #JSON data = request.payload.data.object;
+
+            if (eventType == "payment_intent.succeeded") {
+                #String transactionId = data.metadata.transactionId;
+                #Payment? payment = db.Payment.where(transactionId: transactionId).first();
+
+                if (payment != null && payment.status == PaymentStatus.Processing) {
+                    payment.status = PaymentStatus.Completed;
+                    payment.processedAt = now();
+                    payment.gatewayResponse = JSON.stringify(data);
+                    payment.save();
+                }
+            } else if (eventType == "payment_intent.payment_failed") {
+                #String transactionId = data.metadata.transactionId;
+                #Payment? payment = db.Payment.where(transactionId: transactionId).first();
+
+                if (payment != null && payment.status == PaymentStatus.Processing) {
+                    payment.status = PaymentStatus.Failed;
+                    payment.errorMessage = data.last_payment_error?.message ?? "Payment failed";
+                    payment.gatewayResponse = JSON.stringify(data);
+                    payment.save();
+                }
+            }
+        }
+
+        fn processRefundViaGateway(db.Payment payment, db.Refund refund) -> Boolean {
+            #Boolean success = false;
+            #String? transactionId = null;
+
+            // 'try/catch' for error handling with external gateway calls
+            try {
+                if (payment.method == PaymentMethod.CreditCard || payment.method == PaymentMethod.DebitCard) {
+                    #JSON result = StripeGateway.refund({
+                        transactionId: payment.transactionId,
+                        amount: refund.amount.amount * 100
+                    });
+                    success = result.success;
+                    transactionId = result.refundTransactionId;
+
+                    if (!success) {
+                        refund.errorMessage = result.error ?? "Stripe refund failed";
+                    }
+                } else if (payment.method == PaymentMethod.PayPal) {
+                    #JSON result = PayPalGateway.refund({
+                        transactionId: payment.transactionId,
+                        amount: refund.amount
+                    });
+                    success = result.success;
+                    transactionId = result.refundTransactionId;
+
+                    if (!success) {
+                        refund.errorMessage = result.error ?? "PayPal refund failed";
+                    }
+                } else if (payment.method == PaymentMethod.BankTransfer) {
+                    Log.info("Bank transfer refund requires manual processing", {
+                        paymentId: payment.id,
+                        refundId: refund.id,
+                        amount: refund.amount
+                    });
+                    refund.errorMessage = "Bank transfer refunds require manual processing";
+                    return false;
+                }
+
+                if (success && transactionId != null) {
+                    refund.refundTransactionId = transactionId;
+                }
+            } catch (Exception e) {
+                Log.error("Refund processing error", {
+                    paymentId: payment.id,
+                    error: e.message
+                });
+                refund.errorMessage = #"Gateway error: {e.message}";
+                return false;
+            }
+
+            return success;
+        }
+    }
+
+    // Service-level async function for payment processing
+    fn processPaymentAsync(db.Payment payment, String? cardToken) {
+        payment.status = PaymentStatus.Processing;
+        payment.save();
+
+        #Boolean success = false;
+        #String? error = null;
+        #String? gatewayResponse = null;
+
+        try {
+            if (payment.method == PaymentMethod.CreditCard || payment.method == PaymentMethod.DebitCard) {
+                // External gateway integration call
+                #JSON result = StripeGateway.charge({
+                    amount: payment.amount.amount * 100,
+                    currency: payment.amount.currency.value.toLowerCase(),
+                    source: cardToken,
+                    metadata: {
+                        transactionId: payment.transactionId,
+                        orderId: payment.orderId.toString(),
+                        customerId: payment.customerId.toString()
+                    }
+                });
+
+                success = result.success;
+                gatewayResponse = JSON.stringify(result);
+
+                if (!success) {
+                    error = result.error ?? "Stripe charge failed";
+                }
+            } else if (payment.method == PaymentMethod.PayPal) {
+                #JSON result = PayPalGateway.charge({
+                    amount: payment.amount,
+                    transactionId: payment.transactionId,
+                    customerId: payment.customerId
+                });
+
+                success = result.success;
+                gatewayResponse = JSON.stringify(result);
+
+                if (!success) {
+                    error = result.error ?? "PayPal charge failed";
+                }
+            } else if (payment.method == PaymentMethod.BankTransfer) {
+                payment.gatewayResponse = "Bank transfer initiated - awaiting confirmation";
+                payment.save();
+                return;
+            } else {
+                error = #"Unsupported payment method: {payment.method}";
+            }
+        } catch (Exception e) {
+            success = false;
+            error = #"Payment gateway error: {e.message}";
+            Log.error("Payment processing exception", {
+                paymentId: payment.id,
+                error: e.message
+            });
+        }
+
+        if (success) {
+            payment.status = PaymentStatus.Completed;
+            payment.processedAt = now();
+            payment.gatewayResponse = gatewayResponse;
+        } else {
+            payment.status = PaymentStatus.Failed;
+            payment.errorMessage = error ?? "Payment processing failed";
+            payment.gatewayResponse = gatewayResponse;
+        }
+
+        payment.save();
+    }
+}

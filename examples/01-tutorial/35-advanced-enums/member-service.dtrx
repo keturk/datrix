@@ -1,0 +1,114 @@
+
+// 'from ... import' brings shared definitions from a module into this service
+from library.common import BaseEntity, MEMBERSHIP_NUMBER_PATTERN;
+
+// A separate service in the same namespace handles member management
+service library.MemberService : version('1.0.0'), description('member management service') {
+
+    config('config/member-service/member-service-config.yaml');
+    registration('config/member-service/registration.yaml');
+    discovery { }
+    resilience('config/member-service/resilience.yaml');
+
+    // 'value()' assigns an explicit serialized value to each enum variant
+    // Integer values map to database column values for compact storage
+    enum MembershipType {
+        Standard : value(1),
+        Premium  : value(2),
+        Student  : value(3)
+    }
+
+    // Structs define reusable value objects (not database entities)
+    // MemberProfile shapes the response for internal profile lookups
+    struct MemberProfile {
+        String fullName;
+        // Email is a semantic type that validates email format
+        Email email;
+        MembershipType membershipType;
+    }
+
+    // MemberSearchResult wraps query results with pagination metadata
+    struct MemberSearchResult {
+        Array<db.Member> members;
+        JSON pagination;
+    }
+
+    rdbms db('config/member-service/datasources.yaml') {
+
+        entity Member extends BaseEntity {
+            String(100) firstName : trim;
+            String(100) lastName : trim;
+            Email email : unique;
+            // regex(...) validates format using an imported constant pattern
+            String(20) membershipNumber : unique, regex(MEMBERSHIP_NUMBER_PATTERN);
+            MembershipType membershipType = MembershipType.Standard;
+
+            // Computed field - derived at runtime from other fields
+            // #"..." is string interpolation syntax
+            String fullName := #"{firstName} {lastName}";
+
+            // 'fulltext(...)' creates a full-text search index across the listed fields
+            fulltext(firstName, lastName);
+        }
+    }
+
+    rest_api MemberAPI : basePath("/api/v1/members") {
+        // 'resource' auto-generates standard CRUD endpoints for the entity
+        resource db.Member;
+
+        // Advanced search endpoint combining fulltext, filtering, and pagination
+        @path('/search')
+        get(String? search, MembershipType? type, Int page = 1, Int perPage = 20) -> MemberSearchResult {
+            // '.query()' starts a chainable query builder
+            #JSON query = db.Member.query();
+
+            if (search != null && !search.isEmpty()) {
+                // '.fulltext(term)' performs natural-language search on fulltext-indexed fields
+                query = query.fulltext(search);
+            }
+
+            if (type != null) {
+                query = query.where(membershipType: type);
+            }
+
+            // '.count()' returns the number of matching records
+            #Int total = query.count();
+            // Chained query: .orderBy() sorts, .offset() skips, .limit() restricts result count
+            #Array<Member> members = query
+                .orderBy(lastName: asc)
+                .orderBy(firstName: asc)
+                .offset((page - 1) * perPage)
+                .limit(Math.min(perPage, 50))
+                .all();
+
+            return {
+                members: members,
+                pagination: {
+                    page: page,
+                    perPage: perPage,
+                    total: total,
+                    totalPages: Math.ceil(total / perPage)
+                }
+            };
+        }
+
+        @path('/by-membership/:membershipNumber')
+        get(String membershipNumber) -> db.Member {
+            // '.firstOrFail()' returns the first match or throws if none found
+            return db.Member.where(membershipNumber: membershipNumber).firstOrFail();
+        }
+
+        // 'internal' restricts this endpoint to service-to-service calls only
+        @path('/internal/:id')
+        get(UUID id) : internal -> db.Member {
+            return db.Member.findOrFail(id);
+        }
+
+        // Internal endpoint returning a struct - exposes only profile fields, not the full entity
+        @path('/internal/profile/:id')
+        get(UUID id) : internal -> MemberProfile {
+            #Member member = db.Member.findOrFail(id);
+            return { fullName: member.fullName, email: member.email, membershipType: member.membershipType };
+        }
+    }
+}

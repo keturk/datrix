@@ -1,0 +1,8 @@
+rules:
+  - id: datrix.missing-encoding-read-text
+    pattern: $PATH.read_text()
+    message: >
+      read_text() without encoding="utf-8". On Windows this defaults to
+      cp1252 and causes UnicodeDecodeError on UTF-8 content.
+    languages: [python]
+    severity: WARNING

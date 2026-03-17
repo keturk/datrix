@@ -1,0 +1,10 @@
+rules:
+  - id: datrix.string-concat-codegen
+    pattern-either:
+      - pattern-regex: 'code\s*\+=\s*f"'
+      - pattern-regex: 'code\s*=\s*code\s*\+\s*f"'
+    message: >
+      String concatenation for code generation. Use Jinja2 templates +
+      formatter (ruff format / Prettier) instead.
+    languages: [python]
+    severity: WARNING

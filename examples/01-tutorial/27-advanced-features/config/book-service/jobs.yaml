@@ -1,0 +1,56 @@
+test:
+  jobs:
+    CheckOverdueBooks:
+      schedule: "0 */2 * * *"
+      timeout: 300s
+      retries: 1
+      concurrency: 1
+    RefreshBookCache:
+      schedule: "0 * * * *"
+      timeout: 120s
+      retries: 1
+      concurrency: 1
+    ProcessOverdueCheckouts:
+      schedule: "0 */2 * * *"
+      timeout: 300s
+      retries: 1
+      concurrency: 1
+
+development:
+  jobs:
+    CheckOverdueBooks:
+      schedule: "0 */2 * * *"
+      timeout: 300s
+      retries: 1
+      concurrency: 1
+    RefreshBookCache:
+      schedule: "0 * * * *"
+      timeout: 120s
+      retries: 1
+      concurrency: 1
+    ProcessOverdueCheckouts:
+      schedule: "0 */2 * * *"
+      timeout: 300s
+      retries: 1
+      concurrency: 1
+
+production:
+  jobs:
+    CheckOverdueBooks:
+      schedule: "0 */1 * * *"
+      timeout: 600s
+      retries: 3
+      concurrency: 1
+      alertOnFailure: true
+    RefreshBookCache:
+      schedule: "0 */6 * * *"
+      timeout: 300s
+      retries: 2
+      concurrency: 1
+    ProcessOverdueCheckouts:
+      schedule: "0 */1 * * *"
+      timeout: 600s
+      retries: 3
+      concurrency: 1
+      alertOnFailure: true
+      deadLetterQueue: overdue-checkouts-dlq

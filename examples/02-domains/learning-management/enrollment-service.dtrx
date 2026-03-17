@@ -1,0 +1,38 @@
+
+// 'from ... import' brings shared types from the common module
+from learning.common import BaseEntity;
+
+// Define a service in the 'learning' namespace
+service learning.EnrollmentService : version('1.0.0'), description('enrollment management service') {
+
+    // Service infrastructure configuration
+    config('config/enrollment-service/enrollment-service-config.yaml');
+    registration('config/enrollment-service/registration.yaml');
+    // discovery block declares dependencies on other services
+    // loadBalance and healthyOnly configure client-side load balancing
+    discovery {
+        CourseService { loadBalance: roundRobin, healthyOnly: true }
+        StudentService { loadBalance: roundRobin, healthyOnly: true }
+    }
+    resilience('config/enrollment-service/resilience.yaml');
+
+    // Relational database block - groups entities (tables) under a named datasource
+    rdbms db('config/enrollment-service/datasources.yaml') {
+
+        entity Enrollment extends BaseEntity {
+            // UUID fields referencing other services' entities (cross-service foreign keys)
+            UUID studentId : index;
+            UUID courseId : index;
+            // DateTime with default - records when the enrollment was created
+            DateTime enrolledAt = now();
+            // Composite index for query performance on the student-course pair
+            index(studentId, courseId);
+        }
+    }
+
+    // REST API block - generates CRUD endpoints and custom routes
+    rest_api EnrollmentAPI : basePath("/api/v1/enrollments") {
+        // 'resource' auto-generates standard CRUD endpoints (list, get, create, update, delete)
+        resource db.Enrollment;
+    }
+}

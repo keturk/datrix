@@ -1,0 +1,8 @@
+rules:
+  - id: datrix.silent-fallback-none
+    pattern: $DICT.get($KEY, None)
+    message: >
+      Silent fallback to None. Use explicit lookup and raise on missing key
+      per .cursorrules fail-fast philosophy.
+    languages: [python]
+    severity: WARNING

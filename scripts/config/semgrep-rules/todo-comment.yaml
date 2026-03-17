@@ -1,0 +1,8 @@
+rules:
+  - id: datrix.todo-comment
+    pattern-regex: '#\s*TODO'
+    message: >
+      TODO comment found. Placeholders and stubs are not allowed per
+      .cursorrules — implement or remove.
+    languages: [python]
+    severity: INFO

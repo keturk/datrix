@@ -1,0 +1,38 @@
+
+// 'from ... import' brings shared types from the common module
+from social.common import BaseEntity;
+
+// Define a service in the 'social' namespace with version and description
+service social.PostService : version('1.0.0'), description('post management service') {
+
+    // Service infrastructure configuration
+    config('config/post-service/post-service-config.yaml');
+    registration('config/post-service/registration.yaml');
+    // discovery block declares dependencies on other services
+    // loadBalance and healthyOnly configure client-side load balancing
+    discovery {
+        UserService { loadBalance: roundRobin, healthyOnly: true }
+    }
+    resilience('config/post-service/resilience.yaml');
+
+    // Relational database block - groups entities (tables) under a named datasource
+    rdbms db('config/post-service/datasources.yaml') {
+
+        entity Post extends BaseEntity {
+            // UUID field referencing another service's entity (cross-service foreign key)
+            UUID authorId : index;
+            // 'Text' type for unlimited-length content (vs String which has a max length)
+            Text content;
+            // Int with default value
+            Int likeCount = 0;
+            // Explicit index declaration for query performance
+            index(authorId);
+        }
+    }
+
+    // REST API block - generates CRUD endpoints and custom routes
+    rest_api PostAPI : basePath("/api/v1/posts") {
+        // 'resource' auto-generates standard CRUD endpoints (list, get, create, update, delete)
+        resource db.Post;
+    }
+}

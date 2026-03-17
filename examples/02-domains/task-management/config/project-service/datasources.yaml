@@ -1,0 +1,43 @@
+test:
+  rdbms:
+    engine: postgres
+    host: localhost
+    port: 5432
+    database: task_projects
+    poolSize: 20
+    docker_image: postgres:17-alpine
+    volume_path: /var/lib/postgresql/data
+    asyncDriver: postgresql+asyncpg
+    syncDriver: postgresql+psycopg2
+    healthCheckSql: SELECT 1
+    defaultUser: postgres
+    platform: container
+development:
+  rdbms:
+    engine: postgres
+    host: localhost
+    port: 5432
+    database: task_projects
+    poolSize: 20
+    docker_image: postgres:17-alpine
+    volume_path: /var/lib/postgresql/data
+    asyncDriver: postgresql+asyncpg
+    syncDriver: postgresql+psycopg2
+    healthCheckSql: SELECT 1
+    defaultUser: postgres
+    platform: container
+production:
+  rdbms:
+    engine: postgres
+    host: ${PROJECT_DB_HOST}
+    port: 5432
+    database: task_projects
+    poolSize: 40
+    ssl: false
+    docker_image: postgres:17-alpine
+    volume_path: /var/lib/postgresql/data
+    asyncDriver: postgresql+asyncpg
+    syncDriver: postgresql+psycopg2
+    healthCheckSql: SELECT 1
+    defaultUser: postgres
+    platform: rds

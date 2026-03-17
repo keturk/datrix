@@ -1,0 +1,45 @@
+
+// 'from ... import' brings shared types from the common module
+from learning.common import BaseEntity;
+
+// Define a service in the 'learning' namespace with version and description
+service learning.CourseService : version('1.0.0'), description('course management service') {
+
+    // Service infrastructure configuration
+    config('config/course-service/course-service-config.yaml');
+    registration('config/course-service/registration.yaml');
+    // discovery block declares dependencies on other services
+    discovery {
+        StudentService { loadBalance: roundRobin, healthyOnly: true }
+    }
+    resilience('config/course-service/resilience.yaml');
+
+    // Relational database block - groups entities (tables) under a named datasource
+    rdbms db('config/course-service/datasources.yaml') {
+
+        entity Course extends BaseEntity {
+            // 'trim' auto-trims whitespace on input
+            String(200) title : trim;
+            // 'unique' constraint ensures no duplicate values across rows
+            String(20) code : unique;
+            // 'Text' type for unlimited-length content; '?' suffix makes it nullable
+            Text? description;
+            // Explicit index declaration for query performance
+            index(code);
+        }
+    }
+
+    // Storage block - defines file/blob storage with upload constraints
+    storage store('config/course-service/storage.yaml') {
+        // 'folder' defines a storage location; 'path(...)' sets the bucket prefix
+        // 'allowed(...)' restricts MIME types; 'maxSize(...)' limits upload size
+        folder materials : path('courses/materials/'), allowed(['application/pdf', 'application/vnd.ms-powerpoint']), maxSize('100mb')
+        folder videos : path('courses/videos/'), allowed(['video/mp4', 'video/webm']), maxSize('500mb')
+    }
+
+    // REST API block - generates CRUD endpoints and custom routes
+    rest_api CourseAPI : basePath("/api/v1/courses") {
+        // 'resource' auto-generates standard CRUD endpoints (list, get, create, update, delete)
+        resource db.Course;
+    }
+}
