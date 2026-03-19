@@ -102,7 +102,7 @@ AI is at its best when the problem fits in a context window and the output is un
 
 ## Under the Hood
 
-Datrix is a serious engineering investment, not a weekend project that wraps a few Jinja templates. The full implementation spans **11 private repositories**, **987 source files**, and **107,565 lines of code** — organized around a clean separation between the language layer, the shared core, and each independent code and platform generator.
+Datrix is a serious engineering investment, not a weekend project that wraps a few Jinja templates. The full implementation spans **~1,000 source files** and **~108,000 lines of code** — organized around a clean separation between the language layer, the shared core, and each independent code and platform generator.
 
 ### The Architecture
 
