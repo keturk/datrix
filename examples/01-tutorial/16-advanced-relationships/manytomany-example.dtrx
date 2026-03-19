@@ -1,0 +1,27 @@
+// First-class manyToMany: junction table is generated automatically.
+// Both entities must declare manyToMany to each other (matching inverse).
+// See datrix-syntax-reference.md "manyToMany (Many-to-Many)" for details.
+
+service school.CourseService : version('1.0.0'), description('course service') {
+    registration('config/course-service/registration.yaml');
+    discovery { }
+
+    rdbms db('config/course-service/datasources.yaml') {
+        entity Course {
+            @UUID id : primaryKey = uuid();
+            String(200) name;
+            manyToMany Student as students;
+        }
+
+        entity Student {
+            @UUID id : primaryKey = uuid();
+            String(100) name;
+            manyToMany Course as courses;
+        }
+    }
+
+    rest_api CourseAPI : basePath("/api/v1") {
+        resource db.Course;
+        resource db.Student;
+    }
+}

@@ -80,11 +80,15 @@ entity Order extends BaseEntity with Auditable {
 Key features:
 - **Inheritance**: `extends BaseEntity` inherits fields from abstract entities
 - **Traits**: `with Auditable` mixes in reusable field groups
-- **Relationships**: `-> db.Customer` defines foreign key relationships with cascade behavior
+- **Relationships**: `belongsTo`, `hasMany`, `hasOne`, and **`manyToMany`** define entity relationships. `manyToMany` generates a junction table and requires a matching inverse on the target entity (see [Many-to-Many](../../../datrix-language/docs/reference/datrix-syntax-reference.md) in the syntax reference). `onSoftDelete` cascades soft-deletes to children (valid on `hasMany`/`hasOne` only, requires `SoftDeletable` on both entities). See **Self-Referential Tree Helpers** below for tree behavior and the `noTree` modifier.
 - **Computed fields**: `:=` defines derived values
 - **Lifecycle hooks**: `afterCreate`, `afterUpdate`, `afterDelete` trigger side effects
 - **Validation modifiers**: `: trim`, `: unique`, `: index`, `: nullable`
 - **Default values**: `= OrderStatus.Pending`, `= now()`, `= uuid()`
+
+### Self-Referential Tree Helpers
+
+When an entity has both a self-referential `belongsTo` and a self-referential `hasMany` (e.g. `Category` with `parent` and `children`), the generators emit **tree helpers**: SQL CHECK constraint (no self-reference), Python service methods (`get_ancestors`, `get_descendants`, `get_roots`, `list_by_parent_id`), and TypeScript TypeORM tree decorators (`@Tree('closure-table')`, `@TreeParent()`, `@TreeChildren()`). Use the **`noTree`** modifier on the `hasMany` to disable this and get plain `ManyToOne`/`OneToMany` (e.g. `hasMany Employee as directReports : noTree`). Semantic rules REL007 (warning) and REL008 (error) enforce consistent use of `noTree` and self-ref pairs.
 
 ---
 
