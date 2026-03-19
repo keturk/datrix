@@ -4,7 +4,7 @@
 
 ---
 
-## 97 lines of `.dtrx` &rarr; 542 files of production code
+## ~130 lines of `.dtrx` &rarr; ~280 files of production code
 
 Datrix is a backend microservices application code generator. You define your architecture once in Datrix DSL — entities, services, APIs, events, infrastructure — and Datrix generates a complete, production-ready system from it. Not scaffolding. Not boilerplate. The whole thing.
 
@@ -32,7 +32,7 @@ From a single `.dtrx` definition, Datrix produces:
 
 Here's a complete task management service — the entire definition:
 
-```
+```java
 from taskmgmt.common import BaseEntity;
 
 service taskmgmt.TaskService : version('1.0.0') {
@@ -68,7 +68,7 @@ Browse the full example: [task-management/](examples/02-domains/task-management/
 
 ## The E-Commerce Example
 
-For something more ambitious: **5 microservices, 2,446 lines of `.dtrx`** generating **1,595 files** of production code:
+For something more ambitious: **5 microservices, ~2,500 lines of `.dtrx`** generating **~800 files** of production code:
 
 - **OrderService** — Order lifecycle, idempotency keys, payment coordination
 - **ProductService** — Catalog, inventory, reviews (MongoDB), image storage (S3)
@@ -179,6 +179,8 @@ Complete, real-world implementations:
 
 ## Get In Touch
 
-If you're a startup looking to accelerate your backend development — whether you're starting from scratch, scaling an existing system, or trying to bring consistency to a codebase that's grown in too many directions — I'd love to talk.
+If you're a startup looking to accelerate your backend development — whether you're starting from scratch, scaling an existing system, or trying to bring consistency to a codebase that's grown in too many directions — we'd love to talk.
+
+Datrix is offered as a professional service: we work with your team to model your domain in `.dtrx`, generate the codebase, and hand off a fully working system you own and maintain.
 
 **Contact:** [K Ercan Turkarslan](https://github.com/keturk) | [LinkedIn](https://www.linkedin.com/in/ercanturkarslan/)
