@@ -15,34 +15,8 @@ module ecommerce.common {
         UUID? updatedBy;
     }
 
-    // Traits add reusable behavior to entities via 'with' keyword (e.g., 'entity X with SoftDeletable')
-    trait SoftDeletable {
-        @DateTime? deletedAt;
-        UUID? deletedBy;
-        Boolean isDeleted := deletedAt != null;
-
-        fn softDelete() {
-            deletedAt = now();
-            deletedBy = Auth.userId();
-            this.save();
-        }
-
-        fn restore() {
-            deletedAt = null;
-            deletedBy = null;
-            this.save();
-        }
-    }
-
-    // Trait for URL-friendly slug generation
-    trait Sluggable {
-        // Slug is a semantic type for URL-safe identifiers
-        Slug slug : unique;
-
-        fn generateSlug(String source) {
-            slug = source.toLowerCase().trim().replace(' ', '-').replace('[^a-z0-9-]', '');
-        }
-    }
+    // SoftDeletable and Sluggable are builtin traits -- no need to define them.
+    // Use 'with SoftDeletable' or 'with Sluggable' on entities directly.
 
     // Trait for inventory management with stock reservation logic
     trait Inventoried {

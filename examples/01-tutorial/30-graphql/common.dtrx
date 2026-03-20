@@ -5,44 +5,8 @@
 module library.common {
 
     // Abstract entities defined here are shared across all services that import them
-    abstract entity BaseEntity {
+    abstract entity BaseEntity with Timestampable {
         @UUID id : primaryKey = uuid();
-        @DateTime createdAt = now();
-        @DateTime updatedAt = now();
-    }
-
-    // 'trait' defines reusable behavior that entities can mix in with 'with'
-    // Traits add fields and lifecycle hooks without inheritance
-    trait Auditable {
-        String? createdBy;
-        String? updatedBy;
-
-        // Trait lifecycle hooks execute automatically for entities that use this trait
-        on create {
-            createdBy = Auth.userId();
-        }
-
-        on update {
-            updatedBy = Auth.userId();
-            updatedAt = now();
-        }
-    }
-
-    // Traits can define computed fields and instance functions
-    trait SoftDeletable {
-        @DateTime? deletedAt;
-        String? deletedBy;
-        Boolean isDeleted := deletedAt != null;
-
-        fn softDelete() {
-            deletedAt = now();
-            deletedBy = Auth.userId();
-        }
-
-        fn restore() {
-            deletedAt = null;
-            deletedBy = null;
-        }
     }
 
     // Structs can contain semantic types and define functions

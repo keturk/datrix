@@ -240,6 +240,42 @@ graph TD
 
 ---
 
+## Builtin Traits and Enums
+
+Datrix provides a catalog of **ten builtin traits** and **two builtin enums** that are always available in every service and module without user definition.
+
+### Builtin Traits
+
+| Trait | Fields | Purpose |
+|-------|--------|---------|
+| **Activatable** | `Boolean isActive`, `DateTime? activatedAt`, `DateTime? deactivatedAt` | Enable/disable entities |
+| **Auditable** | `UUID createdBy`, `UUID? updatedBy` | Track who created/modified |
+| **Publishable** | `DateTime? publishedAt`, `UUID? publishedBy`, `PublishStatus publishStatus` | Draft/publish workflow |
+| **Schedulable** | `DateTime? scheduledFor`, `DateTime? executedAt`, `ScheduleStatus scheduleStatus` | Scheduled execution |
+| **Sluggable** | `String(200) slug : unique` | URL-friendly slugs |
+| **SoftDeletable** | `DateTime? deletedAt`, `UUID? deletedBy`, computed `isDeleted` | Soft deletion |
+| **Taggable** | `Array<String> tags` | Tagging |
+| **Tenantable** | `UUID tenantId : immutable, indexed` | Row-level tenant isolation |
+| **Timestampable** | `DateTime createdAt`, `DateTime updatedAt` | Automatic timestamps |
+| **Versionable** | `Int version` | Optimistic locking |
+
+### Builtin Enums
+
+| Enum | Values | Used By |
+|------|--------|---------|
+| **PublishStatus** | `Draft`, `Published`, `Archived` | Publishable trait |
+| **ScheduleStatus** | `Pending`, `Scheduled`, `Executed`, `Cancelled` | Schedulable trait |
+
+### How It Works
+
+1. Builtin traits and enums are **programmatically-constructed AST objects** defined in `datrix_common.builtins.traits` and `datrix_common.builtins.enums`
+2. They are **injected into every TypeContainer** (Service, Module) before reference resolution
+3. Users reference them with `with TraitName` on entity declarations (e.g., `entity User extends BaseEntity with Tenantable`)
+4. They are **opt-in** — no trait is automatically applied to entities
+5. User code **cannot redefine** builtin trait or enum names (BLT001 validator enforces this)
+
+---
+
 ## Core Principles
 
 ### 1. Fail Fast, Fail Loud
