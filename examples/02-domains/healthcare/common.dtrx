@@ -16,25 +16,8 @@ module healthcare.common {
         String? changeReason;
     }
 
-    // Traits add reusable behavior to entities via 'with' keyword
-    trait SoftDeletable {
-        @DateTime? deletedAt;
-        UUID? deletedBy;
-        // Computed field derived at runtime
-        Boolean isDeleted := deletedAt != null;
-
-        fn softDelete() {
-            deletedAt = now();
-            deletedBy = Auth.userId();
-            this.save();
-        }
-
-        fn restore() {
-            deletedAt = null;
-            deletedBy = null;
-            this.save();
-        }
-    }
+    // SoftDeletable is a builtin trait -- no need to define it.
+    // Use 'with SoftDeletable' on entities directly.
 
     // Trait for marking records with access restrictions
     trait Confidential {

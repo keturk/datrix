@@ -165,6 +165,8 @@ Datrix is built on proven software engineering principles that ensure:
 
 **Application:** Types and configuration are explicit. Fields must declare their type; no inference from names (e.g. `_id` → UUID). Generators receive all required parameters (app, output_dir, versions); no magic defaults. The codebase uses explicit types and constructor arguments throughout.
 
+**Builtin traits are opt-in:** Datrix provides ten builtin traits (Timestampable, Tenantable, SoftDeletable, etc.) that are always available but never automatically applied. Entities must explicitly declare `with TraitName` to receive trait fields. For example, `entity User extends BaseEntity with Tenantable` opts the User entity into tenant isolation — without this declaration, the entity has no `tenantId` field.
+
 ---
 
 ## Language Design Principles

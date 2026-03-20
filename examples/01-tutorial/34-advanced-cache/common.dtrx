@@ -4,44 +4,8 @@
 module library.common {
 
     // Abstract entities provide reusable field definitions; they don't generate tables
-    abstract entity BaseEntity {
+    abstract entity BaseEntity with Timestampable {
         @UUID id : primaryKey = uuid();
-        @DateTime createdAt = now();
-        @DateTime updatedAt = now();
-    }
-
-    // Traits are mixins that add fields and behavior to entities via 'with'
-    trait Auditable {
-        String? createdBy;
-        String? updatedBy;
-
-        // Trait lifecycle hooks run when the composing entity is created or updated
-        on create {
-            createdBy = Auth.userId();
-        }
-
-        on update {
-            updatedBy = Auth.userId();
-            updatedAt = now();
-        }
-    }
-
-    // SoftDeletable marks records as deleted without removing them from the database
-    trait SoftDeletable {
-        @DateTime? deletedAt;
-        String? deletedBy;
-        // Computed field - derived at runtime from other fields
-        Boolean isDeleted := deletedAt != null;
-
-        fn softDelete() {
-            deletedAt = now();
-            deletedBy = Auth.userId();
-        }
-
-        fn restore() {
-            deletedAt = null;
-            deletedBy = null;
-        }
     }
 
     // Structs define reusable value objects (not database entities)
