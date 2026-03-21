@@ -46,6 +46,32 @@ _datrix_common_src = _datrix_root / "datrix-common" / "src"
 if _datrix_common_src.exists() and str(_datrix_common_src) not in sys.path:
     sys.path.insert(0, str(_datrix_common_src))
 from datrix_common import DATRIX_FILE_EXTENSION
+from datrix_common.config.enums import ServiceFlavor
+
+# Exhaustive list for argparse --service-platform (maps to `datrix generate --platform`).
+_SERVICE_PLATFORM_CHOICES: tuple[str, ...] = tuple(e.value for e in ServiceFlavor)
+
+
+def _hosting_for_path_platform(path_platform: str) -> str | None:
+    """Map script output-path `--platform` to `datrix generate --hosting`; None if default docker."""
+    raw = path_platform.strip().lower()
+    if raw == "k8s":
+        raw = "kubernetes"
+    if raw == "docker":
+        return None
+    return raw
+
+
+def _append_datrix_generate_cli_overrides(cmd_args: list[str], args: argparse.Namespace) -> None:
+    """Append --language, --hosting, and --platform flags for datrix generate from script args."""
+    if args.language != "python":
+        cmd_args.extend(["--language", args.language])
+    hosting = _hosting_for_path_platform(args.platform)
+    if hosting is not None:
+        cmd_args.extend(["--hosting", hosting])
+    if args.service_platform is not None:
+        cmd_args.extend(["--platform", args.service_platform])
+
 
 # Pattern to detect spinner/progress lines that should be filtered from logs
 _SPINNER_PATTERN = re.compile(r'^[\s\[\]0-9;?]*[2K|25[lh]]|^[\\|/\-]?\s*(Generating|Loading|Processing)')
@@ -158,9 +184,10 @@ def generate_single_project(
                     output_name = f"{args.language}/{args.platform}/{project_name}"
                     output_path = datrix_root / ".generated" / output_name
 
-        # Build datrix generate command
-        # Language and platform are read from config files (system-config.yaml),
-        # not from CLI flags. The --generators/--platforms flags were removed.
+        # Build datrix generate command. Optional overrides mirror `datrix generate`
+        # (--language, --hosting, --platform). Script `--platform` is the output-path
+        # segment (docker/kubernetes/k8s); it maps to Typer --hosting. Use
+        # `--service-platform` for Typer --platform (service flavor).
         import os
         import tempfile
 
@@ -183,7 +210,8 @@ def generate_single_project(
         "--output",
         str(output_path),
         ]
- 
+        _append_datrix_generate_cli_overrides(cmd_args, args)
+
         # Add verbose flag if debug is enabled
         if hasattr(args, 'debug') and args.debug:
             cmd_args.append("--verbose")
@@ -413,7 +441,14 @@ def main():
  
     # Batch mode
     parser.add_argument("--language", type=str, default="python", choices=["python", "typescript"], help="Target language")
-    parser.add_argument("--platform", type=str, default="docker", choices=["docker", "kubernetes", "k8s"], help="Target platform")
+    parser.add_argument("--platform", type=str, default="docker", choices=["docker", "kubernetes", "k8s"], help="Output path segment; also forwarded as datrix --hosting when not docker")
+    parser.add_argument(
+        "--service-platform",
+        type=str,
+        default=None,
+        choices=_SERVICE_PLATFORM_CHOICES,
+        help="Forwarded to datrix generate --platform (service flavor); optional",
+    )
     parser.add_argument("--output-base", type=str, default=".generated", help="Output base directory")
     parser.add_argument("--test-set", type=str, default="generate-all", help="Test set to use (e.g. generate-all, tutorial-all, non-tutorial, domains, patterns, builtins, reference)")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")

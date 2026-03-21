@@ -85,6 +85,8 @@ Datrix is a code generation system that transforms `.dtrx` domain specifications
 Generated Application
 ```
 
+The `datrix generate` command supports `--language`, `--hosting`, and `--platform` to override config-driven values for a single generation run. In the generation pipeline, overrides run in the `apply_cli_overrides` stage after config resolution and service filtering, and before `platform_validation`.
+
 ---
 
 ## Repository Architecture
@@ -417,6 +419,9 @@ datrix generate --source system.dtrx --output ./generated
 
 # Generate for a specific profile
 datrix generate --source system.dtrx --output ./generated --profile production
+
+# Generate TypeScript output (override config language)
+datrix generate --source system.dtrx --output ./generated --language typescript
 ```
 
 **Config-driven generation:** The target language (Python, TypeScript) and deployment platform (Docker, K8s, AWS, Azure) are defined in config files, not CLI flags. The `language` and `hosting` fields in `system-config.yaml` determine which generators run. Service-level `platform` fields in each service's config YAML determine the specific runtime flavor (e.g., `compose`, `ecs-fargate`, `lambda`).

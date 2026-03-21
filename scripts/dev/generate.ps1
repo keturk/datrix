@@ -115,6 +115,9 @@ param(
  [string]$Platform = "docker",
 
  [Parameter()]
+ [string]$ServicePlatform = "",
+
+ [Parameter()]
  [string]$OutputBase = ".generated",
 
  [Parameter()]
@@ -518,6 +521,10 @@ $("=" * 80)
  $pythonArgs += "--platform"
  $pythonArgs += $Platform
  }
+ if (-not [string]::IsNullOrWhiteSpace($ServicePlatform)) {
+ $pythonArgs += "--service-platform"
+ $pythonArgs += $ServicePlatform
+ }
  if ($OutputBase -ne ".generated") {
  $pythonArgs += "--output-base"
  $pythonArgs += $OutputBase
@@ -569,6 +576,10 @@ $("=" * 80)
  if ($Platform -ne "docker") {
  $pythonArgs += "--platform"
  $pythonArgs += $Platform
+ }
+ if (-not [string]::IsNullOrWhiteSpace($ServicePlatform)) {
+ $pythonArgs += "--service-platform"
+ $pythonArgs += $ServicePlatform
  }
  if ($Dbg) {
  $pythonArgs += "--debug"

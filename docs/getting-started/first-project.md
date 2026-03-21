@@ -347,7 +347,7 @@ Generated files are fully managed by Datrix - modify your `.dtrx` specification 
 
 ### Generate for Other Languages or Platforms
 
-Language and platform are configured in `system-config.yaml`, not via CLI flags:
+Language and platform default to values in `system-config.yaml`, with optional CLI overrides:
 
 ```yaml
 # config/system-config.yaml
@@ -360,6 +360,13 @@ To switch languages, change the `language` field and regenerate:
 
 ```bash
 datrix generate --source specs/system.dtrx --output ./generated
+```
+
+You can override these values from the command line without editing YAML:
+
+```bash
+datrix generate --source specs/system.dtrx --output ./generated --language typescript
+datrix generate --source specs/system.dtrx --output ./generated --hosting aws --platform ecs-fargate
 ```
 
 Install the corresponding generator packages:
