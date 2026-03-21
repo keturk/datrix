@@ -28,14 +28,17 @@
 .PARAMETER Language
  Target language for output path derivation (default: python). Options: python, typescript.
  The actual language used for generation is read from config/system-config.yaml.
+ Can be abbreviated as -L.
 
 .PARAMETER Platform
  Target platform for output path derivation (default: docker).
  The actual platform used for generation is read from config/system-config.yaml.
+ Can be abbreviated as -P.
 
 .PARAMETER TestSet
- Run complete workflow for a specific test set by name (e.g. tutorial01-10, tutorial11-20, tutorial21-30, tutorial31-41).
- See scripts/config/test-projects.json for available test sets. Implies batch mode.
+ Run complete workflow for a specific test set by name (default: generate-all).
+ E.g. tutorial01-10, tutorial11-20, tutorial21-30, tutorial31-41.
+ See scripts/config/test-projects.json for available test sets. Implies batch mode when not "generate-all".
 
 .PARAMETER SkipVenv
  Skip virtual environment activation (use current Python environment).
@@ -116,13 +119,15 @@ param(
  [switch]$Domains,
 
  [Parameter()]
+ [Alias("L")]
  [string]$Language = "python",
 
  [Parameter()]
+ [Alias("P")]
  [string]$Platform = "docker",
 
  [Parameter()]
- [string]$TestSet,
+ [string]$TestSet = "generate-all",
 
  [switch]$SkipVenv,
  [switch]$Skip1,
@@ -177,7 +182,7 @@ if (-not (Test-Path $runCompleteScript)) {
 }
 
 # Validate parameters
-$batchMode = $All -or $Tutorial -or $NonTutorial -or $Domains -or $TestSet
+$batchMode = $All -or $Tutorial -or $NonTutorial -or $Domains -or ($TestSet -ne "generate-all")
 if (-not $batchMode) {
  if ([string]::IsNullOrWhiteSpace($ExamplePath)) {
   Write-ErrorMsg "Error: ExamplePath is required when no batch switch (-All, -Tutorial, -NonTutorial, -Domains, -TestSet) is specified."
@@ -242,9 +247,8 @@ if ($batchMode) {
  $testSetName = if ($Tutorial) { "tutorial-all" }
  elseif ($NonTutorial) { "non-tutorial" }
  elseif ($Domains) { "domains" }
- elseif ($TestSet) { $TestSet }
- else { $null }
- if ($testSetName) {
+ else { $TestSet }
+ if ($testSetName -ne "generate-all") {
  $pythonArgs += "--test-set"
  $pythonArgs += $testSetName
  }

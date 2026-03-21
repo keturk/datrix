@@ -31,7 +31,7 @@ AI agents run in a **bash** shell, not PowerShell. All examples below use PowerS
 
 ### Code Generation
 
-Language and platform are read from config (`system-config.yaml` and service configs), not from CLI flags. Do not use `--target`, `--generators`, or `--platforms` (removed).
+Language and platform default to config values (`system-config.yaml` and service configs). `.\dev\generate.ps1 -Language` / `-Platform` forward to `datrix generate` as `--language` and `--hosting` (the script’s `-Platform` is the output-path segment: docker / kubernetes / k8s). Use `-ServicePlatform <flavor>` to pass `datrix generate --platform` (service flavor: compose, ecs-fargate, …). You can also call `datrix generate` with `--language/-L`, `--hosting/-H`, `--platform/-P` directly. Do not use `--target`, `--generators`, or `--platforms` (removed).
 
 | Task | Command |
 |------|---------|
@@ -40,6 +40,10 @@ Language and platform are read from config (`system-config.yaml` and service con
 | Generate tutorials only | `.\dev\generate.ps1 -Tutorial` |
 | Generate by test set | `.\dev\generate.ps1 -TestSet tutorial01-10` |
 | Generate for TypeScript | `.\dev\generate.ps1 -All -L typescript` |
+| Validate TypeScript subset | `.\dev\generate.ps1 -TestSet typescript-validation -L typescript` |
+| Override language (single project) | `.\dev\generate.ps1 <source.dtrx> <output-dir> -L typescript` |
+| Override hosting + service flavor | `.\dev\generate.ps1 <source.dtrx> <out> -Platform kubernetes -ServicePlatform kubernetes` |
+| Override via CLI only | `datrix generate --source system.dtrx --output ./gen --hosting aws --platform ecs-fargate` |
 | Check .dtrx syntax | `.\dev\syntax-checker.ps1 <file.dtrx>` |
 
 ### Testing
@@ -143,6 +147,7 @@ For `generate.ps1` and `run-complete.ps1` batch mode:
 | `tutorial21-30` | Tutorials 21-30 (background jobs through GraphQL) |
 | `tutorial31-41` | Tutorials 31-41 (advanced queries through file operations) |
 | `tutorial-all` | All tutorials 01-41 |
+| `typescript-validation` | Representative subset for TypeScript validation (01-basic-entity, 03-basic-api, 05-relationships, 09-events, 15-cache, 20-cqrs, 21-background-jobs, blog-cms) |
 | `domains` | All domain examples (ecommerce, healthcare, etc.) |
 | `generate-all` | Every example (default for `-All`) |
 
