@@ -123,7 +123,6 @@ function Format-CleanupSize {
  .SYNOPSIS
  Formats a byte size for display in cleanup scripts (KB / MB / GB).
  #>
- [CmdletBinding()]
  param(
   [Parameter(Mandatory = $true)]
   [long]$Size
@@ -146,14 +145,13 @@ function Get-CleanupFolderSize {
  .SYNOPSIS
  Returns total size in bytes of all files under a folder (recursive).
  #>
- [CmdletBinding()]
  param(
   [Parameter(Mandatory = $true)]
   [string]$Path
  )
 
- $size = 0
- Get-ChildItem -Path $Path -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+ $size = [long]0
+ Get-ChildItem -LiteralPath $Path -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
   $size += $_.Length
  }
  return $size
@@ -167,7 +165,6 @@ function Get-CleanupFolderContents {
  .PARAMETER WarnOnFolderReadError
  If set, writes a dark-yellow warning when a folder cannot be read (tasks cleanup behavior).
  #>
- [CmdletBinding()]
  param(
   [Parameter(Mandatory = $true)]
   [string]$Path,
@@ -179,12 +176,12 @@ function Get-CleanupFolderContents {
  )
 
  $contents = [System.Collections.ArrayList]@()
- if (-not (Test-Path $Path)) {
+ if (-not (Test-Path -LiteralPath $Path)) {
   return $contents
  }
 
  try {
-  $items = Get-ChildItem -Path $Path -ErrorAction SilentlyContinue
+  $items = Get-ChildItem -LiteralPath $Path -ErrorAction SilentlyContinue
   if ($null -eq $items) {
    return $contents
   }

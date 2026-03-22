@@ -106,7 +106,7 @@ try {
  $thresholdInfo = if ($Threshold -gt 0) { ", threshold=$Threshold" } else { "" }
  Write-Host "Running large-files (top=$Top, format=$Format$thresholdInfo) for all projects: $($projectsToAnalyze -join ', ')" -ForegroundColor Cyan
  } elseif ($Projects.Count -gt 0) {
- $normalized = $Projects | ForEach-Object { Normalize-DatrixProjectInput -ProjectInput $_ }
+ $normalized = $Projects | ForEach-Object { ConvertTo-DatrixProjectName -ProjectInput $_ }
  $projectsToAnalyze = $normalized | Where-Object { $_ -ne "datrix" }
  if ($projectsToAnalyze.Count -eq 0) {
  Write-Host "ERROR: No valid projects specified (datrix is excluded)." -ForegroundColor Red

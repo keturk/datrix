@@ -816,6 +816,49 @@ def _run_npm_install(service_dir: Path, label: str, parallel: bool) -> bool:
     return success
 
 
+def _write_ts_unit_run_tests_summary_log(
+    project: Path,
+    results_dir: Path,
+    *,
+    total_passed: int,
+    total_failed: int,
+    total_errors: int,
+    total_skipped: int,
+    all_success: bool,
+) -> None:
+    """
+    Write run-tests-summary.log for TypeScript unit test runs.
+
+    Matches the filename and markers parsed by status_run_tests.py (same as
+    generated Python tests/run_tests.py). The previous summary.log name was
+    never picked up by the status reporter.
+    """
+    stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    lines: list[str] = [
+        "=" * 40,
+        "Run Tests Summary Log",
+        "=" * 40,
+        f"Project: {project}",
+        f"Timestamp: {stamp}",
+        "=" * 40,
+        "",
+        f"Total Passed: {total_passed}",
+        f"Total Failed: {total_failed}",
+        f"Total Errors: {total_errors}",
+        f"Total Skipped: {total_skipped}",
+        "",
+    ]
+    total_issues = total_failed + total_errors
+    if not all_success or total_issues > 0:
+        lines.append("Tests FAILED!")
+    elif total_passed == 0:
+        lines.append("NO TESTS COLLECTED — nothing passed!")
+    else:
+        lines.append("All tests PASSED!")
+    summary_path = results_dir / "run-tests-summary.log"
+    summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel: bool = False) -> dict:
     """
     Helper function to run unit tests for a single project.
@@ -854,7 +897,34 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
             "output": output if parallel else None,
         }
 
-    # --- TypeScript project: per-service package.json with "test" script ---
+    # --- TypeScript project: prefer generated tests/run-tests.js ---
+    ts_run_tests_js = project / "tests" / "run-tests.js"
+    if ts_run_tests_js.exists():
+        node = shutil.which("node")
+        if node is None:
+            print_error(f" node not found on PATH — skipping {project_name}")
+            return {"name": str(project_name), "success": False, **empty_stats, "output": None}
+        cmd = [node, str(ts_run_tests_js), "--unit"]
+        if parallel:
+            cmd.append("--parallel")
+        success, output = run_command(
+            cmd,
+            cwd=project,
+            description=f"Unit tests for {project_name}" if not parallel else "",
+            capture_output=True,
+        )
+        stats = parse_test_statistics(output) if output else empty_stats
+        return {
+            "name": str(project_name),
+            "success": success,
+            "passed": stats["passed"],
+            "failed": stats["failed"],
+            "errors": stats["errors"],
+            "skipped": stats["skipped"],
+            "output": output if parallel else None,
+        }
+
+    # --- TypeScript project fallback: per-service package.json with "test" script ---
     ts_service_dirs = _find_ts_service_dirs(project)
     if ts_service_dirs:
         npm = _find_npm()
@@ -902,18 +972,18 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
                 total_errors += stats["errors"]
                 total_skipped += stats["skipped"]
                 # Save per-service output to results dir
-                svc_log = results_dir / f"{svc_dir.name}.log"
+                svc_log = results_dir / f"{svc_dir.name}-tests.log"
                 svc_log.write_text(_strip_ansi(output), encoding="utf-8")
 
-        # Save combined summary
-        summary_lines = [
-            f"Total Passed: {total_passed}",
-            f"Total Failed: {total_failed}",
-            f"Total Errors: {total_errors}",
-            f"Total Skipped: {total_skipped}",
-        ]
-        summary_file = results_dir / "summary.log"
-        summary_file.write_text("\n".join(summary_lines) + "\n", encoding="utf-8")
+        _write_ts_unit_run_tests_summary_log(
+            project,
+            results_dir,
+            total_passed=total_passed,
+            total_failed=total_failed,
+            total_errors=total_errors,
+            total_skipped=total_skipped,
+            all_success=all_success,
+        )
         if not parallel:
             print_info(f" Results saved to: {results_dir.relative_to(project)}")
 

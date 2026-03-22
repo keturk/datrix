@@ -81,7 +81,7 @@ try {
  $useAll = $true
  Write-Host "Dependency (mode=$Mode) for all Datrix packages" -ForegroundColor Cyan
  } elseif ($Projects.Count -gt 0) {
- $packageFilter = ($Projects | ForEach-Object { Normalize-DatrixProjectInput -ProjectInput $_ }) | Where-Object { $_ -ne "datrix" }
+ $packageFilter = ($Projects | ForEach-Object { ConvertTo-DatrixProjectName -ProjectInput $_ }) | Where-Object { $_ -ne "datrix" }
  if ($packageFilter.Count -eq 0) {
  Write-Host "ERROR: No valid projects specified (datrix is excluded)." -ForegroundColor Red
  exit 1
