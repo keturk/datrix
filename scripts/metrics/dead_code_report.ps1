@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env pwsh
+#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
  Dead-code report: never referenced vs only referenced by tests (two-pass Vulture).
@@ -56,11 +56,11 @@ param(
 $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$datrixCommon = Split-Path -Parent (Split-Path -Parent $scriptDir)
-$datrixRoot = Split-Path -Parent $datrixCommon
-
-$commonDir = Join-Path $datrixCommon "scripts\common"
+$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
+Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 $venvUtilsScript = Join-Path $commonDir "venv.ps1"
+$workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
+$datrixCommon = Join-Path $workspaceRoot "datrix"
 $deadCodeReportPy = Join-Path $datrixCommon "scripts\library\metrics\dead_code_report.py"
 
 if (-not (Test-Path $venvUtilsScript)) {
@@ -90,7 +90,7 @@ if (-not (Ensure-DatrixVenv)) {
 
 try {
  $pyArgs = @(
-  "--workspace-root", $datrixRoot,
+  "--workspace-root", $workspaceRoot,
   "--min-confidence", $MinConfidence,
   "--output", $Output
  )

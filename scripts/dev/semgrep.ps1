@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env pwsh
+#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
     Run Semgrep with Datrix-specific rules across the monorepo.
@@ -85,6 +85,7 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $scriptsDir = Split-Path -Parent $scriptDir
 $commonDir = Join-Path $scriptsDir "common"
+Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 $libraryDir = Join-Path $scriptsDir "library"
 $pythonScript = Join-Path $libraryDir "dev\semgrep_scanner.py"
 

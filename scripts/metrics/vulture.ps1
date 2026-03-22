@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env pwsh
+#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
  Run Vulture (dead-code detection) across one or more Datrix projects.
@@ -55,10 +55,8 @@ param(
 $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$datrixCommon = Split-Path -Parent (Split-Path -Parent $scriptDir)
-$datrixRoot = Split-Path -Parent $datrixCommon
-
-$commonDir = Join-Path $datrixCommon "scripts\common"
+$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
+Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 $venvUtilsScript = Join-Path $commonDir "venv.ps1"
 $defaultExcludePattern = "*\tests\*,*\test\*,*__pycache__*,*.git*"
 
@@ -68,53 +66,19 @@ if (-not (Test-Path $venvUtilsScript)) {
 }
 . $venvUtilsScript
 
-function Get-DatrixProjects {
- $projects = @()
- if (Test-Path $datrixRoot) {
- Get-ChildItem -Path $datrixRoot -Directory |
-  Where-Object { $_.Name -like "datrix-*" -and $_.Name -ne "datrix" } |
-  ForEach-Object { $projects += $_.Name }
- }
- return $projects | Sort-Object
-}
+$workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
 
-function Normalize-ProjectInput {
- param([string]$ProjectInput)
- $trimmed = $ProjectInput.Trim()
- if ($trimmed -match '^\.|^\.\\|^[A-Za-z]:\\') {
- try {
- $resolved = Resolve-Path -Path $trimmed -ErrorAction Stop
- return Split-Path -Leaf $resolved.Path
- } catch {
- return Split-Path -Leaf ($trimmed -replace '[\\/]+$', '')
- }
- }
- return $trimmed
-}
-
-function Deactivate-Venv {
- if ($env:VIRTUAL_ENV) {
- try {
- if (Get-Command deactivate -ErrorAction SilentlyContinue) { deactivate }
- else {
- $env:VIRTUAL_ENV = $null
- $env:VIRTUAL_ENV_PROMPT = $null
- if ($env:_OLD_VIRTUAL_PATH) { $env:PATH = $env:_OLD_VIRTUAL_PATH; $env:_OLD_VIRTUAL_PATH = $null }
- }
- } catch { $env:VIRTUAL_ENV = $null; $env:VIRTUAL_ENV_PROMPT = $null }
- }
-}
-function Invoke-Cleanup { Deactivate-Venv }
+function Invoke-Cleanup { Disable-DatrixVenv }
 Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
 
 try {
  $projectsToAnalyze = @()
  if ($All) {
- $projectsToAnalyze = Get-DatrixProjects
- if ($projectsToAnalyze.Count -eq 0) { Write-Host "ERROR: No Datrix projects in: $datrixRoot" -ForegroundColor Red; exit 1 }
+ $projectsToAnalyze = Get-DatrixPackageNamesGlob -WorkspaceRoot $workspaceRoot
+ if ($projectsToAnalyze.Count -eq 0) { Write-Host "ERROR: No Datrix projects in: $workspaceRoot" -ForegroundColor Red; exit 1 }
  Write-Host "Running combined Vulture scan for all projects: $($projectsToAnalyze -join ', ')" -ForegroundColor Cyan
  } elseif ($Projects.Count -gt 0) {
- $projectsToAnalyze = ($Projects | ForEach-Object { Normalize-ProjectInput $_ }) | Where-Object { $_ -ne "datrix" }
+ $projectsToAnalyze = ($Projects | ForEach-Object { Normalize-DatrixProjectInput -ProjectInput $_ }) | Where-Object { $_ -ne "datrix" }
  if ($projectsToAnalyze.Count -eq 0) { Write-Host "ERROR: No valid projects (datrix excluded)." -ForegroundColor Red; exit 1 }
  $projectsToAnalyze = $projectsToAnalyze | Select-Object -Unique
  Write-Host "Running combined Vulture scan for: $($projectsToAnalyze -join ', ')" -ForegroundColor Cyan
@@ -146,7 +110,7 @@ try {
 
  $scanPaths = @()
  foreach ($project in $projectsToAnalyze) {
- $projectRoot = Join-Path $datrixRoot $project
+ $projectRoot = Join-Path $workspaceRoot $project
  if (-not (Test-Path $projectRoot)) {
  Write-Host "Warning: Project not found, skipping: $project" -ForegroundColor Yellow
  continue

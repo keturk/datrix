@@ -115,6 +115,10 @@ param(
  [string]$Platform = "docker",
 
  [Parameter()]
+ [Alias("H")]
+ [string]$Hosting = "",
+
+ [Parameter()]
  [string]$ServicePlatform = "",
 
  [Parameter()]
@@ -289,6 +293,11 @@ function Write-TeeOutput {
  $utf8Encoding = New-Object System.Text.UTF8Encoding($false)
  $logStream = $null
  if ($LogFilePath) {
+ # Ensure the log directory exists (may have been removed by an external process)
+ $logParent = Split-Path -Parent $LogFilePath
+ if (-not (Test-Path $logParent)) {
+ $null = New-Item -ItemType Directory -Path $logParent -Force -ErrorAction SilentlyContinue
+ }
  try {
  $logStream = [System.IO.File]::Open($LogFilePath, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
  $logWriter = New-Object System.IO.StreamWriter($logStream, $utf8Encoding)
@@ -342,6 +351,18 @@ function Write-GenerationSummaryToLog {
  [Parameter(Mandatory = $true)]
  [string]$LogFilePath
  )
+ # Ensure the log file directory and file exist before trying to read.
+ # The .generated/.results/ directory can disappear on fresh runs if an
+ # external process (Windows Search Indexer, Defender, etc.) removes the
+ # near-empty directory while generation is running.
+ $logDir = Split-Path -Parent $LogFilePath
+ if (-not (Test-Path $logDir)) {
+ $null = New-Item -ItemType Directory -Path $logDir -Force -ErrorAction SilentlyContinue
+ }
+ if (-not (Test-Path $LogFilePath)) {
+ return
+ }
+
  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
  try {
  $lines = [System.IO.File]::ReadAllLines($LogFilePath, $utf8NoBom)
@@ -521,6 +542,10 @@ $("=" * 80)
  $pythonArgs += "--platform"
  $pythonArgs += $Platform
  }
+ if (-not [string]::IsNullOrWhiteSpace($Hosting)) {
+ $pythonArgs += "--hosting"
+ $pythonArgs += $Hosting
+ }
  if (-not [string]::IsNullOrWhiteSpace($ServicePlatform)) {
  $pythonArgs += "--service-platform"
  $pythonArgs += $ServicePlatform
@@ -576,6 +601,10 @@ $("=" * 80)
  if ($Platform -ne "docker") {
  $pythonArgs += "--platform"
  $pythonArgs += $Platform
+ }
+ if (-not [string]::IsNullOrWhiteSpace($Hosting)) {
+ $pythonArgs += "--hosting"
+ $pythonArgs += $Hosting
  }
  if (-not [string]::IsNullOrWhiteSpace($ServicePlatform)) {
  $pythonArgs += "--service-platform"

@@ -29,54 +29,6 @@ Write-Host ""
 
 $allTaskFiles = @()
 
-# Function to get folder contents recursively
-function Get-FolderContents {
- param(
- [string]$Path,
- [string]$Indent = " "
- )
-
- $contents = [System.Collections.ArrayList]@()
- 
- if (-not (Test-Path $Path)) {
- return $contents
- }
-
- try {
- $items = Get-ChildItem -Path $Path -ErrorAction SilentlyContinue
- if ($null -ne $items) {
- # Handle case where Get-ChildItem returns a single object instead of an array
- if ($items -isnot [System.Array]) {
- $items = @($items)
- }
- $items = $items | Sort-Object Name
- 
- foreach ($item in $items) {
- $itemInfo = [PSCustomObject]@{
- Name = $item.Name
- FullPath = $item.FullName
- IsDirectory = $item.PSIsContainer
- Indent = $Indent
- }
- $null = $contents.Add($itemInfo)
- 
- # Recursively get subfolder contents
- if ($item.PSIsContainer) {
- $subContents = Get-FolderContents -Path $item.FullName -Indent "$Indent "
- if ($null -ne $subContents -and $subContents -is [System.Collections.ArrayList] -and $subContents.Count -gt 0) {
- $contents.AddRange($subContents)
- }
- }
- }
- }
- } catch {
- # If there's an error reading the folder, just return empty contents
- Write-Host " Warning: Could not read folder contents: $Path" -ForegroundColor DarkYellow
- }
- 
- return $contents
-}
-
 # Function to remove empty folders recursively (depth-first)
 function Remove-EmptyFoldersRecursive {
  param(
@@ -242,7 +194,7 @@ if ($allTaskFiles.Count -eq 0) {
  Write-Host " .tasks" -ForegroundColor White
  Write-Host " $($tasksFolderInfo.Path)" -ForegroundColor Gray
  
- $contents = Get-FolderContents -Path $tasksFolderInfo.Path
+ $contents = Get-CleanupFolderContents -Path $tasksFolderInfo.Path -WarnOnFolderReadError
  if ($contents.Count -eq 0) {
  Write-Host " (empty)" -ForegroundColor DarkGray
  } else {
@@ -291,7 +243,7 @@ if ($allTaskFiles.Count -eq 0) {
  Write-Host " $tasksFolderPath" -ForegroundColor Gray
  
  # Display all files and subfolders
- $contents = Get-FolderContents -Path $tasksFolderPath
+ $contents = Get-CleanupFolderContents -Path $tasksFolderPath -WarnOnFolderReadError
  if ($contents.Count -eq 0) {
  Write-Host " (empty)" -ForegroundColor DarkGray
  } else {

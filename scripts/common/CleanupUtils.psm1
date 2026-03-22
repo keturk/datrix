@@ -118,6 +118,108 @@ function Remove-EmptyParentFolders {
  }
 }
 
+function Format-CleanupSize {
+ <#
+ .SYNOPSIS
+ Formats a byte size for display in cleanup scripts (KB / MB / GB).
+ #>
+ [CmdletBinding()]
+ param(
+  [Parameter(Mandatory = $true)]
+  [long]$Size
+ )
+
+ if ($Size -ge 1GB) {
+  return "{0:N2} GB" -f ($Size / 1GB)
+ }
+ if ($Size -ge 1MB) {
+  return "{0:N2} MB" -f ($Size / 1MB)
+ }
+ if ($Size -ge 1KB) {
+  return "{0:N2} KB" -f ($Size / 1KB)
+ }
+ return "$Size bytes"
+}
+
+function Get-CleanupFolderSize {
+ <#
+ .SYNOPSIS
+ Returns total size in bytes of all files under a folder (recursive).
+ #>
+ [CmdletBinding()]
+ param(
+  [Parameter(Mandatory = $true)]
+  [string]$Path
+ )
+
+ $size = 0
+ Get-ChildItem -Path $Path -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+  $size += $_.Length
+ }
+ return $size
+}
+
+function Get-CleanupFolderContents {
+ <#
+ .SYNOPSIS
+ Lists files and directories under a path recursively for tree-style display.
+
+ .PARAMETER WarnOnFolderReadError
+ If set, writes a dark-yellow warning when a folder cannot be read (tasks cleanup behavior).
+ #>
+ [CmdletBinding()]
+ param(
+  [Parameter(Mandatory = $true)]
+  [string]$Path,
+
+  [Parameter(Mandatory = $false)]
+  [string]$Indent = " ",
+
+  [switch]$WarnOnFolderReadError
+ )
+
+ $contents = [System.Collections.ArrayList]@()
+ if (-not (Test-Path $Path)) {
+  return $contents
+ }
+
+ try {
+  $items = Get-ChildItem -Path $Path -ErrorAction SilentlyContinue
+  if ($null -eq $items) {
+   return $contents
+  }
+  if ($items -isnot [System.Array]) {
+   $items = @($items)
+  }
+  $items = $items | Sort-Object Name
+
+  foreach ($item in $items) {
+   $itemInfo = [PSCustomObject]@{
+    Name        = $item.Name
+    FullPath    = $item.FullName
+    IsDirectory = $item.PSIsContainer
+    Indent      = $Indent
+   }
+   $null = $contents.Add($itemInfo)
+
+   if ($item.PSIsContainer) {
+    $subContents = Get-CleanupFolderContents -Path $item.FullName -Indent "$Indent " -WarnOnFolderReadError:$WarnOnFolderReadError
+    if ($null -ne $subContents -and $subContents.Count -gt 0) {
+     foreach ($subItem in $subContents) {
+      $null = $contents.Add($subItem)
+     }
+    }
+   }
+  }
+ } catch {
+  if ($WarnOnFolderReadError) {
+   Write-Host " Warning: Could not read folder contents: $Path" -ForegroundColor DarkYellow
+  }
+ }
+
+ return $contents
+}
+
 function Confirm-YesNo {
  <#
  .SYNOPSIS
@@ -146,4 +248,4 @@ function Confirm-YesNo {
 }
 
 # Export functions
-Export-ModuleMember -Function Remove-EmptyParentFolders, Confirm-YesNo
+Export-ModuleMember -Function Remove-EmptyParentFolders, Confirm-YesNo, Format-CleanupSize, Get-CleanupFolderSize, Get-CleanupFolderContents

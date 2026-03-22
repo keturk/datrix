@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env pwsh
+#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
  Find and list top N files by line count for one or more Datrix projects.
@@ -71,94 +71,42 @@ param(
 # Error handling - ensure cleanup on exit
 $ErrorActionPreference = "Stop"
 
-# Script directory
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-# Get datrix folder (scripts/metrics -> scripts -> datrix)
-$datrixCommon = Split-Path -Parent (Split-Path -Parent $scriptDir)
-# Get workspace root (parent of datrix)
-$datrixRoot = Split-Path -Parent $datrixCommon
-
-$libraryDir = Join-Path $datrixCommon "scripts\library"
-$largeFilesScript = Join-Path $libraryDir "metrics\large_files.py"
-
-$commonDir = Join-Path $datrixCommon "scripts\common"
+$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
+Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 $venvUtilsScript = Join-Path $commonDir "venv.ps1"
-
 if (-not (Test-Path $venvUtilsScript)) {
  Write-Error "Error: Common venv utilities not found at: $venvUtilsScript"
  exit 1
 }
 . $venvUtilsScript
 
+$workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
+$datrixCommon = Join-Path $workspaceRoot "datrix"
+$libraryDir = Join-Path $datrixCommon "scripts\library"
+$largeFilesScript = Join-Path $libraryDir "metrics\large_files.py"
+
 if (-not (Test-Path $largeFilesScript)) {
  Write-Error "Error: large_files.py not found at: $largeFilesScript"
  exit 1
 }
 
-function Get-DatrixProjects {
- $projects = @()
- if (Test-Path $datrixRoot) {
- Get-ChildItem -Path $datrixRoot -Directory | Where-Object {
- $_.Name -like "datrix-*"
- } | ForEach-Object {
- $projects += $_.Name
- }
- }
- return $projects | Sort-Object
-}
-
-function Normalize-ProjectInput {
- param([string]$ProjectInput)
- $trimmedInput = $ProjectInput.Trim()
- $isPath = $trimmedInput -match '^\.|^\.\\|^[A-Za-z]:\\'
- if ($isPath) {
- try {
- $resolvedPath = Resolve-Path -Path $trimmedInput -ErrorAction Stop
- return Split-Path -Leaf $resolvedPath.Path
- } catch {
- $cleaned = $trimmedInput -replace '[\\/]+$', ''
- return Split-Path -Leaf $cleaned
- }
- }
- return $trimmedInput
-}
-
-function Deactivate-Venv {
- if ($env:VIRTUAL_ENV) {
- try {
- if (Get-Command deactivate -ErrorAction SilentlyContinue) {
- deactivate
- } else {
- $env:VIRTUAL_ENV = $null
- $env:VIRTUAL_ENV_PROMPT = $null
- if ($env:_OLD_VIRTUAL_PATH) {
- $env:PATH = $env:_OLD_VIRTUAL_PATH
- $env:_OLD_VIRTUAL_PATH = $null
- }
- }
- } catch {
- $env:VIRTUAL_ENV = $null
- $env:VIRTUAL_ENV_PROMPT = $null
- }
- }
-}
-
-function Invoke-Cleanup { Deactivate-Venv }
+function Invoke-Cleanup { Disable-DatrixVenv }
 Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
 
 try {
  $projectsToAnalyze = @()
 
  if ($All) {
- $projectsToAnalyze = Get-DatrixProjects
+ $projectsToAnalyze = Get-DatrixPackageNamesGlob -WorkspaceRoot $workspaceRoot
  if ($projectsToAnalyze.Count -eq 0) {
- Write-Host "ERROR: No Datrix projects found in: $datrixRoot" -ForegroundColor Red
+ Write-Host "ERROR: No Datrix projects found in: $workspaceRoot" -ForegroundColor Red
  exit 1
  }
  $thresholdInfo = if ($Threshold -gt 0) { ", threshold=$Threshold" } else { "" }
  Write-Host "Running large-files (top=$Top, format=$Format$thresholdInfo) for all projects: $($projectsToAnalyze -join ', ')" -ForegroundColor Cyan
  } elseif ($Projects.Count -gt 0) {
- $normalized = $Projects | ForEach-Object { Normalize-ProjectInput -ProjectInput $_ }
+ $normalized = $Projects | ForEach-Object { Normalize-DatrixProjectInput -ProjectInput $_ }
  $projectsToAnalyze = $normalized | Where-Object { $_ -ne "datrix" }
  if ($projectsToAnalyze.Count -eq 0) {
  Write-Host "ERROR: No valid projects specified (datrix is excluded)." -ForegroundColor Red
@@ -190,7 +138,7 @@ try {
  Write-Host " -VerboseOutput Verbose output from the script" -ForegroundColor Gray
  Write-Host " -Dbg Debug output" -ForegroundColor Gray
  Write-Host ""
- $available = Get-DatrixProjects
+ $available = Get-DatrixPackageNamesGlob -WorkspaceRoot $workspaceRoot
  if ($available.Count -gt 0) {
  Write-Host "Available projects:" -ForegroundColor Yellow
  foreach ($p in $available) { Write-Host " - $p" -ForegroundColor Cyan }
@@ -218,7 +166,7 @@ try {
  Write-Host "========================================" -ForegroundColor Cyan
  Write-Host ""
 
- $projectRoot = Join-Path $datrixRoot $project
+ $projectRoot = Join-Path $workspaceRoot $project
  $projectArgs = @(
  $largeFilesScript,
  "--project-root", $projectRoot,

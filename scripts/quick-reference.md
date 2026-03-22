@@ -22,6 +22,8 @@ AI agents run in a **bash** shell, not PowerShell. All examples below use PowerS
 
 **Base path:** `d:/datrix/datrix/scripts/`
 
+**Workspace root:** For scripts under `datrix/scripts/`, `Get-DatrixRoot` (venv) and `Get-DatrixWorkspaceRoot` (DatrixPaths) both refer to the monorepo root. Shared helpers live in `common/DatrixScriptCommon.psm1`.
+
 **Common mistakes to avoid:**
 - `d:\\datrix\\...` — bash strips `\\`, producing broken paths
 - `d:\datrix\...` — bash interprets `\d`, `\t`, etc. as escape sequences

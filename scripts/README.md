@@ -1,4 +1,4 @@
-﻿# Datrix Scripts
+# Datrix Scripts
 
 PowerShell wrapper scripts and Python implementations for development, testing, and maintenance of the Datrix ecosystem.
 
@@ -32,6 +32,17 @@ The scripts follow a **wrapper pattern**:
  - Core business logic
  - Cross-platform compatibility
  - Complex processing
+
+## Project discovery (PowerShell)
+
+Different scripts use different ways to decide which packages to include:
+
+| Use case | Helper (see `common/DatrixScriptCommon.psm1`) | Meaning |
+|----------|-----------------------------------------------|---------|
+| Metrics `-All` (Ruff, complexity, …) | `Get-DatrixPackageNamesGlob` | Every directory under the workspace named `datrix-*` |
+| `test.ps1 -All` | `Get-DatrixTestablePackageNames` | Canonical repos from `DatrixPaths` that exist and have a `tests/` folder |
+| `duplicate.ps1 -Mono` | `Get-DatrixMonoProjectNames` | Ordered canonical package names (`Get-DatrixDirectories`) where the path exists |
+| `dependency.ps1` help text | `Get-DatrixPackageNamesGlobWithPyProject` | `datrix-*` directories that contain `pyproject.toml` |
 
 ## Bash Shell Invocation
 

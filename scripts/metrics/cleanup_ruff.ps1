@@ -30,21 +30,6 @@ Write-Host ""
 $allFiles = [System.Collections.ArrayList]@()
 $totalSize = 0
 
-# Function to format size
-function Format-Size {
- param([long]$Size)
-
- if ($Size -ge 1GB) {
- return "{0:N2} GB" -f ($Size / 1GB)
- } elseif ($Size -ge 1MB) {
- return "{0:N2} MB" -f ($Size / 1MB)
- } elseif ($Size -ge 1KB) {
- return "{0:N2} KB" -f ($Size / 1KB)
- } else {
- return "$Size bytes"
- }
-}
-
 # Function to collect files under .ruff_check for a project
 function Get-RuffCheckFiles {
  param(
@@ -96,7 +81,7 @@ if ($allFiles.Count -eq 0) {
  exit 0
 }
 
-Write-Host "Found $($allFiles.Count) file(s) (Total: $(Format-Size $totalSize)):" -ForegroundColor Cyan
+Write-Host "Found $($allFiles.Count) file(s) (Total: $(Format-CleanupSize -Size $totalSize)):" -ForegroundColor Cyan
 Write-Host ""
 
 $groupedByProject = $allFiles | Group-Object -Property Project
@@ -106,7 +91,7 @@ foreach ($group in $groupedByProject) {
  foreach ($file in $group.Group) {
  $latestTag = if ($file.IsLatest) { " [LATEST]" } else { "" }
  $color = if ($file.IsLatest) { "Green" } else { "White" }
- Write-Host " $($file.Name) ($(Format-Size $file.Size))$latestTag" -ForegroundColor $color
+ Write-Host " $($file.Name) ($(Format-CleanupSize -Size $file.Size))$latestTag" -ForegroundColor $color
  Write-Host " $($file.FullPath)" -ForegroundColor Gray
  }
  Write-Host ""
@@ -138,7 +123,7 @@ if ($Force) {
  } else {
  Write-Host "WARNING: You are about to delete ALL $($filesToDelete.Count) log file(s)" -ForegroundColor Yellow
  }
- Write-Host " Total size: $(Format-Size $deleteSize)" -ForegroundColor Yellow
+ Write-Host " Total size: $(Format-CleanupSize -Size $deleteSize)" -ForegroundColor Yellow
  Write-Host "========================================" -ForegroundColor Yellow
  Write-Host ""
 
@@ -188,7 +173,7 @@ if ($Force) {
  Write-Host ""
  Write-Host "========================================" -ForegroundColor Cyan
  if ($errorCount -eq 0) {
- Write-Host "Successfully deleted $deletedCount file(s) ($(Format-Size $deletedSize))" -ForegroundColor Green
+ Write-Host "Successfully deleted $deletedCount file(s) ($(Format-CleanupSize -Size $deletedSize))" -ForegroundColor Green
  } else {
  Write-Host "Deleted $deletedCount file(s), $errorCount error(s)" -ForegroundColor Yellow
  }

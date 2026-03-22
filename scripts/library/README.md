@@ -65,7 +65,7 @@ Test execution utilities.
 1. Create Python implementation in appropriate `library/` subfolder
 2. Create PowerShell wrapper in corresponding category folder
 3. Wrapper should:
- - Import `common/venv.ps1` and `common/DatrixPaths.psm1`
+ - Import `common/DatrixScriptCommon.psm1` (or `DatrixPaths.psm1` only if no shared discovery needed), dot-source `common/venv.ps1`
  - Call `Ensure-DatrixVenv` and `Ensure-DatrixPackagesInstalled`
  - Execute Python script with proper argument passing
  - Handle cleanup on exit

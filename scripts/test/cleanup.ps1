@@ -27,70 +27,6 @@ Write-Host ""
 $allTestResultsFolders = [System.Collections.ArrayList]@()
 $totalSize = 0
 
-# Function to get folder size
-function Get-FolderSize {
- param([string]$Path)
-
- $size = 0
- Get-ChildItem -Path $Path -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
- $size += $_.Length
- }
- return $size
-}
-
-# Function to format size
-function Format-Size {
- param([long]$Size)
-
- if ($Size -ge 1GB) {
- return "{0:N2} GB" -f ($Size / 1GB)
- } elseif ($Size -ge 1MB) {
- return "{0:N2} MB" -f ($Size / 1MB)
- } elseif ($Size -ge 1KB) {
- return "{0:N2} KB" -f ($Size / 1KB)
- } else {
- return "$Size bytes"
- }
-}
-
-# Function to get folder contents recursively
-function Get-FolderContents {
- param(
- [string]$Path,
- [string]$Indent = " "
- )
-
- $contents = [System.Collections.ArrayList]@()
- 
- if (-not (Test-Path $Path)) {
- return $contents
- }
-
- $items = Get-ChildItem -Path $Path -ErrorAction SilentlyContinue | Sort-Object Name
- 
- foreach ($item in $items) {
- $itemInfo = [PSCustomObject]@{
- Name = $item.Name
- FullPath = $item.FullName
- IsDirectory = $item.PSIsContainer
- Indent = $Indent
- }
- $null = $contents.Add($itemInfo)
- 
- # Recursively get subfolder contents (loop Add to avoid PowerShell passing ArrayList as single object to AddRange)
- if ($item.PSIsContainer) {
- $subContents = Get-FolderContents -Path $item.FullName -Indent "$Indent "
- if ($null -ne $subContents -and $subContents.Count -gt 0) {
- foreach ($subItem in $subContents) {
- $null = $contents.Add($subItem)
- }
- }
- }
- }
- 
- return $contents
-}
-
 # Function to collect test results folders
 function Get-TestResultsFolders {
  param(
@@ -102,7 +38,7 @@ function Get-TestResultsFolders {
  return
  }
 
- $size = Get-FolderSize -Path $TestResultsPath
+ $size = Get-CleanupFolderSize -Path $TestResultsPath
  $script:totalSize += $size
 
  $testResultsInfo = [PSCustomObject]@{
@@ -138,7 +74,7 @@ if ($allTestResultsFolders.Count -eq 0) {
  exit 0
 }
 
-Write-Host "Found $($allTestResultsFolders.Count) .test_results folder(s) (Total: $(Format-Size $totalSize)):" -ForegroundColor Cyan
+Write-Host "Found $($allTestResultsFolders.Count) .test_results folder(s) (Total: $(Format-CleanupSize -Size $totalSize)):" -ForegroundColor Cyan
 Write-Host ""
 
 # Group by parent for display
@@ -147,11 +83,11 @@ $groupedByParent = $allTestResultsFolders | Group-Object -Property Parent
 foreach ($group in $groupedByParent) {
  Write-Host "=== $($group.Name) ===" -ForegroundColor Cyan
  foreach ($folder in $group.Group) {
- Write-Host " .test_results ($(Format-Size $folder.Size))" -ForegroundColor White
+ Write-Host " .test_results ($(Format-CleanupSize -Size $folder.Size))" -ForegroundColor White
  Write-Host " $($folder.FullPath)" -ForegroundColor Gray
  
  # Display all files and subfolders
- $contents = Get-FolderContents -Path $folder.FullPath
+ $contents = Get-CleanupFolderContents -Path $folder.FullPath
  if ($contents.Count -eq 0) {
  Write-Host " (empty)" -ForegroundColor DarkGray
  } else {
@@ -168,7 +104,7 @@ foreach ($group in $groupedByParent) {
 if ($Force) {
  Write-Host "========================================" -ForegroundColor Yellow
  Write-Host "WARNING: You are about to delete ALL $($allTestResultsFolders.Count) .test_results folder(s)" -ForegroundColor Yellow
- Write-Host " Total size: $(Format-Size $totalSize)" -ForegroundColor Yellow
+ Write-Host " Total size: $(Format-CleanupSize -Size $totalSize)" -ForegroundColor Yellow
  Write-Host "========================================" -ForegroundColor Yellow
  Write-Host ""
 
@@ -203,7 +139,7 @@ if ($Force) {
  Write-Host ""
  Write-Host "========================================" -ForegroundColor Cyan
  if ($errorCount -eq 0) {
- Write-Host "Successfully deleted $deletedCount folder(s) ($(Format-Size $deletedSize))" -ForegroundColor Green
+ Write-Host "Successfully deleted $deletedCount folder(s) ($(Format-CleanupSize -Size $deletedSize))" -ForegroundColor Green
  } else {
  Write-Host "Deleted $deletedCount folder(s), $errorCount error(s)" -ForegroundColor Yellow
  }

@@ -99,27 +99,36 @@ def load_config() -> dict:
   return json.load(f)
 
 
-def get_default_output_path(example_path: str) -> Path:
+def get_default_output_path(
+ example_path: str,
+ language: str | None = None,
+ platform: str | None = None,
+) -> Path:
  """
- Derive the default output path for a single example from test-projects.json.
+ Derive the default output path for a single example.
 
- Uses defaultLanguage and defaultPlatform from the config so callers do not
- need to compute the path when running a single example without -OutputPath.
+ When *language* or *platform* are provided they override the defaults
+ from test-projects.json, so ``-L typescript`` produces an output path
+ under ``.generated/typescript/…`` instead of ``.generated/python/…``.
 
  Args:
   example_path: Path to the .dtrx file (absolute or relative, must be under examples/).
+  language: Override target language (e.g. "typescript").  Falls back to
+            ``defaultLanguage`` in test-projects.json when *None*.
+  platform: Override target platform (e.g. "docker").  Falls back to
+            ``defaultPlatform`` in test-projects.json when *None*.
 
  Returns:
-  Absolute path under datrix_root/.generated/ for the default language/platform.
+  Absolute path under datrix_root/.generated/ for the resolved language/platform.
 
  Raises:
   FileNotFoundError: If the config file does not exist.
   ValueError: If config lacks defaultLanguage/defaultPlatform or example_path is not under examples/.
  """
  config = load_config()
- default_language = config.get("defaultLanguage")
- default_platform = config.get("defaultPlatform")
- if not default_language or not default_platform:
+ resolved_language = language or config.get("defaultLanguage")
+ resolved_platform = platform or config.get("defaultPlatform")
+ if not resolved_language or not resolved_platform:
   available = [k for k in ("defaultLanguage", "defaultPlatform") if config.get(k)]
   raise ValueError(
    "test-projects.json must define defaultLanguage and defaultPlatform. "
@@ -134,7 +143,7 @@ def get_default_output_path(example_path: str) -> Path:
   )
  source_path = normalized[idx:]  # "examples/..." (with or without leading path)
  output_relative = build_output_path(
-  source_path, default_language, default_platform
+  source_path, resolved_language, resolved_platform
  )
  datrix_root = get_datrix_root()
  return datrix_root / ".generated" / output_relative

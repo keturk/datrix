@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env pwsh
+#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
  Run tests for Datrix projects using test_project.py.
@@ -131,10 +131,10 @@ $testProjectScript = Join-Path $libraryDir "test\test_project.py"
 
 # Import common modules
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
+Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 . (Join-Path $commonDir "venv.ps1")
 
-# Get datrix root
+# Monorepo workspace root (same value as Get-DatrixRoot from venv for scripts under datrix/scripts)
 $datrixRoot = Get-DatrixRoot
 $datrixWorkspaceRoot = Get-DatrixWorkspaceRoot
 
@@ -144,63 +144,9 @@ if (-not (Test-Path $testProjectScript)) {
  exit 1
 }
 
-# Function to discover all Datrix projects
-function Get-DatrixProjects {
- $projects = @()
- $directories = Get-DatrixDirectoryPaths
- foreach ($dirPath in $directories) {
- $projectName = Split-Path -Leaf $dirPath
- # Only include projects that have a tests directory
- if ((Test-Path (Join-Path $dirPath "tests"))) {
- $projects += $projectName
- }
- }
- return $projects | Sort-Object
-}
-
-# Function to normalize project input (handles both project names and folder paths)
-function Normalize-ProjectInput {
- param(
- [string]$ProjectInput
- )
- 
- # Trim whitespace
- $trimmedInput = $ProjectInput.Trim()
- 
- # Check if input looks like a path (starts with . or .\ or is an absolute path)
- $isPath = $trimmedInput -match '^\.|^\.\\|^[A-Za-z]:\\'
- 
- if ($isPath) {
- try {
- # Resolve the path to an absolute path
- $resolvedPath = Resolve-Path -Path $trimmedInput -ErrorAction Stop
- $absolutePath = $resolvedPath.Path
- 
- # Extract the folder name from the path
- $projectName = Split-Path -Leaf $absolutePath
- 
- return $projectName
- } catch {
- # If path resolution fails, try to extract name from the input string
- # Remove trailing slashes and extract the last component
- $cleaned = $trimmedInput -replace '[\\/]+$', ''
- $projectName = Split-Path -Leaf $cleaned
- return $projectName
- }
- } else {
- # Input is already a project name, return as-is
- return $trimmedInput
- }
-}
-
-# Function to deactivate virtual environment
-function Deactivate-Venv {
- Disable-DatrixVenv
-}
-
 # Function to handle cleanup on exit
 function Invoke-Cleanup {
- Deactivate-Venv
+ Disable-DatrixVenv
 }
 
 # Register cleanup on script exit
@@ -215,7 +161,7 @@ try {
  $projectsToTest = @()
 
  if ($All) {
- $projectsToTest = Get-DatrixProjects
+ $projectsToTest = Get-DatrixTestablePackageNames -WorkspaceRoot $datrixWorkspaceRoot
  if ($projectsToTest.Count -eq 0) {
  Write-Host "ERROR: No Datrix projects found in: $datrixWorkspaceRoot" -ForegroundColor Red
  Write-Host ""
@@ -225,10 +171,10 @@ try {
  Write-Host "Running tests for all projects: $($projectsToTest -join ', ')" -ForegroundColor Cyan
  } elseif ($Projects.Count -gt 0) {
  # Normalize project inputs (convert paths to project names if needed)
- $normalizedProjects = $Projects | ForEach-Object { Normalize-ProjectInput -ProjectInput $_ }
+ $normalizedProjects = $Projects | ForEach-Object { Normalize-DatrixProjectInput -ProjectInput $_ }
  
  # Filter to only valid datrix projects
- $allProjects = Get-DatrixProjects
+ $allProjects = Get-DatrixTestablePackageNames -WorkspaceRoot $datrixWorkspaceRoot
  $projectsToTest = $normalizedProjects | Where-Object { $allProjects -contains $_ }
  
  if ($projectsToTest.Count -eq 0) {
@@ -262,7 +208,7 @@ try {
  Write-Host " .\test.ps1 datrix-common -Specific `"tests/unit/test_parser.py`"" -ForegroundColor Cyan
  Write-Host " .\test.ps1 datrix-language -Keyword `"test_basic`"" -ForegroundColor Cyan
  Write-Host ""
- $availableProjects = Get-DatrixProjects
+ $availableProjects = Get-DatrixTestablePackageNames -WorkspaceRoot $datrixWorkspaceRoot
  if ($availableProjects.Count -gt 0) {
  Write-Host "Available projects:" -ForegroundColor Yellow
  foreach ($project in $availableProjects) {

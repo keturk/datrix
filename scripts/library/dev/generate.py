@@ -66,9 +66,14 @@ def _append_datrix_generate_cli_overrides(cmd_args: list[str], args: argparse.Na
     """Append --language, --hosting, and --platform flags for datrix generate from script args."""
     if args.language != "python":
         cmd_args.extend(["--language", args.language])
-    hosting = _hosting_for_path_platform(args.platform)
-    if hosting is not None:
-        cmd_args.extend(["--hosting", hosting])
+    # Explicit --hosting takes priority over derived from --platform
+    explicit_hosting = getattr(args, "hosting", None)
+    if explicit_hosting:
+        cmd_args.extend(["--hosting", explicit_hosting])
+    else:
+        hosting = _hosting_for_path_platform(args.platform)
+        if hosting is not None:
+            cmd_args.extend(["--hosting", hosting])
     if args.service_platform is not None:
         cmd_args.extend(["--platform", args.service_platform])
 
@@ -442,6 +447,7 @@ def main():
     # Batch mode
     parser.add_argument("--language", type=str, default="python", choices=["python", "typescript"], help="Target language")
     parser.add_argument("--platform", type=str, default="docker", choices=["docker", "kubernetes", "k8s"], help="Output path segment; also forwarded as datrix --hosting when not docker")
+    parser.add_argument("--hosting", type=str, default=None, choices=["docker", "kubernetes", "aws", "azure"], help="Explicit hosting platform override (takes priority over --platform derivation)")
     parser.add_argument(
         "--service-platform",
         type=str,

@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env pwsh
+#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
  Run Ruff (lint/format) for one or more Datrix projects.
@@ -71,71 +71,37 @@ param(
 $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$datrixCommon = Split-Path -Parent (Split-Path -Parent $scriptDir)
-$datrixRoot = Split-Path -Parent $datrixCommon
-
-$libraryDir = Join-Path $datrixCommon "scripts\library"
-$ruffScript = Join-Path $libraryDir "metrics\ruff.py"
-$commonDir = Join-Path $datrixCommon "scripts\common"
+$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
+Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 $venvUtilsScript = Join-Path $commonDir "venv.ps1"
-
 if (-not (Test-Path $venvUtilsScript)) {
  Write-Error "Error: Common venv utilities not found at: $venvUtilsScript"
  exit 1
 }
 . $venvUtilsScript
 
+$workspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
+$datrixCommon = Join-Path $workspaceRoot "datrix"
+$libraryDir = Join-Path $datrixCommon "scripts\library"
+$ruffScript = Join-Path $libraryDir "metrics\ruff.py"
+
 if (-not (Test-Path $ruffScript)) {
  Write-Error "Error: ruff.py not found at: $ruffScript"
  exit 1
 }
 
-function Get-DatrixProjects {
- $projects = @()
- if (Test-Path $datrixRoot) {
- Get-ChildItem -Path $datrixRoot -Directory | Where-Object { $_.Name -like "datrix-*" } | ForEach-Object { $projects += $_.Name }
- }
- return $projects | Sort-Object
-}
-
-function Normalize-ProjectInput {
- param([string]$ProjectInput)
- $trimmed = $ProjectInput.Trim()
- if ($trimmed -match '^\.|^\.\\|^[A-Za-z]:\\') {
- try {
- $resolved = Resolve-Path -Path $trimmed -ErrorAction Stop
- return Split-Path -Leaf $resolved.Path
- } catch {
- return Split-Path -Leaf ($trimmed -replace '[\\/]+$', '')
- }
- }
- return $trimmed
-}
-
-function Deactivate-Venv {
- if ($env:VIRTUAL_ENV) {
- try {
- if (Get-Command deactivate -ErrorAction SilentlyContinue) { deactivate }
- else {
- $env:VIRTUAL_ENV = $null
- $env:VIRTUAL_ENV_PROMPT = $null
- if ($env:_OLD_VIRTUAL_PATH) { $env:PATH = $env:_OLD_VIRTUAL_PATH; $env:_OLD_VIRTUAL_PATH = $null }
- }
- } catch { $env:VIRTUAL_ENV = $null; $env:VIRTUAL_ENV_PROMPT = $null }
- }
-}
-function Invoke-Cleanup { Deactivate-Venv }
+function Invoke-Cleanup { Disable-DatrixVenv }
 Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
 
 try {
  $projectsToAnalyze = @()
  if ($All) {
- $projectsToAnalyze = Get-DatrixProjects
- if ($projectsToAnalyze.Count -eq 0) { Write-Host "ERROR: No Datrix projects in: $datrixRoot" -ForegroundColor Red; exit 1 }
+ $projectsToAnalyze = Get-DatrixPackageNamesGlob -WorkspaceRoot $workspaceRoot
+ if ($projectsToAnalyze.Count -eq 0) { Write-Host "ERROR: No Datrix projects in: $workspaceRoot" -ForegroundColor Red; exit 1 }
  $targetLabel = if ($Test) { "tests/" } else { "src/" }
  Write-Host "Running Ruff (mode=$Mode, target=$targetLabel) for all projects: $($projectsToAnalyze -join ', ')" -ForegroundColor Cyan
  } elseif ($Projects.Count -gt 0) {
- $projectsToAnalyze = ($Projects | ForEach-Object { Normalize-ProjectInput $_ }) | Where-Object { $_ -ne "datrix" }
+ $projectsToAnalyze = ($Projects | ForEach-Object { Normalize-DatrixProjectInput -ProjectInput $_ }) | Where-Object { $_ -ne "datrix" }
  if ($projectsToAnalyze.Count -eq 0) { Write-Host "ERROR: No valid projects (datrix excluded)." -ForegroundColor Red; exit 1 }
  $targetLabel = if ($Test) { "tests/" } else { "src/" }
  Write-Host "Running Ruff (mode=$Mode, target=$targetLabel) for: $($projectsToAnalyze -join ', ')" -ForegroundColor Cyan
@@ -163,7 +129,7 @@ try {
  Write-Host ""
  $targetLabel = if ($Test) { "tests" } else { "src" }
  Write-Host "======== $project (mode=$Mode, $targetLabel) ========" -ForegroundColor Cyan
- $projectRoot = Join-Path $datrixRoot $project
+ $projectRoot = Join-Path $workspaceRoot $project
  $ruffCheckDir = Join-Path $projectRoot $RUFF_CHECK_FOLDER
  if (-not (Test-Path $ruffCheckDir)) {
  New-Item -Path $ruffCheckDir -ItemType Directory -Force | Out-Null

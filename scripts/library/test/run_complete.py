@@ -11,8 +11,10 @@ Usage:
 
 import argparse
 import atexit
+import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -358,7 +360,7 @@ def step1_syntax_checker(paths: dict[str, Path]) -> bool:
     return success
 
 
-def step2_generate(all_examples: bool, paths: dict[str, Path], example_path: Optional[str] = None, output_path: Optional[str] = None, language: str = "python", platform: str = "docker", test_set: str = "generate-all") -> bool:
+def step2_generate(all_examples: bool, paths: dict[str, Path], example_path: Optional[str] = None, output_path: Optional[str] = None, language: str = "python", platform: str = "docker", test_set: str = "generate-all", hosting: Optional[str] = None) -> bool:
     """Step 2: Generate examples. Writes output to a log file (same location as generate.ps1)."""
     log_path = _get_step2_log_path(paths)
     header = (
@@ -381,8 +383,11 @@ def step2_generate(all_examples: bool, paths: dict[str, Path], example_path: Opt
             return False
 
         python_exe = get_venv_python()
+        cmd = [str(python_exe), str(script_path), "--language", language, "--platform", platform, "--test-set", test_set]
+        if hosting:
+            cmd.extend(["--hosting", hosting])
         success, _ = run_command(
-            [str(python_exe), str(script_path), "--language", language, "--platform", platform, "--test-set", test_set],
+            cmd,
             cwd=paths["datrix_root"],
             description="Generating all examples",
             log_file=log_path,
@@ -422,13 +427,18 @@ def step2_generate(all_examples: bool, paths: dict[str, Path], example_path: Opt
         else:
             datrix_cmd_path = venv_path / "bin" / "datrix"
 
-        # Build command arguments
+        # Build command arguments — must include --language/--hosting so the
+        # CLI generates the correct target (same flags as batch mode).
         cmd_args = [
-        "generate",
-        "--source", str(source_file),
-        "--output", str(output_dir),
+            "generate",
+            "--source", str(source_file),
+            "--output", str(output_dir),
         ]
- 
+        if language != "python":
+            cmd_args.extend(["--language", language])
+        if hosting:
+            cmd_args.extend(["--hosting", hosting])
+
         # Use datrix command if available, otherwise use python to call Typer app directly
         temp_script = None
         if datrix_cmd_path.exists():
@@ -465,11 +475,12 @@ app()
 
 
 def parse_test_statistics(output: str) -> dict:
-    """Parse test statistics from run_tests.py or deploy_test.py output.
+    """Parse test statistics from run_tests.py, deploy_test.py, or Jest output.
 
-    Supports two formats:
+    Supports three formats:
     - run_tests.py summary format: "Total Passed: 35"
     - pytest summary line format: "===== 35 passed, 1 failed in 8.48s ====="
+    - Jest summary format: "Tests:       5 passed, 5 total" or "Tests:  1 failed, 4 passed, 1 skipped, 6 total"
     """
     stats = {
         "passed": 0,
@@ -521,6 +532,24 @@ def parse_test_statistics(output: str) -> dict:
                 m = re.search(r"(\d+) skipped", line)
                 if m:
                     stats["skipped"] += int(m.group(1))
+
+    # If still no results, try Jest summary format.
+    # Jest outputs: "Tests:       5 passed, 5 total"
+    # or: "Tests:  1 failed, 4 passed, 1 skipped, 6 total"
+    if stats["passed"] == 0 and stats["failed"] == 0:
+        for line in output.split("\n"):
+            line = line.strip()
+            if line.startswith("Tests:") and "total" in line:
+                m = re.search(r"(\d+) passed", line)
+                if m:
+                    stats["passed"] = int(m.group(1))
+                m = re.search(r"(\d+) failed", line)
+                if m:
+                    stats["failed"] = int(m.group(1))
+                m = re.search(r"(\d+) skipped", line)
+                if m:
+                    stats["skipped"] = int(m.group(1))
+                break
 
     return stats
 
@@ -724,10 +753,76 @@ def save_test_summary_log(
         return log_path
 
 
+def _has_npm_test_script(pkg_json: Path) -> bool:
+    """Check whether a package.json has a "test" script."""
+    if not pkg_json.exists():
+        return False
+    try:
+        data = json.loads(pkg_json.read_text(encoding="utf-8"))
+        return "test" in data.get("scripts", {})
+    except (json.JSONDecodeError, OSError):
+        return False
+
+
+def _find_ts_service_dirs(project: Path) -> list[Path]:
+    """Find TypeScript service directories within a generated project.
+
+    Generated TypeScript projects have the layout:
+        project_root/
+            service_a/          <-- service dir (has package.json, jest.config.ts, test/)
+            service_b/
+            docker-compose.yml
+            tests/              <-- project-level deploy tests
+    """
+    service_dirs: list[Path] = []
+    if not project.is_dir():
+        return service_dirs
+    for child in sorted(project.iterdir()):
+        if not child.is_dir():
+            continue
+        pkg_json = child / "package.json"
+        if _has_npm_test_script(pkg_json):
+            service_dirs.append(child)
+    return service_dirs
+
+
+def _is_typescript_project(project: Path) -> bool:
+    """Check whether a generated project contains TypeScript services with tests."""
+    return len(_find_ts_service_dirs(project)) > 0
+
+
+def _find_npm() -> Optional[str]:
+    """Find npm executable on the system."""
+    return shutil.which("npm")
+
+
+def _run_npm_install(service_dir: Path, label: str, parallel: bool) -> bool:
+    """Run npm install for a TypeScript service if node_modules is missing."""
+    node_modules = service_dir / "node_modules"
+    if node_modules.exists():
+        return True
+
+    npm = _find_npm()
+    if npm is None:
+        print_error(f" npm not found on PATH — cannot install dependencies for {label}")
+        return False
+
+    success, _ = run_command(
+        [npm, "install", "--prefer-offline"],
+        cwd=service_dir,
+        description=f"npm install for {label}" if not parallel else "",
+        capture_output=True,
+    )
+    return success
+
+
 def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel: bool = False) -> dict:
     """
     Helper function to run unit tests for a single project.
     Returns a dictionary with project result information.
+
+    Supports both Python (run_tests.py) and TypeScript (npm test / Jest) projects.
+    TypeScript projects have per-service package.json files in subdirectories.
 
     Args:
         project: Path to the project directory
@@ -735,7 +830,9 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
         parallel: If True, suppress real-time output (for parallel execution)
     """
     project_name = project.relative_to(generated_base)
+    empty_stats = {"passed": 0, "failed": 0, "errors": 0, "skipped": 0}
 
+    # --- Python project: tests/run_tests.py ---
     run_tests_script = project / "tests" / "run_tests.py"
     if run_tests_script.exists():
         python_exe = get_venv_python()
@@ -746,8 +843,8 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
             description=f"Unit tests for {project_name}" if not parallel else "",
             capture_output=True,
         )
-        stats = parse_test_statistics(output) if output else {"passed": 0, "failed": 0, "errors": 0, "skipped": 0}
-        project_result = {
+        stats = parse_test_statistics(output) if output else empty_stats
+        return {
             "name": str(project_name),
             "success": success,
             "passed": stats["passed"],
@@ -756,18 +853,87 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
             "skipped": stats["skipped"],
             "output": output if parallel else None,
         }
-        return project_result
-    else:
-        # No run_tests.py: treat as failure so step reports failure
+
+    # --- TypeScript project: per-service package.json with "test" script ---
+    ts_service_dirs = _find_ts_service_dirs(project)
+    if ts_service_dirs:
+        npm = _find_npm()
+        if npm is None:
+            print_error(f" npm not found on PATH — skipping {project_name}")
+            return {"name": str(project_name), "success": False, **empty_stats, "output": None}
+
+        # Create results directory (mirrors Python run_tests.py behaviour)
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        results_dir = project / ".test_results" / f"run-tests-{timestamp}"
+        results_dir.mkdir(parents=True, exist_ok=True)
+
+        all_success = True
+        total_passed = 0
+        total_failed = 0
+        total_errors = 0
+        total_skipped = 0
+        combined_output: list[str] = []
+
+        for svc_dir in ts_service_dirs:
+            svc_label = f"{project_name}/{svc_dir.name}"
+
+            # Install dependencies if needed
+            if not _run_npm_install(svc_dir, svc_label, parallel):
+                all_success = False
+                total_errors += 1
+                combined_output.append(f"npm install failed for {svc_dir.name}")
+                continue
+
+            # Run Jest via npm test
+            cmd = [npm, "test", "--", "--forceExit", "--no-cache"]
+            success, output = run_command(
+                cmd,
+                cwd=svc_dir,
+                description=f"Jest tests for {svc_label}" if not parallel else "",
+                capture_output=True,
+            )
+            if not success:
+                all_success = False
+            if output:
+                combined_output.append(output)
+                stats = parse_test_statistics(output)
+                total_passed += stats["passed"]
+                total_failed += stats["failed"]
+                total_errors += stats["errors"]
+                total_skipped += stats["skipped"]
+                # Save per-service output to results dir
+                svc_log = results_dir / f"{svc_dir.name}.log"
+                svc_log.write_text(_strip_ansi(output), encoding="utf-8")
+
+        # Save combined summary
+        summary_lines = [
+            f"Total Passed: {total_passed}",
+            f"Total Failed: {total_failed}",
+            f"Total Errors: {total_errors}",
+            f"Total Skipped: {total_skipped}",
+        ]
+        summary_file = results_dir / "summary.log"
+        summary_file.write_text("\n".join(summary_lines) + "\n", encoding="utf-8")
+        if not parallel:
+            print_info(f" Results saved to: {results_dir.relative_to(project)}")
+
         return {
             "name": str(project_name),
-            "success": False,
-            "passed": 0,
-            "failed": 0,
-            "errors": 0,
-            "skipped": 0,
-            "output": None,
+            "success": all_success,
+            "passed": total_passed,
+            "failed": total_failed,
+            "errors": total_errors,
+            "skipped": total_skipped,
+            "output": "\n".join(combined_output) if parallel else None,
         }
+
+    # --- No test runner found ---
+    return {
+        "name": str(project_name),
+        "success": False,
+        **empty_stats,
+        "output": None,
+    }
 
 
 def step4_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path: Optional[str] = None, test_set: Optional[str] = None, language: str = "python", platform: str = "docker") -> bool:
@@ -781,10 +947,20 @@ def step4_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path
             proj_list = get_test_projects(test_set=test_set, language=language, platform=platform)
             projects = [Path(p["output"]) for p in proj_list if Path(p["output"]).exists()]
         elif generated_base.exists():
+            # Scan for Python projects (tests/run_tests.py)
             for item in generated_base.rglob("run_tests.py"):
                 if item.parent.name == "tests":
                     project_dir = item.parent.parent
                     projects.append(project_dir)
+            # Scan for TypeScript projects (service subdirs with package.json + test script)
+            seen = {p.resolve() for p in projects}
+            for item in generated_base.rglob("package.json"):
+                # package.json is inside a service dir; project root is one level up
+                service_dir = item.parent
+                project_dir = service_dir.parent
+                if project_dir.resolve() not in seen and _has_npm_test_script(item):
+                    projects.append(project_dir)
+                    seen.add(project_dir.resolve())
 
         if not projects:
             print_warning("No generated projects found to test")
@@ -833,9 +1009,10 @@ def step4_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path
                     if test_info:
                         print_info(f" Tests: {', '.join(test_info)}")
 
-                    run_tests_script = project / "tests" / "run_tests.py"
-                    if not run_tests_script.exists():
-                        print_warning(f" [SKIP] No run_tests.py found for {project_name}")
+                    has_python_runner = (project / "tests" / "run_tests.py").exists()
+                    has_ts_runner = _is_typescript_project(project)
+                    if not has_python_runner and not has_ts_runner:
+                        print_warning(f" [SKIP] No test runner found for {project_name}")
 
                 except KeyboardInterrupt:
                     raise
@@ -956,65 +1133,251 @@ def step4_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path
 
         print_step(4, f"Run Unit Tests: {Path(output_path).name}")
 
-        # Resolve path to absolute first
         project_path_abs = Path(output_path).resolve()
-
         if not project_path_abs.exists():
             print_error(f"Generated project not found at: {project_path_abs}")
             return False
 
-        project_name = project_path_abs.name
+        # Reuse the same helper as batch mode — parent serves as base so
+        # relative_to produces just the leaf directory name.
+        result = _run_single_project_unit_tests(
+            project_path_abs, project_path_abs.parent, parallel=False,
+        )
 
-        run_tests_script = project_path_abs / "tests" / "run_tests.py"
-        if run_tests_script.exists():
-            print_info(f"Running unit tests for {project_name}...")
-            python_exe = get_venv_python()
-            cmd = [str(python_exe), str(run_tests_script), "--unit", "--parallel"]
+        project_name = result["name"]
+
+        # Print statistics
+        test_info = []
+        if result["passed"] > 0:
+            test_info.append(f"passed: {result['passed']}")
+        if result["failed"] > 0:
+            test_info.append(f"failed: {result['failed']}")
+        if result["errors"] > 0:
+            test_info.append(f"errors: {result['errors']}")
+        if result["skipped"] > 0:
+            test_info.append(f"skipped: {result['skipped']}")
+        if test_info:
+            print_info("")
+            print_info(f"Test Statistics: {', '.join(test_info)}")
+
+        has_runner = (project_path_abs / "tests" / "run_tests.py").exists() or _is_typescript_project(project_path_abs)
+        if not has_runner:
+            print_warning(f"No test runner found for {project_name}")
+            return True
+
+        if result["success"]:
+            print_success(f"[OK] Unit tests passed for {project_name}")
+            return True
+        else:
+            print_error(f"Unit tests failed for {project_name}")
+            return False
+
+
+def _run_single_project_deploy_tests(
+    project: Path,
+    project_name: str,
+    paths: dict[str, Path],
+    timestamp: str,
+) -> dict | None:
+    """Run deployment tests for one project.  Returns result dict, or None if skipped."""
+    deploy_test_script = project / "tests" / "deploy_test.py"
+    empty_stats = {"passed": 0, "failed": 0, "errors": 0, "skipped": 0}
+
+    if deploy_test_script.exists():
+        deploy_test_dir = project / ".test_results" / f"deploy-test-{timestamp}"
+        deploy_test_dir.mkdir(parents=True, exist_ok=True)
+        (deploy_test_dir / "docker-logs").mkdir(parents=True, exist_ok=True)
+
+        python_exe = get_venv_python()
+        try:
             success, output = run_command(
-                cmd,
-                cwd=project_path_abs,
-                description=f"Unit tests for {project_name}",
+                [str(python_exe), str(deploy_test_script), "--results-dir", str(deploy_test_dir)],
+                cwd=project,
+                description=f"Deployment tests for {project_name}",
                 capture_output=True,
             )
- 
-            if output:
-                stats = parse_test_statistics(output)
-                print_info("")
-                print_info("Test Statistics:")
-                print_info(f" Passed: {stats['passed']}")
-                if stats['failed'] > 0:
-                    print_error(f" Failed: {stats['failed']}")
-                if stats['errors'] > 0:
-                    print_error(f" Errors: {stats['errors']}")
-                if stats['skipped'] > 0:
-                    print_info(f" Skipped: {stats['skipped']}")
+        finally:
+            _save_docker_logs_for_project(project, deploy_test_dir)
+            _ensure_docker_cleanup(project)
 
-            if success:
-                print_success(f"[OK] Unit tests passed for {project_name}")
-                return True
-            else:
-                print_error(f"Unit tests failed for {project_name}")
-                return False
-        else:
-            print_warning(f"No run_tests.py found for {project_name}")
-            return True
+        stats = parse_test_statistics(output) if output else empty_stats
+        result = {
+            "name": project_name,
+            "success": success,
+            **stats,
+        }
+
+        if output is not None:
+            (deploy_test_dir / "deploy-test-output.log").write_text(output, encoding="utf-8")
+
+        save_test_summary_log(
+            step_num=5,
+            step_name=f"Deployment Tests for {project_name}",
+            paths=paths,
+            project_results=[result],
+            total_projects=1,
+            success_count=1 if success else 0,
+            fail_count=0 if success else 1,
+            total_passed_tests=stats["passed"],
+            total_failed_tests=stats["failed"],
+            total_error_tests=stats["errors"],
+            total_skipped_tests=stats["skipped"],
+            step5_output_dir=deploy_test_dir,
+        )
+        return result
+
+    # --- TypeScript project: tests/jest-deploy.config.ts ---
+    # Runner manages Docker Compose lifecycle (mirrors Python deploy_test.py):
+    #   compose down → compose build → compose up → jest (health checks) → compose down
+    jest_deploy_config = project / "tests" / "jest-deploy.config.ts"
+    if jest_deploy_config.exists() and _is_typescript_project(project):
+        deploy_test_dir = project / ".test_results" / f"deploy-test-{timestamp}"
+        deploy_test_dir.mkdir(parents=True, exist_ok=True)
+        (deploy_test_dir / "docker-logs").mkdir(parents=True, exist_ok=True)
+
+        npm = _find_npm()
+        if npm is None:
+            print_error(f" npm not found on PATH — cannot run deploy tests for {project_name}")
+            return {"name": project_name, "success": False, **empty_stats}
+
+        npx = shutil.which("npx")
+        if npx is None:
+            print_error(f" npx not found on PATH — cannot run deploy tests for {project_name}")
+            return {"name": project_name, "success": False, **empty_stats}
+
+        tests_dir = project / "tests"
+
+        # Install test dependencies (jest, ts-jest, typescript)
+        if not _run_npm_install(tests_dir, f"{project_name}/tests", parallel=False):
+            return {"name": project_name, "success": False, **empty_stats}
+
+        # Docker Compose lifecycle — managed by runner, not Jest
+        compose_file = project / "docker-compose.yml"
+        if not compose_file.exists():
+            compose_file = project / "docker-compose.yaml"
+
+        compose_available = compose_file.exists()
+        compose_started = False
+
+        if compose_available:
+            # Ensure .env exists (docker-compose needs it for ${VAR} substitution).
+            # Copy from .env.example if available; otherwise create an empty file.
+            env_file = project / ".env"
+            if not env_file.exists():
+                env_example = project / ".env.example"
+                if env_example.exists():
+                    shutil.copy2(env_example, env_file)
+                    print_info(f" [compose] Copied .env.example -> .env")
+                else:
+                    env_file.write_text("# Auto-created for deploy tests\n", encoding="utf-8")
+                    print_info(f" [compose] Created empty .env (no .env.example found)")
+
+            try:
+                # Tear down any leftover containers
+                print_info(f" [compose] Tearing down previous containers...")
+                run_command(
+                    ["docker", "compose", "-f", str(compose_file), "down", "-v", "--remove-orphans"],
+                    cwd=project,
+                    description="",
+                )
+
+                # Build images
+                print_info(f" [compose] Building images...")
+                build_ok, _ = run_command(
+                    ["docker", "compose", "-f", str(compose_file), "build", "--no-cache"],
+                    cwd=project,
+                    description="docker compose build",
+                )
+                if not build_ok:
+                    print_error(f" [compose] Build failed for {project_name}")
+                    _save_docker_logs_for_project(project, deploy_test_dir)
+                    _ensure_docker_cleanup(project)
+                    return {"name": project_name, "success": False, **empty_stats}
+
+                # Start services
+                print_info(f" [compose] Starting services...")
+                run_command(
+                    ["docker", "compose", "-f", str(compose_file), "up", "-d"],
+                    cwd=project,
+                    description="docker compose up -d",
+                )
+                compose_started = True
+
+            except Exception as exc:
+                print_error(f" [compose] Error starting services: {exc}")
+                _save_docker_logs_for_project(project, deploy_test_dir)
+                _ensure_docker_cleanup(project)
+                return {"name": project_name, "success": False, **empty_stats}
+
+        # Run Jest deploy tests (health checks + endpoint validation)
+        try:
+            success, output = run_command(
+                [npx, "jest", "--config", "jest-deploy.config.ts", "--forceExit", "--no-cache"],
+                cwd=tests_dir,
+                description=f"Jest deployment tests for {project_name}",
+                capture_output=True,
+            )
+        finally:
+            _save_docker_logs_for_project(project, deploy_test_dir)
+            if compose_started:
+                _ensure_docker_cleanup(project)
+
+        stats = parse_test_statistics(output) if output else empty_stats
+        result = {
+            "name": project_name,
+            "success": success,
+            **stats,
+        }
+
+        if output is not None:
+            (deploy_test_dir / "deploy-test-output.log").write_text(
+                _strip_ansi(output), encoding="utf-8",
+            )
+
+        save_test_summary_log(
+            step_num=5,
+            step_name=f"Deployment Tests for {project_name}",
+            paths=paths,
+            project_results=[result],
+            total_projects=1,
+            success_count=1 if success else 0,
+            fail_count=0 if success else 1,
+            total_passed_tests=stats["passed"],
+            total_failed_tests=stats["failed"],
+            total_error_tests=stats["errors"],
+            total_skipped_tests=stats["skipped"],
+            step5_output_dir=deploy_test_dir,
+        )
+        return result
+
+    print_warning(f" [SKIP] No deploy_test.py or jest-deploy.config.ts found for {project_name}")
+    return {"name": project_name, "success": False, **empty_stats}
 
 
 def step5_run_deployment_tests(all_examples: bool, paths: dict[str, Path], output_path: Optional[str] = None, test_set: Optional[str] = None, language: str = "python", platform: str = "docker") -> bool:
     """Step 5: Run deployment/integration tests for generated projects using deploy_test.py"""
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+
     if all_examples:
         print_step(5, "Run Deployment Tests for Generated Projects")
         generated_base = paths["datrix_root"] / ".generated"
-        # Find generated projects: by test set or by scanning .generated
         projects = []
         if test_set:
             proj_list = get_test_projects(test_set=test_set, language=language, platform=platform)
             projects = [Path(p["output"]) for p in proj_list if Path(p["output"]).exists()]
         elif generated_base.exists():
+            # Scan for Python projects (tests/deploy_test.py)
             for item in generated_base.rglob("deploy_test.py"):
                 if item.parent.name == "tests":
+                    projects.append(item.parent.parent)
+            # Scan for TypeScript projects (tests/jest-deploy.config.ts)
+            seen = {p.resolve() for p in projects}
+            for item in generated_base.rglob("jest-deploy.config.ts"):
+                if item.parent.name == "tests":
                     project_dir = item.parent.parent
-                    projects.append(project_dir)
+                    if project_dir.resolve() not in seen:
+                        projects.append(project_dir)
+                        seen.add(project_dir.resolve())
 
         if not projects:
             print_warning("No generated projects found to test")
@@ -1022,87 +1385,26 @@ def step5_run_deployment_tests(all_examples: bool, paths: dict[str, Path], outpu
 
         print_info(f"Found {len(projects)} generated projects to test")
 
-        step5_timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         success_count = 0
         fail_count = 0
-        project_results = []  # Store per-project statistics
+        project_results = []
 
         for project in projects:
-            project_name = project.relative_to(generated_base)
-
-            # Create per-project timestamped deploy-test folder
-            deploy_test_dir = project / ".test_results" / f"deploy-test-{step5_timestamp}"
-            deploy_test_dir.mkdir(parents=True, exist_ok=True)
-            (deploy_test_dir / "docker-logs").mkdir(parents=True, exist_ok=True)
-
+            project_name = str(project.relative_to(generated_base))
             print()
             print_info(f"Running deployment tests for: {project_name}")
             print("-" * 60)
 
-            deploy_test_script = project / "tests" / "deploy_test.py"
-            if deploy_test_script.exists():
-                python_exe = get_venv_python()
-                try:
-                    success, output = run_command(
-                        [str(python_exe), str(deploy_test_script), "--results-dir", str(deploy_test_dir)],
-                        cwd=project,
-                        description=f"Deployment tests for {project_name}",
-                        capture_output=True,
-                    )
-                finally:
-                    # deploy_test.py saves docker logs before teardown via --results-dir.
-                    # Fallback: try saving logs here in case deploy_test.py was killed.
-                    _save_docker_logs_for_project(project, deploy_test_dir)
-                    _ensure_docker_cleanup(project)
+            result = _run_single_project_deploy_tests(project, project_name, paths, timestamp)
+            if result is None:
+                continue  # Skipped (e.g. TypeScript)
 
-                stats = parse_test_statistics(output) if output else {"passed": 0, "failed": 0, "errors": 0, "skipped": 0}
-                project_result = {
-                    "name": str(project_name),
-                    "success": success,
-                    "passed": stats["passed"],
-                    "failed": stats["failed"],
-                    "errors": stats["errors"],
-                    "skipped": stats["skipped"],
-                }
-                project_results.append(project_result)
-
-                # Persist full stdout/stderr for debugging (failure messages, pytest output)
-                if output is not None:
-                    output_log = deploy_test_dir / "deploy-test-output.log"
-                    output_log.write_text(output, encoding="utf-8")
-
-                if success:
-                    print_success(f" [OK] Deployment tests passed for {project_name}")
-                    success_count += 1
-                else:
-                    print_error(f" [FAILED] Deployment tests failed for {project_name}")
-                    fail_count += 1
-
-                # Save per-project summary
-                save_test_summary_log(
-                    step_num=5,
-                    step_name=f"Deployment Tests for {project_name}",
-                    paths=paths,
-                    project_results=[project_result],
-                    total_projects=1,
-                    success_count=1 if success else 0,
-                    fail_count=0 if success else 1,
-                    total_passed_tests=stats["passed"],
-                    total_failed_tests=stats["failed"],
-                    total_error_tests=stats["errors"],
-                    total_skipped_tests=stats["skipped"],
-                    step5_output_dir=deploy_test_dir,
-                )
+            project_results.append(result)
+            if result["success"]:
+                print_success(f" [OK] Deployment tests passed for {project_name}")
+                success_count += 1
             else:
-                print_warning(f" [SKIP] No deploy_test.py found for {project_name}")
-                project_results.append({
-                    "name": str(project_name),
-                    "success": False,
-                    "passed": 0,
-                    "failed": 0,
-                    "errors": 0,
-                    "skipped": 0,
-                })
+                print_error(f" [FAILED] Deployment tests failed for {project_name}")
                 fail_count += 1
 
         # Calculate overall statistics
@@ -1110,7 +1412,7 @@ def step5_run_deployment_tests(all_examples: bool, paths: dict[str, Path], outpu
         total_failed_tests = sum(r["failed"] for r in project_results)
         total_error_tests = sum(r["errors"] for r in project_results)
         total_skipped_tests = sum(r["skipped"] for r in project_results)
- 
+
         # Print comprehensive summary
         print()
         print_info("=" * 60)
@@ -1135,7 +1437,6 @@ def step5_run_deployment_tests(all_examples: bool, paths: dict[str, Path], outpu
         print_info("Per-Project Breakdown:")
         print_info("-" * 60)
 
-        # Separate successful and failed projects
         successful_projects = [r for r in project_results if r["success"]]
         failed_projects = [r for r in project_results if not r["success"]]
 
@@ -1182,83 +1483,39 @@ def step5_run_deployment_tests(all_examples: bool, paths: dict[str, Path], outpu
 
         print_step(5, f"Run Deployment Tests: {Path(output_path).name}")
 
-        # Resolve path to absolute first
         project_path_abs = Path(output_path).resolve()
-
         if not project_path_abs.exists():
             print_error(f"Generated project not found at: {project_path_abs}")
             return False
 
         project_name = project_path_abs.name
 
-        step5_timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        deploy_test_dir = project_path_abs / ".test_results" / f"deploy-test-{step5_timestamp}"
-        deploy_test_dir.mkdir(parents=True, exist_ok=True)
-        (deploy_test_dir / "docker-logs").mkdir(parents=True, exist_ok=True)
+        result = _run_single_project_deploy_tests(
+            project_path_abs, project_name, paths, timestamp,
+        )
+        if result is None:
+            return True  # Skipped (TypeScript)
 
-        # Run deployment tests (deploy_test.py)
-        deploy_test_script = project_path_abs / "tests" / "deploy_test.py"
-        if deploy_test_script.exists():
-            print_info(f"Running deployment tests for {project_name}...")
-            python_exe = get_venv_python()
-            try:
-                success, output = run_command(
-                    [str(python_exe), str(deploy_test_script), "--results-dir", str(deploy_test_dir)],
-                    cwd=project_path_abs,
-                    description=f"Deployment tests for {project_name}",
-                    capture_output=True,
-                )
-            finally:
-                # deploy_test.py saves docker logs before teardown via --results-dir.
-                # Fallback: try saving logs here in case deploy_test.py was killed.
-                _save_docker_logs_for_project(project_path_abs, deploy_test_dir, project_slug=None)
-                _ensure_docker_cleanup(project_path_abs)
+        # Print statistics
+        test_info = []
+        if result["passed"] > 0:
+            test_info.append(f"passed: {result['passed']}")
+        if result["failed"] > 0:
+            test_info.append(f"failed: {result['failed']}")
+        if result["errors"] > 0:
+            test_info.append(f"errors: {result['errors']}")
+        if result["skipped"] > 0:
+            test_info.append(f"skipped: {result['skipped']}")
+        if test_info:
+            print_info("")
+            print_info(f"Test Statistics: {', '.join(test_info)}")
 
-            stats = parse_test_statistics(output) if output else {"passed": 0, "failed": 0, "errors": 0, "skipped": 0}
-            project_result = {
-                "name": project_name,
-                "success": success,
-                "passed": stats["passed"],
-                "failed": stats["failed"],
-                "errors": stats["errors"],
-                "skipped": stats["skipped"],
-            }
-            if output is not None:
-                (deploy_test_dir / "deploy-test-output.log").write_text(output, encoding="utf-8")
-            log_path = save_test_summary_log(
-                step_num=5,
-                step_name="Deployment Tests for Generated Projects",
-                paths=paths,
-                project_results=[project_result],
-                total_projects=1,
-                success_count=1 if success else 0,
-                fail_count=0 if success else 1,
-                total_passed_tests=stats["passed"],
-                total_failed_tests=stats["failed"],
-                total_error_tests=stats["errors"],
-                total_skipped_tests=stats["skipped"],
-                step5_output_dir=deploy_test_dir,
-            )
-            print_info(f"Summary log saved to: {log_path.relative_to(paths['datrix_root'])}")
-            if output:
-                print_info("")
-                print_info("Test Statistics:")
-                print_info(f" Passed: {stats['passed']}")
-                if stats['failed'] > 0:
-                    print_error(f" Failed: {stats['failed']}")
-                if stats['errors'] > 0:
-                    print_error(f" Errors: {stats['errors']}")
-                if stats['skipped'] > 0:
-                    print_info(f" Skipped: {stats['skipped']}")
-            if success:
-                print_success(f"[OK] Deployment tests passed for {project_name}")
-                return True
-            else:
-                print_error(f"Deployment tests failed for {project_name}")
-                return False
-        else:
-            print_warning(f"No deploy_test.py found for {project_name}")
+        if result["success"]:
+            print_success(f"[OK] Deployment tests passed for {project_name}")
             return True
+        else:
+            print_error(f"Deployment tests failed for {project_name}")
+            return False
 
 
 def main() -> int:
@@ -1314,6 +1571,13 @@ Examples:
     help="Target platform (default: docker)"
     )
     parser.add_argument(
+    "-Hosting",
+    "--hosting",
+    dest="hosting",
+    default=None,
+    help="Hosting platform override (docker, kubernetes, aws, azure)"
+    )
+    parser.add_argument(
     "-Skip1",
     action="store_true",
     help="Skip Step 1 (syntax checker)"
@@ -1343,7 +1607,11 @@ Examples:
             parser.error("example_path is required when -All is not specified")
         if not args.output_path:
             try:
-                args.output_path = str(get_default_output_path(args.example_path))
+                args.output_path = str(get_default_output_path(
+                    args.example_path,
+                    language=args.language,
+                    platform=args.platform,
+                ))
             except (ValueError, FileNotFoundError) as e:
                 parser.error(str(e))
 
@@ -1413,6 +1681,7 @@ Examples:
                 args.language,
                 args.platform,
                 args.test_set if args.All else "generate-all",
+                args.hosting,
             ):
                 print_warning("Step 2 failed. Continuing to next step...")
                 failed_steps.append("Step 2: Code Generation")
