@@ -31,10 +31,10 @@ function Get-DatrixWorkspaceRootFromScript {
  return Get-DatrixWorkspaceRoot -ScriptPath $ScriptPath
 }
 
-function Normalize-DatrixProjectInput {
+function ConvertTo-DatrixProjectName {
  <#
  .SYNOPSIS
- Normalizes a project argument: folder path or bare package name to a directory name.
+ Converts a project argument (folder path or bare package name) to a directory name.
 
  .PARAMETER ProjectInput
  User-supplied project name or path.
@@ -173,7 +173,7 @@ function Get-DatrixMonoProjectNames {
 
 Export-ModuleMember -Function @(
  "Get-DatrixWorkspaceRootFromScript",
- "Normalize-DatrixProjectInput",
+ "ConvertTo-DatrixProjectName",
  "Get-DatrixPackageNamesGlob",
  "Get-DatrixPackageNamesGlobWithPyProject",
  "Get-DatrixTestablePackageNames",

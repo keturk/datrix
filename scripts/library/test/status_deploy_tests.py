@@ -6,7 +6,6 @@ deploy-test-* folder, and reports the deployment test status for each project.
 """
 
 import argparse
-import os
 import re
 import sys
 from pathlib import Path
@@ -18,6 +17,12 @@ from dataclasses import dataclass
 library_dir = Path(__file__).parent.parent
 if library_dir.exists() and str(library_dir) not in sys.path:
     sys.path.insert(0, str(library_dir))
+
+# Same-directory helper (avoid `import test.*` — conflicts with stdlib test package)
+_status_script_dir = Path(__file__).resolve().parent
+if str(_status_script_dir) not in sys.path:
+    sys.path.insert(0, str(_status_script_dir))
+from test_result_walk import iter_dot_test_results_dirs
 
 
 # ANSI color codes
@@ -226,21 +231,16 @@ def find_all_test_results(root_dir: Path) -> List[TestResult]:
     """
     results = []
 
-    for root, dirs, files in os.walk(root_dir):
-        root_path = Path(root)
+    for test_results_dir in iter_dot_test_results_dirs(root_dir):
+        latest_folder = find_latest_test_folder(test_results_dir)
 
-        if root_path.name == '.test_results':
-            latest_folder = find_latest_test_folder(root_path)
+        if latest_folder:
+            summary_log = latest_folder / 'deploy-test-summary.log'
 
-            if latest_folder:
-                summary_log = latest_folder / 'deploy-test-summary.log'
-
-                if summary_log.exists():
-                    result = parse_summary_log(summary_log)
-                    result.project_path = str(root_path.parent.absolute())
-                    results.append(result)
-
-            dirs.clear()
+            if summary_log.exists():
+                result = parse_summary_log(summary_log)
+                result.project_path = str(test_results_dir.parent.absolute())
+                results.append(result)
 
     return results
 

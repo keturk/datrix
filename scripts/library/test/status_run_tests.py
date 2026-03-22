@@ -6,7 +6,6 @@ run-tests-* folder, and reports the test status for each project.
 """
 
 import argparse
-import os
 import re
 import sys
 from pathlib import Path
@@ -18,6 +17,12 @@ from dataclasses import dataclass
 library_dir = Path(__file__).parent.parent
 if library_dir.exists() and str(library_dir) not in sys.path:
     sys.path.insert(0, str(library_dir))
+
+# Same-directory helper (avoid `import test.*` — conflicts with stdlib test package)
+_status_script_dir = Path(__file__).resolve().parent
+if str(_status_script_dir) not in sys.path:
+    sys.path.insert(0, str(_status_script_dir))
+from test_result_walk import iter_dot_test_results_dirs, resolve_unit_test_summary_log
 
 
 # ANSI color codes
@@ -102,13 +107,13 @@ def find_latest_test_folder(test_results_dir: Path) -> Optional[Path]:
 
 def parse_summary_log(log_file: Path) -> TestResult:
     """
-    Parse the run-tests-summary.log file to extract test results.
+    Parse unit test summary log (run-tests-summary.log or legacy summary.log).
 
     Args:
         log_file: Path to the summary log file
 
-        Returns:
-            TestResult object with parsed information
+    Returns:
+        TestResult object with parsed information
     """
     project_path = ""
     timestamp = ""
@@ -144,10 +149,17 @@ def parse_summary_log(log_file: Path) -> TestResult:
         if errors_match:
             total_errors = int(errors_match.group(1))
 
-        # Determine status
+        # Determine status: explicit markers (Python run_tests.py) or totals-only
+        # (legacy TypeScript summary.log from run_complete.py).
         if 'All tests PASSED!' in content:
             status = 'PASSED'
         elif 'Tests FAILED!' in content:
+            status = 'FAILED'
+        elif total_failed > 0 or total_errors > 0:
+            status = 'FAILED'
+        elif total_passed > 0:
+            status = 'PASSED'
+        elif 'NO TESTS COLLECTED' in content:
             status = 'FAILED'
 
     except Exception as e:
@@ -179,21 +191,16 @@ def find_all_test_results(root_dir: Path) -> List[TestResult]:
     """
     results = []
 
-    for root, dirs, files in os.walk(root_dir):
-        root_path = Path(root)
+    for test_results_dir in iter_dot_test_results_dirs(root_dir):
+        latest_folder = find_latest_test_folder(test_results_dir)
 
-        if root_path.name == '.test_results':
-            latest_folder = find_latest_test_folder(root_path)
+        if latest_folder:
+            summary_log = resolve_unit_test_summary_log(latest_folder)
 
-            if latest_folder:
-                summary_log = latest_folder / 'run-tests-summary.log'
-
-                if summary_log.exists():
-                    result = parse_summary_log(summary_log)
-                    result.project_path = str(root_path.parent.absolute())
-                    results.append(result)
-
-            dirs.clear()
+            if summary_log is not None:
+                result = parse_summary_log(summary_log)
+                result.project_path = str(test_results_dir.parent.absolute())
+                results.append(result)
 
     return results
 
@@ -229,11 +236,11 @@ def print_results(results: List[TestResult]):
     for result in results:
             if result.status == "PASSED":
                 status_color = Colors.GREEN
-                status_symbol = "✓"
+                status_symbol = "+"
                 passed_count += 1
             elif result.status == "FAILED":
                 status_color = Colors.RED
-                status_symbol = "✗"
+                status_symbol = "x"
                 failed_count += 1
             else:
                 status_color = Colors.YELLOW

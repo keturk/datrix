@@ -134,9 +134,9 @@ $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scr
 Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 . (Join-Path $commonDir "venv.ps1")
 
-# Monorepo workspace root (same value as Get-DatrixRoot from venv for scripts under datrix/scripts)
+# Monorepo workspace root (Get-DatrixWorkspaceRootFromScript is exported from DatrixScriptCommon; nested DatrixPaths import is not visible here)
 $datrixRoot = Get-DatrixRoot
-$datrixWorkspaceRoot = Get-DatrixWorkspaceRoot
+$datrixWorkspaceRoot = Get-DatrixWorkspaceRootFromScript -ScriptPath $MyInvocation.MyCommand.Path
 
 # Check if test_project.py exists
 if (-not (Test-Path $testProjectScript)) {
@@ -171,7 +171,7 @@ try {
  Write-Host "Running tests for all projects: $($projectsToTest -join ', ')" -ForegroundColor Cyan
  } elseif ($Projects.Count -gt 0) {
  # Normalize project inputs (convert paths to project names if needed)
- $normalizedProjects = $Projects | ForEach-Object { Normalize-DatrixProjectInput -ProjectInput $_ }
+ $normalizedProjects = $Projects | ForEach-Object { ConvertTo-DatrixProjectName -ProjectInput $_ }
  
  # Filter to only valid datrix projects
  $allProjects = Get-DatrixTestablePackageNames -WorkspaceRoot $datrixWorkspaceRoot

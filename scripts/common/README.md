@@ -7,7 +7,7 @@ Shared PowerShell modules and utilities used by all scripts.
 | File | Description |
 |------|-------------|
 | `DatrixPaths.psm1` | Path discovery for workspace and repository directories |
-| `DatrixScriptCommon.psm1` | Shared project lists and `Normalize-DatrixProjectInput` (imports `DatrixPaths.psm1`) |
+| `DatrixScriptCommon.psm1` | Shared project lists and `ConvertTo-DatrixProjectName` (imports `DatrixPaths.psm1`) |
 | `venv.ps1` | Virtual environment management (creation, activation, package installation) |
 | `CleanupUtils.psm1` | Cleanup utilities (empty parents, confirmation, folder tree display, size formatting) |
 
@@ -43,7 +43,7 @@ Prefer **`Get-DatrixWorkspaceRootFromScript`** from `DatrixScriptCommon.psm1` wh
 Imported by metrics wrappers, `test.ps1`, and several dev scripts. Provides:
 
 - `Get-DatrixWorkspaceRootFromScript` — `-ScriptPath $MyInvocation.MyCommand.Path`
-- `Normalize-DatrixProjectInput` — path or bare package name to directory name
+- `ConvertTo-DatrixProjectName` — path or bare package name to directory name
 - `Get-DatrixPackageNamesGlob` — metrics `-All` (`datrix-*` on disk)
 - `Get-DatrixPackageNamesGlobWithPyProject` — like above, requires `pyproject.toml` (dependency help text)
 - `Get-DatrixTestablePackageNames` — canonical repos with a `tests/` folder (`test.ps1 -All`)
