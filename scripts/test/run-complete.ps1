@@ -127,6 +127,10 @@ param(
  [string]$Platform = "docker",
 
  [Parameter()]
+ [Alias("H")]
+ [string]$Hosting = "",
+
+ [Parameter()]
  [string]$TestSet = "generate-all",
 
  [switch]$SkipVenv,
@@ -252,6 +256,14 @@ if ($batchMode) {
  $pythonArgs += "--test-set"
  $pythonArgs += $testSetName
  }
+ if ($Language) {
+ $pythonArgs += "-Language"
+ $pythonArgs += $Language
+ }
+ if ($Platform) {
+ $pythonArgs += "-Platform"
+ $pythonArgs += $Platform
+ }
 } else {
  # Resolve paths to absolute paths before passing to Python
  # This ensures paths work correctly regardless of where Python script runs from
@@ -306,6 +318,10 @@ if ($Skip4) {
 }
 if ($Skip5) {
  $pythonArgs += "-Skip5"
+}
+if (-not [string]::IsNullOrWhiteSpace($Hosting)) {
+ $pythonArgs += "-Hosting"
+ $pythonArgs += $Hosting
 }
 if ($DebugLogging) {
  $pythonArgs += "--debug"
