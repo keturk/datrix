@@ -65,9 +65,9 @@ def parse_timestamp_from_folder(folder_name: str) -> Optional[datetime]:
     Args:
         folder_name: The folder name to parse
 
-        Returns:
-            datetime object or None if parsing fails
-        """
+    Returns:
+        datetime object or None if parsing fails
+    """
     match = re.search(r'run-tests-(\d{8})-(\d{6})', folder_name)
     if match:
         date_str = match.group(1)  # YYYYMMDD
