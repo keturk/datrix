@@ -79,7 +79,7 @@ def _collect_files(
                 n = _count_lines(f)
             except (OSError, UnicodeDecodeError) as e:
                 raise RuntimeError(f"Error reading {rel}: {e}") from e
-            results.append((str(rel).replace("\\", "/"), n))
+            results.append((rel.as_posix(), n))
     return results
 
 
