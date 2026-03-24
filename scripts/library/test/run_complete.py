@@ -127,13 +127,6 @@ def _strip_ansi(line: str) -> str:
     return re.sub(r"\x1b\[[0-9;]*m", "", line)
 
 
-def _get_step2_log_path(paths: dict[str, Path]) -> Path:
-    """Return log file path for step 2 (same convention as generate.ps1)."""
-    log_dir = paths["datrix_root"] / ".generated" / ".results"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    return log_dir / f"generate-results-{timestamp}.log"
-
 
 def run_command(
     cmd: list[str],
@@ -328,27 +321,28 @@ def get_paths() -> dict[str, Path]:
     }
 
 
+def _find_powershell() -> Optional[str]:
+    """Find PowerShell executable (pwsh preferred, powershell on Windows)."""
+    import platform as platform_mod
+
+    if shutil.which("pwsh"):
+        return "pwsh"
+    if platform_mod.system() == "Windows" and shutil.which("powershell"):
+        return "powershell"
+    return None
+
+
 def step1_syntax_checker(paths: dict[str, Path]) -> bool:
     """Step 1: Run syntax checker"""
     print_step(1, "Syntax Checker")
 
-    # Use PowerShell wrapper which handles venv activation and tree-sitter installation
     script_path = paths["datrix_dir"] / "scripts" / "dev" / "syntax-checker.ps1"
-
     if not script_path.exists():
         print_error(f"Syntax checker not found at: {script_path}")
         return False
 
-    # Determine PowerShell executable
-    import platform
-    import shutil
-
-    pwsh_exe = None
-    if shutil.which("pwsh"):
-        pwsh_exe = "pwsh"
-    elif platform.system() == "Windows" and shutil.which("powershell"):
-        pwsh_exe = "powershell"
-    else:
+    pwsh_exe = _find_powershell()
+    if pwsh_exe is None:
         print_error("PowerShell not found. Please install PowerShell (pwsh) or Windows PowerShell.")
         return False
 
@@ -361,41 +355,35 @@ def step1_syntax_checker(paths: dict[str, Path]) -> bool:
 
 
 def step2_generate(all_examples: bool, paths: dict[str, Path], example_path: Optional[str] = None, output_path: Optional[str] = None, language: str = "python", platform: str = "docker", test_set: str = "generate-all", hosting: Optional[str] = None) -> bool:
-    """Step 2: Generate examples. Writes output to a log file (same location as generate.ps1)."""
-    log_path = _get_step2_log_path(paths)
-    header = (
-        "Generate Results Log\n"
-        f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-        "Step 2 (run_complete)\n"
-        "=" * 80
-        + "\n\n"
-    )
-    log_path.write_text(header, encoding="utf-8")
-    print_info(f"Log file: {log_path}")
+    """Step 2: Generate examples via generate.ps1.
+
+    Delegates to generate.ps1 which handles package installation checks
+    (Ensure-DatrixPackagesInstalled) before running the generation pipeline.
+    This ensures changed source files are always picked up.
+
+    Note: generate.ps1 creates its own log file under .generated/.results/.
+    We do NOT create a separate log here to avoid file contention (both
+    scripts use the same directory and naming pattern).
+    """
+    pwsh_exe = _find_powershell()
+    if pwsh_exe is None:
+        print_error("PowerShell not found. Please install PowerShell (pwsh) or Windows PowerShell.")
+        return False
+
+    script_path = paths["datrix_dir"] / "scripts" / "dev" / "generate.ps1"
+    if not script_path.exists():
+        print_error(f"generate.ps1 not found at: {script_path}")
+        return False
+
+    cmd: list[str] = [pwsh_exe, "-File", str(script_path)]
 
     if all_examples:
         print_step(2, "Generate Examples")
-        # Run generate.py
-        script_path = paths["datrix_dir"] / "scripts" / "library" / "dev" / "generate.py"
-
-        if not script_path.exists():
-            print_error(f"generate.py not found at: {script_path}")
-            return False
-
-        python_exe = get_venv_python()
-        cmd = [str(python_exe), str(script_path), "--language", language, "--platform", platform, "--test-set", test_set]
-        if hosting:
-            cmd.extend(["--hosting", hosting])
-        success, _ = run_command(
-            cmd,
-            cwd=paths["datrix_root"],
-            description="Generating all examples",
-            log_file=log_path,
-        )
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(f"\nStep 2 completed: {'success' if success else 'failed'} at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        print_info(f"Log saved to: {log_path}")
-        return success
+        cmd.append("-All")
+        cmd.extend(["-Language", language])
+        cmd.extend(["-Platform", platform])
+        if test_set != "generate-all":
+            cmd.extend(["-TestSet", test_set])
     else:
         if not example_path or not output_path:
             print_error("Example path and output path are required when -All is not specified")
@@ -403,7 +391,6 @@ def step2_generate(all_examples: bool, paths: dict[str, Path], example_path: Opt
 
         print_step(2, f"Generate Example: {Path(example_path).name}")
 
-        # Resolve paths to absolute paths first
         source_file = Path(example_path).resolve()
         output_dir = Path(output_path).resolve()
 
@@ -411,67 +398,19 @@ def step2_generate(all_examples: bool, paths: dict[str, Path], example_path: Opt
             print_error(f"Example file not found at: {source_file}")
             return False
 
-        # Use datrix CLI command - try to find datrix.exe first, then fall back to Python module
-        # Language and platform are read from config files (system-config.yaml),
-        # not from CLI flags. The --generators/--platforms flags were removed.
-        python_exe = get_venv_python()
-        import os
-        import tempfile
+        cmd.extend([str(source_file), str(output_dir)])
+        cmd.extend(["-Language", language])
+        cmd.extend(["-Platform", platform])
 
-        # Get venv path from python_exe
-        venv_path = Path(python_exe).parent.parent
+    if hosting:
+        cmd.extend(["-Hosting", hosting])
 
-        # Try to find datrix command in venv
-        if os.name == "nt":
-            datrix_cmd_path = venv_path / "Scripts" / "datrix.exe"
-        else:
-            datrix_cmd_path = venv_path / "bin" / "datrix"
-
-        # Build command arguments — must include --language/--hosting so the
-        # CLI generates the correct target (same flags as batch mode).
-        cmd_args = [
-            "generate",
-            "--source", str(source_file),
-            "--output", str(output_dir),
-        ]
-        if language != "python":
-            cmd_args.extend(["--language", language])
-        if hosting:
-            cmd_args.extend(["--hosting", hosting])
-
-        # Use datrix command if available, otherwise use python to call Typer app directly
-        temp_script = None
-        if datrix_cmd_path.exists():
-            cmd = [str(datrix_cmd_path)] + cmd_args
-        else:
-            args_str = ", ".join([f'"{arg}"' for arg in cmd_args])
-            script_content = f"""import sys
-sys.argv = ["datrix", {args_str}]
-from datrix_cli.main import app
-app()
-"""
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as f:
-                f.write(script_content)
-                temp_script = f.name
-            cmd = [str(python_exe), temp_script]
-
-        try:
-            success, _ = run_command(
-                cmd,
-                cwd=paths["datrix_root"],
-                description=f"Generating example: {source_file.name}",
-                log_file=log_path,
-            )
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"\nStep 2 completed: {'success' if success else 'failed'} at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            print_info(f"Log saved to: {log_path}")
-            return success
-        finally:
-            if temp_script and Path(temp_script).exists():
-                try:
-                    os.unlink(temp_script)
-                except Exception:
-                    pass
+    success, _ = run_command(
+        cmd,
+        cwd=paths["datrix_root"],
+        description="Generating via generate.ps1",
+    )
+    return success
 
 
 def parse_test_statistics(output: str) -> dict:
@@ -1319,7 +1258,25 @@ def _run_single_project_deploy_tests(
 
         # Install test dependencies (jest, ts-jest, typescript)
         if not _run_npm_install(tests_dir, f"{project_name}/tests", parallel=False):
-            return {"name": project_name, "success": False, **empty_stats}
+            result = {"name": project_name, "success": False, **empty_stats}
+            (deploy_test_dir / "deploy-test-output.log").write_text(
+                f"npm install failed for {project_name}/tests\n", encoding="utf-8",
+            )
+            save_test_summary_log(
+                step_num=5,
+                step_name=f"Deployment Tests for {project_name}",
+                paths=paths,
+                project_results=[result],
+                total_projects=1,
+                success_count=0,
+                fail_count=1,
+                total_passed_tests=0,
+                total_failed_tests=0,
+                total_error_tests=0,
+                total_skipped_tests=0,
+                step5_output_dir=deploy_test_dir,
+            )
+            return result
 
         # Docker Compose lifecycle — managed by runner, not Jest
         compose_file = project / "docker-compose.yml"
@@ -1353,16 +1310,36 @@ def _run_single_project_deploy_tests(
 
                 # Build images
                 print_info(f" [compose] Building images...")
-                build_ok, _ = run_command(
+                build_ok, build_output = run_command(
                     ["docker", "compose", "-f", str(compose_file), "build", "--no-cache"],
                     cwd=project,
                     description="docker compose build",
+                    capture_output=True,
                 )
                 if not build_ok:
                     print_error(f" [compose] Build failed for {project_name}")
                     _save_docker_logs_for_project(project, deploy_test_dir)
                     _ensure_docker_cleanup(project)
-                    return {"name": project_name, "success": False, **empty_stats}
+                    result = {"name": project_name, "success": False, **empty_stats}
+                    if build_output is not None:
+                        (deploy_test_dir / "deploy-test-output.log").write_text(
+                            _strip_ansi(build_output), encoding="utf-8",
+                        )
+                    save_test_summary_log(
+                        step_num=5,
+                        step_name=f"Deployment Tests for {project_name}",
+                        paths=paths,
+                        project_results=[result],
+                        total_projects=1,
+                        success_count=0,
+                        fail_count=1,
+                        total_passed_tests=0,
+                        total_failed_tests=0,
+                        total_error_tests=0,
+                        total_skipped_tests=0,
+                        step5_output_dir=deploy_test_dir,
+                    )
+                    return result
 
                 # Start services
                 print_info(f" [compose] Starting services...")
@@ -1377,7 +1354,25 @@ def _run_single_project_deploy_tests(
                 print_error(f" [compose] Error starting services: {exc}")
                 _save_docker_logs_for_project(project, deploy_test_dir)
                 _ensure_docker_cleanup(project)
-                return {"name": project_name, "success": False, **empty_stats}
+                result = {"name": project_name, "success": False, **empty_stats}
+                (deploy_test_dir / "deploy-test-output.log").write_text(
+                    f"Docker compose failed: {exc}\n", encoding="utf-8",
+                )
+                save_test_summary_log(
+                    step_num=5,
+                    step_name=f"Deployment Tests for {project_name}",
+                    paths=paths,
+                    project_results=[result],
+                    total_projects=1,
+                    success_count=0,
+                    fail_count=1,
+                    total_passed_tests=0,
+                    total_failed_tests=0,
+                    total_error_tests=0,
+                    total_skipped_tests=0,
+                    step5_output_dir=deploy_test_dir,
+                )
+                return result
 
         # Run Jest deploy tests (health checks + endpoint validation)
         try:

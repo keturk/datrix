@@ -190,7 +190,7 @@ def scan_tree(
             rel = path.relative_to(root)
         except ValueError:
             continue
-        rel_str = str(rel).replace("\\", "/")
+        rel_str = rel.as_posix()
         project_key = norm_fn(rel_str, root)
         if not project_key:
             continue
