@@ -1189,10 +1189,12 @@ def _run_single_project_deploy_tests(
     timestamp: str,
 ) -> dict | None:
     """Run deployment tests for one project.  Returns result dict, or None if skipped."""
-    deploy_test_script = project / "tests" / "deploy_test.py"
+    deploy_test_script_py = project / "tests" / "deploy_test.py"
+    deploy_test_script_js = project / "tests" / "deploy-test.js"
     empty_stats = {"passed": 0, "failed": 0, "errors": 0, "skipped": 0}
 
-    if deploy_test_script.exists():
+    # --- Python project: tests/deploy_test.py ---
+    if deploy_test_script_py.exists():
         deploy_test_dir = project / ".test_results" / f"deploy-test-{timestamp}"
         deploy_test_dir.mkdir(parents=True, exist_ok=True)
         (deploy_test_dir / "docker-logs").mkdir(parents=True, exist_ok=True)
@@ -1200,7 +1202,7 @@ def _run_single_project_deploy_tests(
         python_exe = get_venv_python()
         try:
             success, output = run_command(
-                [str(python_exe), str(deploy_test_script), "--results-dir", str(deploy_test_dir)],
+                [str(python_exe), str(deploy_test_script_py), "--results-dir", str(deploy_test_dir)],
                 cwd=project,
                 description=f"Deployment tests for {project_name}",
                 capture_output=True,
@@ -1235,7 +1237,65 @@ def _run_single_project_deploy_tests(
         )
         return result
 
-    # --- TypeScript project: tests/jest-deploy.config.ts ---
+    # --- TypeScript project: tests/deploy-test.js (preferred) ---
+    if deploy_test_script_js.exists():
+        deploy_test_dir = project / ".test_results" / f"deploy-test-{timestamp}"
+        deploy_test_dir.mkdir(parents=True, exist_ok=True)
+
+        node = shutil.which("node")
+        if node is None:
+            print_error(f" node not found on PATH — cannot run deploy tests for {project_name}")
+            return {"name": project_name, "success": False, **empty_stats}
+
+        # The deploy-test.js script manages the full Docker lifecycle internally
+        # (down → build → up → test → logs → down), just like Python's deploy_test.py
+        try:
+            success, output = run_command(
+                [node, str(deploy_test_script_js), "--results-dir", str(deploy_test_dir)],
+                cwd=project,
+                description=f"Deployment tests for {project_name}",
+                capture_output=True,
+            )
+        finally:
+            # deploy-test.js saves its own Docker logs, but ensure cleanup happens
+            _ensure_docker_cleanup(project)
+
+        stats = parse_test_statistics(output) if output else empty_stats
+        result = {
+            "name": project_name,
+            "success": success,
+            **stats,
+        }
+
+        # Note: deploy-test.js writes its own deploy-test-output.log, but we save
+        # the captured stdout here as well for consistency with run_complete.py's logging
+        if output is not None:
+            output_log = deploy_test_dir / "deploy-test-output.log"
+            # Append to existing log if deploy-test.js already created it
+            if output_log.exists():
+                existing = output_log.read_text(encoding="utf-8")
+                combined = existing + "\n" + _strip_ansi(output)
+                output_log.write_text(combined, encoding="utf-8")
+            else:
+                output_log.write_text(_strip_ansi(output), encoding="utf-8")
+
+        save_test_summary_log(
+            step_num=5,
+            step_name=f"Deployment Tests for {project_name}",
+            paths=paths,
+            project_results=[result],
+            total_projects=1,
+            success_count=1 if success else 0,
+            fail_count=0 if success else 1,
+            total_passed_tests=stats["passed"],
+            total_failed_tests=stats["failed"],
+            total_error_tests=stats["errors"],
+            total_skipped_tests=stats["skipped"],
+            step5_output_dir=deploy_test_dir,
+        )
+        return result
+
+    # --- TypeScript project: tests/jest-deploy.config.ts (fallback for legacy projects) ---
     # Runner manages Docker Compose lifecycle (mirrors Python deploy_test.py):
     #   compose down → compose build → compose up → jest (health checks) → compose down
     jest_deploy_config = project / "tests" / "jest-deploy.config.ts"
