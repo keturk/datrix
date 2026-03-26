@@ -112,8 +112,6 @@ Language and platform default to config values (`system-config.yaml` and service
 | Compile with debug | `.\dev\compile.ps1 -All -Dbg` |
 | Rebuild parser | `.\dev\rebuild-parser.ps1` |
 | Force rebuild parser | `.\dev\rebuild-parser.ps1 -Force` |
-| Check shell script line endings | `python3 .\dev\check-line-endings.py` |
-| Fix shell script line endings | `python3 .\dev\check-line-endings.py --fix` |
 
 ## Project Names
 
