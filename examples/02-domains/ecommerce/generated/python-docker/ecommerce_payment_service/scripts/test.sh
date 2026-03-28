@@ -2,4 +2,4 @@
 # Run tests for ecommerce.PaymentService
 
 set -e
-pytest
+npm test

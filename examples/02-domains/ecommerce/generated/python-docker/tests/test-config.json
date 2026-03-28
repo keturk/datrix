@@ -8,16 +8,16 @@
     "verbosity": 1
   },
   "test": {
-    "coverage": {
-      "enabled": false,
-      "report_format": "html",
-      "threshold": 80
-    },
-    "markers": {
+    "categories": {
       "exclude": [
         "integration"
       ],
       "include": []
+    },
+    "coverage": {
+      "enabled": false,
+      "report_format": "html",
+      "threshold": 80
     },
     "max_failures": 10,
     "timeout": 600

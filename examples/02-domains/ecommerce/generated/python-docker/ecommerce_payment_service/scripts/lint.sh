@@ -2,5 +2,4 @@
 # Lint ecommerce.PaymentService
 
 set -e
-ruff check .
-mypy .
+npm run lint

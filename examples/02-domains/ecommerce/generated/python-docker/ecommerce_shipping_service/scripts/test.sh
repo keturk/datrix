@@ -2,4 +2,4 @@
 # Run tests for ecommerce.ShippingService
 
 set -e
-pytest
+npm test

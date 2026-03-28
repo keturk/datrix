@@ -2,4 +2,4 @@
 # Start development server for ecommerce.PaymentService
 
 set -e
-uvicorn main:app --reload
+npm run start:dev
