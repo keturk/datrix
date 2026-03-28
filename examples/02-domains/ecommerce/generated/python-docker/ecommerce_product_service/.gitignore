@@ -1,16 +1,8 @@
-# Generated for python project
-__pycache__/
-*.py[cod]
-*$py.class
-.venv/
-venv/
+# Generated for typescript project
+node_modules/
+dist/
 .env
 .env.local
-*.egg-info/
-dist/
-build/
-.coverage
-htmlcov/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
+*.log
+coverage/
+.nyc_output/

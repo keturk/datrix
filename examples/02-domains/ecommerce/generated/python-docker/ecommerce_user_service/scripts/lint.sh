@@ -2,5 +2,4 @@
 # Lint ecommerce.UserService
 
 set -e
-ruff check .
-mypy .
+npm run lint

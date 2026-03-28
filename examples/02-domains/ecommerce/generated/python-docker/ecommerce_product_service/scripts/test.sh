@@ -2,4 +2,4 @@
 # Run tests for ecommerce.ProductService
 
 set -e
-pytest
+npm test
