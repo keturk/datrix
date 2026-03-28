@@ -1,5 +1,5 @@
 test:
-  language: typescript
+  language: python
   hosting: docker
   defaultTimeout: 30000
   maxPageSize: 100
@@ -15,7 +15,7 @@ test:
   secrets:
     provider: env
 development:
-  language: typescript
+  language: python
   hosting: docker
   defaultTimeout: 30000
   maxPageSize: 100
@@ -31,7 +31,7 @@ development:
   secrets:
     provider: env
 production:
-  language: typescript
+  language: python
   hosting: aws
   defaultTimeout: 30000
   maxPageSize: 100
