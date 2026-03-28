@@ -692,7 +692,7 @@ def save_test_summary_log(
         return log_path
 
 
-def _has_npm_test_script(pkg_json: Path) -> bool:
+def _has_test_script(pkg_json: Path) -> bool:
     """Check whether a package.json has a "test" script."""
     if not pkg_json.exists():
         return False
@@ -720,7 +720,7 @@ def _find_ts_service_dirs(project: Path) -> list[Path]:
         if not child.is_dir():
             continue
         pkg_json = child / "package.json"
-        if _has_npm_test_script(pkg_json):
+        if _has_test_script(pkg_json):
             service_dirs.append(child)
     return service_dirs
 
@@ -730,26 +730,26 @@ def _is_typescript_project(project: Path) -> bool:
     return len(_find_ts_service_dirs(project)) > 0
 
 
-def _find_npm() -> Optional[str]:
-    """Find npm executable on the system."""
-    return shutil.which("npm")
+def _find_pnpm() -> Optional[str]:
+    """Find pnpm executable on the system."""
+    return shutil.which("pnpm")
 
 
-def _run_npm_install(service_dir: Path, label: str, parallel: bool) -> bool:
-    """Run npm install for a TypeScript service if node_modules is missing."""
+def _run_pnpm_install(service_dir: Path, label: str, parallel: bool) -> bool:
+    """Run pnpm install for a TypeScript service if node_modules is missing."""
     node_modules = service_dir / "node_modules"
     if node_modules.exists():
         return True
 
-    npm = _find_npm()
-    if npm is None:
-        print_error(f" npm not found on PATH — cannot install dependencies for {label}")
+    pnpm = _find_pnpm()
+    if pnpm is None:
+        print_error(f" pnpm not found on PATH — cannot install dependencies for {label}")
         return False
 
     success, _ = run_command(
-        [npm, "install", "--prefer-offline"],
+        [pnpm, "install"],
         cwd=service_dir,
-        description=f"npm install for {label}" if not parallel else "",
+        description=f"pnpm install for {label}" if not parallel else "",
         capture_output=True,
     )
     return success
@@ -803,7 +803,7 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
     Helper function to run unit tests for a single project.
     Returns a dictionary with project result information.
 
-    Supports both Python (run_tests.py) and TypeScript (npm test / Jest) projects.
+    Supports both Python (run_tests.py) and TypeScript (pnpm test / Jest) projects.
     TypeScript projects have per-service package.json files in subdirectories.
 
     Args:
@@ -866,9 +866,9 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
     # --- TypeScript project fallback: per-service package.json with "test" script ---
     ts_service_dirs = _find_ts_service_dirs(project)
     if ts_service_dirs:
-        npm = _find_npm()
-        if npm is None:
-            print_error(f" npm not found on PATH — skipping {project_name}")
+        pnpm = _find_pnpm()
+        if pnpm is None:
+            print_error(f" pnpm not found on PATH — skipping {project_name}")
             return {"name": str(project_name), "success": False, **empty_stats, "output": None}
 
         # Create results directory (mirrors Python run_tests.py behaviour)
@@ -887,14 +887,14 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
             svc_label = f"{project_name}/{svc_dir.name}"
 
             # Install dependencies if needed
-            if not _run_npm_install(svc_dir, svc_label, parallel):
+            if not _run_pnpm_install(svc_dir, svc_label, parallel):
                 all_success = False
                 total_errors += 1
-                combined_output.append(f"npm install failed for {svc_dir.name}")
+                combined_output.append(f"pnpm install failed for {svc_dir.name}")
                 continue
 
-            # Run Jest via npm test
-            cmd = [npm, "test", "--", "--forceExit", "--no-cache"]
+            # Run Jest via pnpm test
+            cmd = [pnpm, "test", "--", "--forceExit", "--no-cache"]
             success, output = run_command(
                 cmd,
                 cwd=svc_dir,
@@ -967,7 +967,7 @@ def step4_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path
                 # package.json is inside a service dir; project root is one level up
                 service_dir = item.parent
                 project_dir = service_dir.parent
-                if project_dir.resolve() not in seen and _has_npm_test_script(item):
+                if project_dir.resolve() not in seen and _has_test_script(item):
                     projects.append(project_dir)
                     seen.add(project_dir.resolve())
 
@@ -1304,23 +1304,18 @@ def _run_single_project_deploy_tests(
         deploy_test_dir.mkdir(parents=True, exist_ok=True)
         (deploy_test_dir / "docker-logs").mkdir(parents=True, exist_ok=True)
 
-        npm = _find_npm()
-        if npm is None:
-            print_error(f" npm not found on PATH — cannot run deploy tests for {project_name}")
-            return {"name": project_name, "success": False, **empty_stats}
-
-        npx = shutil.which("npx")
-        if npx is None:
-            print_error(f" npx not found on PATH — cannot run deploy tests for {project_name}")
+        pnpm = _find_pnpm()
+        if pnpm is None:
+            print_error(f" pnpm not found on PATH — cannot run deploy tests for {project_name}")
             return {"name": project_name, "success": False, **empty_stats}
 
         tests_dir = project / "tests"
 
         # Install test dependencies (jest, ts-jest, typescript)
-        if not _run_npm_install(tests_dir, f"{project_name}/tests", parallel=False):
+        if not _run_pnpm_install(tests_dir, f"{project_name}/tests", parallel=False):
             result = {"name": project_name, "success": False, **empty_stats}
             (deploy_test_dir / "deploy-test-output.log").write_text(
-                f"npm install failed for {project_name}/tests\n", encoding="utf-8",
+                f"pnpm install failed for {project_name}/tests\n", encoding="utf-8",
             )
             save_test_summary_log(
                 step_num=5,
@@ -1437,7 +1432,7 @@ def _run_single_project_deploy_tests(
         # Run Jest deploy tests (health checks + endpoint validation)
         try:
             success, output = run_command(
-                [npx, "jest", "--config", "jest-deploy.config.ts", "--forceExit", "--no-cache"],
+                [pnpm, "exec", "jest", "--config", "jest-deploy.config.ts", "--forceExit", "--no-cache"],
                 cwd=tests_dir,
                 description=f"Jest deployment tests for {project_name}",
                 capture_output=True,
