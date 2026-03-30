@@ -128,6 +128,7 @@ Valid project names for `-Projects` parameter:
 - `datrix-codegen-k8s`
 - `datrix-codegen-aws`
 - `datrix-codegen-azure`
+- `datrix-projects`
 
 ## Generation Categories
 

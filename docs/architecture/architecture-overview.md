@@ -16,7 +16,7 @@ Datrix is a code generation system that transforms `.dtrx` domain specifications
 ✅ **Multi-Language Support** - Python, TypeScript, SQL
 ✅ **Multi-Platform Support** - Docker, Kubernetes, AWS, Azure
 ✅ **Type-Safe** - Exhaustive type mappings with validation
-✅ **Modular Architecture** - 11 packages plus showcase repo
+✅ **Modular Architecture** - 11 packages plus showcase and projects repos
 
 ---
 
@@ -91,7 +91,7 @@ The `datrix generate` command supports `--language`, `--hosting`, and `--platfor
 
 ## Repository Architecture
 
-The project is split into 11 packages plus the **datrix** showcase repo (docs, examples, scripts). This structure provides clear boundaries, independent versioning/releases, selective installation, and per-repo CI/CD pipelines.
+The project is split into 11 packages plus the **datrix** showcase repo (docs, examples, scripts) and **datrix-projects** repo (private production projects). This structure provides clear boundaries, independent versioning/releases, selective installation, and per-repo CI/CD pipelines.
 
 ### Core Repositories (2)
 
