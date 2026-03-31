@@ -1681,6 +1681,7 @@ Examples:
     "--language",
     dest="language",
     default="python",
+    choices=["python", "typescript"],
     help="Target language (default: python). Options: python, typescript"
     )
     parser.add_argument(
@@ -1688,7 +1689,8 @@ Examples:
     "--platform",
     dest="platform",
     default="docker",
-    help="Target platform (default: docker)"
+    choices=["docker", "kubernetes", "k8s"],
+    help="Target platform (default: docker). Options: docker, kubernetes, k8s"
     )
     parser.add_argument(
     "-Hosting",
