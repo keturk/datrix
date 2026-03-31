@@ -101,6 +101,15 @@ try {
  exit 1
  }
 
+ # Filter out projects without src/ — they have nothing to scan for duplicates
+ $projectsToAnalyze = @($projectsToAnalyze | Where-Object {
+  $projectDir = Join-Path $workspaceRoot $_
+  $hasSrc = Test-Path (Join-Path $projectDir "src")
+  if (-not $hasSrc) { Write-Host "Skipping $_ (no src/ directory)" -ForegroundColor Yellow }
+  $hasSrc
+ })
+ if ($projectsToAnalyze.Count -eq 0) { Write-Host "No projects with src/ to scan." -ForegroundColor Yellow; exit 0 }
+
  if (-not (Ensure-DatrixVenv)) { Write-Error "Failed to ensure venv"; exit 1 }
 
  $oldErr = $ErrorActionPreference
