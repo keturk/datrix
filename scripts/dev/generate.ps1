@@ -108,10 +108,12 @@ param(
 
  [Parameter()]
  [Alias("L")]
+ [ValidateSet("python", "typescript")]
  [string]$Language = "python",
 
  [Parameter()]
  [Alias("P")]
+ [ValidateSet("docker", "kubernetes", "k8s")]
  [string]$Platform = "docker",
 
  [Parameter()]
