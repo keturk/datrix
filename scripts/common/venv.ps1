@@ -6,6 +6,12 @@
  Provides functions to ensure a virtual environment exists at D:\datrix\.venv,
  create it if needed, and activate it.
 
+ Offline / no-network mode:
+ Set environment variable DATRIX_OFFLINE to 1, true, or yes (case-insensitive).
+ Scripts that dot-source this file should skip pip installs and only verify that
+ dependencies are already present; otherwise they fail with a clear message.
+ Orchestrators (e.g. run_complete.py --skip-install) may set DATRIX_OFFLINE for child processes.
+
 .NOTES
  Usage: . .\datrix\scripts\common\venv.ps1
  Then call: Ensure-DatrixVenv
@@ -41,6 +47,22 @@ function Register-DatrixLockCleanup {
 
 # Auto-register cleanup when module is loaded
 Register-DatrixLockCleanup
+
+# True when DATRIX_OFFLINE is set to a truthy value (1, true, yes).
+function Test-DatrixOfflineMode {
+ <#
+ .SYNOPSIS
+ Returns whether Datrix scripts should avoid pip and other network installs.
+ .NOTES
+ Respects environment variable DATRIX_OFFLINE.
+ #>
+ $raw = $env:DATRIX_OFFLINE
+ if ($null -eq $raw -or [string]::IsNullOrWhiteSpace($raw)) {
+ return $false
+ }
+ $t = $raw.Trim().ToLowerInvariant()
+ return ($t -eq "1") -or ($t -eq "true") -or ($t -eq "yes")
+}
 
 # Get Datrix root directory
 function Get-DatrixRoot {
@@ -347,6 +369,11 @@ function Install-DatrixPackage {
  $pyprojectToml = Join-Path $packagePath "pyproject.toml"
  if (-not (Test-Path $pyprojectToml)) {
  Write-Error "pyproject.toml not found in: $packagePath"
+ return $false
+ }
+
+ if (Test-DatrixOfflineMode) {
+ Write-Error "DATRIX_OFFLINE is set: pip installs are disabled. Unset DATRIX_OFFLINE and install packages while online."
  return $false
  }
 
@@ -1027,11 +1054,62 @@ function Ensure-DatrixPackagesInstalled {
  Skip reinstall checks if packages are already importable. Use this for
  concurrent operations where you know packages are stable and don't want
  to risk mid-run reinstalls.
+ .PARAMETER Offline
+ Verify packages and CLI only; never run pip. Implied when DATRIX_OFFLINE is set.
  #>
  param(
  [switch]$Force,
- [switch]$SkipIfInstalled
+ [switch]$SkipIfInstalled,
+ [switch]$Offline
  )
+
+ $isOffline = $Offline -or (Test-DatrixOfflineMode)
+
+ if ($isOffline -and $Force) {
+ Write-Error "Cannot use -Force with offline mode (DATRIX_OFFLINE environment variable or -Offline switch)."
+ return $false
+ }
+
+ if ($isOffline) {
+ Remove-CorruptedPipPackages
+
+ $packages = Get-DatrixPackages
+ $venvPath = Get-DatrixVenvPath
+ $pythonExe = Join-Path $venvPath "Scripts\python.exe"
+
+ if (-not (Test-Path $pythonExe)) {
+ Write-Error "DATRIX_OFFLINE: Python not found in venv at $pythonExe"
+ return $false
+ }
+
+ $oldErrorActionPreference = $ErrorActionPreference
+ $ErrorActionPreference = "SilentlyContinue"
+
+ foreach ($package in $packages) {
+ $moduleName = $package.Replace("-", "_")
+ $null = & $pythonExe -c "import $moduleName" 2>&1
+ if ($LASTEXITCODE -ne 0) {
+ $ErrorActionPreference = $oldErrorActionPreference
+ Write-Error "DATRIX_OFFLINE: package '$package' is not importable. Install editable packages while online, then retry."
+ return $false
+ }
+ if (Test-PackageNeedsReinstall -PackageName $package) {
+ $ErrorActionPreference = $oldErrorActionPreference
+ Write-Error "DATRIX_OFFLINE: package '$package' is out of date (pyproject.toml or sources changed). Reinstall while online, then retry."
+ return $false
+ }
+ }
+
+ $ErrorActionPreference = $oldErrorActionPreference
+
+ if (-not (Test-DatrixCommand)) {
+ Write-Error "DATRIX_OFFLINE: 'datrix --version' failed. Fix the CLI while online (e.g. pip install -e datrix-cli)."
+ return $false
+ }
+
+ Write-Host "Offline mode: Datrix packages and CLI verified (no pip)." -ForegroundColor Green
+ return $true
+ }
 
  # If SkipIfInstalled is set, verify packages are importable and check for pyproject.toml changes
  # This is useful for concurrent operations where reinstalls could corrupt the venv

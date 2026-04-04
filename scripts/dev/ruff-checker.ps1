@@ -60,6 +60,10 @@ try {
  # Check and install jinja2 if needed
  & $pythonExe -c "import jinja2" 2>&1 | Out-Null
  if ($LASTEXITCODE -ne 0) {
+ if (Test-DatrixOfflineMode) {
+ Write-Error "DATRIX_OFFLINE is set: jinja2 is not installed. Install while online: pip install jinja2>=3.0.0"
+ exit 1
+ }
  Write-Host "Installing jinja2..." -ForegroundColor Yellow
  & $pythonExe -m pip install "jinja2>=3.0.0" | Out-Null
  if ($LASTEXITCODE -ne 0) {
@@ -72,6 +76,10 @@ try {
  # Check and install ruff if needed
  & $pythonExe -c "import subprocess; subprocess.run(['ruff', '--version'], capture_output=True, check=True)" 2>&1 | Out-Null
  if ($LASTEXITCODE -ne 0) {
+ if (Test-DatrixOfflineMode) {
+ Write-Error "DATRIX_OFFLINE is set: ruff is not installed. Install while online: pip install ruff>=0.1.0"
+ exit 1
+ }
  Write-Host "Installing ruff..." -ForegroundColor Yellow
  & $pythonExe -m pip install "ruff>=0.1.0" | Out-Null
  if ($LASTEXITCODE -ne 0) {

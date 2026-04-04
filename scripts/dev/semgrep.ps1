@@ -122,6 +122,10 @@ try {
     $semgrepAvailable = $null -ne (Get-Command semgrep -ErrorAction SilentlyContinue)
 
     if (-not $semgrepAvailable -and -not $ListRules) {
+        if (Test-DatrixOfflineMode) {
+            Write-Error "DATRIX_OFFLINE is set: semgrep is not on PATH. Install while online: pip install semgrep"
+            exit 1
+        }
         Write-Host "Installing semgrep..." -ForegroundColor Yellow
         $oldEAP = $ErrorActionPreference
         $ErrorActionPreference = "Continue"

@@ -99,6 +99,10 @@ try {
  $banditInstalled = $LASTEXITCODE -eq 0
  $ErrorActionPreference = $oldErr
  if (-not $banditInstalled) {
+ if (Test-DatrixOfflineMode) {
+ Write-Error "DATRIX_OFFLINE is set: bandit is not installed. Install while online: pip install bandit>=1.7"
+ exit 1
+ }
  Write-Host "Installing bandit..." -ForegroundColor Cyan
  & pip install "bandit>=1.7"
  }

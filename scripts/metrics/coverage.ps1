@@ -125,6 +125,10 @@ try {
  $pytestCovInstalled = $LASTEXITCODE -eq 0
  $ErrorActionPreference = $oldErr
  if (-not $pytestCovInstalled) {
+ if (Test-DatrixOfflineMode) {
+ Write-Error "DATRIX_OFFLINE is set: pytest-cov is not installed. Install while online: pip install pytest-cov>=4.0"
+ exit 1
+ }
  Write-Host "Installing pytest-cov..." -ForegroundColor Cyan
  & pip install "pytest-cov>=4.0"
  }

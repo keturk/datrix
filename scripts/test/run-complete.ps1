@@ -55,6 +55,9 @@
 .PARAMETER Skip5
  Skip Step 5 (deployment/integration tests for generated projects).
 
+.PARAMETER SkipInstall
+ Skip pip/network installs during generation (sets DATRIX_OFFLINE for the workflow). Requires a fully populated .venv.
+
 .PARAMETER DebugLogging
  Enable debug logging (DEBUG level instead of INFO).
 
@@ -100,6 +103,10 @@
 .EXAMPLE
  .\run-complete.ps1 -Skip4 -Skip5
  Runs only Steps 1-2, skipping unit and deployment tests for generated projects.
+
+.EXAMPLE
+ $env:DATRIX_OFFLINE = "1"; .\run-complete.ps1 -Tutorial
+ Offline: no pip during the workflow (requires a ready .venv). Or use -SkipInstall (sets DATRIX_OFFLINE for the Python driver).
 #>
 
 [CmdletBinding()]
@@ -140,6 +147,7 @@ param(
  [switch]$Skip2,
  [switch]$Skip4,
  [switch]$Skip5,
+ [switch]$SkipInstall,
  [Alias("Dbg")]
  [switch]$DebugLogging
 )
@@ -327,6 +335,9 @@ if (-not [string]::IsNullOrWhiteSpace($Hosting)) {
 }
 if ($DebugLogging) {
  $pythonArgs += "--debug"
+}
+if ($SkipInstall) {
+ $pythonArgs += "--skip-install"
 }
 
 # Display what we're about to run

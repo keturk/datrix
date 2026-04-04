@@ -104,6 +104,10 @@ try {
     $ErrorActionPreference = $oldEAP
 
     if ($importExitCode -ne 0) {
+        if (Test-DatrixOfflineMode) {
+            Write-Error "DATRIX_OFFLINE is set: libcst is not installed. Install while online: pip install libcst>=1.0.0"
+            exit 1
+        }
         Write-Host "Installing libcst..." -ForegroundColor Yellow
         $oldEAP = $ErrorActionPreference
         $ErrorActionPreference = "Continue"

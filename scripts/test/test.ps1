@@ -29,7 +29,7 @@
  Disable automatic dependency installation (prompt instead).
 
 .PARAMETER SkipInstall
- Skip dependency installation.
+ Skip pip installs; verify monorepo packages and CLI only (same as DATRIX_OFFLINE=1 for Ensure-DatrixPackagesInstalled). Requires a ready .venv.
 
 .PARAMETER Unit
  Run unit tests only.
@@ -252,7 +252,15 @@ try {
  # Signal to test_project.py that packages were ensured by caller; skip per-project pip install -e
  $env:DATRIX_PACKAGES_ENSURED = "1"
  } else {
- Remove-Item -Path env:DATRIX_PACKAGES_ENSURED -ErrorAction SilentlyContinue
+ $packagesInstalled = Ensure-DatrixPackagesInstalled -Offline
+ if (-not $packagesInstalled) {
+ Write-Host ""
+ Write-Host "ERROR: Offline/skip-install verification failed (packages or CLI not ready)." -ForegroundColor Red
+ Write-Host ""
+ Write-Error "Failed offline package verification"
+ exit 1
+ }
+ $env:DATRIX_PACKAGES_ENSURED = "1"
  }
 
  # Validate mutually exclusive test type options

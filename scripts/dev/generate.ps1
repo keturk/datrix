@@ -52,6 +52,9 @@
 .PARAMETER Debug
  Enable debug logging (DEBUG level instead of INFO).
 
+.PARAMETER SkipInstall
+ Skip pip installs; verify venv only (same as setting DATRIX_OFFLINE=1). Use when offline.
+
 .EXAMPLE
  .\generate.ps1 examples/01-tutorial/01-basic-entity/system.dtrx
  Generate a single project; output path derived from test-projects.json (e.g. .generated/python/docker/01-tutorial/01-basic-entity).
@@ -130,7 +133,10 @@ param(
  [string]$TestSet = "generate-all",
 
  [Parameter()]
- [switch]$Dbg
+ [switch]$Dbg,
+
+ [Parameter()]
+ [switch]$SkipInstall
 )
 
 # Error handling - ensure cleanup on exit
@@ -498,7 +504,11 @@ $("=" * 80)
  # Ensure all packages are installed and up-to-date
  # Use SkipIfInstalled to avoid mid-run reinstalls that could break concurrent operations
  # Only triggers full reinstall if packages are not importable
+ if ($SkipInstall) {
+ $packagesInstalled = Ensure-DatrixPackagesInstalled -Offline
+ } else {
  $packagesInstalled = Ensure-DatrixPackagesInstalled -SkipIfInstalled
+ }
  if (-not $packagesInstalled) {
  Write-Error "Failed to install/update packages"
  exit 1
@@ -507,6 +517,11 @@ $("=" * 80)
  # Verify datrix command works (console script entry point)
  # This catches cases where module imports work but entry point is broken
  if (-not (Test-DatrixCommand)) {
+ if ($SkipInstall -or (Test-DatrixOfflineMode)) {
+ Write-TeeHost "datrix command verification failed; offline/skip-install mode cannot reinstall." -ForegroundColor Red -LogFilePath $logFilePath
+ Write-Error "datrix CLI is not working. Unset DATRIX_OFFLINE or omit -SkipInstall and reinstall while online."
+ exit 1
+ }
  # Only attempt reinstall if explicitly needed - use locking to prevent concurrent installs
  Write-TeeHost "datrix command verification failed, attempting reinstall of datrix-cli..." -ForegroundColor Yellow -LogFilePath $logFilePath
  $reinstalled = Install-DatrixPackage -PackageName "datrix-cli" -NoDev
