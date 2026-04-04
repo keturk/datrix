@@ -118,6 +118,10 @@ try {
  $pylintInstalled = $LASTEXITCODE -eq 0
  $ErrorActionPreference = $oldErr
  if (-not $pylintInstalled) {
+ if (Test-DatrixOfflineMode) {
+ Write-Error "DATRIX_OFFLINE is set: pylint is not installed. Install while online: pip install pylint>=3.0"
+ exit 1
+ }
  Write-Host "Installing pylint..." -ForegroundColor Cyan
  & pip install "pylint>=3.0"
  }

@@ -182,6 +182,10 @@ try {
  $radonInstalled = $LASTEXITCODE -eq 0
  $ErrorActionPreference = $oldErr
  if (-not $radonInstalled) {
+ if (Test-DatrixOfflineMode) {
+ Write-Error "DATRIX_OFFLINE is set: radon is not installed. Install while online: pip install radon>=6.0"
+ exit 1
+ }
  Write-Host "Installing radon..." -ForegroundColor Cyan
  & pip install "radon>=6.0" 2>$null
  if ($LASTEXITCODE -ne 0) {
@@ -195,6 +199,10 @@ try {
  $null = & pip show cognitive_complexity 2>$null
  $cogInstalled = $LASTEXITCODE -eq 0
  if (-not $cogInstalled) {
+ if (Test-DatrixOfflineMode) {
+ Write-Error "DATRIX_OFFLINE is set: cognitive_complexity is not installed. Install while online: pip install cognitive_complexity"
+ exit 1
+ }
  Write-Host "Installing cognitive_complexity (for cognitive complexity check)..." -ForegroundColor Cyan
  & pip install cognitive_complexity 2>$null
  if ($LASTEXITCODE -ne 0) {

@@ -149,6 +149,10 @@ try {
  $pygountInstalled = $LASTEXITCODE -eq 0
  $ErrorActionPreference = $oldErr
  if (-not $pygountInstalled) {
+ if (Test-DatrixOfflineMode) {
+ Write-Error "DATRIX_OFFLINE is set: pygount is not installed. Install while online: pip install pygount>=1.8"
+ exit 1
+ }
  Write-Host "Installing pygount..." -ForegroundColor Cyan
  & pip install "pygount>=1.8"
  }

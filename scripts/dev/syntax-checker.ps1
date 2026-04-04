@@ -97,6 +97,10 @@ try {
  # Check and install tree-sitter if needed (avoid pipeline to preserve $LASTEXITCODE)
  $null = & $pythonExe -c "import tree_sitter" 2>&1
  if ($LASTEXITCODE -ne 0) {
+ if (Test-DatrixOfflineMode) {
+ Write-Error "DATRIX_OFFLINE is set: tree-sitter is not installed. Install while online: pip install tree-sitter>=0.23.0"
+ exit 1
+ }
  Write-Host "Installing tree-sitter..." -ForegroundColor Yellow
  $null = & $pythonExe -m pip install "tree-sitter>=0.23.0" 2>&1
  if ($LASTEXITCODE -ne 0) {

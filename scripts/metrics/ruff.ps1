@@ -119,6 +119,10 @@ try {
  $ruffInstalled = $LASTEXITCODE -eq 0
  $ErrorActionPreference = $oldErr
  if (-not $ruffInstalled) {
+ if (Test-DatrixOfflineMode) {
+ Write-Error "DATRIX_OFFLINE is set: ruff is not installed. Install while online: pip install ruff>=0.1.0"
+ exit 1
+ }
  Write-Host "Installing ruff..." -ForegroundColor Cyan
  & pip install "ruff>=0.1.0"
  }

@@ -96,6 +96,10 @@ try {
  $vultureInstalled = $LASTEXITCODE -eq 0
  $ErrorActionPreference = $oldErr
  if (-not $vultureInstalled) {
+ if (Test-DatrixOfflineMode) {
+ Write-Error "DATRIX_OFFLINE is set: vulture is not installed. Install while online: pip install vulture>=2.0"
+ exit 1
+ }
  Write-Host "Installing vulture..." -ForegroundColor Cyan
  & pip install "vulture>=2.0" 2>$null
  if ($LASTEXITCODE -ne 0) {

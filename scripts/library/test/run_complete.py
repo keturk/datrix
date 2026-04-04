@@ -354,7 +354,18 @@ def step1_syntax_checker(paths: dict[str, Path]) -> bool:
     return success
 
 
-def step2_generate(all_examples: bool, paths: dict[str, Path], example_path: Optional[str] = None, output_path: Optional[str] = None, language: str = "python", platform: str = "docker", test_set: str = "generate-all", hosting: Optional[str] = None) -> bool:
+def step2_generate(
+    all_examples: bool,
+    paths: dict[str, Path],
+    example_path: Optional[str] = None,
+    output_path: Optional[str] = None,
+    language: str = "python",
+    platform: str = "docker",
+    test_set: str = "generate-all",
+    hosting: Optional[str] = None,
+    *,
+    skip_install: bool = False,
+) -> bool:
     """Step 2: Generate examples via generate.ps1.
 
     Delegates to generate.ps1 which handles package installation checks
@@ -404,6 +415,9 @@ def step2_generate(all_examples: bool, paths: dict[str, Path], example_path: Opt
 
     if hosting:
         cmd.extend(["-Hosting", hosting])
+
+    if skip_install:
+        cmd.append("-SkipInstall")
 
     success, _ = run_command(
         cmd,
@@ -1650,6 +1664,7 @@ Examples:
     python scripts/library/test/run_complete.py -All --test-set tutorial-all # Run tutorial examples only
     python scripts/library/test/run_complete.py -Skip1 # Skip Step 1 (syntax checker)
     python scripts/library/test/run_complete.py -Skip4 -Skip5 # Skip Steps 4 and 5
+    python scripts/library/test/run_complete.py --skip-install -All  # Offline: no pip (set DATRIX_OFFLINE for subprocesses)
     """
     )
     parser.add_argument(
@@ -1720,8 +1735,16 @@ Examples:
     help="Skip Step 5 (deployment tests for generated projects)"
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging (DEBUG level instead of INFO)")
+    parser.add_argument(
+        "--skip-install",
+        action="store_true",
+        help="No pip/network installs: set DATRIX_OFFLINE for subprocesses and pass -SkipInstall to generate.ps1",
+    )
 
     args = parser.parse_args()
+
+    if args.skip_install:
+        os.environ["DATRIX_OFFLINE"] = "1"
 
     # Validate arguments: when not -All, example_path is required; output_path is derived from config if omitted
     if not args.All:
@@ -1775,6 +1798,8 @@ Examples:
 
     if skip_info:
         print_info("Skipped Steps: " + ", ".join(skip_info))
+    if args.skip_install:
+        print_info("Skip install: DATRIX_OFFLINE=1 (no pip during workflow)")
 
     print_info(f"Working Directory: {paths['datrix_root']}")
     print_info("=" * 60)
@@ -1804,6 +1829,7 @@ Examples:
                 args.platform,
                 args.test_set if args.All else "generate-all",
                 args.hosting,
+                skip_install=args.skip_install,
             ):
                 print_warning("Step 2 failed. Continuing to next step...")
                 failed_steps.append("Step 2: Code Generation")
