@@ -10,7 +10,7 @@ test:
   auth:
     jwt:
       algorithm: HS256
-      issuer: ecommerce-platform
+      issuer: blog-platform
       expiresIn: 86400
       exclude: [/health, "publicRoutes"]
 
@@ -39,7 +39,7 @@ development:
   auth:
     jwt:
       algorithm: HS256
-      issuer: ecommerce-platform
+      issuer: blog-platform
       expiresIn: 86400
       exclude: [/health, "publicRoutes"]
 
@@ -68,7 +68,7 @@ production:
   auth:
     jwt:
       algorithm: HS256
-      issuer: ecommerce-platform
+      issuer: blog-platform
       expiresIn: 86400
       exclude: [/health, "publicRoutes"]
 
