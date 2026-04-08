@@ -1,0 +1,121 @@
+asyncapi: 3.0.0
+info:
+  title: healthcare.AppointmentService Events
+  version: 1.0.0
+channels:
+  AppointmentEvents:
+    address: AppointmentEvents
+    messages:
+      AppointmentScheduled:
+        payload:
+          type: object
+          properties:
+            appointmentId:
+              type: string
+              format: uuid
+            patientId:
+              type: string
+              format: uuid
+            providerId:
+              $ref: '#/components/schemas/UUID?'
+            scheduledAt:
+              type: string
+              format: date-time
+            type:
+              type: string
+          required:
+          - appointmentId
+          - patientId
+          - providerId
+          - scheduledAt
+          - type
+      AppointmentStatusChanged:
+        payload:
+          type: object
+          properties:
+            appointmentId:
+              type: string
+              format: uuid
+            patientId:
+              type: string
+              format: uuid
+            oldStatus:
+              type: string
+            newStatus:
+              type: string
+          required:
+          - appointmentId
+          - patientId
+          - oldStatus
+          - newStatus
+      AppointmentCompleted:
+        payload:
+          type: object
+          properties:
+            appointmentId:
+              type: string
+              format: uuid
+            patientId:
+              type: string
+              format: uuid
+            providerId:
+              $ref: '#/components/schemas/UUID?'
+            providerName:
+              type: string
+            type:
+              type: string
+          required:
+          - appointmentId
+          - patientId
+          - providerId
+          - providerName
+          - type
+      AppointmentCancelled:
+        payload:
+          type: object
+          properties:
+            appointmentId:
+              type: string
+              format: uuid
+            patientId:
+              type: string
+              format: uuid
+            reason:
+              $ref: '#/components/schemas/String?'
+          required:
+          - appointmentId
+          - patientId
+          - reason
+operations:
+  publishAppointmentScheduled:
+    action: send
+    channel:
+      $ref: '#/channels/AppointmentEvents'
+  publishAppointmentStatusChanged:
+    action: send
+    channel:
+      $ref: '#/channels/AppointmentEvents'
+  publishAppointmentCompleted:
+    action: send
+    channel:
+      $ref: '#/channels/AppointmentEvents'
+  publishAppointmentCancelled:
+    action: send
+    channel:
+      $ref: '#/channels/AppointmentEvents'
+  onAppointmentScheduled:
+    action: receive
+    channel:
+      $ref: '#/channels/AppointmentEvents'
+  onAppointmentStatusChanged:
+    action: receive
+    channel:
+      $ref: '#/channels/AppointmentEvents'
+  onAppointmentCancelled:
+    action: receive
+    channel:
+      $ref: '#/channels/AppointmentEvents'
+  onPatientStatusChanged:
+    action: receive
+    channel:
+      $ref: '#/channels/PatientEvents'

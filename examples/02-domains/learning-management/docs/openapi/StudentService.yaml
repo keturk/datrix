@@ -1,0 +1,106 @@
+openapi: 3.1.0
+info:
+  title: learning.StudentService API
+  version: 1.0.0
+paths:
+  /api/v1/students/students:
+    get:
+      operationId: list_students
+      summary: list_students
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      operationId: create_student
+      summary: create_student
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/students/students/:id:
+    get:
+      operationId: get_student
+      summary: get_student
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+    put:
+      operationId: update_student
+      summary: update_student
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+    delete:
+      operationId: delete_student
+      summary: delete_student
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+components:
+  schemas:
+    Student:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        firstName:
+          type: string
+          maxLength: 100
+        lastName:
+          type: string
+          maxLength: 100
+        email:
+          type: string
+          format: email
+        studentNumber:
+          type: string
+          maxLength: 20
+      required:
+      - id
+      - createdAt
+      - updatedAt
+      - firstName
+      - lastName
+      - email
+      - studentNumber
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

@@ -1,0 +1,115 @@
+asyncapi: 3.0.0
+info:
+  title: healthcare.MedicalRecordService Events
+  version: 1.0.0
+channels:
+  RecordEvents:
+    address: RecordEvents
+    messages:
+      RecordCreated:
+        payload:
+          type: object
+          properties:
+            recordId:
+              type: string
+              format: uuid
+            patientId:
+              type: string
+              format: uuid
+            type:
+              $ref: '#/components/schemas/RecordType'
+            providerId:
+              $ref: '#/components/schemas/UUID?'
+          required:
+          - recordId
+          - patientId
+          - type
+          - providerId
+      RecordFinalized:
+        payload:
+          type: object
+          properties:
+            recordId:
+              type: string
+              format: uuid
+            patientId:
+              type: string
+              format: uuid
+            type:
+              $ref: '#/components/schemas/RecordType'
+          required:
+          - recordId
+          - patientId
+          - type
+      RecordAmended:
+        payload:
+          type: object
+          properties:
+            recordId:
+              type: string
+              format: uuid
+            patientId:
+              type: string
+              format: uuid
+            reason:
+              type: string
+          required:
+          - recordId
+          - patientId
+          - reason
+      PrescriptionCreated:
+        payload:
+          type: object
+          properties:
+            prescriptionId:
+              type: string
+              format: uuid
+            patientId:
+              type: string
+              format: uuid
+            medication:
+              type: string
+            prescriber:
+              type: string
+          required:
+          - prescriptionId
+          - patientId
+          - medication
+          - prescriber
+operations:
+  publishRecordCreated:
+    action: send
+    channel:
+      $ref: '#/channels/RecordEvents'
+  publishRecordFinalized:
+    action: send
+    channel:
+      $ref: '#/channels/RecordEvents'
+  publishRecordAmended:
+    action: send
+    channel:
+      $ref: '#/channels/RecordEvents'
+  publishPrescriptionCreated:
+    action: send
+    channel:
+      $ref: '#/channels/RecordEvents'
+  onRecordCreated:
+    action: receive
+    channel:
+      $ref: '#/channels/RecordEvents'
+  onRecordFinalized:
+    action: receive
+    channel:
+      $ref: '#/channels/RecordEvents'
+  onRecordAmended:
+    action: receive
+    channel:
+      $ref: '#/channels/RecordEvents'
+  onPrescriptionCreated:
+    action: receive
+    channel:
+      $ref: '#/channels/RecordEvents'
+  onAppointmentCompleted:
+    action: receive
+    channel:
+      $ref: '#/channels/AppointmentEvents'

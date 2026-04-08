@@ -1,0 +1,133 @@
+asyncapi: 3.0.0
+info:
+  title: library.BookService Events
+  version: 1.0.0
+channels:
+  BookEvents:
+    address: BookEvents
+    messages:
+      BookAdded:
+        payload:
+          type: object
+          properties:
+            bookId:
+              type: string
+              format: uuid
+            title:
+              type: string
+          required:
+          - bookId
+          - title
+      BookStatusChanged:
+        payload:
+          type: object
+          properties:
+            bookId:
+              type: string
+              format: uuid
+            oldStatus:
+              $ref: '#/components/schemas/BookStatus'
+            newStatus:
+              $ref: '#/components/schemas/BookStatus'
+          required:
+          - bookId
+          - oldStatus
+          - newStatus
+      OverdueBooksProcessed:
+        payload:
+          type: object
+          properties:
+            count:
+              $ref: '#/components/schemas/Integer'
+          required:
+          - count
+      BookConditionChanged:
+        payload:
+          type: object
+          properties:
+            bookId:
+              type: string
+              format: uuid
+            oldCondition:
+              $ref: '#/components/schemas/BookCondition'
+            newCondition:
+              $ref: '#/components/schemas/BookCondition'
+          required:
+          - bookId
+          - oldCondition
+          - newCondition
+      CheckoutCreated:
+        payload:
+          type: object
+          properties:
+            checkoutId:
+              type: string
+              format: uuid
+            bookId:
+              type: string
+              format: uuid
+          required:
+          - checkoutId
+          - bookId
+      CheckoutReturned:
+        payload:
+          type: object
+          properties:
+            checkoutId:
+              type: string
+              format: uuid
+            bookId:
+              type: string
+              format: uuid
+          required:
+          - checkoutId
+          - bookId
+operations:
+  publishBookAdded:
+    action: send
+    channel:
+      $ref: '#/channels/BookEvents'
+  publishBookStatusChanged:
+    action: send
+    channel:
+      $ref: '#/channels/BookEvents'
+  publishOverdueBooksProcessed:
+    action: send
+    channel:
+      $ref: '#/channels/BookEvents'
+  publishBookConditionChanged:
+    action: send
+    channel:
+      $ref: '#/channels/BookEvents'
+  publishCheckoutCreated:
+    action: send
+    channel:
+      $ref: '#/channels/BookEvents'
+  publishCheckoutReturned:
+    action: send
+    channel:
+      $ref: '#/channels/BookEvents'
+  onBookAdded:
+    action: receive
+    channel:
+      $ref: '#/channels/BookEvents'
+  onBookStatusChanged:
+    action: receive
+    channel:
+      $ref: '#/channels/BookEvents'
+  onOverdueBooksProcessed:
+    action: receive
+    channel:
+      $ref: '#/channels/BookEvents'
+  onBookConditionChanged:
+    action: receive
+    channel:
+      $ref: '#/channels/BookEvents'
+  onCheckoutCreated:
+    action: receive
+    channel:
+      $ref: '#/channels/BookEvents'
+  onCheckoutReturned:
+    action: receive
+    channel:
+      $ref: '#/channels/BookEvents'

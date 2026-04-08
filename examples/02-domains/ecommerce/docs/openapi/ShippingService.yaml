@@ -1,0 +1,210 @@
+openapi: 3.1.0
+info:
+  title: ecommerce.ShippingService API
+  version: 1.0.0
+paths:
+  /api/v1/shipments/shipments/:id:
+    get:
+      operationId: get_shipment
+      summary: get_shipment
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/shipments/order/:orderId:
+    get:
+      operationId: get
+      summary: get
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/shipments/track/:trackingNumber:
+    get:
+      operationId: get
+      summary: get
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/shipments:
+    post:
+      operationId: post
+      summary: post
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/shipments/:id/status:
+    put:
+      operationId: put
+      summary: put
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/shipments/:id/events:
+    post:
+      operationId: post
+      summary: post
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/shipments/rates:
+    post:
+      operationId: post
+      summary: post
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/shipments/webhook/fedex:
+    post:
+      operationId: post
+      summary: post
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+components:
+  schemas:
+    Shipment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        orderId:
+          type: string
+          format: uuid
+        trackingNumber:
+          type: string
+          maxLength: 50
+        carrier:
+          $ref: '#/components/schemas/ShippingCarrier'
+        status:
+          $ref: '#/components/schemas/ShipmentStatus'
+        destination:
+          $ref: '#/components/schemas/Address'
+        weight:
+          $ref: '#/components/schemas/Decimal(10, 2)'
+        estimatedDelivery:
+          $ref: '#/components/schemas/DateTime?'
+        actualDelivery:
+          $ref: '#/components/schemas/DateTime?'
+        failureReason:
+          $ref: '#/components/schemas/String?'
+      required:
+      - id
+      - createdAt
+      - updatedAt
+      - orderId
+      - trackingNumber
+      - carrier
+      - status
+      - destination
+      - weight
+    ShipmentEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          $ref: '#/components/schemas/ShipmentStatus'
+        location:
+          type: string
+          maxLength: 200
+        description:
+          $ref: '#/components/schemas/Text?'
+      required:
+      - id
+      - createdAt
+      - updatedAt
+      - timestamp
+      - status
+      - location
+    ShipmentItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        productId:
+          type: string
+          format: uuid
+        quantity:
+          $ref: '#/components/schemas/Integer'
+      required:
+      - id
+      - createdAt
+      - updatedAt
+      - productId
+      - quantity
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

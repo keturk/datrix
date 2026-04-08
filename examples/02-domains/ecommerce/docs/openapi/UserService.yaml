@@ -1,0 +1,348 @@
+openapi: 3.1.0
+info:
+  title: ecommerce.UserService API
+  version: 1.0.0
+paths:
+  /api/v1/users:
+    get:
+      operationId: list_users
+      summary: list_users
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      operationId: create_user
+      summary: create_user
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/users/:id:
+    get:
+      operationId: get_user
+      summary: get_user
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+    put:
+      operationId: update_user
+      summary: update_user
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+    delete:
+      operationId: delete_user
+      summary: delete_user
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/register:
+    post:
+      operationId: post
+      summary: post
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/login:
+    post:
+      operationId: post
+      summary: post
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/logout:
+    post:
+      operationId: post
+      summary: post
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/me:
+    get:
+      operationId: get
+      summary: get
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+    put:
+      operationId: put
+      summary: put
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/me/password:
+    put:
+      operationId: put
+      summary: put
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/verify-email:
+    post:
+      operationId: post
+      summary: post
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/forgot-password:
+    post:
+      operationId: post
+      summary: post
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/reset-password:
+    post:
+      operationId: post
+      summary: post
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/:id/status:
+    put:
+      operationId: put
+      summary: put
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/internal/:id:
+    get:
+      operationId: get
+      summary: get
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/internal/validate-session:
+    post:
+      operationId: post
+      summary: post
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        email:
+          type: string
+          format: email
+        passwordHash:
+          type: string
+          format: password
+        firstName:
+          type: string
+          maxLength: 100
+        lastName:
+          type: string
+          maxLength: 100
+        phoneNumber:
+          $ref: '#/components/schemas/Phone?'
+        role:
+          $ref: '#/components/schemas/UserRole'
+        status:
+          $ref: '#/components/schemas/UserStatus'
+        lastLoginAt:
+          $ref: '#/components/schemas/DateTime?'
+        emailVerifiedAt:
+          $ref: '#/components/schemas/DateTime?'
+        emailVerificationToken:
+          $ref: '#/components/schemas/String?'
+        passwordResetToken:
+          $ref: '#/components/schemas/String?'
+        passwordResetExpiry:
+          $ref: '#/components/schemas/DateTime?'
+        shippingAddress:
+          $ref: '#/components/schemas/Address?'
+        billingAddress:
+          $ref: '#/components/schemas/Address?'
+      required:
+      - id
+      - createdAt
+      - updatedAt
+      - email
+      - passwordHash
+      - firstName
+      - lastName
+      - role
+      - status
+    UserSession:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        token:
+          type: string
+          maxLength: 255
+        deviceName:
+          $ref: '#/components/schemas/String(500)?'
+        ipAddress:
+          $ref: '#/components/schemas/IPAddress?'
+        userAgent:
+          $ref: '#/components/schemas/String(255)?'
+        expiresAt:
+          type: string
+          format: date-time
+        lastActivityAt:
+          $ref: '#/components/schemas/DateTime?'
+      required:
+      - id
+      - createdAt
+      - updatedAt
+      - token
+      - expiresAt
+    UserPreferences:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        language:
+          type: string
+          maxLength: 10
+        timezone:
+          type: string
+          maxLength: 50
+        emailNotifications:
+          type: boolean
+        smsNotifications:
+          type: boolean
+        preferences:
+          type: object
+      required:
+      - id
+      - createdAt
+      - updatedAt
+      - language
+      - timezone
+      - emailNotifications
+      - smsNotifications
+      - preferences
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

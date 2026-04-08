@@ -1,0 +1,18 @@
+asyncapi: 3.0.0
+info:
+  title: blog.ContentService Events
+  version: 1.0.0
+channels: {}
+operations:
+  onAuthorRegistered:
+    action: receive
+    channel:
+      $ref: '#/channels/AuthorEvents'
+  onAuthorStatusChanged:
+    action: receive
+    channel:
+      $ref: '#/channels/AuthorEvents'
+  onCommentApproved:
+    action: receive
+    channel:
+      $ref: '#/channels/CommentEvents'

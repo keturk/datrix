@@ -1,0 +1,20 @@
+# Data Store Topology
+
+```mermaid
+graph LR
+    subgraph "BookService"
+    book_service_rdbms_catalog[("catalog / postgres (9 entities)")]
+    book_service_rdbms_reporting[("reporting / mysql (3 entities)")]
+    book_service_nosql_docdb[("docdb / NoSQL")]
+    book_service_cache["redis"]
+    book_service_mq_mq[["mq / MQ"]]
+    book_service_storage_store[/"store / Storage"/]
+    book_service_jobs[/"Jobs"/]
+    end
+    subgraph "MemberService"
+    member_service_rdbms_db[("db / postgres (1 entities)")]
+    end
+    subgraph "LoanService"
+    loan_service_rdbms_db[("db / postgres (1 entities)")]
+    end
+```
