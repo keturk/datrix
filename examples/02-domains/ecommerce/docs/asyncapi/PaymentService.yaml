@@ -1,0 +1,73 @@
+asyncapi: 3.0.0
+info:
+  title: ecommerce.PaymentService Events
+  version: 1.0.0
+channels:
+  PaymentEvents:
+    address: PaymentEvents
+    messages:
+      PaymentProcessed:
+        payload:
+          type: object
+          properties:
+            paymentId:
+              type: string
+              format: uuid
+            orderId:
+              type: string
+              format: uuid
+            amount:
+              $ref: '#/components/schemas/Money'
+          required:
+          - paymentId
+          - orderId
+          - amount
+      PaymentFailed:
+        payload:
+          type: object
+          properties:
+            paymentId:
+              type: string
+              format: uuid
+            orderId:
+              type: string
+              format: uuid
+            reason:
+              type: string
+          required:
+          - paymentId
+          - orderId
+          - reason
+      PaymentRefunded:
+        payload:
+          type: object
+          properties:
+            paymentId:
+              type: string
+              format: uuid
+            orderId:
+              type: string
+              format: uuid
+            amount:
+              $ref: '#/components/schemas/Money'
+          required:
+          - paymentId
+          - orderId
+          - amount
+operations:
+  publishPaymentProcessed:
+    action: send
+    channel:
+      $ref: '#/channels/PaymentEvents'
+  publishPaymentFailed:
+    action: send
+    channel:
+      $ref: '#/channels/PaymentEvents'
+  publishPaymentRefunded:
+    action: send
+    channel:
+      $ref: '#/channels/PaymentEvents'
+  onOrderCreated:
+    action: receive
+    channel:
+      $ref: '#/channels/OrderEvents'

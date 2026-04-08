@@ -1,0 +1,219 @@
+openapi: 3.1.0
+info:
+  title: ecommerce.OrderService API
+  version: 1.0.0
+paths:
+  /api/v1/orders:
+    get:
+      operationId: get
+      summary: get
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      operationId: post
+      summary: post
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/orders/:id:
+    get:
+      operationId: get
+      summary: get
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/orders/:id/cancel:
+    put:
+      operationId: put
+      summary: put
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/orders/internal/:id:
+    get:
+      operationId: get
+      summary: get
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/orders/:id/confirm-payment:
+    post:
+      operationId: post
+      summary: post
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/orders/:id/update-shipment:
+    post:
+      operationId: post
+      summary: post
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+components:
+  schemas:
+    Order:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        customerId:
+          type: string
+          format: uuid
+        orderNumber:
+          type: string
+          maxLength: 20
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        subtotal:
+          $ref: '#/components/schemas/Money'
+        tax:
+          $ref: '#/components/schemas/Money'
+        shippingCost:
+          $ref: '#/components/schemas/Money'
+        discount:
+          $ref: '#/components/schemas/Money'
+        shippingAddress:
+          $ref: '#/components/schemas/Address'
+        billingAddress:
+          $ref: '#/components/schemas/Address'
+        inventoryReservationId:
+          type: string
+          format: uuid
+        paymentId:
+          $ref: '#/components/schemas/UUID?'
+        shipmentId:
+          $ref: '#/components/schemas/UUID?'
+        cancellationReason:
+          $ref: '#/components/schemas/String?'
+      required:
+      - id
+      - createdAt
+      - updatedAt
+      - customerId
+      - orderNumber
+      - status
+      - subtotal
+      - tax
+      - shippingCost
+      - discount
+      - shippingAddress
+      - billingAddress
+      - inventoryReservationId
+    OrderItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        productId:
+          type: string
+          format: uuid
+        productName:
+          type: string
+          maxLength: 200
+        quantity:
+          $ref: '#/components/schemas/Integer'
+        unitPrice:
+          $ref: '#/components/schemas/Money'
+      required:
+      - id
+      - createdAt
+      - updatedAt
+      - productId
+      - productName
+      - quantity
+      - unitPrice
+    IdempotencyKey:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        key:
+          type: string
+          maxLength: 100
+        operation:
+          type: string
+          maxLength: 50
+        resourceId:
+          $ref: '#/components/schemas/UUID?'
+        response:
+          $ref: '#/components/schemas/JSON?'
+        expiresAt:
+          type: string
+          format: date-time
+      required:
+      - id
+      - createdAt
+      - updatedAt
+      - key
+      - operation
+      - expiresAt
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

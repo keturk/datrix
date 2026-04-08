@@ -1,0 +1,347 @@
+openapi: 3.1.0
+info:
+  title: library.BookService API
+  version: 1.0.0
+paths:
+  /api/v1/books:
+    get:
+      operationId: list_books
+      summary: list_books
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      operationId: create_book
+      summary: create_book
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/books/:id:
+    get:
+      operationId: get_book
+      summary: get_book
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+    put:
+      operationId: update_book
+      summary: update_book
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+    delete:
+      operationId: delete_book
+      summary: delete_book
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/books/search:
+    get:
+      operationId: get
+      summary: get
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/books/filter:
+    get:
+      operationId: get
+      summary: get
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/books/category/:categoryId:
+    get:
+      operationId: get
+      summary: get
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/books/by-tag/:tagId:
+    get:
+      operationId: get
+      summary: get
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/books/internal/:id:
+    get:
+      operationId: get
+      summary: get
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/books/internal/availability/:id:
+    get:
+      operationId: get
+      summary: get
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/categories:
+    get:
+      operationId: list_categories
+      summary: list_categories
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      operationId: create_category
+      summary: create_category
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/categories/:id:
+    get:
+      operationId: get_category
+      summary: get_category
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+    put:
+      operationId: update_category
+      summary: update_category
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+    delete:
+      operationId: delete_category
+      summary: delete_category
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+components:
+  schemas:
+    Category:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        name:
+          type: string
+          maxLength: 100
+        description:
+          $ref: '#/components/schemas/String(500)?'
+      required:
+      - id
+      - createdAt
+      - updatedAt
+      - name
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        email:
+          type: string
+          maxLength: 255
+        passwordHash:
+          type: string
+          format: password
+        role:
+          $ref: '#/components/schemas/UserRole'
+      required:
+      - id
+      - createdAt
+      - updatedAt
+      - email
+      - passwordHash
+      - role
+    Tag:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        name:
+          type: string
+          maxLength: 50
+        description:
+          $ref: '#/components/schemas/String(200)?'
+      required:
+      - id
+      - createdAt
+      - updatedAt
+      - name
+    BookTag:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+      - id
+      - createdAt
+      - updatedAt
+    Book:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        title:
+          type: string
+          maxLength: 200
+        isbn:
+          type: string
+        author:
+          type: string
+          maxLength: 100
+        publicationYear:
+          $ref: '#/components/schemas/Integer'
+        status:
+          $ref: '#/components/schemas/BookStatus'
+        format:
+          $ref: '#/components/schemas/BookFormat'
+        catalogNumber:
+          $ref: '#/components/schemas/String(50)?'
+        keywords:
+          type: array
+          items:
+            type: string
+        rating:
+          $ref: '#/components/schemas/Decimal(3, 2)'
+      required:
+      - id
+      - createdAt
+      - updatedAt
+      - title
+      - isbn
+      - author
+      - publicationYear
+      - status
+      - format
+      - keywords
+      - rating
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
