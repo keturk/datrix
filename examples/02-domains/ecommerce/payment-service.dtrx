@@ -55,7 +55,7 @@ service ecommerce.PaymentService : version('1.0.0'), description('payment manage
     }
 
     // ': audit' on the rdbms block enables audit logging for all entities
-    rdbms db('config/payment-service/datasources.yaml') : audit {
+    rdbms paymentDb('config/payment-service/datasources.yaml') : audit {
         alert queryDuration(p95) over(5m) > 200ms @severity(warning);
         alert transactionDuration(p99) over(1m) > 2s @severity(critical);
 
@@ -135,18 +135,18 @@ service ecommerce.PaymentService : version('1.0.0'), description('payment manage
         alert responseTime(p95) over(5m) > 500ms @severity(warning);
         alert errorRate(ratio) over(5m) > 3% @severity(critical);
 
-        resource db.Payment : only(get);
+        resource paymentDb.Payment : only(get);
 
         @path('/order/:orderId')
-        get(UUID orderId) -> db.Payment {
-            return db.Payment.where(orderId: orderId).firstOrFail();
+        get(UUID orderId) -> paymentDb.Payment {
+            return paymentDb.Payment.where(orderId: orderId).firstOrFail();
         }
 
         @path('/my-payments')
-        get(Int page = 1, Int perPage = 20) -> Array<db.Payment> {
+        get(Int page = 1, Int perPage = 20) -> Array<paymentDb.Payment> {
             #UUID customerId = Auth.user().id;
             #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
-            return db.Payment
+            return paymentDb.Payment
                 .where(customerId: customerId)
                 .orderBy(createdAt: desc)
                 .offset((page - 1) * cappedPerPage)
@@ -155,10 +155,10 @@ service ecommerce.PaymentService : version('1.0.0'), description('payment manage
         }
 
         @path('/process')
-        post(ProcessPaymentRequest request) -> db.Payment {
+        post(ProcessPaymentRequest request) -> paymentDb.Payment {
             #UUID customerId = Auth.user().id;
 
-            #Payment payment = db.Payment.create({
+            #Payment payment = paymentDb.Payment.create({
                 orderId: request.orderId,
                 customerId: customerId,
                 amount: request.amount,
@@ -174,8 +174,8 @@ service ecommerce.PaymentService : version('1.0.0'), description('payment manage
         }
 
         @path('/:id/refund')
-        post(UUID id, RefundPaymentRequest request) : access(admin) -> db.Refund {
-            #Payment payment = db.Payment.findOrFail(id);
+        post(UUID id, RefundPaymentRequest request) : access(admin) -> paymentDb.Refund {
+            #Payment payment = paymentDb.Payment.findOrFail(id);
 
             if (!payment.canRefund) {
                 throw ValidationException(#"Cannot refund payment in status: {payment.status}");
@@ -193,7 +193,7 @@ service ecommerce.PaymentService : version('1.0.0'), description('payment manage
                 throw ValidationException("Refund amount exceeds original payment");
             }
 
-            #Refund refund = db.Refund.create({
+            #Refund refund = paymentDb.Refund.create({
                 payment: payment,
                 amount: request.amount,
                 reason: request.reason,
@@ -229,7 +229,7 @@ service ecommerce.PaymentService : version('1.0.0'), description('payment manage
 
             if (eventType == "payment_intent.succeeded") {
                 #String transactionId = data.metadata.transactionId;
-                #Payment? payment = db.Payment.where(transactionId: transactionId).first();
+                #Payment? payment = paymentDb.Payment.where(transactionId: transactionId).first();
 
                 if (payment != null && payment.status == PaymentStatus.Processing) {
                     payment.status = PaymentStatus.Completed;
@@ -239,7 +239,7 @@ service ecommerce.PaymentService : version('1.0.0'), description('payment manage
                 }
             } else if (eventType == "payment_intent.payment_failed") {
                 #String transactionId = data.metadata.transactionId;
-                #Payment? payment = db.Payment.where(transactionId: transactionId).first();
+                #Payment? payment = paymentDb.Payment.where(transactionId: transactionId).first();
 
                 if (payment != null && payment.status == PaymentStatus.Processing) {
                     payment.status = PaymentStatus.Failed;
@@ -250,7 +250,7 @@ service ecommerce.PaymentService : version('1.0.0'), description('payment manage
             }
         }
 
-        fn processRefundViaGateway(db.Payment payment, db.Refund refund) -> Boolean {
+        fn processRefundViaGateway(paymentDb.Payment payment, paymentDb.Refund refund) -> Boolean {
             #Boolean success = false;
             #String? transactionId = null;
 
@@ -305,7 +305,7 @@ service ecommerce.PaymentService : version('1.0.0'), description('payment manage
     }
 
     // Service-level async function for payment processing
-    fn processPaymentAsync(db.Payment payment, String? cardToken) {
+    fn processPaymentAsync(paymentDb.Payment payment, String? cardToken) {
         payment.status = PaymentStatus.Processing;
         payment.save();
 

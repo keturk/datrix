@@ -66,7 +66,7 @@ service ecommerce.OrderService : version('1.0.0') {
 
 ### 2. Base Entity Pattern
 ```datrix
-rdbms db('config/datasources.yaml') {
+rdbms bookDb('config/datasources.yaml') {
     abstract entity BaseEntity {
         UUID id : primaryKey = uuid();
         DateTime createdAt = now();
@@ -110,8 +110,8 @@ pubsub mq('config/pubsub.yaml') {
 ```datrix
 rest_api UserAPI : basePath("/api/v1/users") {
     // Internal endpoint - only accessible by other services
-    get(UUID id) : internal -> db.User {
-        return db.User.findOrFail(id);
+    get(UUID id) : internal -> userDb.User {
+        return userDb.User.findOrFail(id);
     }
 }
 ```
@@ -120,21 +120,21 @@ rest_api UserAPI : basePath("/api/v1/users") {
 ```datrix
 rest_api BookAPI : basePath("/api/v1/books") {
     // Public endpoints - no auth required
-    resource db.Book : only(list, get), public;
+    resource bookDb.Book : only(list, get), public;
 
     // Protected endpoints - require librarian role
-    resource db.Book : only(create, update, delete), access(librarian);
+    resource bookDb.Book : only(create, update, delete), access(librarian);
 
     @path('/search')
-    get(String query) : public -> db.Book[] {
-        return db.Book.where(title: query).all();
+    get(String query) : public -> bookDb.Book[] {
+        return bookDb.Book.where(title: query).all();
     }
 }
 ```
 
 ### 7. Computed Fields
 ```datrix
-// Inside rdbms db('config/datasources.yaml') { }
+// Inside rdbms bookDb('config/datasources.yaml') { }
 entity Book extends BaseEntity {
     String(200) title : trim;
     Int publicationYear;
@@ -149,7 +149,7 @@ entity Book extends BaseEntity {
 
 ### 8. Lifecycle Hooks
 ```datrix
-// Inside rdbms db('config/datasources.yaml') { }
+// Inside rdbms bookDb('config/datasources.yaml') { }
 entity Book extends BaseEntity {
     String(50)? catalogNumber;
     BookStatus status;

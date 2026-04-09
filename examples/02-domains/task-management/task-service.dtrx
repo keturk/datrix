@@ -17,7 +17,7 @@ service taskmgmt.TaskService : version('1.0.0'), description('task management se
     resilience('config/task-service/resilience.yaml');
 
     // Relational database block - groups entities (tables) under a named datasource
-    rdbms db('config/task-service/datasources.yaml') {
+    rdbms taskDb('config/task-service/datasources.yaml') {
 
         entity Task extends BaseEntity {
             // UUID fields referencing other services' entities (cross-service foreign keys)
@@ -35,6 +35,6 @@ service taskmgmt.TaskService : version('1.0.0'), description('task management se
     // REST API block - generates CRUD endpoints and custom routes
     rest_api TaskAPI : basePath("/api/v1/tasks") {
         // 'resource' auto-generates standard CRUD endpoints (list, get, create, update, delete)
-        resource db.Task;
+        resource taskDb.Task;
     }
 }

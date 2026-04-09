@@ -16,7 +16,7 @@ service library.MemberService : version('1.0.0'), description('member management
     }
 
     // Each service can have its own database with independent entities
-    rdbms db('config/member-service/datasources.yaml') {
+    rdbms memberDb('config/member-service/datasources.yaml') {
 
         // Abstract entities provide reusable field definitions; they don't generate tables
         abstract entity BaseEntity {
@@ -40,13 +40,13 @@ service library.MemberService : version('1.0.0'), description('member management
 
     // REST API for this service with its own base path
     rest_api MemberAPI : basePath("/api/v1/members") {
-        resource db.Member;
+        resource memberDb.Member;
 
         // Custom lookup endpoint using a non-PK field
         @path('/by-membership/:membershipNumber')
-        get(String membershipNumber) -> db.Member {
+        get(String membershipNumber) -> memberDb.Member {
             // firstOrFail() returns a single result or throws a not-found error
-            return db.Member.where(membershipNumber: membershipNumber).firstOrFail();
+            return memberDb.Member.where(membershipNumber: membershipNumber).firstOrFail();
         }
     }
 }

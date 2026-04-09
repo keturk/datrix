@@ -32,7 +32,7 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
     }
 
     struct AppointmentSearchResult {
-        Array<db.Appointment> appointments;
+        Array<appointmentDb.Appointment> appointments;
         JSON pagination;
     }
 
@@ -72,7 +72,7 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
         String? reason;
     }
 
-    rdbms db('config/appointment-service/datasources.yaml') {
+    rdbms appointmentDb('config/appointment-service/datasources.yaml') {
 
         entity Appointment extends BaseEntity {
             UUID patientId : index;
@@ -243,7 +243,7 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
             // Auto-cancel appointments when patient becomes inactive
             on PatientStatusChanged(UUID patientId, String mrn, String oldStatus, String newStatus) {
                 if (newStatus == "Inactive" || newStatus == "Deceased") {
-                    #Array<Appointment> pendingAppointments = db.Appointment
+                    #Array<Appointment> pendingAppointments = appointmentDb.Appointment
                         .where(patientId: patientId)
                         .whereIn(status: [AppointmentStatus.Scheduled, AppointmentStatus.Confirmed])
                         .all();
@@ -269,7 +269,7 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
 
         // List with multiple optional filters
         get(UUID? patientId, UUID? providerId, AppointmentStatus? status, DateTime? startDate, DateTime? endDate, Int page = 1, Int perPage = 20) -> AppointmentSearchResult {
-            #JSON query = db.Appointment.query();
+            #JSON query = appointmentDb.Appointment.query();
 
             if (patientId != null) {
                 query = query.where(patientId: patientId);
@@ -312,11 +312,11 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
         }
 
         @path('/:id')
-        get(UUID id) -> db.Appointment {
-            return db.Appointment.findOrFail(id);
+        get(UUID id) -> appointmentDb.Appointment {
+            return appointmentDb.Appointment.findOrFail(id);
         }
 
-        post(ScheduleAppointmentRequest request) -> db.Appointment {
+        post(ScheduleAppointmentRequest request) -> appointmentDb.Appointment {
             // Cross-service call to validate the patient exists and is active
             #Boolean patientValid = PatientService.PatientAPI.post('/internal/validate', { patientId: request.patientId });
             if (!patientValid) {
@@ -326,7 +326,7 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
             // '??' null-coalescing operator provides a default value
             #Int duration = request.durationMinutes ?? APPOINTMENT_DURATION_DEFAULT;
             // Check for scheduling conflicts
-            #Appointment? conflict = db.Appointment
+            #Appointment? conflict = appointmentDb.Appointment
                 .where(patientId: request.patientId)
                 .where(scheduledAt: gte(request.scheduledAt))
                 .where(scheduledAt: lt(request.scheduledAt.addMinutes(duration)))
@@ -337,7 +337,7 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
                 throw ValidationException("Patient has a conflicting appointment at this time");
             }
 
-            #Appointment appointment = db.Appointment.create({
+            #Appointment appointment = appointmentDb.Appointment.create({
                 patientId: request.patientId,
                 providerId: request.providerId,
                 providerName: request.providerName,
@@ -363,8 +363,8 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
         }
 
         @path('/:id')
-        put(UUID id, UpdateAppointmentRequest request) -> db.Appointment {
-            #Appointment appointment = db.Appointment.findOrFail(id);
+        put(UUID id, UpdateAppointmentRequest request) -> appointmentDb.Appointment {
+            #Appointment appointment = appointmentDb.Appointment.findOrFail(id);
 
             if (!appointment.canCancel) {
                 throw ValidationException(#"Cannot modify appointment in status: {appointment.status}");
@@ -390,8 +390,8 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
 
         // State transition endpoints
         @path('/:id/confirm')
-        put(UUID id) -> db.Appointment {
-            #Appointment appointment = db.Appointment.findOrFail(id);
+        put(UUID id) -> appointmentDb.Appointment {
+            #Appointment appointment = appointmentDb.Appointment.findOrFail(id);
 
             if (appointment.status != AppointmentStatus.Scheduled) {
                 throw ValidationException("Can only confirm scheduled appointments");
@@ -404,29 +404,29 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
         }
 
         @path('/:id/check-in')
-        put(UUID id) -> db.Appointment {
-            #Appointment appointment = db.Appointment.findOrFail(id);
+        put(UUID id) -> appointmentDb.Appointment {
+            #Appointment appointment = appointmentDb.Appointment.findOrFail(id);
             appointment.checkIn();
             return appointment;
         }
 
         @path('/:id/start')
-        put(UUID id) -> db.Appointment {
-            #Appointment appointment = db.Appointment.findOrFail(id);
+        put(UUID id) -> appointmentDb.Appointment {
+            #Appointment appointment = appointmentDb.Appointment.findOrFail(id);
             appointment.start();
             return appointment;
         }
 
         @path('/:id/complete')
-        put(UUID id, CompleteAppointmentRequest request) -> db.Appointment {
-            #Appointment appointment = db.Appointment.findOrFail(id);
+        put(UUID id, CompleteAppointmentRequest request) -> appointmentDb.Appointment {
+            #Appointment appointment = appointmentDb.Appointment.findOrFail(id);
             appointment.complete(request.notes);
             return appointment;
         }
 
         @path('/:id/cancel')
-        put(UUID id, CancelAppointmentRequest request) -> db.Appointment {
-            #Appointment appointment = db.Appointment.findOrFail(id);
+        put(UUID id, CancelAppointmentRequest request) -> appointmentDb.Appointment {
+            #Appointment appointment = appointmentDb.Appointment.findOrFail(id);
             appointment.cancel(request.reason ?? "Cancelled by user");
 
             sendCancellationNotification(appointment);
@@ -436,15 +436,15 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
 
         // 'access(staff)' restricts to users with the staff role
         @path('/:id/no-show')
-        put(UUID id) : access(staff) -> db.Appointment {
-            #Appointment appointment = db.Appointment.findOrFail(id);
+        put(UUID id) : access(staff) -> appointmentDb.Appointment {
+            #Appointment appointment = appointmentDb.Appointment.findOrFail(id);
             appointment.markNoShow();
             return appointment;
         }
 
         @path('/patient/:patientId/upcoming')
-        get(UUID patientId) -> Array<db.Appointment> {
-            return db.Appointment
+        get(UUID patientId) -> Array<appointmentDb.Appointment> {
+            return appointmentDb.Appointment
                 .where(patientId: patientId)
                 .whereIn(status: [AppointmentStatus.Scheduled, AppointmentStatus.Confirmed])
                 .where(scheduledAt: gt(now()))
@@ -454,8 +454,8 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
         }
 
         @path('/patient/:patientId/history')
-        get(UUID patientId, Int limit = 20) -> Array<db.Appointment> {
-            return db.Appointment
+        get(UUID patientId, Int limit = 20) -> Array<appointmentDb.Appointment> {
+            return appointmentDb.Appointment
                 .where(patientId: patientId)
                 .whereIn(status: [AppointmentStatus.Completed, AppointmentStatus.Cancelled, AppointmentStatus.NoShow])
                 .orderBy(scheduledAt: desc)
@@ -469,7 +469,7 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
             #DateTime startOfDay = DateTime.parse(#"{date.toString()}T08:00:00");
             #DateTime endOfDay = DateTime.parse(#"{date.toString()}T17:00:00");
 
-            #JSON existing = db.Appointment
+            #JSON existing = appointmentDb.Appointment
                 .where(scheduledAt: gte(startOfDay))
                 .where(scheduledAt: lt(endOfDay))
                 .whereIn(status: [AppointmentStatus.Scheduled, AppointmentStatus.Confirmed]);
@@ -513,13 +513,13 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
         }
 
         @path('/internal/:id')
-        get(UUID id) : internal -> db.Appointment {
-            return db.Appointment.findOrFail(id);
+        get(UUID id) : internal -> appointmentDb.Appointment {
+            return appointmentDb.Appointment.findOrFail(id);
         }
 
         @path('/internal/patient/:patientId')
-        get(UUID patientId) : internal -> Array<db.Appointment> {
-            return db.Appointment
+        get(UUID patientId) : internal -> Array<appointmentDb.Appointment> {
+            return appointmentDb.Appointment
                 .where(patientId: patientId)
                 .orderBy(scheduledAt: desc)
                 .limit(50)
@@ -527,7 +527,7 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
         }
 
         // Cross-service call in a helper function
-        fn sendAppointmentConfirmation(db.Appointment appointment) {
+        fn sendAppointmentConfirmation(appointmentDb.Appointment appointment) {
             try {
                 #JSON patient = PatientService.PatientAPI.get('/internal/:id', appointment.patientId);
 
@@ -553,7 +553,7 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
             }
         }
 
-        fn sendCancellationNotification(db.Appointment appointment) {
+        fn sendCancellationNotification(appointmentDb.Appointment appointment) {
             try {
                 #JSON patient = PatientService.PatientAPI.get('/internal/:id', appointment.patientId);
 
@@ -587,7 +587,7 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
             #DateTime tomorrowStart = DateTime.parse(#"{tomorrow.format('YYYY-MM-DD')}T00:00:00");
             #DateTime tomorrowEnd = DateTime.parse(#"{tomorrow.format('YYYY-MM-DD')}T23:59:59");
 
-            #Array<Appointment> upcomingAppointments = db.Appointment
+            #Array<Appointment> upcomingAppointments = appointmentDb.Appointment
                 .where(scheduledAt: gte(tomorrowStart))
                 .where(scheduledAt: lte(tomorrowEnd))
                 .whereIn(status: [AppointmentStatus.Scheduled, AppointmentStatus.Confirmed])
@@ -632,7 +632,7 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
         job MarkNoShows {
             #DateTime threshold = now().subtractMinutes(30);
 
-            #Array<Appointment> missedAppointments = db.Appointment
+            #Array<Appointment> missedAppointments = appointmentDb.Appointment
                 .where(scheduledAt: lt(threshold))
                 .whereIn(status: [AppointmentStatus.Scheduled, AppointmentStatus.Confirmed])
                 .all();

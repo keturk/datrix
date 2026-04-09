@@ -27,7 +27,7 @@ service blog.AuthorService : version('1.0.0'), description('author management se
     }
 
     // Relational database block - groups entities (tables) under a named datasource
-    rdbms db('config/author-service/datasources.yaml') {
+    rdbms authorDb('config/author-service/datasources.yaml') {
 
         entity Author extends BaseEntity {
             // Email is a semantic type that validates email format
@@ -117,16 +117,16 @@ service blog.AuthorService : version('1.0.0'), description('author management se
     // REST API block - generates CRUD endpoints and custom routes
     rest_api AuthorAPI : basePath("/api/v1/authors") {
         // 'resource' auto-generates standard CRUD endpoints; 'access(role)' restricts by role
-        resource db.Author : access(admin);
+        resource authorDb.Author : access(admin);
         // Custom endpoint with @path decorator
         @path('/register')
         // 'public' makes this endpoint accessible without authentication
-        post(RegisterAuthorRequest request) : public -> db.Author {
+        post(RegisterAuthorRequest request) : public -> authorDb.Author {
             // '#Type' is a type hint for local variables
-            #Author? existingAuthor = db.Author.where(email: request.email).first();
+            #Author? existingAuthor = authorDb.Author.where(email: request.email).first();
             if (existingAuthor != null)
                 throw ValidationException("Email already registered");
-            #Author author = db.Author.create({
+            #Author author = authorDb.Author.create({
                 email: request.email,
                 passwordHash: hashPassword(request.password),
                 firstName: request.firstName,

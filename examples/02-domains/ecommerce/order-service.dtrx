@@ -26,7 +26,7 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
     }
 
     struct PaginatedOrders {
-        Array<db.Order> data;
+        Array<orderDb.Order> data;
         JSON pagination;
     }
 
@@ -50,7 +50,7 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
         UUID shipmentId;
     }
 
-    rdbms db('config/order-service/datasources.yaml') {
+    rdbms orderDb('config/order-service/datasources.yaml') {
         // 'alert' defines monitoring thresholds for the datasource
         alert queryDuration(p95) over(5m) > 200ms @severity(warning);
         alert connectionPool(utilization) over(1m) > 80% @severity(critical);
@@ -216,9 +216,9 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
         subscribe PaymentEvents {
 
             on PaymentProcessed(UUID paymentId, UUID orderId, Money amount) {
-                #Order order = db.Order.findOrFail(orderId);
+                #Order order = orderDb.Order.findOrFail(orderId);
 
-                transaction(db) {
+                transaction(orderDb) {
                     order.paymentId = paymentId;
                     order.status = OrderStatus.Confirmed;
                     order.save();
@@ -228,9 +228,9 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
             }
 
             on PaymentFailed(UUID paymentId, UUID orderId, String reason) {
-                #Order order = db.Order.findOrFail(orderId);
+                #Order order = orderDb.Order.findOrFail(orderId);
 
-                transaction(db) {
+                transaction(orderDb) {
                     order.status = OrderStatus.Cancelled;
                     order.cancellationReason = #"Payment failed: {reason}";
                     order.save();
@@ -243,9 +243,9 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
             }
 
             on PaymentRefunded(UUID paymentId, UUID orderId, Money amount) {
-                #Order order = db.Order.findOrFail(orderId);
+                #Order order = orderDb.Order.findOrFail(orderId);
 
-                transaction(db) {
+                transaction(orderDb) {
                     order.status = OrderStatus.Refunded;
                     order.save();
                 }
@@ -262,9 +262,9 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
             }
 
             on ShipmentDispatched(UUID shipmentId, UUID orderId, String trackingNumber) {
-                #Order order = db.Order.findOrFail(orderId);
+                #Order order = orderDb.Order.findOrFail(orderId);
 
-                transaction(db) {
+                transaction(orderDb) {
                     order.shipmentId = shipmentId;
                     order.status = OrderStatus.Shipped;
                     order.save();
@@ -274,9 +274,9 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
             }
 
             on ShipmentDelivered(UUID shipmentId, UUID orderId, DateTime deliveredAt) {
-                #Order order = db.Order.findOrFail(orderId);
+                #Order order = orderDb.Order.findOrFail(orderId);
 
-                transaction(db) {
+                transaction(orderDb) {
                     order.status = OrderStatus.Delivered;
                     order.save();
                 }
@@ -299,7 +299,7 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
         get(Int page = 1, Int perPage = 20, OrderStatus? status) -> PaginatedOrders {
             #UUID customerId = Auth.user().id;
 
-            #JSON query = db.Order.where(customerId: customerId);
+            #JSON query = orderDb.Order.where(customerId: customerId);
 
             if (status != null) {
                 query = query.where(status: status);
@@ -327,8 +327,8 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
         }
 
         @path('/:id')
-        get(UUID id) -> db.Order {
-            #Order order = db.Order.findOrFail(id);
+        get(UUID id) -> orderDb.Order {
+            #Order order = orderDb.Order.findOrFail(id);
 
             if (order.customerId != Auth.user().id && !Auth.hasRole("admin")) {
                 throw AuthorizationException("Access denied");
@@ -337,7 +337,7 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
             return order;
         }
 
-        post(CreateOrderRequest request) -> db.Order {
+        post(CreateOrderRequest request) -> orderDb.Order {
             // Check idempotency to prevent duplicate orders on retry
             #JSON? cached = checkIdempotency(request.idempotencyKey, "create_order");
             if (cached != null) {
@@ -373,7 +373,7 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
                 });
             }
 
-            #Order order = db.Order.create({
+            #Order order = orderDb.Order.create({
                 orderNumber: generateOrderNumber(),
                 customerId: customerId,
                 shippingAddress: request.shippingAddress,
@@ -389,7 +389,7 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
             foreach item in request.items {
                 // Fetch product details from ProductService for denormalization
                 #JSON product = ProductService.ProductAPI.get('/internal/:id', item.productId);
-                db.OrderItem.create({
+                orderDb.OrderItem.create({
                     order: order,
                     productId: item.productId,
                     productName: product.name,
@@ -407,8 +407,8 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
         }
 
         @path('/:id/cancel')
-        put(UUID id, CancelOrderRequest request) -> db.Order {
-            #Order order = db.Order.findOrFail(id);
+        put(UUID id, CancelOrderRequest request) -> orderDb.Order {
+            #Order order = orderDb.Order.findOrFail(id);
 
             if (order.customerId != Auth.user().id && !Auth.hasRole("admin")) {
                 throw AuthorizationException("Cannot cancel another user's order");
@@ -421,7 +421,7 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
                 });
             }
 
-            transaction(db) {
+            transaction(orderDb) {
                 order.status = OrderStatus.Cancelled;
                 order.cancellationReason = request.reason ?? "Cancelled by customer";
                 order.save();
@@ -431,13 +431,13 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
         }
 
         @path('/internal/:id')
-        get(UUID id) : internal -> db.Order {
-            return db.Order.findOrFail(id);
+        get(UUID id) : internal -> orderDb.Order {
+            return orderDb.Order.findOrFail(id);
         }
 
         @path('/:id/confirm-payment')
-        post(UUID id, ConfirmPaymentRequest request) : internal -> db.Order {
-            #Order order = db.Order.findOrFail(id);
+        post(UUID id, ConfirmPaymentRequest request) : internal -> orderDb.Order {
+            #Order order = orderDb.Order.findOrFail(id);
             order.paymentId = request.paymentId;
             order.status = OrderStatus.Confirmed;
             order.save();
@@ -445,8 +445,8 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
         }
 
         @path('/:id/update-shipment')
-        post(UUID id, UpdateShipmentRequest request) : internal -> db.Order {
-            #Order order = db.Order.findOrFail(id);
+        post(UUID id, UpdateShipmentRequest request) : internal -> orderDb.Order {
+            #Order order = orderDb.Order.findOrFail(id);
             order.shipmentId = request.shipmentId;
             order.save();
             return order;
@@ -456,7 +456,7 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
         fn checkIdempotency(String? idempotencyKey, String operation) -> JSON? {
             if (idempotencyKey == null) return null;
 
-            #IdempotencyKey? existing = db.IdempotencyKey
+            #IdempotencyKey? existing = orderDb.IdempotencyKey
                 .where(key: idempotencyKey)
                 .where(operation: operation)
                 // 'gt(now())' is a comparison filter: greater than current time
@@ -474,7 +474,7 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
         fn storeIdempotency(String? idempotencyKey, String operation, UUID resourceId, JSON response) {
             if (idempotencyKey == null) return;
 
-            db.IdempotencyKey.create({
+            orderDb.IdempotencyKey.create({
                 key: idempotencyKey,
                 operation: operation,
                 resourceId: resourceId,
@@ -487,7 +487,7 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
     jobs('config/order-service/jobs.yaml') {
         job CleanupExpiredIdempotencyKeys {
             #DateTime threshold = now().addDays(-1);
-            #Array<IdempotencyKey> expired = db.IdempotencyKey
+            #Array<IdempotencyKey> expired = orderDb.IdempotencyKey
                 .where(expiresAt: lt(threshold))
                 .all();
 

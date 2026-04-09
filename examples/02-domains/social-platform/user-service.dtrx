@@ -11,7 +11,7 @@ service social.UserService : version('1.0.0'), description('user management serv
     resilience('config/user-service/resilience.yaml');
 
     // Relational database block - groups entities (tables) under a named datasource
-    rdbms db('config/user-service/datasources.yaml') {
+    rdbms userDb('config/user-service/datasources.yaml') {
 
         entity User extends BaseEntity {
             // 'unique' ensures no duplicate values across rows
@@ -26,6 +26,6 @@ service social.UserService : version('1.0.0'), description('user management serv
 
     // REST API block - 'resource' auto-generates all standard CRUD endpoints
     rest_api UserAPI : basePath("/api/v1/users") {
-        resource db.User;
+        resource userDb.User;
     }
 }

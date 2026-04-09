@@ -34,7 +34,7 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
         DateTime? estimatedDelivery;
         DateTime? actualDelivery;
         // Array of entity references in struct fields
-        Array<db.ShipmentEvent> events;
+        Array<shippingDb.ShipmentEvent> events;
     }
 
     struct CreateShipmentItem {
@@ -76,7 +76,7 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
         JSON payload;
     }
 
-    rdbms db('config/shipping-service/datasources.yaml') {
+    rdbms shippingDb('config/shipping-service/datasources.yaml') {
 
         entity Shipment extends BaseEntity {
             UUID orderId : index;
@@ -106,7 +106,7 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
             afterUpdate {
                 if (isChanged(status)) {
                     // Automatically create tracking events on status changes
-                    db.ShipmentEvent.create({
+                    shippingDb.ShipmentEvent.create({
                         shipment: this,
                         timestamp: now(),
                         status: status,
@@ -187,7 +187,7 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
                 #ShippingCarrier carrier = selectCarrier(shippingAddress, estimatedWeight);
                 #DateTime estimatedDelivery = calculateEstimatedDelivery(carrier, shippingAddress);
 
-                #Shipment shipment = db.Shipment.create({
+                #Shipment shipment = shippingDb.Shipment.create({
                     orderId: orderId,
                     trackingNumber: generateTrackingNumber(),
                     carrier: carrier,
@@ -198,14 +198,14 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
                 });
 
                 foreach item in items {
-                    db.ShipmentItem.create({
+                    shippingDb.ShipmentItem.create({
                         shipment: shipment,
                         productId: item.productId,
                         quantity: item.quantity
                     });
                 }
 
-                db.ShipmentEvent.create({
+                shippingDb.ShipmentEvent.create({
                     shipment: shipment,
                     timestamp: now(),
                     status: ShipmentStatus.Pending,
@@ -229,11 +229,11 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
 
     rest_api ShippingAPI : basePath('/api/v1/shipments') {
 
-        resource db.Shipment : only(get);
+        resource shippingDb.Shipment : only(get);
 
         @path('/order/:orderId')
-        get(UUID orderId) -> db.Shipment {
-            return db.Shipment.where(orderId: orderId).firstOrFail();
+        get(UUID orderId) -> shippingDb.Shipment {
+            return shippingDb.Shipment.where(orderId: orderId).firstOrFail();
         }
 
         // Public tracking endpoint - no authentication required
@@ -241,8 +241,8 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
         get(String trackingNumber) : public -> ShipmentTracking {
             #JSON? cached = redis.ShipmentCache.get(trackingNumber);
 
-            #Shipment shipment = db.Shipment.where(trackingNumber: trackingNumber).firstOrFail();
-            #Array<ShipmentEvent> events = db.ShipmentEvent
+            #Shipment shipment = shippingDb.Shipment.where(trackingNumber: trackingNumber).firstOrFail();
+            #Array<ShipmentEvent> events = shippingDb.ShipmentEvent
                 .where(shipmentId: shipment.id)
                 .orderBy(timestamp: asc)
                 .all();
@@ -264,11 +264,11 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
             };
         }
 
-        post(CreateShipmentRequest request) : internal -> db.Shipment {
+        post(CreateShipmentRequest request) : internal -> shippingDb.Shipment {
             #ShippingCarrier carrier = selectCarrier(request.destination, request.weight);
             #DateTime estimatedDelivery = calculateEstimatedDelivery(carrier, request.destination);
 
-            #Shipment shipment = db.Shipment.create({
+            #Shipment shipment = shippingDb.Shipment.create({
                 orderId: request.orderId,
                 trackingNumber: generateTrackingNumber(),
                 carrier: carrier,
@@ -279,14 +279,14 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
             });
 
             foreach item in request.items {
-                db.ShipmentItem.create({
+                shippingDb.ShipmentItem.create({
                     shipment: shipment,
                     productId: item.productId,
                     quantity: item.quantity
                 });
             }
 
-            db.ShipmentEvent.create({
+            shippingDb.ShipmentEvent.create({
                 shipment: shipment,
                 timestamp: now(),
                 status: ShipmentStatus.Pending,
@@ -309,8 +309,8 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
         }
 
         @path('/:id/status')
-        put(UUID id, UpdateShipmentStatusRequest request) : access(admin) -> db.Shipment {
-            #Shipment shipment = db.Shipment.findOrFail(id);
+        put(UUID id, UpdateShipmentStatusRequest request) : access(admin) -> shippingDb.Shipment {
+            #Shipment shipment = shippingDb.Shipment.findOrFail(id);
 
             #ShipmentStatus oldStatus = shipment.status;
             shipment.status = request.status;
@@ -321,7 +321,7 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
 
             shipment.save();
 
-            db.ShipmentEvent.create({
+            shippingDb.ShipmentEvent.create({
                 shipment: shipment,
                 timestamp: now(),
                 status: request.status,
@@ -342,10 +342,10 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
         }
 
         @path('/:id/events')
-        post(UUID id, AddTrackingEventRequest request) : access(admin) -> db.ShipmentEvent {
-            #Shipment shipment = db.Shipment.findOrFail(id);
+        post(UUID id, AddTrackingEventRequest request) : access(admin) -> shippingDb.ShipmentEvent {
+            #Shipment shipment = shippingDb.Shipment.findOrFail(id);
 
-            #ShipmentEvent event = db.ShipmentEvent.create({
+            #ShipmentEvent event = shippingDb.ShipmentEvent.create({
                 shipment: shipment,
                 timestamp: now(),
                 status: request.status,
@@ -398,7 +398,7 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
             #String eventType = request.payload.eventType;
             #String location = request.payload.location ?? "Unknown";
 
-            #Shipment? shipment = db.Shipment.where(trackingNumber: trackingNumber).first();
+            #Shipment? shipment = shippingDb.Shipment.where(trackingNumber: trackingNumber).first();
 
             if (shipment == null) {
                 Log.warn("Webhook received for unknown tracking number", { trackingNumber: trackingNumber });
@@ -407,7 +407,7 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
 
             #ShipmentStatus newStatus = mapFedExStatus(eventType);
 
-            db.ShipmentEvent.create({
+            shippingDb.ShipmentEvent.create({
                 shipment: shipment,
                 timestamp: now(),
                 status: newStatus,
@@ -457,7 +457,7 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
     jobs('config/shipping-service/jobs.yaml') {
         // Periodically sync tracking info from carrier APIs
         job SyncCarrierTracking {
-            #Array<Shipment> activeShipments = db.Shipment
+            #Array<Shipment> activeShipments = shippingDb.Shipment
                 .whereIn(status: [ShipmentStatus.PickedUp, ShipmentStatus.InTransit, ShipmentStatus.OutForDelivery])
                 .where(createdAt: gt(now().subtractDays(30)))
                 .all();
@@ -513,11 +513,11 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
         return 5;
     }
 
-    fn syncFedExTracking(db.Shipment shipment) {
+    fn syncFedExTracking(shippingDb.Shipment shipment) {
         Log.debug("Syncing FedEx tracking", { trackingNumber: shipment.trackingNumber });
     }
 
-    fn syncUPSTracking(db.Shipment shipment) {
+    fn syncUPSTracking(shippingDb.Shipment shipment) {
         Log.debug("Syncing UPS tracking", { trackingNumber: shipment.trackingNumber });
     }
 }

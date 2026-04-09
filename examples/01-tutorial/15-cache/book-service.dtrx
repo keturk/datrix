@@ -38,7 +38,7 @@ service library.BookService : version('1.0.0'), description('book management ser
     }
 
     // Relational database block - groups entities (tables) under a named datasource
-    rdbms db('config/book-service/datasources.yaml') {
+    rdbms bookDb('config/book-service/datasources.yaml') {
         // 'alert' defines monitoring rules that trigger when thresholds are exceeded
         // over(5m) is the evaluation window; @severity sets the alert priority
         alert queryDuration(p95) over(5m) > 200ms @severity(warning);
@@ -139,7 +139,7 @@ service library.BookService : version('1.0.0'), description('book management ser
             }
 
             on BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
-                book = db.Book.findById(bookId);
+                book = bookDb.Book.findById(bookId);
                 if (book != null) {
                     Log.info(#"Book '{book.title}' status changed from {oldStatus} to {newStatus}");
                 }
@@ -171,35 +171,35 @@ service library.BookService : version('1.0.0'), description('book management ser
         // 'resource' auto-generates standard CRUD endpoints
         // 'only(...)' restricts which CRUD operations are generated
         // 'public' makes endpoints accessible without authentication
-        resource db.Book : only(list, get), public;
+        resource bookDb.Book : only(list, get), public;
         // 'access(role)' restricts endpoints to users with the specified role
-        resource db.Book : only(create, update, delete), access(librarian);
+        resource bookDb.Book : only(create, update, delete), access(librarian);
 
         @path('/books/search')
-        get(String query) : public -> Array<db.Book> {
-            return db.Book.where(title: query).all();
+        get(String query) : public -> Array<bookDb.Book> {
+            return bookDb.Book.where(title: query).all();
         }
 
         @path('/books/category/:categoryId')
-        get(UUID categoryId) : public -> Array<db.Book> {
-            return db.Book.where(categoryId: categoryId).all();
+        get(UUID categoryId) : public -> Array<bookDb.Book> {
+            return bookDb.Book.where(categoryId: categoryId).all();
         }
 
         // 'internal' restricts this endpoint to service-to-service calls only
         // Internal endpoints are not exposed through the API gateway
         @path('/books/internal/:id')
-        get(UUID id) : internal -> db.Book {
-            return db.Book.findOrFail(id);
+        get(UUID id) : internal -> bookDb.Book {
+            return bookDb.Book.findOrFail(id);
         }
 
         // Internal endpoint returning a struct instead of a full entity
         @path('/books/internal/availability/:id')
         get(UUID id) : internal -> BookAvailabilityResponse {
-            #Book book = db.Book.findOrFail(id);
+            #Book book = bookDb.Book.findOrFail(id);
             return { available: book.isAvailable };
         }
 
-        resource db.Category : only(list, get), public;
-        resource db.Category : only(create, update, delete), access(librarian);
+        resource bookDb.Category : only(list, get), public;
+        resource bookDb.Category : only(create, update, delete), access(librarian);
     }
 }

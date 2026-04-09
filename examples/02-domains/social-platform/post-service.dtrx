@@ -16,7 +16,7 @@ service social.PostService : version('1.0.0'), description('post management serv
     resilience('config/post-service/resilience.yaml');
 
     // Relational database block - groups entities (tables) under a named datasource
-    rdbms db('config/post-service/datasources.yaml') {
+    rdbms postDb('config/post-service/datasources.yaml') {
 
         entity Post extends BaseEntity {
             // UUID field referencing another service's entity (cross-service foreign key)
@@ -33,6 +33,6 @@ service social.PostService : version('1.0.0'), description('post management serv
     // REST API block - generates CRUD endpoints and custom routes
     rest_api PostAPI : basePath("/api/v1/posts") {
         // 'resource' auto-generates standard CRUD endpoints (list, get, create, update, delete)
-        resource db.Post;
+        resource postDb.Post;
     }
 }

@@ -36,7 +36,7 @@ service library.LoanService : version('1.0.0'), description('loan management ser
         String signature;
     }
 
-    rdbms db('config/loan-service/datasources.yaml') {
+    rdbms loanDb('config/loan-service/datasources.yaml') {
 
         entity Loan extends BaseEntity {
             // UUID fields referencing other services' entities (cross-service foreign keys)
@@ -73,7 +73,7 @@ service library.LoanService : version('1.0.0'), description('loan management ser
         @retry(maxAttempts: 3)
         @timeout(ms: 5000)
         // Custom endpoint using a struct as input and returning an entity
-        post(CreateLoanRequest request) -> db.Loan {
+        post(CreateLoanRequest request) -> loanDb.Loan {
             // Check idempotency first - return cached result if this is a duplicate request
             #JSON? cached = checkIdempotency(request.idempotencyKey, "create_loan");
             if (cached != null) {
@@ -91,13 +91,13 @@ service library.LoanService : version('1.0.0'), description('loan management ser
                 // Verify the member exists via MemberService internal endpoint
                 MemberService.MemberAPI.get('/internal/:id', request.memberId);
 
-                #Loan loan = db.Loan.create({
+                #Loan loan = loanDb.Loan.create({
                     bookId: request.bookId,
                     memberId: request.memberId,
                     dueDate: now().addDays(14)
                 });
                 // 'transaction(datasource)' wraps saves in an atomic operation
-                transaction(db) {
+                transaction(loanDb) {
                     loan.save();
                 }
 
@@ -112,8 +112,8 @@ service library.LoanService : version('1.0.0'), description('loan management ser
         }
 
         @path('/member/:memberId')
-        get(UUID memberId) -> Array<db.Loan> {
-            return db.Loan.where(memberId: memberId).all();
+        get(UUID memberId) -> Array<loanDb.Loan> {
+            return loanDb.Loan.where(memberId: memberId).all();
         }
 
         // Webhook endpoint receives external notifications (e.g., from a payment or notification service)
@@ -124,7 +124,7 @@ service library.LoanService : version('1.0.0'), description('loan management ser
 
             if (eventType == "loan.overdue") {
                 #UUID loanId = request.payload.loanId;
-                #Loan? loan = db.Loan.find(loanId);
+                #Loan? loan = loanDb.Loan.find(loanId);
 
                 if (loan != null && loan.status == LoanStatus.Active) {
                     loan.status = LoanStatus.Overdue;
@@ -137,7 +137,7 @@ service library.LoanService : version('1.0.0'), description('loan management ser
         // Return endpoint marks a loan as returned and records the return time
         @path('/:id/return')
         post(UUID id) -> Void {
-            #Loan loan = db.Loan.findOrFail(id);
+            #Loan loan = loanDb.Loan.findOrFail(id);
             loan.status = LoanStatus.Returned;
             loan.returnedAt = now();
             loan.save();
@@ -149,7 +149,7 @@ service library.LoanService : version('1.0.0'), description('loan management ser
         fn checkIdempotency(String? idempotencyKey, String operation) -> JSON? {
             if (idempotencyKey == null) return null;
 
-            #IdempotencyKey? existing = db.IdempotencyKey
+            #IdempotencyKey? existing = loanDb.IdempotencyKey
                 .where(key: idempotencyKey)
                 .where(operation: operation)
                 .where(expiresAt: gt(now()))
@@ -167,7 +167,7 @@ service library.LoanService : version('1.0.0'), description('loan management ser
         fn storeIdempotency(String? idempotencyKey, String operation, UUID resourceId, JSON response) {
             if (idempotencyKey == null) return;
 
-            db.IdempotencyKey.create({
+            loanDb.IdempotencyKey.create({
                 key: idempotencyKey,
                 operation: operation,
                 resourceId: resourceId,

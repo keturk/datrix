@@ -12,9 +12,9 @@ graph LR
     book_service_jobs[/"Jobs"/]
     end
     subgraph "MemberService"
-    member_service_rdbms_db[("db / postgres (2 entities)")]
+    member_service_rdbms_member_db[("memberDb / postgres (2 entities)")]
     end
     subgraph "LoanService"
-    loan_service_rdbms_db[("db / postgres (1 entities)")]
+    loan_service_rdbms_loan_db[("loanDb / postgres (1 entities)")]
     end
 ```

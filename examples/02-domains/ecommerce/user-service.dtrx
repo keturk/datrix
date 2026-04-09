@@ -26,15 +26,15 @@ service ecommerce.UserService : version('1.0.0'), description('user management s
 
     // Structs for request/response payloads
     struct LoginResponse {
-        // 'db.User' references an entity type from this service's database
-        db.User user;
+        // 'userDb.User' references an entity type from this service's database
+        userDb.User user;
         String token;
         DateTime expiresAt;
     }
 
     struct SessionValidationResponse {
         Boolean valid;
-        db.User? user;
+        userDb.User? user;
     }
 
     struct RegisterRequest {
@@ -89,7 +89,7 @@ service ecommerce.UserService : version('1.0.0'), description('user management s
     }
 
     // Relational database block
-    rdbms db('config/user-service/datasources.yaml') {
+    rdbms userDb('config/user-service/datasources.yaml') {
 
         entity User extends BaseEntity {
             Email email : unique;
@@ -240,22 +240,22 @@ service ecommerce.UserService : version('1.0.0'), description('user management s
     // REST API block - generates CRUD endpoints and custom routes
     rest_api UserAPI : basePath('/api/v1') {
 
-        resource db.User : access(admin);
+        resource userDb.User : access(admin);
 
         @path('/register')
-        post(RegisterRequest request) : public -> db.User {
+        post(RegisterRequest request) : public -> userDb.User {
             if (!Validator.isEmail(request.email))
                 throw ValidationException("Invalid email format");
             if (request.password.length() < 8)
                 throw ValidationException("Password must be at least 8 characters");
             if (!Validator.hasLowercase(request.password) || !Validator.hasUppercase(request.password) || !Validator.hasNumbers(request.password))
                 throw ValidationException("Password must contain lowercase, uppercase, and numbers");
-            #User? existing = db.User.where(email: request.email).first();
+            #User? existing = userDb.User.where(email: request.email).first();
             if (existing != null) {
                 throw ValidationException("Email already registered");
             }
 
-            #User user = db.User.create({
+            #User user = userDb.User.create({
                 email: request.email,
                 passwordHash: hashPassword(request.password),
                 firstName: request.firstName,
@@ -271,7 +271,7 @@ service ecommerce.UserService : version('1.0.0'), description('user management s
         @path('/login')
         post(LoginRequest request) : public -> LoginResponse {
             // 'firstOrFail()' throws NotFoundException if no match
-            #User user = db.User.where(email: request.email).firstOrFail();
+            #User user = userDb.User.where(email: request.email).firstOrFail();
 
             if (!verifyPassword(request.password, user.passwordHash)) {
                 throw AuthenticationException("Invalid credentials");
@@ -282,7 +282,7 @@ service ecommerce.UserService : version('1.0.0'), description('user management s
             }
 
             #String token = generateSessionToken();
-            #UserSession session = db.UserSession.create({
+            #UserSession session = userDb.UserSession.create({
                 user: user,
                 token: token,
                 deviceName: Request.device(),
@@ -314,7 +314,7 @@ service ecommerce.UserService : version('1.0.0'), description('user management s
         @path('/logout')
         post(LogoutRequest request) -> Void {
             #String token = Auth.token();
-            #UserSession? session = db.UserSession.where(token: token).first();
+            #UserSession? session = userDb.UserSession.where(token: token).first();
             if (session != null) {
                 session.delete();
             }
@@ -322,12 +322,12 @@ service ecommerce.UserService : version('1.0.0'), description('user management s
         }
 
         @path('/me')
-        get() -> db.User {
+        get() -> userDb.User {
             return Auth.user();
         }
 
         @path('/me')
-        put(UpdateProfileRequest request) -> db.User {
+        put(UpdateProfileRequest request) -> userDb.User {
             #User user = Auth.user();
 
             if (request.firstName != null) user.firstName = request.firstName;
@@ -353,8 +353,8 @@ service ecommerce.UserService : version('1.0.0'), description('user management s
         }
 
         @path('/verify-email')
-        post(VerifyEmailRequest request) : public -> db.User {
-            #User user = db.User.where(emailVerificationToken: request.token).firstOrFail();
+        post(VerifyEmailRequest request) : public -> userDb.User {
+            #User user = userDb.User.where(emailVerificationToken: request.token).firstOrFail();
 
             user.emailVerifiedAt = now();
             user.emailVerificationToken = null;
@@ -366,7 +366,7 @@ service ecommerce.UserService : version('1.0.0'), description('user management s
 
         @path('/forgot-password')
         post(ForgotPasswordRequest request) : public -> Void {
-            #User? user = db.User.where(email: request.email).first();
+            #User? user = userDb.User.where(email: request.email).first();
 
             if (user != null) {
                 user.passwordResetToken = generateToken();
@@ -378,8 +378,8 @@ service ecommerce.UserService : version('1.0.0'), description('user management s
         }
 
         @path('/reset-password')
-        post(ResetPasswordRequest request) : public -> db.User {
-            #User user = db.User.where(passwordResetToken: request.token).firstOrFail();
+        post(ResetPasswordRequest request) : public -> userDb.User {
+            #User user = userDb.User.where(passwordResetToken: request.token).firstOrFail();
 
             if (user.passwordResetExpiry == null || now() > user.passwordResetExpiry) {
                 throw ValidationException("Password reset token has expired");
@@ -394,8 +394,8 @@ service ecommerce.UserService : version('1.0.0'), description('user management s
         }
 
         @path('/:id/status')
-        put(UUID id, UpdateUserStatusRequest request) : access(admin) -> db.User {
-            #User user = db.User.findOrFail(id);
+        put(UUID id, UpdateUserStatusRequest request) : access(admin) -> userDb.User {
+            #User user = userDb.User.findOrFail(id);
             user.status = request.status;
             user.save();
             return user;
@@ -403,13 +403,13 @@ service ecommerce.UserService : version('1.0.0'), description('user management s
 
         // @internal marks endpoints as internal-only, not exposed through the API gateway
         @path('/internal/:id')
-        get(UUID id) : internal -> db.User {
-            return db.User.findOrFail(id);
+        get(UUID id) : internal -> userDb.User {
+            return userDb.User.findOrFail(id);
         }
 
         @path('/internal/validate-session')
         post(ValidateSessionRequest request) : internal -> SessionValidationResponse {
-            #UserSession? session = db.UserSession.where(token: request.token).first();
+            #UserSession? session = userDb.UserSession.where(token: request.token).first();
 
             if (session == null || session.isExpired) {
                 return { valid: false, user: null };
@@ -428,7 +428,7 @@ service ecommerce.UserService : version('1.0.0'), description('user management s
     }
 
     // Service-level function
-    fn sendPasswordResetEmail(db.User user) {
+    fn sendPasswordResetEmail(userDb.User user) {
         Email.send({
             to: user.email,
             subject: "Reset your password",

@@ -25,7 +25,7 @@ service library.MemberService : version('1.0.0'), description('member management
         MembershipType membershipType;
     }
 
-    rdbms db('config/member-service/datasources.yaml') {
+    rdbms memberDb('config/member-service/datasources.yaml') {
 
         // BaseEntity is imported from the common module - no need to redefine it
         entity Member extends BaseEntity {
@@ -44,23 +44,23 @@ service library.MemberService : version('1.0.0'), description('member management
     }
 
     rest_api MemberAPI : basePath("/api/v1/members") {
-        resource db.Member;
+        resource memberDb.Member;
 
         @path('/by-membership/:membershipNumber')
-        get(String membershipNumber) -> db.Member {
-            return db.Member.where(membershipNumber: membershipNumber).firstOrFail();
+        get(String membershipNumber) -> memberDb.Member {
+            return memberDb.Member.where(membershipNumber: membershipNumber).firstOrFail();
         }
 
         // 'internal' restricts this endpoint to service-to-service calls only
         @path('/internal/:id')
-        get(UUID id) : internal -> db.Member {
-            return db.Member.findOrFail(id);
+        get(UUID id) : internal -> memberDb.Member {
+            return memberDb.Member.findOrFail(id);
         }
 
         // Internal endpoint returning a struct - exposes only profile fields, not the full entity
         @path('/internal/profile/:id')
         get(UUID id) : internal -> MemberProfile {
-            #Member member = db.Member.findOrFail(id);
+            #Member member = memberDb.Member.findOrFail(id);
             return { fullName: member.fullName, email: member.email, membershipType: member.membershipType };
         }
     }

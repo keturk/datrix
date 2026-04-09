@@ -12,7 +12,7 @@ service learning.StudentService : version('1.0.0'), description('student managem
     resilience('config/student-service/resilience.yaml');
 
     // Relational database block - groups entities (tables) under a named datasource
-    rdbms db('config/student-service/datasources.yaml') {
+    rdbms studentDb('config/student-service/datasources.yaml') {
 
         entity Student extends BaseEntity {
             // 'trim' auto-trims whitespace on input
@@ -30,6 +30,6 @@ service learning.StudentService : version('1.0.0'), description('student managem
     // REST API block - generates CRUD endpoints and custom routes
     rest_api StudentAPI : basePath("/api/v1/students") {
         // 'resource' auto-generates all standard CRUD endpoints (list, get, create, update, delete)
-        resource db.Student;
+        resource studentDb.Student;
     }
 }

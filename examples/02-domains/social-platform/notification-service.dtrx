@@ -15,7 +15,7 @@ service social.NotificationService : version('1.0.0'), description('notification
     resilience('config/notification-service/resilience.yaml');
 
     // Relational database block - groups entities (tables) under a named datasource
-    rdbms db('config/notification-service/datasources.yaml') {
+    rdbms notificationDb('config/notification-service/datasources.yaml') {
 
         entity Notification extends BaseEntity {
             // UUID field referencing another service's entity (cross-service foreign key)
@@ -34,6 +34,6 @@ service social.NotificationService : version('1.0.0'), description('notification
     // REST API block - generates CRUD endpoints and custom routes
     rest_api NotificationAPI : basePath("/api/v1/notifications") {
         // 'resource' auto-generates standard CRUD endpoints (list, get, create, update, delete)
-        resource db.Notification;
+        resource notificationDb.Notification;
     }
 }

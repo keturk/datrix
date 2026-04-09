@@ -6,7 +6,7 @@ service school.CourseService : version('1.0.0'), description('course service') {
     registration('config/course-service/registration.yaml');
     discovery { }
 
-    rdbms db('config/course-service/datasources.yaml') {
+    rdbms courseDb('config/course-service/datasources.yaml') {
         entity Course {
             @UUID id : primaryKey = uuid();
             String(200) name;
@@ -21,7 +21,7 @@ service school.CourseService : version('1.0.0'), description('course service') {
     }
 
     rest_api CourseAPI : basePath("/api/v1") {
-        resource db.Course;
-        resource db.Student;
+        resource courseDb.Course;
+        resource courseDb.Student;
     }
 }
