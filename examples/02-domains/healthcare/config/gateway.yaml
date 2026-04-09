@@ -9,7 +9,7 @@ test:
 
   auth:
     jwt:
-      algorithm: RS256
+      algorithm: HS256
       issuer: healthcare-platform
       audience: healthcare-api
       expiresIn: 3600
@@ -48,7 +48,7 @@ development:
 
   auth:
     jwt:
-      algorithm: RS256
+      algorithm: HS256
       issuer: healthcare-platform
       audience: healthcare-api
       expiresIn: 3600
@@ -87,7 +87,7 @@ production:
 
   auth:
     jwt:
-      algorithm: RS256
+      algorithm: HS256
       issuer: healthcare-platform
       audience: healthcare-api
       expiresIn: 3600
