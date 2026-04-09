@@ -1,28 +1,38 @@
 # Report generation status from the latest generate-results-*.log file.
-# Finds the latest timestamped log under .generated\.results and lists
-# which projects succeeded and which failed.
+# Finds the latest timestamped log under the results directory (default:
+# <workspace>\.generated\.results) and lists which projects succeeded and failed.
+# Use -ResultsDir when generate.ps1 wrote logs next to a custom output path or -OutputBase.
 
 [CmdletBinding()]
-param()
+param(
+ # Relative to workspace root, or an absolute path. Example: .projects\curvaero\python\.results
+ [string]$ResultsDir = ""
+)
 
 $ErrorActionPreference = "Stop"
 
-# Script is under datrix\scripts\dev; workspace root (where .generated lives) is three levels up
+# Script is under datrix\scripts\dev; workspace root is three levels up
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $WorkspaceRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
-$ResultsDir = Join-Path $WorkspaceRoot ".generated\.results"
+$resolvedResultsDir = if ([string]::IsNullOrWhiteSpace($ResultsDir)) {
+ Join-Path $WorkspaceRoot ".generated\.results"
+} elseif ([System.IO.Path]::IsPathRooted($ResultsDir)) {
+ $ResultsDir
+} else {
+ [System.IO.Path]::GetFullPath((Join-Path $WorkspaceRoot $ResultsDir))
+}
 
 # Pattern: [N/M] project-name: Success|Failed
 $StatusLinePattern = '^\s*\[(\d+)/(\d+)\]\s+([^:]+):\s+(Success|Failed)\s*$'
 
 function Get-LatestGenerateResultsLog {
- if (-not (Test-Path $ResultsDir)) {
- Write-Error "Results directory not found: $ResultsDir"
+ if (-not (Test-Path $resolvedResultsDir)) {
+ Write-Error "Results directory not found: $resolvedResultsDir"
  exit 1
  }
- $logs = Get-ChildItem -Path $ResultsDir -Filter "generate-results-*.log" -File -ErrorAction SilentlyContinue
+ $logs = Get-ChildItem -Path $resolvedResultsDir -Filter "generate-results-*.log" -File -ErrorAction SilentlyContinue
  if (-not $logs) {
- Write-Error "No generate-results-*.log files found in $ResultsDir"
+ Write-Error "No generate-results-*.log files found in $resolvedResultsDir"
  exit 1
  }
  # Filename format: generate-results-YYYYMMDD-HHMMSS.log -> sort by name = chronological

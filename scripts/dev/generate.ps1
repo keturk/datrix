@@ -14,6 +14,7 @@
  Batch modes use the same unified generation pipeline for consistent behavior.
  Activates the datrix virtual environment and runs the generation command.
  Ensures virtual environment is deactivated even if the script is interrupted (Ctrl-C).
+ Timestamped generate-results-*.log files are always written to .generated/.results at the workspace (monorepo) root, regardless of -OutputBase or project output path.
 
 .PARAMETER Source
  Path to source .dtrx file (positional, required for single project mode).
@@ -162,28 +163,29 @@ function Invoke-Cleanup {
 # Register cleanup on script exit
 Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
 
-# Function to get log file path
+# Function to get log file path (timestamped file under $LogResultsDir)
 function Get-LogFilePath {
  param(
- [string]$DatrixWorkspaceRoot
+ [Parameter(Mandatory = $true)]
+ [string]$LogResultsDir
  )
- $logDir = Join-Path $DatrixWorkspaceRoot ".generated" | Join-Path -ChildPath ".results"
- if (-not (Test-Path $logDir)) {
- $null = New-Item -ItemType Directory -Path $logDir -Force
+ if (-not (Test-Path $LogResultsDir)) {
+ $null = New-Item -ItemType Directory -Path $LogResultsDir -Force
  }
- 
+
  $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
  $logFileName = "generate-results-$timestamp.log"
- return Join-Path $logDir $logFileName
+ return Join-Path $LogResultsDir $logFileName
 }
 
 # Function to clean up old log files
 function Remove-OldLogFiles {
  param(
- [string]$DatrixWorkspaceRoot,
+ [Parameter(Mandatory = $true)]
+ [string]$LogResultsDir,
  [int]$KeepCount = 7
  )
- $logDir = Join-Path $DatrixWorkspaceRoot ".generated" | Join-Path -ChildPath ".results"
+ $logDir = $LogResultsDir
  if (-not (Test-Path $logDir)) {
  return
  }
@@ -360,7 +362,7 @@ function Write-GenerationSummaryToLog {
  [string]$LogFilePath
  )
  # Ensure the log file directory and file exist before trying to read.
- # The .generated/.results/ directory can disappear on fresh runs if an
+ # The .../.results/ directory can disappear on fresh runs if an
  # external process (Windows Search Indexer, Defender, etc.) removes the
  # near-empty directory while generation is running.
  $logDir = Split-Path -Parent $LogFilePath
@@ -464,12 +466,17 @@ function Write-GenerationSummaryToLog {
 
 # Main execution with proper error handling
 $logFilePath = $null
+$logResultsDir = $null
 try {
+ # generate-results-*.log always under <workspace>/.generated/.results (not -OutputBase or project output)
+ $batchMode = $All -or $Tutorial -or $NonTutorial -or $Domains -or ($TestSet -ne "generate-all")
+ $logResultsDir = Join-Path (Join-Path $datrixWorkspaceRoot ".generated") ".results"
+
  # Clean up old log files before creating new one (keep only last 7)
- Remove-OldLogFiles -DatrixWorkspaceRoot $datrixWorkspaceRoot -KeepCount 7
- 
+ Remove-OldLogFiles -LogResultsDir $logResultsDir -KeepCount 7
+
  # Set up logging
- $logFilePath = Get-LogFilePath -DatrixWorkspaceRoot $datrixWorkspaceRoot
+ $logFilePath = Get-LogFilePath -LogResultsDir $logResultsDir
  
  # Write header to log file (UTF-8)
  $header = @"
@@ -543,8 +550,7 @@ $("=" * 80)
 
  # Build arguments for Python script
  $pythonArgs = @($pythonScript)
- 
- $batchMode = $All -or $Tutorial -or $NonTutorial -or $Domains -or ($TestSet -ne "generate-all")
+
  if ($batchMode) {
  # Batch mode: folder switches take precedence over -All for test set
  $effectiveTestSet = if ($Tutorial) { "tutorial-all" }
@@ -684,8 +690,8 @@ Inner exception: $($_.Exception.InnerException.Message)
  Invoke-Cleanup
  
  # Clean up old log files (keep only last 7)
- if ($logFilePath) {
+ if ($logFilePath -and $logResultsDir) {
  Write-Host "`nLog saved to: $logFilePath" -ForegroundColor Cyan
- Remove-OldLogFiles -DatrixWorkspaceRoot $datrixWorkspaceRoot -KeepCount 7
+ Remove-OldLogFiles -LogResultsDir $logResultsDir -KeepCount 7
  }
 }
