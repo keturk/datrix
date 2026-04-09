@@ -74,7 +74,7 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
         Array<UUID> ids;
     }
 
-    rdbms db('config/product-service/datasources.yaml') {
+    rdbms productDb('config/product-service/datasources.yaml') {
 
         entity Category extends BaseEntity {
             String(100) name : unique, trim;
@@ -197,7 +197,7 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
         subscribe OrderEvents {
 
             on OrderConfirmed(UUID orderId, UUID? paymentId, UUID reservationId, Address shippingAddress, Array<JSON> items, Decimal estimatedWeight) {
-                #Array<InventoryReservation> reservations = db.InventoryReservation
+                #Array<InventoryReservation> reservations = productDb.InventoryReservation
                     .where(reservationId: reservationId)
                     .where(status: ReservationStatus.Reserved)
                     .all();
@@ -211,15 +211,15 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
             }
 
             on OrderCancelled(UUID orderId, String reason, UUID reservationId) {
-                #Array<InventoryReservation> reservations = db.InventoryReservation
+                #Array<InventoryReservation> reservations = productDb.InventoryReservation
                     .where(reservationId: reservationId)
                     .where(status: ReservationStatus.Reserved)
                     .all();
 
-                // 'transaction(db)' wraps operations in a database transaction
-                transaction(db) {
+                // 'transaction(productDb)' wraps operations in a database transaction
+                transaction(productDb) {
                     foreach reservation in reservations {
-                        #Product? product = db.Product.find(reservation.productId);
+                        #Product? product = productDb.Product.find(reservation.productId);
 
                         if (product != null) {
                             product.inventory = product.inventory + reservation.quantity;
@@ -275,24 +275,24 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
 
     rest_api ProductAPI : basePath('/api/v1/products') {
 
-        resource db.Product : only(list, get), public;
+        resource productDb.Product : only(list, get), public;
 
-        resource db.Product : only(create, update, delete), access(admin);
+        resource productDb.Product : only(create, update, delete), access(admin);
 
         @path('/slug/:slug')
-        get(String slug) : public -> db.Product {
+        get(String slug) : public -> productDb.Product {
             #JSON? cached = redis.ProductCache.get(#"slug:{slug}");
             if (cached != null) return cached;
 
-            #Product product = db.Product.where(slug: slug).firstOrFail();
+            #Product product = productDb.Product.where(slug: slug).firstOrFail();
             redis.ProductCache.set(product.id, product);
             return product;
         }
 
         // Full-text search endpoint
         @path('/search')
-        get(String query, Int? limit, Int? offset) : public -> Array<db.Product> {
-            return db.Product
+        get(String query, Int? limit, Int? offset) : public -> Array<productDb.Product> {
+            return productDb.Product
                 .fulltext(query)
                 .where(status: ProductStatus.Active)
                 .limit(limit ?? 20)
@@ -301,8 +301,8 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
         }
 
         @path('/category/:categoryId')
-        get(UUID categoryId, Int? limit) : public -> Array<db.Product> {
-            return db.Product
+        get(UUID categoryId, Int? limit) : public -> Array<productDb.Product> {
+            return productDb.Product
                 .where(categoryId: categoryId)
                 .where(status: ProductStatus.Active)
                 .orderBy(name: asc)
@@ -310,8 +310,8 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
                 .all();
         }
 
-        post(CreateProductRequest request) : access(admin) -> db.Product {
-            #Product product = db.Product.create({
+        post(CreateProductRequest request) : access(admin) -> productDb.Product {
+            #Product product = productDb.Product.create({
                 name: request.name,
                 description: request.description,
                 price: request.price,
@@ -331,8 +331,8 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
         }
 
         @path('/:id/inventory')
-        put(UUID id, UpdateInventoryRequest request) : access(admin) -> db.Product {
-            #Product product = db.Product.findOrFail(id);
+        put(UUID id, UpdateInventoryRequest request) : access(admin) -> productDb.Product {
+            #Product product = productDb.Product.findOrFail(id);
             #Int oldInventory = product.inventory;
             product.inventory = request.inventory;
             product.save();
@@ -343,8 +343,8 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
         }
 
         @path('/:id/publish')
-        put(UUID id) : access(admin) -> db.Product {
-            #Product product = db.Product.findOrFail(id);
+        put(UUID id) : access(admin) -> productDb.Product {
+            #Product product = productDb.Product.findOrFail(id);
             product.publish();
             return product;
         }
@@ -356,7 +356,7 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
             #Boolean allAvailable = true;
 
             foreach item in request.items {
-                #Product? product = db.Product.find(item.productId);
+                #Product? product = productDb.Product.find(item.productId);
                 if (product == null || product.inventory < item.quantity) {
                     allAvailable = false;
                     availability.push({
@@ -378,9 +378,9 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
 
         @path('/internal/reserve-inventory')
         post(ReserveInventoryRequest request) : internal -> ReservationResponse {
-            transaction(db) {
+            transaction(productDb) {
                 foreach item in request.items {
-                    #Product product = db.Product.findOrFail(item.productId);
+                    #Product product = productDb.Product.findOrFail(item.productId);
 
                     if (product.inventory < item.quantity) {
                         throw ValidationException({
@@ -394,7 +394,7 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
                     product.inventory = product.inventory - item.quantity;
                     product.save();
 
-                    db.InventoryReservation.create({
+                    productDb.InventoryReservation.create({
                         reservationId: request.reservationId,
                         productId: item.productId,
                         quantity: item.quantity,
@@ -413,7 +413,7 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
 
         @path('/internal/confirm-reservation')
         post(ConfirmReservationRequest request) : internal -> Void {
-            #Array<InventoryReservation> reservations = db.InventoryReservation
+            #Array<InventoryReservation> reservations = productDb.InventoryReservation
                 .where(reservationId: request.reservationId)
                 .where(status: ReservationStatus.Reserved)
                 .all();
@@ -428,14 +428,14 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
 
         @path('/internal/release-reservation')
         post(ReleaseReservationRequest request) : internal -> Void {
-            #Array<InventoryReservation> reservations = db.InventoryReservation
+            #Array<InventoryReservation> reservations = productDb.InventoryReservation
                 .where(reservationId: request.reservationId)
                 .where(status: ReservationStatus.Reserved)
                 .all();
 
-            transaction(db) {
+            transaction(productDb) {
                 foreach reservation in reservations {
-                    #Product? product = db.Product.find(reservation.productId);
+                    #Product? product = productDb.Product.find(reservation.productId);
 
                     if (product != null) {
                         product.inventory = product.inventory + reservation.quantity;
@@ -452,14 +452,14 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
         }
 
         @path('/internal/:id')
-        get(UUID id) : internal -> db.Product {
-            return db.Product.findOrFail(id);
+        get(UUID id) : internal -> productDb.Product {
+            return productDb.Product.findOrFail(id);
         }
 
         // 'whereIn(...)' filters by a set of values
         @path('/internal/bulk')
-        post(BulkProductRequest request) : internal -> Array<db.Product> {
-            return db.Product.whereIn(id: request.ids).all();
+        post(BulkProductRequest request) : internal -> Array<productDb.Product> {
+            return productDb.Product.whereIn(id: request.ids).all();
         }
     }
 
@@ -467,7 +467,7 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
     jobs('config/product-service/jobs.yaml') {
         // Job to release inventory reservations that have expired
         job ReleaseExpiredReservations {
-            #Array<InventoryReservation> expired = db.InventoryReservation
+            #Array<InventoryReservation> expired = productDb.InventoryReservation
                 .where(status: ReservationStatus.Reserved)
                 .where(expiresAt: lt(now()))
                 .all();
@@ -485,9 +485,9 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
             foreach reservationId in JSON.keys(reservationGroups) {
                 #JSON batch = reservationGroups[reservationId];
 
-                transaction(db) {
+                transaction(productDb) {
                     foreach item in batch {
-                        #Product? product = db.Product.find(item.productId);
+                        #Product? product = productDb.Product.find(item.productId);
 
                         if (product != null) {
                             product.inventory = product.inventory + item.quantity;
@@ -511,7 +511,7 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
         }
 
         job UpdatePopularProducts {
-            #Array<Product> products = db.Product.where(status: ProductStatus.Active).all();
+            #Array<Product> products = productDb.Product.where(status: ProductStatus.Active).all();
 
             foreach product in products {
                 #Int views = redis.ProductViews.get(product.id.toString()) ?? 0;

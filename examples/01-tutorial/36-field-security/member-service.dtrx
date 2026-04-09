@@ -29,11 +29,11 @@ service library.MemberService : version('1.0.0'), description('member management
 
     // MemberSearchResult wraps query results with pagination metadata
     struct MemberSearchResult {
-        Array<db.Member> members;
+        Array<memberDb.Member> members;
         JSON pagination;
     }
 
-    rdbms db('config/member-service/datasources.yaml') {
+    rdbms memberDb('config/member-service/datasources.yaml') {
 
         entity Member extends BaseEntity {
             String(100) firstName : trim;
@@ -59,13 +59,13 @@ service library.MemberService : version('1.0.0'), description('member management
 
     rest_api MemberAPI : basePath("/api/v1/members") {
         // 'resource' auto-generates standard CRUD endpoints for the entity
-        resource db.Member;
+        resource memberDb.Member;
 
         // Advanced search endpoint combining fulltext, filtering, and pagination
         @path('/search')
         get(String? search, MembershipType? type, Int page = 1, Int perPage = 20) -> MemberSearchResult {
             // '.query()' starts a chainable query builder
-            #JSON query = db.Member.query();
+            #JSON query = memberDb.Member.query();
 
             if (search != null && !search.isEmpty()) {
                 // '.fulltext(term)' performs natural-language search on fulltext-indexed fields
@@ -98,21 +98,21 @@ service library.MemberService : version('1.0.0'), description('member management
         }
 
         @path('/by-membership/:membershipNumber')
-        get(String membershipNumber) -> db.Member {
+        get(String membershipNumber) -> memberDb.Member {
             // '.firstOrFail()' returns the first match or throws if none found
-            return db.Member.where(membershipNumber: membershipNumber).firstOrFail();
+            return memberDb.Member.where(membershipNumber: membershipNumber).firstOrFail();
         }
 
         // 'internal' restricts this endpoint to service-to-service calls only
         @path('/internal/:id')
-        get(UUID id) : internal -> db.Member {
-            return db.Member.findOrFail(id);
+        get(UUID id) : internal -> memberDb.Member {
+            return memberDb.Member.findOrFail(id);
         }
 
         // Internal endpoint returning a struct - exposes only profile fields, not the full entity
         @path('/internal/profile/:id')
         get(UUID id) : internal -> MemberProfile {
-            #Member member = db.Member.findOrFail(id);
+            #Member member = memberDb.Member.findOrFail(id);
             return { fullName: member.fullName, email: member.email, membershipType: member.membershipType };
         }
     }

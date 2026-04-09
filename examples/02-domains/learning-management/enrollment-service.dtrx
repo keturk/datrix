@@ -17,7 +17,7 @@ service learning.EnrollmentService : version('1.0.0'), description('enrollment m
     resilience('config/enrollment-service/resilience.yaml');
 
     // Relational database block - groups entities (tables) under a named datasource
-    rdbms db('config/enrollment-service/datasources.yaml') {
+    rdbms enrollmentDb('config/enrollment-service/datasources.yaml') {
 
         entity Enrollment extends BaseEntity {
             // UUID fields referencing other services' entities (cross-service foreign keys)
@@ -33,6 +33,6 @@ service learning.EnrollmentService : version('1.0.0'), description('enrollment m
     // REST API block - generates CRUD endpoints and custom routes
     rest_api EnrollmentAPI : basePath("/api/v1/enrollments") {
         // 'resource' auto-generates standard CRUD endpoints (list, get, create, update, delete)
-        resource db.Enrollment;
+        resource enrollmentDb.Enrollment;
     }
 }

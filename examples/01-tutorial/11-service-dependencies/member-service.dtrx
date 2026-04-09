@@ -13,7 +13,7 @@ service library.MemberService : version('1.0.0'), description('member management
         Student
     }
 
-    rdbms db('config/member-service/datasources.yaml') {
+    rdbms memberDb('config/member-service/datasources.yaml') {
 
         abstract entity BaseEntity {
             @UUID id : primaryKey = uuid();
@@ -35,11 +35,11 @@ service library.MemberService : version('1.0.0'), description('member management
     }
 
     rest_api MemberAPI : basePath("/api/v1/members") {
-        resource db.Member;
+        resource memberDb.Member;
 
         @path('/by-membership/:membershipNumber')
-        get(String membershipNumber) -> db.Member {
-            return db.Member.where(membershipNumber: membershipNumber).firstOrFail();
+        get(String membershipNumber) -> memberDb.Member {
+            return memberDb.Member.where(membershipNumber: membershipNumber).firstOrFail();
         }
     }
 }

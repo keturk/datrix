@@ -15,7 +15,7 @@ service learning.CourseService : version('1.0.0'), description('course managemen
     resilience('config/course-service/resilience.yaml');
 
     // Relational database block - groups entities (tables) under a named datasource
-    rdbms db('config/course-service/datasources.yaml') {
+    rdbms courseDb('config/course-service/datasources.yaml') {
 
         entity Course extends BaseEntity {
             // 'trim' auto-trims whitespace on input
@@ -40,6 +40,6 @@ service learning.CourseService : version('1.0.0'), description('course managemen
     // REST API block - generates CRUD endpoints and custom routes
     rest_api CourseAPI : basePath("/api/v1/courses") {
         // 'resource' auto-generates standard CRUD endpoints (list, get, create, update, delete)
-        resource db.Course;
+        resource courseDb.Course;
     }
 }

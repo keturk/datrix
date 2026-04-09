@@ -24,7 +24,7 @@ service library.BookService : version('1.0.0'), description('Book management ser
     }
 
     // Relational database block - groups entities (tables) under a named datasource
-    rdbms db('config/book-service/datasources.yaml') {
+    rdbms bookDb('config/book-service/datasources.yaml') {
 
         // Abstract entities provide reusable field definitions; they don't generate tables
         abstract entity BaseEntity {
@@ -53,6 +53,6 @@ service library.BookService : version('1.0.0'), description('Book management ser
     // basePath sets the URL prefix for all endpoints in this API
     rest_api BookServiceAPI : basePath("/api/v1") {
         // 'resource' auto-generates standard CRUD endpoints (list, get, create, update, delete)
-        resource db.Book;
+        resource bookDb.Book;
     }
 }

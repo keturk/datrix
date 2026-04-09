@@ -3,7 +3,7 @@
 ```mermaid
 graph LR
     subgraph "BookService"
-    book_service_rdbms_db[("db / postgres (6 entities)")]
+    book_service_rdbms_book_db[("bookDb / postgres (6 entities)")]
     book_service_nosql_docdb[("docdb / NoSQL")]
     book_service_cache["redis"]
     book_service_mq_mq[["mq / MQ"]]
@@ -11,9 +11,9 @@ graph LR
     book_service_jobs[/"Jobs"/]
     end
     subgraph "MemberService"
-    member_service_rdbms_db[("db / postgres (2 entities)")]
+    member_service_rdbms_member_db[("memberDb / postgres (2 entities)")]
     end
     subgraph "LoanService"
-    loan_service_rdbms_db[("db / postgres (2 entities)")]
+    loan_service_rdbms_loan_db[("loanDb / postgres (2 entities)")]
     end
 ```

@@ -21,7 +21,7 @@ service library.LoanService : version('1.0.0'), description('loan management ser
         Overdue
     }
 
-    rdbms db('config/loan-service/datasources.yaml') {
+    rdbms loanDb('config/loan-service/datasources.yaml') {
 
         entity Loan extends BaseEntity {
             // UUID fields referencing other services' entities (cross-service foreign keys)
@@ -49,7 +49,7 @@ service library.LoanService : version('1.0.0'), description('loan management ser
         @retry(maxAttempts: 3)
         @timeout(ms: 5000)
         // Custom endpoint using a struct as input and returning an entity
-        post(CreateLoanRequest request) -> db.Loan {
+        post(CreateLoanRequest request) -> loanDb.Loan {
             // try/catch for error handling with logging
             try {
                 // '#Book' is a type hint for the response from a cross-service API call
@@ -61,13 +61,13 @@ service library.LoanService : version('1.0.0'), description('loan management ser
                 // Verify the member exists via MemberService internal endpoint
                 MemberService.MemberAPI.get('/internal/:id', request.memberId);
 
-                #Loan loan = db.Loan.create({
+                #Loan loan = loanDb.Loan.create({
                     bookId: request.bookId,
                     memberId: request.memberId,
                     dueDate: now().addDays(14)
                 });
                 // 'transaction(datasource)' wraps saves in an atomic operation
-                transaction(db) {
+                transaction(loanDb) {
                     loan.save();
                 }
                 return loan;
@@ -78,8 +78,8 @@ service library.LoanService : version('1.0.0'), description('loan management ser
         }
 
         @path('/member/:memberId')
-        get(UUID memberId) -> Array<db.Loan> {
-            return db.Loan.where(memberId: memberId).all();
+        get(UUID memberId) -> Array<loanDb.Loan> {
+            return loanDb.Loan.where(memberId: memberId).all();
         }
     }
 }

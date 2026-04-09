@@ -19,7 +19,7 @@ service blog.CommentService : version('1.0.0'), description('comment management 
         Deleted
     }
 
-    rdbms db('config/comment-service/datasources.yaml') {
+    rdbms commentDb('config/comment-service/datasources.yaml') {
 
         entity Comment extends BaseEntity {
             // UUID field referencing another service's entity (cross-service foreign key)
@@ -58,10 +58,10 @@ service blog.CommentService : version('1.0.0'), description('comment management 
 
     rest_api CommentAPI : basePath("/api/v1/comments") {
         // 'only(...)' restricts which CRUD operations are generated
-        resource db.Comment : only(get), public;
+        resource commentDb.Comment : only(get), public;
         @path('/')
-        get(UUID contentId, CommentStatus? status) : public -> Array<db.Comment> {
-            return db.Comment.where(contentId: contentId).all();
+        get(UUID contentId, CommentStatus? status) : public -> Array<commentDb.Comment> {
+            return commentDb.Comment.where(contentId: contentId).all();
         }
     }
 }

@@ -17,7 +17,7 @@ service blog.ContentService : version('1.0.0'), description('content management 
         Deleted
     }
 
-    rdbms db('config/content-service/datasources.yaml') {
+    rdbms contentDb('config/content-service/datasources.yaml') {
 
         entity Post extends BaseEntity {
             UUID authorId : index;
@@ -68,7 +68,7 @@ service blog.ContentService : version('1.0.0'), description('content management 
 
                 // React to cross-service events: archive posts when author becomes inactive
                 if (newStatus == "Suspended" || newStatus == "Inactive") {
-                    #Array<Post> publishedPosts = db.Post
+                    #Array<Post> publishedPosts = contentDb.Post
                         .where(authorId: authorId)
                         .where(status: ContentStatus.Published)
                         .all();
@@ -94,7 +94,7 @@ service blog.ContentService : version('1.0.0'), description('content management 
         subscribe CommentEvents {
 
             on CommentApproved(UUID commentId, UUID contentId) {
-                #Post? post = db.Post.find(contentId);
+                #Post? post = contentDb.Post.find(contentId);
 
                 if (post != null) {
                     post.approvedCommentCount = post.approvedCommentCount + 1;
@@ -105,7 +105,7 @@ service blog.ContentService : version('1.0.0'), description('content management 
     }
 
     rest_api ContentAPI : basePath("/api/v1/posts") {
-        resource db.Post : only(list, get), public;
-        resource db.Post : only(create, update, delete), access(editor);
+        resource contentDb.Post : only(list, get), public;
+        resource contentDb.Post : only(create, update, delete), access(editor);
     }
 }
