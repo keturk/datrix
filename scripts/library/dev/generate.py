@@ -267,8 +267,11 @@ app()
                     # Print all output in real-time
                     print(plain_line, flush=True)
                     output_lines.append(plain_line)
-                    # Capture warning lines for the summary
-                    if plain_line.lstrip().startswith("Warning:"):
+                    # Capture warning lines for the summary. Match both:
+                    #   - "Warning: ..." (CLI-style)
+                    #   - "WARNING logger.name ..." (Python logging default format)
+                    stripped = plain_line.lstrip()
+                    if stripped.startswith("Warning:") or stripped.startswith("WARNING "):
                         warnings.append(plain_line.strip())
 
             # Wait for process to complete
@@ -278,8 +281,21 @@ app()
             sys.stdout.flush()
             sys.stderr.flush()
 
-            # If process failed, keep only error-like lines to avoid dumping full log
-            if exit_code != 0:
+            # If the subprocess itself failed, capture error-like lines BEFORE
+            # promoting warnings to errors, so we don't pollute the errors list
+            # with arbitrary trailing output from warning-only runs.
+            subprocess_failed = exit_code != 0
+
+            # Any warning emitted during generation is treated as a hard failure:
+            # warnings indicate silent fallbacks or incomplete mappings and must
+            # not be allowed to ship in generated code.
+            if warnings and exit_code == 0:
+                exit_code = 1
+
+            # If the subprocess failed, keep only error-like lines to avoid
+            # dumping the full log. Warning-only failures leave `errors` empty
+            # because the warnings list is already reported in the summary.
+            if subprocess_failed:
                 meaningful = [line for line in output_lines if line.strip()]
                 if meaningful:
                     error_indicators = (
@@ -418,14 +434,19 @@ def _print_generation_summary(
                 print(colorize(f" - {failed_project}", ColorCodes.RED))
             print()
 
-    if fail_count > 0 or total_errors > 0:
+    if fail_count > 0 or total_errors > 0 or total_warnings > 0:
+        if total_warnings > 0 and fail_count == 0 and total_errors == 0:
+            # Warnings-only failure: make the failure reason explicit.
+            msg = (
+                "Generation failed: warnings are treated as errors. "
+                "Fix the warnings above (they indicate silent fallbacks or "
+                "incomplete mappings in the generators) and re-run."
+            )
+            if logger:
+                logger.write_error(msg)
+            else:
+                print(colorize(msg, ColorCodes.RED))
         return 1
-    if total_warnings > 0:
-        if logger:
-            logger.write_warning("All projects generated with warnings.")
-        else:
-            print(colorize("All projects generated with warnings.", ColorCodes.YELLOW))
-        return 0
     if logger:
         logger.write_success("All projects generated successfully!")
     else:
