@@ -1,5 +1,5 @@
 # Cleanup Temporary Cache Folders
-# Lists cache folders and files under the monorepo root ($BaseDir) and in all datrix* projects (recursive). Root: direct children only; projects: full recursion (skips .git, .venv, node_modules, .generated). Folders: .hypothesis, .ruff_cache, .ruff_check, .mypy_cache, .pytest_cache, htmlcov, .benchmarks, __pycache__, .tox, .nox, .cache, .pyre, .pytype, cython_debug. Files: .coverage, .coverage.*, coverage.xml, .dmypy.json, dmypy.json.
+# Lists cache folders and files under the monorepo root ($BaseDir) and in all datrix* projects (recursive). Root: direct children only; projects: full recursion (skips .git, .venv, node_modules, .generated; does not scan inside .generated). Folders: .hypothesis, .ruff_cache, .ruff_check, .mypy_cache, .pytest_cache, htmlcov, .benchmarks, __pycache__, .tox, .nox, .cache, .pyre, .pytype, cython_debug. Files: .coverage, .coverage.*, coverage.xml, .dmypy.json, dmypy.json.
 # If -Force parameter is provided, asks for confirmation before deletion
 # Usage: .\scripts\dev\cleanup_temps.ps1 [-BaseDir <path>] [-Force] [-AdditionalFolders <string[]>] [-Dbg]
 
@@ -248,13 +248,6 @@ if ($baseDirName) {
 foreach ($project in $projects) {
  Get-CacheFoldersUnder -Root $project.FullName -ParentName $project.Name
  Get-CacheFilesUnder -Root $project.FullName -ParentName $project.Name
-}
-
-# Process .generated folder if it exists (recursive)
-$generatedFolder = Join-Path $BaseDir ".generated"
-if (Test-Path $generatedFolder) {
- Get-CacheFoldersUnder -Root $generatedFolder -ParentName ".generated"
- Get-CacheFilesUnder -Root $generatedFolder -ParentName ".generated"
 }
 
 # Display all cache items
