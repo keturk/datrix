@@ -749,6 +749,32 @@ def _find_pnpm() -> Optional[str]:
     return shutil.which("pnpm")
 
 
+def _find_typescript_root(project: Path) -> Optional[Path]:
+    """Find the TypeScript output root by walking up path components.
+
+    Looks for a path component named ``typescript``, then returns the
+    full path up to and including that component. Returns None if not
+    found. Works with any output base directory.
+    """
+    parts = project.resolve().parts
+    for idx, part in enumerate(parts):
+        if part == "typescript":
+            return Path(*parts[: idx + 1])
+    return None
+
+
+def _shared_ts_node_modules_exists(project: Path) -> bool:
+    """Check if a shared node_modules exists at the TypeScript root.
+
+    Returns True if the TypeScript root has both ``node_modules/`` and
+    ``.tsc_cache/`` (the marker created by hooks.py shared install).
+    """
+    ts_root = _find_typescript_root(project)
+    if ts_root is None:
+        return False
+    return (ts_root / "node_modules").exists() and (ts_root / ".tsc_cache").exists()
+
+
 def _run_pnpm_install(service_dir: Path, label: str, parallel: bool) -> bool:
     """Run pnpm install for a TypeScript service if node_modules is missing."""
     node_modules = service_dir / "node_modules"
@@ -897,15 +923,19 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
         total_skipped = 0
         combined_output: list[str] = []
 
+        # Check for shared node_modules at the TypeScript root (created by hooks.py)
+        shared_available = _shared_ts_node_modules_exists(project)
+
         for svc_dir in ts_service_dirs:
             svc_label = f"{project_name}/{svc_dir.name}"
 
-            # Install dependencies if needed
-            if not _run_pnpm_install(svc_dir, svc_label, parallel):
-                all_success = False
-                total_errors += 1
-                combined_output.append(f"pnpm install failed for {svc_dir.name}")
-                continue
+            # Skip per-service install if shared node_modules is available
+            if not shared_available:
+                if not _run_pnpm_install(svc_dir, svc_label, parallel):
+                    all_success = False
+                    total_errors += 1
+                    combined_output.append(f"pnpm install failed for {svc_dir.name}")
+                    continue
 
             # Run Jest via pnpm test
             cmd = [pnpm, "test", "--", "--forceExit", "--no-cache"]
