@@ -463,7 +463,13 @@ def main():
  
     # Single project mode
     parser.add_argument("--source", type=str, help="Path to source .dtrx file")
-    parser.add_argument("--output", type=str, default=None, help="Output directory path. When omitted, derived from test-projects.json (defaultLanguage, defaultPlatform) and the source path.")
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="Output directory. When omitted, derived as .generated/<language>/<platform>/… "
+        "from the source path using --language and --platform (see test-projects path rules).",
+    )
  
     # Batch mode
     parser.add_argument("--language", type=str, default="python", choices=["python", "typescript"], help="Target language")
@@ -503,18 +509,6 @@ def main():
     if create_log_file:
         log_dir = datrix_root / ".generated" / ".results"
         log_dir.mkdir(parents=True, exist_ok=True)
-        if log_dir.exists():
-            log_files = sorted(
-                log_dir.glob("generate-results-*.log"),
-                key=lambda f: f.stat().st_mtime,
-                reverse=True,
-            )
-            if len(log_files) > 7:
-                for log_file in log_files[7:]:
-                    try:
-                        log_file.unlink()
-                    except OSError:
-                        pass
 
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         log_file_path = log_dir / f"generate-results-{timestamp}.log"
@@ -541,7 +535,13 @@ def main():
             source_path = Path(args.source).resolve()
             if not args.output:
                 try:
-                    args.output = str(get_default_output_path(str(source_path)))
+                    args.output = str(
+                        get_default_output_path(
+                            str(source_path),
+                            language=args.language,
+                            platform=args.platform,
+                        )
+                    )
                 except (ValueError, FileNotFoundError) as e:
                     error_msg = str(e)
                     if logger:
@@ -745,21 +745,6 @@ def main():
 
     if log_file_path:
         print(f"\nLog saved to: {log_file_path}")
-
-    # Clean up old log files
-    log_dir = datrix_root / ".generated" / ".results"
-    if log_dir.exists():
-        log_files = sorted(
-            log_dir.glob("generate-results-*.log"),
-            key=lambda f: f.stat().st_mtime,
-            reverse=True,
-        )
-        if len(log_files) > 7:
-            for log_file in log_files[7:]:
-                try:
-                    log_file.unlink()
-                except OSError:
-                    pass
 
     return return_code
 

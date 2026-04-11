@@ -178,35 +178,6 @@ function Get-LogFilePath {
  return Join-Path $LogResultsDir $logFileName
 }
 
-# Function to clean up old log files
-function Remove-OldLogFiles {
- param(
- [Parameter(Mandatory = $true)]
- [string]$LogResultsDir,
- [int]$KeepCount = 7
- )
- $logDir = $LogResultsDir
- if (-not (Test-Path $logDir)) {
- return
- }
- 
- # Get all generate-results-*.log files, sorted by last write time (newest first)
- $logFiles = Get-ChildItem -Path $logDir -Filter "generate-results-*.log" | 
- Sort-Object LastWriteTime -Descending
- 
- # Delete files beyond the keep count
- if ($logFiles.Count -gt $KeepCount) {
- $filesToDelete = $logFiles | Select-Object -Skip $KeepCount
- foreach ($file in $filesToDelete) {
- try {
- Remove-Item -Path $file.FullName -Force -ErrorAction Stop
- } catch {
- # Ignore errors during cleanup to avoid breaking the script
- }
- }
- }
-}
-
 # Function to show help message
 function Show-HelpMessage {
  Write-Host ""
@@ -466,14 +437,10 @@ function Write-GenerationSummaryToLog {
 
 # Main execution with proper error handling
 $logFilePath = $null
-$logResultsDir = $null
 try {
  # generate-results-*.log always under <workspace>/.generated/.results (not -OutputBase or project output)
  $batchMode = $All -or $Tutorial -or $NonTutorial -or $Domains -or ($TestSet -ne "generate-all")
  $logResultsDir = Join-Path (Join-Path $datrixWorkspaceRoot ".generated") ".results"
-
- # Clean up old log files before creating new one (keep only last 7)
- Remove-OldLogFiles -LogResultsDir $logResultsDir -KeepCount 7
 
  # Set up logging
  $logFilePath = Get-LogFilePath -LogResultsDir $logResultsDir
@@ -688,10 +655,8 @@ Inner exception: $($_.Exception.InnerException.Message)
 } finally {
  # Ensure virtual environment is deactivated even on Ctrl-C
  Invoke-Cleanup
- 
- # Clean up old log files (keep only last 7)
- if ($logFilePath -and $logResultsDir) {
+
+ if ($logFilePath) {
  Write-Host "`nLog saved to: $logFilePath" -ForegroundColor Cyan
- Remove-OldLogFiles -LogResultsDir $logResultsDir -KeepCount 7
  }
 }

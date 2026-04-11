@@ -71,7 +71,7 @@ Main code generation script. Generates Python/TypeScript code from .dtrx source 
 
 ### Logs
 
-Generation logs are saved to `.generated/.results/generate-results-TIMESTAMP.log`. Only the last 7 logs are kept.
+Generation logs are saved to `.generated/.results/generate-results-TIMESTAMP.log`. Old logs are not deleted automatically.
 
 ## rebuild-parser.ps1
 
