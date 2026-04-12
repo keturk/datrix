@@ -1,6 +1,6 @@
 # Datrix Design Principles
 
-**Last Updated:** March 16, 2026
+**Last Updated:** April 11, 2026
 
 ---
 
@@ -28,6 +28,10 @@ Datrix is built on proven software engineering principles that ensure:
 
 **Application:** The codebase raises explicit errors with context (e.g. entity not found with available names and suggestions). No silent fallbacks or `None` returns for lookup failures.
 
+**Example (Alembic initial migration):** `build_initial_migration_context` and related helpers in `datrix_codegen_python.generators.persistence._migration_schema` raise `GenerationError` when an entity has no primary key, when a `belongsTo` target is missing from the block, or when foreign-key dependencies between tables are circular — generation stops with a concrete message instead of emitting broken DDL.
+
+**Example (multi-service NGINX gateway):** `generate_nginx_config` in `datrix_codegen_docker.generators.config.gateway_generator` raises `GenerationError` when any upstream would have no location blocks (for example a service with no `rest_api` / `graphql_api` and no derivable health alias), when two services would publish the same external health path through the gateway, or when a service has no HTTP port in resolved config — rather than emitting an incomplete `nginx.conf`.
+
 **Benefits:**
 - ✅ Cannot continue with invalid state
 - ✅ Error includes helpful suggestions
@@ -47,6 +51,8 @@ Datrix is built on proven software engineering principles that ensure:
 - Reusable template macros
 
 **Application:** Generators use Jinja2 (e.g. `PackageLoader` for templates), render to raw code, and validate syntax before output. Model templates emit a Pydantic model class keyed by entity name, with conditional imports (e.g. UUID when needed) and one field per entity field. Templates should produce well-formatted output; ruff format / Prettier check formatting. Raw string concatenation is not used. See the codebase for template files (e.g. `model.py.j2` in datrix-codegen-python).
+
+**Example (transpiled job handlers):** `JobsGenerator` (`datrix_codegen_python.generators.messaging.jobs_generator`) combines Jinja2 templates such as `messaging/jobs_scheduler.py.j2` and `messaging/jobs_runner.py.j2` with output from `PythonTranspiler` so each scheduled job’s DSL body becomes real Python inside the generated scheduler/runner modules.
 
 **Key Insight:** Templates should produce well-formatted output; ruff format --check catches formatting issues.
 
@@ -166,6 +172,10 @@ Datrix is built on proven software engineering principles that ensure:
 **Application:** Types and configuration are explicit. Fields must declare their type; no inference from names (e.g. `_id` → UUID). Generators receive all required parameters (app, output_dir, versions); no magic defaults. The codebase uses explicit types and constructor arguments throughout.
 
 **Builtin traits are opt-in:** Datrix provides ten builtin traits (Timestampable, Tenantable, SoftDeletable, etc.) that are always available but never automatically applied. Entities must explicitly declare `with TraitName` to receive trait fields. For example, `entity User extends BaseEntity with Tenantable` opts the User entity into tenant isolation — without this declaration, the entity has no `tenantId` field.
+
+**Example (seed reference data):** `SeedGenerator` (`datrix_codegen_python.generators.persistence.seed_generator`) only runs when `config/seed-data.yaml` exists under the service output tree. Entity names, columns, and row shapes must match the AST; unknown columns or missing primary-key values raise `GenerationError` with **Allowed:** lists — reference data is never inferred from the DSL alone.
+
+**Example (runtime configuration):** Docker Compose and generated Python settings models bind operational values to **named environment variables** (for example `JWT_SECRET`, `INTERNAL_API_TOKEN`, database URLs, and ports). Values come from resolved YAML profiles and documented `.env.example` entries — not from undocumented literals in generated service code.
 
 ---
 
@@ -366,4 +376,4 @@ These principles guide all architectural and implementation decisions in the Dat
 
 ---
 
-**Last Updated:** March 16, 2026
+**Last Updated:** April 11, 2026
