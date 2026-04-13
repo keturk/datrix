@@ -139,10 +139,4 @@ def example_function() -> str:
 
 ---
 
-## Contributing
-
-Found an error or want to improve these guides? Submit changes through your team’s usual contribution process and follow the [AI agent / contributor rules](../../../datrix-common/docs/contributing/ai-agent-rules.md).
-
----
-
 **Last updated:** April 13, 2026

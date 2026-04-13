@@ -237,9 +237,9 @@ These examples serve as:
 - Each service is independently deployable
 - Services communicate via REST APIs and events
 
-## Contributing
+## Extending the examples
 
-When adding new examples:
+When adding or changing examples in this repository:
 1. Follow the existing structure and patterns
 2. Create a `system.dtrx` entry point file with:
    - `include` statements for all service files
