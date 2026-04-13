@@ -468,20 +468,22 @@ pip install datrix-cli \
 
 Use the CLI to validate and generate:
 ```bash
-# Validate
+# Validate a file or directory of .dtrx files
 datrix validate system.dtrx
+datrix validate examples/01-tutorial/03-basic-api
 
-# Generate code (language and platform are read from config files, not CLI flags)
+# Generate (defaults: profile test; language/hosting from YAML for that profile)
 datrix generate --source system.dtrx --output ./generated
 
 # Generate for a specific profile
 datrix generate --source system.dtrx --output ./generated --profile production
 
-# Generate TypeScript output (override config language)
+# Override language / hosting / platform for one run (optional short flags)
 datrix generate --source system.dtrx --output ./generated --language typescript
+datrix generate --source system.dtrx --output ./generated -L python -H docker -P compose
 ```
 
-**Config-driven generation:** The target language (Python, TypeScript) and deployment platform (Docker, K8s, AWS, Azure) are defined in config files, not CLI flags. The `language` and `hosting` fields in `system-config.yaml` determine which generators run. Service-level `platform` fields in each service's config YAML determine the specific runtime flavor (e.g., `compose`, `ecs-fargate`, `lambda`).
+**Config-driven generation:** The usual source of truth is YAML: `language` and `hosting` in `system-config.yaml`, and service-level `platform` in each service config (e.g. `compose`, `ecs-fargate`, `lambda`). Use `--language` / `-L`, `--hosting` / `-H`, and `--platform` / `-P` only when you want CLI overrides for a single invocation.
 
 ---
 
@@ -489,8 +491,8 @@ datrix generate --source system.dtrx --output ./generated --language typescript
 
 - Read [Design Principles](./design-principles.md) to understand core principles
 - Read [Language Reference](../reference/language-reference.md) to learn how to write `.dtrx` files
-- See [Getting Started](../getting-started/) for tutorials
+- See [Getting Started](../getting-started/first-project.md) and the runnable trees under [`examples/`](../../examples/)
 
 ---
 
-**Last Updated:** April 12, 2026
+**Last Updated:** April 13, 2026

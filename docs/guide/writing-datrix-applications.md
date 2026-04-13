@@ -102,6 +102,10 @@ my-project/
 
 > **💡 Tip:** Only edit files in `specs/` and `config/`. Never manually edit `generated/` — your changes will be lost on next generation.
 
+### Layout used in `examples/`
+
+The official [`examples/`](../../examples/) trees usually place **`system.dtrx` and `*.dtrx` service files at the project root** beside a **`config/`** directory. Paths in `include '…'` and `config('…')` are **relative to the file** that contains them. A nested **`specs/`** layout (as sketched above) is equally valid for larger repos—keep paths consistent.
+
 ---
 
 ## File Structure and Includes

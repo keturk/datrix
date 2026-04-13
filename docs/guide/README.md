@@ -29,12 +29,9 @@ Complete reference for all configuration files:
 - Platform-specific settings (Docker, Kubernetes, AWS, Azure)
 
 ### 💡 [Complete Examples](./complete-examples.md)
-Working examples you can copy and adapt:
-- Blog service with posts and comments
-- E-commerce system with orders and payments
-- Event-driven microservices architecture
-- Multi-tenant SaaS application
-- CQRS pattern implementation
+Index of **repository** examples under [`examples/`](../../examples/) (tutorials + domain apps), plus short pattern notes:
+- Tutorial series (library system): entities → APIs → events → CQRS, GraphQL, jobs, and more
+- Domain folders: blog-cms, ecommerce, healthcare, learning-management, social-platform, task-management
 
 ### 🎯 [Patterns and Best Practices](./patterns-and-best-practices.md)
 Proven patterns for common scenarios:
@@ -144,11 +141,8 @@ def example_function() -> str:
 
 ## Contributing
 
-Found an error or want to improve these guides?
-- Report issues at https://github.com/anthropics/datrix/issues
-- Submit improvements via pull requests
-- Follow the [Contribution Guidelines](../../../datrix-common/docs/contributing/ai-agent-rules.md)
+Found an error or want to improve these guides? Submit changes through your team’s usual contribution process and follow the [AI agent / contributor rules](../../../datrix-common/docs/contributing/ai-agent-rules.md).
 
 ---
 
-**Last Updated:** 2026-03-28
+**Last updated:** April 13, 2026
