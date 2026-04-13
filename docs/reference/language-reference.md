@@ -9,14 +9,15 @@ Datrix is a domain-specific language for defining microservice architectures. A 
 Every Datrix application is organized around three top-level blocks:
 
 ```dtrx
-// system.dtrx — entry point
+// system.dtrx — entry point (paths are relative to this file)
 include 'common.dtrx';
-include 'services/order-service.dtrx';
-include 'services/user-service.dtrx';
+include 'order-service.dtrx';
 
 system ecommerce : version('1.0.0') {
-    gateway { ... }
-    observability { ... }
+    config('config/system-config.yaml');
+    registry('config/registry.yaml');
+    gateway('config/gateway.yaml');
+    observability('config/observability.yaml');
 }
 ```
 

@@ -1,453 +1,215 @@
 # Your First Project
 
-**Last Updated:** March 16, 2026
+**Last updated:** April 13, 2026
 
-A complete walkthrough for creating your first Datrix project from scratch.
+Walkthrough for a minimal **library** service with one entity and a REST API—the same shape as [`examples/01-tutorial/03-basic-api`](../../examples/01-tutorial/03-basic-api/).
+
+**Time:** about 15–20 minutes (plus installs).
 
 ---
 
 ## Overview
 
-In this tutorial, you'll create a blog service with:
-- User entity (authors)
-- Post entity (blog posts)
-- BlogService with REST API
-- Generated FastAPI application
+You will:
 
-**Time:** 15-20 minutes
+- Define `library.BookService` with a named RDBMS block `bookDb`, a `Book` entity, and a `rest_api`.
+- Point the `system` block at YAML under `config/`.
+- Validate and generate Python (FastAPI) output, then run the service.
+
+**Fastest path:** copy the folder [`examples/01-tutorial/03-basic-api`](../../examples/01-tutorial/03-basic-api/) and skip to [Validate and generate](#step-4-validate-and-generate).
 
 ---
 
-## Step 1: Project Setup
+## Step 1: Project layout
 
-### Create Project Directory
+Tutorial-style projects keep `.dtrx` files at the **project root** next to `config/` (see [`examples/README.md`](../../examples/README.md)). Create:
 
-```bash
-mkdir blog-service
-cd blog-service
-mkdir specs
+```text
+my-library/
+├── system.dtrx
+├── book-service.dtrx
+└── config/
+    ├── system-config.yaml
+    ├── registry.yaml
+    ├── gateway.yaml
+    ├── observability.yaml
+    └── book-service/
+        ├── book-service-config.yaml
+        ├── registration.yaml
+        ├── resilience.yaml
+        └── datasources.yaml
 ```
 
+Copy the YAML files from [`examples/01-tutorial/03-basic-api/config/`](../../examples/01-tutorial/03-basic-api/config/) so paths and profile keys match what the generators expect.
+
 ---
 
-## Step 2: Create .dtrx Specification
-
-Create `specs/blog-service.dtrx` (service with entities and API):
+## Step 2: Entry point (`system.dtrx`)
 
 ```datrix
-// blog-service.dtrx - Blog Service Specification
+include 'book-service.dtrx';
 
-service blog.BlogService : version('1.0.0') {
-
- registration('config/blog-service/registration.yaml');
- discovery { }
- resilience('config/blog-service/resilience.yaml');
-
- rdbms db('config/blog-service/datasources.yaml') {
-
- abstract entity BaseEntity {
- @UUID id : primaryKey = uuid();
- @UDateTime createdAt = utcNow();
- @UDateTime updatedAt = utcNow();
- }
-
- entity User extends BaseEntity {
- String(100) name;
- Email email;
- }
-
- entity Post extends BaseEntity {
- String(200) title;
- String content;
- belongsTo User as author : index;
- }
- }
-
- rest_api BlogAPI : basePath("/api/v1") {
- resource db.User;
- resource db.Post;
- }
+system library.System : version('1.0.0') {
+    config('config/system-config.yaml');
+    registry('config/registry.yaml');
+    gateway('config/gateway.yaml');
+    observability('config/observability.yaml');
 }
 ```
 
-Then create `specs/system.dtrx` (entry point):
+---
+
+## Step 3: Service (`book-service.dtrx`)
+
+This matches the reference tutorial (comments optional in your own tree):
 
 ```datrix
-// system.dtrx
-include 'blog-service.dtrx';
+service library.BookService : version('1.0.0'), description('Book management service') {
 
-system blog.System : version('1.0.0') {
- registry('config/registry.yaml');
- gateway('config/gateway.yaml');
- observability('config/observability.yaml');
- config('config/system-config.yaml');
+    config('config/book-service/book-service-config.yaml');
+    registration('config/book-service/registration.yaml');
+    discovery { }
+    resilience('config/book-service/resilience.yaml');
+
+    enum BookStatus {
+        Available,
+        CheckedOut,
+        Reserved,
+        Maintenance
+    }
+
+    enum BookFormat {
+        Hardcover,
+        Paperback,
+        eBook,
+        Audiobook
+    }
+
+    rdbms bookDb('config/book-service/datasources.yaml') {
+
+        abstract entity BaseEntity {
+            @UUID id : primaryKey = uuid();
+            @UDateTime createdAt = utcNow();
+            @UDateTime updatedAt = utcNow();
+        }
+
+        entity Book extends BaseEntity {
+            String(200) title : trim;
+            String(20) isbn;
+            String(100) author : trim;
+            Int publicationYear;
+            BookStatus status = BookStatus.Available;
+            BookFormat format = BookFormat.Hardcover;
+        }
+    }
+
+    rest_api BookServiceAPI : basePath("/api/v1") {
+        resource bookDb.Book;
+    }
 }
 ```
 
-**Save both files in `specs/`.** See [examples/01-tutorial/01-basic-entity](../../examples/01-tutorial/01-basic-entity/) and [examples/01-tutorial/05-relationships](../../examples/01-tutorial/05-relationships/) for more examples.
+### Field attributes (short list)
 
-### Field attributes
+- **`trim`** — trim string input.
+- **`unique`** — unique constraint.
+- **`index`** — index (including FKs).
+- **`hidden`** — omit from API responses.
+- **`immutable`** — on create only, not updates.
 
-You can attach attributes to fields to control validation and behavior:
-
-- **`trim`** — Trim leading/trailing whitespace on string input.
-- **`unique`** — Enforce uniqueness (database unique constraint).
-- **`index`** — Create an index on the column (or FK) for faster lookups.
-- **`hidden`** — Exclude from API responses.
-- **`immutable`** — Include in Create, exclude from Update.
-
-Example: `String(100) name : unique, trim;` or `belongsTo User as author : index;`. See the [Language Reference](../reference/language-reference.md) for more details.
+Details: [Language Reference](../reference/language-reference.md).
 
 ---
 
-## Step 3: Install Required Generators
+## Step 4: Install CLI and generators
 
 ```bash
-# Install Python generator for FastAPI
-pip install datrix-codegen-python
-
-# Optional: Install SQL generator for database migrations
-pip install datrix-codegen-sql
+pip install datrix-cli datrix-codegen-python datrix-codegen-sql datrix-codegen-docker
 ```
+
+Install only what you need; the CLI discovers generator plugins at runtime.
 
 ---
 
-## Step 4: Validate Specification
+## Step 5: Validate and generate
+
+From the project root (or repo root with adjusted paths):
 
 ```bash
-datrix validate specs/system.dtrx
+datrix validate .
+datrix generate --source system.dtrx --output ./generated --profile test
 ```
 
-**Expected output:**
-```
-✓ Validation successful
-✓ Found 1 service: BlogService
-✓ Found 2 entities: User, Post
-✓ Found 1 relationship: Post.author -> User
-```
-
-If you see errors, check your `.dtrx` file syntax.
-
----
-
-## Step 5: Generate Code
-
-### Generate Python/FastAPI Application
+`language` and `hosting` come from `config/system-config.yaml` for the active profile (default CLI profile is **`test`**). To override for one run:
 
 ```bash
-datrix generate --source specs/system.dtrx --output ./generated
+datrix generate --source system.dtrx --output ./generated --language python --hosting docker
+# Short flags: --language / -L , --hosting / -H , --platform / -P
 ```
-
-**Expected output:**
-```
-Generating code...
-✓ Parsed specs/system.dtrx
-✓ Built application model
-✓ Generated Python/FastAPI code
-✓ Generated files in generated/blog-service/
-```
-
-Each service gets its own subdirectory (e.g. `blog-service` for `blog.BlogService`). The `app/` folder contains `main.py`, `models/`, `routes/`, and `schemas/`.
-
-### SQL Migrations
-
-SQL DDL is generated automatically alongside Python code when `language: python` is set in `system-config.yaml`. The SQL generator runs as part of the standard generation pipeline.
 
 ---
 
-## Step 6: Review Generated Code
+## Step 6: Generated layout (Python)
 
-### Generated File Structure
+For `library.BookService`, the Python package directory is derived from the qualified name (e.g. `library.BookService` → `library_book_service`):
 
-```
+```text
 generated/
-└── blog-service/
- ├── app/
- │ ├── main.py # FastAPI application entry point
- │ ├── models/
- │ │ ├── __init__.py
- │ │ ├── user.py # Pydantic User model
- │ │ └── post.py # Pydantic Post model
- │ ├── routes/
- │ │ ├── __init__.py
- │ │ ├── user_routes.py # FastAPI routes for User
- │ │ └── post_routes.py # FastAPI routes for Post
- │ └── schemas/
- │ ├── __init__.py
- │ ├── user_schemas.py # API request/response schemas
- │ └── post_schemas.py # API request/response schemas
- └── requirements.txt # Python dependencies
+└── library_book_service/
+    ├── src/
+    │   └── library_book_service/
+    │       ├── main.py
+    │       ├── models/
+    │       ├── routes/
+    │       ├── schemas/
+    │       └── ...
+    ├── sql/
+    └── pyproject.toml
 ```
 
-### Example Generated Model
+SQL migrations and Docker Compose (when hosting is Docker) are emitted alongside the service. Exact files depend on your spec and config.
 
-**`generated/blog-service/app/models/user.py`:**
-```python
-from pydantic import BaseModel
-from uuid import UUID
-from datetime import datetime
+---
 
-class User(BaseModel):
- """User model generated from User entity."""
- 
- id: UUID
- name: str
- email: str
- created_at: datetime
+## Step 7: Run the app
+
+```bash
+cd generated/library_book_service
+pip install -e .
+# or: pip install -r requirements.txt when that is what the project emits
+uvicorn library_book_service.main:app --reload --host 0.0.0.0 --port <port>
 ```
 
-### Example Generated Route
+Use the HTTP port from generated config or Compose for your profile. Open **`/docs`** for OpenAPI (FastAPI).
 
-**`generated/blog-service/app/routes/user_routes.py`:**
-```python
-from fastapi import APIRouter, HTTPException
-from models.user import User
-from schemas.user_schemas import UserCreate, UserUpdate, UserResponse
+---
 
-router = APIRouter(prefix="/users", tags=["users"])
+## Step 8: Call the API
 
-@router.post("/", response_model=UserResponse)
-async def create_user(data: UserCreate) -> UserResponse:
- """Create a new user."""
- # Implementation here
- ...
+CRUD paths are generated from the `Book` resource and `basePath` (exact paths appear in `/docs`). A typical create:
 
-@router.get("/{user_id}", response_model=UserResponse)
-async def get_user(user_id: UUID) -> UserResponse:
- """Get user by ID."""
- # Implementation here
- ...
+```bash
+curl -X POST "http://127.0.0.1:<port>/api/v1/books" \
+  -H "Content-Type: application/json" \
+  -d "{\"title\":\"Datrix Guide\",\"isbn\":\"9780000000000\",\"author\":\"You\",\"publicationYear\":2026,\"status\":\"Available\",\"format\":\"Hardcover\"}"
 ```
 
 ---
 
-## Step 7: Run Generated Application
+## Next steps
 
-### Install Dependencies
-
-```bash
-cd generated/blog-service
-pip install -r requirements.txt
-```
-
-### Start the Server
-
-```bash
-python -m app.main
-```
-
-**Expected output:**
-```
-INFO: Started server process [12345]
-INFO: Waiting for application startup.
-INFO: Application startup complete.
-INFO: Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
-```
-
-### Access API Documentation
-
-Open your browser and visit:
-- **Swagger UI:** http://127.0.0.1:8000/docs
-- **ReDoc:** http://127.0.0.1:8000/redoc
-
----
-
-## Step 8: Test the API
-
-### Create a User
-
-```bash
-curl -X POST "http://127.0.0.1:8000/users/" \
- -H "Content-Type: application/json" \
- -d '{
- "name": "John Doe",
- "email": "john@example.com"
- }'
-```
-
-### Get All Users
-
-```bash
-curl "http://127.0.0.1:8000/users/"
-```
-
-### Create a Post
-
-```bash
-curl -X POST "http://127.0.0.1:8000/posts/" \
- -H "Content-Type: application/json" \
- -d '{
- "title": "My First Post",
- "content": "This is my first blog post!",
- "authorId": "<user-id-from-previous-response>"
- }'
-```
-
----
-
-## Step 9: Extend Your Specification
-
-Datrix generates complete, production-ready code. To add features, update your `.dtrx` specification:
-
-1. **Add computed fields** for derived values
-2. **Add validators** for field validation rules
-3. **Add relationships** between entities
-4. **Configure authentication** in your service definition
-5. **Add custom methods** to services
-
-All business logic, database integration, and validation is generated from your specification.
-
----
-
-## Step 10: Regenerate Code
-
-When you update your `.dtrx` file, regenerate code:
-
-```bash
-# Update specs/system.dtrx
-# ... make changes ...
-
-# Regenerate
-datrix generate --source specs/system.dtrx --output ./generated
-```
-
-Generated files are fully managed by Datrix - modify your `.dtrx` specification to change the output.
-
----
-
-## Next Steps
-
-### Add More Features
-
-1. **Add Comment entity** (inside the rdbms block of blog-service.dtrx):
- ```datrix
- entity Comment extends BaseEntity {
- String content;
- belongsTo Post : index;
- belongsTo User as author : index;
- }
- ```
-
-2. **Add Category entity** (inside the same rdbms block):
- ```datrix
- entity Category extends BaseEntity {
- String(100) name : unique;
- String(100) slug : unique;
- }
- ```
-
-3. **Add Tag entity** (inside the same rdbms block):
- ```datrix
- entity Tag extends BaseEntity {
- String(50) name : unique;
- }
- ```
-
- Then add `resource db.Comment;`, `resource db.Category;`, and `resource db.Tag;` to the rest_api block. See [examples/01-tutorial/05-relationships](../../examples/01-tutorial/05-relationships/) for relationship syntax.
-
-### Generate for Other Languages or Platforms
-
-Language and platform default to values in `system-config.yaml`, with optional CLI overrides:
-
-```yaml
-# config/system-config.yaml
-test:
-  language: python     # or "typescript"
-  hosting: docker      # or "kubernetes", "aws", "azure"
-```
-
-To switch languages, change the `language` field and regenerate:
-
-```bash
-datrix generate --source specs/system.dtrx --output ./generated
-```
-
-You can override these values from the command line without editing YAML:
-
-```bash
-datrix generate --source specs/system.dtrx --output ./generated --language typescript
-datrix generate --source specs/system.dtrx --output ./generated --hosting aws --platform ecs-fargate
-```
-
-Install the corresponding generator packages:
-
-```bash
-# For TypeScript generation
-pip install datrix-codegen-typescript
-
-# For platform configs (Docker, K8s, AWS, Azure)
-pip install datrix-codegen-docker datrix-codegen-k8s datrix-codegen-aws datrix-codegen-azure
-```
+1. Follow more lessons in [`examples/01-tutorial/README.md`](../../examples/01-tutorial/README.md) (relationships, events, CQRS, GraphQL, jobs, …).
+2. Study full domains under [`examples/02-domains/`](../../examples/02-domains/).
+3. Read [Writing Datrix Applications](../guide/writing-datrix-applications.md) and the [Configuration Guide](../guide/configuration-guide.md).
 
 ---
 
 ## Troubleshooting
 
-### Issue: Import Errors
+**Validation or path errors** — `include` and `config('...')` paths are relative to the **file** that contains them; keep `config/` aligned with those strings.
 
-**Problem:**
-```python
-ModuleNotFoundError: No module named 'models'
-```
+**Imports / module not found** — Run from the generated service root and install the package (`pip install -e .`) so `library_book_service` is on `PYTHONPATH`.
 
-**Solution:**
-```bash
-# Make sure you're in the service directory (e.g. generated/blog-service)
-cd generated/blog-service
+**Wrong language or platform** — Check the active profile in `system-config.yaml` and per-service YAML; use `--language`, `--hosting`, and `--platform` only when you intentionally override.
 
-# Install dependencies
-pip install -r requirements.txt
-
-# Run from the correct directory
-python -m app.main
-```
-
-### Issue: Port Already in Use
-
-**Problem:**
-```
-ERROR: [Errno 48] Address already in use
-```
-
-**Solution:**
-```bash
-# Use a different port
-uvicorn app.main:app --port 8001
-```
-
-### Issue: Validation Errors
-
-**Problem:**
-```
-ParseError: Unexpected token at line 10
-```
-
-**Solution:**
-- Check your `.dtrx` file syntax
-- Make sure all brackets are closed
-- Verify entity and service definitions
-- Use `datrix validate` to get detailed error messages
-
----
-
-## Summary
-
-You've successfully:
-- ✅ Created a `.dtrx` specification
-- ✅ Generated a FastAPI application
-- ✅ Run the generated application
-- ✅ Tested the API
-
-**What you learned:**
-- How to define entities and services in `.dtrx`
-- How to generate code with `datrix generate`
-- How to run and test generated applications
-
-**Next steps:**
-- Explore more examples
-- Read the [Architecture Overview](../architecture/architecture-overview.md)
-- Read the [Language Reference](../reference/language-reference.md)
-
----
-
-**Last Updated:** March 16, 2026
+Full CLI options: [`datrix-cli/docs/commands.md`](../../datrix-cli/docs/commands.md).
