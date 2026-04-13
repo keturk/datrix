@@ -226,6 +226,18 @@ Complete workflow: syntax check, code generation, unit tests, deployment tests.
 
 **Parameters:** `-ExamplePath` (positional 0), `-OutputPath` (positional 1), `-All`, `-Tutorial`, `-NonTutorial`, `-Domains`, `-Language`/`-L` (python\|typescript), `-Platform`/`-P` (docker\|kubernetes\|k8s), `-Hosting`/`-H`, `-TestSet` (default: generate-all), `-SkipVenv`, `-Skip1`, `-Skip2`, `-Skip4`, `-Skip5`, `-Dbg`/`-DebugLogging`
 
+### `test\dual-target.ps1`
+
+Runs generation against both Python and TypeScript for the same test set and compares results.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Default** | `.\test\dual-target.ps1` | typescript-validation set, both languages |
+| **All examples** | `.\test\dual-target.ps1 -TestSet generate-all` | Full parity check |
+| **Skip tests** | `.\test\dual-target.ps1 -Skip4 -Skip5` | Uses `run-complete.ps1` (steps 1-2 only; syntax + generation) |
+
+**Parameters:** `-TestSet` (default: typescript-validation), `-Platform` (docker\|kubernetes\|k8s, default: docker), `-Skip4`, `-Skip5` (both required to use `run-complete.ps1` instead of `generate.ps1`), `-Dbg`
+
 ### `test\status-tests.ps1`
 
 Reports test results from latest test logs for all datrix projects.

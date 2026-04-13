@@ -1,6 +1,6 @@
 # Datrix Design Principles
 
-**Last Updated:** April 11, 2026
+**Last Updated:** April 12, 2026
 
 ---
 
@@ -32,6 +32,10 @@ Datrix is built on proven software engineering principles that ensure:
 
 **Example (multi-service NGINX gateway):** `generate_nginx_config` in `datrix_codegen_docker.generators.config.gateway_generator` raises `GenerationError` when any upstream would have no location blocks (for example a service with no `rest_api` / `graphql_api` and no derivable health alias), when two services would publish the same external health path through the gateway, or when a service has no HTTP port in resolved config — rather than emitting an incomplete `nginx.conf`.
 
+**Example (Grafana without metrics):** `generate_dashboards` in `datrix_codegen_docker.generators.infra.dashboard_builder` raises `GenerationError` when visualization is enabled but Prometheus metrics are not — dashboards have no scrape targets to plot.
+
+**Example (rate limit preconditions):** `middleware_rate_limit.py.j2` raises `HTTPException` **503** when `app.state.redis` is missing (rate limiting cannot run), and **429** when the sliding window is exceeded — no silent bypass.
+
 **Benefits:**
 - ✅ Cannot continue with invalid state
 - ✅ Error includes helpful suggestions
@@ -53,6 +57,8 @@ Datrix is built on proven software engineering principles that ensure:
 **Application:** Generators use Jinja2 (e.g. `PackageLoader` for templates), render to raw code, and validate syntax before output. Model templates emit a Pydantic model class keyed by entity name, with conditional imports (e.g. UUID when needed) and one field per entity field. Templates should produce well-formatted output; ruff format / Prettier check formatting. Raw string concatenation is not used. See the codebase for template files (e.g. `model.py.j2` in datrix-codegen-python).
 
 **Example (transpiled job handlers):** `JobsGenerator` (`datrix_codegen_python.generators.messaging.jobs_generator`) combines Jinja2 templates such as `messaging/jobs_scheduler.py.j2` and `messaging/jobs_runner.py.j2` with output from `PythonTranspiler` so each scheduled job’s DSL body becomes real Python inside the generated scheduler/runner modules.
+
+**Example (Grafana dashboard JSON):** `DashboardBuilder` (`datrix_codegen_docker.generators.infra.dashboard_builder`) assembles Grafana **provisioned** dashboard documents in Python (nested dicts), serializes them to JSON under `config/grafana/dashboards/`, and pairs them with Jinja2-rendered Prometheus alert YAML — no ad-hoc string concatenation of panel definitions.
 
 **Key Insight:** Templates should produce well-formatted output; ruff format --check catches formatting issues.
 
@@ -87,6 +93,8 @@ Datrix is built on proven software engineering principles that ensure:
 - Easy to add new types
 
 **Application:** Type mappings are exhaustive: every Datrix type has an explicit mapping per target language. Unmapped types raise an error (e.g. `UnmappedTypeError`) with available types listed. No default or fallback to `Any`.
+
+**Example (Problem Details `type` URNs):** `error_handlers.py.j2` assigns a distinct `urn:datrix:error:…` string per handler (`entity-not-found`, `cascade-restriction`, `validation`, `request-validation`, `internal`, etc.) so clients can branch on `type` without guessing from free-text `detail`.
 
 **Benefits:**
 - ✅ No silent bugs
@@ -376,4 +384,4 @@ These principles guide all architectural and implementation decisions in the Dat
 
 ---
 
-**Last Updated:** April 11, 2026
+**Last Updated:** April 12, 2026
