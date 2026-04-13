@@ -232,16 +232,35 @@ Public repository with documentation, examples, scripts, and tutorials.
 
 ## Plugin Architecture
 
-Generators are discovered dynamically via a plugin architecture:
+Generators are discovered dynamically via a plugin architecture using four entry-point groups:
 
-1. **Protocol-based plugins** - Generators implement `GeneratorPlugin` or `PlatformPlugin` protocols
-2. **Dynamic discovery** - CLI discovers plugins via entry points or explicit registration
-3. **Independent packages** - Each generator is a separate package that can be installed independently
-4. **Clear interfaces** - Protocols define exactly what generators must implement
+1. **Protocol-based plugins** — Generators implement `GeneratorPlugin` or `PlatformPlugin` protocols
+2. **Language-specific hooks** — Language packages implement `LanguageHooks` and `LanguageRuntimeSpec` protocols
+3. **Dynamic discovery** — CLI discovers plugins via entry points at runtime
+4. **Independent packages** — Each generator is a separate package that can be installed independently
+5. **Clear interfaces** — Protocols define exactly what generators must implement
 
-### Generator Plugin Protocol
+### Entry Point Groups
 
-Generators implement protocols (`GeneratorPlugin`, `PlatformPlugin`) defined in `datrix-common` (see `datrix_common.plugin.protocol`). The CLI discovers installed generators at runtime. Users only install the generators they need — no unused dependencies.
+| Group | Purpose | Protocol |
+|-------|---------|----------|
+| `datrix.generators` | Code generators (Python, TypeScript, SQL, component) | `GeneratorPlugin` |
+| `datrix.platforms` | Platform generators (Docker, K8s, AWS, Azure) | `PlatformPlugin` |
+| `datrix.language_hooks` | Post-generation hooks (formatting, validation) | `LanguageHooks` |
+| `datrix.language_runtime_spec` | Infrastructure details (Dockerfiles, healthchecks, migrations) | `LanguageRuntimeSpec` |
+
+All protocols are defined in `datrix-common` (see `datrix_common.plugin.protocol`, `datrix_common.generation.language_hooks`, `datrix_common.generation.language_runtime_spec`). The CLI and pipeline discover installed plugins at runtime. Users only install the generators they need — no unused dependencies.
+
+### Adding a New Language
+
+Adding a new target language (e.g., Go, Rust, Java) requires only a new `datrix-codegen-{lang}` package:
+
+1. Implement `GeneratorPlugin` — code generation from AST to target language
+2. Implement `LanguageHooks` — post-generation formatting and validation
+3. Implement `LanguageRuntimeSpec` — Dockerfile context, healthchecks, DB URL schemes, migration commands, job runner commands
+4. Register all three entry points in `pyproject.toml`
+
+No changes to datrix-common, Docker, K8s, Component, or CLI packages are needed. Platform generators consume `LanguageRuntimeSpec` via protocol dispatch instead of language-specific branching.
 
 ---
 
