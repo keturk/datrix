@@ -336,6 +336,32 @@ entity User extends BaseEntity {
 
 ---
 
+### 6. Configuration Boundary
+
+**Principle:** DSL defines *what the system does* (behavioral policy, same in every environment). YAML defines *where it runs and how much* (environmental, changes between dev/staging/prod). No value should appear in both places.
+
+**Why:**
+- Single source of truth — no conflicting definitions
+- Clear ownership — developers know where to change each concern
+- Environment isolation — behavioral code never drifts between environments
+
+**Application:**
+
+| Behavioral (DSL) | Environmental (YAML) |
+|---|---|
+| Cache TTL (`@cache(ttl: 300)`) | Connection strings (`${DB_URL}`) |
+| Rate limits (`@rateLimit(limit: 100, window: 60)`) | Service port (`port: 8000`) |
+| Service version (`version('1.0.0')`) | CPU/memory limits, replica count |
+| Entity lifecycle hooks, validation rules | CORS origins, JWT secrets |
+| Service topology (`discovery { }`) | Job schedules, retry/timeout defaults |
+| Computed fields | Provider credentials |
+
+**Enforcement:** The parser rejects environmental data in the DSL at parse time. `SERVICE_ATTR_IDENTIFIERS` in `contextual_keywords.py` restricts service attributes to `version` and `description` — writing `port(8000)` in a `.dtrx` file produces an error listing the allowed attributes.
+
+**See also:** [Config System — DSL/YAML Boundary](../../../datrix-common/docs/architecture/config-system.md#dslyaml-boundary) for the full taxonomy and enforcement details.
+
+---
+
 ## Code Generation Principles
 
 ### 1. Generate Idiomatic Code
@@ -377,11 +403,11 @@ Datrix design principles ensure:
 2. **Type Safety** - Exhaustive mappings, no implicit conversions
 3. **Maintainability** - Template-based generation, single responsibility, immutable AST model
 4. **Developer Experience** - Clear errors, readable code, helpful messages
-5. **Language Quality** - Platform-independent, DRY, progressive disclosure
+5. **Language Quality** - Platform-independent, DRY, progressive disclosure, configuration boundary
 6. **Code Quality** - Idiomatic, no dead code, readable output
 
 These principles guide all architectural and implementation decisions in the Datrix project.
 
 ---
 
-**Last Updated:** April 12, 2026
+**Last Updated:** April 13, 2026
