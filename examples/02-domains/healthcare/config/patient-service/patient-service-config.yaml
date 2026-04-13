@@ -10,7 +10,7 @@ test:
       memory: 256Mi
     limits:
       cpu: 500m
-      memory: 512Mi
+      memory: 704Mi
   healthCheck:
     type: http
     path: /health
@@ -35,7 +35,7 @@ development:
       memory: 256Mi
     limits:
       cpu: 500m
-      memory: 512Mi
+      memory: 704Mi
   healthCheck:
     type: http
     path: /health
