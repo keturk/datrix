@@ -1,5 +1,5 @@
-# PowerShell wrapper for status_run_tests.py
-# This script runs the Python test status checker
+# PowerShell wrapper for status_unit_tests.py
+# This script runs the Python unit test status checker
 
 [CmdletBinding()]
 param(
@@ -14,7 +14,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 # Get library directory path
 $libraryDir = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\library"
 # Path to the Python script
-$PythonScript = Join-Path $libraryDir "test\status_run_tests.py"
+$PythonScript = Join-Path $libraryDir "test\status_unit_tests.py"
 
 # Import common modules
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\common"

@@ -37,7 +37,7 @@
 
 .PARAMETER TestSet
  Run complete workflow for a specific test set by name (default: generate-all).
- E.g. tutorial01-10, tutorial11-20, tutorial21-30, tutorial31-41.
+ E.g. tutorial01-10, tutorial11-20, tutorial21-30, tutorial31-42.
  See scripts/config/test-projects.json for available test sets. Implies batch mode when not "generate-all".
 
 .PARAMETER SkipVenv
@@ -49,8 +49,11 @@
 .PARAMETER Skip2
  Skip Step 2 (code generation).
 
+.PARAMETER Skip3
+ Skip Step 3 (unit tests for generated projects).
+
 .PARAMETER Skip4
- Skip Step 4 (unit tests for generated projects).
+ Skip Step 4 (spec tests for generated projects).
 
 .PARAMETER Skip5
  Skip Step 5 (deployment/integration tests for generated projects).
@@ -101,8 +104,8 @@
  Skips Step 1 (syntax checker).
 
 .EXAMPLE
- .\run-complete.ps1 -Skip4 -Skip5
- Runs only Steps 1-2, skipping unit and deployment tests for generated projects.
+ .\run-complete.ps1 -Skip3 -Skip4 -Skip5
+ Runs only Steps 1-2, skipping unit, spec, and deployment tests for generated projects.
 
 .EXAMPLE
  $env:DATRIX_OFFLINE = "1"; .\run-complete.ps1 -Tutorial
@@ -145,6 +148,7 @@ param(
  [switch]$SkipVenv,
  [switch]$Skip1,
  [switch]$Skip2,
+ [switch]$Skip3,
  [switch]$Skip4,
  [switch]$Skip5,
  [switch]$SkipInstall,
@@ -322,6 +326,9 @@ if ($Skip1) {
 }
 if ($Skip2) {
  $pythonArgs += "-Skip2"
+}
+if ($Skip3) {
+ $pythonArgs += "-Skip3"
 }
 if ($Skip4) {
  $pythonArgs += "-Skip4"

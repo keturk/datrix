@@ -1,0 +1,32 @@
+test:
+  nosql:
+    engine: mongodb
+    port: 27017
+    uri: mongodb://localhost:27017
+    database: library_analytics
+    docker_image: mongo:8.0
+    volume_path: /data/db
+    healthCheckCmd: '["CMD", "mongosh", "--eval", "db.runCommand(\"ping\").ok"]'
+    platform: container
+
+development:
+  nosql:
+    engine: mongodb
+    port: 27017
+    uri: mongodb://localhost:27017
+    database: library_analytics
+    docker_image: mongo:8.0
+    volume_path: /data/db
+    healthCheckCmd: '["CMD", "mongosh", "--eval", "db.runCommand(\"ping\").ok"]'
+    platform: container
+
+production:
+  nosql:
+    engine: mongodb
+    port: 27017
+    uri: ${BOOK_NOSQL_URI}
+    database: library_analytics
+    docker_image: mongo:8.0
+    volume_path: /data/db
+    healthCheckCmd: '["CMD", "mongosh", "--eval", "db.runCommand(\"ping\").ok"]'
+    platform: managed
