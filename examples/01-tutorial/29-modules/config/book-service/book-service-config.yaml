@@ -8,7 +8,7 @@ test:
       memory: 512Mi
     limits:
       cpu: 500m
-      memory: 1408Mi
+      memory: 1792Mi
   healthCheck:
     path: /health
     initialDelay: 30s
@@ -22,7 +22,7 @@ development:
       memory: 512Mi
     limits:
       cpu: 500m
-      memory: 1408Mi
+      memory: 1792Mi
   healthCheck:
     path: /health
     initialDelay: 30s
