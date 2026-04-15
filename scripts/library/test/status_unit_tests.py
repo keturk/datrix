@@ -2,7 +2,7 @@
 Script to check test status across multiple test result folders.
 
 This script recursively searches for .test_results folders, finds the latest
-run-tests-* folder, and reports the test status for each project.
+unit-tests-* folder, and reports the test status for each project.
 """
 
 import argparse
@@ -60,7 +60,7 @@ class TestResult:
 
 def parse_timestamp_from_folder(folder_name: str) -> Optional[datetime]:
     """
-    Parse timestamp from folder name like 'run-tests-20260107-161027'.
+    Parse timestamp from folder name like 'unit-tests-20260107-161027'.
 
     Args:
         folder_name: The folder name to parse
@@ -68,7 +68,7 @@ def parse_timestamp_from_folder(folder_name: str) -> Optional[datetime]:
     Returns:
         datetime object or None if parsing fails
     """
-    match = re.search(r'run-tests-(\d{8})-(\d{6})', folder_name)
+    match = re.search(r'unit-tests-(\d{8})-(\d{6})', folder_name)
     if match:
         date_str = match.group(1)  # YYYYMMDD
         time_str = match.group(2)  # HHMMSS
@@ -81,18 +81,18 @@ def parse_timestamp_from_folder(folder_name: str) -> Optional[datetime]:
 
 def find_latest_test_folder(test_results_dir: Path) -> Optional[Path]:
     """
-    Find the latest run-tests-* folder based on timestamp.
+    Find the latest unit-tests-* folder based on timestamp.
 
     Args:
         test_results_dir: Path to .test_results folder
 
         Returns:
-            Path to the latest run-tests-* folder or None if not found
+            Path to the latest unit-tests-* folder or None if not found
     """
     run_test_folders = []
 
     for item in test_results_dir.iterdir():
-        if item.is_dir() and item.name.startswith('run-tests-'):
+        if item.is_dir() and item.name.startswith('unit-tests-'):
             timestamp = parse_timestamp_from_folder(item.name)
             if timestamp:
                 run_test_folders.append((timestamp, item))
@@ -107,7 +107,7 @@ def find_latest_test_folder(test_results_dir: Path) -> Optional[Path]:
 
 def parse_summary_log(log_file: Path) -> TestResult:
     """
-    Parse unit test summary log (run-tests-summary.log or legacy summary.log).
+    Parse unit test summary log (unit-tests-summary.log or legacy summary.log).
 
     Args:
         log_file: Path to the summary log file

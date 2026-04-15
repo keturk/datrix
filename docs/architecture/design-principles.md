@@ -364,6 +364,14 @@ entity User extends BaseEntity {
 
 ## Code Generation Principles
 
+### Specification-level verification
+
+**Principle:** Business rules declared in the DSL can be exercised with service-level tests that share the same imperative syntax as handlers and jobs.
+
+**Application:** `test("description") { ... }` members on a service compile to async pytest cases or Jest specs. Statements use real entity APIs (`catalog.Book.create`, `save`, field assignments) plus `assert`, `throws`, and `emitted`. Generated tests sit beside other service tests (`tests/spec/` in Python, `test/spec/` in TypeScript) and reuse database and messaging fixtures—verification targets real behavior, not stubs.
+
+---
+
 ### 1. Generate Idiomatic Code
 
 **Principle:** Generated code should follow language best practices.

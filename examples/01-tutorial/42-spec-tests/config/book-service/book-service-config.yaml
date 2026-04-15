@@ -1,0 +1,45 @@
+test:
+  platform: compose
+  port: 8000
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 2Gi
+  healthCheck:
+    path: /health
+    initialDelay: 30s
+development:
+  platform: compose
+  port: 8000
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 2Gi
+  healthCheck:
+    path: /health
+    initialDelay: 30s
+production:
+  platform: ecs-fargate
+  port: 8000
+  strategy:
+    rolling:
+      maxUnavailable: 25%
+  replicas: 2
+  resources:
+    requests:
+      cpu: 250m
+      memory: 768Mi
+    limits:
+      cpu: 1000m
+      memory: 2.5Gi
+  healthCheck:
+    path: /health
+    initialDelay: 30s
