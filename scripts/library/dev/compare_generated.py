@@ -70,7 +70,7 @@ FEATURE_REGISTRY: list[dict[str, Any]] = [
     {"id": "dockerfile", "name": "Dockerfile", "patterns": ["FROM python", "Dockerfile"], "description": "Container build file. Present in both."},
     {"id": "tests", "name": "Tests (pytest/conftest)", "patterns": ["pytest", "conftest", "client", "fixture"], "description": "Pytest setup (conftest, fixtures). Present in both; layout differs (app/tests vs src/.../tests)."},
     {"id": "docs", "name": "Documentation", "patterns": ["api-reference", "architecture", "docs/"], "description": "Generated docs (api-reference, architecture). Missing in new: no generated docs folder."},
-    {"id": "scripts", "name": "Scripts", "patterns": ["start.py", "stop.py", "run_tests.py", "scripts/dev", "scripts/init"], "description": "Dev/CI scripts: run test suite (run_tests.py), deployment smoke tests (deploy_test.py), local start/stop. Missing in new: no generated test-runner or deploy-test entrypoints."},
+    {"id": "scripts", "name": "Scripts", "patterns": ["start.py", "stop.py", "unit_tests.py", "scripts/dev", "scripts/init"], "description": "Dev/CI scripts: run test suite (unit_tests.py), deployment smoke tests (deploy_test.py), local start/stop. Missing in new: no generated test-runner or deploy-test entrypoints."},
     {"id": "env_docs", "name": "ENV documentation", "patterns": ["ENV.md", ".env.example"], "description": "Environment variable documentation or .env.example. Present in both."},
 ]
 

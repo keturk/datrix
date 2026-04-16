@@ -1,7 +1,7 @@
 """API endpoint tests for ecommerce.ProductService (mocked dependencies).
 
 Auto-generated test suite using FastAPI TestClient with dependency injection
-overrides. Run with: pytest run_tests.py
+overrides. Run with: pytest unit_tests.py
 """
 
 import uuid

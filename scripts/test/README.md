@@ -11,7 +11,7 @@ Test execution and status reporting scripts.
 | `test.ps1` | Main test runner for projects |
 | `run-complete.ps1` | Run complete test suite |
 | `status-tests.ps1` | Show test status summary |
-| `status-run-tests.ps1` | Show running test status |
+| `status-unit-tests.ps1` | Show running test status |
 | `status-deploy-tests.ps1` | Show deployment test status |
 | `cleanup.ps1` | Clean up test artifacts |
 

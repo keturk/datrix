@@ -4,7 +4,7 @@
  Run full-package tests, batch generation, and complete workflow (orchestrated).
 
 .DESCRIPTION
- Activates the Datrix virtual environment and runs run_tests.py, which executes:
+ Activates the Datrix virtual environment and runs unit_tests.py, which executes:
  1. test.ps1 -All
  2. For each language (python then typescript by default): generate.ps1 -All -L <lang>
  3. If generate succeeded for that language: run-complete.ps1 -All -Skip1 -Skip2 -L <lang>
@@ -17,11 +17,11 @@
  Can be abbreviated as -L.
 
 .EXAMPLE
- .\run-tests.ps1
+ .\unit-tests.ps1
  Run tests, then generate and run-complete for python and typescript in order.
 
 .EXAMPLE
- .\run-tests.ps1 -L typescript
+ .\unit-tests.ps1 -L typescript
  Run tests, then generate and run-complete for typescript only.
 #>
 
@@ -36,7 +36,7 @@ param(
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $libraryDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\library"
-$runTestsScript = Join-Path $libraryDir "test\run_tests.py"
+$runTestsScript = Join-Path $libraryDir "test\unit_tests.py"
 
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
@@ -45,7 +45,7 @@ Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
 $datrixRoot = Get-DatrixRoot
 
 if (-not (Test-Path $runTestsScript)) {
- Write-Error "run_tests.py not found at: $runTestsScript"
+ Write-Error "unit_tests.py not found at: $runTestsScript"
  exit 1
 }
 

@@ -149,7 +149,7 @@ def parse_summary_log(log_file: Path) -> TestResult:
         if errors_match:
             total_errors = int(errors_match.group(1))
 
-        # Determine status: explicit markers (Python run_tests.py) or totals-only
+        # Determine status: explicit markers (Python unit_tests.py) or totals-only
         # (legacy TypeScript summary.log from run_complete.py).
         if 'All tests PASSED!' in content:
             status = 'PASSED'

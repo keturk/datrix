@@ -499,7 +499,7 @@ def run_fix(
     ignore_path_contains_all: tuple[str, ...] | None,
     ollama_url: str,
     model: str,
-    run_tests: bool = False,
+    unit_tests: bool = False,
 ) -> int:
     """Fix the worst complexity violation using Ollama. Return exit code.
 
@@ -634,7 +634,7 @@ def run_fix(
             continue
 
         # Pytest (opt-in with --test)
-        if run_tests and not _run_pytest(project_root, verbose):
+        if unit_tests and not _run_pytest(project_root, verbose):
             print("Reverting due to test failures.", file=sys.stderr)
             file_path.write_text(source, encoding="utf-8")
             print("Trying next violation...\n", file=sys.stderr)
@@ -876,7 +876,7 @@ def main() -> int:
             ignore_path_contains_all=ignore_path_contains_all,
             ollama_url=args.ollama_url,
             model=args.model,
-            run_tests=args.test,
+            unit_tests=args.test,
         )
 
     if args.mode == "check":
