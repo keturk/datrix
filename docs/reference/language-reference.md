@@ -324,9 +324,46 @@ resource db.Order : only(list, get), access(admin);
 
 ---
 
+## Specification-Level Tests
+
+`test` blocks at the service level verify business logic through real execution. They complement auto-generated tests (which verify structure and wiring) by exercising lifecycle hooks, computed fields, validation rules, and event emission.
+
+```dtrx
+test("overdue books are flagged on update") {
+    #Book book = db.Book.create({
+        dueDate: today().subtractDays(1),
+        status: BookStatus.Available
+    });
+    book.title = "Trigger Update";
+    book.save();
+    assert book.status == BookStatus.Overdue;
+}
+
+test("validation rejects empty title") {
+    assert throws(() => db.Book.create({ title: "" }), ValidationError("Title is required"));
+}
+
+test("afterCreate emits BookCreated") {
+    #Book book = db.Book.create({ title: "New Book" });
+    assert emitted(BookCreated(book.id, book.title));
+}
+```
+
+Key features:
+- **`assert expression;`** — Boolean assertion, fails the test if false
+- **`throws(() => call, error)`** — Verifies that a call raises the expected error
+- **`emitted(Event(params))`** — Verifies that an event was emitted during the test
+- **Real execution** — `.create()` persists, `.save()` updates, hooks fire through the service layer
+- **Self-contained** — Each test sets up its own data, no shared state
+- **Cross-block** — Tests can reference entities from any `rdbms` block in the same service
+
+Transpiles to pytest (Python) or Jest (TypeScript) under `tests/spec/` / `test/spec/`. See the [Spec Testing Guide](../guide/spec-testing.md) for full syntax and best practices.
+
+---
+
 ## Expression Language
 
-Datrix includes a full expression language for business logic inside hooks, jobs, API functions, and event handlers:
+Datrix includes a full expression language for business logic inside hooks, jobs, API functions, event handlers, and test blocks:
 
 ```dtrx
 // Variables and assignment

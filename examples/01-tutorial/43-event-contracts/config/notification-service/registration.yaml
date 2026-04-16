@@ -1,0 +1,14 @@
+test:
+  tags: [api, ecommerce, notifications, v1]
+  meta: {}
+  healthCheck: { type: http, path: /health, interval: 10s }
+
+development:
+  tags: [api, ecommerce, notifications, v1]
+  meta: {}
+  healthCheck: { type: http, path: /health, interval: 10s }
+
+production:
+  tags: [api, ecommerce, notifications, v1]
+  meta: {}
+  healthCheck: { type: http, path: /health, interval: 10s }

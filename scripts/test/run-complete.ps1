@@ -37,7 +37,7 @@
 
 .PARAMETER TestSet
  Run complete workflow for a specific test set by name (default: generate-all).
- E.g. tutorial01-10, tutorial11-20, tutorial21-30, tutorial31-42.
+ E.g. tutorial01-10, tutorial11-20, tutorial21-30, tutorial31-43.
  See scripts/config/test-projects.json for available test sets. Implies batch mode when not "generate-all".
 
 .PARAMETER SkipVenv
