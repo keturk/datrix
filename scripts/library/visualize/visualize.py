@@ -46,7 +46,7 @@ from shared.visualization.svg import build_event_flow_svg  # noqa: E402
 from shared.visualization.svg_cqrs import build_cqrs_svg  # noqa: E402
 from shared.visualization.svg_erd import build_erd_svgs  # noqa: E402
 from shared.visualization.svg_infrastructure import build_infrastructure_svg  # noqa: E402
-from shared.visualization.svg_inheritance import build_inheritance_svg  # noqa: E402
+from shared.visualization.svg_inheritance import build_inheritance_svgs  # noqa: E402
 from shared.visualization.svg_service_map import build_service_map_svg  # noqa: E402
 from shared.visualization.svg_system_context import build_system_context_svg  # noqa: E402
 
@@ -168,7 +168,7 @@ def _generate_for_project(
 
     # Clean output directories before generating
     docs_dir = output_path / "docs"
-    for subdir_name in ("diagrams", "diagrams/ERDs", "openapi", "asyncapi"):
+    for subdir_name in ("diagrams", "diagrams/ERDs", "diagrams/inheritance", "openapi", "asyncapi"):
         subdir = docs_dir / subdir_name
         if subdir.is_dir():
             for old_file in subdir.iterdir():
@@ -195,7 +195,6 @@ def _generate_for_project(
     svg_builders: dict[str, object] = {
         "event-flow": lambda: build_event_flow_svg(app),
         "service-map": lambda: build_service_map_svg(app),
-        "inheritance": lambda: build_inheritance_svg(app),
         "infrastructure": lambda: build_infrastructure_svg(app),
         "system-context": lambda: build_system_context_svg(app),
         "cqrs-flow": lambda: build_cqrs_svg(app),
@@ -230,6 +229,22 @@ def _generate_for_project(
         except Exception as e:
             warnings.append(f"erd SVG: {e}")
             print(colorize(f"  erd (SVG): FAILED - {e}", ColorCodes.YELLOW))
+
+    # Per-service inheritance SVGs
+    if "inheritance" in diagram_types:
+        try:
+            inh_svgs = build_inheritance_svgs(app)
+            inh_dir = output_dir / "inheritance"
+            inh_dir.mkdir(parents=True, exist_ok=True)
+            for svc_name, svg_content in inh_svgs.items():
+                svg_path = inh_dir / f"inheritance-{svc_name}.svg"
+                svg_path.write_text(svg_content, encoding="utf-8")
+                print(f"  inheritance (SVG): {svg_path}")
+            if not inh_svgs:
+                print(colorize("  inheritance: no services with entities", ColorCodes.YELLOW))
+        except Exception as e:
+            warnings.append(f"inheritance SVG: {e}")
+            print(colorize(f"  inheritance (SVG): FAILED - {e}", ColorCodes.YELLOW))
 
     return not errors, warnings, errors
 

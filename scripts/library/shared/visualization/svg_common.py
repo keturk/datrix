@@ -27,7 +27,7 @@ DIVIDER_COLOR = "#d8dee4"
 
 # ── Typography ──
 
-FONT = '"Segoe UI", system-ui, -apple-system, sans-serif'
+FONT = "'Segoe UI', system-ui, -apple-system, sans-serif"
 
 # ── Layout defaults ──
 

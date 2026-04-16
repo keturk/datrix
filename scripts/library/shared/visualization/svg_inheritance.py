@@ -1,11 +1,13 @@
-"""SVG entity inheritance tree builder.
+"""SVG entity inheritance tree builder (per-service).
 
-Produces a diagram showing entity inheritance (extends) and trait
-composition (with) relationships.  Abstract entities appear at the top,
-concrete entities below, and shared trait nodes on the right.
+Produces per-service diagrams showing entity inheritance (extends) and
+trait composition (with) relationships.  Abstract entities appear at
+the top, concrete entities below, and shared trait nodes on the right.
 
 Layout uses hierarchical rows for the inheritance tree with trait
 nodes in a dedicated column on the right side.
+
+Renders in GitHub, VS Code, and browsers without external dependencies.
 """
 
 from __future__ import annotations
@@ -27,14 +29,15 @@ from .svg_common import (
     TEXT_SECONDARY,
     esc,
     render_bezier_edge,
+    simple_name,
     svg_background,
     svg_open,
     svg_title,
 )
-from .traversal import all_entities_with_service
 
 if TYPE_CHECKING:
-    from datrix_common.datrix_model.containers import Application
+    from datrix_common.datrix_model.containers import Application, Service
+    from datrix_common.datrix_model.entity import Entity
 
 logger = logging.getLogger(__name__)
 
@@ -103,46 +106,23 @@ class _TraitNode:
         self.y = 0.0
 
 
-# ── Data collection ──
+# ── Data collection (per-service) ──
 
 
-def _collect_data(
-    app: Application,
+def _collect_service_entities(
+    service: Service,
 ) -> tuple[list[_EntityNode], list[_TraitNode]]:
-    """Collect entities and traits from the application."""
+    """Collect entities and traits from a single service."""
     seen: set[str] = set()
     entity_nodes: list[_EntityNode] = []
     trait_set: set[str] = set()
 
-    for _service, _block, entity in all_entities_with_service(app):
-        ename = str(entity.name)
-        if ename in seen:
-            continue
-        seen.add(ename)
+    for rdbms_block in service.rdbms_blocks.values():
+        for entity in rdbms_block.entities.values():
+            _add_entity(entity, seen, entity_nodes, trait_set)
 
-        # Parent (extends)
-        parent_name = ""
-        if entity.extends:
-            if entity.extends.is_resolved:
-                parent_name = str(entity.extends.target.name)
-            else:
-                parent_name = entity.extends.source_name
-
-        # Traits
-        traits: list[str] = []
-        for trait_ref in entity.traits:
-            if trait_ref.is_resolved:
-                tname = str(trait_ref.target.name)
-            else:
-                tname = trait_ref.source_name
-            traits.append(tname)
-            trait_set.add(tname)
-
-        entity_nodes.append(
-            _EntityNode(ename, entity.is_abstract, parent_name, traits)
-        )
-
-    # Ensure parent nodes exist (they may be in shared modules not in traversal)
+    # Ensure parent nodes exist (they may be abstract entities from
+    # shared modules not directly in this service's RDBMS blocks)
     existing_names = {n.name for n in entity_nodes}
     for node in list(entity_nodes):
         if node.parent_name and node.parent_name not in existing_names:
@@ -153,6 +133,41 @@ def _collect_data(
 
     trait_nodes = [_TraitNode(name) for name in sorted(trait_set)]
     return entity_nodes, trait_nodes
+
+
+def _add_entity(
+    entity: Entity,
+    seen: set[str],
+    entity_nodes: list[_EntityNode],
+    trait_set: set[str],
+) -> None:
+    """Add a single entity to the collection if not already seen."""
+    ename = str(entity.name)
+    if ename in seen:
+        return
+    seen.add(ename)
+
+    # Parent (extends)
+    parent_name = ""
+    if entity.extends:
+        if entity.extends.is_resolved:
+            parent_name = str(entity.extends.target.name)
+        else:
+            parent_name = entity.extends.source_name
+
+    # Traits
+    traits: list[str] = []
+    for trait_ref in entity.traits:
+        if trait_ref.is_resolved:
+            tname = str(trait_ref.target.name)
+        else:
+            tname = trait_ref.source_name
+        traits.append(tname)
+        trait_set.add(tname)
+
+    entity_nodes.append(
+        _EntityNode(ename, entity.is_abstract, parent_name, traits)
+    )
 
 
 # ── Level assignment ──
@@ -283,7 +298,7 @@ def _render_entity(node: _EntityNode) -> str:
 
 
 def _render_trait(node: _TraitNode) -> str:
-    """Render a trait node as a colored hexagon-style box."""
+    """Render a trait node as a colored pill-shaped box."""
     cx = node.x + TRAIT_NODE_W / 2
     cy = node.y + TRAIT_NODE_H / 2 + 4
     return (
@@ -296,7 +311,7 @@ def _render_trait(node: _TraitNode) -> str:
 
 
 def _render_extends_edges(entities: list[_EntityNode]) -> str:
-    """Render inheritance edges (parent → child)."""
+    """Render inheritance edges (parent -> child)."""
     node_map = {n.name: n for n in entities}
     parts: list[str] = []
 
@@ -350,31 +365,12 @@ def _render_trait_edges(
     return "\n".join(parts)
 
 
-# ── Public API ──
-
-
-def build_inheritance_svg(app: Application) -> str:
-    """Build an SVG entity inheritance tree diagram.
-
-    Shows abstract entities at the top with concrete children below,
-    connected by solid extends edges. Trait nodes appear in a right
-    column connected by dashed lines.
-
-    Args:
-        app: Fully resolved Application model.
-
-    Returns:
-        SVG XML string.
-    """
-    entities, traits = _collect_data(app)
-
-    if not entities:
-        return (
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 60" '
-            'width="100%"><text x="20" y="30" font-size="14">'
-            'No entities found.</text></svg>'
-        )
-
+def _build_service_svg(
+    svc_name: str,
+    entities: list[_EntityNode],
+    traits: list[_TraitNode],
+) -> str:
+    """Build an SVG inheritance tree for a single service."""
     _assign_levels(entities)
     width, height = _layout(entities, traits)
 
@@ -382,7 +378,7 @@ def build_inheritance_svg(app: Application) -> str:
         svg_open(width, height),
         _svg_styles(),
         svg_background(width, height),
-        svg_title(SVG_PAD, SVG_PAD + 16, "Entity Inheritance Tree"),
+        svg_title(SVG_PAD, SVG_PAD + 16, f"Inheritance — {svc_name}"),
     ]
 
     # Edges first (below nodes)
@@ -398,10 +394,42 @@ def build_inheritance_svg(app: Application) -> str:
         parts.append(_render_trait(trait))
 
     parts.append("</svg>")
+    return "\n".join(parts)
+
+
+# ── Public API ──
+
+
+def build_inheritance_svgs(app: Application) -> dict[str, str]:
+    """Build per-service SVG inheritance tree diagrams.
+
+    Iterates over all services in the application.  For each service
+    with entities that have inheritance or trait relationships, produces
+    a self-contained SVG string showing abstract parents at the top,
+    concrete children below, and trait nodes on the right.
+
+    Args:
+        app: Fully resolved Application model.
+
+    Returns:
+        Dict mapping service simple name to SVG string.
+        Services with no entities are omitted.
+    """
+    result: dict[str, str] = {}
+
+    for service in app.services.values():
+        svc_name = simple_name(str(service.name))
+        entities, traits = _collect_service_entities(service)
+
+        if not entities:
+            continue
+
+        svg = _build_service_svg(svc_name, entities, traits)
+        result[svc_name] = svg
 
     logger.info(
-        "inheritance_built entities=%d traits=%d",
-        len(entities), len(traits),
+        "inheritance_built services=%d",
+        len(result),
     )
 
-    return "\n".join(parts)
+    return result
