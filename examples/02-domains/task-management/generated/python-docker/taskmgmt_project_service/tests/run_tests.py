@@ -1,7 +1,7 @@
 """API endpoint tests for taskmgmt.ProjectService (mocked dependencies).
 
 Auto-generated test suite using FastAPI TestClient with dependency injection
-overrides. Run with: pytest run_tests.py
+overrides. Run with: pytest unit_tests.py
 """
 
 from fastapi.testclient import TestClient

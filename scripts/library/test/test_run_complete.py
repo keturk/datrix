@@ -67,8 +67,8 @@ def test_multi_session_accumulation_three_services() -> None:
     assert stats["errors"] == 1
 
 
-def test_run_tests_total_format_takes_priority() -> None:
-    """run_tests.py 'Total Passed: X' format is used when present, skipping pytest lines."""
+def test_unit_tests_total_format_takes_priority() -> None:
+    """unit_tests.py 'Total Passed: X' format is used when present, skipping pytest lines."""
     output = (
         "Total Passed: 100\n"
         "Total Failed: 2\n"

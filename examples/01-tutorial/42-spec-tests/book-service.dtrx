@@ -1050,7 +1050,7 @@ service library.BookService : version('1.0.0'), description('book management ser
         br.save();
         #catalog.Book book = catalog.Book.create({
             title: "Domain-Driven Design",
-            isbn: "978-0321125217",
+            isbn: "9780321125217",
             author: "Eric Evans",
             publicationYear: 2003,
             publishDate: today(),
@@ -1072,7 +1072,7 @@ service library.BookService : version('1.0.0'), description('book management ser
         assert throws(
             () => catalog.Book.create({
                 title: "",
-                isbn: "978-0321000001",
+                isbn: "9780321000001",
                 author: "Author A",
                 publicationYear: 2001,
                 publishDate: today(),
@@ -1094,7 +1094,7 @@ service library.BookService : version('1.0.0'), description('book management ser
         assert throws(
             () => catalog.Book.create({
                 title: "Future Year Book",
-                isbn: "978-0321000002",
+                isbn: "9780321000002",
                 author: "Author B",
                 publicationYear: 20999,
                 publishDate: today(),
@@ -1115,7 +1115,7 @@ service library.BookService : version('1.0.0'), description('book management ser
         br.save();
         #catalog.Book book = catalog.Book.create({
             title: "Status Emit Book",
-            isbn: "978-0321000003",
+            isbn: "9780321000003",
             author: "Author C",
             publicationYear: 1999,
             publishDate: today(),
@@ -1138,7 +1138,7 @@ service library.BookService : version('1.0.0'), description('book management ser
         br.save();
         #catalog.Book book = catalog.Book.create({
             title: "Original Title",
-            isbn: "978-0321000004",
+            isbn: "9780321000004",
             author: "Author D",
             publicationYear: 2005,
             publishDate: today(),
@@ -1161,7 +1161,7 @@ service library.BookService : version('1.0.0'), description('book management ser
         br.save();
         #catalog.Book book = catalog.Book.create({
             title: "Event Test Book",
-            isbn: "978-0321000005",
+            isbn: "9780321000005",
             author: "Author E",
             publicationYear: 2010,
             publishDate: today(),
@@ -1182,7 +1182,7 @@ service library.BookService : version('1.0.0'), description('book management ser
         br.save();
         #catalog.Book book = catalog.Book.create({
             title: "Multi-Assert",
-            isbn: "978-0321000006",
+            isbn: "9780321000006",
             author: "Author F",
             publicationYear: 2012,
             publishDate: today(),

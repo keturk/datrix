@@ -428,10 +428,10 @@ def step2_generate(
 
 
 def parse_test_statistics(output: str) -> dict:
-    """Parse test statistics from run_tests.py, deploy_test.py, or Jest output.
+    """Parse test statistics from unit_tests.py, deploy_test.py, or Jest output.
 
     Supports three formats:
-    - run_tests.py summary format: "Total Passed: 35"
+    - unit_tests.py summary format: "Total Passed: 35"
     - pytest summary line format: "===== 35 passed, 1 failed in 8.48s ====="
     - Jest summary format: "Tests:       5 passed, 5 total" or "Tests:  1 failed, 4 passed, 1 skipped, 6 total"
     """
@@ -445,7 +445,7 @@ def parse_test_statistics(output: str) -> dict:
     if not output:
         return stats
 
-    # Try run_tests.py "Total Passed: X" format first
+    # Try unit_tests.py "Total Passed: X" format first
     match = re.search(r"Total Passed:\s+(\d+)", output)
     if match:
         stats["passed"] = int(match.group(1))
@@ -795,7 +795,7 @@ def _run_pnpm_install(service_dir: Path, label: str, parallel: bool) -> bool:
     return success
 
 
-def _write_ts_unit_run_tests_summary_log(
+def _write_ts_unit_unit_tests_summary_log(
     project: Path,
     results_dir: Path,
     *,
@@ -806,10 +806,10 @@ def _write_ts_unit_run_tests_summary_log(
     all_success: bool,
 ) -> None:
     """
-    Write run-tests-summary.log for TypeScript unit test runs.
+    Write unit-tests-summary.log for TypeScript unit test runs.
 
-    Matches the filename and markers parsed by status_run_tests.py (same as
-    generated Python tests/run_tests.py). The previous summary.log name was
+    Matches the filename and markers parsed by status_unit_tests.py (same as
+    generated Python tests/unit_tests.py). The previous summary.log name was
     never picked up by the status reporter.
     """
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -834,7 +834,7 @@ def _write_ts_unit_run_tests_summary_log(
         lines.append("NO TESTS COLLECTED — nothing passed!")
     else:
         lines.append("All tests PASSED!")
-    summary_path = results_dir / "run-tests-summary.log"
+    summary_path = results_dir / "unit-tests-summary.log"
     summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -843,7 +843,7 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
     Helper function to run tests for a single project.
     Returns a dictionary with project result information.
 
-    Supports both Python (run_tests.py) and TypeScript (pnpm test / Jest) projects.
+    Supports both Python (unit_tests.py) and TypeScript (unit-tests.js / pnpm test) projects.
     TypeScript projects have per-service package.json files in subdirectories.
 
     Args:
@@ -855,11 +855,11 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
     project_name = project.relative_to(generated_base)
     empty_stats = {"passed": 0, "failed": 0, "errors": 0, "skipped": 0}
 
-    # --- Python project: tests/run_tests.py ---
-    run_tests_script = project / "tests" / "run_tests.py"
-    if run_tests_script.exists():
+    # --- Python project: tests/unit_tests.py ---
+    unit_tests_script = project / "tests" / "unit_tests.py"
+    if unit_tests_script.exists():
         python_exe = get_venv_python()
-        cmd = [str(python_exe), str(run_tests_script), f"--{test_type}", "--parallel"]
+        cmd = [str(python_exe), str(unit_tests_script), "--parallel"]
         test_desc = f"{test_type.capitalize()} tests for {project_name}" if not parallel else ""
         success, output = run_command(
             cmd,
@@ -878,14 +878,14 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
             "output": output if parallel else None,
         }
 
-    # --- TypeScript project: prefer generated tests/run-tests.js ---
-    ts_run_tests_js = project / "tests" / "run-tests.js"
-    if ts_run_tests_js.exists():
+    # --- TypeScript project: prefer generated tests/unit-tests.js ---
+    ts_unit_tests_js = project / "tests" / "unit-tests.js"
+    if ts_unit_tests_js.exists():
         node = shutil.which("node")
         if node is None:
             print_error(f" node not found on PATH — skipping {project_name}")
             return {"name": str(project_name), "success": False, **empty_stats, "output": None}
-        cmd = [node, str(ts_run_tests_js), f"--{test_type}"]
+        cmd = [node, str(ts_unit_tests_js)]
         if parallel:
             cmd.append("--parallel")
         test_desc = f"{test_type.capitalize()} tests for {project_name}" if not parallel else ""
@@ -914,9 +914,9 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
             print_error(f" pnpm not found on PATH — skipping {project_name}")
             return {"name": str(project_name), "success": False, **empty_stats, "output": None}
 
-        # Create results directory (mirrors Python run_tests.py behaviour)
+        # Create results directory (mirrors Python unit_tests.py behaviour)
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        results_dir = project / ".test_results" / f"run-tests-{timestamp}"
+        results_dir = project / ".test_results" / f"{test_type}-tests-{timestamp}"
         results_dir.mkdir(parents=True, exist_ok=True)
 
         all_success = True
@@ -961,7 +961,7 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
                 svc_log = results_dir / f"{svc_dir.name}-tests.log"
                 svc_log.write_text(_strip_ansi(output), encoding="utf-8")
 
-        _write_ts_unit_run_tests_summary_log(
+        _write_ts_unit_unit_tests_summary_log(
             project,
             results_dir,
             total_passed=total_passed,
@@ -993,7 +993,7 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
 
 
 def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path: Optional[str] = None, test_set: Optional[str] = None, language: str = "python", platform: str = "docker") -> bool:
-    """Step 3: Run unit tests for generated projects using run_tests.py"""
+    """Step 3: Run unit tests for generated projects using unit_tests.py"""
     if all_examples:
         print_step(3, "Run Unit Tests for Generated Projects")
         generated_base = paths["datrix_root"] / ".generated"
@@ -1003,8 +1003,8 @@ def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path
             proj_list = get_test_projects(test_set=test_set, language=language, platform=platform)
             projects = [Path(p["output"]) for p in proj_list if Path(p["output"]).exists()]
         elif generated_base.exists():
-            # Scan for Python projects (tests/run_tests.py)
-            for item in generated_base.rglob("run_tests.py"):
+            # Scan for Python projects (tests/unit_tests.py)
+            for item in generated_base.rglob("unit_tests.py"):
                 if item.parent.name == "tests":
                     project_dir = item.parent.parent
                     projects.append(project_dir)
@@ -1065,7 +1065,7 @@ def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path
                     if test_info:
                         print_info(f" Tests: {', '.join(test_info)}")
 
-                    has_python_runner = (project / "tests" / "run_tests.py").exists()
+                    has_python_runner = (project / "tests" / "unit_tests.py").exists()
                     has_ts_runner = _is_typescript_project(project)
                     if not has_python_runner and not has_ts_runner:
                         print_warning(f" [SKIP] No test runner found for {project_name}")
@@ -1216,7 +1216,7 @@ def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path
             print_info("")
             print_info(f"Test Statistics: {', '.join(test_info)}")
 
-        has_runner = (project_path_abs / "tests" / "run_tests.py").exists() or _is_typescript_project(project_path_abs)
+        has_runner = (project_path_abs / "tests" / "unit_tests.py").exists() or _is_typescript_project(project_path_abs)
         if not has_runner:
             print_warning(f"No test runner found for {project_name}")
             return True

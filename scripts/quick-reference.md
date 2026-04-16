@@ -260,14 +260,14 @@ Reports deployment test results from `.generated/` tree.
 
 **Parameters:** `-Dbg`
 
-### `test\status-run-tests.ps1`
+### `test\status-unit-tests.ps1`
 
 Reports run test results from `.generated/` tree.
 
 | Mode | Command |
 |------|---------|
-| **Show status** | `.\test\status-run-tests.ps1` |
-| **With debug** | `.\test\status-run-tests.ps1 -Dbg` |
+| **Show status** | `.\test\status-unit-tests.ps1` |
+| **With debug** | `.\test\status-unit-tests.ps1 -Dbg` |
 
 **Parameters:** `-Dbg`
 

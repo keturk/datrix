@@ -12,7 +12,7 @@ export default {
     '/node_modules/',
     '/dist/',
     'deploy_tests\\.spec\\.ts$',
-    'run_tests\\.spec\\.ts$',
+    'unit_tests\\.spec\\.ts$',
     '/test/controllers/',
     '/test/routes/',
     '/test/integration/',

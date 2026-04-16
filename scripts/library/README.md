@@ -57,7 +57,7 @@ Test execution utilities.
 | `test_project.py` | `test/test.ps1` | Main test runner for projects |
 | `run_complete.py` | `test/run-complete.ps1` | Complete test suite runner |
 | `status_tests.py` | `test/status-tests.ps1` | Test status reporting |
-| `status_run_tests.py` | `test/status-run-tests.ps1` | Running test status |
+| `status_unit_tests.py` | `test/status-unit-tests.ps1` | Running test status |
 | `status_deploy_tests.py` | `test/status-deploy-tests.ps1` | Deployment test status |
 
 ## Adding New Scripts

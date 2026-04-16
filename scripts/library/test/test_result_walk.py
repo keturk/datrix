@@ -12,9 +12,9 @@ from pathlib import Path
 from typing import Optional
 
 # Unit test summaries under each ``unit-tests-*`` folder: canonical (Python
-# ``run_tests.py``) vs legacy (older TypeScript runs from ``run_complete.py``).
+# ``unit_tests.py``) vs legacy (older TypeScript runs from ``run_complete.py``).
 # Status tools check both until legacy output is no longer produced.
-UNIT_TEST_SUMMARY_PRIMARY: str = "run-tests-summary.log"
+UNIT_TEST_SUMMARY_PRIMARY: str = "unit-tests-summary.log"
 UNIT_TEST_SUMMARY_LEGACY: str = "summary.log"
 
 # Directories that never contain nested project .test_results for our layout
@@ -54,7 +54,7 @@ def iter_dot_test_results_dirs(root_dir: Path) -> Iterator[Path]:
     Yield each ``.test_results`` directory under ``root_dir``.
 
     Uses ``os.scandir`` and only follows subdirectories (never enumerates files).
-    Does not descend into ``.test_results`` (run-tests / deploy-test folders are
+    Does not descend into ``.test_results`` (unit-tests / deploy-test folders are
     read separately via ``iterdir`` on that path only).
     """
     if not root_dir.is_dir():
