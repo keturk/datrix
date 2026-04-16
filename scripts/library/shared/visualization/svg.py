@@ -508,7 +508,7 @@ def build_event_flow_svg(app: Application) -> str:
     cards, cross_arrows = _collect_data(app)
 
     if not cards:
-        return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 60" width="100%"><text x="20" y="30" font-size="14">No event flows found.</text></svg>'
+        return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 60"><text x="20" y="30" font-size="14">No event flows found.</text></svg>'
 
     total_height = _calculate_layout(cards)
     card_x = SVG_PAD
@@ -521,7 +521,7 @@ def build_event_flow_svg(app: Application) -> str:
     parts: list[str] = []
     parts.append(
         f'<svg xmlns="http://www.w3.org/2000/svg" '
-        f'viewBox="0 0 {total_width:.0f} {total_height:.0f}" width="100%">'
+        f'viewBox="0 0 {total_width:.0f} {total_height:.0f}">'
     )
     parts.append(_svg_styles())
     parts.append(_svg_defs())

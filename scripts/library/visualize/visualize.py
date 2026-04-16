@@ -237,7 +237,7 @@ def _generate_for_project(
             inh_dir = output_dir / "inheritance"
             inh_dir.mkdir(parents=True, exist_ok=True)
             for svc_name, svg_content in inh_svgs.items():
-                svg_path = inh_dir / f"inheritance-{svc_name}.svg"
+                svg_path = inh_dir / f"{svc_name}.svg"
                 svg_path.write_text(svg_content, encoding="utf-8")
                 print(f"  inheritance (SVG): {svg_path}")
             if not inh_svgs:

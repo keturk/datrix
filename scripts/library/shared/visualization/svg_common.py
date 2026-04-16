@@ -61,7 +61,7 @@ def svg_open(width: float, height: float) -> str:
     """Return the opening ``<svg>`` tag with viewBox."""
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" '
-        f'viewBox="0 0 {width:.0f} {height:.0f}" width="100%">'
+        f'viewBox="0 0 {width:.0f} {height:.0f}">'
     )
 
 
