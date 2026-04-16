@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2506 250">
+<style>
+  .abstract-name { font: italic 11px 'Segoe UI', system-ui, -apple-system, sans-serif; fill: #57606a; }
+  .concrete-name { font: bold 11px 'Segoe UI', system-ui, -apple-system, sans-serif; fill: #ffffff; }
+  .trait-name { font: bold 10px 'Segoe UI', system-ui, -apple-system, sans-serif; fill: #7d4e00; }
+</style>
+<rect width="2506" height="250" fill="white"/>
+<text x="28" y="44" style="font: bold 16px 'Segoe UI', system-ui, -apple-system, sans-serif; fill: #1f2328;">Inheritance — BookService</text>
+<path d="M 1240.0 108.0 C 679.0 108.0 679.0 158.0 118.0 158.0" stroke="#57606a" fill="none" stroke-width="1.5"/>
+<path d="M 1240.0 108.0 C 781.0 108.0 781.0 158.0 322.0 158.0" stroke="#57606a" fill="none" stroke-width="1.5"/>
+<path d="M 1240.0 108.0 C 883.0 108.0 883.0 158.0 526.0 158.0" stroke="#57606a" fill="none" stroke-width="1.5"/>
+<path d="M 1240.0 108.0 C 985.0 108.0 985.0 158.0 730.0 158.0" stroke="#57606a" fill="none" stroke-width="1.5"/>
+<path d="M 1240.0 108.0 C 1087.0 108.0 1087.0 158.0 934.0 158.0" stroke="#57606a" fill="none" stroke-width="1.5"/>
+<path d="M 1240.0 108.0 C 1189.0 108.0 1189.0 158.0 1138.0 158.0" stroke="#57606a" fill="none" stroke-width="1.5"/>
+<path d="M 1240.0 108.0 C 1291.0 108.0 1291.0 158.0 1342.0 158.0" stroke="#57606a" fill="none" stroke-width="1.5"/>
+<path d="M 1240.0 108.0 C 1393.0 108.0 1393.0 158.0 1546.0 158.0" stroke="#57606a" fill="none" stroke-width="1.5"/>
+<path d="M 1240.0 108.0 C 1495.0 108.0 1495.0 158.0 1750.0 158.0" stroke="#57606a" fill="none" stroke-width="1.5"/>
+<path d="M 1036.0 108.0 C 1495.0 108.0 1495.0 158.0 1954.0 158.0" stroke="#57606a" fill="none" stroke-width="1.5"/>
+<path d="M 1036.0 108.0 C 1597.0 108.0 1597.0 158.0 2158.0 158.0" stroke="#57606a" fill="none" stroke-width="1.5"/>
+<path d="M 1432.0 174.0 C 1880.0 174.0 1880.0 90.0 2328.0 90.0" stroke="#d4a72c" fill="none" stroke-width="0.8" stroke-dasharray="4,3"/>
+<path d="M 1432.0 174.0 C 1880.0 174.0 1880.0 130.0 2328.0 130.0" stroke="#d4a72c" fill="none" stroke-width="0.8" stroke-dasharray="4,3"/>
+<path d="M 1840.0 174.0 C 2084.0 174.0 2084.0 90.0 2328.0 90.0" stroke="#d4a72c" fill="none" stroke-width="0.8" stroke-dasharray="4,3"/>
+<rect x="28.0" y="158" width="180" height="32" rx="6" fill="#24292f" stroke="#d0d7de" stroke-width="1"/>
+<text x="118.0" y="178.0" text-anchor="middle" class="concrete-name">Category</text>
+<rect x="232.0" y="158" width="180" height="32" rx="6" fill="#24292f" stroke="#d0d7de" stroke-width="1"/>
+<text x="322.0" y="178.0" text-anchor="middle" class="concrete-name">User</text>
+<rect x="436.0" y="158" width="180" height="32" rx="6" fill="#24292f" stroke="#d0d7de" stroke-width="1"/>
+<text x="526.0" y="178.0" text-anchor="middle" class="concrete-name">Tag</text>
+<rect x="640.0" y="158" width="180" height="32" rx="6" fill="#24292f" stroke="#d0d7de" stroke-width="1"/>
+<text x="730.0" y="178.0" text-anchor="middle" class="concrete-name">BookTag</text>
+<rect x="844.0" y="158" width="180" height="32" rx="6" fill="#24292f" stroke="#d0d7de" stroke-width="1"/>
+<text x="934.0" y="178.0" text-anchor="middle" class="concrete-name">Branch</text>
+<rect x="1048.0" y="158" width="180" height="32" rx="6" fill="#24292f" stroke="#d0d7de" stroke-width="1"/>
+<text x="1138.0" y="178.0" text-anchor="middle" class="concrete-name">ShelfLocation</text>
+<rect x="1252.0" y="158" width="180" height="32" rx="6" fill="#24292f" stroke="#d0d7de" stroke-width="1"/>
+<text x="1342.0" y="178.0" text-anchor="middle" class="concrete-name">Book</text>
+<rect x="1456.0" y="158" width="180" height="32" rx="6" fill="#24292f" stroke="#d0d7de" stroke-width="1"/>
+<text x="1546.0" y="178.0" text-anchor="middle" class="concrete-name">Review</text>
+<rect x="1660.0" y="158" width="180" height="32" rx="6" fill="#24292f" stroke="#d0d7de" stroke-width="1"/>
+<text x="1750.0" y="178.0" text-anchor="middle" class="concrete-name">Checkout</text>
+<rect x="946.0" y="76" width="180" height="32" rx="6" fill="#f6f8fa" stroke="#8b949e" stroke-width="1" stroke-dasharray="4,3"/>
+<text x="1036.0" y="96.0" text-anchor="middle" class="abstract-name">BaseReportEntity</text>
+<rect x="1864.0" y="158" width="180" height="32" rx="6" fill="#24292f" stroke="#d0d7de" stroke-width="1"/>
+<text x="1954.0" y="178.0" text-anchor="middle" class="concrete-name">BookAuditLog</text>
+<rect x="2068.0" y="158" width="180" height="32" rx="6" fill="#24292f" stroke="#d0d7de" stroke-width="1"/>
+<text x="2158.0" y="178.0" text-anchor="middle" class="concrete-name">DailyBookStats</text>
+<rect x="1150.0" y="76" width="180" height="32" rx="6" fill="#f6f8fa" stroke="#8b949e" stroke-width="1" stroke-dasharray="4,3"/>
+<text x="1240.0" y="96.0" text-anchor="middle" class="abstract-name">BaseEntity</text>
+<rect x="2328" y="76" width="150" height="28" rx="14" fill="#fff8c5" stroke="#d4a72c" stroke-width="1"/>
+<text x="2403.0" y="94.0" text-anchor="middle" class="trait-name">Auditable</text>
+<rect x="2328" y="116" width="150" height="28" rx="14" fill="#fff8c5" stroke="#d4a72c" stroke-width="1"/>
+<text x="2403.0" y="134.0" text-anchor="middle" class="trait-name">SoftDeletable</text>
+</svg>

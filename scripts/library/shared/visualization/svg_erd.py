@@ -582,7 +582,7 @@ def _render_svg(
 
     parts: list[str] = [
         f'<svg xmlns="http://www.w3.org/2000/svg" '
-        f'viewBox="0 0 {width:.0f} {height:.0f}" width="100%">',
+        f'viewBox="0 0 {width:.0f} {height:.0f}">',
         _svg_styles(),
         _svg_defs(),
         # White background
