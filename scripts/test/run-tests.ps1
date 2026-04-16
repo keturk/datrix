@@ -36,7 +36,7 @@ param(
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $libraryDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\library"
-$runTestsScript = Join-Path $libraryDir "test\unit_tests.py"
+$runTestsScript = Join-Path $libraryDir "test\run_tests.py"
 
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
