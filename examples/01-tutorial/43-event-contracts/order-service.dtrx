@@ -1,0 +1,78 @@
+
+service ecommerce.OrderService : version('1.0.0'), description('order management with event contracts') {
+
+    config('config/order-service/order-service-config.yaml');
+    registration('config/order-service/registration.yaml');
+    discovery { }
+    resilience('config/order-service/resilience.yaml');
+
+    enum OrderStatus {
+        Pending,
+        Confirmed,
+        Shipped,
+        Delivered,
+        Cancelled
+    }
+
+    rdbms orderDb('config/order-service/datasources.yaml') {
+        abstract entity BaseEntity {
+            @UUID id : primaryKey = uuid();
+            @DateTime createdAt = now();
+            @DateTime updatedAt = now();
+        }
+
+        entity Order extends BaseEntity {
+            String(200) customerName : trim;
+            Decimal(10, 2) totalAmount;
+            Int itemCount;
+            OrderStatus status = OrderStatus.Pending;
+            String(500)? notes;
+
+            validate {
+                if (customerName.trim().isEmpty())
+                    ValidationError("Customer name is required");
+            }
+
+            afterCreate {
+                emit OrderPlaced(id, totalAmount, itemCount, customerName);
+            }
+
+            afterUpdate {
+                if (isChanged(status)) {
+                    if (status == OrderStatus.Cancelled) {
+                        emit OrderCancelled(id, notes);
+                    }
+                    if (status == OrderStatus.Shipped) {
+                        emit OrderShipped(id);
+                    }
+                }
+            }
+        }
+    }
+
+    pubsub mq('config/order-service/pubsub.yaml') {
+        topic OrderEvents {
+            publish OrderPlaced(UUID orderId, Decimal totalAmount, Int itemCount, String customerName) {
+                ensure totalAmount > 0;
+                ensure itemCount > 0;
+                ensure customerName.length > 0;
+            }
+
+            publish OrderCancelled(UUID orderId, String? reason) {
+                ensure reason == null || reason.length > 0;
+            }
+
+            publish OrderShipped(UUID orderId);
+        }
+
+        subscribe OrderEvents {
+            on OrderPlaced(UUID orderId, Decimal totalAmount, Int itemCount, String customerName) {
+                Log.info("Order placed", { orderId: orderId, total: totalAmount });
+            }
+        }
+    }
+
+    rest_api OrderServiceAPI : basePath("/api/v1") {
+        resource orderDb.Order : only(list, get, create, update), public;
+    }
+}

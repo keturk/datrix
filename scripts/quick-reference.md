@@ -767,7 +767,7 @@ For `generate.ps1` and `run-complete.ps1` batch mode:
 | `tutorial01-10` | Tutorials 01-10 (basic entity through multiple services) |
 | `tutorial11-20` | Tutorials 11-20 (service dependencies through CQRS) |
 | `tutorial21-30` | Tutorials 21-30 (background jobs through GraphQL) |
-| `tutorial31-42` | Tutorials 31-42 (advanced queries through specification-level tests) |
+| `tutorial31-43` | Tutorials 31-43 (advanced queries through event contracts) |
 | `tutorial-all` | All tutorials 01-41 |
 | `typescript-validation` | Representative subset for TypeScript validation (01-basic-entity, 03-basic-api, 05-relationships, 09-events, 15-cache, 20-cqrs, 21-background-jobs, blog-cms) |
 | `domains` | All domain examples (ecommerce, healthcare, etc.) |
