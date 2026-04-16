@@ -43,9 +43,18 @@ from shared.logging_utils import ColorCodes, colorize  # noqa: E402
 from shared.test_projects import get_test_projects  # noqa: E402
 from shared.visualization.mermaid import DIAGRAM_TYPES, build_diagram  # noqa: E402
 from shared.visualization.svg import build_event_flow_svg  # noqa: E402
+from shared.visualization.svg_cqrs import build_cqrs_svg  # noqa: E402
+from shared.visualization.svg_erd import build_erd_svgs  # noqa: E402
+from shared.visualization.svg_infrastructure import build_infrastructure_svg  # noqa: E402
+from shared.visualization.svg_inheritance import build_inheritance_svg  # noqa: E402
+from shared.visualization.svg_service_map import build_service_map_svg  # noqa: E402
+from shared.visualization.svg_system_context import build_system_context_svg  # noqa: E402
 
 # Diagram types that use SVG instead of Mermaid
-SVG_DIAGRAM_TYPES = {"event-flow"}
+SVG_DIAGRAM_TYPES = {
+    "event-flow", "erd", "service-map", "inheritance",
+    "infrastructure", "system-context", "cqrs-flow",
+}
 
 VALID_DIAGRAM_TYPES = tuple(DIAGRAM_TYPES.keys()) + ("all",)
 VALID_FORMATS = ("md", "mmd")
@@ -159,7 +168,7 @@ def _generate_for_project(
 
     # Clean output directories before generating
     docs_dir = output_path / "docs"
-    for subdir_name in ("diagrams", "openapi", "asyncapi"):
+    for subdir_name in ("diagrams", "diagrams/ERDs", "openapi", "asyncapi"):
         subdir = docs_dir / subdir_name
         if subdir.is_dir():
             for old_file in subdir.iterdir():
@@ -185,12 +194,19 @@ def _generate_for_project(
     # SVG diagrams (replace Mermaid versions)
     svg_builders: dict[str, object] = {
         "event-flow": lambda: build_event_flow_svg(app),
+        "service-map": lambda: build_service_map_svg(app),
+        "inheritance": lambda: build_inheritance_svg(app),
+        "infrastructure": lambda: build_infrastructure_svg(app),
+        "system-context": lambda: build_system_context_svg(app),
+        "cqrs-flow": lambda: build_cqrs_svg(app),
     }
     for svg_type, builder in svg_builders.items():
         if svg_type not in diagram_types:
             continue
         try:
-            svg_content: str = builder()  # type: ignore[operator]
+            svg_content = builder()  # type: ignore[operator]
+            if svg_content is None:
+                continue
             output_dir.mkdir(parents=True, exist_ok=True)
             svg_path = output_dir / f"{svg_type}.svg"
             svg_path.write_text(svg_content, encoding="utf-8")
@@ -198,6 +214,22 @@ def _generate_for_project(
         except Exception as e:
             warnings.append(f"{svg_type} SVG: {e}")
             print(colorize(f"  {svg_type} (SVG): FAILED - {e}", ColorCodes.YELLOW))
+
+    # Per-service ERD SVGs
+    if "erd" in diagram_types:
+        try:
+            erd_svgs = build_erd_svgs(app)
+            erd_dir = output_dir / "ERDs"
+            erd_dir.mkdir(parents=True, exist_ok=True)
+            for svc_name, svg_content in erd_svgs.items():
+                svg_path = erd_dir / f"erd-{svc_name}.svg"
+                svg_path.write_text(svg_content, encoding="utf-8")
+                print(f"  erd (SVG): {svg_path}")
+            if not erd_svgs:
+                print(colorize("  erd: no services with entities", ColorCodes.YELLOW))
+        except Exception as e:
+            warnings.append(f"erd SVG: {e}")
+            print(colorize(f"  erd (SVG): FAILED - {e}", ColorCodes.YELLOW))
 
     return not errors, warnings, errors
 
