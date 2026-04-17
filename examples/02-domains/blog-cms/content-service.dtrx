@@ -119,7 +119,7 @@ service blog.ContentService : version('1.0.0'), description('content management 
         assert post.isDraft == true;
     }
 
-    test("computed isDraft is true for Draft status") {
+    test("spec: isDraft is true for Spec Test Post draft fixture") {
         #contentDb.Post post = contentDb.Post.create({
             authorId: uuid(),
             title: "Spec Test Post",
