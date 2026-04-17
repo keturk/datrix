@@ -313,11 +313,19 @@ service library.BookService : version('1.0.0'), description('book management ser
     pubsub mq('config/book-service/pubsub.yaml') {
         // 'topic' groups related events that can be published and subscribed to
         topic BookEvents {
-            publish BookAdded(UUID bookId, String title);
-            publish BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus);
-            publish OverdueBooksProcessed(Int count);
+            publish BookAdded(UUID bookId, String title) {
+                ensure title.length > 0;
+            }
+            publish BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
+                ensure oldStatus != newStatus;
+            }
+            publish OverdueBooksProcessed(Int count) {
+                ensure count >= 0;
+            }
 
-            publish BookConditionChanged(UUID bookId, BookCondition oldCondition, BookCondition newCondition);
+            publish BookConditionChanged(UUID bookId, BookCondition oldCondition, BookCondition newCondition) {
+                ensure oldCondition != newCondition;
+            }
             publish CheckoutCreated(UUID checkoutId, UUID bookId);
             publish CheckoutReturned(UUID checkoutId, UUID bookId);
         }

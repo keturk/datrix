@@ -179,8 +179,12 @@ service library.BookService : version('1.0.0'), description('book management ser
     // Pub/sub messaging block - defines event-driven communication
     pubsub mq('config/book-service/pubsub.yaml') {
         topic BookEvents {
-            publish BookAdded(UUID bookId, String title);
-            publish BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus);
+            publish BookAdded(UUID bookId, String title) {
+                ensure title.length > 0;
+            }
+            publish BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
+                ensure oldStatus != newStatus;
+            }
         }
 
         subscribe BookEvents {
@@ -272,5 +276,155 @@ service library.BookService : version('1.0.0'), description('book management ser
 
         resource bookDb.Category : only(list, get), public;
         resource bookDb.Category : only(create, update, delete), access(librarian);
+    }
+
+    test("computed displayTitle formats title and year") {
+        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatDisplay" });
+        cat.save();
+        #bookDb.Book book = bookDb.Book.create({
+            title: "Domain-Driven Design",
+            isbn: "9780321125217",
+            author: "Eric Evans",
+            publicationYear: 2003,
+            categoryId: cat.id
+        });
+        book.save();
+        assert book.displayTitle == "Domain-Driven Design (2003)";
+    }
+
+    test("computed isAvailable is true when status is Available") {
+        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatAvail" });
+        cat.save();
+        #bookDb.Book book = bookDb.Book.create({
+            title: "Clean Code",
+            isbn: "9780132350884",
+            author: "Robert Martin",
+            publicationYear: 2008,
+            categoryId: cat.id
+        });
+        book.save();
+        assert book.isAvailable == true;
+    }
+
+    test("computed isOldBook is true for pre-2000 books") {
+        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatOldBook" });
+        cat.save();
+        #bookDb.Book book = bookDb.Book.create({
+            title: "Design Patterns",
+            isbn: "9780201633610",
+            author: "Gang of Four",
+            publicationYear: 1994,
+            categoryId: cat.id
+        });
+        book.save();
+        assert book.isOldBook == true;
+    }
+
+    test("validation rejects empty title") {
+        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatValTitle" });
+        cat.save();
+        assert throws(
+            () => bookDb.Book.create({ title: "", isbn: "1234567890", author: "Author", publicationYear: 2020, categoryId: cat.id }),
+            ValidationError("Title cannot be empty")
+        );
+    }
+
+    test("validation rejects future publication year") {
+        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatValYear" });
+        cat.save();
+        assert throws(
+            () => bookDb.Book.create({ title: "Future Book", isbn: "1234567890", author: "Author", publicationYear: 20999, categoryId: cat.id }),
+            ValidationError("Publication year cannot be in the future")
+        );
+    }
+
+    test("beforeCreate generates catalogNumber") {
+        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatHook" });
+        cat.save();
+        #bookDb.Book book = bookDb.Book.create({
+            title: "Refactoring",
+            isbn: "9780201485677",
+            author: "Martin Fowler",
+            publicationYear: 1999,
+            categoryId: cat.id
+        });
+        book.save();
+        assert book.catalogNumber != null;
+    }
+
+    test("afterCreate emits BookAdded event") {
+        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatEvent" });
+        cat.save();
+        #bookDb.Book book = bookDb.Book.create({
+            title: "Clean Architecture",
+            isbn: "9780134494166",
+            author: "Robert Martin",
+            publicationYear: 2017,
+            categoryId: cat.id
+        });
+        book.save();
+        assert emitted(BookAdded(book.id, book.title));
+    }
+
+    test("status change emits BookStatusChanged on update") {
+        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatStatus" });
+        cat.save();
+        #bookDb.Book book = bookDb.Book.create({
+            title: "Patterns of Enterprise Application Architecture",
+            isbn: "9780321127426",
+            author: "Martin Fowler",
+            publicationYear: 2002,
+            categoryId: cat.id
+        });
+        book.save();
+        book.status = BookStatus.CheckedOut;
+        book.save();
+        assert emitted(BookStatusChanged(book.id, BookStatus.Available, BookStatus.CheckedOut));
+    }
+
+    test("title update does not emit BookStatusChanged") {
+        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatNoEvent" });
+        cat.save();
+        #bookDb.Book book = bookDb.Book.create({
+            title: "Working Effectively with Legacy Code",
+            isbn: "9780131177055",
+            author: "Michael Feathers",
+            publicationYear: 2004,
+            categoryId: cat.id
+        });
+        book.save();
+        book.title = "Updated Title";
+        book.save();
+        assert book.status == BookStatus.Available;
+    }
+
+    test("getStatusLabel returns On Shelf for Available status") {
+        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatFnAvail" });
+        cat.save();
+        #bookDb.Book book = bookDb.Book.create({
+            title: "The Pragmatic Programmer",
+            isbn: "9780135957059",
+            author: "David Thomas",
+            publicationYear: 2019,
+            categoryId: cat.id
+        });
+        book.save();
+        assert book.getStatusLabel() == "On Shelf";
+    }
+
+    test("getStatusLabel returns Checked Out for CheckedOut status") {
+        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatFnOut" });
+        cat.save();
+        #bookDb.Book book = bookDb.Book.create({
+            title: "Continuous Delivery",
+            isbn: "9780321601919",
+            author: "Jez Humble",
+            publicationYear: 2010,
+            categoryId: cat.id
+        });
+        book.save();
+        book.status = BookStatus.CheckedOut;
+        book.save();
+        assert book.getStatusLabel() == "Checked Out";
     }
 }

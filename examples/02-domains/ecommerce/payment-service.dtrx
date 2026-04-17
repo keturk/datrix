@@ -113,9 +113,15 @@ service ecommerce.PaymentService : version('1.0.0'), description('payment manage
         alert failedMessages(count) over(5m) > 5 @severity(critical);
 
         topic PaymentEvents {
-            publish PaymentProcessed(UUID paymentId, UUID orderId, Money amount);
-            publish PaymentFailed(UUID paymentId, UUID orderId, String reason);
-            publish PaymentRefunded(UUID paymentId, UUID orderId, Money amount);
+            publish PaymentProcessed(UUID paymentId, UUID orderId, Money amount) {
+                ensure amount > 0;
+            }
+            publish PaymentFailed(UUID paymentId, UUID orderId, String reason) {
+                ensure reason.length > 0;
+            }
+            publish PaymentRefunded(UUID paymentId, UUID orderId, Money amount) {
+                ensure amount > 0;
+            }
         }
 
         subscribe OrderEvents {
@@ -302,6 +308,32 @@ service ecommerce.PaymentService : version('1.0.0'), description('payment manage
 
             return success;
         }
+    }
+
+    test("computed isSuccessful reflects Completed status") {
+        #paymentDb.Payment payment = paymentDb.Payment.create({
+            orderId: uuid(),
+            customerId: uuid(),
+            amount: Money.of(99.99, Currency.USD),
+            method: PaymentMethod.CreditCard,
+            transactionId: "TXN-SPEC-001",
+            status: PaymentStatus.Completed
+        });
+        payment.save();
+        assert payment.isSuccessful == true;
+    }
+
+    test("computed canRefund requires Completed status") {
+        #paymentDb.Payment payment = paymentDb.Payment.create({
+            orderId: uuid(),
+            customerId: uuid(),
+            amount: Money.of(49.99, Currency.USD),
+            method: PaymentMethod.PayPal,
+            transactionId: "TXN-SPEC-002",
+            status: PaymentStatus.Completed
+        });
+        payment.save();
+        assert payment.canRefund == true;
     }
 
     // Service-level async function for payment processing

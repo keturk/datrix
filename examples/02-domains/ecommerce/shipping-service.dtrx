@@ -175,9 +175,13 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
     pubsub mq('config/shipping-service/pubsub.yaml') {
         topic ShipmentEvents {
             publish ShipmentCreated(UUID shipmentId, UUID orderId);
-            publish ShipmentDispatched(UUID shipmentId, UUID orderId, String trackingNumber);
+            publish ShipmentDispatched(UUID shipmentId, UUID orderId, String trackingNumber) {
+                ensure trackingNumber.length > 0;
+            }
             publish ShipmentDelivered(UUID shipmentId, UUID orderId, DateTime deliveredAt);
-            publish ShipmentFailed(UUID shipmentId, UUID orderId, String reason);
+            publish ShipmentFailed(UUID shipmentId, UUID orderId, String reason) {
+                ensure reason.length > 0;
+            }
         }
 
         // React to order confirmation by automatically creating shipments
@@ -451,6 +455,33 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
             if (eventType == "DE") return ShipmentStatus.Failed;
             return ShipmentStatus.InTransit;
         }
+    }
+
+    test("computed isDelivered reflects Delivered status") {
+        #shippingDb.Shipment shipment = shippingDb.Shipment.create({
+            orderId: uuid(),
+            trackingNumber: "SPEC-TRACK-001",
+            carrier: ShippingCarrier.FedEx,
+            status: ShipmentStatus.Delivered,
+            destination: { street: "123 Main St", city: "Springfield", state: "IL", zip: "62701", country: "US" },
+            weight: 2.50,
+            actualDelivery: now()
+        });
+        shipment.save();
+        assert shipment.isDelivered == true;
+    }
+
+    test("computed isInProgress for InTransit status") {
+        #shippingDb.Shipment shipment = shippingDb.Shipment.create({
+            orderId: uuid(),
+            trackingNumber: "SPEC-TRACK-002",
+            carrier: ShippingCarrier.UPS,
+            status: ShipmentStatus.InTransit,
+            destination: { street: "456 Oak Ave", city: "Shelbyville", state: "IL", zip: "62565", country: "US" },
+            weight: 1.75
+        });
+        shipment.save();
+        assert shipment.isInProgress == true;
     }
 
     // Scheduled jobs for background processing

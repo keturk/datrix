@@ -61,4 +61,37 @@ service library.BookService : version('1.0.0'), description('Book management ser
         // 'resource' auto-generates standard CRUD endpoints (list, get, create, update, delete)
         resource bookDb.Book;
     }
+
+    test("computed displayTitle formats title and year") {
+        #bookDb.Book book = bookDb.Book.create({
+            title: "Domain-Driven Design",
+            isbn: "9780321125217",
+            author: "Eric Evans",
+            publicationYear: 2003
+        });
+        book.save();
+        assert book.displayTitle == "Domain-Driven Design (2003)";
+    }
+
+    test("computed isAvailable is true when status is Available") {
+        #bookDb.Book book = bookDb.Book.create({
+            title: "Clean Code",
+            isbn: "9780132350884",
+            author: "Robert Martin",
+            publicationYear: 2008
+        });
+        book.save();
+        assert book.isAvailable == true;
+    }
+
+    test("computed isOldBook is true for pre-2000 books") {
+        #bookDb.Book book = bookDb.Book.create({
+            title: "Design Patterns",
+            isbn: "9780201633610",
+            author: "Gang of Four",
+            publicationYear: 1994
+        });
+        book.save();
+        assert book.isOldBook == true;
+    }
 }

@@ -216,10 +216,19 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
 
     pubsub mq('config/appointment-service/pubsub.yaml') {
         topic AppointmentEvents {
-            publish AppointmentScheduled(UUID appointmentId, UUID patientId, UUID? providerId, DateTime scheduledAt, String type);
-            publish AppointmentStatusChanged(UUID appointmentId, UUID patientId, String oldStatus, String newStatus);
-            publish AppointmentCompleted(UUID appointmentId, UUID patientId, UUID? providerId, String providerName, String type);
-            publish AppointmentCancelled(UUID appointmentId, UUID patientId, String? reason);
+            publish AppointmentScheduled(UUID appointmentId, UUID patientId, UUID? providerId, DateTime scheduledAt, String type) {
+                ensure type.length > 0;
+            }
+            publish AppointmentStatusChanged(UUID appointmentId, UUID patientId, String oldStatus, String newStatus) {
+                ensure oldStatus != newStatus;
+            }
+            publish AppointmentCompleted(UUID appointmentId, UUID patientId, UUID? providerId, String providerName, String type) {
+                ensure providerName.length > 0;
+                ensure type.length > 0;
+            }
+            publish AppointmentCancelled(UUID appointmentId, UUID patientId, String? reason) {
+                ensure reason == null || reason.length > 0;
+            }
         }
 
         subscribe AppointmentEvents {
@@ -263,6 +272,41 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
                 }
             }
         }
+    }
+
+    test("validation rejects short appointments") {
+        assert throws(
+            () => appointmentDb.Appointment.create({
+                patientId: uuid(),
+                providerName: "Dr. Spec",
+                scheduledAt: now().addDays(1),
+                durationMinutes: 2
+            }),
+            ValidationError("Appointment must be at least 5 minutes")
+        );
+    }
+
+    test("validation rejects excessively long appointments") {
+        assert throws(
+            () => appointmentDb.Appointment.create({
+                patientId: uuid(),
+                providerName: "Dr. Spec",
+                scheduledAt: now().addDays(1),
+                durationMinutes: 500
+            }),
+            ValidationError("Appointment cannot exceed 8 hours")
+        );
+    }
+
+    test("afterCreate emits AppointmentScheduled event") {
+        #appointmentDb.Appointment appt = appointmentDb.Appointment.create({
+            patientId: uuid(),
+            providerName: "Dr. Smith",
+            scheduledAt: now().addDays(7),
+            durationMinutes: 30
+        });
+        appt.save();
+        assert emitted(AppointmentScheduled(appt.id, appt.patientId, appt.providerId, appt.scheduledAt, appt.type));
     }
 
     rest_api AppointmentAPI : basePath('/api/v1/appointments') {

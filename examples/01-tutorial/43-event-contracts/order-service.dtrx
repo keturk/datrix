@@ -75,4 +75,46 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
     rest_api OrderServiceAPI : basePath("/api/v1") {
         resource orderDb.Order : only(list, get, create, update), public;
     }
+
+    test("validation rejects empty customer name") {
+        assert throws(
+            () => orderDb.Order.create({ customerName: "", totalAmount: 99.99, itemCount: 2 }),
+            ValidationError("Customer name is required")
+        );
+    }
+
+    test("afterCreate emits OrderPlaced event") {
+        #orderDb.Order order = orderDb.Order.create({
+            customerName: "Jane Doe",
+            totalAmount: 149.99,
+            itemCount: 3
+        });
+        order.save();
+        assert emitted(OrderPlaced(order.id, order.totalAmount, order.itemCount, order.customerName));
+    }
+
+    test("status change to Cancelled emits OrderCancelled") {
+        #orderDb.Order order = orderDb.Order.create({
+            customerName: "John Smith",
+            totalAmount: 79.99,
+            itemCount: 1,
+            notes: "Customer requested cancellation"
+        });
+        order.save();
+        order.status = OrderStatus.Cancelled;
+        order.save();
+        assert emitted(OrderCancelled(order.id, order.notes));
+    }
+
+    test("status change to Shipped emits OrderShipped") {
+        #orderDb.Order order = orderDb.Order.create({
+            customerName: "Alice Johnson",
+            totalAmount: 199.99,
+            itemCount: 5
+        });
+        order.save();
+        order.status = OrderStatus.Shipped;
+        order.save();
+        assert emitted(OrderShipped(order.id));
+    }
 }

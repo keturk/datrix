@@ -1,7 +1,7 @@
 # Datrix Architecture Overview
 
 **Version:** 2.0
-**Last Updated:** April 12, 2026
+**Last Updated:** April 17, 2026
 
 ---
 
@@ -236,11 +236,12 @@ Public repository with documentation, examples, scripts, and tutorials.
 
 Generators are discovered dynamically via a plugin architecture using four entry-point groups:
 
-1. **Protocol-based plugins** — Generators implement `GeneratorPlugin` or `PlatformPlugin` protocols
-2. **Language-specific hooks** — Language packages implement `LanguageHooks` and `LanguageRuntimeSpec` protocols
-3. **Dynamic discovery** — CLI discovers plugins via entry points at runtime
-4. **Independent packages** — Each generator is a separate package that can be installed independently
-5. **Clear interfaces** — Protocols define exactly what generators must implement
+1. **Protocol-based plugins** — Generators implement `GeneratorPlugin` or `PlatformPlugin` protocols. **Language targets should subclass `LanguageGenerator`** (`datrix_common.generation.language_generator`): it provides shared orchestration (`generate()` is `@final`) while subclasses implement **nine abstract methods** (six domain + three infrastructure hooks). See [code-generation.md](../../../datrix-common/docs/architecture/code-generation.md#consolidated-generator-infrastructure) in datrix-common.
+2. **Cross-language types** — **`TypeMappingRegistry`** (`datrix_common.generation.type_mapping_registry`) validates that every canonical type from `TypeRegistry` is mapped in each registered language (`global_registry.register_language()` at import time).
+3. **Language-specific hooks** — Language packages implement `LanguageHooks` and `LanguageRuntimeSpec` protocols
+4. **Dynamic discovery** — CLI discovers plugins via entry points at runtime
+5. **Independent packages** — Each generator is a separate package that can be installed independently
+6. **Clear interfaces** — Protocols define exactly what generators must implement
 
 ### Entry Point Groups
 
@@ -255,14 +256,16 @@ All protocols are defined in `datrix-common` (see `datrix_common.plugin.protocol
 
 ### Adding a New Language
 
-Adding a new target language (e.g., Go, Rust, Java) requires only a new `datrix-codegen-{lang}` package:
+Adding a new target language (e.g., Go, Rust, Java) requires a new `datrix-codegen-{lang}` package. Follow the **consolidated checklist** (aligned with `LanguageGenerator` / `LanguageTranspiler` / `TypeMappingRegistry`):
 
-1. Implement `GeneratorPlugin` — code generation from AST to target language
-2. Implement `LanguageHooks` — post-generation formatting and validation
-3. Implement `LanguageRuntimeSpec` — Dockerfile context, healthchecks, DB URL schemes, migration commands, job runner commands
-4. Register all three entry points in `pyproject.toml`
+1. Subclass **`LanguageGenerator`** — implement the nine abstract methods; wire sub-generators and project-level output through the shared `generate()` implementation.
+2. Subclass **`LanguageTranspiler`** — set `LiteralKeywords`, unary/binary/assignment operator tables, and implement language-specific visitors.
+3. Add **`type_mappings.py`** — map every canonical type; register with `global_registry.register_language()`.
+4. Implement **`LanguageHooks`** — post-generation formatting and validation (e.g. ruff, Prettier).
+5. Implement **`LanguageRuntimeSpec`** — Dockerfile context, healthchecks, DB URL schemes, migration commands, job runner commands.
+6. Register entry points in **`pyproject.toml`** (`datrix.generators`, and hooks/runtime spec as required).
 
-No changes to datrix-common, Docker, K8s, Component, or CLI packages are needed. Platform generators consume `LanguageRuntimeSpec` via protocol dispatch instead of language-specific branching.
+Platform generators consume `LanguageRuntimeSpec` via protocol dispatch instead of language-specific branching. See [code-generation.md — Consolidated generator infrastructure](../../../datrix-common/docs/architecture/code-generation.md#consolidated-generator-infrastructure).
 
 ---
 

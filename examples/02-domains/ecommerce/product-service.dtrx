@@ -168,10 +168,19 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
 
     pubsub mq('config/product-service/pubsub.yaml') {
         topic ProductEvents {
-            publish ProductCreated(UUID productId, String name, Money price);
-            publish InventoryUpdated(UUID productId, Int oldQuantity, Int newQuantity);
-            publish InventoryReserved(UUID reservationId, Array<UUID> productIds);
-            publish InventoryReleased(UUID reservationId, String reason);
+            publish ProductCreated(UUID productId, String name, Money price) {
+                ensure name.length > 0;
+                ensure price > 0;
+            }
+            publish InventoryUpdated(UUID productId, Int oldQuantity, Int newQuantity) {
+                ensure newQuantity >= 0;
+            }
+            publish InventoryReserved(UUID reservationId, Array<UUID> productIds) {
+                ensure productIds.length > 0;
+            }
+            publish InventoryReleased(UUID reservationId, String reason) {
+                ensure reason.length > 0;
+            }
         }
 
         subscribe ProductEvents {
@@ -461,6 +470,41 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
         post(BulkProductRequest request) : internal -> Array<productDb.Product> {
             return productDb.Product.whereIn(id: request.ids).all();
         }
+    }
+
+    test("validation rejects non-positive reservation quantity") {
+        #productDb.Product product = productDb.Product.create({
+            name: "SpecTestProduct",
+            description: "Test product for spec",
+            status: ProductStatus.Active,
+            categoryId: uuid(),
+            images: [],
+            tags: []
+        });
+        product.save();
+        assert throws(
+            () => productDb.InventoryReservation.create({
+                productId: product.id,
+                quantity: 0,
+                expiresAt: now().addDays(1)
+            }),
+            ValidationError("Reservation quantity must be positive")
+        );
+    }
+
+    test("afterUpdate emits InventoryUpdated on inventory change") {
+        #productDb.Product product = productDb.Product.create({
+            name: "SpecInventoryProduct",
+            description: "Test product for inventory spec",
+            status: ProductStatus.Active,
+            categoryId: uuid(),
+            images: [],
+            tags: []
+        });
+        product.save();
+        product.inventory = 50;
+        product.save();
+        assert emitted(InventoryUpdated(product.id, 0, 50));
     }
 
     // Jobs block - defines scheduled/background tasks

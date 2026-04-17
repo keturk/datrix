@@ -184,9 +184,16 @@ service healthcare.PatientService : version('1.0.0'), description('patient manag
     // Pub/sub messaging block
     pubsub mq('config/patient-service/pubsub.yaml') {
         topic PatientEvents {
-            publish PatientRegistered(UUID patientId, String mrn, String fullName, Date dateOfBirth);
-            publish PatientStatusChanged(UUID patientId, String mrn, String oldStatus, String newStatus);
-            publish PatientUpdated(UUID patientId, String mrn, Array<String> changedFields);
+            publish PatientRegistered(UUID patientId, String mrn, String fullName, Date dateOfBirth) {
+                ensure mrn.length > 0;
+                ensure fullName.length > 0;
+            }
+            publish PatientStatusChanged(UUID patientId, String mrn, String oldStatus, String newStatus) {
+                ensure oldStatus != newStatus;
+            }
+            publish PatientUpdated(UUID patientId, String mrn, Array<String> changedFields) {
+                ensure changedFields.length > 0;
+            }
         }
 
         subscribe PatientEvents {
@@ -199,6 +206,52 @@ service healthcare.PatientService : version('1.0.0'), description('patient manag
                 Log.info("Patient updated", { patientId: patientId, mrn: mrn, changedFields: changedFields });
             }
         }
+    }
+
+    test("computed fullName concatenates first and last name") {
+        #patientDb.Patient patient = patientDb.Patient.create({
+            firstName: "John",
+            lastName: "Doe",
+            dateOfBirth: Date.of(1985, 6, 15),
+            gender: Gender.Male
+        });
+        patient.save();
+        assert patient.fullName == "John Doe";
+    }
+
+    test("validation rejects future date of birth") {
+        assert throws(
+            () => patientDb.Patient.create({
+                firstName: "Future",
+                lastName: "Patient",
+                dateOfBirth: Date.of(2099, 1, 1),
+                gender: Gender.Male
+            }),
+            ValidationError("Date of birth cannot be in the future")
+        );
+    }
+
+    test("validation rejects impossibly old date of birth") {
+        assert throws(
+            () => patientDb.Patient.create({
+                firstName: "Ancient",
+                lastName: "Patient",
+                dateOfBirth: Date.of(1800, 1, 1),
+                gender: Gender.Female
+            }),
+            ValidationError("Invalid date of birth")
+        );
+    }
+
+    test("afterCreate emits PatientRegistered event") {
+        #patientDb.Patient patient = patientDb.Patient.create({
+            firstName: "Alice",
+            lastName: "Smith",
+            dateOfBirth: Date.of(1990, 3, 20),
+            gender: Gender.Female
+        });
+        patient.save();
+        assert emitted(PatientRegistered(patient.id, patient.mrn, patient.fullName, patient.dateOfBirth));
     }
 
     // REST API block with monitoring alerts

@@ -64,4 +64,52 @@ service blog.CommentService : version('1.0.0'), description('comment management 
             return commentDb.Comment.where(contentId: contentId).all();
         }
     }
+
+    test("computed isApproved reflects Approved status") {
+        #commentDb.Comment comment = commentDb.Comment.create({
+            contentId: uuid(),
+            authorName: "Test Author",
+            authorEmail: "test@example.com",
+            body: "Great article!",
+            status: CommentStatus.Approved
+        });
+        comment.save();
+        assert comment.isApproved == true;
+    }
+
+    test("computed isVisible requires approved and not deleted") {
+        #commentDb.Comment comment = commentDb.Comment.create({
+            contentId: uuid(),
+            authorName: "Visible Author",
+            authorEmail: "visible@example.com",
+            body: "Visible comment",
+            status: CommentStatus.Approved
+        });
+        comment.save();
+        assert comment.isVisible == true;
+    }
+
+    test("computed isApproved reflects Approved status") {
+        #commentDb.Comment comment = commentDb.Comment.create({
+            contentId: uuid(),
+            authorName: "SpecAuthor",
+            authorEmail: "spec@example.com",
+            body: "This is a test comment",
+            status: CommentStatus.Approved
+        });
+        comment.save();
+        assert comment.isApproved == true;
+    }
+
+    test("computed isVisible requires approved and not deleted") {
+        #commentDb.Comment comment = commentDb.Comment.create({
+            contentId: uuid(),
+            authorName: "SpecAuthorVisible",
+            authorEmail: "spec.visible@example.com",
+            body: "This is a visible comment",
+            status: CommentStatus.Approved
+        });
+        comment.save();
+        assert comment.isVisible == true;
+    }
 }

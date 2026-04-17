@@ -211,9 +211,13 @@ service ecommerce.UserService : version('1.0.0'), description('user management s
     // Pub/sub messaging block
     pubsub mq('config/user-service/pubsub.yaml') {
         topic UserEvents {
-            publish UserRegistered(UUID userId, Email email, String fullName);
+            publish UserRegistered(UUID userId, Email email, String fullName) {
+                ensure fullName.length > 0;
+            }
             publish UserVerified(UUID userId, Email email);
-            publish UserStatusChanged(UUID userId, UserStatus oldStatus, UserStatus newStatus);
+            publish UserStatusChanged(UUID userId, UserStatus oldStatus, UserStatus newStatus) {
+                ensure oldStatus != newStatus;
+            }
             publish UserLoggedIn(UUID userId, DateTime loginAt, String? ipAddress);
         }
 
@@ -425,6 +429,54 @@ service ecommerce.UserService : version('1.0.0'), description('user management s
         fn generateSessionToken() -> String {
             return #"session_{Random.string(64)}";
         }
+    }
+
+    test("computed fullName concatenates first and last name") {
+        #userDb.User user = userDb.User.create({
+            email: "spec.name@example.com",
+            passwordHash: "hashedpass123",
+            firstName: "John",
+            lastName: "Doe"
+        });
+        user.save();
+        assert user.fullName == "John Doe";
+    }
+
+    test("computed canLogin requires active and verified") {
+        #userDb.User user = userDb.User.create({
+            email: "spec.login@example.com",
+            passwordHash: "hashedpass123",
+            firstName: "Jane",
+            lastName: "Smith",
+            status: UserStatus.Active,
+            emailVerifiedAt: now()
+        });
+        user.save();
+        assert user.canLogin == true;
+    }
+
+    test("validation rejects activating unverified user") {
+        assert throws(
+            () => userDb.User.create({
+                email: "spec.unverified@example.com",
+                passwordHash: "hashedpass123",
+                firstName: "Unverified",
+                lastName: "User",
+                status: UserStatus.Active
+            }),
+            ValidationError("Cannot activate unverified user")
+        );
+    }
+
+    test("afterCreate emits UserRegistered event") {
+        #userDb.User user = userDb.User.create({
+            email: "spec.event@example.com",
+            passwordHash: "hashedpass123",
+            firstName: "Alice",
+            lastName: "Johnson"
+        });
+        user.save();
+        assert emitted(UserRegistered(user.id, user.email, user.fullName));
     }
 
     // Service-level function
