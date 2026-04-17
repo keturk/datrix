@@ -89,7 +89,7 @@ service blog.CommentService : version('1.0.0'), description('comment management 
         assert comment.isVisible == true;
     }
 
-    test("computed isApproved reflects Approved status") {
+    test("spec: isApproved is true for approved comment with SpecAuthor") {
         #commentDb.Comment comment = commentDb.Comment.create({
             contentId: uuid(),
             authorName: "SpecAuthor",
@@ -101,7 +101,7 @@ service blog.CommentService : version('1.0.0'), description('comment management 
         assert comment.isApproved == true;
     }
 
-    test("computed isVisible requires approved and not deleted") {
+    test("spec: isVisible is true for approved non-deleted SpecAuthorVisible comment") {
         #commentDb.Comment comment = commentDb.Comment.create({
             contentId: uuid(),
             authorName: "SpecAuthorVisible",
