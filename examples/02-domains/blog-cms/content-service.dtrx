@@ -108,4 +108,24 @@ service blog.ContentService : version('1.0.0'), description('content management 
         resource contentDb.Post : only(list, get), public;
         resource contentDb.Post : only(create, update, delete), access(editor);
     }
+
+    test("computed isDraft is true for Draft status") {
+        #contentDb.Post post = contentDb.Post.create({
+            authorId: uuid(),
+            title: "Test Post",
+            body: "Test content for spec test"
+        });
+        post.save();
+        assert post.isDraft == true;
+    }
+
+    test("computed isDraft is true for Draft status") {
+        #contentDb.Post post = contentDb.Post.create({
+            authorId: uuid(),
+            title: "Spec Test Post",
+            body: "This is a test post body"
+        });
+        post.save();
+        assert post.isDraft == true;
+    }
 }

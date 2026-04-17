@@ -322,8 +322,13 @@ service healthcare.MedicalRecordService : version('1.0.0'), description('medical
         topic RecordEvents {
             publish RecordCreated(UUID recordId, UUID patientId, RecordType type, UUID? providerId);
             publish RecordFinalized(UUID recordId, UUID patientId, RecordType type);
-            publish RecordAmended(UUID recordId, UUID patientId, String reason);
-            publish PrescriptionCreated(UUID prescriptionId, UUID patientId, String medication, String prescriber);
+            publish RecordAmended(UUID recordId, UUID patientId, String reason) {
+                ensure reason.length > 0;
+            }
+            publish PrescriptionCreated(UUID prescriptionId, UUID patientId, String medication, String prescriber) {
+                ensure medication.length > 0;
+                ensure prescriber.length > 0;
+            }
         }
 
         subscribe RecordEvents {
@@ -372,6 +377,46 @@ service healthcare.MedicalRecordService : version('1.0.0'), description('medical
                 });
             }
         }
+    }
+
+    test("validation rejects future record date") {
+        assert throws(
+            () => medicalRecordDb.MedicalRecord.create({
+                patientId: uuid(),
+                providerName: "Dr. Spec",
+                type: RecordType.Note,
+                title: "Future Note",
+                content: "Test content",
+                recordDate: now().addDays(30)
+            }),
+            ValidationError("Record date cannot be in the future")
+        );
+    }
+
+    test("computed isDraft is true for Draft status") {
+        #medicalRecordDb.MedicalRecord record = medicalRecordDb.MedicalRecord.create({
+            patientId: uuid(),
+            providerName: "Dr. Draft",
+            type: RecordType.Note,
+            title: "Draft Record",
+            content: "Draft content",
+            recordDate: now()
+        });
+        record.save();
+        assert record.isDraft == true;
+    }
+
+    test("afterCreate emits RecordCreated event") {
+        #medicalRecordDb.MedicalRecord record = medicalRecordDb.MedicalRecord.create({
+            patientId: uuid(),
+            providerName: "Dr. Event",
+            type: RecordType.Diagnosis,
+            title: "Diagnosis Record",
+            content: "Diagnosis content",
+            recordDate: now()
+        });
+        record.save();
+        assert emitted(RecordCreated(record.id, record.patientId, record.type, record.providerId));
     }
 
     rest_api MedicalRecordAPI : basePath('/api/v1/records') {

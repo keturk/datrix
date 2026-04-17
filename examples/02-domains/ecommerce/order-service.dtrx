@@ -188,10 +188,20 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
         alert failedMessages(count) over(5m) > 10 @severity(warning);
 
         topic OrderEvents {
-            publish OrderCreated(UUID orderId, String orderNumber, UUID customerId, Money total, UUID reservationId);
-            publish OrderConfirmed(UUID orderId, UUID? paymentId, UUID reservationId, Address shippingAddress, Array<JSON> items, Decimal estimatedWeight);
-            publish OrderCancelled(UUID orderId, String reason, UUID reservationId);
-            publish OrderStatusChanged(UUID orderId, OrderStatus oldStatus, OrderStatus newStatus);
+            publish OrderCreated(UUID orderId, String orderNumber, UUID customerId, Money total, UUID reservationId) {
+                ensure orderNumber.length > 0;
+                ensure total > 0;
+            }
+            publish OrderConfirmed(UUID orderId, UUID? paymentId, UUID reservationId, Address shippingAddress, Array<JSON> items, Decimal estimatedWeight) {
+                ensure items.length > 0;
+                ensure estimatedWeight > 0;
+            }
+            publish OrderCancelled(UUID orderId, String reason, UUID reservationId) {
+                ensure reason.length > 0;
+            }
+            publish OrderStatusChanged(UUID orderId, OrderStatus oldStatus, OrderStatus newStatus) {
+                ensure oldStatus != newStatus;
+            }
         }
 
         subscribe OrderEvents {
@@ -482,6 +492,74 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
                 expiresAt: now().addHours(24)
             });
         }
+    }
+
+    test("computed canCancel is true for Pending status") {
+        #orderDb.Order order = orderDb.Order.create({
+            customerId: uuid(),
+            orderNumber: "ORD-SPEC-001",
+            subtotal: Money.of(100.00, Currency.USD),
+            tax: Money.of(10.00, Currency.USD),
+            shippingCost: Money.of(5.00, Currency.USD),
+            discount: Money.of(0.00, Currency.USD),
+            shippingAddress: { street: "123 Main St", city: "Springfield", state: "IL", zip: "62701", country: "US" },
+            billingAddress: { street: "123 Main St", city: "Springfield", state: "IL", zip: "62701", country: "US" },
+            inventoryReservationId: uuid()
+        });
+        order.save();
+        assert order.canCancel == true;
+    }
+
+    test("validation rejects order with no items") {
+        assert throws(
+            () => orderDb.Order.create({
+                customerId: uuid(),
+                orderNumber: "ORD-SPEC-002",
+                subtotal: Money.of(50.00, Currency.USD),
+                tax: Money.of(5.00, Currency.USD),
+                shippingCost: Money.of(5.00, Currency.USD),
+                discount: Money.of(0.00, Currency.USD),
+                shippingAddress: { street: "456 Oak Ave", city: "Shelbyville", state: "IL", zip: "62565", country: "US" },
+                billingAddress: { street: "456 Oak Ave", city: "Shelbyville", state: "IL", zip: "62565", country: "US" },
+                inventoryReservationId: uuid()
+            }),
+            ValidationError("Order must have at least one item")
+        );
+    }
+
+    test("afterCreate emits OrderCreated event") {
+        #orderDb.Order order = orderDb.Order.create({
+            customerId: uuid(),
+            orderNumber: "ORD-SPEC-003",
+            subtotal: Money.of(200.00, Currency.USD),
+            tax: Money.of(20.00, Currency.USD),
+            shippingCost: Money.of(10.00, Currency.USD),
+            discount: Money.of(0.00, Currency.USD),
+            shippingAddress: { street: "789 Elm St", city: "Capital City", state: "IL", zip: "62702", country: "US" },
+            billingAddress: { street: "789 Elm St", city: "Capital City", state: "IL", zip: "62702", country: "US" },
+            inventoryReservationId: uuid()
+        });
+        order.save();
+        assert emitted(OrderCreated(order.id, order.orderNumber, order.customerId, order.total, order.inventoryReservationId));
+    }
+
+    test("status change to Cancelled emits OrderCancelled") {
+        #orderDb.Order order = orderDb.Order.create({
+            customerId: uuid(),
+            orderNumber: "ORD-SPEC-004",
+            subtotal: Money.of(75.00, Currency.USD),
+            tax: Money.of(7.50, Currency.USD),
+            shippingCost: Money.of(5.00, Currency.USD),
+            discount: Money.of(0.00, Currency.USD),
+            shippingAddress: { street: "321 Pine Rd", city: "Ogdenville", state: "IL", zip: "62703", country: "US" },
+            billingAddress: { street: "321 Pine Rd", city: "Ogdenville", state: "IL", zip: "62703", country: "US" },
+            inventoryReservationId: uuid(),
+            cancellationReason: "Changed my mind"
+        });
+        order.save();
+        order.status = OrderStatus.Cancelled;
+        order.save();
+        assert emitted(OrderCancelled(order.id, order.cancellationReason, order.inventoryReservationId));
     }
 
     jobs('config/order-service/jobs.yaml') {

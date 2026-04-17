@@ -33,7 +33,16 @@ Index of **repository** examples under [`examples/`](../../examples/) (tutorials
 - Tutorial series (library system): entities → APIs → events → CQRS, GraphQL, jobs, and more
 - Domain folders: blog-cms, ecommerce, healthcare, learning-management, social-platform, task-management
 
-### 🎯 [Patterns and Best Practices](./patterns-and-best-practices.md)
+### 📋 [Event Contracts](./event-contracts.md)
+How to use `ensure` clauses on `publish` events to enforce value-level invariants on event payloads:
+- Problem: structurally valid but semantically broken payloads
+- `ensure` clause syntax inside event declarations
+- Publisher-side enforcement (fail-fast at emit)
+- Generated contract validation (Python + TypeScript)
+- Static analysis (CTR001-CTR003) and runtime assertions
+- Design decisions and rationale
+
+### ���� [Patterns and Best Practices](./patterns-and-best-practices.md)
 Proven patterns for common scenarios:
 - Multi-tenancy implementation
 - Soft delete and auditing
@@ -56,6 +65,7 @@ Proven patterns for common scenarios:
 **Building a specific feature?**
 - REST API → [Writing Datrix Applications § REST APIs](./writing-datrix-applications.md#rest-apis)
 - Events → [Writing Datrix Applications § Event-Driven Messaging](./writing-datrix-applications.md#event-driven-messaging)
+- Event Contracts → [Event Contracts](./event-contracts.md) (`ensure` clauses on publish events)
 - Caching → [Writing Datrix Applications § Caching](./writing-datrix-applications.md#caching)
 - Jobs → [Writing Datrix Applications § Background Jobs](./writing-datrix-applications.md#background-jobs)
 - CQRS → [Writing Datrix Applications § CQRS](./writing-datrix-applications.md#cqrs)

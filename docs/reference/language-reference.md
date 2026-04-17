@@ -178,6 +178,19 @@ pubsub mq('config/pubsub.yaml') {
 
 Topics, events, publishers, and subscribers are defined declaratively. The compiler validates that every subscribed event has a matching publisher.
 
+### Event Contracts
+
+Events can declare value-level invariants using `ensure` clauses:
+
+```dtrx
+publish OrderCreated(UUID orderId, Decimal totalAmount, Int itemCount) {
+    ensure totalAmount > 0;
+    ensure itemCount > 0;
+}
+```
+
+Contracts are enforced at the publisher side — fail-fast at `emit`, before invalid payloads reach subscribers. See the [Event Contracts Guide](../guide/event-contracts.md) for full syntax, generated code examples, and design decisions.
+
 ---
 
 ## Caching

@@ -13,6 +13,7 @@
 
 .PARAMETER All
  Run LOC counting for all Datrix projects (datrix-* folders, excluding datrix).
+ When -All is used, a second JSON pass per successful project aggregates a workspace-wide LOC total (code, documentation, empty lines, files, and per-language sums).
 
 .PARAMETER Format
  Output format: summary, cloc-xml, json. Default: summary.
@@ -39,7 +40,7 @@
 
 .EXAMPLE
  .\loc.ps1 -All -Suffix py
- Count only Python lines of code for all projects.
+ Count only Python lines of code for all projects; includes a total LOC rollup across projects.
 
 .EXAMPLE
  .\loc.ps1 datrix-common datrix-language -Format cloc-xml
@@ -161,6 +162,17 @@ try {
  $totalProjects = $projectsToAnalyze.Count
  $currentProject = 0
 
+ if ($All) {
+ $rollupCode = [long]0
+ $rollupDoc = [long]0
+ $rollupEmpty = [long]0
+ $rollupFiles = [long]0
+ $rollupSource = [long]0
+ $rollupString = [long]0
+ $langRollup = @{}
+ $rollupMergeCount = 0
+ }
+
  foreach ($project in $projectsToAnalyze) {
  $currentProject++
  Write-Host ""
@@ -186,6 +198,58 @@ try {
  $results[$project] = $true
  Write-Host ""
  Write-Host "[PASS] LOC counting passed for $project" -ForegroundColor Green
+
+ if ($All) {
+ $jsonArgs = @(
+ $locScript,
+ "--project-root", $projectRoot,
+ "--format", "json"
+ )
+ if ($Suffix) { $jsonArgs += @("--suffix", $Suffix) }
+ if ($VerboseOutput) { $jsonArgs += "--verbose" }
+ if ($Dbg) { $jsonArgs += "--debug" }
+
+ $jsonStdout = & python @jsonArgs 2>$null
+ $jsonExit = $LASTEXITCODE
+ if ($jsonExit -ne 0 -or -not $jsonStdout) {
+ Write-Host "[WARN] LOC rollup JSON failed for $project; omitted from workspace total." -ForegroundColor Yellow
+ } else {
+ try {
+ $doc = $jsonStdout | ConvertFrom-Json
+ $s = $doc.summary
+ $rollupCode += [long]$s.totalCodeCount
+ $rollupDoc += [long]$s.totalDocumentationCount
+ $rollupEmpty += [long]$s.totalEmptyCount
+ $rollupFiles += [long]$s.totalFileCount
+ $rollupSource += [long]$s.totalSourceCount
+ $rollupString += [long]$s.totalStringCount
+ foreach ($lang in $doc.languages) {
+ if ($lang.isPseudoLanguage) { continue }
+ $name = [string]$lang.language
+ if (-not $langRollup.ContainsKey($name)) {
+ $langRollup[$name] = @{
+ codeCount = [long]0
+ documentationCount = [long]0
+ emptyCount = [long]0
+ fileCount = [long]0
+ sourceCount = [long]0
+ stringCount = [long]0
+ }
+ }
+ $e = $langRollup[$name]
+ $e.codeCount += [long]$lang.codeCount
+ $e.documentationCount += [long]$lang.documentationCount
+ $e.emptyCount += [long]$lang.emptyCount
+ $e.fileCount += [long]$lang.fileCount
+ $e.sourceCount += [long]$lang.sourceCount
+ $e.stringCount += [long]$lang.stringCount
+ }
+ $rollupMergeCount++
+ } catch {
+ Write-Host "[WARN] Failed to parse LOC JSON for $project : $_" -ForegroundColor Yellow
+ }
+ }
+ }
  } else {
  $results[$project] = $false
  Write-Host ""
@@ -195,6 +259,33 @@ try {
  break
  }
  }
+ }
+
+ if ($All -and $rollupMergeCount -gt 0) {
+ Write-Host ""
+ Write-Host "========================================" -ForegroundColor Cyan
+ Write-Host "TOTAL (all projects) - LOC rollup ($rollupMergeCount projects)" -ForegroundColor Cyan
+ Write-Host "========================================" -ForegroundColor Cyan
+ Write-Host ("  Code:            {0,16:N0}" -f $rollupCode)
+ Write-Host ("  Documentation:   {0,16:N0}" -f $rollupDoc)
+ Write-Host ("  Empty:           {0,16:N0}" -f $rollupEmpty)
+ Write-Host ("  Source:          {0,16:N0}" -f $rollupSource)
+ Write-Host ("  Strings:         {0,16:N0}" -f $rollupString)
+ Write-Host ("  Files:           {0,16:N0}" -f $rollupFiles)
+ if ($langRollup.Count -gt 0) {
+ Write-Host ""
+ Write-Host "  Per language (non-pseudo, summed across projects):" -ForegroundColor Cyan
+ $langKeys = @($langRollup.Keys | Sort-Object { -$langRollup[$_].codeCount })
+ $hdr = "  {0,-28} {1,8} {2,12} {3,12} {4,12}" -f "Language", "Files", "Code", "Comment", "Empty"
+ Write-Host $hdr
+ Write-Host ("  " + ("-" * 76))
+ foreach ($lk in $langKeys) {
+ $v = $langRollup[$lk]
+ $line = "  {0,-28} {1,8:N0} {2,12:N0} {3,12:N0} {4,12:N0}" -f $lk, $v.fileCount, $v.codeCount, $v.documentationCount, $v.emptyCount
+ Write-Host $line
+ }
+ }
+ Write-Host ""
  }
 
  Write-Host ""

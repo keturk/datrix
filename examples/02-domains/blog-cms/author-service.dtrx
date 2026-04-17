@@ -101,8 +101,13 @@ service blog.AuthorService : version('1.0.0'), description('author management se
     pubsub mq('config/author-service/pubsub.yaml') {
         // Topics group related events for publishing
         topic AuthorEvents {
-            publish AuthorRegistered(UUID authorId, Email email, String fullName);
-            publish AuthorStatusChanged(UUID authorId, String oldStatus, String newStatus);
+            publish AuthorRegistered(UUID authorId, Email email, String fullName) {
+                ensure fullName.length > 0;
+            }
+            publish AuthorStatusChanged(UUID authorId, String oldStatus, String newStatus) {
+                ensure oldStatus != newStatus;
+                ensure newStatus.length > 0;
+            }
         }
     }
 
@@ -137,5 +142,127 @@ service blog.AuthorService : version('1.0.0'), description('author management se
             });
             return author;
         }
+    }
+
+    test("computed fullName concatenates first and last name") {
+        #authorDb.Author author = authorDb.Author.create({
+            email: "jane@example.com",
+            passwordHash: "hashed123",
+            firstName: "Jane",
+            lastName: "Doe"
+        });
+        author.save();
+        assert author.fullName == "Jane Doe";
+    }
+
+    test("computed isActive is true for Active status") {
+        #authorDb.Author author = authorDb.Author.create({
+            email: "active@example.com",
+            passwordHash: "hashed123",
+            firstName: "Active",
+            lastName: "Author",
+            status: AuthorStatus.Active,
+            emailVerifiedAt: now()
+        });
+        author.save();
+        assert author.isActive == true;
+    }
+
+    test("computed canLogin requires active and verified") {
+        #authorDb.Author author = authorDb.Author.create({
+            email: "login@example.com",
+            passwordHash: "hashed123",
+            firstName: "Login",
+            lastName: "User",
+            status: AuthorStatus.Active,
+            emailVerifiedAt: now()
+        });
+        author.save();
+        assert author.canLogin == true;
+    }
+
+    test("validation rejects activating unverified author") {
+        assert throws(
+            () => authorDb.Author.create({
+                email: "unverified@example.com",
+                passwordHash: "hashed123",
+                firstName: "Unverified",
+                lastName: "Author",
+                status: AuthorStatus.Active
+            }),
+            ValidationError("Cannot activate unverified author")
+        );
+    }
+
+    test("afterCreate emits AuthorRegistered event") {
+        #authorDb.Author author = authorDb.Author.create({
+            email: "event@example.com",
+            passwordHash: "hashed123",
+            firstName: "Event",
+            lastName: "Test"
+        });
+        author.save();
+        assert emitted(AuthorRegistered(author.id, author.email, author.fullName));
+    }
+
+    test("computed fullName concatenates first and last name") {
+        #authorDb.Author author = authorDb.Author.create({
+            email: "spec.display@example.com",
+            passwordHash: "hashedpass123",
+            firstName: "Jane",
+            lastName: "Austen"
+        });
+        author.save();
+        assert author.fullName == "Jane Austen";
+    }
+
+    test("computed isActive is true for Active status") {
+        #authorDb.Author author = authorDb.Author.create({
+            email: "spec.active@example.com",
+            passwordHash: "hashedpass123",
+            firstName: "Mark",
+            lastName: "Twain",
+            status: AuthorStatus.Active,
+            emailVerifiedAt: now()
+        });
+        author.save();
+        assert author.isActive == true;
+    }
+
+    test("computed canLogin requires active and verified") {
+        #authorDb.Author author = authorDb.Author.create({
+            email: "spec.login@example.com",
+            passwordHash: "hashedpass123",
+            firstName: "Ernest",
+            lastName: "Hemingway",
+            status: AuthorStatus.Active,
+            emailVerifiedAt: now()
+        });
+        author.save();
+        assert author.canLogin == true;
+    }
+
+    test("validation rejects activating unverified author") {
+        assert throws(
+            () => authorDb.Author.create({
+                email: "spec.unverified@example.com",
+                passwordHash: "hashedpass123",
+                firstName: "Unverified",
+                lastName: "Author",
+                status: AuthorStatus.Active
+            }),
+            ValidationError("Cannot activate unverified author")
+        );
+    }
+
+    test("afterCreate emits AuthorRegistered event") {
+        #authorDb.Author author = authorDb.Author.create({
+            email: "spec.event@example.com",
+            passwordHash: "hashedpass123",
+            firstName: "Virginia",
+            lastName: "Woolf"
+        });
+        author.save();
+        assert emitted(AuthorRegistered(author.id, author.email, author.fullName));
     }
 }
