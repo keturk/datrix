@@ -22,6 +22,9 @@
 .PARAMETER Skip5
   When used with -Skip4, runs run-complete.ps1 instead of generate.ps1.
 
+.PARAMETER FreshBuild
+  Force fresh Docker builds (--no-cache) for deployment tests when using run-complete.ps1.
+
 .PARAMETER Dbg
   Forward debug logging to the child script (-Dbg on generate.ps1, -Dbg on run-complete.ps1).
 #>
@@ -36,6 +39,7 @@ param(
 
     [switch]$Skip4,
     [switch]$Skip5,
+    [switch]$FreshBuild,
 
     [Alias("Dbg")]
     [switch]$DebugLogging
@@ -115,6 +119,9 @@ foreach ($entry in @(
             "-Skip4",
             "-Skip5"
         )
+        if ($FreshBuild) {
+            $childArgs += "-FreshBuild"
+        }
         if ($DebugLogging) {
             $childArgs += "-Dbg"
         }
