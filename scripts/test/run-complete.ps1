@@ -58,6 +58,9 @@
 .PARAMETER Skip5
  Skip Step 5 (deployment/integration tests for generated projects).
 
+.PARAMETER FreshBuild
+ Force fresh Docker builds (--no-cache) for deployment tests. By default, deploy tests use Docker layer cache for faster builds.
+
 .PARAMETER SkipInstall
  Skip pip/network installs during generation (sets DATRIX_OFFLINE for the workflow). Requires a fully populated .venv.
 
@@ -108,6 +111,10 @@
  Runs only Steps 1-2, skipping unit, spec, and deployment tests for generated projects.
 
 .EXAMPLE
+ .\run-complete.ps1 -Tutorial -FreshBuild
+ Runs tutorial examples with fresh Docker builds (--no-cache, no layer cache) for maximum validation confidence.
+
+.EXAMPLE
  $env:DATRIX_OFFLINE = "1"; .\run-complete.ps1 -Tutorial
  Offline: no pip during the workflow (requires a ready .venv). Or use -SkipInstall (sets DATRIX_OFFLINE for the Python driver).
 #>
@@ -151,6 +158,7 @@ param(
  [switch]$Skip3,
  [switch]$Skip4,
  [switch]$Skip5,
+ [switch]$FreshBuild,
  [switch]$SkipInstall,
  [Alias("Dbg")]
  [switch]$DebugLogging
@@ -345,6 +353,12 @@ if ($DebugLogging) {
 }
 if ($SkipInstall) {
  $pythonArgs += "--skip-install"
+}
+
+# Set environment variable for fresh build mode (deploy tests will use --no-cache)
+if ($FreshBuild) {
+ $env:DEPLOY_TEST_FRESH_BUILD = "true"
+ Write-Info "Fresh build mode enabled (deploy tests will use --no-cache)"
 }
 
 # Display what we're about to run
