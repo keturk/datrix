@@ -1,0 +1,59 @@
+test:
+  metrics:
+    provider: prometheus
+    endpoint: /metrics
+    includeDefault: true
+  tracing:
+    provider: jaeger
+    samplingRate: 0.1
+  logging:
+    level: info
+    format: json
+    provider: loki
+  visualization:
+    provider: grafana
+
+development:
+  metrics:
+    provider: prometheus
+    endpoint: /metrics
+    includeDefault: true
+  tracing:
+    provider: jaeger
+    samplingRate: 0.1
+  logging:
+    level: info
+    format: json
+    provider: loki
+  visualization:
+    provider: grafana
+
+staging:
+  metrics:
+    provider: prometheus
+    endpoint: /metrics
+    includeDefault: true
+  tracing:
+    provider: jaeger
+    samplingRate: 0.1
+  logging:
+    level: info
+    format: json
+    provider: loki
+  visualization:
+    provider: grafana
+
+production:
+  metrics:
+    provider: prometheus
+    endpoint: /metrics
+    includeDefault: true
+  tracing:
+    provider: jaeger
+    samplingRate: 0.1
+  logging:
+    level: info
+    format: json
+    provider: loki
+  visualization:
+    provider: grafana

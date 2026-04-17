@@ -1,0 +1,48 @@
+test:
+  language: python
+  hosting: docker
+  defaultTimeout: 30000
+  maxPageSize: 100
+  defaultLocale: en-US
+  timezone: UTC
+  secrets:
+    provider: env
+
+development:
+  language: python
+  hosting: docker
+  defaultTimeout: 30000
+  maxPageSize: 100
+  defaultLocale: en-US
+  timezone: UTC
+  secrets:
+    provider: env
+
+staging:
+  language: python
+  hosting: docker
+  defaultTimeout: 30000
+  maxPageSize: 100
+  defaultLocale: en-US
+  timezone: UTC
+  secrets:
+    provider: env
+
+production:
+  language: python
+  hosting: aws
+  defaultTimeout: 30000
+  maxPageSize: 100
+  defaultLocale: en-US
+  timezone: UTC
+  region: us-east-1
+  network:
+    vpcId: ${AWS_VPC_ID}
+    appSubnets:
+      - ${AWS_APP_SUBNET_1}
+      - ${AWS_APP_SUBNET_2}
+    dataSubnets:
+      - ${AWS_DATA_SUBNET_1}
+      - ${AWS_DATA_SUBNET_2}
+  secrets:
+    provider: env

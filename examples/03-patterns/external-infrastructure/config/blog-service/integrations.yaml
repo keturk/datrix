@@ -1,0 +1,35 @@
+test:
+  search:
+    provider: elasticsearch
+    platform: container
+    host: localhost
+    port: 9200
+    indexPrefix: hostdemo_blog_
+
+development:
+  search:
+    provider: elasticsearch
+    platform: container
+    host: localhost
+    port: 9200
+    indexPrefix: hostdemo_blog_
+
+staging:
+  search:
+    provider: elasticsearch
+    platform: external
+    host: host.docker.internal
+    port: 9200
+    indexPrefix: hostdemo_blog_
+
+production:
+  search:
+    provider: elasticsearch
+    platform: external
+    host: ${ELASTICSEARCH_HOST}
+    port: 9200
+    indexPrefix: hostdemo_blog_
+    auth:
+      username: ${ELASTICSEARCH_USER}
+      password: ${ELASTICSEARCH_PASSWORD}
+    ssl: true
