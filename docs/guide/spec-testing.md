@@ -225,4 +225,4 @@ The `TestValidator` (Phase 6) enforces correctness of test block contents:
 
 ## Tutorial example
 
-See `examples/01-tutorial/42-spec-tests/` for a complete example with lifecycle hooks, computed fields, validation rules, and `test` blocks exercising all trigger types.
+See `examples/01-tutorial/41-file-operations/` for a complete example with lifecycle hooks, computed fields, validation rules, and `test` blocks exercising all trigger types.

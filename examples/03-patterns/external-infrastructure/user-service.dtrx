@@ -1,0 +1,43 @@
+
+from hostdemo.common import BaseEntity;
+
+service hostdemo.UserService : version('1.0.0'), description('user accounts') {
+
+    config('config/user-service/user-service-config.yaml');
+    registration('config/user-service/registration.yaml');
+    discovery { }
+    resilience('config/user-service/resilience.yaml');
+    integrations('config/user-service/integrations.yaml');
+
+    rdbms usersDb('config/user-service/datasources.yaml') {
+
+        entity User extends BaseEntity {
+            Email email : unique, trim;
+            Password passwordHash;
+            String(100) displayName : trim;
+
+            beforeCreate {
+                passwordHash = Auth.hashPassword(passwordHash);
+            }
+        }
+    }
+
+    cache redis('config/user-service/cache.yaml') {
+        hash SessionCache : prefix('session:'), ttl(600) {
+            UUID userId : key;
+            String token;
+        }
+    }
+
+    pubsub mq('config/user-service/pubsub.yaml') {
+        topic UserEvents {
+            publish AccountCreated(UUID userId, String email) {
+                ensure email.length > 0;
+            }
+        }
+    }
+
+    rest_api UserAPI : basePath("/api/v1/users") {
+        resource usersDb.User;
+    }
+}

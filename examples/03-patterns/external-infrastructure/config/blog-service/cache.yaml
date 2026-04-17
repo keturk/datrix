@@ -1,0 +1,32 @@
+test:
+  cache:
+    engine: redis
+    host: localhost
+    port: 6379
+    docker_image: redis:7-alpine
+    volume_path: /data
+    healthCheckCmd: '["CMD", "redis-cli", "ping"]'
+    platform: container
+
+development:
+  cache:
+    engine: redis
+    host: localhost
+    port: 6379
+    docker_image: redis:7-alpine
+    volume_path: /data
+    healthCheckCmd: '["CMD", "redis-cli", "ping"]'
+    platform: container
+
+staging:
+  cache:
+    engine: redis
+    platform: external
+    host: host.docker.internal
+    port: 6379
+
+production:
+  cache:
+    engine: redis
+    platform: elasticache
+    url: ${BLOG_REDIS_URL}

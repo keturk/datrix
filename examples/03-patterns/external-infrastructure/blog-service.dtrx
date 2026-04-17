@@ -1,0 +1,63 @@
+
+from hostdemo.common import BaseEntity;
+
+service hostdemo.BlogService : version('1.0.0'), description('blog posts and comments') {
+
+    config('config/blog-service/blog-service-config.yaml');
+    registration('config/blog-service/registration.yaml');
+    discovery { }
+    resilience('config/blog-service/resilience.yaml');
+    integrations('config/blog-service/integrations.yaml');
+
+    rdbms blogDb('config/blog-service/datasources.yaml') {
+
+        entity Post extends BaseEntity {
+            UUID authorUserId : index;
+            String(200) title : trim;
+            Text body;
+
+            hasMany Comment as comments;
+            index(authorUserId, createdAt);
+        }
+
+        entity Comment extends BaseEntity {
+            Text body;
+            belongsTo Post : index;
+        }
+
+        entity Tag extends BaseEntity {
+            String(80) name : unique, trim;
+        }
+    }
+
+    cache redis('config/blog-service/cache.yaml') {
+        hash PostViewCache : prefix('postview:'), ttl(300) {
+            UUID postId : key;
+            Int viewCount;
+        }
+    }
+
+    storage media('config/blog-service/storage.yaml') {
+        folder uploads : path('uploads/{postId}'), allowed(['image/jpeg', 'image/png']), maxSize('10mb')
+    }
+
+    pubsub mq('config/blog-service/pubsub.yaml') {
+        topic BlogEvents {
+            publish PostPublished(UUID postId, String title) {
+                ensure title.length > 0;
+            }
+        }
+
+        subscribe UserEvents {
+            on AccountCreated(UUID userId, String email) {
+                Log.info("cross-service: user registered", { userId: userId });
+            }
+        }
+    }
+
+    rest_api BlogAPI : basePath("/api/v1/posts") {
+        resource blogDb.Post;
+        resource blogDb.Comment;
+        resource blogDb.Tag;
+    }
+}

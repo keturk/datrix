@@ -1,0 +1,23 @@
+test:
+  type: consul
+  host: localhost
+  port: 8500
+  datacenter: dc1
+
+development:
+  type: consul
+  host: localhost
+  port: 8500
+  datacenter: dc1
+
+staging:
+  type: consul
+  host: localhost
+  port: 8500
+  datacenter: dc1
+
+production:
+  type: consul
+  host: ${CONSUL_HOST}
+  port: 8500
+  datacenter: dc1

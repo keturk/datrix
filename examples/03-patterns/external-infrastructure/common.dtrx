@@ -1,0 +1,9 @@
+
+module hostdemo.common {
+
+    abstract entity BaseEntity {
+        @UUID id : primaryKey = uuid();
+        @DateTime createdAt = now();
+        @DateTime updatedAt = now();
+    }
+}

@@ -1,0 +1,22 @@
+test:
+  name: user-service
+  host: localhost
+  port: 8021
+  tags: [users, api]
+
+development:
+  name: user-service
+  host: localhost
+  port: 8021
+  tags: [users, api]
+
+staging:
+  name: user-service
+  host: localhost
+  port: 8021
+  tags: [users, api]
+
+production:
+  name: user-service
+  port: 8021
+  tags: [users, api]

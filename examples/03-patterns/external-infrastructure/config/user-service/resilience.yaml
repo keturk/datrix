@@ -1,0 +1,51 @@
+test:
+  circuitBreaker:
+    enabled: true
+    failureThreshold: 5
+    successThreshold: 2
+    timeout: 30000
+  retry:
+    enabled: true
+    maxAttempts: 3
+    backoff: exponential
+    initialDelay: 1000
+    maxDelay: 10000
+
+development:
+  circuitBreaker:
+    enabled: true
+    failureThreshold: 5
+    successThreshold: 2
+    timeout: 30000
+  retry:
+    enabled: true
+    maxAttempts: 3
+    backoff: exponential
+    initialDelay: 1000
+    maxDelay: 10000
+
+staging:
+  circuitBreaker:
+    enabled: true
+    failureThreshold: 5
+    successThreshold: 2
+    timeout: 30000
+  retry:
+    enabled: true
+    maxAttempts: 3
+    backoff: exponential
+    initialDelay: 1000
+    maxDelay: 10000
+
+production:
+  circuitBreaker:
+    enabled: true
+    failureThreshold: 5
+    successThreshold: 2
+    timeout: 60000
+  retry:
+    enabled: true
+    maxAttempts: 5
+    backoff: exponential
+    initialDelay: 2000
+    maxDelay: 30000
