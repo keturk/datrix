@@ -1,0 +1,603 @@
+
+from social.common import BaseEntity, ContentStatus, MAX_PAGE_SIZE, MAX_POST_LENGTH, paginate;
+
+service social.PostService : version('1.0.0'), description('post and content management service') {
+
+    config('config/post-service/post-service-config.yaml');
+    registration('config/post-service/registration.yaml');
+    discovery {
+        UserService { loadBalance: roundRobin, healthyOnly: true }
+    }
+    resilience('config/post-service/resilience.yaml');
+
+    enum PostVisibility {
+        Public : value('public'),
+        Private : value('private'),
+        FollowersOnly : value('followers_only')
+    }
+
+    enum ReactionType {
+        Like : value('like'),
+        Love : value('love'),
+        Laugh : value('laugh'),
+        Sad : value('sad')
+    }
+
+    struct PaginatedPosts {
+        Array<postDb.Post> data;
+        JSON pagination;
+    }
+
+    struct CreatePostRequest {
+        Text content;
+        PostVisibility visibility = PostVisibility.Public;
+        Array<String>? tags;
+    }
+
+    struct UpdatePostRequest {
+        Text? content;
+        PostVisibility? visibility;
+    }
+
+    struct CreateCommentRequest {
+        Text content;
+    }
+
+    struct LikeResponse {
+        UUID postId;
+        Int likeCount;
+        Boolean liked;
+    }
+
+    struct PostSearchResult {
+        Array<postDb.Post> posts;
+        Int total;
+    }
+
+    rdbms postDb('config/post-service/datasources.yaml') {
+
+        entity Post extends BaseEntity : audit {
+            UUID authorId : index;
+            Text content;
+            PostVisibility visibility = PostVisibility.Public;
+            ContentStatus status = ContentStatus.Published;
+            Int likeCount = 0;
+            Int commentCount = 0;
+            Int shareCount = 0;
+            Int viewCount = 0;
+            JSON? tags;
+            DateTime? publishedAt;
+
+            // Computed fields
+            Boolean isPopular := likeCount >= 10 || commentCount >= 5;
+            Boolean isPublished := status == ContentStatus.Published;
+            Boolean isPublic := visibility == PostVisibility.Public && status == ContentStatus.Published;
+
+            hasMany Comment as comments : cascade(delete);
+            hasMany Like as likes : cascade(delete);
+
+            index(authorId, status);
+            index(status, createdAt);
+            index(visibility, status);
+            fulltext(content);
+
+            validate {
+                if (content.trim().isEmpty())
+                    ValidationError("Post content cannot be empty");
+                if (content.length() > MAX_POST_LENGTH)
+                    ValidationError("Post content cannot exceed 5000 characters");
+            }
+
+            beforeCreate {
+                if (status == ContentStatus.Published) {
+                    publishedAt = now();
+                }
+            }
+
+            afterCreate {
+                if (status == ContentStatus.Published) {
+                    emit PostPublished(id, authorId, visibility);
+                }
+            }
+
+            afterUpdate {
+                if (isChanged(status)) {
+                    if (status == ContentStatus.Published && publishedAt == null) {
+                        publishedAt = now();
+                    }
+                    emit PostStatusChanged(id, authorId, oldValue(status), status);
+                }
+
+                if (isChanged(content)) {
+                    emit PostUpdated(id, authorId);
+                }
+            }
+        }
+
+        entity Comment extends BaseEntity {
+            UUID authorId : index;
+            Text content;
+            Int likeCount = 0;
+
+            belongsTo Post : index;
+
+            index(postId, createdAt);
+
+            validate {
+                if (content.trim().isEmpty())
+                    ValidationError("Comment content cannot be empty");
+                if (content.length() > 2000)
+                    ValidationError("Comment cannot exceed 2000 characters");
+            }
+
+            afterCreate {
+                // Increment comment count on the post
+                #Post? post = postDb.Post.find(postId);
+                if (post != null) {
+                    post.commentCount = post.commentCount + 1;
+                    post.save();
+                }
+
+                emit CommentAdded(id, postId, authorId);
+            }
+        }
+
+        entity Like extends BaseEntity {
+            UUID userId : index;
+
+            belongsTo Post : index;
+
+            index(postId, userId) : unique;
+
+            afterCreate {
+                // Increment like count on the post
+                #Post? post = postDb.Post.find(postId);
+                if (post != null) {
+                    post.likeCount = post.likeCount + 1;
+                    post.save();
+                }
+            }
+        }
+
+        entity Hashtag extends BaseEntity {
+            String(100) name : unique, trim;
+            Int postCount = 0;
+
+            index(name);
+        }
+
+        entity PostHashtag extends BaseEntity {
+            UUID postId : index;
+            UUID hashtagId : index;
+
+            index(postId, hashtagId) : unique;
+        }
+    }
+
+    cache redis('config/post-service/cache.yaml') {
+        hash PostCache : prefix('post:'), ttl(1800) {
+            UUID postId : primaryKey;
+            UUID authorId;
+            ContentStatus status;
+            Int likeCount;
+            Int commentCount;
+        }
+
+        counter PostViewCount : prefix('post:views:');
+
+        sortedset TrendingPosts : prefix('trending:'), ttl(86400) {
+            UUID postId : member;
+            Int score;
+        }
+    }
+
+    pubsub mq('config/post-service/pubsub.yaml') {
+
+        topic PostEvents {
+            publish PostPublished(UUID postId, UUID authorId, PostVisibility visibility) {
+                ensure postId != null;
+            }
+            publish PostUpdated(UUID postId, UUID authorId) {
+                ensure postId != null;
+            }
+            publish PostStatusChanged(UUID postId, UUID authorId, ContentStatus oldStatus, ContentStatus newStatus) {
+                ensure oldStatus != newStatus;
+            }
+            publish PostDeleted(UUID postId, UUID authorId) {
+                ensure postId != null;
+            }
+            publish CommentAdded(UUID commentId, UUID postId, UUID authorId) {
+                ensure postId != null;
+            }
+            publish PostLiked(UUID postId, UUID userId) {
+                ensure postId != null;
+            }
+            publish PostUnliked(UUID postId, UUID userId) {
+                ensure postId != null;
+            }
+        }
+
+        subscribe PostEvents {
+            on PostPublished(UUID postId, UUID authorId, PostVisibility visibility) {
+                Log.info("Post published", { postId: postId, authorId: authorId, visibility: visibility });
+
+                // Cache the newly published post
+                #Post? post = postDb.Post.find(postId);
+                if (post != null) {
+                    redis.PostCache.set(postId, {
+                        postId: postId,
+                        authorId: authorId,
+                        status: post.status,
+                        likeCount: 0,
+                        commentCount: 0
+                    });
+                }
+            }
+
+            on PostStatusChanged(UUID postId, UUID authorId, ContentStatus oldStatus, ContentStatus newStatus) {
+                Log.info("Post status changed", { postId: postId, oldStatus: oldStatus, newStatus: newStatus });
+
+                if (newStatus == ContentStatus.Archived) {
+                    redis.PostCache.delete(postId);
+                    redis.TrendingPosts.remove(postId);
+                }
+            }
+
+            on PostLiked(UUID postId, UUID userId) {
+                // Update trending score when a post is liked
+                #Post? post = postDb.Post.find(postId);
+                if (post != null) {
+                    #Int score = post.likeCount + post.commentCount * 2;
+                    redis.TrendingPosts.add(postId, score);
+                }
+            }
+        }
+
+        subscribe UserEvents {
+            on UserStatusChanged(UUID userId, UserStatus oldStatus, UserStatus newStatus) {
+                Log.info("User status changed, checking posts", { userId: userId, newStatus: newStatus });
+
+                // If user is suspended or deactivated, archive their posts
+                if (newStatus == UserStatus.Suspended || newStatus == UserStatus.Deactivated) {
+                    #Array<Post> posts = postDb.Post
+                        .where(authorId: userId)
+                        .where(status: ContentStatus.Published)
+                        .all();
+
+                    foreach post in posts {
+                        post.status = ContentStatus.Archived;
+                        post.save();
+                    }
+
+                    Log.info("Archived posts for deactivated user", { userId: userId, count: posts.length() });
+                }
+            }
+        }
+    }
+
+    rest_api PostAPI : basePath('/api/v1/posts') {
+
+        // Public feed of posts
+        get(Int page = 1, Int perPage = 20) : public -> PaginatedPosts {
+            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            #Array<Post> posts = postDb.Post
+                .where(visibility: PostVisibility.Public)
+                .where(status: ContentStatus.Published)
+                .orderBy(createdAt: desc)
+                .offset((page - 1) * cappedPerPage)
+                .limit(cappedPerPage)
+                .all();
+
+            #Int total = postDb.Post
+                .where(visibility: PostVisibility.Public)
+                .where(status: ContentStatus.Published)
+                .count();
+
+            return {
+                data: posts,
+                pagination: paginate(total, page, cappedPerPage)
+            };
+        }
+
+        // Get a single post
+        @path('/:id')
+        get(UUID id) : public -> postDb.Post {
+            #Post post = postDb.Post.findOrFail(id);
+
+            if (!post.isPublic) {
+                // Check if the viewer is the author or an admin
+                #UUID? viewerId = Auth.user()?.id;
+                if (viewerId == null || (viewerId != post.authorId && !Auth.hasRole("admin"))) {
+                    throw AuthorizationException("Access denied");
+                }
+            }
+
+            // Increment view count
+            redis.PostViewCount.increment(id.toString());
+            return post;
+        }
+
+        // Create a new post
+        post(CreatePostRequest request) -> postDb.Post {
+            #UUID authorId = Auth.user().id;
+
+            // Verify user exists and is active via UserService
+            #JSON user = UserService.UserAPI.get(#"/internal/{authorId}");
+
+            #Post post = postDb.Post.create({
+                authorId: authorId,
+                content: request.content,
+                visibility: request.visibility,
+                status: ContentStatus.Published,
+                tags: request.tags ?? []
+            });
+            post.save();
+
+            return post;
+        }
+
+        // Update a post
+        @path('/:id')
+        put(UUID id, UpdatePostRequest request) -> postDb.Post {
+            #Post post = postDb.Post.findOrFail(id);
+            #UUID userId = Auth.user().id;
+
+            if (post.authorId != userId && !Auth.hasRole("admin")) {
+                throw AuthorizationException("You can only edit your own posts");
+            }
+
+            if (request.content != null) {
+                post.content = request.content;
+            }
+            if (request.visibility != null) {
+                post.visibility = request.visibility;
+            }
+
+            post.save();
+            return post;
+        }
+
+        // Delete a post
+        @path('/:id')
+        delete(UUID id) -> Void {
+            #Post post = postDb.Post.findOrFail(id);
+            #UUID userId = Auth.user().id;
+
+            if (post.authorId != userId && !Auth.hasRole("admin")) {
+                throw AuthorizationException("You can only delete your own posts");
+            }
+
+            post.status = ContentStatus.Archived;
+            post.save();
+
+            emit PostDeleted(id, post.authorId);
+        }
+
+        // Get posts by a specific author
+        @path('/author/:authorId')
+        get(UUID authorId, Int page = 1, Int perPage = 20) : public -> PaginatedPosts {
+            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            #Array<Post> posts = postDb.Post
+                .where(authorId: authorId)
+                .where(status: ContentStatus.Published)
+                .where(visibility: PostVisibility.Public)
+                .orderBy(createdAt: desc)
+                .offset((page - 1) * cappedPerPage)
+                .limit(cappedPerPage)
+                .all();
+
+            #Int total = postDb.Post
+                .where(authorId: authorId)
+                .where(status: ContentStatus.Published)
+                .where(visibility: PostVisibility.Public)
+                .count();
+
+            return {
+                data: posts,
+                pagination: paginate(total, page, cappedPerPage)
+            };
+        }
+
+        // Search posts by content
+        @path('/search')
+        get(String query, Int page = 1, Int perPage = 20) : public -> PaginatedPosts {
+            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            #Array<Post> posts = postDb.Post
+                .fulltext(query)
+                .where(status: ContentStatus.Published)
+                .where(visibility: PostVisibility.Public)
+                .offset((page - 1) * cappedPerPage)
+                .limit(cappedPerPage)
+                .all();
+
+            #Int total = postDb.Post
+                .fulltext(query)
+                .where(status: ContentStatus.Published)
+                .where(visibility: PostVisibility.Public)
+                .count();
+
+            return {
+                data: posts,
+                pagination: paginate(total, page, cappedPerPage)
+            };
+        }
+
+        // Like a post
+        @path('/:id/like')
+        post(UUID id) -> LikeResponse {
+            #UUID userId = Auth.user().id;
+            #Post post = postDb.Post.findOrFail(id);
+
+            // Check if already liked
+            #Like? existing = postDb.Like
+                .where(postId: id)
+                .where(userId: userId)
+                .first();
+
+            if (existing != null) {
+                throw ValidationException({
+                    code: "ALREADY_LIKED",
+                    message: "You have already liked this post"
+                });
+            }
+
+            #Like like = postDb.Like.create({
+                postId: id,
+                userId: userId
+            });
+            like.save();
+
+            emit PostLiked(id, userId);
+
+            return {
+                postId: id,
+                likeCount: post.likeCount,
+                liked: true
+            };
+        }
+
+        // Unlike a post
+        @path('/:id/unlike')
+        delete(UUID id) -> LikeResponse {
+            #UUID userId = Auth.user().id;
+            #Post post = postDb.Post.findOrFail(id);
+
+            #Like like = postDb.Like
+                .where(postId: id)
+                .where(userId: userId)
+                .firstOrFail();
+
+            transaction(postDb) {
+                like.delete();
+                post.likeCount = post.likeCount - 1;
+                post.save();
+            }
+
+            emit PostUnliked(id, userId);
+
+            return {
+                postId: id,
+                likeCount: post.likeCount,
+                liked: false
+            };
+        }
+
+        // Get comments on a post
+        @path('/:id/comments')
+        get(UUID id, Int page = 1, Int perPage = 20) : public -> Array<postDb.Comment> {
+            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            return postDb.Comment
+                .where(postId: id)
+                .orderBy(createdAt: asc)
+                .offset((page - 1) * cappedPerPage)
+                .limit(cappedPerPage)
+                .all();
+        }
+
+        // Add a comment to a post
+        @path('/:id/comments')
+        post(UUID id, CreateCommentRequest request) -> postDb.Comment {
+            #UUID authorId = Auth.user().id;
+            #Post post = postDb.Post.findOrFail(id);
+
+            if (!post.isPublished) {
+                throw ValidationException({
+                    code: "POST_NOT_PUBLISHED",
+                    message: "Cannot comment on an unpublished post"
+                });
+            }
+
+            #Comment comment = postDb.Comment.create({
+                postId: id,
+                authorId: authorId,
+                content: request.content
+            });
+            comment.save();
+
+            return comment;
+        }
+
+        // Get trending posts
+        @path('/trending')
+        @cache(ttl: 300)
+        get(Int limit = 20) : public -> Array<postDb.Post> {
+            #Int cappedLimit = Math.min(limit, MAX_PAGE_SIZE);
+            return postDb.Post
+                .where(status: ContentStatus.Published)
+                .where(visibility: PostVisibility.Public)
+                .orderBy(likeCount: desc)
+                .limit(cappedLimit)
+                .all();
+        }
+
+        // Internal endpoint for other services
+        @path('/internal/:id')
+        get(UUID id) : internal -> postDb.Post {
+            return postDb.Post.findOrFail(id);
+        }
+    }
+
+    test("validation rejects empty post content") {
+        assert throws(
+            () => postDb.Post.create({
+                authorId: uuid(),
+                content: "",
+                visibility: PostVisibility.Public,
+                status: ContentStatus.Published
+            }),
+            ValidationError("Post content cannot be empty")
+        );
+    }
+
+    test("validation rejects empty comment content") {
+        #postDb.Post post = postDb.Post.create({
+            authorId: uuid(),
+            content: "Test post content",
+            visibility: PostVisibility.Public,
+            status: ContentStatus.Published
+        });
+        post.save();
+        assert throws(
+            () => postDb.Comment.create({
+                postId: post.id,
+                authorId: uuid(),
+                content: ""
+            }),
+            ValidationError("Comment content cannot be empty")
+        );
+    }
+
+    test("computed isPopular is true with enough likes") {
+        #postDb.Post post = postDb.Post.create({
+            authorId: uuid(),
+            content: "Popular post content",
+            visibility: PostVisibility.Public,
+            status: ContentStatus.Published,
+            likeCount: 15
+        });
+        post.save();
+        assert post.isPopular == true;
+    }
+
+    test("computed isPublic for published public post") {
+        #postDb.Post post = postDb.Post.create({
+            authorId: uuid(),
+            content: "Public post content",
+            visibility: PostVisibility.Public,
+            status: ContentStatus.Published
+        });
+        post.save();
+        assert post.isPublic == true;
+    }
+
+    test("afterCreate emits PostPublished for published post") {
+        #postDb.Post post = postDb.Post.create({
+            authorId: uuid(),
+            content: "New published post",
+            visibility: PostVisibility.Public,
+            status: ContentStatus.Published
+        });
+        post.save();
+        assert emitted(PostPublished(post.id, post.authorId, PostVisibility.Public));
+    }
+}

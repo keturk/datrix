@@ -1,0 +1,140 @@
+
+// GraphQL API feature example - demonstrates GraphQL schema with types, queries, mutations, subscriptions
+
+service library.BookService : version('1.0.0'), description('GraphQL API demonstration') {
+
+    config('config/book-service/book-service-config.yaml');
+    registration('config/book-service/registration.yaml');
+    discovery { }
+    resilience('config/book-service/resilience.yaml');
+
+    enum BookStatus {
+        Available,
+        CheckedOut,
+        Reserved
+    }
+
+    rdbms bookDb('config/book-service/datasources.yaml') {
+        abstract entity BaseEntity {
+            @UUID id : primaryKey = uuid();
+            @DateTime createdAt = now();
+            @DateTime updatedAt = now();
+        }
+
+        entity Category extends BaseEntity {
+            String(100) name : unique, trim;
+            hasMany Book as books;
+        }
+
+        entity Book extends BaseEntity {
+            String(200) title : trim;
+            String(100) author : trim;
+            Int publicationYear;
+            BookStatus status = BookStatus.Available;
+            belongsTo Category : index;
+        }
+    }
+
+    pubsub mq('config/book-service/pubsub.yaml') {
+        topic BookEvents {
+            publish BookAdded(UUID bookId, String title);
+            publish BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus);
+        }
+    }
+
+    // GraphQL API with types, queries, mutations, subscriptions, and dataLoaders
+    graphql_api BookGraphQL : basePath("/graphql") {
+
+        // 'type' defines GraphQL object types for responses
+        type BookType {
+            UUID id;
+            String title;
+            String author;
+            Int publicationYear;
+            BookStatus status;
+            CategoryType category;
+        }
+
+        type CategoryType {
+            UUID id;
+            String name;
+            Array<BookType> books;
+        }
+
+        // 'input' types for mutation arguments
+        input CreateBookInput {
+            String title;
+            String author;
+            Int publicationYear;
+            UUID categoryId;
+        }
+
+        input UpdateBookInput {
+            String? title;
+            String? author;
+            BookStatus? status;
+        }
+
+        // 'query' operations - read-only data retrieval
+        query getBook(UUID id) -> BookType {
+            #Book book = bookDb.Book.findOrFail(id);
+            return book;
+        }
+
+        query listBooks() -> Array<BookType> {
+            #Array<Book> allBooks = bookDb.Book.all();
+            return allBooks;
+        }
+
+        query searchBooks(String query) -> Array<BookType> {
+            return bookDb.Book.where(title: query).all();
+        }
+
+        // 'mutation' operations - write operations that modify data
+        mutation createBook(CreateBookInput input) -> BookType {
+            #Book book = bookDb.Book.create({
+                title: input.title,
+                author: input.author,
+                publicationYear: input.publicationYear,
+                categoryId: input.categoryId,
+                status: BookStatus.Available
+            });
+            book.save();
+            emit BookAdded(book.id, book.title);
+            return book;
+        }
+
+        mutation updateBook(UUID id, UpdateBookInput input) -> BookType {
+            #Book book = bookDb.Book.findOrFail(id);
+            if (input.title != null) book.title = input.title;
+            if (input.author != null) book.author = input.author;
+            if (input.status != null) {
+                #BookStatus oldStatus = book.status;
+                book.status = input.status;
+                emit BookStatusChanged(id, oldStatus, input.status);
+            }
+            book.save();
+            return book;
+        }
+
+        mutation deleteBook(UUID id) -> Boolean {
+            #Book book = bookDb.Book.findOrFail(id);
+            book.delete();
+            return true;
+        }
+
+        // 'subscription' operations - real-time updates via server-sent events
+        subscription onBookAdded() -> BookType on BookAdded {
+            #Book book = bookDb.Book.findById(bookId);
+            return book;
+        }
+
+        subscription onBookStatusChanged(UUID bookId) -> BookType on BookStatusChanged {
+            #Book book = bookDb.Book.findById(bookId);
+            return book;
+        }
+
+        // 'dataLoader' batches N+1 queries for efficient related data loading
+        dataLoader CategoryLoader : batchBy(categoryId), maxBatchSize(100);
+    }
+}

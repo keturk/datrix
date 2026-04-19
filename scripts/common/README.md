@@ -23,7 +23,7 @@ $root = Get-DatrixWorkspaceRoot
 
 # Get list of repository names
 $repos = Get-DatrixDirectories
-# Returns: @("datrix", "datrix-cli", "datrix-common", "datrix-language", ...)
+# Returns: @("datrix", "datrix-cli", "datrix-common", ..., "datrix-extensions", "datrix-projects")
 
 # Get full paths to all existing repositories
 $paths = Get-DatrixDirectoryPaths

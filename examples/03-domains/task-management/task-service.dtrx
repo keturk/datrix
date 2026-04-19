@@ -1,0 +1,736 @@
+
+from taskapp.common import BaseEntity, Priority, MAX_PAGE_SIZE, MAX_TITLE_LENGTH;
+
+service taskapp.TaskService : version('1.0.0'), description('task tracking and workflow management service') {
+
+    config('config/task-service/task-service-config.yaml');
+    registration('config/task-service/registration.yaml');
+    discovery {
+        ProjectService { loadBalance: roundRobin, healthyOnly: true }
+        UserService { loadBalance: roundRobin, healthyOnly: true }
+    }
+    resilience('config/task-service/resilience.yaml');
+
+    enum TaskStatus {
+        Todo : value('todo'),
+        InProgress : value('in_progress'),
+        InReview : value('in_review'),
+        Done : value('done'),
+        Cancelled : value('cancelled')
+    }
+
+    enum TaskLabel {
+        Bug : value('bug'),
+        Feature : value('feature'),
+        Improvement : value('improvement'),
+        Documentation : value('documentation'),
+        Chore : value('chore')
+    }
+
+    struct PaginatedTasks {
+        Array<taskDb.Task> data;
+        JSON pagination;
+    }
+
+    struct CreateTaskRequest {
+        UUID projectId;
+        String title;
+        Text? description;
+        Priority priority;
+        UUID? assigneeId;
+        DateTime? dueDate;
+        Decimal? estimatedHours;
+        TaskLabel? label;
+    }
+
+    struct UpdateTaskRequest {
+        String(200)? title;
+        Text? description;
+        Priority? priority;
+        UUID? assigneeId;
+        DateTime? dueDate;
+        Decimal? estimatedHours;
+        TaskLabel? label;
+    }
+
+    struct UpdateStatusRequest {
+        TaskStatus status;
+    }
+
+    struct AssignTaskRequest {
+        UUID assigneeId;
+    }
+
+    struct CreateCommentRequest {
+        Text content;
+    }
+
+    struct TaskStats {
+        Int totalTasks;
+        Int todoCount;
+        Int inProgressCount;
+        Int inReviewCount;
+        Int doneCount;
+        Int cancelledCount;
+        Int overdueCount;
+    }
+
+    rdbms taskDb('config/task-service/datasources.yaml') {
+
+        entity Task extends BaseEntity : audit {
+            UUID projectId : index;
+            String(200) title : trim;
+            Text? description;
+            TaskStatus status = TaskStatus.Todo;
+            Priority priority = Priority.Medium;
+            UUID? assigneeId : index;
+            UUID? reporterId : index;
+            DateTime? dueDate;
+            DateTime? startedAt;
+            DateTime? completedAt;
+            Decimal(6, 2)? estimatedHours;
+            Decimal(6, 2)? actualHours;
+            TaskLabel? label;
+            String(20)? taskNumber;
+            Int commentCount = 0;
+            UUID? parentTaskId;
+            Int subtaskCount = 0;
+            Int completedSubtaskCount = 0;
+
+            // Computed fields
+            Boolean isOverdue := dueDate != null && dueDate < now() && status != TaskStatus.Done && status != TaskStatus.Cancelled;
+            Boolean isBlocked := false;
+            Boolean isCompleted := status == TaskStatus.Done;
+            Boolean isOpen := status == TaskStatus.Todo || status == TaskStatus.InProgress || status == TaskStatus.InReview;
+            Boolean hasAssignee := assigneeId != null;
+
+            hasMany TaskComment as comments : cascade(delete);
+            hasMany TaskDependency as dependencies : cascade(delete);
+
+            index(projectId, status);
+            index(projectId, assigneeId);
+            index(projectId, priority);
+            index(status, dueDate);
+            index(assigneeId, status);
+            fulltext(title, description);
+
+            validate {
+                if (title.trim().isEmpty())
+                    ValidationError("Task title cannot be empty");
+                if (title.length() > MAX_TITLE_LENGTH)
+                    ValidationError("Task title cannot exceed 200 characters");
+                if (estimatedHours != null && estimatedHours < 0)
+                    ValidationError("Estimated hours cannot be negative");
+                if (actualHours != null && actualHours < 0)
+                    ValidationError("Actual hours cannot be negative");
+            }
+
+            beforeCreate {
+                taskNumber = #"TASK-{Random.string(8).toUpperCase()}";
+            }
+
+            afterCreate {
+                emit TaskCreated(id, projectId, title, priority, assigneeId);
+            }
+
+            afterUpdate {
+                if (isChanged(status)) {
+                    emit TaskStatusChanged(id, projectId, oldValue(status), status);
+
+                    if (status == TaskStatus.InProgress && startedAt == null) {
+                        startedAt = now();
+                    }
+
+                    if (status == TaskStatus.Done) {
+                        completedAt = now();
+                        Log.info("Task completed", { taskId: id, projectId: projectId });
+                    }
+                }
+
+                if (isChanged(assigneeId)) {
+                    emit TaskAssigned(id, projectId, assigneeId);
+                    Log.info("Task assigned", { taskId: id, assigneeId: assigneeId });
+                }
+
+                if (isChanged(priority)) {
+                    Log.info("Task priority changed", {
+                        taskId: id,
+                        oldPriority: oldValue(priority),
+                        newPriority: priority
+                    });
+                }
+            }
+        }
+
+        entity TaskComment extends BaseEntity {
+            UUID authorId : index;
+            Text content;
+
+            belongsTo Task : index;
+
+            index(taskId, createdAt);
+
+            validate {
+                if (content.trim().isEmpty())
+                    ValidationError("Comment content cannot be empty");
+            }
+
+            afterCreate {
+                // Increment comment count on the task
+                #Task? task = taskDb.Task.find(taskId);
+                if (task != null) {
+                    task.commentCount = task.commentCount + 1;
+                    task.save();
+                }
+            }
+        }
+
+        entity TaskDependency extends BaseEntity {
+            UUID dependsOnTaskId : index;
+
+            belongsTo Task : index;
+
+            index(taskId, dependsOnTaskId) : unique;
+
+            validate {
+                if (taskId == dependsOnTaskId)
+                    ValidationError("A task cannot depend on itself");
+            }
+        }
+    }
+
+    pubsub mq('config/task-service/pubsub.yaml') {
+
+        topic TaskEvents {
+            publish TaskCreated(UUID taskId, UUID projectId, String title, Priority priority, UUID? assigneeId) {
+                ensure title.length > 0;
+            }
+            publish TaskStatusChanged(UUID taskId, UUID projectId, TaskStatus oldStatus, TaskStatus newStatus) {
+                ensure oldStatus != newStatus;
+            }
+            publish TaskAssigned(UUID taskId, UUID projectId, UUID? assigneeId) {
+                ensure taskId != null;
+            }
+            publish TaskOverdue(UUID taskId, UUID projectId, DateTime dueDate) {
+                ensure taskId != null;
+            }
+            publish TaskCommentAdded(UUID taskId, UUID commentId, UUID authorId) {
+                ensure taskId != null;
+            }
+        }
+
+        subscribe TaskEvents {
+            on TaskCreated(UUID taskId, UUID projectId, String title, Priority priority, UUID? assigneeId) {
+                Log.info("Task created", {
+                    taskId: taskId,
+                    projectId: projectId,
+                    title: title,
+                    priority: priority
+                });
+            }
+
+            on TaskStatusChanged(UUID taskId, UUID projectId, TaskStatus oldStatus, TaskStatus newStatus) {
+                Log.info("Task status changed", {
+                    taskId: taskId,
+                    projectId: projectId,
+                    oldStatus: oldStatus,
+                    newStatus: newStatus
+                });
+
+                // Update project task counts when task is completed
+                if (newStatus == TaskStatus.Done) {
+                    try {
+                        #JSON project = ProjectService.ProjectAPI.get(#"/internal/{projectId}");
+                        Log.info("Task completed for project", { projectId: projectId, taskId: taskId });
+                    } catch (Exception e) {
+                        Log.error(#"Failed to update project counts: {e}");
+                    }
+                }
+            }
+
+            on TaskAssigned(UUID taskId, UUID projectId, UUID? assigneeId) {
+                if (assigneeId != null) {
+                    Log.info("Task assigned to user", { taskId: taskId, assigneeId: assigneeId });
+                } else {
+                    Log.info("Task unassigned", { taskId: taskId });
+                }
+            }
+        }
+
+        subscribe ProjectEvents {
+            on ProjectStatusChanged(UUID projectId, ProjectStatus oldStatus, ProjectStatus newStatus) {
+                Log.info("Project status changed, checking tasks", { projectId: projectId, newStatus: newStatus });
+
+                // If project is archived, cancel all open tasks
+                if (newStatus == ProjectStatus.Archived) {
+                    #Array<Task> openTasks = taskDb.Task
+                        .where(projectId: projectId)
+                        .where(status: TaskStatus.Todo)
+                        .all();
+
+                    #Array<Task> inProgressTasks = taskDb.Task
+                        .where(projectId: projectId)
+                        .where(status: TaskStatus.InProgress)
+                        .all();
+
+                    foreach task in openTasks {
+                        task.status = TaskStatus.Cancelled;
+                        task.save();
+                    }
+
+                    foreach task in inProgressTasks {
+                        task.status = TaskStatus.Cancelled;
+                        task.save();
+                    }
+
+                    #Int cancelledCount = openTasks.length() + inProgressTasks.length();
+                    if (cancelledCount > 0) {
+                        Log.info("Cancelled tasks for archived project", {
+                            projectId: projectId,
+                            cancelledCount: cancelledCount
+                        });
+                    }
+                }
+            }
+
+            on ProjectArchived(UUID projectId) {
+                Log.info("Project archived, cancelling remaining tasks", { projectId: projectId });
+            }
+        }
+    }
+
+    jobs('config/task-service/jobs.yaml') {
+        job CheckOverdueTasks {
+            #Array<Task> overdueTasks = taskDb.Task
+                .where(status: TaskStatus.Todo)
+                .where(dueDate: lt(now()))
+                .all();
+
+            #Array<Task> overdueInProgress = taskDb.Task
+                .where(status: TaskStatus.InProgress)
+                .where(dueDate: lt(now()))
+                .all();
+
+            #Int count = 0;
+            foreach task in overdueTasks {
+                emit TaskOverdue(task.id, task.projectId, task.dueDate);
+                count = count + 1;
+            }
+
+            foreach task in overdueInProgress {
+                emit TaskOverdue(task.id, task.projectId, task.dueDate);
+                count = count + 1;
+            }
+
+            if (count > 0) {
+                Log.info("Found overdue tasks", { count: count });
+            }
+        }
+    }
+
+    rest_api TaskAPI : basePath('/api/v1/tasks') {
+
+        // List tasks with filtering
+        get(UUID? projectId, UUID? assigneeId, TaskStatus? status, Priority? priority, Int page = 1, Int perPage = 20) -> PaginatedTasks {
+            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+
+            #JSON query = taskDb.Task;
+
+            if (projectId != null) {
+                query = query.where(projectId: projectId);
+            }
+            if (assigneeId != null) {
+                query = query.where(assigneeId: assigneeId);
+            }
+            if (status != null) {
+                query = query.where(status: status);
+            }
+            if (priority != null) {
+                query = query.where(priority: priority);
+            }
+
+            #Int total = query.count();
+            #Array<Task> tasks = query
+                .orderBy(createdAt: desc)
+                .offset((page - 1) * cappedPerPage)
+                .limit(cappedPerPage)
+                .all();
+
+            #Int totalPages = Math.ceil(total / cappedPerPage);
+
+            return {
+                data: tasks,
+                pagination: {
+                    currentPage: page,
+                    perPage: cappedPerPage,
+                    totalItems: total,
+                    totalPages: totalPages,
+                    hasNextPage: page < totalPages,
+                    hasPrevPage: page > 1
+                }
+            };
+        }
+
+        // Get a single task
+        @path('/:id')
+        get(UUID id) -> taskDb.Task {
+            return taskDb.Task.findOrFail(id);
+        }
+
+        // Create a new task
+        post(CreateTaskRequest request) -> taskDb.Task {
+            #UUID reporterId = Auth.user().id;
+
+            // Verify project exists
+            #JSON project = ProjectService.ProjectAPI.get(#"/internal/{request.projectId}");
+
+            // Verify assignee if provided
+            if (request.assigneeId != null) {
+                #JSON assignee = UserService.UserAPI.get(#"/internal/{request.assigneeId}");
+            }
+
+            #Task task = taskDb.Task.create({
+                projectId: request.projectId,
+                title: request.title,
+                description: request.description,
+                priority: request.priority,
+                assigneeId: request.assigneeId,
+                reporterId: reporterId,
+                dueDate: request.dueDate,
+                estimatedHours: request.estimatedHours,
+                label: request.label,
+                status: TaskStatus.Todo
+            });
+            task.save();
+
+            return task;
+        }
+
+        // Update a task
+        @path('/:id')
+        put(UUID id, UpdateTaskRequest request) -> taskDb.Task {
+            #Task task = taskDb.Task.findOrFail(id);
+
+            if (request.title != null) {
+                task.title = request.title;
+            }
+            if (request.description != null) {
+                task.description = request.description;
+            }
+            if (request.priority != null) {
+                task.priority = request.priority;
+            }
+            if (request.assigneeId != null) {
+                task.assigneeId = request.assigneeId;
+            }
+            if (request.dueDate != null) {
+                task.dueDate = request.dueDate;
+            }
+            if (request.estimatedHours != null) {
+                task.estimatedHours = request.estimatedHours;
+            }
+            if (request.label != null) {
+                task.label = request.label;
+            }
+
+            task.save();
+            return task;
+        }
+
+        // Update task status
+        @path('/:id/status')
+        put(UUID id, UpdateStatusRequest request) -> taskDb.Task {
+            #Task task = taskDb.Task.findOrFail(id);
+
+            // Validate status transitions
+            if (task.status == TaskStatus.Done || task.status == TaskStatus.Cancelled) {
+                if (request.status != TaskStatus.Todo) {
+                    throw ValidationException({
+                        code: "INVALID_STATUS_TRANSITION",
+                        message: #"Cannot transition from {task.status} to {request.status}. Reopen the task first."
+                    });
+                }
+            }
+
+            task.status = request.status;
+            task.save();
+
+            return task;
+        }
+
+        // Assign a task
+        @path('/:id/assign')
+        put(UUID id, AssignTaskRequest request) -> taskDb.Task {
+            #Task task = taskDb.Task.findOrFail(id);
+
+            // Verify assignee exists
+            #JSON assignee = UserService.UserAPI.get(#"/internal/{request.assigneeId}");
+
+            task.assigneeId = request.assigneeId;
+            task.save();
+
+            return task;
+        }
+
+        // Unassign a task
+        @path('/:id/unassign')
+        put(UUID id) -> taskDb.Task {
+            #Task task = taskDb.Task.findOrFail(id);
+            task.assigneeId = null;
+            task.save();
+
+            return task;
+        }
+
+        // Get comments on a task
+        @path('/:id/comments')
+        get(UUID id, Int page = 1, Int perPage = 20) -> Array<taskDb.TaskComment> {
+            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            return taskDb.TaskComment
+                .where(taskId: id)
+                .orderBy(createdAt: asc)
+                .offset((page - 1) * cappedPerPage)
+                .limit(cappedPerPage)
+                .all();
+        }
+
+        // Add a comment to a task
+        @path('/:id/comments')
+        post(UUID id, CreateCommentRequest request) -> taskDb.TaskComment {
+            #UUID authorId = Auth.user().id;
+            #Task task = taskDb.Task.findOrFail(id);
+
+            #TaskComment comment = taskDb.TaskComment.create({
+                taskId: id,
+                authorId: authorId,
+                content: request.content
+            });
+            comment.save();
+
+            emit TaskCommentAdded(id, comment.id, authorId);
+
+            return comment;
+        }
+
+        // Search tasks by title or description
+        @path('/search')
+        get(String query, UUID? projectId, Int page = 1, Int perPage = 20) -> PaginatedTasks {
+            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+
+            #JSON taskQuery = taskDb.Task.fulltext(query);
+
+            if (projectId != null) {
+                taskQuery = taskQuery.where(projectId: projectId);
+            }
+
+            #Array<Task> tasks = taskQuery
+                .offset((page - 1) * cappedPerPage)
+                .limit(cappedPerPage)
+                .all();
+
+            #Int total = taskQuery.count();
+            #Int totalPages = Math.ceil(total / cappedPerPage);
+
+            return {
+                data: tasks,
+                pagination: {
+                    currentPage: page,
+                    perPage: cappedPerPage,
+                    totalItems: total,
+                    totalPages: totalPages,
+                    hasNextPage: page < totalPages,
+                    hasPrevPage: page > 1
+                }
+            };
+        }
+
+        // Get task statistics for a project
+        @path('/stats')
+        get(UUID projectId) -> TaskStats {
+            #Int totalTasks = taskDb.Task.where(projectId: projectId).count();
+            #Int todoCount = taskDb.Task.where(projectId: projectId).where(status: TaskStatus.Todo).count();
+            #Int inProgressCount = taskDb.Task.where(projectId: projectId).where(status: TaskStatus.InProgress).count();
+            #Int inReviewCount = taskDb.Task.where(projectId: projectId).where(status: TaskStatus.InReview).count();
+            #Int doneCount = taskDb.Task.where(projectId: projectId).where(status: TaskStatus.Done).count();
+            #Int cancelledCount = taskDb.Task.where(projectId: projectId).where(status: TaskStatus.Cancelled).count();
+            #Int overdueCount = taskDb.Task
+                .where(projectId: projectId)
+                .where(dueDate: lt(now()))
+                .where(status: TaskStatus.Todo)
+                .count();
+
+            return {
+                totalTasks: totalTasks,
+                todoCount: todoCount,
+                inProgressCount: inProgressCount,
+                inReviewCount: inReviewCount,
+                doneCount: doneCount,
+                cancelledCount: cancelledCount,
+                overdueCount: overdueCount
+            };
+        }
+
+        // Get my assigned tasks
+        @path('/my-tasks')
+        get(TaskStatus? status, Int page = 1, Int perPage = 20) -> PaginatedTasks {
+            #UUID userId = Auth.user().id;
+            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+
+            #JSON query = taskDb.Task.where(assigneeId: userId);
+
+            if (status != null) {
+                query = query.where(status: status);
+            }
+
+            #Int total = query.count();
+            #Array<Task> tasks = query
+                .orderBy(priority: desc)
+                .orderBy(dueDate: asc)
+                .offset((page - 1) * cappedPerPage)
+                .limit(cappedPerPage)
+                .all();
+
+            #Int totalPages = Math.ceil(total / cappedPerPage);
+
+            return {
+                data: tasks,
+                pagination: {
+                    currentPage: page,
+                    perPage: cappedPerPage,
+                    totalItems: total,
+                    totalPages: totalPages,
+                    hasNextPage: page < totalPages,
+                    hasPrevPage: page > 1
+                }
+            };
+        }
+
+        // Delete a task
+        @path('/:id')
+        delete(UUID id) -> Void {
+            #Task task = taskDb.Task.findOrFail(id);
+            task.status = TaskStatus.Cancelled;
+            task.save();
+        }
+
+        // Internal endpoint
+        @path('/internal/:id')
+        get(UUID id) : internal -> taskDb.Task {
+            return taskDb.Task.findOrFail(id);
+        }
+    }
+
+    test("validation rejects empty task title") {
+        assert throws(
+            () => taskDb.Task.create({
+                projectId: uuid(),
+                title: "",
+                priority: Priority.Medium
+            }),
+            ValidationError("Task title cannot be empty")
+        );
+    }
+
+    test("validation rejects negative estimated hours") {
+        assert throws(
+            () => taskDb.Task.create({
+                projectId: uuid(),
+                title: "Test Task",
+                priority: Priority.Medium,
+                estimatedHours: -5.0
+            }),
+            ValidationError("Estimated hours cannot be negative")
+        );
+    }
+
+    test("validation rejects self-dependency") {
+        #taskDb.Task task = taskDb.Task.create({
+            projectId: uuid(),
+            title: "Self Dep Task",
+            priority: Priority.Medium
+        });
+        task.save();
+        assert throws(
+            () => taskDb.TaskDependency.create({
+                taskId: task.id,
+                dependsOnTaskId: task.id
+            }),
+            ValidationError("A task cannot depend on itself")
+        );
+    }
+
+    test("validation rejects empty comment content") {
+        #taskDb.Task task = taskDb.Task.create({
+            projectId: uuid(),
+            title: "Comment Task",
+            priority: Priority.Low
+        });
+        task.save();
+        assert throws(
+            () => taskDb.TaskComment.create({
+                taskId: task.id,
+                authorId: uuid(),
+                content: ""
+            }),
+            ValidationError("Comment content cannot be empty")
+        );
+    }
+
+    test("computed isOverdue for past due date") {
+        #taskDb.Task task = taskDb.Task.create({
+            projectId: uuid(),
+            title: "Overdue Task",
+            priority: Priority.High,
+            dueDate: now().addDays(-1),
+            status: TaskStatus.Todo
+        });
+        task.save();
+        assert task.isOverdue == true;
+    }
+
+    test("computed isOverdue is false for completed task") {
+        #taskDb.Task task = taskDb.Task.create({
+            projectId: uuid(),
+            title: "Done Task",
+            priority: Priority.Medium,
+            dueDate: now().addDays(-1),
+            status: TaskStatus.Done
+        });
+        task.save();
+        assert task.isOverdue == false;
+    }
+
+    test("afterCreate emits TaskCreated event") {
+        #UUID projectId = uuid();
+        #taskDb.Task task = taskDb.Task.create({
+            projectId: projectId,
+            title: "Event Task",
+            priority: Priority.High
+        });
+        task.save();
+        assert emitted(TaskCreated(task.id, projectId, "Event Task", Priority.High, null));
+    }
+
+    test("status change emits TaskStatusChanged") {
+        #UUID projectId = uuid();
+        #taskDb.Task task = taskDb.Task.create({
+            projectId: projectId,
+            title: "Status Task",
+            priority: Priority.Medium
+        });
+        task.save();
+        task.status = TaskStatus.InProgress;
+        task.save();
+        assert emitted(TaskStatusChanged(task.id, projectId, TaskStatus.Todo, TaskStatus.InProgress));
+    }
+
+    test("beforeCreate generates taskNumber") {
+        #taskDb.Task task = taskDb.Task.create({
+            projectId: uuid(),
+            title: "Numbered Task",
+            priority: Priority.Low
+        });
+        task.save();
+        assert task.taskNumber != null;
+    }
+}

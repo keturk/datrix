@@ -1,0 +1,63 @@
+
+// Feature: Functions at three scopes
+// 1. Module-level (service scope) - shared logic callable from anywhere in the service
+// 2. Entity-level - instance methods that access the entity's own fields
+// 3. API-level - helper functions scoped to a specific rest_api block
+service library.BookService : version('1.0.0'), description('Book management service demonstrating function scopes') {
+
+    // Service infrastructure configuration
+    config('config/book-service/book-service-config.yaml');   // Service-specific settings
+    registration('config/book-service/registration.yaml');     // Service registry entry
+    discovery { }                                              // Service discovery (auto-configured)
+    resilience('config/book-service/resilience.yaml');          // Circuit breakers, retries, timeouts
+
+    // --- Module-level functions (service scope) ---
+    // These are defined at the top level of the service, outside any block
+    // They provide shared business logic reusable across the entire service
+
+    fn calculateLateFee(Int daysOverdue) -> Decimal {
+        #Float baseFee = 0.50;
+        return baseFee * daysOverdue;
+    }
+
+    // Module-level function using string interpolation for formatting
+    fn formatBookReference(String title, String author, Int year) -> String {
+        return #"{author} ({year}). {title}";
+    }
+
+    // Service-level helper function
+    fn daysSinceDue(DateTime dueDate) -> Int {
+        return now().diffDays(dueDate);
+    }
+
+    rdbms bookDb('config/book-service/datasources.yaml') {
+
+        // Abstract base entity with standard audit fields
+        abstract entity BaseEntity {
+            @UUID id : primaryKey = uuid();
+            @DateTime createdAt = now();
+            @DateTime updatedAt = now();
+        }
+
+        entity Book extends BaseEntity {
+            String(200) title : trim;
+            String(100) author : trim;
+            Int publicationYear;
+        }
+    }
+
+    // REST API block with API-level functions
+    rest_api BookServiceAPI : basePath("/api/v1") {
+        resource bookDb.Book;
+
+        // --- API-level custom endpoint ---
+        // Uses service-level functions to implement business logic
+        @path('/books/:bookId/late-fee')
+        get(UUID bookId, DateTime dueDate) -> Decimal {
+            // Call service-level function to get days overdue
+            #Int days = daysSinceDue(dueDate);
+            // Call another service-level function to calculate the fee
+            return calculateLateFee(days);
+        }
+    }
+}

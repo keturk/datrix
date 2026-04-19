@@ -1,0 +1,19 @@
+
+// Shared module - defines reusable base types across all library services
+module library.common {
+
+    // Abstract entities provide reusable field definitions; they don't generate tables
+    abstract entity BaseEntity {
+        // @UUID is a semantic type for universally unique identifiers
+        // 'primaryKey' marks this as the primary key; uuid() generates a default value
+        @UUID id : primaryKey = uuid();
+        // @DateTime is a datetime type; now() sets the default to current time
+        @DateTime createdAt = now();
+        @DateTime updatedAt = now();
+    }
+
+    // Auditable and SoftDeletable are builtin traits provided by the framework
+    // Use 'with Auditable' to add createdBy and updatedBy fields
+    // Use 'with SoftDeletable' to add deletedAt, deletedBy, and isDeleted (computed) fields
+    // Builtin traits cannot be redefined - use them directly with the 'with' keyword
+}
