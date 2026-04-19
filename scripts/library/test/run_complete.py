@@ -1578,7 +1578,7 @@ def _run_single_project_deploy_tests(
         )
         return result
 
-    # --- TypeScript project: tests/jest-deploy.config.ts (fallback for legacy projects) ---
+    # --- TypeScript project: tests/jest-deploy.config.ts (fallback for projects without deploy_test.py) ---
     # Runner manages Docker Compose lifecycle (mirrors Python deploy_test.py):
     #   compose down → compose build → compose up → jest (health checks) → compose down
     jest_deploy_config = project / "tests" / "jest-deploy.config.ts"

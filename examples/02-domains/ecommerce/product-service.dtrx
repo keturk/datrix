@@ -476,7 +476,9 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
         #productDb.Product product = productDb.Product.create({
             name: "SpecTestProduct",
             description: "Test product for spec",
+            price: Money.of(29.99, Currency.USD),
             status: ProductStatus.Active,
+            slug: "spec-test-product",
             categoryId: uuid(),
             images: [],
             tags: []
@@ -496,7 +498,9 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
         #productDb.Product product = productDb.Product.create({
             name: "SpecInventoryProduct",
             description: "Test product for inventory spec",
+            price: Money.of(19.99, Currency.USD),
             status: ProductStatus.Active,
+            slug: "spec-inventory-product",
             categoryId: uuid(),
             images: [],
             tags: []

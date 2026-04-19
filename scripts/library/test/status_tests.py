@@ -295,7 +295,7 @@ def _compute_totals(phase_counts: dict, lines: List[str]) -> dict:
    for key in totals:
     totals[key] += counts[key]
  else:
-  # No phase structure — find the last summary line (legacy/single-phase)
+  # No phase structure — find the last summary line (single-phase)
   for line in reversed(lines):
    counts = _extract_counts_from_summary_line(line)
    if counts:

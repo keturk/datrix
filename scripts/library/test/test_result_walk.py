@@ -11,11 +11,8 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Optional
 
-# Unit test summaries under each ``unit-tests-*`` folder: canonical (Python
-# ``unit_tests.py``) vs legacy (older TypeScript runs from ``run_complete.py``).
-# Status tools check both until legacy output is no longer produced.
+# Unit test summary filename under each ``unit-tests-*`` folder.
 UNIT_TEST_SUMMARY_PRIMARY: str = "unit-tests-summary.log"
-UNIT_TEST_SUMMARY_LEGACY: str = "summary.log"
 
 # Directories that never contain nested project .test_results for our layout
 SKIP_TRAVERSAL_DIRS: frozenset[str] = frozenset(
@@ -82,16 +79,8 @@ def iter_dot_test_results_dirs(root_dir: Path) -> Iterator[Path]:
 
 
 def resolve_unit_test_summary_log(latest_run_folder: Path) -> Optional[Path]:
-    """
-    Pick the unit-test summary file inside a ``run-unit-tests-*`` directory.
-
-    Prefers ``UNIT_TEST_SUMMARY_PRIMARY``; falls back to ``UNIT_TEST_SUMMARY_LEGACY``
-    when the canonical file is missing (legacy TypeScript-only summaries).
-    """
+    """Pick the unit-test summary file inside a ``run-unit-tests-*`` directory."""
     primary = latest_run_folder / UNIT_TEST_SUMMARY_PRIMARY
     if primary.exists():
         return primary
-    legacy = latest_run_folder / UNIT_TEST_SUMMARY_LEGACY
-    if legacy.exists():
-        return legacy
     return None
