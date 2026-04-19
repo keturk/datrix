@@ -109,9 +109,9 @@ def parse_summary_log(log_file: Path) -> TestResult:
     """
     Parse the deploy-test-summary.log file to extract test results.
 
-    Supports both the run_complete.py format (Total Tests: / Passed: N, Failed: N,
-    Errors: N, Successful Projects, Failed Projects) and legacy patterns
-    (Total Passed:, All services are healthy!, Tests FAILED).
+    Supports the run_complete.py format (Total Tests: / Passed: N, Failed: N,
+    Errors: N, Successful Projects, Failed Projects) and the Total Passed /
+    Total Failed / marker-based format.
 
     Args:
         log_file: Path to the summary log file
@@ -140,7 +140,7 @@ def parse_summary_log(log_file: Path) -> TestResult:
         if timestamp_match:
             timestamp = timestamp_match.group(1).strip()
 
-        # Extract totals: legacy "Total Passed:" / "Total Failed:" first
+        # Extract totals: Total Passed / Total Failed fields
         passed_match = re.search(r'Total Passed:\s+(\d+)', content)
         if passed_match:
             total_passed = int(passed_match.group(1))
@@ -177,7 +177,7 @@ def parse_summary_log(log_file: Path) -> TestResult:
                 ]
                 total_errors = len(failed_services)
 
-        # Determine status (FAILED first, then PASSED, then legacy)
+        # Determine status (FAILED first, then PASSED, then fallback markers)
         failed_projects_match = re.search(r'Failed Projects:\s*([1-9]\d*)', content)
         if (
             failed_projects_match

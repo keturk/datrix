@@ -107,7 +107,7 @@ def find_latest_test_folder(test_results_dir: Path) -> Optional[Path]:
 
 def parse_summary_log(log_file: Path) -> TestResult:
     """
-    Parse unit test summary log (unit-tests-summary.log or legacy summary.log).
+    Parse unit test summary log (unit-tests-summary.log).
 
     Args:
         log_file: Path to the summary log file
@@ -150,7 +150,7 @@ def parse_summary_log(log_file: Path) -> TestResult:
             total_errors = int(errors_match.group(1))
 
         # Determine status: explicit markers (Python unit_tests.py) or totals-only
-        # (legacy TypeScript summary.log from run_complete.py).
+        # (TypeScript summary from run_complete.py).
         if 'All tests PASSED!' in content:
             status = 'PASSED'
         elif 'Tests FAILED!' in content:
