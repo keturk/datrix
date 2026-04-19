@@ -1,0 +1,49 @@
+
+// Validation feature example - self-contained service demonstrating:
+// - Field-level constraints: trim, min(), positive
+// - Custom validate block with conditional logic
+// - ValidationError for user-facing error messages
+
+// Define a service in the 'library' namespace with version and description
+service library.BookService : version('1.0.0'), description('Book management service') {
+
+    // Service infrastructure configuration
+    config('config/book-service/book-service-config.yaml');   // Service-specific settings
+    registration('config/book-service/registration.yaml');     // Service registry entry
+    discovery { }                                              // Service discovery (auto-configured)
+    resilience('config/book-service/resilience.yaml');          // Circuit breakers, retries, timeouts
+
+    // Relational database block - groups entities (tables) under a named datasource
+    rdbms bookDb('config/book-service/datasources.yaml') {
+
+        // Abstract entities provide reusable field definitions; they don't generate tables
+        abstract entity BaseEntity {
+            @UUID id : primaryKey = uuid();
+            @DateTime createdAt = now();
+            @DateTime updatedAt = now();
+        }
+
+        // Entity with field-level and block-level validation
+        entity Book extends BaseEntity {
+            // 'trim' auto-trims whitespace on input
+            String(200) title : trim;
+            String(20) isbn;
+            Int publicationYear;
+            // 'min(1)' ensures the value is at least 1
+            Int pageCount : min(1);
+            // 'positive' ensures the value is greater than zero
+            Decimal(5, 2) price : positive;
+
+            // Custom validation block - runs before create and update operations
+            validate {
+                if (title.trim().isEmpty())
+                    // ValidationError raises a validation error with a user-facing message
+                    ValidationError("Title cannot be empty");
+                if (publicationYear > now().year())
+                    ValidationError("Publication year cannot be in the future");
+                if (publicationYear < 1450)
+                    ValidationError("Publication year cannot be before printing press invention");
+            }
+        }
+    }
+}

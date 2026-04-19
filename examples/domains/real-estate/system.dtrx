@@ -1,0 +1,15 @@
+
+// Include service definitions from other source files
+include 'common.dtrx';
+include 'listing-service.dtrx';
+include 'viewing-service.dtrx';
+include 'contract-service.dtrx';
+
+// The system block is the top-level container that groups services
+// and defines shared infrastructure configuration
+system realestate : version('1.0.0') {
+    config('config/system-config.yaml');
+    registry('config/registry.yaml');
+    gateway('config/gateway.yaml');
+    observability('config/observability.yaml');
+}

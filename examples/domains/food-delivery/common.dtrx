@@ -1,0 +1,35 @@
+
+module fooddelivery.common {
+
+    abstract entity BaseEntity {
+        @UUID id : primaryKey = uuid();
+        @DateTime createdAt = now();
+        @DateTime updatedAt = now();
+    }
+
+    struct DeliveryAddress {
+        String(200) street;
+        String(100) city;
+        String(50) state;
+        String(10) zipCode;
+        String? apartment;
+        String? deliveryInstructions;
+
+        fn format() -> String {
+            return #"{street}, {city}, {state} {zipCode}";
+        }
+    }
+
+    fn generateOrderNumber() -> String {
+        return #"FD-{now().format('YYYYMMDDHHmmss')}-{Random.string(6).toUpperCase()}";
+    }
+
+    fn generateDeliveryCode() -> String {
+        return #"DLV-{now().format('YYYYMMDD')}-{Random.string(8).toUpperCase()}";
+    }
+
+    const MAX_ORDER_ITEMS = 50;
+    const MAX_DELIVERY_DISTANCE_KM = 30;
+    const DEFAULT_DELIVERY_FEE = 4.99;
+    const MIN_ORDER_AMOUNT = 10.00;
+}

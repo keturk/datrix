@@ -1,0 +1,535 @@
+
+from fooddelivery.common import BaseEntity, DeliveryAddress, generateDeliveryCode;
+
+service fooddelivery.DeliveryService : version('1.0.0'), description('delivery driver and assignment management service') {
+
+    config('config/delivery-service/delivery-service-config.yaml');
+    registration('config/delivery-service/registration.yaml');
+    discovery {
+        OrderService { loadBalance: roundRobin, healthyOnly: true }
+    }
+    resilience('config/delivery-service/resilience.yaml');
+
+    enum DeliveryStatus {
+        Pending,
+        Assigned,
+        PickingUp,
+        Delivering,
+        Delivered,
+        Failed
+    }
+
+    enum DriverStatus {
+        Offline,
+        Available,
+        OnDelivery
+    }
+
+    struct AssignDriverRequest {
+        UUID deliveryId;
+        UUID driverId;
+    }
+
+    struct UpdateLocationRequest {
+        Decimal(10, 6) latitude;
+        Decimal(10, 6) longitude;
+    }
+
+    struct CompleteDeliveryRequest {
+        UUID deliveryId;
+    }
+
+    struct DriverAvailabilityResponse {
+        Array<deliveryDb.DeliveryDriver> availableDrivers;
+        Int totalAvailable;
+    }
+
+    struct DeliveryTrackingInfo {
+        UUID deliveryId;
+        DeliveryStatus status;
+        String pickupAddress;
+        String deliveryAddress;
+        String? driverName;
+        Decimal? driverLatitude;
+        Decimal? driverLongitude;
+        Int? estimatedMinutes;
+    }
+
+    rdbms deliveryDb('config/delivery-service/datasources.yaml') {
+
+        entity DeliveryDriver extends BaseEntity {
+            String(100) firstName : trim;
+            String(100) lastName : trim;
+            Phone phone;
+            String(50) vehicleType;
+            DriverStatus status = DriverStatus.Offline;
+            Decimal(10, 6)? currentLatitude;
+            Decimal(10, 6)? currentLongitude;
+            Decimal(3, 2) rating = 5.00;
+            Int totalDeliveries = 0;
+
+            Boolean isAvailable := status == DriverStatus.Available;
+            Boolean isOnDelivery := status == DriverStatus.OnDelivery;
+            String fullName := #"{firstName} {lastName}";
+
+            index(status);
+            index(rating);
+
+            validate {
+                if (firstName.trim().isEmpty())
+                    ValidationError("First name cannot be empty");
+                if (lastName.trim().isEmpty())
+                    ValidationError("Last name cannot be empty");
+                if (totalDeliveries < 0)
+                    ValidationError("Total deliveries cannot be negative");
+            }
+
+            afterUpdate {
+                if (isChanged(status)) {
+                    emit DriverStatusChanged(id, fullName, oldValue(status), status);
+                }
+            }
+
+            fn goOnline() {
+                status = DriverStatus.Available;
+                this.save();
+            }
+
+            fn goOffline() {
+                if (status == DriverStatus.OnDelivery) {
+                    throw ValidationException({
+                        code: "DRIVER_ON_DELIVERY",
+                        message: "Cannot go offline while on a delivery"
+                    });
+                }
+                status = DriverStatus.Offline;
+                this.save();
+            }
+
+            fn startDelivery() {
+                status = DriverStatus.OnDelivery;
+                this.save();
+            }
+
+            fn completeDelivery() {
+                status = DriverStatus.Available;
+                totalDeliveries = totalDeliveries + 1;
+                this.save();
+            }
+        }
+
+        entity Delivery extends BaseEntity {
+            String(30) deliveryCode : unique;
+            UUID orderId : index;
+            UUID? driverId : index;
+            DeliveryStatus status = DeliveryStatus.Pending;
+            String(500) pickupAddress;
+            DeliveryAddress deliveryAddress;
+            DateTime? assignedAt;
+            DateTime? pickedUpAt;
+            DateTime? deliveredAt;
+            Int? estimatedMinutes;
+
+            Boolean isAssigned := driverId != null;
+            Boolean isPending := status == DeliveryStatus.Pending;
+            Boolean isCompleted := status == DeliveryStatus.Delivered;
+
+            belongsTo DeliveryDriver : index;
+
+            index(orderId);
+            index(status, createdAt);
+
+            validate {
+                if (pickupAddress.trim().isEmpty())
+                    ValidationError("Pickup address cannot be empty");
+            }
+
+            afterCreate {
+                emit DeliveryCreated(id, deliveryCode, orderId);
+            }
+
+            afterUpdate {
+                if (isChanged(status)) {
+                    emit DeliveryStatusChanged(id, orderId, oldValue(status), status);
+                }
+            }
+
+            fn assignDriver(UUID assignedDriverId) {
+                driverId = assignedDriverId;
+                status = DeliveryStatus.Assigned;
+                assignedAt = now();
+                this.save();
+            }
+
+            fn markPickedUp() {
+                status = DeliveryStatus.PickingUp;
+                pickedUpAt = now();
+                this.save();
+            }
+
+            fn markDelivering() {
+                status = DeliveryStatus.Delivering;
+                this.save();
+            }
+
+            fn markDelivered() {
+                status = DeliveryStatus.Delivered;
+                deliveredAt = now();
+                this.save();
+            }
+        }
+    }
+
+    cache redis('config/delivery-service/cache.yaml') {
+
+        hash DriverLocationCache : prefix('driver:location:'), ttl(120) {
+            UUID driverId : primaryKey;
+            Decimal latitude;
+            Decimal longitude;
+            DateTime lastUpdate;
+        }
+
+        counter ActiveDeliveryCount : prefix('delivery:active:');
+    }
+
+    pubsub mq('config/delivery-service/pubsub.yaml') {
+
+        topic DeliveryEvents {
+            publish DeliveryCreated(UUID deliveryId, String deliveryCode, UUID orderId);
+            publish DeliveryStatusChanged(UUID deliveryId, UUID orderId, DeliveryStatus oldStatus, DeliveryStatus newStatus) {
+                ensure oldStatus != newStatus;
+            }
+            publish DriverStatusChanged(UUID driverId, String driverName, DriverStatus oldStatus, DriverStatus newStatus) {
+                ensure oldStatus != newStatus;
+            }
+        }
+
+        subscribe OrderEvents {
+
+            on OrderPlaced(UUID orderId, String orderNumber, UUID customerId, UUID restaurantId, Money total) {
+                Log.info("New order received, creating delivery", {
+                    orderId: orderId,
+                    orderNumber: orderNumber,
+                    restaurantId: restaurantId
+                });
+
+                #JSON restaurant = OrderService.OrderAPI.get('/internal/:id', orderId);
+
+                #Delivery delivery = deliveryDb.Delivery.create({
+                    deliveryCode: generateDeliveryCode(),
+                    orderId: orderId,
+                    pickupAddress: #"Restaurant {restaurantId}",
+                    deliveryAddress: restaurant.deliveryAddress,
+                    status: DeliveryStatus.Pending,
+                    estimatedMinutes: 45
+                });
+
+                redis.ActiveDeliveryCount.incr("total");
+
+                Log.info("Delivery created for order", {
+                    deliveryId: delivery.id,
+                    deliveryCode: delivery.deliveryCode,
+                    orderId: orderId
+                });
+            }
+
+            on OrderCancelled(UUID orderId, String orderNumber, UUID customerId) {
+                #Delivery? delivery = deliveryDb.Delivery
+                    .where(orderId: orderId)
+                    .whereIn(status: [DeliveryStatus.Pending, DeliveryStatus.Assigned])
+                    .first();
+
+                if (delivery != null) {
+                    if (delivery.driverId != null) {
+                        #DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(delivery.driverId);
+                        driver.completeDelivery();
+                    }
+
+                    delivery.status = DeliveryStatus.Failed;
+                    delivery.save();
+
+                    redis.ActiveDeliveryCount.decr("total");
+
+                    Log.info("Delivery cancelled due to order cancellation", {
+                        deliveryId: delivery.id,
+                        orderId: orderId,
+                        orderNumber: orderNumber
+                    });
+                }
+            }
+
+            on OrderReady(UUID orderId, String orderNumber, UUID restaurantId) {
+                #Delivery? delivery = deliveryDb.Delivery
+                    .where(orderId: orderId)
+                    .where(status: DeliveryStatus.Assigned)
+                    .first();
+
+                if (delivery != null) {
+                    delivery.markPickedUp();
+
+                    Log.info("Order ready for pickup, delivery updated", {
+                        deliveryId: delivery.id,
+                        orderId: orderId,
+                        orderNumber: orderNumber
+                    });
+                }
+            }
+        }
+
+        subscribe DeliveryEvents {
+
+            on DeliveryStatusChanged(UUID deliveryId, UUID orderId, DeliveryStatus oldStatus, DeliveryStatus newStatus) {
+                Log.info("Delivery status changed", {
+                    deliveryId: deliveryId,
+                    orderId: orderId,
+                    oldStatus: oldStatus,
+                    newStatus: newStatus
+                });
+
+                if (newStatus == DeliveryStatus.Delivered || newStatus == DeliveryStatus.Failed) {
+                    redis.ActiveDeliveryCount.decr("total");
+                }
+            }
+        }
+    }
+
+    rest_api DeliveryAPI : basePath('/api/v1/deliveries') {
+
+        resource deliveryDb.Delivery : only(list, get);
+        resource deliveryDb.DeliveryDriver : only(list, get, create, update);
+
+        @path('/:id/assign')
+        post(UUID id, AssignDriverRequest request) -> deliveryDb.Delivery {
+            #Delivery delivery = deliveryDb.Delivery.findOrFail(id);
+            #DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(request.driverId);
+
+            if (!delivery.isPending) {
+                throw ValidationException({
+                    code: "DELIVERY_NOT_PENDING",
+                    message: "Can only assign drivers to pending deliveries"
+                });
+            }
+
+            if (!driver.isAvailable) {
+                throw ValidationException({
+                    code: "DRIVER_NOT_AVAILABLE",
+                    message: #"Driver {driver.fullName} is not available"
+                });
+            }
+
+            transaction(deliveryDb) {
+                delivery.assignDriver(driver.id);
+                driver.startDelivery();
+            }
+
+            Log.info("Driver assigned to delivery", {
+                deliveryId: delivery.id,
+                driverId: driver.id,
+                driverName: driver.fullName,
+                orderId: delivery.orderId
+            });
+
+            return delivery;
+        }
+
+        @path('/drivers/:id/location')
+        put(UUID id, UpdateLocationRequest request) -> deliveryDb.DeliveryDriver {
+            #DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(id);
+
+            driver.currentLatitude = request.latitude;
+            driver.currentLongitude = request.longitude;
+            driver.save();
+
+            redis.DriverLocationCache.set(driver.id, {
+                driverId: driver.id,
+                latitude: request.latitude,
+                longitude: request.longitude,
+                lastUpdate: now()
+            });
+
+            return driver;
+        }
+
+        @path('/:id/complete')
+        post(UUID id) -> deliveryDb.Delivery {
+            #Delivery delivery = deliveryDb.Delivery.findOrFail(id);
+
+            if (delivery.status != DeliveryStatus.Delivering) {
+                throw ValidationException({
+                    code: "DELIVERY_NOT_IN_PROGRESS",
+                    message: "Can only complete deliveries that are in progress"
+                });
+            }
+
+            if (delivery.driverId == null) {
+                throw ValidationException({
+                    code: "NO_DRIVER_ASSIGNED",
+                    message: "Delivery has no assigned driver"
+                });
+            }
+
+            #DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(delivery.driverId);
+
+            transaction(deliveryDb) {
+                delivery.markDelivered();
+                driver.completeDelivery();
+            }
+
+            redis.DriverLocationCache.delete(driver.id);
+
+            Log.info("Delivery completed", {
+                deliveryId: delivery.id,
+                deliveryCode: delivery.deliveryCode,
+                driverId: driver.id,
+                orderId: delivery.orderId
+            });
+
+            return delivery;
+        }
+
+        @path('/:id/track')
+        get(UUID id) : public -> DeliveryTrackingInfo {
+            #Delivery delivery = deliveryDb.Delivery.findOrFail(id);
+
+            #String? driverName = null;
+            #Decimal? driverLat = null;
+            #Decimal? driverLng = null;
+
+            if (delivery.driverId != null) {
+                #DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(delivery.driverId);
+                driverName = driver.fullName;
+
+                #JSON? location = redis.DriverLocationCache.get(driver.id);
+                if (location != null) {
+                    driverLat = location.latitude;
+                    driverLng = location.longitude;
+                }
+            }
+
+            return {
+                deliveryId: delivery.id,
+                status: delivery.status,
+                pickupAddress: delivery.pickupAddress,
+                deliveryAddress: delivery.deliveryAddress.format(),
+                driverName: driverName,
+                driverLatitude: driverLat,
+                driverLongitude: driverLng,
+                estimatedMinutes: delivery.estimatedMinutes
+            };
+        }
+
+        @path('/drivers/available')
+        get() -> DriverAvailabilityResponse {
+            #Array<DeliveryDriver> drivers = deliveryDb.DeliveryDriver
+                .where(status: DriverStatus.Available)
+                .orderBy(rating: desc)
+                .all();
+
+            return {
+                availableDrivers: drivers,
+                totalAvailable: drivers.length()
+            };
+        }
+
+        @path('/drivers/:id/online')
+        post(UUID id) -> deliveryDb.DeliveryDriver {
+            #DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(id);
+            driver.goOnline();
+
+            Log.info("Driver went online", {
+                driverId: driver.id,
+                driverName: driver.fullName
+            });
+
+            return driver;
+        }
+
+        @path('/drivers/:id/offline')
+        post(UUID id) -> deliveryDb.DeliveryDriver {
+            #DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(id);
+            driver.goOffline();
+
+            Log.info("Driver went offline", {
+                driverId: driver.id,
+                driverName: driver.fullName
+            });
+
+            return driver;
+        }
+
+        @path('/order/:orderId')
+        get(UUID orderId) -> deliveryDb.Delivery {
+            return deliveryDb.Delivery.where(orderId: orderId).firstOrFail();
+        }
+    }
+
+    test("computed isAvailable reflects Available status") {
+        #deliveryDb.DeliveryDriver driver = deliveryDb.DeliveryDriver.create({
+            firstName: "John",
+            lastName: "Smith",
+            phone: "+15551234567",
+            vehicleType: "Car",
+            status: DriverStatus.Available
+        });
+        driver.save();
+        assert driver.isAvailable == true;
+    }
+
+    test("computed isAssigned when driver is set") {
+        #deliveryDb.DeliveryDriver driver = deliveryDb.DeliveryDriver.create({
+            firstName: "Jane",
+            lastName: "Doe",
+            phone: "+15559876543",
+            vehicleType: "Motorcycle",
+            status: DriverStatus.OnDelivery
+        });
+        driver.save();
+        #deliveryDb.Delivery delivery = deliveryDb.Delivery.create({
+            deliveryCode: "DLV-TEST-001",
+            orderId: uuid(),
+            driverId: driver.id,
+            pickupAddress: "Restaurant A",
+            deliveryAddress: { street: "123 Main St", city: "Springfield", state: "IL", zipCode: "62701" },
+            status: DeliveryStatus.Assigned,
+            assignedAt: now()
+        });
+        delivery.save();
+        assert delivery.isAssigned == true;
+    }
+
+    test("validation rejects empty first name") {
+        assert throws(
+            () => deliveryDb.DeliveryDriver.create({
+                firstName: "",
+                lastName: "Test",
+                phone: "+15551112222",
+                vehicleType: "Bicycle"
+            }),
+            ValidationError("First name cannot be empty")
+        );
+    }
+
+    test("afterCreate emits DeliveryCreated") {
+        #deliveryDb.Delivery delivery = deliveryDb.Delivery.create({
+            deliveryCode: "DLV-TEST-002",
+            orderId: uuid(),
+            pickupAddress: "Restaurant B",
+            deliveryAddress: { street: "456 Oak Ave", city: "Springfield", state: "IL", zipCode: "62702" }
+        });
+        delivery.save();
+        assert emitted(DeliveryCreated(delivery.id, delivery.deliveryCode, delivery.orderId));
+    }
+
+    test("status change emits DeliveryStatusChanged") {
+        #deliveryDb.Delivery delivery = deliveryDb.Delivery.create({
+            deliveryCode: "DLV-TEST-003",
+            orderId: uuid(),
+            pickupAddress: "Restaurant C",
+            deliveryAddress: { street: "789 Elm St", city: "Springfield", state: "IL", zipCode: "62703" }
+        });
+        delivery.save();
+        delivery.status = DeliveryStatus.Assigned;
+        delivery.save();
+        assert emitted(DeliveryStatusChanged(delivery.id, delivery.orderId, DeliveryStatus.Pending, DeliveryStatus.Assigned));
+    }
+}

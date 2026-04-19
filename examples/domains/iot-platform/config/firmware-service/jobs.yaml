@@ -1,0 +1,20 @@
+test:
+  jobs:
+    ProcessRolloutBatch:
+      schedule: '*/10 * * * *'
+      retry: { maxAttempts: 1, backoff: fixed }
+      timeout: 120s
+
+development:
+  jobs:
+    ProcessRolloutBatch:
+      schedule: '*/10 * * * *'
+      retry: { maxAttempts: 1, backoff: fixed }
+      timeout: 120s
+
+production:
+  jobs:
+    ProcessRolloutBatch:
+      schedule: '*/5 * * * *'
+      retry: { maxAttempts: 3, backoff: exponential }
+      timeout: 10m

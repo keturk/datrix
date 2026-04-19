@@ -1,0 +1,35 @@
+
+// Shared module - defines reusable types for real estate services
+module realestate.common {
+
+    // Abstract entities provide reusable field definitions; they don't generate tables
+    abstract entity BaseEntity {
+        @UUID id : primaryKey = uuid();
+        @DateTime createdAt = now();
+        @DateTime updatedAt = now();
+    }
+
+    // Property type classification
+    enum PropertyType {
+        House : value('house'),
+        Apartment : value('apartment'),
+        Condo : value('condo'),
+        Townhouse : value('townhouse'),
+        Land : value('land')
+    }
+
+    // Shared utility: format a price for display
+    fn formatPrice(Money price) -> String {
+        return #"${price.amount}";
+    }
+
+    // Generate a unique listing reference
+    fn generateListingRef() -> String {
+        return #"LST-{now().format('YYYYMMDDHHmmss')}-{Random.string(4).toUpperCase()}";
+    }
+
+    // Generate a unique contract reference
+    fn generateContractRef() -> String {
+        return #"CTR-{now().format('YYYYMMDDHHmmss')}-{Random.string(6).toUpperCase()}";
+    }
+}

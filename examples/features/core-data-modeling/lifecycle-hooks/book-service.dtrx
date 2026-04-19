@@ -1,0 +1,93 @@
+
+// Lifecycle hooks feature example - self-contained service demonstrating:
+// - beforeCreate: auto-generate values before insertion
+// - afterCreate: emit events after record creation
+// - afterUpdate: detect field changes with isChanged() and emit events
+// - Event publishing via emit and pubsub topic/subscribe blocks
+
+// Define a service in the 'library' namespace with version and description
+service library.BookService : version('1.0.0'), description('Book management service') {
+
+    // Service infrastructure configuration
+    config('config/book-service/book-service-config.yaml');   // Service-specific settings
+    registration('config/book-service/registration.yaml');     // Service registry entry
+    discovery { }                                              // Service discovery (auto-configured)
+    resilience('config/book-service/resilience.yaml');          // Circuit breakers, retries, timeouts
+
+    // Enum used in lifecycle hook change detection
+    enum BookStatus {
+        Available,
+        CheckedOut,
+        Reserved,
+        Maintenance
+    }
+
+    // Relational database block - groups entities (tables) under a named datasource
+    rdbms bookDb('config/book-service/datasources.yaml') {
+
+        // Abstract entities provide reusable field definitions; they don't generate tables
+        abstract entity BaseEntity {
+            @UUID id : primaryKey = uuid();
+            @DateTime createdAt = now();
+            @DateTime updatedAt = now();
+        }
+
+        // Entity with lifecycle hooks for automatic behavior
+        entity Book extends BaseEntity {
+            String(200) title : trim;
+            String(20) isbn;
+            String(100) author : trim;
+            Int publicationYear;
+            // '?' suffix makes a field nullable (optional) - set by beforeCreate hook
+            String(50)? catalogNumber;
+            BookStatus status = BookStatus.Available;
+
+            // Lifecycle hook - runs before a new record is inserted
+            beforeCreate {
+                // Generate a random catalog number using string interpolation and Random utility
+                catalogNumber = #"CAT-{Random.string(8).toUpperCase()}";
+            }
+
+            // Lifecycle hook - runs after a new record is inserted
+            afterCreate {
+                // 'emit' publishes an event to the message bus (defined in the pubsub block)
+                emit BookAdded(id, title);
+            }
+
+            // Lifecycle hook - runs after a record is updated
+            afterUpdate {
+                // isChanged() detects whether a specific field was modified in this update
+                if (isChanged(status)) {
+                    // oldValue() retrieves the previous value of a field before the update
+                    emit BookStatusChanged(id, oldValue(status), status);
+                }
+            }
+        }
+    }
+
+    // Pub/sub messaging block - defines event-driven communication
+    // Connects to a message broker configured in the referenced YAML file
+    pubsub mq('config/book-service/pubsub.yaml') {
+        // Topics group related events; publishers declare the event schema
+        topic BookEvents {
+            // 'publish' declares an event with its payload fields
+            publish BookAdded(UUID bookId, String title) {
+                ensure title.length > 0;
+            }
+            publish BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
+                ensure oldStatus != newStatus;
+            }
+        }
+
+        // 'subscribe' listens to a topic; 'on' handlers process specific events
+        subscribe BookEvents {
+            on BookAdded(UUID bookId, String title) {
+                Log.info("New book added", { bookId: bookId, title: title });
+            }
+
+            on BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
+                Log.info(#"Book {bookId} status changed from {oldStatus} to {newStatus}");
+            }
+        }
+    }
+}

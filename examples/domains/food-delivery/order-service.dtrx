@@ -1,0 +1,478 @@
+
+from fooddelivery.common import BaseEntity, DeliveryAddress, generateOrderNumber, MAX_ORDER_ITEMS, DEFAULT_DELIVERY_FEE, MIN_ORDER_AMOUNT;
+
+service fooddelivery.OrderService : version('1.0.0'), description('food order management service') {
+
+    config('config/order-service/order-service-config.yaml');
+    registration('config/order-service/registration.yaml');
+    discovery {
+        RestaurantService { loadBalance: roundRobin, healthyOnly: true }
+        MenuService { loadBalance: roundRobin, healthyOnly: true }
+        DeliveryService { loadBalance: roundRobin, healthyOnly: true }
+    }
+    resilience('config/order-service/resilience.yaml');
+
+    enum OrderStatus {
+        Placed,
+        Confirmed,
+        Preparing,
+        Ready,
+        PickedUp,
+        Delivering,
+        Delivered,
+        Cancelled,
+        Refunded
+    }
+
+    enum PaymentStatus {
+        Pending,
+        Charged,
+        Refunded,
+        Failed
+    }
+
+    struct OrderItemInput {
+        UUID menuItemId;
+        Int quantity;
+        String? specialRequests;
+    }
+
+    struct PlaceOrderRequest {
+        UUID customerId;
+        UUID restaurantId;
+        Array<OrderItemInput> items;
+        DeliveryAddress deliveryAddress;
+        String? specialInstructions;
+        Money? tip;
+    }
+
+    struct CancelOrderRequest {
+        String? reason;
+    }
+
+    struct UpdateOrderStatusRequest {
+        OrderStatus status;
+    }
+
+    struct PaginatedOrders {
+        Array<orderDb.Order> data;
+        JSON pagination;
+    }
+
+    rdbms orderDb('config/order-service/datasources.yaml') {
+
+        entity Order extends BaseEntity : audit {
+            UUID customerId : index;
+            UUID restaurantId : index;
+            String(20) orderNumber : unique;
+            OrderStatus status = OrderStatus.Placed;
+            PaymentStatus paymentStatus = PaymentStatus.Pending;
+            Money subtotal;
+            Money deliveryFee;
+            Money tax;
+            Money? tip;
+            Money total;
+            DeliveryAddress deliveryAddress;
+            Text? specialInstructions;
+            DateTime? estimatedDelivery;
+
+            Boolean canCancel := status == OrderStatus.Placed || status == OrderStatus.Confirmed;
+            Boolean isCompleted := status == OrderStatus.Delivered;
+            Boolean isPaid := paymentStatus == PaymentStatus.Charged;
+
+            hasMany OrderItem as items;
+
+            index(customerId, status);
+            index(restaurantId, status);
+            index(status, createdAt);
+            index(orderNumber);
+
+            validate {
+                if (items.length() == 0)
+                    ValidationError("Order must have at least one item");
+                if (items.length() > MAX_ORDER_ITEMS)
+                    ValidationError("Order cannot have more than 50 items");
+            }
+
+            afterCreate {
+                emit OrderPlaced(id, orderNumber, customerId, restaurantId, total);
+            }
+
+            afterUpdate {
+                if (isChanged(status)) {
+                    emit OrderStatusChanged(id, orderNumber, oldValue(status), status);
+
+                    if (status == OrderStatus.Confirmed) {
+                        emit OrderConfirmed(id, orderNumber, restaurantId, deliveryAddress);
+                    } else if (status == OrderStatus.Cancelled) {
+                        emit OrderCancelled(id, orderNumber, customerId);
+                    } else if (status == OrderStatus.Ready) {
+                        emit OrderReady(id, orderNumber, restaurantId);
+                    }
+                }
+            }
+
+            fn calculateTotals() {
+                #Money itemsTotal = Money.of(0, "USD");
+                foreach item in items {
+                    itemsTotal = itemsTotal.add(item.subtotal);
+                }
+                subtotal = itemsTotal;
+                tax = subtotal.multiply(0.08);
+                deliveryFee = Money.of(DEFAULT_DELIVERY_FEE, "USD");
+
+                #Money tipAmount = tip ?? Money.of(0, "USD");
+                total = subtotal.add(tax).add(deliveryFee).add(tipAmount);
+            }
+        }
+
+        entity OrderItem extends BaseEntity {
+            UUID menuItemId : index;
+            String(200) name : trim;
+            Int quantity : min(1);
+            Money unitPrice : positive;
+            Money subtotal;
+            String(500)? specialRequests;
+
+            belongsTo Order : index;
+
+            index(orderId);
+
+            validate {
+                if (quantity <= 0)
+                    ValidationError("Quantity must be greater than zero");
+                if (unitPrice.amount <= 0)
+                    ValidationError("Unit price must be positive");
+            }
+        }
+    }
+
+    cache redis('config/order-service/cache.yaml') {
+
+        hash OrderStatusCache : prefix('order:status:'), ttl(3600) {
+            UUID orderId : primaryKey;
+            OrderStatus status;
+            String restaurant;
+            DateTime estimatedDelivery;
+        }
+
+        counter OrdersToday : prefix('orders:daily:'), ttl(86400);
+    }
+
+    pubsub mq('config/order-service/pubsub.yaml') {
+
+        topic OrderEvents {
+            publish OrderPlaced(UUID orderId, String orderNumber, UUID customerId, UUID restaurantId, Money total) {
+                ensure orderNumber.length > 0;
+                ensure total > 0;
+            }
+            publish OrderStatusChanged(UUID orderId, String orderNumber, OrderStatus oldStatus, OrderStatus newStatus) {
+                ensure oldStatus != newStatus;
+            }
+            publish OrderConfirmed(UUID orderId, String orderNumber, UUID restaurantId, DeliveryAddress deliveryAddress);
+            publish OrderCancelled(UUID orderId, String orderNumber, UUID customerId);
+            publish OrderReady(UUID orderId, String orderNumber, UUID restaurantId);
+        }
+
+        subscribe OrderEvents {
+
+            on OrderStatusChanged(UUID orderId, String orderNumber, OrderStatus oldStatus, OrderStatus newStatus) {
+                Log.info("Order status changed", {
+                    orderId: orderId,
+                    orderNumber: orderNumber,
+                    oldStatus: oldStatus,
+                    newStatus: newStatus
+                });
+
+                #JSON? cached = redis.OrderStatusCache.get(orderId);
+                if (cached != null) {
+                    redis.OrderStatusCache.set(orderId, {
+                        orderId: orderId,
+                        status: newStatus,
+                        restaurant: cached.restaurant,
+                        estimatedDelivery: cached.estimatedDelivery
+                    });
+                }
+            }
+        }
+
+        subscribe RestaurantEvents {
+
+            on RestaurantStatusChanged(UUID restaurantId, String name, RestaurantStatus oldStatus, RestaurantStatus newStatus) {
+                if (newStatus == RestaurantStatus.Closed || newStatus == RestaurantStatus.Suspended) {
+                    #Array<Order> activeOrders = orderDb.Order
+                        .where(restaurantId: restaurantId)
+                        .whereIn(status: [OrderStatus.Placed, OrderStatus.Confirmed])
+                        .all();
+
+                    foreach order in activeOrders {
+                        Log.warn("Restaurant closed with active orders", {
+                            orderId: order.id,
+                            orderNumber: order.orderNumber,
+                            restaurantId: restaurantId,
+                            restaurantName: name
+                        });
+                    }
+                }
+            }
+        }
+
+        subscribe DeliveryEvents {
+
+            on DeliveryStatusChanged(UUID deliveryId, UUID orderId, DeliveryStatus oldStatus, DeliveryStatus newStatus) {
+                if (newStatus == DeliveryStatus.Delivered) {
+                    #Order order = orderDb.Order.findOrFail(orderId);
+
+                    transaction(orderDb) {
+                        order.status = OrderStatus.Delivered;
+                        order.save();
+                    }
+
+                    Log.info("Order marked as delivered", {
+                        orderId: orderId,
+                        orderNumber: order.orderNumber,
+                        deliveryId: deliveryId
+                    });
+                }
+            }
+        }
+    }
+
+    rest_api OrderAPI : basePath('/api/v1/orders') {
+
+        get(Int page = 1, Int perPage = 20, OrderStatus? status) -> PaginatedOrders {
+            #UUID customerId = Auth.user().id;
+            #JSON query = orderDb.Order.where(customerId: customerId);
+
+            if (status != null) {
+                query = query.where(status: status);
+            }
+
+            #Int total = query.count();
+            #Array<Order> orders = query
+                .orderBy(createdAt: desc)
+                .offset((page - 1) * perPage)
+                .limit(perPage)
+                .all();
+
+            return {
+                data: orders,
+                pagination: {
+                    currentPage: page,
+                    perPage: perPage,
+                    totalItems: total,
+                    totalPages: Math.ceil(total / perPage),
+                    hasNextPage: page < Math.ceil(total / perPage),
+                    hasPrevPage: page > 1
+                }
+            };
+        }
+
+        @path('/:id')
+        get(UUID id) -> orderDb.Order {
+            #Order order = orderDb.Order.findOrFail(id);
+
+            if (order.customerId != Auth.user().id && !Auth.hasRole("admin")) {
+                throw AuthorizationException("Access denied");
+            }
+
+            return order;
+        }
+
+        @path('/place')
+        post(PlaceOrderRequest request) -> orderDb.Order {
+            #JSON restaurant = RestaurantService.RestaurantAPI.get('/internal/:id', request.restaurantId);
+
+            if (!restaurant.isOpen) {
+                throw ValidationException({
+                    code: "RESTAURANT_CLOSED",
+                    message: #"Restaurant '{restaurant.name}' is currently closed"
+                });
+            }
+
+            if (request.items.length() == 0) {
+                throw ValidationException({
+                    code: "EMPTY_ORDER",
+                    message: "Order must have at least one item"
+                });
+            }
+
+            #Array<UUID> itemIds = request.items.map(i => i.menuItemId);
+            #Array<JSON> menuItems = MenuService.MenuAPI.post('/internal/items', itemIds);
+
+            #Order order = orderDb.Order.create({
+                orderNumber: generateOrderNumber(),
+                customerId: request.customerId,
+                restaurantId: request.restaurantId,
+                deliveryAddress: request.deliveryAddress,
+                specialInstructions: request.specialInstructions,
+                tip: request.tip,
+                status: OrderStatus.Placed,
+                paymentStatus: PaymentStatus.Pending,
+                subtotal: Money.of(0, "USD"),
+                tax: Money.of(0, "USD"),
+                deliveryFee: Money.of(DEFAULT_DELIVERY_FEE, "USD"),
+                total: Money.of(0, "USD"),
+                estimatedDelivery: now().addMinutes(45)
+            });
+
+            foreach item in request.items {
+                #JSON menuItem = menuItems.find(m => m.id == item.menuItemId);
+                #Money itemSubtotal = menuItem.price.multiply(item.quantity);
+
+                orderDb.OrderItem.create({
+                    order: order,
+                    menuItemId: item.menuItemId,
+                    name: menuItem.name,
+                    quantity: item.quantity,
+                    unitPrice: menuItem.price,
+                    subtotal: itemSubtotal,
+                    specialRequests: item.specialRequests
+                });
+            }
+
+            order.calculateTotals();
+            order.save();
+
+            redis.OrderStatusCache.set(order.id, {
+                orderId: order.id,
+                status: order.status,
+                restaurant: restaurant.name,
+                estimatedDelivery: order.estimatedDelivery
+            });
+
+            redis.OrdersToday.incr(now().format('YYYY-MM-DD'));
+
+            Log.info("Order placed", {
+                orderId: order.id,
+                orderNumber: order.orderNumber,
+                restaurantId: request.restaurantId,
+                total: order.total
+            });
+
+            return order;
+        }
+
+        @path('/:id/cancel')
+        put(UUID id, CancelOrderRequest request) -> orderDb.Order {
+            #Order order = orderDb.Order.findOrFail(id);
+
+            if (order.customerId != Auth.user().id && !Auth.hasRole("admin")) {
+                throw AuthorizationException("Cannot cancel another customer's order");
+            }
+
+            if (!order.canCancel) {
+                throw ValidationException({
+                    code: "ORDER_NOT_CANCELLABLE",
+                    message: #"Order cannot be cancelled in status: {order.status}"
+                });
+            }
+
+            transaction(orderDb) {
+                order.status = OrderStatus.Cancelled;
+                order.save();
+            }
+
+            Log.info("Order cancelled", {
+                orderId: order.id,
+                orderNumber: order.orderNumber,
+                reason: request.reason ?? "Customer cancelled"
+            });
+
+            return order;
+        }
+
+        @path('/:id/status')
+        put(UUID id, UpdateOrderStatusRequest request) : access(admin) -> orderDb.Order {
+            #Order order = orderDb.Order.findOrFail(id);
+            order.status = request.status;
+            order.save();
+
+            Log.info("Order status manually updated", {
+                orderId: order.id,
+                orderNumber: order.orderNumber,
+                newStatus: request.status
+            });
+
+            return order;
+        }
+
+        @path('/restaurant/:restaurantId')
+        get(UUID restaurantId, OrderStatus? status) : access(admin) -> Array<orderDb.Order> {
+            #JSON query = orderDb.Order.where(restaurantId: restaurantId);
+
+            if (status != null) {
+                query = query.where(status: status);
+            }
+
+            return query.orderBy(createdAt: desc).limit(50).all();
+        }
+
+        @path('/internal/:id')
+        get(UUID id) : internal -> orderDb.Order {
+            return orderDb.Order.findOrFail(id);
+        }
+    }
+
+    test("computed canCancel is true for Placed status") {
+        #orderDb.Order order = orderDb.Order.create({
+            customerId: uuid(),
+            restaurantId: uuid(),
+            orderNumber: "FD-TEST-001",
+            subtotal: Money.of(25.00, "USD"),
+            tax: Money.of(2.00, "USD"),
+            deliveryFee: Money.of(4.99, "USD"),
+            total: Money.of(31.99, "USD"),
+            deliveryAddress: { street: "123 Main St", city: "Springfield", state: "IL", zipCode: "62701" }
+        });
+        order.save();
+        assert order.canCancel == true;
+    }
+
+    test("computed canCancel is false for Preparing status") {
+        #orderDb.Order order = orderDb.Order.create({
+            customerId: uuid(),
+            restaurantId: uuid(),
+            orderNumber: "FD-TEST-002",
+            status: OrderStatus.Preparing,
+            subtotal: Money.of(30.00, "USD"),
+            tax: Money.of(2.40, "USD"),
+            deliveryFee: Money.of(4.99, "USD"),
+            total: Money.of(37.39, "USD"),
+            deliveryAddress: { street: "456 Oak Ave", city: "Springfield", state: "IL", zipCode: "62702" }
+        });
+        order.save();
+        assert order.canCancel == false;
+    }
+
+    test("afterCreate emits OrderPlaced event") {
+        #orderDb.Order order = orderDb.Order.create({
+            customerId: uuid(),
+            restaurantId: uuid(),
+            orderNumber: "FD-TEST-003",
+            subtotal: Money.of(50.00, "USD"),
+            tax: Money.of(4.00, "USD"),
+            deliveryFee: Money.of(4.99, "USD"),
+            total: Money.of(58.99, "USD"),
+            deliveryAddress: { street: "789 Elm St", city: "Springfield", state: "IL", zipCode: "62703" }
+        });
+        order.save();
+        assert emitted(OrderPlaced(order.id, order.orderNumber, order.customerId, order.restaurantId, order.total));
+    }
+
+    test("validation rejects order with no items") {
+        assert throws(
+            () => orderDb.Order.create({
+                customerId: uuid(),
+                restaurantId: uuid(),
+                orderNumber: "FD-TEST-004",
+                subtotal: Money.of(0, "USD"),
+                tax: Money.of(0, "USD"),
+                deliveryFee: Money.of(4.99, "USD"),
+                total: Money.of(4.99, "USD"),
+                deliveryAddress: { street: "321 Pine Rd", city: "Springfield", state: "IL", zipCode: "62704" }
+            }),
+            ValidationError("Order must have at least one item")
+        );
+    }
+}

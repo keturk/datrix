@@ -1,0 +1,25 @@
+
+module logistics.common {
+
+    abstract entity BaseEntity {
+        @UUID id : primaryKey = uuid();
+        @DateTime createdAt = now();
+        @DateTime updatedAt = now();
+    }
+
+    struct GeoCoordinate {
+        Decimal(10, 6) latitude;
+        Decimal(10, 6) longitude;
+    }
+
+    fn generateTrackingNumber() -> String {
+        return #"LGS-{now().format('YYYYMMDDHHmmss')}-{Random.string(8).toUpperCase()}";
+    }
+
+    fn generateRouteCode() -> String {
+        return #"RT-{now().format('YYYYMMDD')}-{Random.string(6).toUpperCase()}";
+    }
+
+    const MAX_STOPS_PER_ROUTE = 50;
+    const MAINTENANCE_MILEAGE_THRESHOLD = 50000;
+}

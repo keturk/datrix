@@ -1,0 +1,550 @@
+
+from finance.common import BaseEntity, AuditedEntity, Currency;
+
+service finance.ComplianceService : version('1.0.0'), description('regulatory compliance and audit service') {
+
+    config('config/compliance-service/compliance-service-config.yaml');
+    registration('config/compliance-service/registration.yaml');
+    discovery {
+        AccountService { loadBalance: roundRobin, healthyOnly: true }
+        TransactionService { loadBalance: roundRobin, healthyOnly: true }
+    }
+    resilience('config/compliance-service/resilience.yaml');
+
+    enum AlertSeverity {
+        Low : value('low'),
+        Medium : value('medium'),
+        High : value('high'),
+        Critical : value('critical')
+    }
+
+    enum AlertStatus {
+        Open : value('open'),
+        UnderReview : value('under_review'),
+        Resolved : value('resolved'),
+        Escalated : value('escalated'),
+        FalsePositive : value('false_positive')
+    }
+
+    enum AlertType {
+        LargeTransaction : value('large_transaction'),
+        SuspiciousPattern : value('suspicious_pattern'),
+        VelocityExceeded : value('velocity_exceeded'),
+        GeographicAnomaly : value('geographic_anomaly'),
+        AccountBehaviorChange : value('account_behavior_change')
+    }
+
+    // Configurable thresholds for compliance checks
+    const LARGE_TRANSACTION_THRESHOLD = 10000;
+    const DAILY_TRANSACTION_VELOCITY_LIMIT = 50;
+    const REPORT_GENERATION_BATCH_SIZE = 500;
+
+    struct ReviewAlertRequest {
+        String notes;
+    }
+
+    struct ResolveAlertRequest {
+        String resolution;
+        Boolean isFalsePositive;
+    }
+
+    struct EscalateAlertRequest {
+        String reason;
+        String escalatedTo;
+    }
+
+    struct ComplianceReportSummary {
+        DateTime reportDate;
+        Int totalAlerts;
+        Int openAlerts;
+        Int resolvedAlerts;
+        Int escalatedAlerts;
+        Int criticalAlerts;
+    }
+
+    struct PaginatedAlerts {
+        Array<complianceDb.ComplianceAlert> data;
+        JSON pagination;
+    }
+
+    rdbms complianceDb('config/compliance-service/datasources.yaml') {
+        alert queryDuration(p95) over(5m) > 300ms @severity(warning);
+
+        // Compliance alert entity for suspicious activity tracking
+        entity ComplianceAlert extends AuditedEntity {
+            UUID accountId : index;
+            AlertType type;
+            AlertSeverity severity;
+            AlertStatus status = AlertStatus.Open;
+            String(500) description;
+            Money? transactionAmount;
+            UUID? transactionId;
+            DateTime detectedAt = now();
+            DateTime? reviewedAt;
+            DateTime? resolvedAt;
+            UUID? resolvedBy;
+            String(1000)? resolution;
+            String(500)? escalatedTo;
+
+            // Computed fields
+            Boolean isOpen := status == AlertStatus.Open || status == AlertStatus.UnderReview;
+            Boolean isCritical := severity == AlertSeverity.Critical;
+            Boolean isEscalated := status == AlertStatus.Escalated;
+
+            index(accountId, detectedAt);
+            index(severity, status);
+            index(status, detectedAt);
+            index(type, status);
+
+            validate {
+                if (description.trim().isEmpty())
+                    ValidationError("Alert description cannot be empty");
+            }
+
+            afterCreate {
+                Log.info("Compliance alert created", {
+                    alertId: id,
+                    accountId: accountId,
+                    type: type,
+                    severity: severity
+                });
+
+                if (severity == AlertSeverity.Critical) {
+                    emit CriticalAlertRaised(id, accountId, type, description);
+                }
+            }
+
+            afterUpdate {
+                if (isChanged(status)) {
+                    emit AlertStatusChanged(id, accountId, oldValue(status), status);
+                }
+            }
+
+            fn startReview() {
+                if (status != AlertStatus.Open) {
+                    throw ValidationException("Only open alerts can be reviewed");
+                }
+                status = AlertStatus.UnderReview;
+                reviewedAt = now();
+                this.save();
+            }
+
+            fn resolve(String resolutionNote, Boolean falsePositive) {
+                if (status != AlertStatus.UnderReview && status != AlertStatus.Open) {
+                    throw ValidationException("Only open or under-review alerts can be resolved");
+                }
+                if (falsePositive) {
+                    status = AlertStatus.FalsePositive;
+                } else {
+                    status = AlertStatus.Resolved;
+                }
+                resolution = resolutionNote;
+                resolvedAt = now();
+                resolvedBy = Auth.user().id;
+                this.save();
+            }
+
+            fn escalate(String reason, String escalateTo) {
+                if (status == AlertStatus.Resolved || status == AlertStatus.FalsePositive) {
+                    throw ValidationException("Resolved alerts cannot be escalated");
+                }
+                status = AlertStatus.Escalated;
+                auditNote = reason;
+                escalatedTo = escalateTo;
+                this.save();
+            }
+        }
+
+        // Immutable audit trail for all financial entity changes
+        entity AuditTrail extends BaseEntity {
+            String(100) entityType;
+            UUID entityId : index;
+            String(50) action;
+            JSON changes;
+            UUID performedBy;
+            DateTime performedAt = now();
+            String(45)? ipAddress;
+            String(500)? userAgent;
+
+            index(entityId, performedAt);
+            index(entityType, entityId);
+            index(performedBy, performedAt);
+            index(performedAt);
+
+            validate {
+                if (entityType.trim().isEmpty())
+                    ValidationError("Entity type cannot be empty");
+                if (action.trim().isEmpty())
+                    ValidationError("Action cannot be empty");
+            }
+        }
+
+        // Compliance report entity for periodic regulatory reporting
+        entity ComplianceReport extends BaseEntity {
+            DateTime reportDate;
+            String(100) reportType;
+            Int totalAlerts = 0;
+            Int openAlerts = 0;
+            Int resolvedAlerts = 0;
+            Int escalatedAlerts = 0;
+            Int criticalAlerts = 0;
+            Int largeTransactionCount = 0;
+            Money largeTransactionTotal;
+            JSON? reportData;
+            DateTime generatedAt = now();
+
+            index(reportDate, reportType);
+
+            validate {
+                if (reportType.trim().isEmpty())
+                    ValidationError("Report type cannot be empty");
+            }
+        }
+    }
+
+    pubsub mq('config/compliance-service/pubsub.yaml') {
+        alert consumerLag(max) over(5m) > 500 @severity(critical);
+
+        topic ComplianceEvents {
+            publish CriticalAlertRaised(UUID alertId, UUID accountId, AlertType type, String description) {
+                ensure description.length > 0;
+            }
+            publish AlertStatusChanged(UUID alertId, UUID accountId, AlertStatus oldStatus, AlertStatus newStatus) {
+                ensure oldStatus != newStatus;
+            }
+            publish ComplianceReportGenerated(DateTime reportDate, String reportType, Int totalAlerts) {
+                ensure reportType.length > 0;
+            }
+        }
+
+        // Listen to transaction events for compliance monitoring
+        subscribe TransactionEvents {
+            on TransactionCreated(UUID txId, UUID accountId, TransactionType type, Money amount, Currency currency, String reference) {
+                Log.info("Transaction received for compliance check", { txId: txId, accountId: accountId, amount: amount });
+
+                // Check for large transactions exceeding threshold
+                if (amount.amount >= LARGE_TRANSACTION_THRESHOLD) {
+                    #ComplianceAlert alert = complianceDb.ComplianceAlert.create({
+                        accountId: accountId,
+                        type: AlertType.LargeTransaction,
+                        severity: AlertSeverity.High,
+                        description: #"Large transaction detected: {currency} {amount.amount} (ref: {reference})",
+                        transactionAmount: amount,
+                        transactionId: txId
+                    });
+                    alert.save();
+
+                    Log.warn("Large transaction alert created", { txId: txId, amount: amount, alertId: alert.id });
+                }
+
+                // Record in audit trail
+                #AuditTrail audit = complianceDb.AuditTrail.create({
+                    entityType: "Transaction",
+                    entityId: txId,
+                    action: "created",
+                    changes: { type: type, amount: amount, currency: currency, reference: reference },
+                    performedBy: accountId,
+                    performedAt: now()
+                });
+                audit.save();
+            }
+
+            on TransactionStatusChanged(UUID txId, UUID accountId, TransactionStatus oldStatus, TransactionStatus newStatus, Money amount) {
+                #AuditTrail audit = complianceDb.AuditTrail.create({
+                    entityType: "Transaction",
+                    entityId: txId,
+                    action: "status_changed",
+                    changes: { oldStatus: oldStatus, newStatus: newStatus, amount: amount },
+                    performedBy: accountId,
+                    performedAt: now()
+                });
+                audit.save();
+            }
+        }
+
+        // Listen to account events for compliance tracking
+        subscribe AccountEvents {
+            on AccountOpened(UUID accountId, String accountNumber, UUID customerId, AccountType type, Currency currency) {
+                #AuditTrail audit = complianceDb.AuditTrail.create({
+                    entityType: "Account",
+                    entityId: accountId,
+                    action: "opened",
+                    changes: { accountNumber: accountNumber, customerId: customerId, type: type, currency: currency },
+                    performedBy: customerId,
+                    performedAt: now()
+                });
+                audit.save();
+
+                Log.info("Account opening recorded in audit trail", { accountId: accountId, accountNumber: accountNumber });
+            }
+
+            on AccountStatusChanged(UUID accountId, String accountNumber, AccountStatus oldStatus, AccountStatus newStatus) {
+                #AuditTrail audit = complianceDb.AuditTrail.create({
+                    entityType: "Account",
+                    entityId: accountId,
+                    action: "status_changed",
+                    changes: { accountNumber: accountNumber, oldStatus: oldStatus, newStatus: newStatus },
+                    performedBy: accountId,
+                    performedAt: now()
+                });
+                audit.save();
+            }
+        }
+    }
+
+    rest_api ComplianceAPI : basePath('/api/v1/compliance') {
+        alert responseTime(p95) over(5m) > 500ms @severity(warning);
+
+        // List alerts with filtering and pagination
+        @path('/alerts')
+        get(Int page = 1, Int perPage = 20, AlertSeverity? severity, AlertStatus? status, UUID? accountId) : access(admin) -> PaginatedAlerts {
+            #JSON query = complianceDb.ComplianceAlert.all();
+
+            if (severity != null) {
+                query = complianceDb.ComplianceAlert.where(severity: severity);
+            }
+            if (status != null) {
+                query = query.where(status: status);
+            }
+            if (accountId != null) {
+                query = query.where(accountId: accountId);
+            }
+
+            #Int total = query.count();
+            #Array<ComplianceAlert> alerts = query
+                .orderBy(detectedAt: desc)
+                .offset((page - 1) * perPage)
+                .limit(perPage)
+                .all();
+
+            return {
+                data: alerts,
+                pagination: {
+                    currentPage: page,
+                    perPage: perPage,
+                    totalItems: total,
+                    totalPages: Math.ceil(total / perPage),
+                    hasNextPage: page < Math.ceil(total / perPage),
+                    hasPrevPage: page > 1
+                }
+            };
+        }
+
+        // Get a specific alert
+        @path('/alerts/:id')
+        get(UUID id) : access(admin) -> complianceDb.ComplianceAlert {
+            return complianceDb.ComplianceAlert.findOrFail(id);
+        }
+
+        // Start reviewing an alert
+        @path('/alerts/:id/review')
+        put(UUID id, ReviewAlertRequest request) : access(admin) -> complianceDb.ComplianceAlert {
+            #ComplianceAlert alert = complianceDb.ComplianceAlert.findOrFail(id);
+            alert.startReview();
+            alert.auditNote = request.notes;
+            alert.save();
+            return alert;
+        }
+
+        // Resolve an alert
+        @path('/alerts/:id/resolve')
+        put(UUID id, ResolveAlertRequest request) : access(admin) -> complianceDb.ComplianceAlert {
+            #ComplianceAlert alert = complianceDb.ComplianceAlert.findOrFail(id);
+            alert.resolve(request.resolution, request.isFalsePositive);
+            return alert;
+        }
+
+        // Escalate an alert
+        @path('/alerts/:id/escalate')
+        put(UUID id, EscalateAlertRequest request) : access(admin) -> complianceDb.ComplianceAlert {
+            #ComplianceAlert alert = complianceDb.ComplianceAlert.findOrFail(id);
+            alert.escalate(request.reason, request.escalatedTo);
+            return alert;
+        }
+
+        // Get audit trail for an entity
+        @path('/audit-trail/:entityType/:entityId')
+        get(String entityType, UUID entityId) : access(admin) -> Array<complianceDb.AuditTrail> {
+            return complianceDb.AuditTrail
+                .where(entityType: entityType)
+                .where(entityId: entityId)
+                .orderBy(performedAt: desc)
+                .all();
+        }
+
+        // Get compliance report summary
+        @path('/reports/summary')
+        get(DateTime? fromDate, DateTime? toDate) : access(admin) -> ComplianceReportSummary {
+            #Array<ComplianceAlert> allAlerts = complianceDb.ComplianceAlert.all();
+
+            #Int total = allAlerts.length();
+            #Int open = allAlerts.filter(a => a.status == AlertStatus.Open || a.status == AlertStatus.UnderReview).length();
+            #Int resolved = allAlerts.filter(a => a.status == AlertStatus.Resolved || a.status == AlertStatus.FalsePositive).length();
+            #Int escalated = allAlerts.filter(a => a.status == AlertStatus.Escalated).length();
+            #Int critical = allAlerts.filter(a => a.severity == AlertSeverity.Critical).length();
+
+            return {
+                reportDate: now(),
+                totalAlerts: total,
+                openAlerts: open,
+                resolvedAlerts: resolved,
+                escalatedAlerts: escalated,
+                criticalAlerts: critical
+            };
+        }
+
+        // Get alerts by account
+        @path('/alerts/by-account/:accountId')
+        get(UUID accountId) : access(admin) -> Array<complianceDb.ComplianceAlert> {
+            return complianceDb.ComplianceAlert
+                .where(accountId: accountId)
+                .orderBy(detectedAt: desc)
+                .all();
+        }
+    }
+
+    jobs('config/compliance-service/jobs.yaml') {
+        // Check for large transactions that may have been missed by real-time processing
+        job CheckLargeTransactions {
+            #DateTime yesterday = now().addDays(-1);
+            #Array<AuditTrail> recentTxAudits = complianceDb.AuditTrail
+                .where(entityType: "Transaction")
+                .where(action: "created")
+                .where(performedAt: gte(yesterday))
+                .all();
+
+            #Int flagged = 0;
+            foreach audit in recentTxAudits {
+                #Money txAmount = audit.changes.amount;
+                if (txAmount.amount >= LARGE_TRANSACTION_THRESHOLD) {
+                    // Check if alert already exists for this transaction
+                    #ComplianceAlert? existing = complianceDb.ComplianceAlert
+                        .where(transactionId: audit.entityId)
+                        .where(type: AlertType.LargeTransaction)
+                        .first();
+
+                    if (existing == null) {
+                        #ComplianceAlert alert = complianceDb.ComplianceAlert.create({
+                            accountId: audit.performedBy,
+                            type: AlertType.LargeTransaction,
+                            severity: AlertSeverity.High,
+                            description: #"Missed large transaction detected: {txAmount.amount}",
+                            transactionAmount: txAmount,
+                            transactionId: audit.entityId
+                        });
+                        alert.save();
+                        flagged = flagged + 1;
+                    }
+                }
+            }
+
+            if (flagged > 0) {
+                Log.warn("Large transaction job found missed alerts", { count: flagged });
+            }
+            Log.info("Large transaction check completed", { reviewed: recentTxAudits.length(), flagged: flagged });
+        }
+
+        // Generate periodic compliance reports
+        job GenerateComplianceReport {
+            #DateTime today = now();
+
+            #Array<ComplianceAlert> allAlerts = complianceDb.ComplianceAlert.all();
+            #Array<ComplianceAlert> criticalAlerts = allAlerts.filter(a => a.severity == AlertSeverity.Critical);
+            #Array<AuditTrail> largeTxAudits = complianceDb.AuditTrail
+                .where(entityType: "Transaction")
+                .where(action: "created")
+                .all();
+
+            #Money largeTxTotal = Money.of(0, Currency.USD);
+            #Int largeTxCount = 0;
+            foreach audit in largeTxAudits {
+                if (audit.changes.amount.amount >= LARGE_TRANSACTION_THRESHOLD) {
+                    largeTxTotal = largeTxTotal.add(audit.changes.amount);
+                    largeTxCount = largeTxCount + 1;
+                }
+            }
+
+            #ComplianceReport report = complianceDb.ComplianceReport.create({
+                reportDate: today,
+                reportType: "daily_compliance",
+                totalAlerts: allAlerts.length(),
+                openAlerts: allAlerts.filter(a => a.isOpen).length(),
+                resolvedAlerts: allAlerts.filter(a => a.status == AlertStatus.Resolved).length(),
+                escalatedAlerts: allAlerts.filter(a => a.isEscalated).length(),
+                criticalAlerts: criticalAlerts.length(),
+                largeTransactionCount: largeTxCount,
+                largeTransactionTotal: largeTxTotal,
+                reportData: {
+                    generatedBy: "system",
+                    timestamp: now()
+                }
+            });
+            report.save();
+
+            emit ComplianceReportGenerated(today, "daily_compliance", allAlerts.length());
+            Log.info("Compliance report generated", { date: today, totalAlerts: allAlerts.length(), critical: criticalAlerts.length() });
+        }
+    }
+
+    test("computed isOpen is true for Open status") {
+        #complianceDb.ComplianceAlert alert = complianceDb.ComplianceAlert.create({
+            accountId: uuid(),
+            type: AlertType.LargeTransaction,
+            severity: AlertSeverity.High,
+            status: AlertStatus.Open,
+            description: "Test large transaction alert"
+        });
+        alert.save();
+        assert alert.isOpen == true;
+    }
+
+    test("computed isCritical is true for Critical severity") {
+        #complianceDb.ComplianceAlert alert = complianceDb.ComplianceAlert.create({
+            accountId: uuid(),
+            type: AlertType.SuspiciousPattern,
+            severity: AlertSeverity.Critical,
+            status: AlertStatus.Open,
+            description: "Test critical alert"
+        });
+        alert.save();
+        assert alert.isCritical == true;
+    }
+
+    test("validation rejects empty description") {
+        assert throws(
+            () => complianceDb.ComplianceAlert.create({
+                accountId: uuid(),
+                type: AlertType.LargeTransaction,
+                severity: AlertSeverity.Medium,
+                description: ""
+            }),
+            ValidationError("Alert description cannot be empty")
+        );
+    }
+
+    test("resolve changes status to Resolved") {
+        #complianceDb.ComplianceAlert alert = complianceDb.ComplianceAlert.create({
+            accountId: uuid(),
+            type: AlertType.VelocityExceeded,
+            severity: AlertSeverity.Medium,
+            status: AlertStatus.UnderReview,
+            description: "Test velocity alert"
+        });
+        alert.save();
+        alert.resolve("Reviewed and cleared", false);
+        assert alert.status == AlertStatus.Resolved;
+    }
+
+    test("resolve with falsePositive sets FalsePositive status") {
+        #complianceDb.ComplianceAlert alert = complianceDb.ComplianceAlert.create({
+            accountId: uuid(),
+            type: AlertType.GeographicAnomaly,
+            severity: AlertSeverity.Low,
+            status: AlertStatus.Open,
+            description: "Test geographic anomaly"
+        });
+        alert.save();
+        alert.resolve("Customer confirmed travel", true);
+        assert alert.status == AlertStatus.FalsePositive;
+    }
+}

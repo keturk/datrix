@@ -1,0 +1,18 @@
+
+// Shared module - defines reusable types across all learning management services
+module lms.common {
+
+    // Abstract entities provide reusable field definitions; they don't generate tables
+    abstract entity BaseEntity {
+        @UUID id : primaryKey = uuid();
+        @DateTime createdAt = now();
+        @DateTime updatedAt = now();
+    }
+
+    // Constants shared across services
+    const MAX_PAGE_SIZE = 100;
+    const DEFAULT_PAGE_SIZE = 20;
+    const MAX_SCORE = 100;
+    const MIN_SCORE = 0;
+    const PASSING_SCORE = 60;
+}

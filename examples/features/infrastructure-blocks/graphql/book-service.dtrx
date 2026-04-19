@@ -1,0 +1,80 @@
+
+// Feature: GraphQL API block - type-safe schema with queries and mutations
+// Demonstrates types mapped from entities, relationship traversal, and CRUD mutations
+service library.BookService : version('1.0.0'), description('Book management service with GraphQL API') {
+
+    // Service infrastructure configuration
+    config('config/book-service/book-service-config.yaml');   // Service-specific settings
+    registration('config/book-service/registration.yaml');     // Service registry entry
+    discovery { }                                              // Service discovery (auto-configured)
+    resilience('config/book-service/resilience.yaml');          // Circuit breakers, retries, timeouts
+
+    // Relational database block with entities that have a one-to-many relationship
+    rdbms bookDb('config/book-service/datasources.yaml') {
+
+        // Abstract base entity with standard audit fields
+        abstract entity BaseEntity {
+            @UUID id : primaryKey = uuid();
+            @DateTime createdAt = now();
+            @DateTime updatedAt = now();
+        }
+
+        // Category entity - the "one" side of the one-to-many relationship
+        entity Category extends BaseEntity {
+            String(100) name : unique, trim;
+            // 'hasMany' defines a one-to-many relationship; 'as books' names the collection
+            hasMany Book as books;
+        }
+
+        // Book entity - the "many" side; belongs to a Category
+        entity Book extends BaseEntity {
+            String(200) title : trim;
+            String(100) author : trim;
+            Int publicationYear;
+            // 'belongsTo' defines the many-to-one side with an indexed foreign key
+            belongsTo Category : index;
+        }
+    }
+
+    // 'graphql_api' block defines a GraphQL schema with types, queries, and mutations
+    graphql_api BookGraphQL {
+
+        // 'type' defines a GraphQL object type for query responses
+        type BookType {
+            UUID id;
+            String title;
+            String author;
+            Int publicationYear;
+            // Nested type creates a resolvable relationship in the schema
+            CategoryType category;
+        }
+
+        // Types can reference other types to form a graph of relationships
+        type CategoryType {
+            UUID id;
+            String name;
+            // Array of nested types enables traversing the one-to-many relationship
+            Array<BookType> books;
+        }
+
+        // 'query' defines a read-only GraphQL operation
+        // Queries resolve data without side effects
+        query books() -> Array<BookType> {
+            return bookDb.Book.all();
+        }
+
+        query book(UUID id) -> BookType {
+            return bookDb.Book.findById(id);
+        }
+
+        // Query with a filter parameter scoped to a specific category
+        query booksByCategory(UUID categoryId) -> Array<BookType> {
+            return bookDb.Book.where(categoryId: categoryId).all();
+        }
+
+        // 'mutation' defines a write operation that modifies data
+        mutation createBook(String title, String author, Int publicationYear, UUID categoryId) -> BookType {
+            return bookDb.Book.create({ title: title, author: author, publicationYear: publicationYear, categoryId: categoryId });
+        }
+    }
+}

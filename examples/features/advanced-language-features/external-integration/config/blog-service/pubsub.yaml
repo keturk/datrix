@@ -1,0 +1,29 @@
+test:
+  pubsub:
+    engine: rabbitmq
+    host: localhost
+    port: 5672
+    vhost: /
+    docker_image: rabbitmq:3.13-management-alpine
+    volume_path: /var/lib/rabbitmq
+    healthCheckCmd: '["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]'
+    platform: container
+development:
+  pubsub:
+    engine: rabbitmq
+    host: localhost
+    port: 5672
+    vhost: /
+    docker_image: rabbitmq:3.13-management-alpine
+    volume_path: /var/lib/rabbitmq
+    healthCheckCmd: '["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]'
+    platform: container
+production:
+  pubsub:
+    engine: rabbitmq
+    url: ${BLOG_RABBITMQ_URL}
+    vhost: /
+    docker_image: rabbitmq:3.13-management-alpine
+    volume_path: /var/lib/rabbitmq
+    healthCheckCmd: '["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]'
+    platform: managed

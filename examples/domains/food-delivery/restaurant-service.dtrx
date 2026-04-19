@@ -1,0 +1,299 @@
+
+from fooddelivery.common import BaseEntity;
+
+service fooddelivery.RestaurantService : version('1.0.0'), description('restaurant registration and management service') {
+
+    config('config/restaurant-service/restaurant-service-config.yaml');
+    registration('config/restaurant-service/registration.yaml');
+    discovery { }
+    resilience('config/restaurant-service/resilience.yaml');
+
+    enum RestaurantStatus {
+        Active,
+        Closed,
+        Suspended,
+        PendingApproval
+    }
+
+    struct SearchRestaurantRequest {
+        String? query;
+        String? cuisineType;
+        Int page = 1;
+        Int perPage = 20;
+    }
+
+    struct PaginatedRestaurants {
+        Array<restaurantDb.Restaurant> data;
+        JSON pagination;
+    }
+
+    struct SubmitReviewRequest {
+        UUID restaurantId;
+        UUID customerId;
+        Int rating;
+        Text? comment;
+    }
+
+    rdbms restaurantDb('config/restaurant-service/datasources.yaml') {
+
+        entity Restaurant extends BaseEntity {
+            String(200) name : trim;
+            Text? description;
+            String(100) cuisineType;
+            String(500) address;
+            Phone phone;
+            Email email;
+            Decimal(3, 2) rating = 0.00;
+            RestaurantStatus status = RestaurantStatus.PendingApproval;
+            Text? openingHours;
+            Decimal(10, 6)? latitude;
+            Decimal(10, 6)? longitude;
+
+            Boolean isOpen := status == RestaurantStatus.Active;
+            Boolean isApproved := status != RestaurantStatus.PendingApproval;
+            String displayInfo := #"{name} - {cuisineType}";
+
+            hasMany RestaurantReview as reviews;
+
+            fulltext(name, description, cuisineType);
+
+            index(status);
+            index(cuisineType);
+            index(name);
+
+            validate {
+                if (name.trim().isEmpty())
+                    ValidationError("Restaurant name cannot be empty");
+                if (cuisineType.trim().isEmpty())
+                    ValidationError("Cuisine type cannot be empty");
+                if (address.trim().isEmpty())
+                    ValidationError("Address cannot be empty");
+            }
+
+            afterCreate {
+                emit RestaurantRegistered(id, name, cuisineType);
+            }
+
+            afterUpdate {
+                if (isChanged(status)) {
+                    emit RestaurantStatusChanged(id, name, oldValue(status), status);
+                }
+                if (isChanged(rating)) {
+                    emit RestaurantRatingUpdated(id, name, rating);
+                }
+            }
+
+            fn updateRating() {
+                #Array<RestaurantReview> allReviews = restaurantDb.RestaurantReview
+                    .where(restaurantId: id)
+                    .all();
+
+                if (allReviews.length() == 0) {
+                    rating = 0.00;
+                } else {
+                    #Int totalRating = 0;
+                    foreach review in allReviews {
+                        totalRating = totalRating + review.rating;
+                    }
+                    rating = totalRating / allReviews.length();
+                }
+                this.save();
+            }
+        }
+
+        entity RestaurantReview extends BaseEntity {
+            UUID restaurantId : index;
+            UUID customerId : index;
+            Int rating;
+            Text? comment;
+
+            belongsTo Restaurant : index;
+
+            index(restaurantId, createdAt);
+
+            validate {
+                if (rating < 1 || rating > 5)
+                    ValidationError("Rating must be between 1 and 5");
+            }
+
+            afterCreate {
+                #Restaurant restaurant = restaurantDb.Restaurant.findOrFail(restaurantId);
+                restaurant.updateRating();
+            }
+        }
+    }
+
+    cache redis('config/restaurant-service/cache.yaml') {
+
+        hash RestaurantCache : prefix('restaurant:'), ttl(3600) {
+            UUID restaurantId : primaryKey;
+            String name;
+            Decimal rating;
+            RestaurantStatus status;
+        }
+
+        counter RestaurantViewCount : prefix('restaurant:views:');
+    }
+
+    pubsub mq('config/restaurant-service/pubsub.yaml') {
+
+        topic RestaurantEvents {
+            publish RestaurantRegistered(UUID restaurantId, String name, String cuisineType) {
+                ensure name.length > 0;
+            }
+            publish RestaurantStatusChanged(UUID restaurantId, String name, RestaurantStatus oldStatus, RestaurantStatus newStatus) {
+                ensure oldStatus != newStatus;
+            }
+            publish RestaurantRatingUpdated(UUID restaurantId, String name, Decimal rating);
+        }
+
+        subscribe RestaurantEvents {
+
+            on RestaurantRegistered(UUID restaurantId, String name, String cuisineType) {
+                Log.info("New restaurant registered", {
+                    restaurantId: restaurantId,
+                    name: name,
+                    cuisineType: cuisineType
+                });
+
+                redis.RestaurantCache.set(restaurantId, {
+                    restaurantId: restaurantId,
+                    name: name,
+                    rating: 0.00,
+                    status: RestaurantStatus.PendingApproval
+                });
+            }
+
+            on RestaurantStatusChanged(UUID restaurantId, String name, RestaurantStatus oldStatus, RestaurantStatus newStatus) {
+                Log.info("Restaurant status changed", {
+                    restaurantId: restaurantId,
+                    name: name,
+                    oldStatus: oldStatus,
+                    newStatus: newStatus
+                });
+
+                #JSON? cached = redis.RestaurantCache.get(restaurantId);
+                if (cached != null) {
+                    redis.RestaurantCache.set(restaurantId, {
+                        restaurantId: restaurantId,
+                        name: cached.name,
+                        rating: cached.rating,
+                        status: newStatus
+                    });
+                }
+            }
+        }
+    }
+
+    rest_api RestaurantAPI : basePath('/api/v1/restaurants') {
+
+        resource restaurantDb.Restaurant : only(list, get), public;
+        resource restaurantDb.Restaurant : only(create, update, delete), access(admin);
+
+        @path('/search')
+        get(String query, Int? limit, Int? offset) : public -> Array<restaurantDb.Restaurant> {
+            return restaurantDb.Restaurant
+                .fulltext(query)
+                .where(status: RestaurantStatus.Active)
+                .limit(limit ?? 20)
+                .offset(offset ?? 0)
+                .all();
+        }
+
+        @path('/by-cuisine/:cuisineType')
+        get(String cuisineType) : public -> Array<restaurantDb.Restaurant> {
+            return restaurantDb.Restaurant
+                .where(cuisineType: cuisineType)
+                .where(status: RestaurantStatus.Active)
+                .orderBy(rating: desc)
+                .all();
+        }
+
+        @path('/:id/reviews')
+        get(UUID id) : public -> Array<restaurantDb.RestaurantReview> {
+            #Restaurant restaurant = restaurantDb.Restaurant.findOrFail(id);
+            return restaurantDb.RestaurantReview
+                .where(restaurantId: restaurant.id)
+                .orderBy(createdAt: desc)
+                .limit(50)
+                .all();
+        }
+
+        @path('/:id/reviews')
+        post(UUID id, SubmitReviewRequest request) -> restaurantDb.RestaurantReview {
+            #Restaurant restaurant = restaurantDb.Restaurant.findOrFail(id);
+
+            if (!restaurant.isApproved) {
+                throw ValidationException({
+                    code: "RESTAURANT_NOT_APPROVED",
+                    message: "Cannot review a restaurant that is not yet approved"
+                });
+            }
+
+            #RestaurantReview review = restaurantDb.RestaurantReview.create({
+                restaurantId: restaurant.id,
+                customerId: request.customerId,
+                rating: request.rating,
+                comment: request.comment
+            });
+
+            Log.info("Review submitted", {
+                restaurantId: restaurant.id,
+                customerId: request.customerId,
+                rating: request.rating
+            });
+
+            return review;
+        }
+
+        @path('/internal/:id')
+        get(UUID id) : internal -> restaurantDb.Restaurant {
+            return restaurantDb.Restaurant.findOrFail(id);
+        }
+    }
+
+    test("computed isOpen reflects Active status") {
+        #restaurantDb.Restaurant restaurant = restaurantDb.Restaurant.create({
+            name: "Test Bistro",
+            cuisineType: "Italian",
+            address: "123 Main St",
+            phone: "+15551234567",
+            email: "test@bistro.com",
+            status: RestaurantStatus.Active
+        });
+        restaurant.save();
+        assert restaurant.isOpen == true;
+    }
+
+    test("validation rejects rating outside 1-5 range") {
+        #restaurantDb.Restaurant restaurant = restaurantDb.Restaurant.create({
+            name: "Rating Test Cafe",
+            cuisineType: "French",
+            address: "456 Oak Ave",
+            phone: "+15559876543",
+            email: "rating@test.com",
+            status: RestaurantStatus.Active
+        });
+        restaurant.save();
+        assert throws(
+            () => restaurantDb.RestaurantReview.create({
+                restaurantId: restaurant.id,
+                customerId: uuid(),
+                rating: 6
+            }),
+            ValidationError("Rating must be between 1 and 5")
+        );
+    }
+
+    test("afterCreate emits RestaurantRegistered") {
+        #restaurantDb.Restaurant restaurant = restaurantDb.Restaurant.create({
+            name: "Event Test Grill",
+            cuisineType: "American",
+            address: "789 Elm St",
+            phone: "+15551112222",
+            email: "event@grill.com"
+        });
+        restaurant.save();
+        assert emitted(RestaurantRegistered(restaurant.id, restaurant.name, restaurant.cuisineType));
+    }
+}

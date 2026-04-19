@@ -1,0 +1,592 @@
+
+from hr.common import BaseEntity, AuditedEntity, Department, generateEmployeeNumber;
+
+service hr.EmployeeService : version('1.0.0'), description('employee management and directory service') {
+
+    config('config/employee-service/employee-service-config.yaml');
+    registration('config/employee-service/registration.yaml');
+    discovery { }
+    resilience('config/employee-service/resilience.yaml');
+
+    enum EmployeeStatus {
+        Active : value('active'),
+        OnLeave : value('on_leave'),
+        Terminated : value('terminated'),
+        Suspended : value('suspended')
+    }
+
+    enum EmploymentType {
+        FullTime : value('full_time'),
+        PartTime : value('part_time'),
+        Contract : value('contract'),
+        Intern : value('intern')
+    }
+
+    struct CreateEmployeeRequest {
+        String firstName;
+        String lastName;
+        Email email;
+        Phone phone;
+        String ssn;
+        DateTime dateOfBirth;
+        EmploymentType employmentType;
+        Department department;
+        DateTime hireDate;
+        Money salary;
+        UUID? managerId;
+    }
+
+    struct UpdateEmployeeRequest {
+        String? firstName;
+        String? lastName;
+        Phone? phone;
+        Department? department;
+        Money? salary;
+        UUID? managerId;
+    }
+
+    struct UpdateStatusRequest {
+        EmployeeStatus status;
+        String? reason;
+    }
+
+    struct AddEmergencyContactRequest {
+        String name;
+        String relationship;
+        Phone phone;
+    }
+
+    struct PaginatedEmployees {
+        Array<employeeDb.Employee> data;
+        JSON pagination;
+    }
+
+    rdbms employeeDb('config/employee-service/datasources.yaml') {
+        alert queryDuration(p95) over(5m) > 200ms @severity(warning);
+        alert connectionPool(utilization) over(1m) > 80% @severity(critical);
+
+        // Core employee entity with encrypted/sensitive fields
+        entity Employee extends AuditedEntity : audit {
+            String(100) firstName : trim;
+            String(100) lastName : trim;
+            String(20) employeeNumber : unique;
+            Email email : unique;
+            Phone phone : sensitive;
+            String(11) ssn : encrypted, sensitive;
+            DateTime dateOfBirth : sensitive;
+            EmployeeStatus status = EmployeeStatus.Active;
+            EmploymentType employmentType;
+            Department department;
+            DateTime hireDate;
+            DateTime? terminationDate;
+            Money salary : encrypted;
+            UUID? managerId : index;
+            String(500)? terminationReason;
+
+            // Computed fields
+            String fullName := #"{firstName} {lastName}";
+            Boolean isActive := status == EmployeeStatus.Active;
+            Int yearsOfService := Math.floor((now().timestamp() - hireDate.timestamp()) / 31536000000);
+
+            hasMany EmergencyContact as emergencyContacts : cascade(delete);
+
+            index(email);
+            index(department, status);
+            index(status, employmentType);
+            index(managerId);
+            index(hireDate);
+
+            validate {
+                if (firstName.trim().isEmpty())
+                    ValidationError("First name cannot be empty");
+                if (lastName.trim().isEmpty())
+                    ValidationError("Last name cannot be empty");
+                if (salary.amount <= 0)
+                    ValidationError("Salary must be positive");
+                if (hireDate > now())
+                    ValidationError("Hire date cannot be in the future");
+            }
+
+            afterCreate {
+                emit EmployeeHired(id, employeeNumber, firstName, lastName, email, department, employmentType);
+                Log.info("Employee hired", { employeeId: id, employeeNumber: employeeNumber, department: department });
+            }
+
+            afterUpdate {
+                if (isChanged(status)) {
+                    emit EmployeeStatusChanged(id, employeeNumber, oldValue(status), status);
+
+                    if (status == EmployeeStatus.Terminated) {
+                        terminationDate = now();
+                        Log.info("Employee terminated", { employeeId: id, employeeNumber: employeeNumber });
+                    } else if (status == EmployeeStatus.Suspended) {
+                        Log.warn("Employee suspended", { employeeId: id, employeeNumber: employeeNumber });
+                    }
+                }
+                if (isChanged(department)) {
+                    emit EmployeeDepartmentChanged(id, employeeNumber, oldValue(department), department);
+                    Log.info("Employee department changed", { employeeId: id, oldDept: oldValue(department), newDept: department });
+                }
+                if (isChanged(salary)) {
+                    emit EmployeeSalaryChanged(id, employeeNumber, oldValue(salary), salary);
+                    Log.info("Employee salary updated", { employeeId: id, employeeNumber: employeeNumber });
+                }
+            }
+
+            fn terminate(String reason) {
+                if (status == EmployeeStatus.Terminated) {
+                    throw ValidationException("Employee is already terminated");
+                }
+                status = EmployeeStatus.Terminated;
+                terminationDate = now();
+                terminationReason = reason;
+                this.save();
+            }
+
+            fn suspend(String reason) {
+                if (status != EmployeeStatus.Active) {
+                    throw ValidationException("Only active employees can be suspended");
+                }
+                status = EmployeeStatus.Suspended;
+                auditNote = reason;
+                this.save();
+            }
+
+            fn reinstate() {
+                if (status != EmployeeStatus.Suspended && status != EmployeeStatus.OnLeave) {
+                    throw ValidationException("Only suspended or on-leave employees can be reinstated");
+                }
+                status = EmployeeStatus.Active;
+                auditNote = "Employee reinstated";
+                this.save();
+            }
+
+            fn startLeave() {
+                if (status != EmployeeStatus.Active) {
+                    throw ValidationException("Only active employees can start leave");
+                }
+                status = EmployeeStatus.OnLeave;
+                this.save();
+            }
+        }
+
+        // Emergency contact for employees
+        entity EmergencyContact extends BaseEntity {
+            UUID employeeId : index;
+            String(100) name : trim;
+            String(50) relationship : trim;
+            Phone phone : sensitive;
+
+            belongsTo Employee : index;
+
+            validate {
+                if (name.trim().isEmpty())
+                    ValidationError("Emergency contact name cannot be empty");
+                if (relationship.trim().isEmpty())
+                    ValidationError("Relationship cannot be empty");
+            }
+        }
+    }
+
+    pubsub mq('config/employee-service/pubsub.yaml') {
+        alert consumerLag(max) over(5m) > 500 @severity(critical);
+
+        topic EmployeeEvents {
+            publish EmployeeHired(UUID employeeId, String employeeNumber, String firstName, String lastName, String email, Department department, EmploymentType employmentType) {
+                ensure employeeNumber.length > 0;
+                ensure firstName.length > 0;
+            }
+            publish EmployeeStatusChanged(UUID employeeId, String employeeNumber, EmployeeStatus oldStatus, EmployeeStatus newStatus) {
+                ensure oldStatus != newStatus;
+            }
+            publish EmployeeDepartmentChanged(UUID employeeId, String employeeNumber, Department oldDepartment, Department newDepartment) {
+                ensure oldDepartment != newDepartment;
+            }
+            publish EmployeeSalaryChanged(UUID employeeId, String employeeNumber, Money oldSalary, Money newSalary) {
+                ensure oldSalary != newSalary;
+            }
+        }
+
+        subscribe EmployeeEvents {
+            on EmployeeHired(UUID employeeId, String employeeNumber, String firstName, String lastName, String email, Department department, EmploymentType employmentType) {
+                Log.info("Employee hired event received", { employeeId: employeeId, employeeNumber: employeeNumber, department: department });
+            }
+
+            on EmployeeStatusChanged(UUID employeeId, String employeeNumber, EmployeeStatus oldStatus, EmployeeStatus newStatus) {
+                Log.info("Employee status changed", { employeeId: employeeId, oldStatus: oldStatus, newStatus: newStatus });
+            }
+
+            on EmployeeDepartmentChanged(UUID employeeId, String employeeNumber, Department oldDepartment, Department newDepartment) {
+                Log.info("Employee department changed", { employeeId: employeeId, oldDepartment: oldDepartment, newDepartment: newDepartment });
+            }
+        }
+    }
+
+    // CQRS block for optimized read queries
+    cqrs {
+        view EmployeeDirectoryView {
+            @UUID id : primaryKey;
+            UUID employeeId;
+            String fullName;
+            String email;
+            Department department;
+            EmployeeStatus status;
+            EmploymentType employmentType;
+            DateTime hireDate;
+
+            index department;
+            index status;
+            index employmentType;
+        }
+
+        // Query employees by department
+        query FindByDepartment(Department dept) -> Array<EmployeeDirectoryView> {
+            return EmployeeDirectoryView.where(department: dept).all();
+        }
+
+        // Query all active employees
+        query FindActive() -> Array<EmployeeDirectoryView> {
+            return EmployeeDirectoryView.where(status: EmployeeStatus.Active).all();
+        }
+
+        // Query employees by employment type
+        query FindByEmploymentType(EmploymentType type) -> Array<EmployeeDirectoryView> {
+            return EmployeeDirectoryView.where(employmentType: type).all();
+        }
+
+        // Command to update an employee's department
+        command UpdateDepartment(UUID employeeId, Department newDept) -> employeeDb.Employee {
+            #Employee employee = employeeDb.Employee.findOrFail(employeeId);
+            employee.department = newDept;
+            employee.save();
+            return employee;
+        }
+
+        // Projection to keep the directory view in sync
+        projection EmployeeDirectoryProjection {
+            on EmployeeHired(UUID employeeId, String employeeNumber, String firstName, String lastName, String email, Department department, EmploymentType employmentType) {
+                EmployeeDirectoryView.upsert(employeeId, {
+                    id: uuid(),
+                    employeeId: employeeId,
+                    fullName: #"{firstName} {lastName}",
+                    email: email,
+                    department: department,
+                    status: EmployeeStatus.Active,
+                    employmentType: employmentType,
+                    hireDate: now()
+                });
+            }
+
+            on EmployeeStatusChanged(UUID employeeId, String employeeNumber, EmployeeStatus oldStatus, EmployeeStatus newStatus) {
+                #EmployeeDirectoryView? view = EmployeeDirectoryView.where(employeeId: employeeId).first();
+                if (view != null) {
+                    view.status = newStatus;
+                    view.save();
+                }
+            }
+
+            on EmployeeDepartmentChanged(UUID employeeId, String employeeNumber, Department oldDepartment, Department newDepartment) {
+                #EmployeeDirectoryView? view = EmployeeDirectoryView.where(employeeId: employeeId).first();
+                if (view != null) {
+                    view.department = newDepartment;
+                    view.save();
+                }
+            }
+        }
+    }
+
+    rest_api EmployeeAPI : basePath('/api/v1/employees') {
+        alert responseTime(p95) over(5m) > 500ms @severity(warning);
+        alert errorRate(ratio) over(5m) > 5% @severity(critical);
+
+        // List employees with pagination
+        get(Int page = 1, Int perPage = 20, Department? department, EmployeeStatus? status) -> PaginatedEmployees {
+            #JSON query = employeeDb.Employee.all();
+
+            if (department != null) {
+                query = employeeDb.Employee.where(department: department);
+            }
+            if (status != null) {
+                query = query.where(status: status);
+            }
+
+            #Int total = query.count();
+            #Array<Employee> employees = query
+                .orderBy(lastName: asc)
+                .offset((page - 1) * perPage)
+                .limit(perPage)
+                .all();
+
+            return {
+                data: employees,
+                pagination: {
+                    currentPage: page,
+                    perPage: perPage,
+                    totalItems: total,
+                    totalPages: Math.ceil(total / perPage),
+                    hasNextPage: page < Math.ceil(total / perPage),
+                    hasPrevPage: page > 1
+                }
+            };
+        }
+
+        // Get a single employee
+        @path('/:id')
+        get(UUID id) -> employeeDb.Employee {
+            return employeeDb.Employee.findOrFail(id);
+        }
+
+        // Create a new employee
+        post(CreateEmployeeRequest request) : access(admin) -> employeeDb.Employee {
+            // Check for duplicate email
+            #Employee? existing = employeeDb.Employee.where(email: request.email).first();
+            if (existing != null) {
+                throw ValidationException(#"Employee with email {request.email} already exists");
+            }
+
+            #Employee employee = employeeDb.Employee.create({
+                firstName: request.firstName,
+                lastName: request.lastName,
+                employeeNumber: generateEmployeeNumber(),
+                email: request.email,
+                phone: request.phone,
+                ssn: request.ssn,
+                dateOfBirth: request.dateOfBirth,
+                status: EmployeeStatus.Active,
+                employmentType: request.employmentType,
+                department: request.department,
+                hireDate: request.hireDate,
+                salary: request.salary,
+                managerId: request.managerId
+            });
+            employee.save();
+
+            return employee;
+        }
+
+        // Update employee details
+        @path('/:id')
+        put(UUID id, UpdateEmployeeRequest request) : access(admin) -> employeeDb.Employee {
+            #Employee employee = employeeDb.Employee.findOrFail(id);
+
+            if (request.firstName != null) employee.firstName = request.firstName;
+            if (request.lastName != null) employee.lastName = request.lastName;
+            if (request.phone != null) employee.phone = request.phone;
+            if (request.department != null) employee.department = request.department;
+            if (request.salary != null) employee.salary = request.salary;
+            if (request.managerId != null) employee.managerId = request.managerId;
+
+            employee.save();
+            return employee;
+        }
+
+        // Update employee status
+        @path('/:id/status')
+        put(UUID id, UpdateStatusRequest request) : access(admin) -> employeeDb.Employee {
+            #Employee employee = employeeDb.Employee.findOrFail(id);
+
+            switch (request.status) {
+                case EmployeeStatus.Terminated {
+                    employee.terminate(request.reason ?? "No reason provided");
+                }
+                case EmployeeStatus.Suspended {
+                    employee.suspend(request.reason ?? "No reason provided");
+                }
+                case EmployeeStatus.Active {
+                    employee.reinstate();
+                }
+                case EmployeeStatus.OnLeave {
+                    employee.startLeave();
+                }
+                default {
+                    throw ValidationException(#"Invalid status transition to {request.status}");
+                }
+            }
+
+            return employee;
+        }
+
+        // Add an emergency contact
+        @path('/:id/emergency-contacts')
+        post(UUID id, AddEmergencyContactRequest request) -> employeeDb.EmergencyContact {
+            #Employee employee = employeeDb.Employee.findOrFail(id);
+
+            #EmergencyContact contact = employeeDb.EmergencyContact.create({
+                employeeId: employee.id,
+                name: request.name,
+                relationship: request.relationship,
+                phone: request.phone
+            });
+            contact.save();
+
+            return contact;
+        }
+
+        // Get emergency contacts for an employee
+        @path('/:id/emergency-contacts')
+        get(UUID id) -> Array<employeeDb.EmergencyContact> {
+            return employeeDb.EmergencyContact
+                .where(employeeId: id)
+                .all();
+        }
+
+        // Get employees by department
+        @path('/by-department/:department')
+        get(Department department) -> Array<employeeDb.Employee> {
+            return employeeDb.Employee
+                .where(department: department)
+                .where(status: EmployeeStatus.Active)
+                .orderBy(lastName: asc)
+                .all();
+        }
+
+        // Get direct reports for a manager
+        @path('/:id/reports')
+        get(UUID id) -> Array<employeeDb.Employee> {
+            return employeeDb.Employee
+                .where(managerId: id)
+                .where(status: EmployeeStatus.Active)
+                .orderBy(lastName: asc)
+                .all();
+        }
+
+        // CQRS directory view endpoint
+        @path('/directory')
+        get(Department? department) : public -> Array<EmployeeDirectoryView> {
+            if (department != null) {
+                return EmployeeDirectoryView.where(department: department).all();
+            }
+            return EmployeeDirectoryView.where(status: EmployeeStatus.Active).all();
+        }
+
+        // Internal endpoint for cross-service lookups
+        @path('/internal/:id')
+        get(UUID id) : internal -> employeeDb.Employee {
+            return employeeDb.Employee.findOrFail(id);
+        }
+
+        @path('/internal/by-number/:employeeNumber')
+        get(String employeeNumber) : internal -> employeeDb.Employee {
+            return employeeDb.Employee.where(employeeNumber: employeeNumber).firstOrFail();
+        }
+    }
+
+    test("computed fullName concatenates first and last name") {
+        #employeeDb.Employee emp = employeeDb.Employee.create({
+            firstName: "John",
+            lastName: "Doe",
+            employeeNumber: "EMP-TEST-001",
+            email: "john.doe@test.com",
+            phone: "+15551234567",
+            ssn: "12345678901",
+            dateOfBirth: DateTime.parse("1990-01-01"),
+            status: EmployeeStatus.Active,
+            employmentType: EmploymentType.FullTime,
+            department: Department.Engineering,
+            hireDate: DateTime.parse("2020-06-15"),
+            salary: Money.of(85000, "USD")
+        });
+        emp.save();
+        assert emp.fullName == "John Doe";
+    }
+
+    test("computed isActive is true for Active status") {
+        #employeeDb.Employee emp = employeeDb.Employee.create({
+            firstName: "Jane",
+            lastName: "Smith",
+            employeeNumber: "EMP-TEST-002",
+            email: "jane.smith@test.com",
+            phone: "+15559876543",
+            ssn: "98765432101",
+            dateOfBirth: DateTime.parse("1985-05-15"),
+            status: EmployeeStatus.Active,
+            employmentType: EmploymentType.PartTime,
+            department: Department.Marketing,
+            hireDate: DateTime.parse("2021-03-01"),
+            salary: Money.of(55000, "USD")
+        });
+        emp.save();
+        assert emp.isActive == true;
+    }
+
+    test("validation rejects non-positive salary") {
+        assert throws(
+            () => employeeDb.Employee.create({
+                firstName: "Test",
+                lastName: "User",
+                employeeNumber: "EMP-TEST-003",
+                email: "test.user@test.com",
+                phone: "+15551111111",
+                ssn: "11111111111",
+                dateOfBirth: DateTime.parse("1995-01-01"),
+                employmentType: EmploymentType.FullTime,
+                department: Department.Finance,
+                hireDate: DateTime.parse("2022-01-01"),
+                salary: Money.of(0, "USD")
+            }),
+            ValidationError("Salary must be positive")
+        );
+    }
+
+    test("afterCreate emits EmployeeHired event") {
+        #employeeDb.Employee emp = employeeDb.Employee.create({
+            firstName: "Bob",
+            lastName: "Builder",
+            employeeNumber: "EMP-TEST-004",
+            email: "bob.builder@test.com",
+            phone: "+15552222222",
+            ssn: "22222222222",
+            dateOfBirth: DateTime.parse("1988-07-20"),
+            status: EmployeeStatus.Active,
+            employmentType: EmploymentType.FullTime,
+            department: Department.Operations,
+            hireDate: DateTime.parse("2023-01-15"),
+            salary: Money.of(72000, "USD")
+        });
+        emp.save();
+        assert emitted(EmployeeHired(emp.id, emp.employeeNumber, "Bob", "Builder", "bob.builder@test.com", Department.Operations, EmploymentType.FullTime));
+    }
+
+    test("terminate sets status and terminationDate") {
+        #employeeDb.Employee emp = employeeDb.Employee.create({
+            firstName: "Charlie",
+            lastName: "Day",
+            employeeNumber: "EMP-TEST-005",
+            email: "charlie.day@test.com",
+            phone: "+15553333333",
+            ssn: "33333333333",
+            dateOfBirth: DateTime.parse("1992-12-01"),
+            status: EmployeeStatus.Active,
+            employmentType: EmploymentType.Contract,
+            department: Department.Sales,
+            hireDate: DateTime.parse("2022-06-01"),
+            salary: Money.of(60000, "USD")
+        });
+        emp.save();
+        emp.terminate("Contract ended");
+        assert emp.status == EmployeeStatus.Terminated;
+        assert emp.terminationDate != null;
+    }
+
+    test("suspend fails for non-active employee") {
+        #employeeDb.Employee emp = employeeDb.Employee.create({
+            firstName: "Diana",
+            lastName: "Prince",
+            employeeNumber: "EMP-TEST-006",
+            email: "diana.prince@test.com",
+            phone: "+15554444444",
+            ssn: "44444444444",
+            dateOfBirth: DateTime.parse("1990-03-22"),
+            status: EmployeeStatus.OnLeave,
+            employmentType: EmploymentType.FullTime,
+            department: Department.HR,
+            hireDate: DateTime.parse("2019-09-01"),
+            salary: Money.of(95000, "USD")
+        });
+        emp.save();
+        assert throws(
+            () => emp.suspend("Test suspension"),
+            ValidationException("Only active employees can be suspended")
+        );
+    }
+}

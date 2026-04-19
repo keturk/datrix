@@ -1,0 +1,73 @@
+
+// Advanced flow control feature example - self-contained service demonstrating:
+// - try/catch for error handling within entity functions
+// - match expression for pattern matching with wildcard default
+// - Null coalescing operator (??) for fallback values
+// - Entity-level fn definitions with return types
+// - Log.error() for structured error logging
+// - String interpolation with #"..." syntax
+
+// Define a service in the 'library' namespace with version and description
+service library.BookService : version('1.0.0'), description('Book management service') {
+
+    // Service infrastructure configuration
+    config('config/book-service/book-service-config.yaml');   // Service-specific settings
+    registration('config/book-service/registration.yaml');     // Service registry entry
+    discovery { }                                              // Service discovery (auto-configured)
+    resilience('config/book-service/resilience.yaml');          // Circuit breakers, retries, timeouts
+
+    // Enum for tracking book availability
+    enum BookStatus {
+        Available,
+        CheckedOut,
+        Reserved,
+        Maintenance
+    }
+
+    // Relational database block - groups entities (tables) under a named datasource
+    rdbms bookDb('config/book-service/datasources.yaml') {
+
+        // Abstract entities provide reusable field definitions; they don't generate tables
+        abstract entity BaseEntity {
+            @UUID id : primaryKey = uuid();
+            @DateTime createdAt = now();
+            @DateTime updatedAt = now();
+        }
+
+        // Book entity with functions demonstrating advanced flow control
+        entity Book extends BaseEntity {
+            String(200) title;
+            BookStatus status = BookStatus.Available;
+            // Nullable Decimal - demonstrates null coalescing
+            Decimal(5, 2)? price;
+            // Nullable Int - demonstrates match with nullable values
+            Int? edition;
+
+            // Entity function using try/catch and null coalescing (??)
+            // '??' returns the left value if non-null, otherwise the right
+            fn applyDiscount(Decimal percentage) -> Decimal {
+                #Decimal currentPrice = price ?? 0.0;
+                try {
+                    #Decimal discount = currentPrice * (percentage / 100);
+                    #Decimal newPrice = currentPrice - discount;
+                    price = newPrice;
+                    return newPrice;
+                } catch (Exception e) {
+                    Log.error("Failed to apply discount", { error: e });
+                    return currentPrice;
+                }
+            }
+
+            // Entity function using 'match' expression for pattern matching
+            // '_' is the wildcard/default case; #"..." is string interpolation
+            fn getEditionLabel() -> String {
+                return match (edition) {
+                    1 => "First Edition",
+                    2 => "Second Edition",
+                    3 => "Third Edition",
+                    _ => #"Edition {edition}"
+                };
+            }
+        }
+    }
+}

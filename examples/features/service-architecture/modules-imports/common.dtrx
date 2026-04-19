@@ -1,0 +1,41 @@
+
+// Shared module demonstrating all exportable constructs:
+// abstract entities, traits, structs, constants, and functions
+module library.common {
+
+    // Abstract entity - shared base for all services' entities
+    abstract entity BaseEntity {
+        @UUID id : primaryKey = uuid();
+        @DateTime createdAt = now();
+        @DateTime updatedAt = now();
+    }
+
+    // Trait - a mixin that adds fields to any entity using 'with'
+    // Traits do not generate tables; they inject fields into the entity that uses them
+    trait Auditable {
+        UUID? createdBy;
+        UUID? updatedBy;
+    }
+
+    // Another trait for logical (soft) deletion instead of physical removal
+    trait SoftDeletable {
+        Boolean isDeleted = false;
+        @DateTime? deletedAt;
+    }
+
+    // Struct with semantic types for geographic coordinates
+    // Latitude and Longitude are validated semantic types
+    struct GeoLocation {
+        Latitude lat;
+        Longitude lng;
+    }
+
+    // Compile-time constant reusable by any importing service
+    const MAX_CHECKOUT_DAYS = 30;
+
+    // Module-level function shared across all services that import it
+    fn calculateLateFee(Int daysOverdue) -> Decimal {
+        #Float baseFee = 0.50;
+        return baseFee * daysOverdue;
+    }
+}

@@ -1,0 +1,53 @@
+groups:
+  - name: ecommerce.OrderService-alerts
+    rules:
+      - alert: db_query_duration_high
+        expr: histogram_quantile(0.95, rate(db_query_duration_bucket[5m])) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+          service: ecommerce.OrderService
+          block: db
+        annotations:
+          summary: "db.queryDuration p95 exceeds 200.0ms"
+          description: "p95(db_query_duration) over 5m > 200.0ms"
+      - alert: db_connection_pool_high
+        expr: db_connection_pool > 0.8
+        for: 1m
+        labels:
+          severity: critical
+          service: ecommerce.OrderService
+          block: db
+        annotations:
+          summary: "db.connectionPool utilization exceeds 80.0%"
+          description: "utilization(db_connection_pool) over 1m > 80.0%"
+      - alert: redis_hit_ratio_high
+        expr: redis_hit_ratio < 0.7
+        for: 5m
+        labels:
+          severity: warning
+          service: ecommerce.OrderService
+          block: redis
+        annotations:
+          summary: "redis.hitRatio ratio exceeds 70.0%"
+          description: "ratio(redis_hit_ratio) over 5m < 70.0%"
+      - alert: mq_consumer_lag_high
+        expr: max_over_time(mq_consumer_lag[5m]) > 1000.0
+        for: 5m
+        labels:
+          severity: critical
+          service: ecommerce.OrderService
+          block: mq
+        annotations:
+          summary: "mq.consumerLag max exceeds 1000.0"
+          description: "max(mq_consumer_lag) over 5m > 1000.0"
+      - alert: mq_failed_messages_high
+        expr: increase(mq_failed_messages_total[5m]) > 10.0
+        for: 5m
+        labels:
+          severity: warning
+          service: ecommerce.OrderService
+          block: mq
+        annotations:
+          summary: "mq.failedMessages count exceeds 10.0"
+          description: "count(mq_failed_messages) over 5m > 10.0"

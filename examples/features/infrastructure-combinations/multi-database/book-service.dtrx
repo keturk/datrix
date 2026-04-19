@@ -1,0 +1,61 @@
+
+// Multi-database feature example - self-contained service demonstrating:
+// - Two separate rdbms blocks in a single service
+// - First block ('catalog') uses PostgreSQL for primary book data
+// - Second block ('reporting') uses MySQL for audit/reporting data
+// - Each block has its own config YAML, connection pool, and entities
+
+// Define a service in the 'library' namespace with version and description
+service library.BookService : version('1.0.0'), description('Book management service') {
+
+    // Service infrastructure configuration
+    config('config/book-service/book-service-config.yaml');   // Service-specific settings
+    registration('config/book-service/registration.yaml');     // Service registry entry
+    discovery { }                                              // Service discovery (auto-configured)
+    resilience('config/book-service/resilience.yaml');          // Circuit breakers, retries, timeouts
+
+    // Enum for tracking book availability
+    enum BookStatus {
+        Available,
+        CheckedOut,
+        Reserved,
+        Maintenance
+    }
+
+    // First rdbms block - PostgreSQL catalog database for primary book data
+    rdbms catalog('config/book-service/catalog-db.yaml') {
+
+        // Each rdbms block has its own abstract base entity
+        abstract entity BaseEntity {
+            @UUID id : primaryKey = uuid();
+            @DateTime createdAt = now();
+            @DateTime updatedAt = now();
+        }
+
+        // Primary book data lives in the catalog database
+        entity Book extends BaseEntity {
+            // 'trim' auto-trims whitespace on input
+            String(200) title : trim;
+            String(100) author : trim;
+            BookStatus status = BookStatus.Available;
+        }
+    }
+
+    // Second rdbms block - MySQL reporting database for audit trail
+    // A separate database engine and connection pool from the catalog
+    rdbms reporting('config/book-service/reporting-db.yaml') {
+
+        // Reporting entities have their own base with fewer fields
+        abstract entity BaseEntity {
+            @UUID id : primaryKey = uuid();
+            @DateTime createdAt = now();
+        }
+
+        // Audit entity records actions performed on books
+        entity BookAudit extends BaseEntity {
+            UUID bookId;
+            String(50) action;
+            @DateTime performedAt = now();
+        }
+    }
+}

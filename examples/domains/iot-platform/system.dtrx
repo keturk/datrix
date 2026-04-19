@@ -1,0 +1,12 @@
+
+include 'common.dtrx';
+include 'device-service.dtrx';
+include 'telemetry-service.dtrx';
+include 'firmware-service.dtrx';
+
+system iot : version('1.0.0') {
+    config('config/system-config.yaml');
+    registry('config/registry.yaml');
+    gateway('config/gateway.yaml');
+    observability('config/observability.yaml');
+}

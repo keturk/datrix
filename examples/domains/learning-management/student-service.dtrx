@@ -1,0 +1,264 @@
+
+from lms.common import BaseEntity, MAX_PAGE_SIZE;
+
+service lms.StudentService : version('1.0.0'), description('student profile and account management service') {
+
+    config('config/student-service/student-service-config.yaml');
+    registration('config/student-service/registration.yaml');
+    discovery { }
+    resilience('config/student-service/resilience.yaml');
+
+    enum StudentStatus {
+        Active : value('active'),
+        Graduated : value('graduated'),
+        Suspended : value('suspended'),
+        Withdrawn : value('withdrawn')
+    }
+
+    struct PaginatedStudents {
+        Array<studentDb.Student> data;
+        JSON pagination;
+    }
+
+    struct CreateStudentRequest {
+        String firstName;
+        String lastName;
+        Email email;
+        DateTime? dateOfBirth;
+    }
+
+    struct UpdateStudentRequest {
+        String(100)? firstName;
+        String(100)? lastName;
+        Url? avatarUrl;
+        String(500)? bio;
+        Phone? phone;
+    }
+
+    rdbms studentDb('config/student-service/datasources.yaml') {
+
+        entity Student extends BaseEntity {
+            String(100) firstName : trim;
+            String(100) lastName : trim;
+            Email email : unique;
+            String(20) studentNumber : unique;
+            StudentStatus status = StudentStatus.Active;
+            DateTime enrollmentDate = now();
+            DateTime? dateOfBirth;
+            Url? avatarUrl;
+            String(500)? bio;
+            Phone? phone;
+            Int courseCount = 0;
+            Int completedCourseCount = 0;
+            Decimal(5, 2) gpa = 0.00;
+
+            // Computed fields
+            String fullName := #"{firstName} {lastName}";
+            Boolean isActive := status == StudentStatus.Active;
+            Boolean isEligibleToEnroll := status == StudentStatus.Active;
+            Decimal completionRate := courseCount > 0 ? (completedCourseCount * 100.0 / courseCount) : 0.0;
+
+            index(email);
+            index(studentNumber);
+            index(status);
+            fulltext(firstName, lastName, email);
+
+            validate {
+                if (firstName.trim().isEmpty())
+                    ValidationError("First name cannot be empty");
+                if (lastName.trim().isEmpty())
+                    ValidationError("Last name cannot be empty");
+            }
+
+            beforeCreate {
+                studentNumber = #"STU-{now().format('YYYY')}-{Random.string(6).toUpperCase()}";
+            }
+
+            afterCreate {
+                Log.info("Student created", { studentId: id, studentNumber: studentNumber });
+            }
+
+            afterUpdate {
+                if (isChanged(status)) {
+                    Log.info("Student status changed", {
+                        studentId: id,
+                        oldStatus: oldValue(status),
+                        newStatus: status
+                    });
+                }
+            }
+        }
+    }
+
+    rest_api StudentAPI : basePath('/api/v1/students') {
+
+        resource studentDb.Student : only(list, get), public;
+
+        // Create a new student
+        post(CreateStudentRequest request) : access(admin) -> studentDb.Student {
+            #Student student = studentDb.Student.create({
+                firstName: request.firstName,
+                lastName: request.lastName,
+                email: request.email,
+                dateOfBirth: request.dateOfBirth,
+                status: StudentStatus.Active
+            });
+            student.save();
+            return student;
+        }
+
+        // Update a student profile
+        @path('/:id')
+        put(UUID id, UpdateStudentRequest request) -> studentDb.Student {
+            #Student student = studentDb.Student.findOrFail(id);
+
+            if (request.firstName != null) {
+                student.firstName = request.firstName;
+            }
+            if (request.lastName != null) {
+                student.lastName = request.lastName;
+            }
+            if (request.avatarUrl != null) {
+                student.avatarUrl = request.avatarUrl;
+            }
+            if (request.bio != null) {
+                student.bio = request.bio;
+            }
+            if (request.phone != null) {
+                student.phone = request.phone;
+            }
+
+            student.save();
+            return student;
+        }
+
+        // Search students
+        @path('/search')
+        get(String query, Int page = 1, Int perPage = 20) : public -> PaginatedStudents {
+            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            #Array<Student> students = studentDb.Student
+                .fulltext(query)
+                .where(status: StudentStatus.Active)
+                .offset((page - 1) * cappedPerPage)
+                .limit(cappedPerPage)
+                .all();
+
+            #Int total = studentDb.Student
+                .fulltext(query)
+                .where(status: StudentStatus.Active)
+                .count();
+
+            #Int totalPages = Math.ceil(total / cappedPerPage);
+
+            return {
+                data: students,
+                pagination: {
+                    currentPage: page,
+                    perPage: cappedPerPage,
+                    totalItems: total,
+                    totalPages: totalPages,
+                    hasNextPage: page < totalPages,
+                    hasPrevPage: page > 1
+                }
+            };
+        }
+
+        // Get current student profile
+        @path('/me')
+        get() -> studentDb.Student {
+            #UUID studentId = Auth.user().id;
+            return studentDb.Student.findOrFail(studentId);
+        }
+
+        // Suspend a student
+        @path('/:id/suspend')
+        put(UUID id) : access(admin) -> studentDb.Student {
+            #Student student = studentDb.Student.findOrFail(id);
+            student.status = StudentStatus.Suspended;
+            student.save();
+            return student;
+        }
+
+        // Reactivate a student
+        @path('/:id/reactivate')
+        put(UUID id) : access(admin) -> studentDb.Student {
+            #Student student = studentDb.Student.findOrFail(id);
+
+            if (student.status != StudentStatus.Suspended) {
+                throw ValidationException({
+                    code: "NOT_SUSPENDED",
+                    message: "Only suspended students can be reactivated"
+                });
+            }
+
+            student.status = StudentStatus.Active;
+            student.save();
+            return student;
+        }
+
+        // Internal endpoint for other services
+        @path('/internal/:id')
+        get(UUID id) : internal -> studentDb.Student {
+            return studentDb.Student.findOrFail(id);
+        }
+
+        // Internal endpoint to get multiple students
+        @path('/internal/bulk')
+        post(Array<UUID> ids) : internal -> Array<studentDb.Student> {
+            return studentDb.Student.whereIn(id: ids).all();
+        }
+    }
+
+    test("validation rejects empty first name") {
+        assert throws(
+            () => studentDb.Student.create({
+                firstName: "",
+                lastName: "Doe",
+                email: "test@example.com"
+            }),
+            ValidationError("First name cannot be empty")
+        );
+    }
+
+    test("validation rejects empty last name") {
+        assert throws(
+            () => studentDb.Student.create({
+                firstName: "Jane",
+                lastName: "",
+                email: "test@example.com"
+            }),
+            ValidationError("Last name cannot be empty")
+        );
+    }
+
+    test("computed fullName concatenates names") {
+        #studentDb.Student student = studentDb.Student.create({
+            firstName: "Jane",
+            lastName: "Doe",
+            email: "jane.doe@example.com"
+        });
+        student.save();
+        assert student.fullName == "Jane Doe";
+    }
+
+    test("computed isActive for Active status") {
+        #studentDb.Student student = studentDb.Student.create({
+            firstName: "John",
+            lastName: "Smith",
+            email: "john.smith@example.com"
+        });
+        student.save();
+        assert student.isActive == true;
+        assert student.isEligibleToEnroll == true;
+    }
+
+    test("beforeCreate generates studentNumber") {
+        #studentDb.Student student = studentDb.Student.create({
+            firstName: "Alice",
+            lastName: "Brown",
+            email: "alice.brown@example.com"
+        });
+        student.save();
+        assert student.studentNumber != null;
+    }
+}

@@ -1,0 +1,20 @@
+test:
+  tags: [api, orders, v1]
+
+  meta: { team: orders }
+
+  healthCheck: { type: http, path: /health, interval: 10s }
+
+development:
+  tags: [api, orders, v1]
+
+  meta: { team: orders }
+
+  healthCheck: { type: http, path: /health, interval: 10s }
+
+production:
+  tags: [api, orders, v1]
+
+  meta: { team: orders }
+
+  healthCheck: { type: http, path: /health, interval: 10s }

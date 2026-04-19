@@ -1,0 +1,165 @@
+openapi: 3.1.0
+info:
+  title: blog.AuthorService API
+  version: 1.0.0
+paths:
+  /api/v1/authors/authors:
+    get:
+      operationId: list_authors
+      summary: list_authors
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      operationId: create_author
+      summary: create_author
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/authors/authors/:id:
+    get:
+      operationId: get_author
+      summary: get_author
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+    put:
+      operationId: update_author
+      summary: update_author
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+    delete:
+      operationId: delete_author
+      summary: delete_author
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/authors/register:
+    post:
+      operationId: post
+      summary: post
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+components:
+  schemas:
+    Author:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        email:
+          type: string
+          format: email
+        passwordHash:
+          type: string
+          format: password
+        firstName:
+          type: string
+          maxLength: 100
+        lastName:
+          type: string
+          maxLength: 100
+        bio:
+          $ref: '#/components/schemas/String(200)?'
+        avatarUrl:
+          $ref: '#/components/schemas/URL?'
+        role:
+          $ref: '#/components/schemas/AuthorRole'
+        status:
+          $ref: '#/components/schemas/AuthorStatus'
+        lastLoginAt:
+          $ref: '#/components/schemas/DateTime?'
+        emailVerifiedAt:
+          $ref: '#/components/schemas/DateTime?'
+        emailVerificationToken:
+          $ref: '#/components/schemas/String?'
+      required:
+      - id
+      - createdAt
+      - updatedAt
+      - email
+      - passwordHash
+      - firstName
+      - lastName
+      - role
+      - status
+    AuthorSession:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        token:
+          type: string
+          maxLength: 255
+        deviceName:
+          type: string
+          maxLength: 100
+        ipAddress:
+          $ref: '#/components/schemas/IPAddress?'
+        expiresAt:
+          type: string
+          format: date-time
+      required:
+      - id
+      - createdAt
+      - updatedAt
+      - token
+      - deviceName
+      - expiresAt
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

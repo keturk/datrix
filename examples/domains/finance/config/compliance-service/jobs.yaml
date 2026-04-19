@@ -1,0 +1,32 @@
+test:
+  jobs:
+    CheckLargeTransactions:
+      schedule: '0 * * * *'
+      retry: { maxAttempts: 1, backoff: fixed }
+      timeout: 30s
+    GenerateComplianceReport:
+      schedule: '0 3 * * *'
+      retry: { maxAttempts: 1, backoff: fixed }
+      timeout: 60s
+
+development:
+  jobs:
+    CheckLargeTransactions:
+      schedule: '0 * * * *'
+      retry: { maxAttempts: 1, backoff: fixed }
+      timeout: 30s
+    GenerateComplianceReport:
+      schedule: '0 3 * * *'
+      retry: { maxAttempts: 1, backoff: fixed }
+      timeout: 60s
+
+production:
+  jobs:
+    CheckLargeTransactions:
+      schedule: '*/15 * * * *'
+      retry: { maxAttempts: 3, backoff: exponential }
+      timeout: 5m
+    GenerateComplianceReport:
+      schedule: '0 3 * * *'
+      retry: { maxAttempts: 3, backoff: exponential }
+      timeout: 15m

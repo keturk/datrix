@@ -1,0 +1,41 @@
+
+// Feature: Storage block - file/blob storage for book covers and documents
+// Demonstrates folder definitions with path templates, MIME restrictions, and size limits
+service library.BookService : version('1.0.0'), description('Book management service with file storage') {
+
+    // Service infrastructure configuration
+    config('config/book-service/book-service-config.yaml');   // Service-specific settings
+    registration('config/book-service/registration.yaml');     // Service registry entry
+    discovery { }                                              // Service discovery (auto-configured)
+    resilience('config/book-service/resilience.yaml');          // Circuit breakers, retries, timeouts
+
+    // Relational database block for persistent entity storage
+    rdbms bookDb('config/book-service/datasources.yaml') {
+
+        // Abstract base entity with standard audit fields
+        abstract entity BaseEntity {
+            @UUID id : primaryKey = uuid();
+            @DateTime createdAt = now();
+            @DateTime updatedAt = now();
+        }
+
+        entity Book extends BaseEntity {
+            String(200) title : trim;
+            String(100) author : trim;
+        }
+    }
+
+    // 'storage' block defines file/blob storage with named folders
+    // Configured via an external YAML file for provider settings (S3, MinIO, etc.)
+    storage media('config/book-service/storage.yaml') {
+
+        // 'folder' declares a storage location with path prefix, MIME type restrictions, and size limits
+        // 'path' supports template variables like {bookId} for per-entity file organization
+        // 'allowed' restricts uploads to specific content types
+        // 'maxSize' caps individual file size
+        folder covers : path('covers/{bookId}'), allowed(['image/jpeg', 'image/png', 'image/webp']), maxSize('5mb');
+
+        // Separate folder for PDF documents with a higher size limit
+        folder documents : path('documents/{bookId}'), allowed(['application/pdf']), maxSize('50mb');
+    }
+}

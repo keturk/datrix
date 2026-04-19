@@ -1,0 +1,15 @@
+
+// Include service definitions from other source files
+include 'common.dtrx';
+include 'user-service.dtrx';
+include 'project-service.dtrx';
+include 'task-service.dtrx';
+
+// The system block is the top-level container that groups services
+// and defines shared infrastructure configuration
+system taskapp.System : version('1.0.0') {
+    config('config/system-config.yaml');          // Application-wide settings
+    registry('config/registry.yaml');              // Service registry for discovery
+    gateway('config/gateway.yaml');                // API gateway routing rules
+    observability('config/observability.yaml');     // Logging, metrics, and tracing
+}

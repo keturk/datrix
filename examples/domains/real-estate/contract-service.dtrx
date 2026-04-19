@@ -1,0 +1,483 @@
+
+from realestate.common import BaseEntity, PropertyType, generateContractRef;
+
+service realestate.ContractService : version('1.0.0'), description('real estate contract management service') {
+
+    config('config/contract-service/contract-service-config.yaml');
+    registration('config/contract-service/registration.yaml');
+    discovery {
+        ListingService { loadBalance: roundRobin, healthyOnly: true }
+    }
+    resilience('config/contract-service/resilience.yaml');
+
+    enum ContractStatus {
+        Draft : value('draft'),
+        Pending : value('pending'),
+        Signed : value('signed'),
+        Active : value('active'),
+        Expired : value('expired'),
+        Terminated : value('terminated')
+    }
+
+    enum ContractType {
+        Sale : value('sale'),
+        Lease : value('lease'),
+        RentalAgreement : value('rental_agreement')
+    }
+
+    struct CreateContractRequest {
+        UUID listingId;
+        UUID buyerId;
+        UUID sellerId;
+        ContractType contractType;
+        Money price;
+        Money? earnestMoney;
+        DateTime? closingDate;
+        Text? terms;
+    }
+
+    struct UpdateContractStatusRequest {
+        ContractStatus status;
+        String? notes;
+    }
+
+    struct AddDocumentRequest {
+        String documentName;
+        String documentUrl;
+    }
+
+    struct TerminateContractRequest {
+        String reason;
+    }
+
+    struct PaginatedContracts {
+        Array<contractDb.Contract> data;
+        JSON pagination;
+    }
+
+    rdbms contractDb('config/contract-service/datasources.yaml') {
+        alert queryDuration(p95) over(5m) > 200ms @severity(warning);
+
+        // Real estate contract entity
+        entity Contract extends BaseEntity : audit {
+            String(30) contractRef : unique;
+            UUID listingId : index;
+            UUID buyerId : index;
+            UUID sellerId : index;
+            ContractType contractType;
+            ContractStatus status = ContractStatus.Draft;
+            Money price : positive;
+            Money? earnestMoney;
+            DateTime? closingDate;
+            Text? terms;
+            DateTime? signedAt;
+            DateTime? activatedAt;
+            DateTime? terminatedAt;
+            String(1000)? terminationReason;
+
+            // Computed fields
+            Boolean isDraft := status == ContractStatus.Draft;
+            Boolean isActive := status == ContractStatus.Active;
+            Boolean isTerminated := status == ContractStatus.Terminated;
+
+            hasMany ContractDocument as documents : cascade(delete);
+
+            index(listingId, status);
+            index(buyerId, status);
+            index(sellerId, status);
+            index(contractType, status);
+
+            validate {
+                if (contractRef.trim().isEmpty())
+                    ValidationError("Contract reference cannot be empty");
+                if (price.amount <= 0)
+                    ValidationError("Contract price must be positive");
+                if (earnestMoney != null && earnestMoney.amount > price.amount)
+                    ValidationError("Earnest money cannot exceed contract price");
+            }
+
+            afterCreate {
+                emit ContractCreated(id, contractRef, listingId, buyerId, sellerId, contractType, price);
+            }
+
+            afterUpdate {
+                if (isChanged(status)) {
+                    emit ContractStatusChanged(id, contractRef, listingId, oldValue(status), status);
+
+                    if (status == ContractStatus.Signed) {
+                        signedAt = now();
+                        Log.info("Contract signed", { contractId: id, contractRef: contractRef });
+                    } else if (status == ContractStatus.Active) {
+                        activatedAt = now();
+                        Log.info("Contract activated", { contractId: id, contractRef: contractRef });
+                    } else if (status == ContractStatus.Terminated) {
+                        terminatedAt = now();
+                        Log.warn("Contract terminated", { contractId: id, contractRef: contractRef, reason: terminationReason });
+                    }
+                }
+            }
+
+            fn sign() {
+                if (status != ContractStatus.Pending) {
+                    throw ValidationException("Only pending contracts can be signed");
+                }
+                status = ContractStatus.Signed;
+                signedAt = now();
+                this.save();
+            }
+
+            fn activate() {
+                if (status != ContractStatus.Signed) {
+                    throw ValidationException("Only signed contracts can be activated");
+                }
+                status = ContractStatus.Active;
+                activatedAt = now();
+                this.save();
+            }
+
+            fn terminate(String reason) {
+                if (status == ContractStatus.Terminated || status == ContractStatus.Expired) {
+                    throw ValidationException("Contract is already terminated or expired");
+                }
+                status = ContractStatus.Terminated;
+                terminationReason = reason;
+                terminatedAt = now();
+                this.save();
+            }
+
+            fn submit() {
+                if (status != ContractStatus.Draft) {
+                    throw ValidationException("Only draft contracts can be submitted");
+                }
+                status = ContractStatus.Pending;
+                this.save();
+            }
+        }
+
+        // Documents attached to contracts
+        entity ContractDocument extends BaseEntity {
+            UUID contractId : index;
+            String(200) documentName : trim;
+            String(500) documentUrl;
+            DateTime uploadedAt = now();
+
+            belongsTo Contract : index;
+
+            index(contractId, uploadedAt);
+
+            validate {
+                if (documentName.trim().isEmpty())
+                    ValidationError("Document name cannot be empty");
+                if (documentUrl.trim().isEmpty())
+                    ValidationError("Document URL cannot be empty");
+            }
+        }
+    }
+
+    // File storage for contract documents
+    storage store('config/contract-service/storage.yaml') {
+        folder contracts : path('contracts/'), allowed(['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']), maxSize('50mb')
+    }
+
+    pubsub mq('config/contract-service/pubsub.yaml') {
+        alert consumerLag(max) over(5m) > 500 @severity(critical);
+
+        topic ContractEvents {
+            publish ContractCreated(UUID contractId, String contractRef, UUID listingId, UUID buyerId, UUID sellerId, ContractType contractType, Money price) {
+                ensure contractRef.length > 0;
+                ensure price > 0;
+            }
+            publish ContractStatusChanged(UUID contractId, String contractRef, UUID listingId, ContractStatus oldStatus, ContractStatus newStatus) {
+                ensure oldStatus != newStatus;
+            }
+        }
+
+        // Listen to listing events
+        subscribe ListingEvents {
+            on ListingStatusChanged(UUID listingId, String listingRef, ListingStatus oldStatus, ListingStatus newStatus) {
+                Log.info("Listing status change received in contract service", { listingId: listingId, oldStatus: oldStatus, newStatus: newStatus });
+
+                // If listing is withdrawn, terminate any draft or pending contracts
+                if (newStatus == ListingStatus.Withdrawn) {
+                    #Array<Contract> draftContracts = contractDb.Contract
+                        .where(listingId: listingId)
+                        .where(status: ContractStatus.Draft)
+                        .all();
+
+                    #Array<Contract> pendingContracts = contractDb.Contract
+                        .where(listingId: listingId)
+                        .where(status: ContractStatus.Pending)
+                        .all();
+
+                    foreach contract in draftContracts {
+                        contract.terminate(#"Listing {listingRef} was withdrawn");
+                    }
+
+                    foreach contract in pendingContracts {
+                        contract.terminate(#"Listing {listingRef} was withdrawn");
+                    }
+
+                    #Int terminatedCount = draftContracts.length() + pendingContracts.length();
+                    if (terminatedCount > 0) {
+                        Log.info("Terminated contracts for withdrawn listing", { listingId: listingId, count: terminatedCount });
+                    }
+                }
+            }
+        }
+
+        subscribe ContractEvents {
+            on ContractStatusChanged(UUID contractId, String contractRef, UUID listingId, ContractStatus oldStatus, ContractStatus newStatus) {
+                Log.info("Contract status changed", { contractId: contractId, oldStatus: oldStatus, newStatus: newStatus });
+
+                // When a contract becomes active (sale), mark the listing as under contract
+                if (newStatus == ContractStatus.Active) {
+                    try {
+                        ListingService.ListingAPI.put(#"/internal/{listingId}/under-contract");
+                        Log.info("Listing marked as under contract", { listingId: listingId, contractRef: contractRef });
+                    } catch (Exception e) {
+                        Log.error("Failed to update listing status", { listingId: listingId, error: e });
+                    }
+                }
+            }
+        }
+    }
+
+    rest_api ContractAPI : basePath('/api/v1/contracts') {
+        alert responseTime(p95) over(5m) > 500ms @severity(warning);
+
+        // List contracts with pagination
+        get(Int page = 1, Int perPage = 20, ContractStatus? status, ContractType? contractType) -> PaginatedContracts {
+            #JSON query = contractDb.Contract.all();
+
+            if (status != null) {
+                query = contractDb.Contract.where(status: status);
+            }
+            if (contractType != null) {
+                query = query.where(contractType: contractType);
+            }
+
+            #Int total = query.count();
+            #Array<Contract> contracts = query
+                .orderBy(createdAt: desc)
+                .offset((page - 1) * perPage)
+                .limit(perPage)
+                .all();
+
+            return {
+                data: contracts,
+                pagination: {
+                    currentPage: page,
+                    perPage: perPage,
+                    totalItems: total,
+                    totalPages: Math.ceil(total / perPage),
+                    hasNextPage: page < Math.ceil(total / perPage),
+                    hasPrevPage: page > 1
+                }
+            };
+        }
+
+        // Get a single contract
+        @path('/:id')
+        get(UUID id) -> contractDb.Contract {
+            return contractDb.Contract.findOrFail(id);
+        }
+
+        // Create a new contract
+        post(CreateContractRequest request) -> contractDb.Contract {
+            // Verify listing exists and is available
+            #JSON listing = ListingService.ListingAPI.get(#"/internal/{request.listingId}");
+
+            if (listing.status != "active") {
+                throw ValidationException("Cannot create a contract for a non-active listing");
+            }
+
+            #Contract contract = contractDb.Contract.create({
+                contractRef: generateContractRef(),
+                listingId: request.listingId,
+                buyerId: request.buyerId,
+                sellerId: request.sellerId,
+                contractType: request.contractType,
+                status: ContractStatus.Draft,
+                price: request.price,
+                earnestMoney: request.earnestMoney,
+                closingDate: request.closingDate,
+                terms: request.terms
+            });
+            contract.save();
+
+            return contract;
+        }
+
+        // Submit a draft contract for review
+        @path('/:id/submit')
+        put(UUID id) -> contractDb.Contract {
+            #Contract contract = contractDb.Contract.findOrFail(id);
+            contract.submit();
+            return contract;
+        }
+
+        // Sign a pending contract
+        @path('/:id/sign')
+        put(UUID id) -> contractDb.Contract {
+            #Contract contract = contractDb.Contract.findOrFail(id);
+            contract.sign();
+            return contract;
+        }
+
+        // Activate a signed contract
+        @path('/:id/activate')
+        put(UUID id) -> contractDb.Contract {
+            #Contract contract = contractDb.Contract.findOrFail(id);
+            contract.activate();
+            return contract;
+        }
+
+        // Terminate a contract
+        @path('/:id/terminate')
+        put(UUID id, TerminateContractRequest request) -> contractDb.Contract {
+            #Contract contract = contractDb.Contract.findOrFail(id);
+            contract.terminate(request.reason);
+            return contract;
+        }
+
+        // Add a document to a contract
+        @path('/:id/documents')
+        post(UUID id, AddDocumentRequest request) -> contractDb.ContractDocument {
+            #Contract contract = contractDb.Contract.findOrFail(id);
+
+            #ContractDocument doc = contractDb.ContractDocument.create({
+                contractId: contract.id,
+                documentName: request.documentName,
+                documentUrl: request.documentUrl
+            });
+            doc.save();
+
+            return doc;
+        }
+
+        // Get documents for a contract
+        @path('/:id/documents')
+        get(UUID id) -> Array<contractDb.ContractDocument> {
+            return contractDb.ContractDocument
+                .where(contractId: id)
+                .orderBy(uploadedAt: desc)
+                .all();
+        }
+
+        // Get contracts by listing
+        @path('/by-listing/:listingId')
+        get(UUID listingId) -> Array<contractDb.Contract> {
+            return contractDb.Contract
+                .where(listingId: listingId)
+                .orderBy(createdAt: desc)
+                .all();
+        }
+
+        // Get contracts by buyer
+        @path('/by-buyer/:buyerId')
+        get(UUID buyerId) -> Array<contractDb.Contract> {
+            return contractDb.Contract
+                .where(buyerId: buyerId)
+                .orderBy(createdAt: desc)
+                .all();
+        }
+
+        // Get contracts by seller
+        @path('/by-seller/:sellerId')
+        get(UUID sellerId) -> Array<contractDb.Contract> {
+            return contractDb.Contract
+                .where(sellerId: sellerId)
+                .orderBy(createdAt: desc)
+                .all();
+        }
+    }
+
+    test("computed isDraft is true for Draft status") {
+        #contractDb.Contract contract = contractDb.Contract.create({
+            contractRef: "CTR-TEST-001",
+            listingId: uuid(),
+            buyerId: uuid(),
+            sellerId: uuid(),
+            contractType: ContractType.Sale,
+            status: ContractStatus.Draft,
+            price: Money.of(350000, "USD")
+        });
+        contract.save();
+        assert contract.isDraft == true;
+    }
+
+    test("validation rejects non-positive price") {
+        assert throws(
+            () => contractDb.Contract.create({
+                contractRef: "CTR-TEST-002",
+                listingId: uuid(),
+                buyerId: uuid(),
+                sellerId: uuid(),
+                contractType: ContractType.Sale,
+                price: Money.of(0, "USD")
+            }),
+            ValidationError("Contract price must be positive")
+        );
+    }
+
+    test("validation rejects earnest money exceeding price") {
+        assert throws(
+            () => contractDb.Contract.create({
+                contractRef: "CTR-TEST-003",
+                listingId: uuid(),
+                buyerId: uuid(),
+                sellerId: uuid(),
+                contractType: ContractType.Sale,
+                price: Money.of(200000, "USD"),
+                earnestMoney: Money.of(300000, "USD")
+            }),
+            ValidationError("Earnest money cannot exceed contract price")
+        );
+    }
+
+    test("afterCreate emits ContractCreated event") {
+        #contractDb.Contract contract = contractDb.Contract.create({
+            contractRef: "CTR-TEST-004",
+            listingId: uuid(),
+            buyerId: uuid(),
+            sellerId: uuid(),
+            contractType: ContractType.Lease,
+            status: ContractStatus.Draft,
+            price: Money.of(1500, "USD")
+        });
+        contract.save();
+        assert emitted(ContractCreated(contract.id, contract.contractRef, contract.listingId, contract.buyerId, contract.sellerId, ContractType.Lease, contract.price));
+    }
+
+    test("sign fails for non-pending contract") {
+        #contractDb.Contract contract = contractDb.Contract.create({
+            contractRef: "CTR-TEST-005",
+            listingId: uuid(),
+            buyerId: uuid(),
+            sellerId: uuid(),
+            contractType: ContractType.Sale,
+            status: ContractStatus.Draft,
+            price: Money.of(500000, "USD")
+        });
+        contract.save();
+        assert throws(
+            () => contract.sign(),
+            ValidationException("Only pending contracts can be signed")
+        );
+    }
+
+    test("status change emits ContractStatusChanged") {
+        #contractDb.Contract contract = contractDb.Contract.create({
+            contractRef: "CTR-TEST-006",
+            listingId: uuid(),
+            buyerId: uuid(),
+            sellerId: uuid(),
+            contractType: ContractType.Sale,
+            status: ContractStatus.Pending,
+            price: Money.of(275000, "USD")
+        });
+        contract.save();
+        contract.sign();
+        assert emitted(ContractStatusChanged(contract.id, contract.contractRef, contract.listingId, ContractStatus.Pending, ContractStatus.Signed));
+    }
+}

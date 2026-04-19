@@ -1,0 +1,633 @@
+
+from hr.common import BaseEntity, Department;
+
+service hr.RecruitmentService : version('1.0.0'), description('job posting and candidate application service') {
+
+    config('config/recruitment-service/recruitment-service-config.yaml');
+    registration('config/recruitment-service/registration.yaml');
+    discovery {
+        EmployeeService { loadBalance: roundRobin, healthyOnly: true }
+    }
+    resilience('config/recruitment-service/resilience.yaml');
+
+    enum ApplicationStatus {
+        Received : value('received'),
+        Screening : value('screening'),
+        Interview : value('interview'),
+        Offer : value('offer'),
+        Hired : value('hired'),
+        Rejected : value('rejected'),
+        Withdrawn : value('withdrawn')
+    }
+
+    enum PostingStatus {
+        Draft : value('draft'),
+        Open : value('open'),
+        Closed : value('closed'),
+        Filled : value('filled'),
+        Cancelled : value('cancelled')
+    }
+
+    struct CreateJobPostingRequest {
+        String title;
+        Text description;
+        Department department;
+        Text requirements;
+        String salaryRange;
+        Boolean isRemote;
+        DateTime? closingDate;
+    }
+
+    struct UpdateJobPostingRequest {
+        String? title;
+        Text? description;
+        Text? requirements;
+        String? salaryRange;
+        Boolean? isRemote;
+        DateTime? closingDate;
+    }
+
+    struct CreateApplicationRequest {
+        UUID jobPostingId;
+        String candidateName;
+        Email candidateEmail;
+        String? resumeUrl;
+        Text? coverLetter;
+    }
+
+    struct UpdateApplicationStatusRequest {
+        ApplicationStatus status;
+        String? notes;
+    }
+
+    struct PaginatedJobPostings {
+        Array<recruitDb.JobPosting> data;
+        JSON pagination;
+    }
+
+    struct PaginatedApplications {
+        Array<recruitDb.Application> data;
+        JSON pagination;
+    }
+
+    struct JobPostingStats {
+        UUID jobPostingId;
+        String title;
+        Department department;
+        Int totalApplications;
+        Int receivedCount;
+        Int screeningCount;
+        Int interviewCount;
+        Int offerCount;
+        Int hiredCount;
+        Int rejectedCount;
+    }
+
+    rdbms recruitDb('config/recruitment-service/datasources.yaml') {
+        alert queryDuration(p95) over(5m) > 200ms @severity(warning);
+
+        // Job posting entity
+        entity JobPosting extends BaseEntity {
+            String(200) title : trim;
+            Text description;
+            Department department : index;
+            Text requirements;
+            String(100) salaryRange;
+            Boolean isRemote = false;
+            PostingStatus status = PostingStatus.Draft;
+            DateTime? closingDate;
+            UUID? filledByApplicationId;
+
+            // Computed fields
+            Boolean isOpen := status == PostingStatus.Open;
+            Boolean isClosed := status == PostingStatus.Closed || status == PostingStatus.Filled || status == PostingStatus.Cancelled;
+
+            hasMany Application as applications;
+
+            index(department, status);
+            index(status, createdAt);
+            fulltext(title, description, requirements);
+
+            validate {
+                if (title.trim().isEmpty())
+                    ValidationError("Job posting title cannot be empty");
+                if (closingDate != null && closingDate < now())
+                    ValidationError("Closing date cannot be in the past");
+            }
+
+            afterCreate {
+                emit JobPostingCreated(id, title, department, isRemote);
+                Log.info("Job posting created", { postingId: id, title: title, department: department });
+            }
+
+            afterUpdate {
+                if (isChanged(status)) {
+                    emit JobPostingStatusChanged(id, title, oldValue(status), status);
+
+                    if (status == PostingStatus.Filled) {
+                        Log.info("Job posting filled", { postingId: id, title: title });
+                    }
+                }
+            }
+
+            fn open() {
+                if (status != PostingStatus.Draft) {
+                    throw ValidationException("Only draft postings can be opened");
+                }
+                status = PostingStatus.Open;
+                this.save();
+            }
+
+            fn close() {
+                if (status != PostingStatus.Open) {
+                    throw ValidationException("Only open postings can be closed");
+                }
+                status = PostingStatus.Closed;
+                this.save();
+            }
+
+            fn fill(UUID applicationId) {
+                if (status != PostingStatus.Open && status != PostingStatus.Closed) {
+                    throw ValidationException("Only open or closed postings can be filled");
+                }
+                status = PostingStatus.Filled;
+                filledByApplicationId = applicationId;
+                this.save();
+            }
+
+            fn cancel() {
+                if (status == PostingStatus.Filled) {
+                    throw ValidationException("Filled postings cannot be cancelled");
+                }
+                status = PostingStatus.Cancelled;
+                this.save();
+            }
+        }
+
+        // Application entity for tracking candidates
+        entity Application extends BaseEntity {
+            UUID jobPostingId : index;
+            String(100) candidateName : trim;
+            Email candidateEmail;
+            String(500)? resumeUrl;
+            Text? coverLetter;
+            ApplicationStatus status = ApplicationStatus.Received;
+            DateTime appliedAt = now();
+            String(1000)? notes;
+            DateTime? statusChangedAt;
+
+            // Computed fields
+            Boolean isActive := status != ApplicationStatus.Rejected && status != ApplicationStatus.Withdrawn && status != ApplicationStatus.Hired;
+
+            belongsTo JobPosting : index;
+
+            index(jobPostingId, status);
+            index(candidateEmail);
+            index(status, appliedAt);
+
+            validate {
+                if (candidateName.trim().isEmpty())
+                    ValidationError("Candidate name cannot be empty");
+            }
+
+            afterCreate {
+                Log.info("Application received", { applicationId: id, jobPostingId: jobPostingId, candidate: candidateName });
+            }
+
+            afterUpdate {
+                if (isChanged(status)) {
+                    statusChangedAt = now();
+                    emit ApplicationStatusChanged(id, jobPostingId, candidateName, oldValue(status), status);
+
+                    if (status == ApplicationStatus.Hired) {
+                        Log.info("Candidate hired", { applicationId: id, candidate: candidateName });
+                    } else if (status == ApplicationStatus.Rejected) {
+                        Log.info("Application rejected", { applicationId: id, candidate: candidateName });
+                    }
+                }
+            }
+
+            fn moveToScreening() {
+                if (status != ApplicationStatus.Received) {
+                    throw ValidationException("Only received applications can be moved to screening");
+                }
+                status = ApplicationStatus.Screening;
+                this.save();
+            }
+
+            fn moveToInterview() {
+                if (status != ApplicationStatus.Screening) {
+                    throw ValidationException("Only screened applications can be moved to interview");
+                }
+                status = ApplicationStatus.Interview;
+                this.save();
+            }
+
+            fn extendOffer() {
+                if (status != ApplicationStatus.Interview) {
+                    throw ValidationException("Only interviewed candidates can receive an offer");
+                }
+                status = ApplicationStatus.Offer;
+                this.save();
+            }
+
+            fn hire() {
+                if (status != ApplicationStatus.Offer) {
+                    throw ValidationException("Only candidates with an offer can be hired");
+                }
+                status = ApplicationStatus.Hired;
+                this.save();
+            }
+
+            fn reject(String reason) {
+                if (status == ApplicationStatus.Hired || status == ApplicationStatus.Withdrawn) {
+                    throw ValidationException("Cannot reject a hired or withdrawn application");
+                }
+                status = ApplicationStatus.Rejected;
+                notes = reason;
+                this.save();
+            }
+
+            fn withdraw() {
+                if (status == ApplicationStatus.Hired || status == ApplicationStatus.Rejected) {
+                    throw ValidationException("Cannot withdraw a hired or rejected application");
+                }
+                status = ApplicationStatus.Withdrawn;
+                this.save();
+            }
+        }
+    }
+
+    pubsub mq('config/recruitment-service/pubsub.yaml') {
+        topic RecruitmentEvents {
+            publish JobPostingCreated(UUID postingId, String title, Department department, Boolean isRemote) {
+                ensure title.length > 0;
+            }
+            publish JobPostingStatusChanged(UUID postingId, String title, PostingStatus oldStatus, PostingStatus newStatus) {
+                ensure oldStatus != newStatus;
+            }
+            publish ApplicationStatusChanged(UUID applicationId, UUID jobPostingId, String candidateName, ApplicationStatus oldStatus, ApplicationStatus newStatus) {
+                ensure oldStatus != newStatus;
+            }
+        }
+
+        // Listen to employee events - when an employee is hired, try to close related postings
+        subscribe EmployeeEvents {
+            on EmployeeHired(UUID employeeId, String employeeNumber, String firstName, String lastName, String email, Department department, EmploymentType employmentType) {
+                Log.info("New employee hire notification in recruitment", { employeeId: employeeId, department: department });
+            }
+        }
+
+        subscribe RecruitmentEvents {
+            on ApplicationStatusChanged(UUID applicationId, UUID jobPostingId, String candidateName, ApplicationStatus oldStatus, ApplicationStatus newStatus) {
+                Log.info("Application status changed", {
+                    applicationId: applicationId,
+                    candidate: candidateName,
+                    oldStatus: oldStatus,
+                    newStatus: newStatus
+                });
+
+                // When a candidate is hired, mark the job posting as filled
+                if (newStatus == ApplicationStatus.Hired) {
+                    try {
+                        #JobPosting posting = recruitDb.JobPosting.findOrFail(jobPostingId);
+                        posting.fill(applicationId);
+                        Log.info("Job posting filled", { postingId: jobPostingId, applicationId: applicationId });
+                    } catch (Exception e) {
+                        Log.error("Failed to update posting status after hire", { postingId: jobPostingId, error: e });
+                    }
+                }
+            }
+        }
+    }
+
+    rest_api RecruitmentAPI : basePath('/api/v1/recruitment') {
+        alert responseTime(p95) over(5m) > 500ms @severity(warning);
+
+        // List job postings with pagination
+        @path('/postings')
+        get(Int page = 1, Int perPage = 20, Department? department, PostingStatus? status) : public -> PaginatedJobPostings {
+            #JSON query = recruitDb.JobPosting.all();
+
+            if (department != null) {
+                query = recruitDb.JobPosting.where(department: department);
+            }
+            if (status != null) {
+                query = query.where(status: status);
+            } else {
+                query = recruitDb.JobPosting.where(status: PostingStatus.Open);
+            }
+
+            #Int total = query.count();
+            #Array<JobPosting> postings = query
+                .orderBy(createdAt: desc)
+                .offset((page - 1) * perPage)
+                .limit(perPage)
+                .all();
+
+            return {
+                data: postings,
+                pagination: {
+                    currentPage: page,
+                    perPage: perPage,
+                    totalItems: total,
+                    totalPages: Math.ceil(total / perPage),
+                    hasNextPage: page < Math.ceil(total / perPage),
+                    hasPrevPage: page > 1
+                }
+            };
+        }
+
+        // Get a single job posting
+        @path('/postings/:id')
+        get(UUID id) : public -> recruitDb.JobPosting {
+            return recruitDb.JobPosting.findOrFail(id);
+        }
+
+        // Create a new job posting
+        @path('/postings')
+        post(CreateJobPostingRequest request) : access(admin) -> recruitDb.JobPosting {
+            #JobPosting posting = recruitDb.JobPosting.create({
+                title: request.title,
+                description: request.description,
+                department: request.department,
+                requirements: request.requirements,
+                salaryRange: request.salaryRange,
+                isRemote: request.isRemote,
+                status: PostingStatus.Draft,
+                closingDate: request.closingDate
+            });
+            posting.save();
+
+            return posting;
+        }
+
+        // Update a job posting
+        @path('/postings/:id')
+        put(UUID id, UpdateJobPostingRequest request) : access(admin) -> recruitDb.JobPosting {
+            #JobPosting posting = recruitDb.JobPosting.findOrFail(id);
+
+            if (request.title != null) posting.title = request.title;
+            if (request.description != null) posting.description = request.description;
+            if (request.requirements != null) posting.requirements = request.requirements;
+            if (request.salaryRange != null) posting.salaryRange = request.salaryRange;
+            if (request.isRemote != null) posting.isRemote = request.isRemote;
+            if (request.closingDate != null) posting.closingDate = request.closingDate;
+
+            posting.save();
+            return posting;
+        }
+
+        // Open a draft posting
+        @path('/postings/:id/open')
+        put(UUID id) : access(admin) -> recruitDb.JobPosting {
+            #JobPosting posting = recruitDb.JobPosting.findOrFail(id);
+            posting.open();
+            return posting;
+        }
+
+        // Close a posting
+        @path('/postings/:id/close')
+        put(UUID id) : access(admin) -> recruitDb.JobPosting {
+            #JobPosting posting = recruitDb.JobPosting.findOrFail(id);
+            posting.close();
+            return posting;
+        }
+
+        // Cancel a posting
+        @path('/postings/:id/cancel')
+        put(UUID id) : access(admin) -> recruitDb.JobPosting {
+            #JobPosting posting = recruitDb.JobPosting.findOrFail(id);
+            posting.cancel();
+            return posting;
+        }
+
+        // Search job postings
+        @path('/postings/search')
+        get(String query, Int? limit) : public -> Array<recruitDb.JobPosting> {
+            return recruitDb.JobPosting
+                .fulltext(query)
+                .where(status: PostingStatus.Open)
+                .limit(limit ?? 20)
+                .all();
+        }
+
+        // Get posting statistics
+        @path('/postings/:id/stats')
+        get(UUID id) : access(admin) -> JobPostingStats {
+            #JobPosting posting = recruitDb.JobPosting.findOrFail(id);
+            #Array<Application> allApps = recruitDb.Application.where(jobPostingId: id).all();
+
+            return {
+                jobPostingId: posting.id,
+                title: posting.title,
+                department: posting.department,
+                totalApplications: allApps.length(),
+                receivedCount: allApps.filter(a => a.status == ApplicationStatus.Received).length(),
+                screeningCount: allApps.filter(a => a.status == ApplicationStatus.Screening).length(),
+                interviewCount: allApps.filter(a => a.status == ApplicationStatus.Interview).length(),
+                offerCount: allApps.filter(a => a.status == ApplicationStatus.Offer).length(),
+                hiredCount: allApps.filter(a => a.status == ApplicationStatus.Hired).length(),
+                rejectedCount: allApps.filter(a => a.status == ApplicationStatus.Rejected).length()
+            };
+        }
+
+        // Submit an application
+        @path('/applications')
+        post(CreateApplicationRequest request) : public -> recruitDb.Application {
+            #JobPosting posting = recruitDb.JobPosting.findOrFail(request.jobPostingId);
+
+            if (!posting.isOpen) {
+                throw ValidationException("This job posting is no longer accepting applications");
+            }
+
+            // Check for duplicate application
+            #Application? existing = recruitDb.Application
+                .where(jobPostingId: request.jobPostingId)
+                .where(candidateEmail: request.candidateEmail)
+                .first();
+
+            if (existing != null) {
+                throw ValidationException("You have already applied for this position");
+            }
+
+            #Application application = recruitDb.Application.create({
+                jobPostingId: request.jobPostingId,
+                candidateName: request.candidateName,
+                candidateEmail: request.candidateEmail,
+                resumeUrl: request.resumeUrl,
+                coverLetter: request.coverLetter,
+                status: ApplicationStatus.Received
+            });
+            application.save();
+
+            return application;
+        }
+
+        // List applications for a posting
+        @path('/postings/:id/applications')
+        get(UUID id, ApplicationStatus? status) : access(admin) -> Array<recruitDb.Application> {
+            #JSON query = recruitDb.Application.where(jobPostingId: id);
+
+            if (status != null) {
+                query = query.where(status: status);
+            }
+
+            return query.orderBy(appliedAt: desc).all();
+        }
+
+        // Get a single application
+        @path('/applications/:id')
+        get(UUID id) : access(admin) -> recruitDb.Application {
+            return recruitDb.Application.findOrFail(id);
+        }
+
+        // Move to screening
+        @path('/applications/:id/screen')
+        put(UUID id) : access(admin) -> recruitDb.Application {
+            #Application app = recruitDb.Application.findOrFail(id);
+            app.moveToScreening();
+            return app;
+        }
+
+        // Move to interview
+        @path('/applications/:id/interview')
+        put(UUID id) : access(admin) -> recruitDb.Application {
+            #Application app = recruitDb.Application.findOrFail(id);
+            app.moveToInterview();
+            return app;
+        }
+
+        // Extend offer
+        @path('/applications/:id/offer')
+        put(UUID id) : access(admin) -> recruitDb.Application {
+            #Application app = recruitDb.Application.findOrFail(id);
+            app.extendOffer();
+            return app;
+        }
+
+        // Hire candidate
+        @path('/applications/:id/hire')
+        put(UUID id) : access(admin) -> recruitDb.Application {
+            #Application app = recruitDb.Application.findOrFail(id);
+            app.hire();
+            return app;
+        }
+
+        // Reject application
+        @path('/applications/:id/reject')
+        put(UUID id, UpdateApplicationStatusRequest request) : access(admin) -> recruitDb.Application {
+            #Application app = recruitDb.Application.findOrFail(id);
+            app.reject(request.notes ?? "Application not selected");
+            return app;
+        }
+    }
+
+    test("computed isOpen is true for Open status") {
+        #recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "Senior Software Engineer",
+            description: "We are looking for a senior engineer",
+            department: Department.Engineering,
+            requirements: "5+ years experience, Golang proficiency",
+            salaryRange: "$120k - $160k",
+            isRemote: true,
+            status: PostingStatus.Open
+        });
+        posting.save();
+        assert posting.isOpen == true;
+    }
+
+    test("validation rejects empty posting title") {
+        assert throws(
+            () => recruitDb.JobPosting.create({
+                title: "",
+                description: "Test description",
+                department: Department.Marketing,
+                requirements: "Marketing experience",
+                salaryRange: "$80k - $100k",
+                isRemote: false
+            }),
+            ValidationError("Job posting title cannot be empty")
+        );
+    }
+
+    test("afterCreate emits JobPostingCreated event") {
+        #recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "Product Manager",
+            description: "Lead product development initiatives",
+            department: Department.Operations,
+            requirements: "3+ years PM experience",
+            salaryRange: "$100k - $130k",
+            isRemote: false,
+            status: PostingStatus.Draft
+        });
+        posting.save();
+        assert emitted(JobPostingCreated(posting.id, "Product Manager", Department.Operations, false));
+    }
+
+    test("validation rejects empty candidate name") {
+        #recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "Data Analyst",
+            description: "Analyze business data",
+            department: Department.Finance,
+            requirements: "SQL, Python experience",
+            salaryRange: "$70k - $90k",
+            isRemote: true,
+            status: PostingStatus.Open
+        });
+        posting.save();
+        assert throws(
+            () => recruitDb.Application.create({
+                jobPostingId: posting.id,
+                candidateName: "",
+                candidateEmail: "test@example.com"
+            }),
+            ValidationError("Candidate name cannot be empty")
+        );
+    }
+
+    test("application status follows correct workflow") {
+        #recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "QA Engineer",
+            description: "Test software quality",
+            department: Department.Engineering,
+            requirements: "Testing experience",
+            salaryRange: "$80k - $100k",
+            isRemote: false,
+            status: PostingStatus.Open
+        });
+        posting.save();
+        #recruitDb.Application app = recruitDb.Application.create({
+            jobPostingId: posting.id,
+            candidateName: "Test Candidate",
+            candidateEmail: "candidate@example.com",
+            status: ApplicationStatus.Received
+        });
+        app.save();
+        app.moveToScreening();
+        assert app.status == ApplicationStatus.Screening;
+        app.moveToInterview();
+        assert app.status == ApplicationStatus.Interview;
+        app.extendOffer();
+        assert app.status == ApplicationStatus.Offer;
+        app.hire();
+        assert app.status == ApplicationStatus.Hired;
+    }
+
+    test("open fails for non-draft posting") {
+        #recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "Designer",
+            description: "Design beautiful interfaces",
+            department: Department.Marketing,
+            requirements: "UI/UX experience",
+            salaryRange: "$90k - $120k",
+            isRemote: true,
+            status: PostingStatus.Open
+        });
+        posting.save();
+        assert throws(
+            () => posting.open(),
+            ValidationException("Only draft postings can be opened")
+        );
+    }
+}

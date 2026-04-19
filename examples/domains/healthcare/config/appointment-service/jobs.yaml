@@ -1,0 +1,32 @@
+test:
+  jobs:
+    SendAppointmentReminders:
+      schedule: '0 */2 * * *'
+      retry: { maxAttempts: 1, backoff: fixed }
+      timeout: 30s
+    MarkNoShows:
+      schedule: '0 * * * *'
+      retry: { maxAttempts: 1, backoff: fixed }
+      timeout: 30s
+
+development:
+  jobs:
+    SendAppointmentReminders:
+      schedule: '0 */2 * * *'
+      retry: { maxAttempts: 1, backoff: fixed }
+      timeout: 30s
+    MarkNoShows:
+      schedule: '0 * * * *'
+      retry: { maxAttempts: 1, backoff: fixed }
+      timeout: 30s
+
+production:
+  jobs:
+    SendAppointmentReminders:
+      schedule: '0 8 * * *'
+      retry: { maxAttempts: 3, backoff: exponential }
+      timeout: 5m
+    MarkNoShows:
+      schedule: '0 * * * *'
+      retry: { maxAttempts: 3, backoff: exponential }
+      timeout: 2m

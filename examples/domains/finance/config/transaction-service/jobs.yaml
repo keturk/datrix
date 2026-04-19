@@ -1,0 +1,20 @@
+test:
+  jobs:
+    ReconcileDailyTransactions:
+      schedule: '0 2 * * *'
+      retry: { maxAttempts: 1, backoff: fixed }
+      timeout: 60s
+
+development:
+  jobs:
+    ReconcileDailyTransactions:
+      schedule: '0 2 * * *'
+      retry: { maxAttempts: 1, backoff: fixed }
+      timeout: 60s
+
+production:
+  jobs:
+    ReconcileDailyTransactions:
+      schedule: '0 2 * * *'
+      retry: { maxAttempts: 3, backoff: exponential }
+      timeout: 10m

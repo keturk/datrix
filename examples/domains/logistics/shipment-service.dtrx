@@ -1,0 +1,387 @@
+
+from logistics.common import BaseEntity, GeoCoordinate, generateTrackingNumber;
+
+service logistics.ShipmentService : version('1.0.0'), description('shipment tracking and management service') {
+
+    config('config/shipment-service/shipment-service-config.yaml');
+    registration('config/shipment-service/registration.yaml');
+    discovery { }
+    resilience('config/shipment-service/resilience.yaml');
+
+    enum ShipmentStatus {
+        Created,
+        PickedUp,
+        InTransit,
+        OutForDelivery,
+        Delivered,
+        Failed,
+        Returned
+    }
+
+    enum PackageSize {
+        Small,
+        Medium,
+        Large,
+        ExtraLarge,
+        Oversized
+    }
+
+    struct CreateShipmentRequest {
+        UUID senderId;
+        String(200) recipientName;
+        String(500) recipientAddress;
+        String(200) origin;
+        String(200) destination;
+        PackageSize packageSize;
+        Decimal(10, 2) weight;
+        DateTime? estimatedDelivery;
+    }
+
+    struct UpdateShipmentStatusRequest {
+        ShipmentStatus status;
+        String(200) location;
+        String? notes;
+    }
+
+    struct TrackingResponse {
+        String trackingNumber;
+        ShipmentStatus status;
+        String origin;
+        String destination;
+        DateTime? estimatedDelivery;
+        DateTime? actualDelivery;
+        Array<shipmentDb.ShipmentEvent> events;
+    }
+
+    struct ShipmentSummary {
+        Int totalShipments;
+        Int inTransit;
+        Int delivered;
+        Int failed;
+    }
+
+    rdbms shipmentDb('config/shipment-service/datasources.yaml') {
+
+        entity Shipment extends BaseEntity : audit {
+            String(50) trackingNumber : unique;
+            UUID senderId : index;
+            String(200) recipientName : trim;
+            String(500) recipientAddress;
+            String(200) origin;
+            String(200) destination;
+            ShipmentStatus status = ShipmentStatus.Created;
+            PackageSize packageSize;
+            Decimal(10, 2) weight;
+            DateTime? estimatedDelivery;
+            DateTime? actualDelivery;
+
+            Boolean isDelivered := status == ShipmentStatus.Delivered;
+            Boolean isLate := estimatedDelivery != null && actualDelivery != null && actualDelivery > estimatedDelivery;
+            Boolean isActive := status == ShipmentStatus.InTransit || status == ShipmentStatus.OutForDelivery;
+
+            hasMany ShipmentEvent as events;
+
+            index(senderId, status);
+            index(status, createdAt);
+            index(trackingNumber);
+
+            validate {
+                if (weight <= 0)
+                    ValidationError("Shipment weight must be greater than zero");
+                if (recipientName.trim().isEmpty())
+                    ValidationError("Recipient name cannot be empty");
+                if (origin.trim().isEmpty())
+                    ValidationError("Origin cannot be empty");
+                if (destination.trim().isEmpty())
+                    ValidationError("Destination cannot be empty");
+            }
+
+            afterCreate {
+                emit ShipmentCreated(id, trackingNumber, senderId, origin, destination);
+            }
+
+            afterUpdate {
+                if (isChanged(status)) {
+                    emit ShipmentStatusChanged(id, trackingNumber, oldValue(status), status);
+
+                    if (status == ShipmentStatus.Delivered) {
+                        actualDelivery = now();
+                    }
+                }
+            }
+
+            fn markDelivered() {
+                status = ShipmentStatus.Delivered;
+                actualDelivery = now();
+                this.save();
+            }
+
+            fn markFailed(String reason) {
+                status = ShipmentStatus.Failed;
+                this.save();
+            }
+        }
+
+        entity ShipmentEvent extends BaseEntity {
+            String(100) eventType;
+            String(200) location;
+            DateTime timestamp = now();
+            Text? notes;
+
+            belongsTo Shipment : index;
+
+            index(shipmentId, timestamp);
+        }
+    }
+
+    nosql docdb('config/shipment-service/nosql-db.yaml') {
+
+        collection ShipmentTracking {
+            String(50) trackingNumber : index;
+            Decimal(10, 6) latitude;
+            Decimal(10, 6) longitude;
+            DateTime timestamp = now();
+            Decimal(10, 2)? speed;
+            Decimal(5, 2)? heading;
+            JSON metadata;
+
+            index(trackingNumber, timestamp);
+        }
+    }
+
+    cache redis('config/shipment-service/cache.yaml') {
+
+        hash ShipmentStatusCache : prefix('shipment:status:'), ttl(1800) {
+            UUID shipmentId : primaryKey;
+            ShipmentStatus status;
+            String location;
+        }
+
+        counter ActiveShipments : prefix('shipments:active:');
+    }
+
+    pubsub mq('config/shipment-service/pubsub.yaml') {
+
+        topic ShipmentEvents {
+            publish ShipmentCreated(UUID shipmentId, String trackingNumber, UUID senderId, String origin, String destination) {
+                ensure trackingNumber.length > 0;
+                ensure origin.length > 0;
+                ensure destination.length > 0;
+            }
+            publish ShipmentStatusChanged(UUID shipmentId, String trackingNumber, ShipmentStatus oldStatus, ShipmentStatus newStatus) {
+                ensure oldStatus != newStatus;
+            }
+        }
+
+        subscribe ShipmentEvents {
+
+            on ShipmentStatusChanged(UUID shipmentId, String trackingNumber, ShipmentStatus oldStatus, ShipmentStatus newStatus) {
+                Log.info("Shipment status changed", {
+                    shipmentId: shipmentId,
+                    trackingNumber: trackingNumber,
+                    oldStatus: oldStatus,
+                    newStatus: newStatus
+                });
+
+                redis.ShipmentStatusCache.set(shipmentId, {
+                    shipmentId: shipmentId,
+                    status: newStatus,
+                    location: "In Transit"
+                });
+
+                if (newStatus == ShipmentStatus.Delivered) {
+                    redis.ActiveShipments.decr("total");
+                } else if (oldStatus == ShipmentStatus.Created && newStatus == ShipmentStatus.PickedUp) {
+                    redis.ActiveShipments.incr("total");
+                }
+            }
+        }
+    }
+
+    rest_api ShipmentAPI : basePath('/api/v1/shipments') {
+
+        resource shipmentDb.Shipment : only(list, get);
+
+        @path('/track/:trackingNumber')
+        get(String trackingNumber) : public -> TrackingResponse {
+            #JSON? cached = redis.ShipmentStatusCache.get(trackingNumber);
+
+            #Shipment shipment = shipmentDb.Shipment.where(trackingNumber: trackingNumber).firstOrFail();
+            #Array<ShipmentEvent> events = shipmentDb.ShipmentEvent
+                .where(shipmentId: shipment.id)
+                .orderBy(timestamp: asc)
+                .all();
+
+            return {
+                trackingNumber: trackingNumber,
+                status: shipment.status,
+                origin: shipment.origin,
+                destination: shipment.destination,
+                estimatedDelivery: shipment.estimatedDelivery,
+                actualDelivery: shipment.actualDelivery,
+                events: events
+            };
+        }
+
+        post(CreateShipmentRequest request) -> shipmentDb.Shipment {
+            #Shipment shipment = shipmentDb.Shipment.create({
+                trackingNumber: generateTrackingNumber(),
+                senderId: request.senderId,
+                recipientName: request.recipientName,
+                recipientAddress: request.recipientAddress,
+                origin: request.origin,
+                destination: request.destination,
+                packageSize: request.packageSize,
+                weight: request.weight,
+                status: ShipmentStatus.Created,
+                estimatedDelivery: request.estimatedDelivery
+            });
+
+            shipmentDb.ShipmentEvent.create({
+                shipment: shipment,
+                eventType: "CREATED",
+                location: request.origin,
+                timestamp: now(),
+                notes: "Shipment created and awaiting pickup"
+            });
+
+            return shipment;
+        }
+
+        @path('/:id/status')
+        put(UUID id, UpdateShipmentStatusRequest request) -> shipmentDb.Shipment {
+            #Shipment shipment = shipmentDb.Shipment.findOrFail(id);
+            #ShipmentStatus oldStatus = shipment.status;
+
+            transaction(shipmentDb) {
+                shipment.status = request.status;
+                shipment.save();
+            }
+
+            shipmentDb.ShipmentEvent.create({
+                shipment: shipment,
+                eventType: #"STATUS_{request.status}",
+                location: request.location,
+                timestamp: now(),
+                notes: request.notes
+            });
+
+            redis.ShipmentStatusCache.set(shipment.id, {
+                shipmentId: shipment.id,
+                status: request.status,
+                location: request.location
+            });
+
+            Log.info("Shipment status updated", {
+                shipmentId: id,
+                oldStatus: oldStatus,
+                newStatus: request.status,
+                location: request.location
+            });
+
+            return shipment;
+        }
+
+        @path('/sender/:senderId')
+        get(UUID senderId, ShipmentStatus? status) -> Array<shipmentDb.Shipment> {
+            #JSON query = shipmentDb.Shipment.where(senderId: senderId);
+
+            if (status != null) {
+                query = query.where(status: status);
+            }
+
+            return query.orderBy(createdAt: desc).limit(50).all();
+        }
+
+        @path('/:id/events')
+        get(UUID id) -> Array<shipmentDb.ShipmentEvent> {
+            #Shipment shipment = shipmentDb.Shipment.findOrFail(id);
+            return shipmentDb.ShipmentEvent
+                .where(shipmentId: shipment.id)
+                .orderBy(timestamp: asc)
+                .all();
+        }
+
+        @path('/summary')
+        get() : internal -> ShipmentSummary {
+            #Int total = shipmentDb.Shipment.count();
+            #Int inTransit = shipmentDb.Shipment
+                .whereIn(status: [ShipmentStatus.InTransit, ShipmentStatus.OutForDelivery])
+                .count();
+            #Int delivered = shipmentDb.Shipment.where(status: ShipmentStatus.Delivered).count();
+            #Int failed = shipmentDb.Shipment.where(status: ShipmentStatus.Failed).count();
+
+            return {
+                totalShipments: total,
+                inTransit: inTransit,
+                delivered: delivered,
+                failed: failed
+            };
+        }
+    }
+
+    test("computed isDelivered reflects Delivered status") {
+        #shipmentDb.Shipment shipment = shipmentDb.Shipment.create({
+            trackingNumber: "LGS-TEST-001",
+            senderId: uuid(),
+            recipientName: "John Doe",
+            recipientAddress: "123 Main St",
+            origin: "Warehouse A",
+            destination: "Customer Location",
+            status: ShipmentStatus.Delivered,
+            packageSize: PackageSize.Medium,
+            weight: 5.50,
+            actualDelivery: now()
+        });
+        shipment.save();
+        assert shipment.isDelivered == true;
+    }
+
+    test("validation rejects zero weight") {
+        assert throws(
+            () => shipmentDb.Shipment.create({
+                trackingNumber: "LGS-TEST-002",
+                senderId: uuid(),
+                recipientName: "Jane Doe",
+                recipientAddress: "456 Oak Ave",
+                origin: "Warehouse B",
+                destination: "Customer Location",
+                packageSize: PackageSize.Small,
+                weight: 0
+            }),
+            ValidationError("Shipment weight must be greater than zero")
+        );
+    }
+
+    test("afterCreate emits ShipmentCreated event") {
+        #shipmentDb.Shipment shipment = shipmentDb.Shipment.create({
+            trackingNumber: "LGS-TEST-003",
+            senderId: uuid(),
+            recipientName: "Bob Smith",
+            recipientAddress: "789 Elm St",
+            origin: "Distribution Center",
+            destination: "Retail Store",
+            packageSize: PackageSize.Large,
+            weight: 15.00
+        });
+        shipment.save();
+        assert emitted(ShipmentCreated(shipment.id, shipment.trackingNumber, shipment.senderId, shipment.origin, shipment.destination));
+    }
+
+    test("status change emits ShipmentStatusChanged") {
+        #shipmentDb.Shipment shipment = shipmentDb.Shipment.create({
+            trackingNumber: "LGS-TEST-004",
+            senderId: uuid(),
+            recipientName: "Alice Johnson",
+            recipientAddress: "321 Pine Rd",
+            origin: "Warehouse C",
+            destination: "Office Building",
+            packageSize: PackageSize.Small,
+            weight: 2.00
+        });
+        shipment.save();
+        shipment.status = ShipmentStatus.InTransit;
+        shipment.save();
+        assert emitted(ShipmentStatusChanged(shipment.id, shipment.trackingNumber, ShipmentStatus.Created, ShipmentStatus.InTransit));
+    }
+}

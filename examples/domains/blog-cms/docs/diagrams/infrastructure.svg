@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 944 224">
+<style>
+  .store-label { font: 11px 'Segoe UI', system-ui, -apple-system, sans-serif; fill: #1f2328; }
+</style>
+<defs><filter id="shadow" x="-4%" y="-4%" width="108%" height="112%"><feDropShadow dx="0" dy="1" stdDeviation="3" flood-color="rgba(0,0,0,0.08)"/></filter></defs>
+<rect width="944" height="224" fill="white"/>
+<text x="28" y="44" style="font: bold 16px 'Segoe UI', system-ui, -apple-system, sans-serif; fill: #1f2328;">Data Store Topology</text>
+<rect x="28.0" y="76" width="280" height="96.0" rx="6" fill="#ffffff" stroke="#d0d7de" stroke-width="1" filter="url(#shadow)"/>
+<rect x="28.0" y="76" width="280" height="32" rx="6" fill="#24292f"/>
+<rect x="28.0" y="102" width="280" height="6" fill="#24292f"/>
+<text x="40.0" y="97.0" style="font: bold 13px 'Segoe UI', system-ui, -apple-system, sans-serif; fill: #ffffff;">AuthorService</text>
+<circle cx="46.0" cy="128.0" r="4" fill="#0550ae"/>
+<text x="58.0" y="132.0" class="store-label">authorDb / postgres (2 entities)</text>
+<line x1="42.0" y1="140" x2="294.0" y2="140" stroke="#f0f0f0" stroke-width="0.5"/>
+<circle cx="46.0" cy="152.0" r="4" fill="#7d4e00"/>
+<text x="58.0" y="156.0" class="store-label">mq / MQ</text>
+<rect x="332.0" y="76" width="280" height="120.0" rx="6" fill="#ffffff" stroke="#d0d7de" stroke-width="1" filter="url(#shadow)"/>
+<rect x="332.0" y="76" width="280" height="32" rx="6" fill="#24292f"/>
+<rect x="332.0" y="102" width="280" height="6" fill="#24292f"/>
+<text x="344.0" y="97.0" style="font: bold 13px 'Segoe UI', system-ui, -apple-system, sans-serif; fill: #ffffff;">ContentService</text>
+<circle cx="350.0" cy="128.0" r="4" fill="#0550ae"/>
+<text x="362.0" y="132.0" class="store-label">contentDb / postgres (1 entities)</text>
+<line x1="346.0" y1="140" x2="598.0" y2="140" stroke="#f0f0f0" stroke-width="0.5"/>
+<circle cx="350.0" cy="152.0" r="4" fill="#116329"/>
+<text x="362.0" y="156.0" class="store-label">redis</text>
+<line x1="346.0" y1="164" x2="598.0" y2="164" stroke="#f0f0f0" stroke-width="0.5"/>
+<circle cx="350.0" cy="176.0" r="4" fill="#7d4e00"/>
+<text x="362.0" y="180.0" class="store-label">mq / MQ</text>
+<rect x="636.0" y="76" width="280" height="96.0" rx="6" fill="#ffffff" stroke="#d0d7de" stroke-width="1" filter="url(#shadow)"/>
+<rect x="636.0" y="76" width="280" height="32" rx="6" fill="#24292f"/>
+<rect x="636.0" y="102" width="280" height="6" fill="#24292f"/>
+<text x="648.0" y="97.0" style="font: bold 13px 'Segoe UI', system-ui, -apple-system, sans-serif; fill: #ffffff;">CommentService</text>
+<circle cx="654.0" cy="128.0" r="4" fill="#0550ae"/>
+<text x="666.0" y="132.0" class="store-label">commentDb / postgres (1 entities)</text>
+<line x1="650.0" y1="140" x2="902.0" y2="140" stroke="#f0f0f0" stroke-width="0.5"/>
+<circle cx="654.0" cy="152.0" r="4" fill="#7d4e00"/>
+<text x="666.0" y="156.0" class="store-label">mq / MQ</text>
+</svg>

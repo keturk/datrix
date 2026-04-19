@@ -1,0 +1,756 @@
+
+from lms.common import BaseEntity, MAX_PAGE_SIZE;
+
+service lms.CourseService : version('1.0.0'), description('course catalog and content management service') {
+
+    config('config/course-service/course-service-config.yaml');
+    registration('config/course-service/registration.yaml');
+    discovery {
+        StudentService { loadBalance: roundRobin, healthyOnly: true }
+    }
+    resilience('config/course-service/resilience.yaml');
+    integrations('config/course-service/integrations.yaml');
+
+    enum CourseStatus {
+        Draft : value('draft'),
+        Published : value('published'),
+        Archived : value('archived')
+    }
+
+    enum DifficultyLevel {
+        Beginner : value('beginner'),
+        Intermediate : value('intermediate'),
+        Advanced : value('advanced')
+    }
+
+    enum ContentType {
+        Text : value('text'),
+        Video : value('video'),
+        Quiz : value('quiz'),
+        Assignment : value('assignment')
+    }
+
+    struct PaginatedCourses {
+        Array<courseDb.Course> data;
+        JSON pagination;
+    }
+
+    struct CreateCourseRequest {
+        String title;
+        Text description;
+        DifficultyLevel difficulty;
+        Int? maxEnrollment;
+        Decimal? durationHours;
+        JSON? tags;
+    }
+
+    struct UpdateCourseRequest {
+        String(200)? title;
+        Text? description;
+        DifficultyLevel? difficulty;
+        Int? maxEnrollment;
+        Decimal? durationHours;
+        JSON? tags;
+    }
+
+    struct CreateModuleRequest {
+        UUID courseId;
+        String title;
+        Text? description;
+        Int orderIndex;
+    }
+
+    struct CreateLessonRequest {
+        UUID moduleId;
+        String title;
+        Text? content;
+        ContentType contentType;
+        Int orderIndex;
+        Int? durationMinutes;
+    }
+
+    struct UpdateLessonRequest {
+        String(200)? title;
+        Text? content;
+        Int? durationMinutes;
+    }
+
+    struct CourseSummary {
+        UUID courseId;
+        String title;
+        CourseStatus status;
+        DifficultyLevel difficulty;
+        Int moduleCount;
+        Int lessonCount;
+        Int currentEnrollment;
+        Int? maxEnrollment;
+    }
+
+    rdbms courseDb('config/course-service/datasources.yaml') {
+
+        entity Course extends BaseEntity : audit {
+            String(200) title : trim;
+            String(20) courseCode : unique;
+            Text description;
+            CourseStatus status = CourseStatus.Draft;
+            DifficultyLevel difficulty = DifficultyLevel.Beginner;
+            UUID instructorId : index;
+            Int? maxEnrollment;
+            Int currentEnrollment = 0;
+            Decimal(6, 2)? durationHours;
+            JSON? tags;
+            DateTime? publishedAt;
+            Decimal(3, 2) averageRating = 0.00;
+            Int ratingCount = 0;
+
+            // Computed fields
+            Boolean isPublished := status == CourseStatus.Published;
+            Boolean isFull := maxEnrollment != null && currentEnrollment >= maxEnrollment;
+            Boolean canEnroll := status == CourseStatus.Published && !isFull;
+            Decimal enrollmentRate := maxEnrollment != null && maxEnrollment > 0 ? (currentEnrollment * 100.0 / maxEnrollment) : 0.0;
+
+            hasMany CourseModule as modules : cascade(delete);
+
+            index(status, difficulty);
+            index(instructorId, status);
+            index(courseCode);
+            fulltext(title, description);
+
+            validate {
+                if (title.trim().isEmpty())
+                    ValidationError("Course title cannot be empty");
+                if (title.length() > 200)
+                    ValidationError("Course title cannot exceed 200 characters");
+                if (description.trim().isEmpty())
+                    ValidationError("Course description cannot be empty");
+                if (maxEnrollment != null && maxEnrollment <= 0)
+                    ValidationError("Maximum enrollment must be a positive number");
+                if (durationHours != null && durationHours <= 0)
+                    ValidationError("Duration must be a positive number");
+            }
+
+            beforeCreate {
+                courseCode = #"CRS-{Random.string(8).toUpperCase()}";
+            }
+
+            afterCreate {
+                emit CourseCreated(id, title, instructorId, difficulty);
+            }
+
+            afterUpdate {
+                if (isChanged(status)) {
+                    emit CourseStatusChanged(id, oldValue(status), status);
+
+                    if (status == CourseStatus.Published && publishedAt == null) {
+                        publishedAt = now();
+                    }
+
+                    Log.info("Course status changed", {
+                        courseId: id,
+                        oldStatus: oldValue(status),
+                        newStatus: status
+                    });
+                }
+
+                if (isChanged(currentEnrollment)) {
+                    emit CourseEnrollmentUpdated(id, currentEnrollment, maxEnrollment);
+                }
+            }
+
+            fn publish() {
+                if (status == CourseStatus.Draft) {
+                    status = CourseStatus.Published;
+                    publishedAt = now();
+                    this.save();
+                    Log.info("Course published", { courseId: id, title: title });
+                }
+            }
+
+            fn archive() {
+                status = CourseStatus.Archived;
+                this.save();
+                Log.info("Course archived", { courseId: id, title: title });
+            }
+        }
+
+        entity CourseModule extends BaseEntity {
+            String(200) title : trim;
+            Text? description;
+            Int orderIndex;
+
+            belongsTo Course : index;
+            hasMany Lesson as lessons : cascade(delete);
+
+            index(courseId, orderIndex);
+
+            validate {
+                if (title.trim().isEmpty())
+                    ValidationError("Module title cannot be empty");
+                if (orderIndex < 0)
+                    ValidationError("Order index cannot be negative");
+            }
+        }
+
+        entity Lesson extends BaseEntity {
+            String(200) title : trim;
+            Text? content;
+            ContentType contentType = ContentType.Text;
+            Int orderIndex;
+            Int durationMinutes = 0;
+            Url? videoUrl;
+            Url? resourceUrl;
+
+            belongsTo CourseModule : index;
+
+            index(courseModuleId, orderIndex);
+
+            validate {
+                if (title.trim().isEmpty())
+                    ValidationError("Lesson title cannot be empty");
+                if (orderIndex < 0)
+                    ValidationError("Order index cannot be negative");
+                if (durationMinutes < 0)
+                    ValidationError("Duration cannot be negative");
+            }
+        }
+
+        entity CourseRating extends BaseEntity {
+            UUID courseId : index;
+            UUID studentId : index;
+            Int rating;
+            Text? review;
+
+            index(courseId, studentId) : unique;
+
+            validate {
+                if (rating < 1 || rating > 5)
+                    ValidationError("Rating must be between 1 and 5");
+            }
+
+            afterCreate {
+                // Update average rating on the course
+                #Course? course = courseDb.Course.find(courseId);
+                if (course != null) {
+                    #Array<CourseRating> ratings = courseDb.CourseRating
+                        .where(courseId: courseId)
+                        .all();
+
+                    #Decimal totalRating = 0;
+                    foreach r in ratings {
+                        totalRating = totalRating + r.rating;
+                    }
+
+                    course.averageRating = totalRating / ratings.length();
+                    course.ratingCount = ratings.length();
+                    course.save();
+                }
+            }
+        }
+    }
+
+    storage store('config/course-service/storage.yaml') {
+        folder materials : path('courses/materials/'), allowed(['application/pdf', 'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation']), maxSize('100mb')
+        folder videos : path('courses/videos/'), allowed(['video/mp4', 'video/webm', 'video/quicktime']), maxSize('500mb')
+        folder assignments : path('courses/assignments/'), allowed(['application/pdf', 'application/zip', 'text/plain']), maxSize('50mb')
+    }
+
+    pubsub mq('config/course-service/pubsub.yaml') {
+
+        topic CourseEvents {
+            publish CourseCreated(UUID courseId, String title, UUID instructorId, DifficultyLevel difficulty) {
+                ensure title.length > 0;
+            }
+            publish CourseStatusChanged(UUID courseId, CourseStatus oldStatus, CourseStatus newStatus) {
+                ensure oldStatus != newStatus;
+            }
+            publish CoursePublished(UUID courseId, String title) {
+                ensure title.length > 0;
+            }
+            publish CourseArchived(UUID courseId) {
+                ensure courseId != null;
+            }
+            publish CourseEnrollmentUpdated(UUID courseId, Int currentEnrollment, Int? maxEnrollment) {
+                ensure currentEnrollment >= 0;
+            }
+            publish ModuleAdded(UUID courseId, UUID moduleId, String title) {
+                ensure title.length > 0;
+            }
+            publish LessonAdded(UUID moduleId, UUID lessonId, String title) {
+                ensure title.length > 0;
+            }
+        }
+
+        subscribe CourseEvents {
+            on CourseCreated(UUID courseId, String title, UUID instructorId, DifficultyLevel difficulty) {
+                Log.info("Course created", {
+                    courseId: courseId,
+                    title: title,
+                    instructorId: instructorId,
+                    difficulty: difficulty
+                });
+            }
+
+            on CourseStatusChanged(UUID courseId, CourseStatus oldStatus, CourseStatus newStatus) {
+                Log.info("Course status changed", {
+                    courseId: courseId,
+                    oldStatus: oldStatus,
+                    newStatus: newStatus
+                });
+
+                if (newStatus == CourseStatus.Published) {
+                    #Course? course = courseDb.Course.find(courseId);
+                    if (course != null) {
+                        emit CoursePublished(courseId, course.title);
+                    }
+                }
+
+                if (newStatus == CourseStatus.Archived) {
+                    emit CourseArchived(courseId);
+                }
+            }
+
+            on CourseEnrollmentUpdated(UUID courseId, Int currentEnrollment, Int? maxEnrollment) {
+                Log.info("Course enrollment updated", {
+                    courseId: courseId,
+                    currentEnrollment: currentEnrollment,
+                    maxEnrollment: maxEnrollment
+                });
+
+                if (maxEnrollment != null && currentEnrollment >= maxEnrollment) {
+                    Log.warn("Course is now full", { courseId: courseId });
+                }
+            }
+        }
+    }
+
+    rest_api CourseAPI : basePath('/api/v1/courses') {
+
+        // List published courses
+        get(DifficultyLevel? difficulty, Int page = 1, Int perPage = 20) : public -> PaginatedCourses {
+            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+
+            #JSON query = courseDb.Course.where(status: CourseStatus.Published);
+
+            if (difficulty != null) {
+                query = query.where(difficulty: difficulty);
+            }
+
+            #Int total = query.count();
+            #Array<Course> courses = query
+                .orderBy(createdAt: desc)
+                .offset((page - 1) * cappedPerPage)
+                .limit(cappedPerPage)
+                .all();
+
+            #Int totalPages = Math.ceil(total / cappedPerPage);
+
+            return {
+                data: courses,
+                pagination: {
+                    currentPage: page,
+                    perPage: cappedPerPage,
+                    totalItems: total,
+                    totalPages: totalPages,
+                    hasNextPage: page < totalPages,
+                    hasPrevPage: page > 1
+                }
+            };
+        }
+
+        // Get a single course with modules and lessons
+        @path('/:id')
+        get(UUID id) : public -> courseDb.Course {
+            return courseDb.Course.findOrFail(id);
+        }
+
+        // Create a new course
+        post(CreateCourseRequest request) : access(admin) -> courseDb.Course {
+            #UUID instructorId = Auth.user().id;
+
+            #Course course = courseDb.Course.create({
+                title: request.title,
+                description: request.description,
+                difficulty: request.difficulty,
+                instructorId: instructorId,
+                maxEnrollment: request.maxEnrollment,
+                durationHours: request.durationHours,
+                tags: request.tags ?? [],
+                status: CourseStatus.Draft
+            });
+            course.save();
+
+            return course;
+        }
+
+        // Update a course
+        @path('/:id')
+        put(UUID id, UpdateCourseRequest request) : access(admin) -> courseDb.Course {
+            #Course course = courseDb.Course.findOrFail(id);
+
+            if (request.title != null) {
+                course.title = request.title;
+            }
+            if (request.description != null) {
+                course.description = request.description;
+            }
+            if (request.difficulty != null) {
+                course.difficulty = request.difficulty;
+            }
+            if (request.maxEnrollment != null) {
+                course.maxEnrollment = request.maxEnrollment;
+            }
+            if (request.durationHours != null) {
+                course.durationHours = request.durationHours;
+            }
+            if (request.tags != null) {
+                course.tags = request.tags;
+            }
+
+            course.save();
+            return course;
+        }
+
+        // Publish a course
+        @path('/:id/publish')
+        put(UUID id) : access(admin) -> courseDb.Course {
+            #Course course = courseDb.Course.findOrFail(id);
+
+            if (course.status != CourseStatus.Draft) {
+                throw ValidationException({
+                    code: "INVALID_STATUS",
+                    message: "Only draft courses can be published"
+                });
+            }
+
+            course.publish();
+            return course;
+        }
+
+        // Archive a course
+        @path('/:id/archive')
+        put(UUID id) : access(admin) -> courseDb.Course {
+            #Course course = courseDb.Course.findOrFail(id);
+            course.archive();
+            return course;
+        }
+
+        // Search courses
+        @path('/search')
+        get(String query, DifficultyLevel? difficulty, Int page = 1, Int perPage = 20) : public -> PaginatedCourses {
+            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+
+            #JSON courseQuery = courseDb.Course
+                .fulltext(query)
+                .where(status: CourseStatus.Published);
+
+            if (difficulty != null) {
+                courseQuery = courseQuery.where(difficulty: difficulty);
+            }
+
+            #Array<Course> courses = courseQuery
+                .offset((page - 1) * cappedPerPage)
+                .limit(cappedPerPage)
+                .all();
+
+            #Int total = courseQuery.count();
+            #Int totalPages = Math.ceil(total / cappedPerPage);
+
+            return {
+                data: courses,
+                pagination: {
+                    currentPage: page,
+                    perPage: cappedPerPage,
+                    totalItems: total,
+                    totalPages: totalPages,
+                    hasNextPage: page < totalPages,
+                    hasPrevPage: page > 1
+                }
+            };
+        }
+
+        // Add a module to a course
+        @path('/:id/modules')
+        post(UUID id, CreateModuleRequest request) : access(admin) -> courseDb.CourseModule {
+            #Course course = courseDb.Course.findOrFail(id);
+
+            #CourseModule module = courseDb.CourseModule.create({
+                courseId: id,
+                title: request.title,
+                description: request.description,
+                orderIndex: request.orderIndex
+            });
+            module.save();
+
+            emit ModuleAdded(id, module.id, module.title);
+
+            return module;
+        }
+
+        // Get modules for a course
+        @path('/:id/modules')
+        get(UUID id) : public -> Array<courseDb.CourseModule> {
+            return courseDb.CourseModule
+                .where(courseId: id)
+                .orderBy(orderIndex: asc)
+                .all();
+        }
+
+        // Add a lesson to a module
+        @path('/modules/:moduleId/lessons')
+        post(UUID moduleId, CreateLessonRequest request) : access(admin) -> courseDb.Lesson {
+            #CourseModule module = courseDb.CourseModule.findOrFail(moduleId);
+
+            #Lesson lesson = courseDb.Lesson.create({
+                courseModuleId: moduleId,
+                title: request.title,
+                content: request.content,
+                contentType: request.contentType,
+                orderIndex: request.orderIndex,
+                durationMinutes: request.durationMinutes ?? 0
+            });
+            lesson.save();
+
+            emit LessonAdded(moduleId, lesson.id, lesson.title);
+
+            return lesson;
+        }
+
+        // Get lessons for a module
+        @path('/modules/:moduleId/lessons')
+        get(UUID moduleId) : public -> Array<courseDb.Lesson> {
+            return courseDb.Lesson
+                .where(courseModuleId: moduleId)
+                .orderBy(orderIndex: asc)
+                .all();
+        }
+
+        // Update a lesson
+        @path('/lessons/:lessonId')
+        put(UUID lessonId, UpdateLessonRequest request) : access(admin) -> courseDb.Lesson {
+            #Lesson lesson = courseDb.Lesson.findOrFail(lessonId);
+
+            if (request.title != null) {
+                lesson.title = request.title;
+            }
+            if (request.content != null) {
+                lesson.content = request.content;
+            }
+            if (request.durationMinutes != null) {
+                lesson.durationMinutes = request.durationMinutes;
+            }
+
+            lesson.save();
+            return lesson;
+        }
+
+        // Rate a course
+        @path('/:id/rate')
+        post(UUID id, Int rating, Text? review) -> courseDb.CourseRating {
+            #UUID studentId = Auth.user().id;
+            #Course course = courseDb.Course.findOrFail(id);
+
+            // Check if already rated
+            #CourseRating? existing = courseDb.CourseRating
+                .where(courseId: id)
+                .where(studentId: studentId)
+                .first();
+
+            if (existing != null) {
+                throw ValidationException({
+                    code: "ALREADY_RATED",
+                    message: "You have already rated this course"
+                });
+            }
+
+            #CourseRating courseRating = courseDb.CourseRating.create({
+                courseId: id,
+                studentId: studentId,
+                rating: rating,
+                review: review
+            });
+            courseRating.save();
+
+            return courseRating;
+        }
+
+        // Get course ratings
+        @path('/:id/ratings')
+        get(UUID id, Int page = 1, Int perPage = 20) : public -> Array<courseDb.CourseRating> {
+            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            return courseDb.CourseRating
+                .where(courseId: id)
+                .orderBy(createdAt: desc)
+                .offset((page - 1) * cappedPerPage)
+                .limit(cappedPerPage)
+                .all();
+        }
+
+        // Internal endpoint for other services
+        @path('/internal/:id')
+        get(UUID id) : internal -> courseDb.Course {
+            return courseDb.Course.findOrFail(id);
+        }
+
+        // Internal endpoint to check enrollment availability
+        @path('/internal/:id/can-enroll')
+        get(UUID id) : internal -> Boolean {
+            #Course course = courseDb.Course.findOrFail(id);
+            return course.canEnroll;
+        }
+
+        // Internal endpoint to increment enrollment count
+        @path('/internal/:id/increment-enrollment')
+        post(UUID id) : internal -> courseDb.Course {
+            #Course course = courseDb.Course.findOrFail(id);
+            course.currentEnrollment = course.currentEnrollment + 1;
+            course.save();
+            return course;
+        }
+
+        // Internal endpoint to decrement enrollment count
+        @path('/internal/:id/decrement-enrollment')
+        post(UUID id) : internal -> courseDb.Course {
+            #Course course = courseDb.Course.findOrFail(id);
+            if (course.currentEnrollment > 0) {
+                course.currentEnrollment = course.currentEnrollment - 1;
+                course.save();
+            }
+            return course;
+        }
+    }
+
+    test("validation rejects empty course title") {
+        assert throws(
+            () => courseDb.Course.create({
+                title: "",
+                description: "Test description",
+                difficulty: DifficultyLevel.Beginner,
+                instructorId: uuid()
+            }),
+            ValidationError("Course title cannot be empty")
+        );
+    }
+
+    test("validation rejects empty course description") {
+        assert throws(
+            () => courseDb.Course.create({
+                title: "Test Course",
+                description: "",
+                difficulty: DifficultyLevel.Beginner,
+                instructorId: uuid()
+            }),
+            ValidationError("Course description cannot be empty")
+        );
+    }
+
+    test("validation rejects non-positive maxEnrollment") {
+        assert throws(
+            () => courseDb.Course.create({
+                title: "Limited Course",
+                description: "A course with enrollment limit",
+                difficulty: DifficultyLevel.Intermediate,
+                instructorId: uuid(),
+                maxEnrollment: 0
+            }),
+            ValidationError("Maximum enrollment must be a positive number")
+        );
+    }
+
+    test("validation rejects invalid rating") {
+        assert throws(
+            () => courseDb.CourseRating.create({
+                courseId: uuid(),
+                studentId: uuid(),
+                rating: 6
+            }),
+            ValidationError("Rating must be between 1 and 5")
+        );
+    }
+
+    test("computed isPublished for published course") {
+        #courseDb.Course course = courseDb.Course.create({
+            title: "Published Course",
+            description: "A published course",
+            difficulty: DifficultyLevel.Beginner,
+            instructorId: uuid(),
+            status: CourseStatus.Published
+        });
+        course.save();
+        assert course.isPublished == true;
+    }
+
+    test("computed canEnroll for available course") {
+        #courseDb.Course course = courseDb.Course.create({
+            title: "Open Course",
+            description: "An open course",
+            difficulty: DifficultyLevel.Beginner,
+            instructorId: uuid(),
+            status: CourseStatus.Published,
+            maxEnrollment: 30,
+            currentEnrollment: 10
+        });
+        course.save();
+        assert course.canEnroll == true;
+        assert course.isFull == false;
+    }
+
+    test("computed isFull when enrollment reaches max") {
+        #courseDb.Course course = courseDb.Course.create({
+            title: "Full Course",
+            description: "A full course",
+            difficulty: DifficultyLevel.Advanced,
+            instructorId: uuid(),
+            status: CourseStatus.Published,
+            maxEnrollment: 25,
+            currentEnrollment: 25
+        });
+        course.save();
+        assert course.isFull == true;
+        assert course.canEnroll == false;
+    }
+
+    test("beforeCreate generates courseCode") {
+        #courseDb.Course course = courseDb.Course.create({
+            title: "Code Course",
+            description: "A course for code testing",
+            difficulty: DifficultyLevel.Intermediate,
+            instructorId: uuid()
+        });
+        course.save();
+        assert course.courseCode != null;
+    }
+
+    test("afterCreate emits CourseCreated event") {
+        #UUID instructorId = uuid();
+        #courseDb.Course course = courseDb.Course.create({
+            title: "Event Course",
+            description: "A course for event testing",
+            difficulty: DifficultyLevel.Advanced,
+            instructorId: instructorId
+        });
+        course.save();
+        assert emitted(CourseCreated(course.id, "Event Course", instructorId, DifficultyLevel.Advanced));
+    }
+
+    test("validation rejects empty module title") {
+        assert throws(
+            () => courseDb.CourseModule.create({
+                courseId: uuid(),
+                title: "",
+                orderIndex: 0
+            }),
+            ValidationError("Module title cannot be empty")
+        );
+    }
+
+    test("validation rejects empty lesson title") {
+        assert throws(
+            () => courseDb.Lesson.create({
+                courseModuleId: uuid(),
+                title: "",
+                orderIndex: 0
+            }),
+            ValidationError("Lesson title cannot be empty")
+        );
+    }
+}

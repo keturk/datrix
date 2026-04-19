@@ -1,0 +1,374 @@
+
+from realestate.common import BaseEntity, PropertyType;
+
+service realestate.ViewingService : version('1.0.0'), description('property viewing scheduling service') {
+
+    config('config/viewing-service/viewing-service-config.yaml');
+    registration('config/viewing-service/registration.yaml');
+    discovery {
+        ListingService { loadBalance: roundRobin, healthyOnly: true }
+    }
+    resilience('config/viewing-service/resilience.yaml');
+
+    enum ViewingStatus {
+        Scheduled : value('scheduled'),
+        Confirmed : value('confirmed'),
+        Completed : value('completed'),
+        Cancelled : value('cancelled'),
+        NoShow : value('no_show')
+    }
+
+    struct ScheduleViewingRequest {
+        UUID listingId;
+        UUID? agentId;
+        String clientName;
+        Email clientEmail;
+        Phone? clientPhone;
+        DateTime scheduledAt;
+        String? notes;
+    }
+
+    struct UpdateViewingRequest {
+        DateTime? scheduledAt;
+        String? notes;
+    }
+
+    struct CompleteViewingRequest {
+        String? feedback;
+        Int? rating;
+    }
+
+    struct CancelViewingRequest {
+        String reason;
+    }
+
+    struct PaginatedViewings {
+        Array<viewingDb.Viewing> data;
+        JSON pagination;
+    }
+
+    rdbms viewingDb('config/viewing-service/datasources.yaml') {
+        alert queryDuration(p95) over(5m) > 200ms @severity(warning);
+
+        // Viewing appointment entity
+        entity Viewing extends BaseEntity {
+            UUID listingId : index;
+            UUID? agentId : index;
+            String(100) clientName : trim;
+            Email clientEmail;
+            Phone? clientPhone;
+            DateTime scheduledAt;
+            ViewingStatus status = ViewingStatus.Scheduled;
+            String(1000)? notes;
+            DateTime? completedAt;
+            String(1000)? feedback;
+            Int? rating;
+            String(500)? cancellationReason;
+
+            // Computed fields
+            Boolean isPending := status == ViewingStatus.Scheduled || status == ViewingStatus.Confirmed;
+            Boolean isCompleted := status == ViewingStatus.Completed;
+
+            index(listingId, scheduledAt);
+            index(agentId, scheduledAt);
+            index(status, scheduledAt);
+            index(clientEmail);
+
+            validate {
+                if (clientName.trim().isEmpty())
+                    ValidationError("Client name cannot be empty");
+                if (scheduledAt < now())
+                    ValidationError("Viewing must be scheduled in the future");
+                if (rating != null && (rating < 1 || rating > 5))
+                    ValidationError("Rating must be between 1 and 5");
+            }
+
+            afterCreate {
+                emit ViewingScheduled(id, listingId, clientName, clientEmail, scheduledAt);
+                Log.info("Viewing scheduled", { viewingId: id, listingId: listingId, scheduledAt: scheduledAt });
+            }
+
+            afterUpdate {
+                if (isChanged(status)) {
+                    emit ViewingStatusChanged(id, listingId, oldValue(status), status);
+
+                    if (status == ViewingStatus.Cancelled) {
+                        Log.info("Viewing cancelled", { viewingId: id, reason: cancellationReason });
+                    } else if (status == ViewingStatus.Completed) {
+                        Log.info("Viewing completed", { viewingId: id, listingId: listingId, rating: rating });
+                    } else if (status == ViewingStatus.NoShow) {
+                        Log.warn("Client no-show", { viewingId: id, clientName: clientName });
+                    }
+                }
+            }
+
+            fn confirm() {
+                if (status != ViewingStatus.Scheduled) {
+                    throw ValidationException("Only scheduled viewings can be confirmed");
+                }
+                status = ViewingStatus.Confirmed;
+                this.save();
+            }
+
+            fn complete(String? viewingFeedback, Int? viewingRating) {
+                if (status != ViewingStatus.Scheduled && status != ViewingStatus.Confirmed) {
+                    throw ValidationException("Only scheduled or confirmed viewings can be completed");
+                }
+                status = ViewingStatus.Completed;
+                completedAt = now();
+                feedback = viewingFeedback;
+                rating = viewingRating;
+                this.save();
+            }
+
+            fn cancel(String reason) {
+                if (status == ViewingStatus.Completed || status == ViewingStatus.Cancelled) {
+                    throw ValidationException("Cannot cancel a completed or already cancelled viewing");
+                }
+                status = ViewingStatus.Cancelled;
+                cancellationReason = reason;
+                this.save();
+            }
+
+            fn markNoShow() {
+                if (status != ViewingStatus.Scheduled && status != ViewingStatus.Confirmed) {
+                    throw ValidationException("Only scheduled or confirmed viewings can be marked as no-show");
+                }
+                status = ViewingStatus.NoShow;
+                this.save();
+            }
+        }
+    }
+
+    pubsub mq('config/viewing-service/pubsub.yaml') {
+        topic ViewingEvents {
+            publish ViewingScheduled(UUID viewingId, UUID listingId, String clientName, String clientEmail, DateTime scheduledAt) {
+                ensure clientName.length > 0;
+            }
+            publish ViewingStatusChanged(UUID viewingId, UUID listingId, ViewingStatus oldStatus, ViewingStatus newStatus) {
+                ensure oldStatus != newStatus;
+            }
+        }
+
+        subscribe ViewingEvents {
+            on ViewingScheduled(UUID viewingId, UUID listingId, String clientName, String clientEmail, DateTime scheduledAt) {
+                Log.info("Viewing scheduled event received", { viewingId: viewingId, listingId: listingId });
+            }
+
+            on ViewingStatusChanged(UUID viewingId, UUID listingId, ViewingStatus oldStatus, ViewingStatus newStatus) {
+                Log.info("Viewing status changed", { viewingId: viewingId, oldStatus: oldStatus, newStatus: newStatus });
+            }
+        }
+
+        // Listen for listing status changes
+        subscribe ListingEvents {
+            on ListingStatusChanged(UUID listingId, String listingRef, ListingStatus oldStatus, ListingStatus newStatus) {
+                Log.info("Listing status change received", { listingId: listingId, oldStatus: oldStatus, newStatus: newStatus });
+
+                // Cancel all pending viewings if listing is withdrawn or sold
+                if (newStatus == ListingStatus.Withdrawn || newStatus == ListingStatus.Sold) {
+                    #Array<Viewing> pendingViewings = viewingDb.Viewing
+                        .where(listingId: listingId)
+                        .where(status: ViewingStatus.Scheduled)
+                        .all();
+
+                    #Array<Viewing> confirmedViewings = viewingDb.Viewing
+                        .where(listingId: listingId)
+                        .where(status: ViewingStatus.Confirmed)
+                        .all();
+
+                    foreach viewing in pendingViewings {
+                        viewing.cancel(#"Listing {listingRef} is no longer available ({newStatus})");
+                    }
+
+                    foreach viewing in confirmedViewings {
+                        viewing.cancel(#"Listing {listingRef} is no longer available ({newStatus})");
+                    }
+
+                    #Int cancelledCount = pendingViewings.length() + confirmedViewings.length();
+                    if (cancelledCount > 0) {
+                        Log.info("Cancelled viewings for unavailable listing", { listingId: listingId, count: cancelledCount });
+                    }
+                }
+            }
+        }
+    }
+
+    rest_api ViewingAPI : basePath('/api/v1/viewings') {
+        alert responseTime(p95) over(5m) > 500ms @severity(warning);
+
+        // List viewings with pagination
+        get(Int page = 1, Int perPage = 20, UUID? listingId, ViewingStatus? status) -> PaginatedViewings {
+            #JSON query = viewingDb.Viewing.all();
+
+            if (listingId != null) {
+                query = viewingDb.Viewing.where(listingId: listingId);
+            }
+            if (status != null) {
+                query = query.where(status: status);
+            }
+
+            #Int total = query.count();
+            #Array<Viewing> viewings = query
+                .orderBy(scheduledAt: asc)
+                .offset((page - 1) * perPage)
+                .limit(perPage)
+                .all();
+
+            return {
+                data: viewings,
+                pagination: {
+                    currentPage: page,
+                    perPage: perPage,
+                    totalItems: total,
+                    totalPages: Math.ceil(total / perPage),
+                    hasNextPage: page < Math.ceil(total / perPage),
+                    hasPrevPage: page > 1
+                }
+            };
+        }
+
+        // Get a single viewing
+        @path('/:id')
+        get(UUID id) -> viewingDb.Viewing {
+            return viewingDb.Viewing.findOrFail(id);
+        }
+
+        // Schedule a new viewing
+        post(ScheduleViewingRequest request) -> viewingDb.Viewing {
+            // Verify the listing exists and is active
+            #JSON listing = ListingService.ListingAPI.get(#"/internal/{request.listingId}");
+
+            if (listing.status != "active") {
+                throw ValidationException("Cannot schedule a viewing for a non-active listing");
+            }
+
+            #Viewing viewing = viewingDb.Viewing.create({
+                listingId: request.listingId,
+                agentId: request.agentId ?? Auth.user().id,
+                clientName: request.clientName,
+                clientEmail: request.clientEmail,
+                clientPhone: request.clientPhone,
+                scheduledAt: request.scheduledAt,
+                notes: request.notes
+            });
+            viewing.save();
+
+            return viewing;
+        }
+
+        // Confirm a viewing
+        @path('/:id/confirm')
+        put(UUID id) -> viewingDb.Viewing {
+            #Viewing viewing = viewingDb.Viewing.findOrFail(id);
+            viewing.confirm();
+            return viewing;
+        }
+
+        // Complete a viewing with optional feedback
+        @path('/:id/complete')
+        put(UUID id, CompleteViewingRequest request) -> viewingDb.Viewing {
+            #Viewing viewing = viewingDb.Viewing.findOrFail(id);
+            viewing.complete(request.feedback, request.rating);
+            return viewing;
+        }
+
+        // Cancel a viewing
+        @path('/:id/cancel')
+        put(UUID id, CancelViewingRequest request) -> viewingDb.Viewing {
+            #Viewing viewing = viewingDb.Viewing.findOrFail(id);
+            viewing.cancel(request.reason);
+            return viewing;
+        }
+
+        // Mark a viewing as no-show
+        @path('/:id/no-show')
+        put(UUID id) -> viewingDb.Viewing {
+            #Viewing viewing = viewingDb.Viewing.findOrFail(id);
+            viewing.markNoShow();
+            return viewing;
+        }
+
+        // Get viewings for a specific listing
+        @path('/by-listing/:listingId')
+        get(UUID listingId) -> Array<viewingDb.Viewing> {
+            return viewingDb.Viewing
+                .where(listingId: listingId)
+                .orderBy(scheduledAt: asc)
+                .all();
+        }
+
+        // Get upcoming viewings for an agent
+        @path('/by-agent/:agentId/upcoming')
+        get(UUID agentId) -> Array<viewingDb.Viewing> {
+            return viewingDb.Viewing
+                .where(agentId: agentId)
+                .where(scheduledAt: gte(now()))
+                .where(status: ViewingStatus.Confirmed)
+                .orderBy(scheduledAt: asc)
+                .all();
+        }
+    }
+
+    test("computed isPending is true for Scheduled status") {
+        #viewingDb.Viewing viewing = viewingDb.Viewing.create({
+            listingId: uuid(),
+            clientName: "John Doe",
+            clientEmail: "john@example.com",
+            scheduledAt: now().addDays(3),
+            status: ViewingStatus.Scheduled
+        });
+        viewing.save();
+        assert viewing.isPending == true;
+    }
+
+    test("validation rejects past scheduled time") {
+        assert throws(
+            () => viewingDb.Viewing.create({
+                listingId: uuid(),
+                clientName: "Jane Smith",
+                clientEmail: "jane@example.com",
+                scheduledAt: now().addDays(-1)
+            }),
+            ValidationError("Viewing must be scheduled in the future")
+        );
+    }
+
+    test("validation rejects empty client name") {
+        assert throws(
+            () => viewingDb.Viewing.create({
+                listingId: uuid(),
+                clientName: "",
+                clientEmail: "test@example.com",
+                scheduledAt: now().addDays(7)
+            }),
+            ValidationError("Client name cannot be empty")
+        );
+    }
+
+    test("afterCreate emits ViewingScheduled event") {
+        #viewingDb.Viewing viewing = viewingDb.Viewing.create({
+            listingId: uuid(),
+            clientName: "Bob Builder",
+            clientEmail: "bob@example.com",
+            scheduledAt: now().addDays(5)
+        });
+        viewing.save();
+        assert emitted(ViewingScheduled(viewing.id, viewing.listingId, "Bob Builder", "bob@example.com", viewing.scheduledAt));
+    }
+
+    test("cancel fails for completed viewing") {
+        #viewingDb.Viewing viewing = viewingDb.Viewing.create({
+            listingId: uuid(),
+            clientName: "Alice Wonder",
+            clientEmail: "alice@example.com",
+            scheduledAt: now().addDays(2),
+            status: ViewingStatus.Completed
+        });
+        viewing.save();
+        assert throws(
+            () => viewing.cancel("No longer interested"),
+            ValidationException("Cannot cancel a completed or already cancelled viewing")
+        );
+    }
+}

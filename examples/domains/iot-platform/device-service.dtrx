@@ -1,0 +1,422 @@
+
+from iot.common import BaseEntity, generateSerialNumber, HEARTBEAT_TIMEOUT_SECONDS;
+
+service iot.DeviceService : version('1.0.0'), description('device registration and lifecycle management service') {
+
+    config('config/device-service/device-service-config.yaml');
+    registration('config/device-service/registration.yaml');
+    discovery { }
+    resilience('config/device-service/resilience.yaml');
+
+    enum DeviceStatus {
+        Active,
+        Inactive,
+        Maintenance,
+        Decommissioned
+    }
+
+    enum DeviceType {
+        Sensor,
+        Actuator,
+        Gateway,
+        Controller
+    }
+
+    struct RegisterDeviceRequest {
+        String(200) name;
+        DeviceType type;
+        String(50) firmwareVersion;
+        String(200)? location;
+        Array<String> tags;
+        JSON metadata;
+    }
+
+    struct HeartbeatRequest {
+        String(50) firmwareVersion;
+        JSON? diagnostics;
+    }
+
+    struct DeviceGroupRequest {
+        String(100) name;
+        String(500)? description;
+    }
+
+    struct AddToGroupRequest {
+        UUID deviceId;
+    }
+
+    struct DeviceSummary {
+        Int totalDevices;
+        Int active;
+        Int inactive;
+        Int maintenance;
+        Int decommissioned;
+    }
+
+    rdbms deviceDb('config/device-service/datasources.yaml') {
+
+        entity Device extends BaseEntity {
+            String(50) serialNumber : unique;
+            String(200) name : trim;
+            DeviceType type;
+            DeviceStatus status = DeviceStatus.Inactive;
+            String(50) firmwareVersion;
+            DateTime? lastSeenAt;
+            String(200)? location;
+            Array<String> tags = [];
+            JSON metadata;
+
+            Boolean isOnline := lastSeenAt != null && DateTime.diffInSeconds(lastSeenAt, now()) < HEARTBEAT_TIMEOUT_SECONDS;
+            Boolean isActive := status == DeviceStatus.Active;
+            String displayName := #"{name} ({serialNumber})";
+
+            index(status);
+            index(type, status);
+            index(serialNumber);
+            index(firmwareVersion);
+
+            validate {
+                if (name.trim().isEmpty())
+                    ValidationError("Device name cannot be empty");
+                if (firmwareVersion.trim().isEmpty())
+                    ValidationError("Firmware version cannot be empty");
+            }
+
+            afterCreate {
+                emit DeviceRegistered(id, serialNumber, name, type);
+            }
+
+            afterUpdate {
+                if (isChanged(status)) {
+                    emit DeviceStatusChanged(id, serialNumber, oldValue(status), status);
+                }
+                if (isChanged(firmwareVersion)) {
+                    emit DeviceFirmwareUpdated(id, serialNumber, oldValue(firmwareVersion), firmwareVersion);
+                }
+            }
+
+            fn activate() {
+                status = DeviceStatus.Active;
+                lastSeenAt = now();
+                this.save();
+            }
+
+            fn decommission() {
+                status = DeviceStatus.Decommissioned;
+                this.save();
+            }
+
+            fn heartbeat(String version) {
+                lastSeenAt = now();
+                firmwareVersion = version;
+                this.save();
+            }
+        }
+
+        entity DeviceGroup extends BaseEntity {
+            String(100) name : unique, trim;
+            String(500)? description;
+
+            hasMany DeviceGroupMember as members;
+
+            validate {
+                if (name.trim().isEmpty())
+                    ValidationError("Group name cannot be empty");
+            }
+        }
+
+        entity DeviceGroupMember extends BaseEntity {
+            DateTime joinedAt = now();
+
+            belongsTo DeviceGroup : index;
+            belongsTo Device : index;
+
+            index(groupId, deviceId) : unique;
+        }
+    }
+
+    cache redis('config/device-service/cache.yaml') {
+
+        hash DeviceStatusCache : prefix('device:status:'), ttl(600) {
+            UUID deviceId : primaryKey;
+            DeviceStatus status;
+            String firmwareVersion;
+            DateTime lastSeenAt;
+        }
+
+        counter OnlineDeviceCount : prefix('devices:online:');
+    }
+
+    pubsub mq('config/device-service/pubsub.yaml') {
+
+        topic DeviceEvents {
+            publish DeviceRegistered(UUID deviceId, String serialNumber, String name, DeviceType type) {
+                ensure serialNumber.length > 0;
+                ensure name.length > 0;
+            }
+            publish DeviceStatusChanged(UUID deviceId, String serialNumber, DeviceStatus oldStatus, DeviceStatus newStatus) {
+                ensure oldStatus != newStatus;
+            }
+            publish DeviceFirmwareUpdated(UUID deviceId, String serialNumber, String oldVersion, String newVersion);
+            publish DeviceHeartbeat(UUID deviceId, String serialNumber, String firmwareVersion);
+        }
+
+        subscribe DeviceEvents {
+
+            on DeviceRegistered(UUID deviceId, String serialNumber, String name, DeviceType type) {
+                Log.info("New device registered", {
+                    deviceId: deviceId,
+                    serialNumber: serialNumber,
+                    name: name,
+                    type: type
+                });
+            }
+
+            on DeviceStatusChanged(UUID deviceId, String serialNumber, DeviceStatus oldStatus, DeviceStatus newStatus) {
+                Log.info("Device status changed", {
+                    deviceId: deviceId,
+                    serialNumber: serialNumber,
+                    oldStatus: oldStatus,
+                    newStatus: newStatus
+                });
+
+                redis.DeviceStatusCache.set(deviceId, {
+                    deviceId: deviceId,
+                    status: newStatus,
+                    firmwareVersion: "",
+                    lastSeenAt: now()
+                });
+
+                if (newStatus == DeviceStatus.Active) {
+                    redis.OnlineDeviceCount.incr("total");
+                } else if (oldStatus == DeviceStatus.Active) {
+                    redis.OnlineDeviceCount.decr("total");
+                }
+            }
+        }
+    }
+
+    rest_api DeviceAPI : basePath('/api/v1/devices') {
+
+        resource deviceDb.Device : only(list, get);
+        resource deviceDb.DeviceGroup;
+
+        @path('/register')
+        post(RegisterDeviceRequest request) -> deviceDb.Device {
+            #Device device = deviceDb.Device.create({
+                serialNumber: generateSerialNumber(),
+                name: request.name,
+                type: request.type,
+                firmwareVersion: request.firmwareVersion,
+                location: request.location,
+                tags: request.tags,
+                metadata: request.metadata,
+                status: DeviceStatus.Inactive
+            });
+
+            Log.info("Device registered", {
+                deviceId: device.id,
+                serialNumber: device.serialNumber,
+                name: device.name,
+                type: device.type
+            });
+
+            return device;
+        }
+
+        @path('/:id/activate')
+        post(UUID id) -> deviceDb.Device {
+            #Device device = deviceDb.Device.findOrFail(id);
+
+            if (device.status == DeviceStatus.Decommissioned) {
+                throw ValidationException({
+                    code: "DEVICE_DECOMMISSIONED",
+                    message: "Cannot activate a decommissioned device"
+                });
+            }
+
+            device.activate();
+
+            redis.DeviceStatusCache.set(device.id, {
+                deviceId: device.id,
+                status: device.status,
+                firmwareVersion: device.firmwareVersion,
+                lastSeenAt: device.lastSeenAt
+            });
+
+            Log.info("Device activated", {
+                deviceId: device.id,
+                serialNumber: device.serialNumber
+            });
+
+            return device;
+        }
+
+        @path('/:id/heartbeat')
+        post(UUID id, HeartbeatRequest request) -> deviceDb.Device {
+            #Device device = deviceDb.Device.findOrFail(id);
+
+            if (device.status != DeviceStatus.Active) {
+                throw ValidationException({
+                    code: "DEVICE_NOT_ACTIVE",
+                    message: #"Device is not active, current status: {device.status}"
+                });
+            }
+
+            device.heartbeat(request.firmwareVersion);
+
+            redis.DeviceStatusCache.set(device.id, {
+                deviceId: device.id,
+                status: device.status,
+                firmwareVersion: request.firmwareVersion,
+                lastSeenAt: now()
+            });
+
+            emit DeviceHeartbeat(device.id, device.serialNumber, request.firmwareVersion);
+
+            return device;
+        }
+
+        @path('/:id/decommission')
+        post(UUID id) : access(admin) -> deviceDb.Device {
+            #Device device = deviceDb.Device.findOrFail(id);
+            device.decommission();
+
+            redis.DeviceStatusCache.delete(device.id);
+
+            Log.info("Device decommissioned", {
+                deviceId: device.id,
+                serialNumber: device.serialNumber
+            });
+
+            return device;
+        }
+
+        @path('/by-type/:type')
+        get(DeviceType type) -> Array<deviceDb.Device> {
+            return deviceDb.Device
+                .where(type: type)
+                .where(status: DeviceStatus.Active)
+                .orderBy(name: asc)
+                .all();
+        }
+
+        @path('/by-group/:groupId')
+        get(UUID groupId) -> Array<deviceDb.Device> {
+            #Array<DeviceGroupMember> members = deviceDb.DeviceGroupMember
+                .where(groupId: groupId)
+                .all();
+            return members.map(m => deviceDb.Device.findOrFail(m.deviceId));
+        }
+
+        @path('/groups/:groupId/add')
+        post(UUID groupId, AddToGroupRequest request) -> deviceDb.DeviceGroupMember {
+            #DeviceGroup group = deviceDb.DeviceGroup.findOrFail(groupId);
+            #Device device = deviceDb.Device.findOrFail(request.deviceId);
+
+            #DeviceGroupMember? existing = deviceDb.DeviceGroupMember
+                .where(groupId: groupId)
+                .where(deviceId: request.deviceId)
+                .first();
+
+            if (existing != null) {
+                throw ValidationException({
+                    code: "ALREADY_IN_GROUP",
+                    message: #"Device {device.serialNumber} is already in group {group.name}"
+                });
+            }
+
+            #DeviceGroupMember member = deviceDb.DeviceGroupMember.create({
+                group: group,
+                device: device,
+                joinedAt: now()
+            });
+
+            Log.info("Device added to group", {
+                deviceId: device.id,
+                groupId: group.id,
+                groupName: group.name
+            });
+
+            return member;
+        }
+
+        @path('/summary')
+        get() : internal -> DeviceSummary {
+            #Int total = deviceDb.Device.count();
+            #Int active = deviceDb.Device.where(status: DeviceStatus.Active).count();
+            #Int inactive = deviceDb.Device.where(status: DeviceStatus.Inactive).count();
+            #Int maintenance = deviceDb.Device.where(status: DeviceStatus.Maintenance).count();
+            #Int decommissioned = deviceDb.Device.where(status: DeviceStatus.Decommissioned).count();
+
+            return {
+                totalDevices: total,
+                active: active,
+                inactive: inactive,
+                maintenance: maintenance,
+                decommissioned: decommissioned
+            };
+        }
+
+        @path('/by-firmware/:version')
+        get(String version) -> Array<deviceDb.Device> {
+            return deviceDb.Device
+                .where(firmwareVersion: version)
+                .orderBy(name: asc)
+                .all();
+        }
+    }
+
+    test("computed isActive reflects Active status") {
+        #deviceDb.Device device = deviceDb.Device.create({
+            serialNumber: "IOT-TEST-001",
+            name: "Temperature Sensor",
+            type: DeviceType.Sensor,
+            status: DeviceStatus.Active,
+            firmwareVersion: "1.0.0",
+            metadata: {},
+            lastSeenAt: now()
+        });
+        device.save();
+        assert device.isActive == true;
+    }
+
+    test("validation rejects empty name") {
+        assert throws(
+            () => deviceDb.Device.create({
+                serialNumber: "IOT-TEST-002",
+                name: "",
+                type: DeviceType.Sensor,
+                firmwareVersion: "1.0.0",
+                metadata: {}
+            }),
+            ValidationError("Device name cannot be empty")
+        );
+    }
+
+    test("afterCreate emits DeviceRegistered") {
+        #deviceDb.Device device = deviceDb.Device.create({
+            serialNumber: "IOT-TEST-003",
+            name: "Humidity Sensor",
+            type: DeviceType.Sensor,
+            firmwareVersion: "1.0.0",
+            metadata: {}
+        });
+        device.save();
+        assert emitted(DeviceRegistered(device.id, device.serialNumber, device.name, DeviceType.Sensor));
+    }
+
+    test("status change emits DeviceStatusChanged") {
+        #deviceDb.Device device = deviceDb.Device.create({
+            serialNumber: "IOT-TEST-004",
+            name: "Gateway Hub",
+            type: DeviceType.Gateway,
+            firmwareVersion: "2.0.0",
+            metadata: {}
+        });
+        device.save();
+        device.status = DeviceStatus.Active;
+        device.save();
+        assert emitted(DeviceStatusChanged(device.id, device.serialNumber, DeviceStatus.Inactive, DeviceStatus.Active));
+    }
+}

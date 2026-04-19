@@ -1,0 +1,24 @@
+{
+  "target": "sql",
+  "generated_at": "2026-03-27T23:49:12Z",
+  "files": [
+    "ecommerce_order_service/sql/idempotency_keys.sql",
+    "ecommerce_order_service/sql/order_items.sql",
+    "ecommerce_order_service/sql/orders.sql",
+    "ecommerce_order_service/sql/orders_audit_log.sql",
+    "ecommerce_payment_service/sql/payments.sql",
+    "ecommerce_payment_service/sql/payments_audit_log.sql",
+    "ecommerce_payment_service/sql/refunds.sql",
+    "ecommerce_payment_service/sql/refunds_audit_log.sql",
+    "ecommerce_product_service/sql/categories.sql",
+    "ecommerce_product_service/sql/inventory_reservations.sql",
+    "ecommerce_product_service/sql/products.sql",
+    "ecommerce_shipping_service/sql/shipment_events.sql",
+    "ecommerce_shipping_service/sql/shipment_items.sql",
+    "ecommerce_shipping_service/sql/shipments.sql",
+    "ecommerce_user_service/sql/user_preferenceses.sql",
+    "ecommerce_user_service/sql/user_sessions.sql",
+    "ecommerce_user_service/sql/users.sql"
+  ],
+  "user_files": []
+}

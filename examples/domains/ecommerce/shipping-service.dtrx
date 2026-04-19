@@ -1,0 +1,554 @@
+
+from ecommerce.common import BaseEntity, Address, generateTrackingNumber;
+
+service ecommerce.ShippingService : version('1.0.0'), description('shipping management service') {
+
+    config('config/shipping-service/shipping-service-config.yaml');
+    registration('config/shipping-service/registration.yaml');
+    discovery { }
+    resilience('config/shipping-service/resilience.yaml');
+    integrations('config/shipping-service/integrations.yaml');
+
+    enum ShipmentStatus {
+        Pending,
+        PickedUp,
+        InTransit,
+        OutForDelivery,
+        Delivered,
+        Failed,
+        Returned
+    }
+
+    enum ShippingCarrier {
+        FedEx,
+        UPS,
+        USPS,
+        DHL
+    }
+
+    struct ShipmentTracking {
+        String trackingNumber;
+        ShipmentStatus status;
+        ShippingCarrier carrier;
+        Address destination;
+        DateTime? estimatedDelivery;
+        DateTime? actualDelivery;
+        // Array of entity references in struct fields
+        Array<shippingDb.ShipmentEvent> events;
+    }
+
+    struct CreateShipmentItem {
+        UUID productId;
+        Int quantity;
+    }
+
+    struct ShippingRateResponse {
+        ShippingCarrier carrier;
+        Decimal rate;
+        Int estimatedDays;
+    }
+
+    struct CreateShipmentRequest {
+        UUID orderId;
+        Address destination;
+        Array<CreateShipmentItem> items;
+        Decimal weight;
+    }
+
+    struct UpdateShipmentStatusRequest {
+        ShipmentStatus status;
+        String? location;
+        String? description;
+    }
+
+    struct AddTrackingEventRequest {
+        ShipmentStatus status;
+        String location;
+        String? description;
+    }
+
+    struct GetShippingRatesRequest {
+        Address destination;
+        Decimal weight;
+    }
+
+    struct FedExWebhookRequest {
+        JSON payload;
+    }
+
+    rdbms shippingDb('config/shipping-service/datasources.yaml') {
+
+        entity Shipment extends BaseEntity {
+            UUID orderId : index;
+            String(50) trackingNumber : unique;
+            ShippingCarrier carrier;
+            ShipmentStatus status = ShipmentStatus.Pending;
+            Address destination;
+            // Decimal(precision, scale) for fixed-point numbers
+            Decimal(10, 2) weight;
+
+            DateTime? estimatedDelivery;
+            DateTime? actualDelivery;
+            String? failureReason;
+
+            Boolean isDelivered := status == ShipmentStatus.Delivered;
+            Boolean isInProgress := status == ShipmentStatus.InTransit || status == ShipmentStatus.OutForDelivery;
+            // Computed field calling an entity method
+            Int daysInTransit := calculateDaysInTransit();
+
+            hasMany ShipmentEvent as events;
+
+            index(orderId);
+            index(trackingNumber);
+            index(status);
+            index(carrier, status);
+
+            afterUpdate {
+                if (isChanged(status)) {
+                    // Automatically create tracking events on status changes
+                    shippingDb.ShipmentEvent.create({
+                        shipment: this,
+                        timestamp: now(),
+                        status: status,
+                        location: "System",
+                        description: #"Status updated to {status}"
+                    });
+
+                    if (status == ShipmentStatus.InTransit) {
+                        emit ShipmentDispatched(id, orderId, trackingNumber);
+                    } else if (status == ShipmentStatus.Delivered) {
+                        emit ShipmentDelivered(id, orderId, actualDelivery ?? now());
+                    } else if (status == ShipmentStatus.Failed) {
+                        emit ShipmentFailed(id, orderId, failureReason ?? "Delivery failed");
+                    }
+                }
+            }
+
+            fn calculateDaysInTransit() -> Int {
+                if (actualDelivery == null) return 0;
+                return DateTime.diffInDays(createdAt, actualDelivery);
+            }
+
+            fn markDelivered() {
+                status = ShipmentStatus.Delivered;
+                actualDelivery = now();
+                this.save();
+            }
+
+            fn markFailed(String reason) {
+                status = ShipmentStatus.Failed;
+                failureReason = reason;
+                this.save();
+            }
+        }
+
+        // Event log entity for shipment tracking history
+        entity ShipmentEvent extends BaseEntity {
+            DateTime timestamp;
+            ShipmentStatus status;
+            String(200) location;
+            Text? description;
+
+            belongsTo Shipment : index;
+
+            index(shipmentId, timestamp);
+        }
+
+        entity ShipmentItem extends BaseEntity {
+            UUID productId;
+            Int quantity;
+
+            belongsTo Shipment : index;
+        }
+    }
+
+    cache redis('config/shipping-service/cache.yaml') {
+        hash ShipmentCache : prefix('shipment:'), ttl(1800) {
+            String trackingNumber : key;
+            ShipmentStatus status;
+            DateTime? estimatedDelivery;
+        }
+
+        counter ShipmentsToday : prefix('shipments:daily:'), ttl(86400);
+    }
+
+    pubsub mq('config/shipping-service/pubsub.yaml') {
+        topic ShipmentEvents {
+            publish ShipmentCreated(UUID shipmentId, UUID orderId);
+            publish ShipmentDispatched(UUID shipmentId, UUID orderId, String trackingNumber) {
+                ensure trackingNumber.length > 0;
+            }
+            publish ShipmentDelivered(UUID shipmentId, UUID orderId, DateTime deliveredAt);
+            publish ShipmentFailed(UUID shipmentId, UUID orderId, String reason) {
+                ensure reason.length > 0;
+            }
+        }
+
+        // React to order confirmation by automatically creating shipments
+        subscribe OrderEvents {
+
+            on OrderConfirmed(UUID orderId, UUID? paymentId, UUID reservationId, Address shippingAddress, Array<JSON> items, Decimal estimatedWeight) {
+                #ShippingCarrier carrier = selectCarrier(shippingAddress, estimatedWeight);
+                #DateTime estimatedDelivery = calculateEstimatedDelivery(carrier, shippingAddress);
+
+                #Shipment shipment = shippingDb.Shipment.create({
+                    orderId: orderId,
+                    trackingNumber: generateTrackingNumber(),
+                    carrier: carrier,
+                    destination: shippingAddress,
+                    weight: estimatedWeight,
+                    status: ShipmentStatus.Pending,
+                    estimatedDelivery: estimatedDelivery
+                });
+
+                foreach item in items {
+                    shippingDb.ShipmentItem.create({
+                        shipment: shipment,
+                        productId: item.productId,
+                        quantity: item.quantity
+                    });
+                }
+
+                shippingDb.ShipmentEvent.create({
+                    shipment: shipment,
+                    timestamp: now(),
+                    status: ShipmentStatus.Pending,
+                    location: "Warehouse",
+                    description: "Shipment created, awaiting pickup"
+                });
+
+                emit ShipmentCreated(shipment.id, orderId);
+                // Increment daily shipment counter
+                redis.ShipmentsToday.incr(now().format('YYYY-MM-DD'));
+
+                Log.info("Shipment created from order confirmation", {
+                    shipmentId: shipment.id,
+                    orderId: orderId,
+                    carrier: carrier,
+                    trackingNumber: shipment.trackingNumber
+                });
+            }
+        }
+    }
+
+    rest_api ShippingAPI : basePath('/api/v1/shipments') {
+
+        resource shippingDb.Shipment : only(get);
+
+        @path('/order/:orderId')
+        get(UUID orderId) -> shippingDb.Shipment {
+            return shippingDb.Shipment.where(orderId: orderId).firstOrFail();
+        }
+
+        // Public tracking endpoint - no authentication required
+        @path('/track/:trackingNumber')
+        get(String trackingNumber) : public -> ShipmentTracking {
+            #JSON? cached = redis.ShipmentCache.get(trackingNumber);
+
+            #Shipment shipment = shippingDb.Shipment.where(trackingNumber: trackingNumber).firstOrFail();
+            #Array<ShipmentEvent> events = shippingDb.ShipmentEvent
+                .where(shipmentId: shipment.id)
+                .orderBy(timestamp: asc)
+                .all();
+
+            redis.ShipmentCache.set(trackingNumber, {
+                trackingNumber: trackingNumber,
+                status: shipment.status,
+                estimatedDelivery: shipment.estimatedDelivery
+            });
+
+            return {
+                trackingNumber: trackingNumber,
+                status: shipment.status,
+                carrier: shipment.carrier,
+                destination: shipment.destination,
+                estimatedDelivery: shipment.estimatedDelivery,
+                actualDelivery: shipment.actualDelivery,
+                events: events
+            };
+        }
+
+        post(CreateShipmentRequest request) : internal -> shippingDb.Shipment {
+            #ShippingCarrier carrier = selectCarrier(request.destination, request.weight);
+            #DateTime estimatedDelivery = calculateEstimatedDelivery(carrier, request.destination);
+
+            #Shipment shipment = shippingDb.Shipment.create({
+                orderId: request.orderId,
+                trackingNumber: generateTrackingNumber(),
+                carrier: carrier,
+                destination: request.destination,
+                weight: request.weight,
+                status: ShipmentStatus.Pending,
+                estimatedDelivery: estimatedDelivery
+            });
+
+            foreach item in request.items {
+                shippingDb.ShipmentItem.create({
+                    shipment: shipment,
+                    productId: item.productId,
+                    quantity: item.quantity
+                });
+            }
+
+            shippingDb.ShipmentEvent.create({
+                shipment: shipment,
+                timestamp: now(),
+                status: ShipmentStatus.Pending,
+                location: "Warehouse",
+                description: "Shipment created, awaiting pickup"
+            });
+
+            emit ShipmentCreated(shipment.id, request.orderId);
+
+            redis.ShipmentsToday.incr(now().format('YYYY-MM-DD'));
+
+            Log.info("Shipment created", {
+                shipmentId: shipment.id,
+                orderId: request.orderId,
+                carrier: carrier,
+                trackingNumber: shipment.trackingNumber
+            });
+
+            return shipment;
+        }
+
+        @path('/:id/status')
+        put(UUID id, UpdateShipmentStatusRequest request) : access(admin) -> shippingDb.Shipment {
+            #Shipment shipment = shippingDb.Shipment.findOrFail(id);
+
+            #ShipmentStatus oldStatus = shipment.status;
+            shipment.status = request.status;
+
+            if (request.status == ShipmentStatus.Delivered) {
+                shipment.actualDelivery = now();
+            }
+
+            shipment.save();
+
+            shippingDb.ShipmentEvent.create({
+                shipment: shipment,
+                timestamp: now(),
+                status: request.status,
+                location: request.location ?? "Unknown",
+                description: request.description ?? #"Status updated to {request.status}"
+            });
+
+            // Invalidate cache on status change
+            redis.ShipmentCache.delete(shipment.trackingNumber);
+
+            Log.info("Shipment status updated", {
+                shipmentId: id,
+                oldStatus: oldStatus,
+                newStatus: request.status
+            });
+
+            return shipment;
+        }
+
+        @path('/:id/events')
+        post(UUID id, AddTrackingEventRequest request) : access(admin) -> shippingDb.ShipmentEvent {
+            #Shipment shipment = shippingDb.Shipment.findOrFail(id);
+
+            #ShipmentEvent event = shippingDb.ShipmentEvent.create({
+                shipment: shipment,
+                timestamp: now(),
+                status: request.status,
+                location: request.location,
+                description: request.description
+            });
+
+            if (shipment.status != request.status) {
+                shipment.status = request.status;
+                if (request.status == ShipmentStatus.Delivered) {
+                    shipment.actualDelivery = now();
+                }
+                shipment.save();
+            }
+
+            redis.ShipmentCache.delete(shipment.trackingNumber);
+
+            return event;
+        }
+
+        @path('/rates')
+        post(GetShippingRatesRequest request) : public -> Array<ShippingRateResponse> {
+            #Array<ShippingRateResponse> rates = [];
+
+            rates.push({
+                carrier: ShippingCarrier.FedEx,
+                rate: calculateRate(ShippingCarrier.FedEx, request.destination, request.weight),
+                estimatedDays: getEstimatedDays(ShippingCarrier.FedEx, request.destination)
+            });
+
+            rates.push({
+                carrier: ShippingCarrier.UPS,
+                rate: calculateRate(ShippingCarrier.UPS, request.destination, request.weight),
+                estimatedDays: getEstimatedDays(ShippingCarrier.UPS, request.destination)
+            });
+
+            rates.push({
+                carrier: ShippingCarrier.USPS,
+                rate: calculateRate(ShippingCarrier.USPS, request.destination, request.weight),
+                estimatedDays: getEstimatedDays(ShippingCarrier.USPS, request.destination)
+            });
+
+            return rates;
+        }
+
+        // Webhook for external carrier status updates
+        @path('/webhook/fedex')
+        post(FedExWebhookRequest request) : public -> Void {
+            #String trackingNumber = request.payload.trackingNumber;
+            #String eventType = request.payload.eventType;
+            #String location = request.payload.location ?? "Unknown";
+
+            #Shipment? shipment = shippingDb.Shipment.where(trackingNumber: trackingNumber).first();
+
+            if (shipment == null) {
+                Log.warn("Webhook received for unknown tracking number", { trackingNumber: trackingNumber });
+                return;
+            }
+
+            #ShipmentStatus newStatus = mapFedExStatus(eventType);
+
+            shippingDb.ShipmentEvent.create({
+                shipment: shipment,
+                timestamp: now(),
+                status: newStatus,
+                location: location,
+                description: request.payload.description
+            });
+
+            if (shipment.status != newStatus) {
+                shipment.status = newStatus;
+                if (newStatus == ShipmentStatus.Delivered) {
+                    shipment.actualDelivery = now();
+                }
+                shipment.save();
+            }
+
+            redis.ShipmentCache.delete(trackingNumber);
+        }
+
+        fn calculateRate(ShippingCarrier carrier, Address destination, Decimal weight) -> Decimal {
+            #Float baseRate = 5.99;
+            #Float weightRate = weight * 0.50;
+
+            if (destination.country != "US") {
+                baseRate = 25.99;
+                weightRate = weight * 1.50;
+            }
+
+            #Float carrierMultiplier = 1.0;
+            if (carrier == ShippingCarrier.FedEx) carrierMultiplier = 1.2;
+            if (carrier == ShippingCarrier.UPS) carrierMultiplier = 1.1;
+
+            return (baseRate + weightRate) * carrierMultiplier;
+        }
+
+        // Map external carrier event codes to internal status enum
+        fn mapFedExStatus(String eventType) -> ShipmentStatus {
+            if (eventType == "PU") return ShipmentStatus.PickedUp;
+            if (eventType == "IT") return ShipmentStatus.InTransit;
+            if (eventType == "OD") return ShipmentStatus.OutForDelivery;
+            if (eventType == "DL") return ShipmentStatus.Delivered;
+            if (eventType == "DE") return ShipmentStatus.Failed;
+            return ShipmentStatus.InTransit;
+        }
+    }
+
+    test("computed isDelivered reflects Delivered status") {
+        #shippingDb.Shipment shipment = shippingDb.Shipment.create({
+            orderId: uuid(),
+            trackingNumber: "SPEC-TRACK-001",
+            carrier: ShippingCarrier.FedEx,
+            status: ShipmentStatus.Delivered,
+            destination: { street: "123 Main St", city: "Springfield", state: "IL", zip: "62701", country: "US" },
+            weight: 2.50,
+            actualDelivery: now()
+        });
+        shipment.save();
+        assert shipment.isDelivered == true;
+    }
+
+    test("computed isInProgress for InTransit status") {
+        #shippingDb.Shipment shipment = shippingDb.Shipment.create({
+            orderId: uuid(),
+            trackingNumber: "SPEC-TRACK-002",
+            carrier: ShippingCarrier.UPS,
+            status: ShipmentStatus.InTransit,
+            destination: { street: "456 Oak Ave", city: "Shelbyville", state: "IL", zip: "62565", country: "US" },
+            weight: 1.75
+        });
+        shipment.save();
+        assert shipment.isInProgress == true;
+    }
+
+    // Scheduled jobs for background processing
+    jobs('config/shipping-service/jobs.yaml') {
+        // Periodically sync tracking info from carrier APIs
+        job SyncCarrierTracking {
+            #Array<Shipment> activeShipments = shippingDb.Shipment
+                .whereIn(status: [ShipmentStatus.PickedUp, ShipmentStatus.InTransit, ShipmentStatus.OutForDelivery])
+                .where(createdAt: gt(now().subtractDays(30)))
+                .all();
+
+            foreach shipment in activeShipments {
+                try {
+                    if (shipment.carrier == ShippingCarrier.FedEx) {
+                        syncFedExTracking(shipment);
+                    } else if (shipment.carrier == ShippingCarrier.UPS) {
+                        syncUPSTracking(shipment);
+                    }
+                } catch (Exception e) {
+                    Log.error("Failed to sync tracking", {
+                        shipmentId: shipment.id,
+                        carrier: shipment.carrier,
+                        error: e.message
+                    });
+                }
+            }
+
+            Log.info("Carrier tracking sync complete", { count: activeShipments.length() });
+        }
+    }
+
+    // Service-level carrier selection logic
+    fn selectCarrier(Address destination, Decimal weight) -> ShippingCarrier {
+        if (destination.country != "US") {
+            return ShippingCarrier.FedEx;
+        }
+        if (weight > 70) {
+            return ShippingCarrier.UPS;
+        }
+        return ShippingCarrier.USPS;
+    }
+
+    fn calculateEstimatedDelivery(ShippingCarrier carrier, Address destination) -> DateTime {
+        #Int days = getEstimatedDays(carrier, destination);
+        return now().addDays(days);
+    }
+
+    fn getEstimatedDays(ShippingCarrier carrier, Address destination) -> Int {
+        #Boolean isInternational = destination.country != "US";
+
+        if (isInternational) {
+            // Ternary expression using '? :'
+            return carrier == ShippingCarrier.FedEx ? 5 : 7;
+        }
+
+        if (carrier == ShippingCarrier.USPS) return 5;
+        if (carrier == ShippingCarrier.UPS) return 3;
+        if (carrier == ShippingCarrier.FedEx) return 3;
+
+        return 5;
+    }
+
+    fn syncFedExTracking(shippingDb.Shipment shipment) {
+        Log.debug("Syncing FedEx tracking", { trackingNumber: shipment.trackingNumber });
+    }
+
+    fn syncUPSTracking(shippingDb.Shipment shipment) {
+        Log.debug("Syncing UPS tracking", { trackingNumber: shipment.trackingNumber });
+    }
+}

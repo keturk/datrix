@@ -1,0 +1,578 @@
+
+from realestate.common import BaseEntity, PropertyType, formatPrice, generateListingRef;
+
+service realestate.ListingService : version('1.0.0'), description('property listing management service') {
+
+    config('config/listing-service/listing-service-config.yaml');
+    registration('config/listing-service/registration.yaml');
+    discovery { }
+    resilience('config/listing-service/resilience.yaml');
+
+    enum ListingStatus {
+        Draft : value('draft'),
+        Active : value('active'),
+        UnderContract : value('under_contract'),
+        Sold : value('sold'),
+        Withdrawn : value('withdrawn')
+    }
+
+    struct CreateListingRequest {
+        String title;
+        Text description;
+        PropertyType propertyType;
+        Money price;
+        Int bedrooms;
+        Int bathrooms;
+        Int squareFeet;
+        String address;
+        String city;
+        String state;
+        String zipCode;
+        Decimal? latitude;
+        Decimal? longitude;
+        Int? yearBuilt;
+    }
+
+    struct UpdateListingRequest {
+        String? title;
+        Text? description;
+        Money? price;
+        ListingStatus? status;
+    }
+
+    struct ListingSearchRequest {
+        String? query;
+        String? city;
+        String? state;
+        PropertyType? propertyType;
+        Money? minPrice;
+        Money? maxPrice;
+        Int? minBedrooms;
+        Int? minBathrooms;
+        Int limit = 20;
+        Int offset = 0;
+    }
+
+    struct AddImageRequest {
+        String url;
+        String? caption;
+        Int orderIndex;
+        Boolean isPrimary;
+    }
+
+    struct AddFeatureRequest {
+        String featureName;
+        String featureValue;
+    }
+
+    struct PaginatedListings {
+        Array<listingDb.Listing> data;
+        JSON pagination;
+    }
+
+    rdbms listingDb('config/listing-service/datasources.yaml') {
+        alert queryDuration(p95) over(5m) > 200ms @severity(warning);
+        alert connectionPool(utilization) over(1m) > 80% @severity(critical);
+
+        // Property listing entity
+        entity Listing extends BaseEntity {
+            String(200) title : trim;
+            Text description;
+            String(30) listingRef : unique;
+            PropertyType propertyType;
+            ListingStatus status = ListingStatus.Draft;
+            Money price : positive;
+            Int bedrooms : min(0);
+            Int bathrooms : min(0);
+            Int squareFeet : positive;
+            String(300) address : trim;
+            String(100) city : trim, index;
+            String(50) state : trim, index;
+            String(10) zipCode : trim;
+            Decimal? latitude;
+            Decimal? longitude;
+            Int? yearBuilt;
+            UUID? agentId : index;
+
+            // Computed fields
+            Boolean isAvailable := status == ListingStatus.Active;
+            Money pricePerSqFt := Money.of(price.amount / squareFeet, "USD");
+
+            hasMany ListingImage as images : cascade(delete);
+            hasMany ListingFeature as features : cascade(delete);
+
+            index(city, state);
+            index(status, propertyType);
+            index(propertyType, price);
+            index(status, price);
+            fulltext(title, description, address, city);
+
+            validate {
+                if (title.trim().isEmpty())
+                    ValidationError("Listing title cannot be empty");
+                if (bedrooms < 0)
+                    ValidationError("Bedrooms cannot be negative");
+                if (bathrooms < 0)
+                    ValidationError("Bathrooms cannot be negative");
+                if (squareFeet <= 0)
+                    ValidationError("Square feet must be positive");
+                if (yearBuilt != null && yearBuilt > now().year())
+                    ValidationError("Year built cannot be in the future");
+            }
+
+            afterCreate {
+                emit ListingCreated(id, listingRef, title, propertyType, price, city, state);
+            }
+
+            afterUpdate {
+                if (isChanged(status)) {
+                    emit ListingStatusChanged(id, listingRef, oldValue(status), status);
+
+                    if (status == ListingStatus.Sold) {
+                        Log.info("Listing sold", { listingId: id, listingRef: listingRef, price: price });
+                    } else if (status == ListingStatus.Withdrawn) {
+                        Log.info("Listing withdrawn", { listingId: id, listingRef: listingRef });
+                    }
+                }
+                if (isChanged(price)) {
+                    emit ListingPriceChanged(id, listingRef, oldValue(price), price);
+                }
+            }
+
+            fn activate() {
+                if (status != ListingStatus.Draft) {
+                    throw ValidationException("Only draft listings can be activated");
+                }
+                status = ListingStatus.Active;
+                this.save();
+            }
+
+            fn markUnderContract() {
+                if (status != ListingStatus.Active) {
+                    throw ValidationException("Only active listings can be placed under contract");
+                }
+                status = ListingStatus.UnderContract;
+                this.save();
+            }
+
+            fn markSold() {
+                if (status != ListingStatus.UnderContract) {
+                    throw ValidationException("Only listings under contract can be marked as sold");
+                }
+                status = ListingStatus.Sold;
+                this.save();
+            }
+
+            fn withdraw() {
+                if (status == ListingStatus.Sold) {
+                    throw ValidationException("Sold listings cannot be withdrawn");
+                }
+                status = ListingStatus.Withdrawn;
+                this.save();
+            }
+        }
+
+        // Images associated with a listing
+        entity ListingImage extends BaseEntity {
+            UUID listingId : index;
+            String(500) url;
+            String(200)? caption;
+            Int orderIndex : min(0);
+            Boolean isPrimary = false;
+
+            belongsTo Listing : index;
+
+            index(listingId, orderIndex);
+
+            validate {
+                if (url.trim().isEmpty())
+                    ValidationError("Image URL cannot be empty");
+                if (orderIndex < 0)
+                    ValidationError("Order index cannot be negative");
+            }
+        }
+
+        // Property features (e.g., "Pool: Yes", "Garage: 2-car")
+        entity ListingFeature extends BaseEntity {
+            UUID listingId : index;
+            String(100) featureName : trim;
+            String(200) featureValue : trim;
+
+            belongsTo Listing : index;
+
+            index(listingId, featureName);
+
+            validate {
+                if (featureName.trim().isEmpty())
+                    ValidationError("Feature name cannot be empty");
+                if (featureValue.trim().isEmpty())
+                    ValidationError("Feature value cannot be empty");
+            }
+        }
+    }
+
+    // File storage for property photos and documents
+    storage store('config/listing-service/storage.yaml') {
+        folder photos : path('listings/photos/'), allowed(['image/jpeg', 'image/png', 'image/webp']), maxSize('10mb')
+        folder documents : path('listings/documents/'), allowed(['application/pdf']), maxSize('25mb')
+    }
+
+    pubsub mq('config/listing-service/pubsub.yaml') {
+        alert consumerLag(max) over(5m) > 500 @severity(critical);
+
+        topic ListingEvents {
+            publish ListingCreated(UUID listingId, String listingRef, String title, PropertyType propertyType, Money price, String city, String state) {
+                ensure title.length > 0;
+                ensure price > 0;
+            }
+            publish ListingStatusChanged(UUID listingId, String listingRef, ListingStatus oldStatus, ListingStatus newStatus) {
+                ensure oldStatus != newStatus;
+            }
+            publish ListingPriceChanged(UUID listingId, String listingRef, Money oldPrice, Money newPrice) {
+                ensure oldPrice != newPrice;
+            }
+        }
+
+        subscribe ListingEvents {
+            on ListingCreated(UUID listingId, String listingRef, String title, PropertyType propertyType, Money price, String city, String state) {
+                Log.info("New listing created", { listingId: listingId, listingRef: listingRef, city: city, state: state });
+            }
+
+            on ListingStatusChanged(UUID listingId, String listingRef, ListingStatus oldStatus, ListingStatus newStatus) {
+                Log.info("Listing status changed", { listingId: listingId, listingRef: listingRef, oldStatus: oldStatus, newStatus: newStatus });
+            }
+
+            on ListingPriceChanged(UUID listingId, String listingRef, Money oldPrice, Money newPrice) {
+                Log.info("Listing price changed", { listingId: listingId, listingRef: listingRef, oldPrice: oldPrice, newPrice: newPrice });
+            }
+        }
+    }
+
+    rest_api ListingAPI : basePath('/api/v1/listings') {
+        alert responseTime(p95) over(5m) > 500ms @severity(warning);
+        alert errorRate(ratio) over(5m) > 5% @severity(critical);
+
+        // List all listings with pagination
+        get(Int page = 1, Int perPage = 20, ListingStatus? status, PropertyType? propertyType) : public -> PaginatedListings {
+            #JSON query = listingDb.Listing.all();
+
+            if (status != null) {
+                query = listingDb.Listing.where(status: status);
+            } else {
+                query = listingDb.Listing.where(status: ListingStatus.Active);
+            }
+            if (propertyType != null) {
+                query = query.where(propertyType: propertyType);
+            }
+
+            #Int total = query.count();
+            #Array<Listing> listings = query
+                .orderBy(createdAt: desc)
+                .offset((page - 1) * perPage)
+                .limit(perPage)
+                .all();
+
+            return {
+                data: listings,
+                pagination: {
+                    currentPage: page,
+                    perPage: perPage,
+                    totalItems: total,
+                    totalPages: Math.ceil(total / perPage),
+                    hasNextPage: page < Math.ceil(total / perPage),
+                    hasPrevPage: page > 1
+                }
+            };
+        }
+
+        // Get a single listing by ID
+        @path('/:id')
+        get(UUID id) : public -> listingDb.Listing {
+            return listingDb.Listing.findOrFail(id);
+        }
+
+        // Create a new listing
+        post(CreateListingRequest request) -> listingDb.Listing {
+            #Listing listing = listingDb.Listing.create({
+                title: request.title,
+                description: request.description,
+                listingRef: generateListingRef(),
+                propertyType: request.propertyType,
+                status: ListingStatus.Draft,
+                price: request.price,
+                bedrooms: request.bedrooms,
+                bathrooms: request.bathrooms,
+                squareFeet: request.squareFeet,
+                address: request.address,
+                city: request.city,
+                state: request.state,
+                zipCode: request.zipCode,
+                latitude: request.latitude,
+                longitude: request.longitude,
+                yearBuilt: request.yearBuilt,
+                agentId: Auth.user().id
+            });
+            listing.save();
+
+            return listing;
+        }
+
+        // Update a listing
+        @path('/:id')
+        put(UUID id, UpdateListingRequest request) -> listingDb.Listing {
+            #Listing listing = listingDb.Listing.findOrFail(id);
+
+            if (request.title != null) listing.title = request.title;
+            if (request.description != null) listing.description = request.description;
+            if (request.price != null) listing.price = request.price;
+            if (request.status != null) listing.status = request.status;
+
+            listing.save();
+            return listing;
+        }
+
+        // Activate a draft listing
+        @path('/:id/activate')
+        put(UUID id) -> listingDb.Listing {
+            #Listing listing = listingDb.Listing.findOrFail(id);
+            listing.activate();
+            return listing;
+        }
+
+        // Withdraw a listing
+        @path('/:id/withdraw')
+        put(UUID id) -> listingDb.Listing {
+            #Listing listing = listingDb.Listing.findOrFail(id);
+            listing.withdraw();
+            return listing;
+        }
+
+        // Full-text search across listings
+        @path('/search')
+        get(String query, Int? limit, Int? offset) : public -> Array<listingDb.Listing> {
+            return listingDb.Listing
+                .fulltext(query)
+                .where(status: ListingStatus.Active)
+                .limit(limit ?? 20)
+                .offset(offset ?? 0)
+                .all();
+        }
+
+        // Search by city
+        @path('/by-city/:city')
+        get(String city, Int? limit) : public -> Array<listingDb.Listing> {
+            return listingDb.Listing
+                .where(city: city)
+                .where(status: ListingStatus.Active)
+                .orderBy(price: asc)
+                .limit(limit ?? 50)
+                .all();
+        }
+
+        // Filter by price range
+        @path('/by-price')
+        get(Money minPrice, Money maxPrice, Int? limit) : public -> Array<listingDb.Listing> {
+            return listingDb.Listing
+                .where(status: ListingStatus.Active)
+                .where(price: gte(minPrice))
+                .where(price: lte(maxPrice))
+                .orderBy(price: asc)
+                .limit(limit ?? 50)
+                .all();
+        }
+
+        // Add an image to a listing
+        @path('/:id/images')
+        post(UUID id, AddImageRequest request) -> listingDb.ListingImage {
+            #Listing listing = listingDb.Listing.findOrFail(id);
+
+            #ListingImage image = listingDb.ListingImage.create({
+                listingId: listing.id,
+                url: request.url,
+                caption: request.caption,
+                orderIndex: request.orderIndex,
+                isPrimary: request.isPrimary
+            });
+            image.save();
+
+            return image;
+        }
+
+        // Add a feature to a listing
+        @path('/:id/features')
+        post(UUID id, AddFeatureRequest request) -> listingDb.ListingFeature {
+            #Listing listing = listingDb.Listing.findOrFail(id);
+
+            #ListingFeature feature = listingDb.ListingFeature.create({
+                listingId: listing.id,
+                featureName: request.featureName,
+                featureValue: request.featureValue
+            });
+            feature.save();
+
+            return feature;
+        }
+
+        // Get listing images
+        @path('/:id/images')
+        get(UUID id) : public -> Array<listingDb.ListingImage> {
+            return listingDb.ListingImage
+                .where(listingId: id)
+                .orderBy(orderIndex: asc)
+                .all();
+        }
+
+        // Get listing features
+        @path('/:id/features')
+        get(UUID id) : public -> Array<listingDb.ListingFeature> {
+            return listingDb.ListingFeature
+                .where(listingId: id)
+                .all();
+        }
+
+        // Internal endpoint for cross-service lookups
+        @path('/internal/:id')
+        get(UUID id) : internal -> listingDb.Listing {
+            return listingDb.Listing.findOrFail(id);
+        }
+
+        // Internal: mark listing as under contract
+        @path('/internal/:id/under-contract')
+        put(UUID id) : internal -> listingDb.Listing {
+            #Listing listing = listingDb.Listing.findOrFail(id);
+            listing.markUnderContract();
+            return listing;
+        }
+
+        // Internal: mark listing as sold
+        @path('/internal/:id/sold')
+        put(UUID id) : internal -> listingDb.Listing {
+            #Listing listing = listingDb.Listing.findOrFail(id);
+            listing.markSold();
+            return listing;
+        }
+    }
+
+    test("computed isAvailable is true for Active status") {
+        #listingDb.Listing listing = listingDb.Listing.create({
+            title: "Beautiful Family Home",
+            description: "A spacious family home with a large backyard",
+            listingRef: "LST-TEST-001",
+            propertyType: PropertyType.House,
+            status: ListingStatus.Active,
+            price: Money.of(350000, "USD"),
+            bedrooms: 4,
+            bathrooms: 3,
+            squareFeet: 2500,
+            address: "123 Oak Street",
+            city: "Austin",
+            state: "TX",
+            zipCode: "78701"
+        });
+        listing.save();
+        assert listing.isAvailable == true;
+    }
+
+    test("computed pricePerSqFt calculates correctly") {
+        #listingDb.Listing listing = listingDb.Listing.create({
+            title: "Downtown Condo",
+            description: "Modern condo in the heart of downtown",
+            listingRef: "LST-TEST-002",
+            propertyType: PropertyType.Condo,
+            status: ListingStatus.Active,
+            price: Money.of(200000, "USD"),
+            bedrooms: 2,
+            bathrooms: 1,
+            squareFeet: 1000,
+            address: "456 Main Avenue",
+            city: "Austin",
+            state: "TX",
+            zipCode: "78702"
+        });
+        listing.save();
+        assert listing.pricePerSqFt.amount == 200;
+    }
+
+    test("validation rejects empty title") {
+        assert throws(
+            () => listingDb.Listing.create({
+                title: "",
+                description: "Test listing",
+                listingRef: "LST-TEST-003",
+                propertyType: PropertyType.House,
+                price: Money.of(100000, "USD"),
+                bedrooms: 2,
+                bathrooms: 1,
+                squareFeet: 1000,
+                address: "789 Elm Street",
+                city: "Austin",
+                state: "TX",
+                zipCode: "78703"
+            }),
+            ValidationError("Listing title cannot be empty")
+        );
+    }
+
+    test("validation rejects negative bedrooms") {
+        assert throws(
+            () => listingDb.Listing.create({
+                title: "Invalid Listing",
+                description: "Test listing with negative bedrooms",
+                listingRef: "LST-TEST-004",
+                propertyType: PropertyType.Apartment,
+                price: Money.of(150000, "USD"),
+                bedrooms: -1,
+                bathrooms: 1,
+                squareFeet: 800,
+                address: "321 Pine Road",
+                city: "Austin",
+                state: "TX",
+                zipCode: "78704"
+            }),
+            ValidationError("Bedrooms cannot be negative")
+        );
+    }
+
+    test("afterCreate emits ListingCreated event") {
+        #listingDb.Listing listing = listingDb.Listing.create({
+            title: "Charming Townhouse",
+            description: "A lovely townhouse in a quiet neighborhood",
+            listingRef: "LST-TEST-005",
+            propertyType: PropertyType.Townhouse,
+            status: ListingStatus.Draft,
+            price: Money.of(280000, "USD"),
+            bedrooms: 3,
+            bathrooms: 2,
+            squareFeet: 1800,
+            address: "654 Maple Lane",
+            city: "Dallas",
+            state: "TX",
+            zipCode: "75201"
+        });
+        listing.save();
+        assert emitted(ListingCreated(listing.id, listing.listingRef, listing.title, PropertyType.Townhouse, listing.price, "Dallas", "TX"));
+    }
+
+    test("activate fails for non-draft listing") {
+        #listingDb.Listing listing = listingDb.Listing.create({
+            title: "Already Active Listing",
+            description: "This listing is already active",
+            listingRef: "LST-TEST-006",
+            propertyType: PropertyType.House,
+            status: ListingStatus.Active,
+            price: Money.of(400000, "USD"),
+            bedrooms: 5,
+            bathrooms: 3,
+            squareFeet: 3000,
+            address: "987 Cedar Drive",
+            city: "Houston",
+            state: "TX",
+            zipCode: "77001"
+        });
+        listing.save();
+        assert throws(
+            () => listing.activate(),
+            ValidationException("Only draft listings can be activated")
+        );
+    }
+}
