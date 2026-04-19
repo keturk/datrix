@@ -1,0 +1,11 @@
+
+// Shared module with abstract base entity for both services
+module library.common {
+
+    // Abstract base entity shared across all services
+    abstract entity BaseEntity {
+        @UUID id : primaryKey = uuid();
+        @DateTime createdAt = now();
+        @DateTime updatedAt = now();
+    }
+}

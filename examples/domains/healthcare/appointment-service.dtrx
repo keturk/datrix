@@ -1,0 +1,700 @@
+
+from healthcare.common import BaseEntity, Pagination, APPOINTMENT_DURATION_DEFAULT;
+
+service healthcare.AppointmentService : version('1.0.0'), description('appointment management service') {
+
+    config('config/appointment-service/appointment-service-config.yaml');
+    registration('config/appointment-service/registration.yaml');
+    // discovery block declares dependencies on other services
+    discovery {
+        PatientService { loadBalance: roundRobin, healthyOnly: true }
+    }
+    resilience('config/appointment-service/resilience.yaml');
+    integrations('config/appointment-service/integrations.yaml');
+
+    enum AppointmentStatus {
+            Scheduled,
+            Confirmed,
+            CheckedIn,
+            InProgress,
+            Completed,
+            Cancelled,
+            NoShow
+    }
+
+    enum AppointmentType {
+            Consultation,
+            FollowUp,
+            Checkup,
+            Procedure,
+            Emergency,
+            Telehealth
+    }
+
+    struct AppointmentSearchResult {
+        Array<appointmentDb.Appointment> appointments;
+        JSON pagination;
+    }
+
+    struct AppointmentSlot {
+        DateTime startTime;
+        DateTime endTime;
+        Boolean available;
+        UUID? providerId;
+        String? providerName;
+    }
+
+    struct ScheduleAppointmentRequest {
+        UUID patientId;
+        String providerName;
+        DateTime scheduledAt;
+        AppointmentType type;
+        String? reason;
+        Int? durationMinutes;
+        UUID? providerId;
+        String? department;
+        String? location;
+    }
+
+    struct UpdateAppointmentRequest {
+        DateTime? scheduledAt;
+        String? providerName;
+        String? notes;
+        Int? durationMinutes;
+        String? location;
+    }
+
+    struct CompleteAppointmentRequest {
+        String? notes;
+    }
+
+    struct CancelAppointmentRequest {
+        String? reason;
+    }
+
+    rdbms appointmentDb('config/appointment-service/datasources.yaml') {
+
+        entity Appointment extends BaseEntity {
+            UUID patientId : index;
+            UUID? providerId : index;
+            String(100) providerName;
+            String(100)? department;
+            String(100)? location;
+
+            AppointmentType type = AppointmentType.Consultation;
+            AppointmentStatus status = AppointmentStatus.Scheduled;
+
+            DateTime scheduledAt;
+            DateTime? startedAt;
+            DateTime? completedAt;
+            Int durationMinutes = 30;
+
+            String(500)? reason;
+            String(1000)? notes;
+            String(500)? cancellationReason;
+
+            Boolean reminderSent = false;
+            DateTime? reminderSentAt;
+
+            // Computed fields for scheduling logic
+            DateTime scheduledEndAt := scheduledAt.addMinutes(durationMinutes);
+            Boolean isUpcoming := scheduledAt > now() && status == AppointmentStatus.Scheduled;
+            Boolean isPast := scheduledAt < now() || status == AppointmentStatus.Completed;
+            Boolean canCancel := status == AppointmentStatus.Scheduled || status == AppointmentStatus.Confirmed;
+            Boolean canStart := status == AppointmentStatus.Confirmed || status == AppointmentStatus.CheckedIn;
+            Int minutesUntil := DateTime.diffInMinutes(now(), scheduledAt);
+
+            index(patientId, scheduledAt);
+            index(providerId, scheduledAt);
+            index(status, scheduledAt);
+            index(scheduledAt);
+
+            validate {
+                if (status == AppointmentStatus.Scheduled && !Validator.isFutureDate(scheduledAt))
+                    ValidationError("Appointment must be scheduled in the future");
+                if (durationMinutes < 5)
+                    ValidationError("Appointment must be at least 5 minutes");
+
+                if (durationMinutes > 480)
+                    ValidationError("Appointment cannot exceed 8 hours");
+            }
+
+            afterCreate {
+                emit AppointmentScheduled(id, patientId, providerId, scheduledAt, type);
+
+                Log.info("Appointment scheduled", {
+                    appointmentId: id,
+                    patientId: patientId,
+                    scheduledAt: scheduledAt,
+                    action: "appointment.create"
+                });
+            }
+
+            afterUpdate {
+                if (isChanged(status)) {
+                    emit AppointmentStatusChanged(id, patientId, oldValue(status), status);
+
+                    if (status == AppointmentStatus.Completed) {
+                        emit AppointmentCompleted(id, patientId, providerId, providerName, type);
+                    } else if (status == AppointmentStatus.Cancelled) {
+                        emit AppointmentCancelled(id, patientId, cancellationReason);
+                    }
+
+                    Log.info("Appointment status changed", {
+                        appointmentId: id,
+                        patientId: patientId,
+                        oldStatus: oldValue(status),
+                        newStatus: status,
+                        action: "appointment.update"
+                    });
+                }
+            }
+
+            // Entity methods for state machine transitions
+            fn checkIn() {
+                if (status != AppointmentStatus.Confirmed && status != AppointmentStatus.Scheduled) {
+                    throw ValidationException("Cannot check in - invalid status");
+                }
+                status = AppointmentStatus.CheckedIn;
+                this.save();
+            }
+
+            fn start() {
+                if (!canStart) {
+                    throw ValidationException("Cannot start appointment - invalid status");
+                }
+                status = AppointmentStatus.InProgress;
+                startedAt = now();
+                this.save();
+            }
+
+            fn complete(String? completionNotes) {
+                if (status != AppointmentStatus.InProgress) {
+                    throw ValidationException("Cannot complete - appointment not in progress");
+                }
+                status = AppointmentStatus.Completed;
+                completedAt = now();
+                if (completionNotes != null) {
+                    notes = completionNotes;
+                }
+                this.save();
+            }
+
+            fn cancel(String reason) {
+                if (!canCancel) {
+                    throw ValidationException(#"Cannot cancel appointment in status: {status}");
+                }
+                status = AppointmentStatus.Cancelled;
+                cancellationReason = reason;
+                this.save();
+            }
+
+            fn markNoShow() {
+                if (status != AppointmentStatus.Scheduled && status != AppointmentStatus.Confirmed) {
+                    throw ValidationException("Cannot mark as no-show");
+                }
+                status = AppointmentStatus.NoShow;
+                this.save();
+            }
+        }
+
+    }
+
+    cache redis('config/appointment-service/cache.yaml') {
+        hash AppointmentCache : prefix('appointment:'), ttl(1800) {
+            UUID appointmentId : key;
+            UUID patientId;
+            DateTime scheduledAt;
+            AppointmentStatus status;
+        }
+
+        // 'set' is an unordered collection of unique members
+        set ProviderSchedule : prefix('provider:schedule:') {
+            String slot;
+        }
+    }
+
+    pubsub mq('config/appointment-service/pubsub.yaml') {
+        topic AppointmentEvents {
+            publish AppointmentScheduled(UUID appointmentId, UUID patientId, UUID? providerId, DateTime scheduledAt, String type) {
+                ensure type.length > 0;
+            }
+            publish AppointmentStatusChanged(UUID appointmentId, UUID patientId, String oldStatus, String newStatus) {
+                ensure oldStatus != newStatus;
+            }
+            publish AppointmentCompleted(UUID appointmentId, UUID patientId, UUID? providerId, String providerName, String type) {
+                ensure providerName.length > 0;
+                ensure type.length > 0;
+            }
+            publish AppointmentCancelled(UUID appointmentId, UUID patientId, String? reason) {
+                ensure reason == null || reason.length > 0;
+            }
+        }
+
+        subscribe AppointmentEvents {
+
+            on AppointmentScheduled(UUID appointmentId, UUID patientId, UUID? providerId, DateTime scheduledAt, String type) {
+                Log.info("Appointment scheduled", { appointmentId: appointmentId, patientId: patientId, providerId: providerId, scheduledAt: scheduledAt, type: type });
+            }
+
+            on AppointmentStatusChanged(UUID appointmentId, UUID patientId, String oldStatus, String newStatus) {
+                Log.info("Appointment status changed", { appointmentId: appointmentId, patientId: patientId, oldStatus: oldStatus, newStatus: newStatus });
+            }
+
+            on AppointmentCancelled(UUID appointmentId, UUID patientId, String? reason) {
+                Log.info("Appointment cancelled", { appointmentId: appointmentId, patientId: patientId, reason: reason });
+            }
+        }
+
+        // React to patient events from another service
+        subscribe PatientEvents {
+
+            // Auto-cancel appointments when patient becomes inactive
+            on PatientStatusChanged(UUID patientId, String mrn, String oldStatus, String newStatus) {
+                if (newStatus == "Inactive" || newStatus == "Deceased") {
+                    #Array<Appointment> pendingAppointments = appointmentDb.Appointment
+                        .where(patientId: patientId)
+                        .whereIn(status: [AppointmentStatus.Scheduled, AppointmentStatus.Confirmed])
+                        .all();
+
+                    foreach appointment in pendingAppointments {
+                        appointment.cancel(#"Patient status changed to {newStatus}");
+                    }
+
+                    if (pendingAppointments.length() > 0) {
+                        Log.info("Cancelled appointments for inactive patient", {
+                            patientId: patientId,
+                            mrn: mrn,
+                            cancelledCount: pendingAppointments.length(),
+                            newStatus: newStatus
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    test("validation rejects short appointments") {
+        assert throws(
+            () => appointmentDb.Appointment.create({
+                patientId: uuid(),
+                providerName: "Dr. Spec",
+                scheduledAt: now().addDays(1),
+                durationMinutes: 2
+            }),
+            ValidationError("Appointment must be at least 5 minutes")
+        );
+    }
+
+    test("validation rejects excessively long appointments") {
+        assert throws(
+            () => appointmentDb.Appointment.create({
+                patientId: uuid(),
+                providerName: "Dr. Spec",
+                scheduledAt: now().addDays(1),
+                durationMinutes: 500
+            }),
+            ValidationError("Appointment cannot exceed 8 hours")
+        );
+    }
+
+    test("afterCreate emits AppointmentScheduled event") {
+        #appointmentDb.Appointment appt = appointmentDb.Appointment.create({
+            patientId: uuid(),
+            providerName: "Dr. Smith",
+            scheduledAt: now().addDays(7),
+            durationMinutes: 30
+        });
+        appt.save();
+        assert emitted(AppointmentScheduled(appt.id, appt.patientId, appt.providerId, appt.scheduledAt, appt.type));
+    }
+
+    rest_api AppointmentAPI : basePath('/api/v1/appointments') {
+
+        // List with multiple optional filters
+        get(UUID? patientId, UUID? providerId, AppointmentStatus? status, DateTime? startDate, DateTime? endDate, Int page = 1, Int perPage = 20) -> AppointmentSearchResult {
+            #JSON query = appointmentDb.Appointment.query();
+
+            if (patientId != null) {
+                query = query.where(patientId: patientId);
+            }
+
+            if (providerId != null) {
+                query = query.where(providerId: providerId);
+            }
+
+            if (status != null) {
+                query = query.where(status: status);
+            }
+
+            if (startDate != null) {
+                // 'gte(...)' is a comparison filter: greater than or equal
+                query = query.where(scheduledAt: gte(startDate));
+            }
+
+            if (endDate != null) {
+                // 'lte(...)' is a comparison filter: less than or equal
+                query = query.where(scheduledAt: lte(endDate));
+            }
+
+            #Int total = query.count();
+            #Array<Appointment> appointments = query
+                .orderBy(scheduledAt: asc)
+                .offset((page - 1) * perPage)
+                .limit(Math.min(perPage, 50))
+                .all();
+
+            return {
+                appointments: appointments,
+                pagination: {
+                    page: page,
+                    perPage: perPage,
+                    total: total,
+                    totalPages: Math.ceil(total / perPage)
+                }
+            };
+        }
+
+        @path('/:id')
+        get(UUID id) -> appointmentDb.Appointment {
+            return appointmentDb.Appointment.findOrFail(id);
+        }
+
+        post(ScheduleAppointmentRequest request) -> appointmentDb.Appointment {
+            // Cross-service call to validate the patient exists and is active
+            #Boolean patientValid = PatientService.PatientAPI.post('/internal/validate', { patientId: request.patientId });
+            if (!patientValid) {
+                throw ValidationException("Patient not found or inactive");
+            }
+
+            // '??' null-coalescing operator provides a default value
+            #Int duration = request.durationMinutes ?? APPOINTMENT_DURATION_DEFAULT;
+            // Check for scheduling conflicts
+            #Appointment? conflict = appointmentDb.Appointment
+                .where(patientId: request.patientId)
+                .where(scheduledAt: gte(request.scheduledAt))
+                .where(scheduledAt: lt(request.scheduledAt.addMinutes(duration)))
+                .whereIn(status: [AppointmentStatus.Scheduled, AppointmentStatus.Confirmed])
+                .first();
+
+            if (conflict != null) {
+                throw ValidationException("Patient has a conflicting appointment at this time");
+            }
+
+            #Appointment appointment = appointmentDb.Appointment.create({
+                patientId: request.patientId,
+                providerId: request.providerId,
+                providerName: request.providerName,
+                department: request.department,
+                location: request.location,
+                type: request.type,
+                scheduledAt: request.scheduledAt,
+                durationMinutes: duration,
+                reason: request.reason,
+                status: AppointmentStatus.Scheduled
+            });
+
+            redis.AppointmentCache.set(appointment.id, {
+                appointmentId: appointment.id,
+                patientId: request.patientId,
+                scheduledAt: request.scheduledAt,
+                status: appointment.status
+            });
+
+            sendAppointmentConfirmation(appointment);
+
+            return appointment;
+        }
+
+        @path('/:id')
+        put(UUID id, UpdateAppointmentRequest request) -> appointmentDb.Appointment {
+            #Appointment appointment = appointmentDb.Appointment.findOrFail(id);
+
+            if (!appointment.canCancel) {
+                throw ValidationException(#"Cannot modify appointment in status: {appointment.status}");
+            }
+
+            if (request.scheduledAt != null) appointment.scheduledAt = request.scheduledAt;
+            if (request.providerName != null) appointment.providerName = request.providerName;
+            if (request.notes != null) appointment.notes = request.notes;
+            if (request.durationMinutes != null) appointment.durationMinutes = request.durationMinutes;
+            if (request.location != null) appointment.location = request.location;
+
+            appointment.save();
+
+            redis.AppointmentCache.set(appointment.id, {
+                appointmentId: appointment.id,
+                patientId: appointment.patientId,
+                scheduledAt: appointment.scheduledAt,
+                status: appointment.status
+            });
+
+            return appointment;
+        }
+
+        // State transition endpoints
+        @path('/:id/confirm')
+        put(UUID id) -> appointmentDb.Appointment {
+            #Appointment appointment = appointmentDb.Appointment.findOrFail(id);
+
+            if (appointment.status != AppointmentStatus.Scheduled) {
+                throw ValidationException("Can only confirm scheduled appointments");
+            }
+
+            appointment.status = AppointmentStatus.Confirmed;
+            appointment.save();
+
+            return appointment;
+        }
+
+        @path('/:id/check-in')
+        put(UUID id) -> appointmentDb.Appointment {
+            #Appointment appointment = appointmentDb.Appointment.findOrFail(id);
+            appointment.checkIn();
+            return appointment;
+        }
+
+        @path('/:id/start')
+        put(UUID id) -> appointmentDb.Appointment {
+            #Appointment appointment = appointmentDb.Appointment.findOrFail(id);
+            appointment.start();
+            return appointment;
+        }
+
+        @path('/:id/complete')
+        put(UUID id, CompleteAppointmentRequest request) -> appointmentDb.Appointment {
+            #Appointment appointment = appointmentDb.Appointment.findOrFail(id);
+            appointment.complete(request.notes);
+            return appointment;
+        }
+
+        @path('/:id/cancel')
+        put(UUID id, CancelAppointmentRequest request) -> appointmentDb.Appointment {
+            #Appointment appointment = appointmentDb.Appointment.findOrFail(id);
+            appointment.cancel(request.reason ?? "Cancelled by user");
+
+            sendCancellationNotification(appointment);
+
+            return appointment;
+        }
+
+        // 'access(staff)' restricts to users with the staff role
+        @path('/:id/no-show')
+        put(UUID id) : access(staff) -> appointmentDb.Appointment {
+            #Appointment appointment = appointmentDb.Appointment.findOrFail(id);
+            appointment.markNoShow();
+            return appointment;
+        }
+
+        @path('/patient/:patientId/upcoming')
+        get(UUID patientId) -> Array<appointmentDb.Appointment> {
+            return appointmentDb.Appointment
+                .where(patientId: patientId)
+                .whereIn(status: [AppointmentStatus.Scheduled, AppointmentStatus.Confirmed])
+                .where(scheduledAt: gt(now()))
+                .orderBy(scheduledAt: asc)
+                .limit(10)
+                .all();
+        }
+
+        @path('/patient/:patientId/history')
+        get(UUID patientId, Int limit = 20) -> Array<appointmentDb.Appointment> {
+            return appointmentDb.Appointment
+                .where(patientId: patientId)
+                .whereIn(status: [AppointmentStatus.Completed, AppointmentStatus.Cancelled, AppointmentStatus.NoShow])
+                .orderBy(scheduledAt: desc)
+                .limit(limit)
+                .all();
+        }
+
+        // Availability slot calculation endpoint
+        @path('/slots')
+        get(UUID? providerId, Date date, Int durationMinutes = 30) -> Array<AppointmentSlot> {
+            #DateTime startOfDay = DateTime.parse(#"{date.toString()}T08:00:00");
+            #DateTime endOfDay = DateTime.parse(#"{date.toString()}T17:00:00");
+
+            #JSON existing = appointmentDb.Appointment
+                .where(scheduledAt: gte(startOfDay))
+                .where(scheduledAt: lt(endOfDay))
+                .whereIn(status: [AppointmentStatus.Scheduled, AppointmentStatus.Confirmed]);
+
+            if (providerId != null) {
+                existing = existing.where(providerId: providerId);
+            }
+
+            existing = existing.all();
+
+            #Array<AppointmentSlot> slots = [];
+            #DateTime current = startOfDay;
+
+            // 'while' loop to generate time slots
+            while (current.addMinutes(durationMinutes) <= endOfDay) {
+                #Boolean available = true;
+
+                foreach appt in existing {
+                    if (current >= appt.scheduledAt && current < appt.scheduledEndAt) {
+                        available = false;
+                        break;
+                    }
+                    if (current.addMinutes(durationMinutes) > appt.scheduledAt && current.addMinutes(durationMinutes) <= appt.scheduledEndAt) {
+                        available = false;
+                        break;
+                    }
+                }
+
+                slots.push({
+                    startTime: current,
+                    endTime: current.addMinutes(durationMinutes),
+                    available: available,
+                    providerId: providerId,
+                    providerName: null
+                });
+
+                current = current.addMinutes(30);
+            }
+
+            return slots;
+        }
+
+        @path('/internal/:id')
+        get(UUID id) : internal -> appointmentDb.Appointment {
+            return appointmentDb.Appointment.findOrFail(id);
+        }
+
+        @path('/internal/patient/:patientId')
+        get(UUID patientId) : internal -> Array<appointmentDb.Appointment> {
+            return appointmentDb.Appointment
+                .where(patientId: patientId)
+                .orderBy(scheduledAt: desc)
+                .limit(50)
+                .all();
+        }
+
+        // Cross-service call in a helper function
+        fn sendAppointmentConfirmation(appointmentDb.Appointment appointment) {
+            try {
+                #JSON patient = PatientService.PatientAPI.get('/internal/:id', appointment.patientId);
+
+                if (patient.email != null) {
+                    Email.send({
+                        to: patient.email,
+                        subject: "Appointment Confirmation",
+                        template: "appointmentConfirmation",
+                        data: {
+                            patientName: patient.fullName,
+                            providerName: appointment.providerName,
+                            scheduledAt: appointment.scheduledAt,
+                            location: appointment.location,
+                            type: appointment.type
+                        }
+                    });
+                }
+            } catch (Exception e) {
+                Log.error("Failed to send confirmation", {
+                    appointmentId: appointment.id,
+                    error: e.message
+                });
+            }
+        }
+
+        fn sendCancellationNotification(appointmentDb.Appointment appointment) {
+            try {
+                #JSON patient = PatientService.PatientAPI.get('/internal/:id', appointment.patientId);
+
+                if (patient.email != null) {
+                    Email.send({
+                        to: patient.email,
+                        subject: "Appointment Cancelled",
+                        template: "appointmentCancellation",
+                        data: {
+                            patientName: patient.fullName,
+                            providerName: appointment.providerName,
+                            scheduledAt: appointment.scheduledAt,
+                            reason: appointment.cancellationReason
+                        }
+                    });
+                }
+            } catch (Exception e) {
+                Log.error("Failed to send cancellation", {
+                    appointmentId: appointment.id,
+                    error: e.message
+                });
+            }
+        }
+    }
+
+    // Scheduled background jobs
+    jobs('config/appointment-service/jobs.yaml') {
+        // Send reminders for tomorrow's appointments
+        job SendAppointmentReminders {
+            #DateTime tomorrow = now().addDays(1);
+            #DateTime tomorrowStart = DateTime.parse(#"{tomorrow.format('YYYY-MM-DD')}T00:00:00");
+            #DateTime tomorrowEnd = DateTime.parse(#"{tomorrow.format('YYYY-MM-DD')}T23:59:59");
+
+            #Array<Appointment> upcomingAppointments = appointmentDb.Appointment
+                .where(scheduledAt: gte(tomorrowStart))
+                .where(scheduledAt: lte(tomorrowEnd))
+                .whereIn(status: [AppointmentStatus.Scheduled, AppointmentStatus.Confirmed])
+                .where(reminderSent: false)
+                .all();
+
+            #Int sentCount = 0;
+            foreach appointment in upcomingAppointments {
+                try {
+                    #JSON patient = PatientService.PatientAPI.get('/internal/:id', appointment.patientId);
+
+                    if (patient.email != null) {
+                        Email.send({
+                            to: patient.email,
+                            subject: "Appointment Reminder - Tomorrow",
+                            template: "appointmentReminder",
+                            data: {
+                                patientName: patient.fullName,
+                                providerName: appointment.providerName,
+                                scheduledAt: appointment.scheduledAt,
+                                location: appointment.location
+                            }
+                        });
+
+                        appointment.reminderSent = true;
+                        appointment.reminderSentAt = now();
+                        appointment.save();
+                        sentCount = sentCount + 1;
+                    }
+                } catch (Exception e) {
+                    Log.error("Failed to send reminder", {
+                        appointmentId: appointment.id,
+                        error: e.message
+                    });
+                }
+            }
+
+            Log.info("Appointment reminders sent", { count: sentCount });
+        }
+
+        // Mark overdue appointments as no-shows
+        job MarkNoShows {
+            #DateTime threshold = now().subtractMinutes(30);
+
+            #Array<Appointment> missedAppointments = appointmentDb.Appointment
+                .where(scheduledAt: lt(threshold))
+                .whereIn(status: [AppointmentStatus.Scheduled, AppointmentStatus.Confirmed])
+                .all();
+
+            foreach appointment in missedAppointments {
+                appointment.status = AppointmentStatus.NoShow;
+                appointment.save();
+
+                Log.info("Appointment marked as no-show", {
+                    appointmentId: appointment.id,
+                    patientId: appointment.patientId,
+                    scheduledAt: appointment.scheduledAt
+                });
+            }
+
+            if (missedAppointments.length() > 0) {
+                Log.info("No-show cleanup complete", { count: missedAppointments.length() });
+            }
+        }
+    }
+}

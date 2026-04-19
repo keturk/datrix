@@ -1,0 +1,20 @@
+test:
+  jobs:
+    CheckOverdueTasks:
+      schedule: '0 */2 * * *'
+      retry: { maxAttempts: 1, backoff: fixed }
+      timeout: 5m
+
+development:
+  jobs:
+    CheckOverdueTasks:
+      schedule: '0 */2 * * *'
+      retry: { maxAttempts: 1, backoff: fixed }
+      timeout: 5m
+
+production:
+  jobs:
+    CheckOverdueTasks:
+      schedule: '0 */1 * * *'
+      retry: { maxAttempts: 3, backoff: exponential }
+      timeout: 10m

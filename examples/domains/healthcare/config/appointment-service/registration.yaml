@@ -1,0 +1,20 @@
+test:
+  tags: [api, appointments, scheduling, v1]
+
+  meta: { team: "scheduling", compliance: "hipaa" }
+
+  healthCheck: { type: http, path: /health, interval: 10s }
+
+development:
+  tags: [api, appointments, scheduling, v1]
+
+  meta: { team: "scheduling", compliance: "hipaa" }
+
+  healthCheck: { type: http, path: /health, interval: 10s }
+
+production:
+  tags: [api, appointments, scheduling, v1]
+
+  meta: { team: "scheduling", compliance: "hipaa" }
+
+  healthCheck: { type: http, path: /health, interval: 10s }

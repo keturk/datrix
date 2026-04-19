@@ -1,0 +1,37 @@
+
+// Shared module - defines reusable types for financial services
+module finance.common {
+
+    // Abstract entities provide reusable field definitions; they don't generate tables
+    abstract entity BaseEntity {
+        @UUID id : primaryKey = uuid();
+        @DateTime createdAt = now();
+        @DateTime updatedAt = now();
+    }
+
+    // Extends BaseEntity with audit tracking fields for compliance
+    abstract entity AuditedEntity extends BaseEntity {
+        UUID? performedBy;
+        String(500)? auditNote;
+    }
+
+    // Currency enum for multi-currency support
+    enum Currency {
+        USD,
+        EUR,
+        GBP,
+        JPY,
+        CHF,
+        CAD
+    }
+
+    // Shared utility: generate a unique reference number for financial operations
+    fn generateReference(String prefix) -> String {
+        return #"{prefix}-{now().format('YYYYMMDDHHmmss')}-{Random.string(6).toUpperCase()}";
+    }
+
+    // Format currency amount with symbol
+    fn formatAmount(Money amount, Currency currency) -> String {
+        return #"{currency} {amount.amount}";
+    }
+}

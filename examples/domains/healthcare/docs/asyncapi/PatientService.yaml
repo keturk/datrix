@@ -1,0 +1,81 @@
+asyncapi: 3.0.0
+info:
+  title: healthcare.PatientService Events
+  version: 1.0.0
+channels:
+  PatientEvents:
+    address: PatientEvents
+    messages:
+      PatientRegistered:
+        payload:
+          type: object
+          properties:
+            patientId:
+              type: string
+              format: uuid
+            mrn:
+              type: string
+            fullName:
+              type: string
+            dateOfBirth:
+              type: string
+              format: date
+          required:
+          - patientId
+          - mrn
+          - fullName
+          - dateOfBirth
+      PatientStatusChanged:
+        payload:
+          type: object
+          properties:
+            patientId:
+              type: string
+              format: uuid
+            mrn:
+              type: string
+            oldStatus:
+              type: string
+            newStatus:
+              type: string
+          required:
+          - patientId
+          - mrn
+          - oldStatus
+          - newStatus
+      PatientUpdated:
+        payload:
+          type: object
+          properties:
+            patientId:
+              type: string
+              format: uuid
+            mrn:
+              type: string
+            changedFields:
+              $ref: '#/components/schemas/Array<String>'
+          required:
+          - patientId
+          - mrn
+          - changedFields
+operations:
+  publishPatientRegistered:
+    action: send
+    channel:
+      $ref: '#/channels/PatientEvents'
+  publishPatientStatusChanged:
+    action: send
+    channel:
+      $ref: '#/channels/PatientEvents'
+  publishPatientUpdated:
+    action: send
+    channel:
+      $ref: '#/channels/PatientEvents'
+  onPatientRegistered:
+    action: receive
+    channel:
+      $ref: '#/channels/PatientEvents'
+  onPatientUpdated:
+    action: receive
+    channel:
+      $ref: '#/channels/PatientEvents'

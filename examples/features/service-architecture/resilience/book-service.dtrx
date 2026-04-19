@@ -1,0 +1,28 @@
+
+// BookService with resilience configuration
+// The resilience YAML defines timeouts, retries, and circuit breakers for downstream calls
+from library.common import BaseEntity;
+
+service library.BookService : version('1.0.0'), description('Book management service with resilience patterns') {
+
+    // Service infrastructure configuration
+    config('config/book-service/book-service-config.yaml');   // Service-specific settings
+    registration('config/book-service/registration.yaml');     // Service registry entry
+    discovery { }                                              // Service discovery (auto-configured)
+    // Resilience config defines retry policies, circuit breakers, and per-service timeouts
+    resilience('config/book-service/resilience.yaml');
+
+    rdbms bookDb('config/book-service/datasources.yaml') {
+
+        entity Book extends BaseEntity {
+            String(200) title : trim;
+            String(100) author : trim;
+        }
+    }
+
+    // REST API exposes book data; resilience is applied at the infrastructure level
+    // via the resilience.yaml config (not inline DSL decorators)
+    rest_api BookServiceAPI : basePath("/api/v1") {
+        resource bookDb.Book;
+    }
+}

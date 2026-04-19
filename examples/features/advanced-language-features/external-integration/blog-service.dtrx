@@ -1,0 +1,71 @@
+
+// External integration feature example - self-contained service demonstrating:
+// - integrations('...') for third-party connectors (email via SendGrid)
+// - rdbms block for relational entity storage
+// - cache block for in-memory data
+// - storage block for file uploads
+// - pubsub block for event-driven messaging
+// - rest_api block for CRUD endpoints
+// All infrastructure types coexist with external integrations
+
+// Define a service in the 'hostdemo' namespace with version and description
+service hostdemo.BlogService : version('1.0.0'), description('Blog management service') {
+
+    // Service infrastructure configuration
+    config('config/blog-service/blog-service-config.yaml');   // Service-specific settings
+    registration('config/blog-service/registration.yaml');     // Service registry entry
+    discovery { }                                              // Service discovery (auto-configured)
+    resilience('config/blog-service/resilience.yaml');          // Circuit breakers, retries, timeouts
+    // 'integrations' declares third-party service connectors (email, SMS, payment, etc.)
+    integrations('config/blog-service/integrations.yaml');
+
+    // Relational database block for blog post storage
+    rdbms blogDb('config/blog-service/datasources.yaml') {
+
+        // Abstract entities provide reusable field definitions; they don't generate tables
+        abstract entity BaseEntity {
+            @UUID id : primaryKey = uuid();
+            @DateTime createdAt = now();
+            @DateTime updatedAt = now();
+        }
+
+        // Post entity for blog content
+        entity Post extends BaseEntity {
+            String(200) title;
+            // Text is an unbounded string type for long-form content
+            Text content;
+            // Nullable DateTime - set when the post is published
+            @DateTime? publishedAt;
+        }
+    }
+
+    // Cache block - in-memory data store for fast reads
+    cache redis('config/blog-service/cache.yaml') {
+        // 'hash' stores a key-value structure in Redis with TTL
+        hash PostViewCache : prefix('postview:'), ttl(300) {
+            UUID postId : key;
+            Int viewCount;
+        }
+    }
+
+    // Storage block - file/blob storage for media uploads
+    storage media('config/blog-service/storage.yaml') {
+        // 'folder' declares a storage location with path, MIME restrictions, and size limit
+        folder uploads : path('uploads/'), allowed(['image/jpeg', 'image/png', 'application/pdf']), maxSize('10mb')
+    }
+
+    // Pub/sub messaging block for event-driven communication
+    pubsub mq('config/blog-service/pubsub.yaml') {
+        // 'topic' groups related events
+        topic BlogEvents {
+            // 'publish' declares an event with its payload fields
+            publish PostPublished(UUID postId, String title);
+        }
+    }
+
+    // REST API block - generates CRUD endpoints
+    rest_api BlogAPI : basePath("/api/v1/posts") {
+        // Auto-generate standard CRUD endpoints for Post
+        resource blogDb.Post;
+    }
+}

@@ -1,0 +1,13 @@
+
+include 'common.dtrx';
+include 'restaurant-service.dtrx';
+include 'menu-service.dtrx';
+include 'order-service.dtrx';
+include 'delivery-service.dtrx';
+
+system fooddelivery : version('1.0.0') {
+    config('config/system-config.yaml');
+    registry('config/registry.yaml');
+    gateway('config/gateway.yaml');
+    observability('config/observability.yaml');
+}

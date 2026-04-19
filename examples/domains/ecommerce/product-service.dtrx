@@ -1,0 +1,573 @@
+
+from ecommerce.common import BaseEntity, OrderLineInput, Sluggable, Inventoried, Discountable;
+
+service ecommerce.ProductService : version('1.0.0'), description('product management service') {
+
+    config('config/product-service/product-service-config.yaml');
+    registration('config/product-service/registration.yaml');
+    discovery { }
+    resilience('config/product-service/resilience.yaml');
+
+    enum ProductStatus {
+        Draft,
+        Active,
+        Discontinued
+    }
+
+    enum ReservationStatus {
+        Reserved,
+        Confirmed,
+        Released,
+        Expired
+    }
+
+    // Structs for API request/response payloads
+    struct AvailabilityItem {
+        UUID productId;
+        Boolean available;
+        Int availableQuantity;
+    }
+
+    struct AvailabilityResponse {
+        Boolean allAvailable;
+        Array<AvailabilityItem> items;
+    }
+
+    struct ReservationResponse {
+        Boolean success;
+        UUID? reservationId;
+        String? error;
+    }
+
+    struct CreateProductRequest {
+        String name;
+        Text description;
+        Money price;
+        UUID categoryId;
+        Int inventory = 0;
+    }
+
+    struct UpdateInventoryRequest {
+        Int inventory;
+    }
+
+    struct CheckAvailabilityRequest {
+        // Array<Type> defines a collection field
+        Array<OrderLineInput> items;
+    }
+
+    struct ReserveInventoryRequest {
+        UUID reservationId;
+        Array<OrderLineInput> items;
+        Int ttlSeconds = 600;
+    }
+
+    struct ConfirmReservationRequest {
+        UUID reservationId;
+    }
+
+    struct ReleaseReservationRequest {
+        UUID reservationId;
+    }
+
+    struct BulkProductRequest {
+        Array<UUID> ids;
+    }
+
+    rdbms productDb('config/product-service/datasources.yaml') {
+
+        entity Category extends BaseEntity {
+            String(100) name : unique, trim;
+            Text? description;
+            Slug slug : unique;
+
+            hasMany Product as products;
+        }
+
+        // 'with' mixes in multiple traits, adding their fields and methods
+        entity Product extends BaseEntity with Sluggable, Discountable, Inventoried {
+            String(200) name : trim;
+            Text description;
+            ProductStatus status = ProductStatus.Draft;
+
+            JSON? productMetadata;
+            JSON images;
+            JSON tags;
+
+            // Computed field calling trait methods
+            Boolean isAvailable := status == ProductStatus.Active && hasStock();
+            Percentage discountPercent := getDiscountPercent();
+
+            belongsTo Category : index;
+
+            index(categoryId, status);
+            index(status, inventory);
+            // 'fulltext(...)' creates a full-text search index
+            fulltext(name, description);
+
+            afterUpdate {
+                if (isChanged(inventory)) {
+                    emit InventoryUpdated(id, oldValue(inventory), inventory);
+                }
+                if (isChanged(status)) {
+                    // Invalidate cache when status changes
+                    redis.ProductCache.delete(#"product:{id}");
+                    redis.ProductCache.delete(#"product:slug:{slug}");
+                }
+            }
+
+            // Entity-level methods
+            fn publish() {
+                if (status == ProductStatus.Draft) {
+                    status = ProductStatus.Active;
+                    this.save();
+                }
+            }
+
+            fn discontinue() {
+                status = ProductStatus.Discontinued;
+                this.save();
+            }
+        }
+
+        entity InventoryReservation extends BaseEntity {
+            UUID reservationId : index;
+            Int quantity;
+            ReservationStatus status = ReservationStatus.Reserved;
+            DateTime expiresAt : index;
+
+            belongsTo Product : index;
+
+            index(reservationId, status);
+
+            validate {
+                if (quantity <= 0)
+                    ValidationError("Reservation quantity must be positive");
+            }
+        }
+
+    }
+
+    cache redis('config/product-service/cache.yaml') {
+        hash ProductCache : prefix('product:'), ttl(3600) {
+            UUID productId : key;
+            String name;
+            Decimal price;
+            Int inventory;
+            ProductStatus status;
+        }
+
+        // 'sortedset' is a scored collection for rankings and leaderboards
+        sortedset PopularProducts : prefix('popular:'), ttl(86400) {
+            UUID productId : member;
+            Int score;
+        }
+
+        counter ProductViews : prefix('views:product:');
+    }
+
+    pubsub mq('config/product-service/pubsub.yaml') {
+        topic ProductEvents {
+            publish ProductCreated(UUID productId, String name, Money price) {
+                ensure name.length > 0;
+                ensure price > 0;
+            }
+            publish InventoryUpdated(UUID productId, Int oldQuantity, Int newQuantity) {
+                ensure newQuantity >= 0;
+            }
+            publish InventoryReserved(UUID reservationId, Array<UUID> productIds) {
+                ensure productIds.length > 0;
+            }
+            publish InventoryReleased(UUID reservationId, String reason) {
+                ensure reason.length > 0;
+            }
+        }
+
+        subscribe ProductEvents {
+
+            on ProductCreated(UUID productId, String name, Money price) {
+                Log.info("Product created", { productId: productId, name: name, price: price });
+            }
+
+            on InventoryUpdated(UUID productId, Int oldQuantity, Int newQuantity) {
+                Log.info("Inventory updated", { productId: productId, oldQuantity: oldQuantity, newQuantity: newQuantity });
+            }
+
+            on InventoryReserved(UUID reservationId, Array<UUID> productIds) {
+                Log.info("Inventory reserved", { reservationId: reservationId, productIds: productIds });
+            }
+
+            on InventoryReleased(UUID reservationId, String reason) {
+                Log.info("Inventory released", { reservationId: reservationId, reason: reason });
+            }
+        }
+
+        // Subscribe to events from another service's topic
+        subscribe OrderEvents {
+
+            on OrderConfirmed(UUID orderId, UUID? paymentId, UUID reservationId, Address shippingAddress, Array<JSON> items, Decimal estimatedWeight) {
+                #Array<InventoryReservation> reservations = productDb.InventoryReservation
+                    .where(reservationId: reservationId)
+                    .where(status: ReservationStatus.Reserved)
+                    .all();
+
+                foreach reservation in reservations {
+                    reservation.status = ReservationStatus.Confirmed;
+                    reservation.save();
+                }
+
+                Log.info("Inventory reservation confirmed", { reservationId: reservationId, orderId: orderId });
+            }
+
+            on OrderCancelled(UUID orderId, String reason, UUID reservationId) {
+                #Array<InventoryReservation> reservations = productDb.InventoryReservation
+                    .where(reservationId: reservationId)
+                    .where(status: ReservationStatus.Reserved)
+                    .all();
+
+                // 'transaction(productDb)' wraps operations in a database transaction
+                transaction(productDb) {
+                    foreach reservation in reservations {
+                        #Product? product = productDb.Product.find(reservation.productId);
+
+                        if (product != null) {
+                            product.inventory = product.inventory + reservation.quantity;
+                            product.save();
+                        }
+
+                        reservation.status = ReservationStatus.Released;
+                        reservation.save();
+                    }
+                }
+
+                emit InventoryReleased(reservationId, #"Order cancelled: {reason}");
+                Log.info("Inventory released for cancelled order", { orderId: orderId, reservationId: reservationId });
+            }
+        }
+    }
+
+    // NoSQL document database block for unstructured data
+    nosql docdb('config/product-service/datasources.yaml') {
+
+        // 'collection' defines a document store (like MongoDB collections)
+        collection ProductReview {
+            UUID productId : index;
+            UUID userId : index;
+            Int rating;
+            String(500)? title;
+            Text? body;
+            JSON? media;
+            Boolean verified = false;
+            @DateTime createdAt = now();
+
+            // Compound indexes for query performance
+            index(productId, createdAt);
+            index(userId, createdAt);
+        }
+
+        collection ProductAnalytics {
+            UUID productId : index;
+            String eventType;
+            JSON payload;
+            DateTime timestamp = now();
+
+            index(productId, eventType, timestamp);
+        }
+    }
+
+    // Storage block - defines file upload folders with constraints
+    storage store('config/product-service/storage.yaml') {
+        // 'allowed(...)' restricts MIME types; 'maxSize(...)' limits upload size
+        folder images : path('products/images/'), allowed(['image/jpeg', 'image/png', 'image/webp']), maxSize('10mb')
+        folder thumbnails : path('products/thumbnails/'), allowed(['image/jpeg', 'image/png', 'image/webp']), maxSize('2mb')
+    }
+
+    rest_api ProductAPI : basePath('/api/v1/products') {
+
+        resource productDb.Product : only(list, get), public;
+
+        resource productDb.Product : only(create, update, delete), access(admin);
+
+        @path('/slug/:slug')
+        get(String slug) : public -> productDb.Product {
+            #JSON? cached = redis.ProductCache.get(#"slug:{slug}");
+            if (cached != null) return cached;
+
+            #Product product = productDb.Product.where(slug: slug).firstOrFail();
+            redis.ProductCache.set(product.id, product);
+            return product;
+        }
+
+        // Full-text search endpoint
+        @path('/search')
+        get(String query, Int? limit, Int? offset) : public -> Array<productDb.Product> {
+            return productDb.Product
+                .fulltext(query)
+                .where(status: ProductStatus.Active)
+                .limit(limit ?? 20)
+                .offset(offset ?? 0)
+                .all();
+        }
+
+        @path('/category/:categoryId')
+        get(UUID categoryId, Int? limit) : public -> Array<productDb.Product> {
+            return productDb.Product
+                .where(categoryId: categoryId)
+                .where(status: ProductStatus.Active)
+                .orderBy(name: asc)
+                .limit(limit ?? 50)
+                .all();
+        }
+
+        post(CreateProductRequest request) : access(admin) -> productDb.Product {
+            #Product product = productDb.Product.create({
+                name: request.name,
+                description: request.description,
+                price: request.price,
+                categoryId: request.categoryId,
+                inventory: request.inventory,
+                status: ProductStatus.Draft,
+                images: [],
+                tags: []
+            });
+            // Call trait method to generate URL slug
+            product.generateSlug(request.name);
+            product.save();
+
+            emit ProductCreated(product.id, product.name, product.price);
+
+            return product;
+        }
+
+        @path('/:id/inventory')
+        put(UUID id, UpdateInventoryRequest request) : access(admin) -> productDb.Product {
+            #Product product = productDb.Product.findOrFail(id);
+            #Int oldInventory = product.inventory;
+            product.inventory = request.inventory;
+            product.save();
+
+            emit InventoryUpdated(product.id, oldInventory, request.inventory);
+
+            return product;
+        }
+
+        @path('/:id/publish')
+        put(UUID id) : access(admin) -> productDb.Product {
+            #Product product = productDb.Product.findOrFail(id);
+            product.publish();
+            return product;
+        }
+
+        // Internal endpoints for cross-service communication
+        @path('/internal/check-availability')
+        post(CheckAvailabilityRequest request) : internal -> AvailabilityResponse {
+            #Array<AvailabilityItem> availability = [];
+            #Boolean allAvailable = true;
+
+            foreach item in request.items {
+                #Product? product = productDb.Product.find(item.productId);
+                if (product == null || product.inventory < item.quantity) {
+                    allAvailable = false;
+                    availability.push({
+                        productId: item.productId,
+                        available: false,
+                        availableQuantity: product?.inventory ?? 0
+                    });
+                } else {
+                    availability.push({
+                        productId: item.productId,
+                        available: true,
+                        availableQuantity: product.inventory
+                    });
+                }
+            }
+
+            return { allAvailable: allAvailable, items: availability };
+        }
+
+        @path('/internal/reserve-inventory')
+        post(ReserveInventoryRequest request) : internal -> ReservationResponse {
+            transaction(productDb) {
+                foreach item in request.items {
+                    #Product product = productDb.Product.findOrFail(item.productId);
+
+                    if (product.inventory < item.quantity) {
+                        throw ValidationException({
+                            code: "INSUFFICIENT_INVENTORY",
+                            productId: item.productId,
+                            requested: item.quantity,
+                            available: product.inventory
+                        });
+                    }
+
+                    product.inventory = product.inventory - item.quantity;
+                    product.save();
+
+                    productDb.InventoryReservation.create({
+                        reservationId: request.reservationId,
+                        productId: item.productId,
+                        quantity: item.quantity,
+                        expiresAt: now().addSeconds(request.ttlSeconds),
+                        status: ReservationStatus.Reserved
+                    });
+                }
+            }
+
+            // Lambda expression: '.map(i => i.productId)'
+            #Array<UUID> productIds = request.items.map(i => i.productId);
+            emit InventoryReserved(request.reservationId, productIds);
+
+            return { success: true, reservationId: request.reservationId };
+        }
+
+        @path('/internal/confirm-reservation')
+        post(ConfirmReservationRequest request) : internal -> Void {
+            #Array<InventoryReservation> reservations = productDb.InventoryReservation
+                .where(reservationId: request.reservationId)
+                .where(status: ReservationStatus.Reserved)
+                .all();
+
+            foreach reservation in reservations {
+                reservation.status = ReservationStatus.Confirmed;
+                reservation.save();
+            }
+
+            Log.info("Inventory reservation confirmed", { reservationId: request.reservationId });
+        }
+
+        @path('/internal/release-reservation')
+        post(ReleaseReservationRequest request) : internal -> Void {
+            #Array<InventoryReservation> reservations = productDb.InventoryReservation
+                .where(reservationId: request.reservationId)
+                .where(status: ReservationStatus.Reserved)
+                .all();
+
+            transaction(productDb) {
+                foreach reservation in reservations {
+                    #Product? product = productDb.Product.find(reservation.productId);
+
+                    if (product != null) {
+                        product.inventory = product.inventory + reservation.quantity;
+                        product.save();
+                    }
+
+                    reservation.status = ReservationStatus.Released;
+                    reservation.save();
+                }
+            }
+
+            emit InventoryReleased(request.reservationId, "Released by request");
+            Log.info("Inventory reservation released", { reservationId: request.reservationId });
+        }
+
+        @path('/internal/:id')
+        get(UUID id) : internal -> productDb.Product {
+            return productDb.Product.findOrFail(id);
+        }
+
+        // 'whereIn(...)' filters by a set of values
+        @path('/internal/bulk')
+        post(BulkProductRequest request) : internal -> Array<productDb.Product> {
+            return productDb.Product.whereIn(id: request.ids).all();
+        }
+    }
+
+    test("validation rejects non-positive reservation quantity") {
+        #productDb.Product product = productDb.Product.create({
+            name: "SpecTestProduct",
+            description: "Test product for spec",
+            price: Money.of(29.99, Currency.USD),
+            status: ProductStatus.Active,
+            slug: "spec-test-product",
+            categoryId: uuid(),
+            images: [],
+            tags: []
+        });
+        product.save();
+        assert throws(
+            () => productDb.InventoryReservation.create({
+                productId: product.id,
+                quantity: 0,
+                expiresAt: now().addDays(1)
+            }),
+            ValidationError("Reservation quantity must be positive")
+        );
+    }
+
+    test("afterUpdate emits InventoryUpdated on inventory change") {
+        #productDb.Product product = productDb.Product.create({
+            name: "SpecInventoryProduct",
+            description: "Test product for inventory spec",
+            price: Money.of(19.99, Currency.USD),
+            status: ProductStatus.Active,
+            slug: "spec-inventory-product",
+            categoryId: uuid(),
+            images: [],
+            tags: []
+        });
+        product.save();
+        product.inventory = 50;
+        product.save();
+        assert emitted(InventoryUpdated(product.id, 0, 50));
+    }
+
+    // Jobs block - defines scheduled/background tasks
+    jobs('config/product-service/jobs.yaml') {
+        // Job to release inventory reservations that have expired
+        job ReleaseExpiredReservations {
+            #Array<InventoryReservation> expired = productDb.InventoryReservation
+                .where(status: ReservationStatus.Reserved)
+                .where(expiresAt: lt(now()))
+                .all();
+
+            #JSON reservationGroups = {};
+            foreach reservation in expired {
+                #String key = reservation.reservationId.toString();
+                if (reservationGroups[key] == null) {
+                    reservationGroups[key] = [];
+                }
+                reservationGroups[key].push(reservation);
+            }
+
+            #Int count = 0;
+            foreach reservationId in JSON.keys(reservationGroups) {
+                #JSON batch = reservationGroups[reservationId];
+
+                transaction(productDb) {
+                    foreach item in batch {
+                        #Product? product = productDb.Product.find(item.productId);
+
+                        if (product != null) {
+                            product.inventory = product.inventory + item.quantity;
+                            product.save();
+                        }
+
+                        item.status = ReservationStatus.Expired;
+                        item.save();
+                    }
+                }
+
+                emit InventoryReleased(UUID.parse(reservationId), "Expired");
+                count = count + 1;
+
+                Log.info("Released expired reservation", { reservationId: reservationId });
+            }
+
+            if (count > 0) {
+                Log.info("Cleanup complete", { expiredReservations: count });
+            }
+        }
+
+        job UpdatePopularProducts {
+            #Array<Product> products = productDb.Product.where(status: ProductStatus.Active).all();
+
+            foreach product in products {
+                #Int views = redis.ProductViews.get(product.id.toString()) ?? 0;
+                #Int score = views;
+                redis.PopularProducts.add(product.id, score);
+            }
+
+            Log.info("Updated popular products", { count: products.length() });
+        }
+    }
+}

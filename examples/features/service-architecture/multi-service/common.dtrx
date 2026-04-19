@@ -1,0 +1,21 @@
+
+// Shared module for the multi-service example
+// Defines reusable types (entities, structs) that multiple services import
+module library.common {
+
+    // Abstract base entity shared across all services
+    // Services import this to avoid duplicating standard audit fields
+    abstract entity BaseEntity {
+        @UUID id : primaryKey = uuid();
+        @DateTime createdAt = now();
+        @DateTime updatedAt = now();
+    }
+
+    // Struct for reusable address value objects
+    // Structs are not database entities - they define structured data shapes
+    struct Address {
+        String(200) street;
+        String(100) city;
+        String(10) zipCode;
+    }
+}

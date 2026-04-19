@@ -1,0 +1,95 @@
+test:
+  defaults:
+    timeout: 30s
+    retry:
+      maxAttempts: 3
+      backoff:
+        type: exponential
+        initial: 500ms
+        multiplier: 2
+        max: 5s
+        jitter: 0.1
+      retryableErrors: [ConnectionError, TimeoutError, ServiceUnavailable]
+      nonRetryableErrors: [ValidationError, AuthenticationError]
+
+  config:
+    OrderService:
+      timeout: 10s
+      retry:
+        maxAttempts: 2
+        backoff: { type: exponential, initial: 100ms, multiplier: 2, max: 2s }
+      circuitBreaker:
+        failureThreshold: 5
+        successThreshold: 3
+        timeout: 30s
+        halfOpenRequests: 3
+      bulkhead:
+        maxConcurrent: 20
+        maxWait: 5s
+      fallback:
+        type: handler
+        handler: handleOrderFallback
+
+development:
+  defaults:
+    timeout: 30s
+    retry:
+      maxAttempts: 3
+      backoff:
+        type: exponential
+        initial: 500ms
+        multiplier: 2
+        max: 5s
+        jitter: 0.1
+      retryableErrors: [ConnectionError, TimeoutError, ServiceUnavailable]
+      nonRetryableErrors: [ValidationError, AuthenticationError]
+
+  config:
+    OrderService:
+      timeout: 10s
+      retry:
+        maxAttempts: 2
+        backoff: { type: exponential, initial: 100ms, multiplier: 2, max: 2s }
+      circuitBreaker:
+        failureThreshold: 5
+        successThreshold: 3
+        timeout: 30s
+        halfOpenRequests: 3
+      bulkhead:
+        maxConcurrent: 20
+        maxWait: 5s
+      fallback:
+        type: handler
+        handler: handleOrderFallback
+
+production:
+  defaults:
+    timeout: 30s
+    retry:
+      maxAttempts: 3
+      backoff:
+        type: exponential
+        initial: 500ms
+        multiplier: 2
+        max: 5s
+        jitter: 0.1
+      retryableErrors: [ConnectionError, TimeoutError, ServiceUnavailable]
+      nonRetryableErrors: [ValidationError, AuthenticationError]
+
+  config:
+    OrderService:
+      timeout: 10s
+      retry:
+        maxAttempts: 2
+        backoff: { type: exponential, initial: 100ms, multiplier: 2, max: 2s }
+      circuitBreaker:
+        failureThreshold: 5
+        successThreshold: 3
+        timeout: 30s
+        halfOpenRequests: 3
+      bulkhead:
+        maxConcurrent: 20
+        maxWait: 5s
+      fallback:
+        type: handler
+        handler: handleOrderFallback

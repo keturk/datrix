@@ -1,0 +1,32 @@
+test:
+  jobs:
+    ProcessMonthlyPayroll:
+      schedule: '0 0 1 * *'
+      retry: { maxAttempts: 1, backoff: fixed }
+      timeout: 60s
+    GeneratePayStubs:
+      schedule: '0 6 * * *'
+      retry: { maxAttempts: 1, backoff: fixed }
+      timeout: 30s
+
+development:
+  jobs:
+    ProcessMonthlyPayroll:
+      schedule: '0 0 1 * *'
+      retry: { maxAttempts: 1, backoff: fixed }
+      timeout: 60s
+    GeneratePayStubs:
+      schedule: '0 6 * * *'
+      retry: { maxAttempts: 1, backoff: fixed }
+      timeout: 30s
+
+production:
+  jobs:
+    ProcessMonthlyPayroll:
+      schedule: '0 0 1 * *'
+      retry: { maxAttempts: 3, backoff: exponential }
+      timeout: 30m
+    GeneratePayStubs:
+      schedule: '0 6 * * *'
+      retry: { maxAttempts: 3, backoff: exponential }
+      timeout: 15m

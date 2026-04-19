@@ -1,0 +1,8 @@
+# Generated for typescript project
+node_modules/
+dist/
+.env
+.env.local
+*.log
+coverage/
+.nyc_output/

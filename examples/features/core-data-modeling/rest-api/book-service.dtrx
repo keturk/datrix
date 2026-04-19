@@ -1,0 +1,79 @@
+
+// REST API feature example - self-contained service demonstrating:
+// - CRUD resource generation with 'resource'
+// - Access control with 'only()', 'public', and 'access(role)'
+// - Custom endpoints with @path, HTTP methods, and return types
+// - Path parameters and query filtering
+
+// Define a service in the 'library' namespace with version and description
+service library.BookService : version('1.0.0'), description('Book management service') {
+
+    // Service infrastructure configuration
+    config('config/book-service/book-service-config.yaml');   // Service-specific settings
+    registration('config/book-service/registration.yaml');     // Service registry entry
+    discovery { }                                              // Service discovery (auto-configured)
+    resilience('config/book-service/resilience.yaml');          // Circuit breakers, retries, timeouts
+
+    // Roles enum for role-based access control (RBAC)
+    enum UserRole {
+        Member,
+        Librarian,
+        Admin
+    }
+
+    // Relational database block - groups entities (tables) under a named datasource
+    rdbms bookDb('config/book-service/datasources.yaml') {
+
+        // Abstract entities provide reusable field definitions; they don't generate tables
+        abstract entity BaseEntity {
+            @UUID id : primaryKey = uuid();
+            @DateTime createdAt = now();
+            @DateTime updatedAt = now();
+        }
+
+        entity Category extends BaseEntity {
+            // 'unique' constraint ensures no duplicate values across rows
+            String(100) name : unique, trim;
+            // '?' suffix makes a field nullable (optional)
+            String(500)? description;
+            // 'hasMany' defines a one-to-many relationship; 'as books' names the collection
+            hasMany Book as books;
+        }
+
+        // Concrete entity - inherits all fields from BaseEntity and maps to a database table
+        entity Book extends BaseEntity {
+            String(200) title : trim;
+            String(20) isbn;
+            String(100) author : trim;
+            Int publicationYear;
+            // 'belongsTo' defines the many-to-one side of a relationship
+            // 'index' creates a database index on the foreign key for query performance
+            belongsTo Category : index;
+        }
+    }
+
+    // REST API block - generates CRUD endpoints and custom routes
+    // basePath sets the URL prefix for all endpoints in this API
+    rest_api BookServiceAPI : basePath("/api/v1") {
+        // 'only(...)' restricts which CRUD operations are generated
+        // 'public' makes endpoints accessible without authentication
+        resource bookDb.Book : only(list, get), public;
+        // 'access(role)' restricts endpoints to users with the specified role
+        resource bookDb.Book : only(create, update, delete), access(librarian);
+        resource bookDb.Category : only(list, get), public;
+
+        // Custom endpoint with @path decorator and explicit HTTP method
+        // ':' after params specifies access level; '->' specifies return type
+        @path('/books/search')
+        get(String query) : public -> Array<bookDb.Book> {
+            // Query entities using where() for filtering and all() to fetch results
+            return bookDb.Book.where(title: query).all();
+        }
+
+        // Path parameters use ':paramName' syntax (e.g., :categoryId)
+        @path('/books/category/:categoryId')
+        get(UUID categoryId) : public -> Array<bookDb.Book> {
+            return bookDb.Book.where(categoryId: categoryId).all();
+        }
+    }
+}

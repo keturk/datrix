@@ -1,0 +1,630 @@
+
+from finance.common import BaseEntity, AuditedEntity, Currency, generateReference;
+
+service finance.TransactionService : version('1.0.0'), description('financial transaction processing service') {
+
+    config('config/transaction-service/transaction-service-config.yaml');
+    registration('config/transaction-service/registration.yaml');
+    discovery {
+        AccountService { loadBalance: roundRobin, healthyOnly: true }
+    }
+    resilience('config/transaction-service/resilience.yaml');
+
+    enum TransactionType {
+        Deposit : value('deposit'),
+        Withdrawal : value('withdrawal'),
+        Transfer : value('transfer'),
+        Payment : value('payment'),
+        Refund : value('refund')
+    }
+
+    enum TransactionStatus {
+        Pending : value('pending'),
+        Completed : value('completed'),
+        Failed : value('failed'),
+        Reversed : value('reversed')
+    }
+
+    enum BatchStatus {
+        Pending : value('pending'),
+        Processing : value('processing'),
+        Completed : value('completed'),
+        Failed : value('failed'),
+        PartiallyCompleted : value('partially_completed')
+    }
+
+    struct CreateTransactionRequest {
+        UUID accountId;
+        TransactionType type;
+        Money amount;
+        Currency currency;
+        String? description;
+    }
+
+    struct TransferRequest {
+        UUID sourceAccountId;
+        UUID destinationAccountId;
+        Money amount;
+        Currency currency;
+        String? description;
+    }
+
+    struct TransferResponse {
+        txDb.Transaction sourceTransaction;
+        txDb.Transaction destinationTransaction;
+        String transferReference;
+    }
+
+    struct CreateBatchRequest {
+        Array<CreateTransactionRequest> transactions;
+    }
+
+    struct BatchResponse {
+        UUID batchId;
+        BatchStatus status;
+        Int totalCount;
+        Int successCount;
+        Int failedCount;
+        Money totalAmount;
+    }
+
+    struct TransactionSummary {
+        UUID accountId;
+        Int transactionCount;
+        Money totalDeposits;
+        Money totalWithdrawals;
+        Money netChange;
+    }
+
+    struct PaginatedTransactions {
+        Array<txDb.Transaction> data;
+        JSON pagination;
+    }
+
+    rdbms txDb('config/transaction-service/datasources.yaml') {
+        alert queryDuration(p95) over(5m) > 150ms @severity(warning);
+        alert connectionPool(utilization) over(1m) > 80% @severity(critical);
+
+        // Core transaction entity
+        entity Transaction extends AuditedEntity : audit {
+            UUID accountId : index;
+            TransactionType type;
+            TransactionStatus status = TransactionStatus.Pending;
+            Money amount;
+            Currency currency;
+            String(50) reference : unique;
+            String(500)? description;
+            UUID? counterpartyAccountId;
+            UUID? batchId : index;
+            String(500)? failureReason;
+            DateTime? completedAt;
+
+            // Computed fields
+            Boolean isCompleted := status == TransactionStatus.Completed;
+            Boolean isPending := status == TransactionStatus.Pending;
+
+            index(accountId, createdAt);
+            index(accountId, type);
+            index(reference);
+            index(status, createdAt);
+
+            validate {
+                if (amount.amount <= 0)
+                    ValidationError("Transaction amount must be positive");
+                if (reference.trim().isEmpty())
+                    ValidationError("Transaction reference cannot be empty");
+                if (type == TransactionType.Transfer && counterpartyAccountId == null)
+                    ValidationError("Transfer transactions require a counterparty account");
+            }
+
+            afterCreate {
+                emit TransactionCreated(id, accountId, type, amount, currency, reference);
+            }
+
+            afterUpdate {
+                if (isChanged(status)) {
+                    emit TransactionStatusChanged(id, accountId, oldValue(status), status, amount);
+
+                    if (status == TransactionStatus.Completed) {
+                        completedAt = now();
+                        Log.info("Transaction completed", { txId: id, reference: reference, amount: amount });
+                    } else if (status == TransactionStatus.Failed) {
+                        Log.warn("Transaction failed", { txId: id, reference: reference, reason: failureReason });
+                    }
+                }
+            }
+
+            fn complete() {
+                status = TransactionStatus.Completed;
+                completedAt = now();
+                this.save();
+            }
+
+            fn fail(String reason) {
+                status = TransactionStatus.Failed;
+                failureReason = reason;
+                this.save();
+            }
+
+            fn reverse() {
+                if (status != TransactionStatus.Completed) {
+                    throw ValidationException("Only completed transactions can be reversed");
+                }
+                status = TransactionStatus.Reversed;
+                this.save();
+            }
+        }
+
+        // Batch processing entity for bulk operations
+        entity TransactionBatch extends BaseEntity {
+            String(50) batchId : unique;
+            BatchStatus status = BatchStatus.Pending;
+            Money totalAmount;
+            Currency currency;
+            Int transactionCount;
+            Int successCount = 0;
+            Int failedCount = 0;
+            UUID submittedBy;
+            DateTime? completedAt;
+
+            hasMany Transaction as transactions;
+
+            index(batchId);
+            index(status, createdAt);
+
+            validate {
+                if (transactionCount <= 0)
+                    ValidationError("Batch must contain at least one transaction");
+            }
+
+            afterUpdate {
+                if (isChanged(status) && status == BatchStatus.Completed) {
+                    completedAt = now();
+                    Log.info("Batch completed", { batchId: batchId, success: successCount, failed: failedCount });
+                }
+            }
+
+            fn markCompleted(Int successes, Int failures) {
+                successCount = successes;
+                failedCount = failures;
+                if (failures == 0) {
+                    status = BatchStatus.Completed;
+                } else if (successes == 0) {
+                    status = BatchStatus.Failed;
+                } else {
+                    status = BatchStatus.PartiallyCompleted;
+                }
+                this.save();
+            }
+        }
+
+        // Daily reconciliation summary
+        entity DailyReconciliation extends BaseEntity {
+            DateTime reconciliationDate : unique;
+            Int totalTransactions = 0;
+            Money totalDebits;
+            Money totalCredits;
+            Money netAmount;
+            Boolean isBalanced = false;
+            DateTime? verifiedAt;
+
+            index(reconciliationDate);
+
+            validate {
+                if (totalTransactions < 0)
+                    ValidationError("Total transactions cannot be negative");
+            }
+        }
+    }
+
+    pubsub mq('config/transaction-service/pubsub.yaml') {
+        alert consumerLag(max) over(5m) > 500 @severity(critical);
+        alert failedMessages(count) over(5m) > 5 @severity(warning);
+
+        topic TransactionEvents {
+            publish TransactionCreated(UUID txId, UUID accountId, TransactionType type, Money amount, Currency currency, String reference) {
+                ensure amount > 0;
+                ensure reference.length > 0;
+            }
+            publish TransactionStatusChanged(UUID txId, UUID accountId, TransactionStatus oldStatus, TransactionStatus newStatus, Money amount) {
+                ensure oldStatus != newStatus;
+            }
+            publish TransferCompleted(UUID sourceTxId, UUID destTxId, UUID sourceAccountId, UUID destAccountId, Money amount, String reference) {
+                ensure amount > 0;
+            }
+            publish BatchProcessed(UUID batchId, Int successCount, Int failedCount) {
+                ensure successCount + failedCount > 0;
+            }
+            publish DailyReconciliationCompleted(DateTime date, Int totalTransactions, Boolean isBalanced) {
+                ensure totalTransactions >= 0;
+            }
+        }
+
+        // React to account events from AccountService
+        subscribe AccountEvents {
+            on AccountStatusChanged(UUID accountId, String accountNumber, AccountStatus oldStatus, AccountStatus newStatus) {
+                Log.info("Account status change received", { accountId: accountId, oldStatus: oldStatus, newStatus: newStatus });
+
+                // If account is frozen or closed, fail all pending transactions
+                if (newStatus == AccountStatus.Frozen || newStatus == AccountStatus.Closed) {
+                    #Array<Transaction> pendingTxs = txDb.Transaction
+                        .where(accountId: accountId)
+                        .where(status: TransactionStatus.Pending)
+                        .all();
+
+                    foreach tx in pendingTxs {
+                        tx.fail(#"Account {accountNumber} is {newStatus}");
+                    }
+
+                    Log.info("Failed pending transactions for account", { accountId: accountId, count: pendingTxs.length() });
+                }
+            }
+        }
+
+        subscribe TransactionEvents {
+            on TransactionStatusChanged(UUID txId, UUID accountId, TransactionStatus oldStatus, TransactionStatus newStatus, Money amount) {
+                Log.info("Transaction status changed", { txId: txId, oldStatus: oldStatus, newStatus: newStatus });
+            }
+        }
+    }
+
+    rest_api TransactionAPI : basePath('/api/v1/transactions') {
+        alert responseTime(p95) over(5m) > 300ms @severity(warning);
+        alert errorRate(ratio) over(5m) > 3% @severity(critical);
+
+        // List transactions with filtering and pagination
+        get(Int page = 1, Int perPage = 20, UUID? accountId, TransactionType? type, TransactionStatus? status) -> PaginatedTransactions {
+            #JSON query = txDb.Transaction.all();
+
+            if (accountId != null) {
+                query = txDb.Transaction.where(accountId: accountId);
+            }
+            if (type != null) {
+                query = query.where(type: type);
+            }
+            if (status != null) {
+                query = query.where(status: status);
+            }
+
+            #Int total = query.count();
+            #Array<Transaction> transactions = query
+                .orderBy(createdAt: desc)
+                .offset((page - 1) * perPage)
+                .limit(perPage)
+                .all();
+
+            return {
+                data: transactions,
+                pagination: {
+                    currentPage: page,
+                    perPage: perPage,
+                    totalItems: total,
+                    totalPages: Math.ceil(total / perPage),
+                    hasNextPage: page < Math.ceil(total / perPage),
+                    hasPrevPage: page > 1
+                }
+            };
+        }
+
+        @path('/:id')
+        get(UUID id) -> txDb.Transaction {
+            return txDb.Transaction.findOrFail(id);
+        }
+
+        // Create a single transaction (deposit, withdrawal, payment)
+        post(CreateTransactionRequest request) -> txDb.Transaction {
+            // Verify account exists and is active via AccountService
+            #JSON account = AccountService.AccountAPI.get(#"/internal/{request.accountId}");
+
+            if (account.status != "active") {
+                throw ValidationException(#"Account is not active. Current status: {account.status}");
+            }
+
+            #String ref = generateReference("TXN");
+
+            #Transaction tx = txDb.Transaction.create({
+                accountId: request.accountId,
+                type: request.type,
+                status: TransactionStatus.Pending,
+                amount: request.amount,
+                currency: request.currency,
+                reference: ref,
+                description: request.description
+            });
+
+            try {
+                transaction(txDb) {
+                    tx.save();
+                    tx.complete();
+                }
+            } catch (Exception e) {
+                tx.fail(#"Processing error: {e}");
+                Log.error("Transaction processing failed", { reference: ref, error: e });
+                throw e;
+            }
+
+            return tx;
+        }
+
+        // Execute an account-to-account transfer
+        @path('/transfer')
+        post(TransferRequest request) -> TransferResponse {
+            // Validate both accounts exist and are active
+            #JSON sourceAccount = AccountService.AccountAPI.get(#"/internal/{request.sourceAccountId}");
+            #JSON destAccount = AccountService.AccountAPI.get(#"/internal/{request.destinationAccountId}");
+
+            if (sourceAccount.status != "active") {
+                throw ValidationException("Source account is not active");
+            }
+            if (destAccount.status != "active") {
+                throw ValidationException("Destination account is not active");
+            }
+
+            #String transferRef = generateReference("TRF");
+
+            #Transaction withdrawalTx = txDb.Transaction.create({
+                accountId: request.sourceAccountId,
+                type: TransactionType.Transfer,
+                status: TransactionStatus.Pending,
+                amount: request.amount,
+                currency: request.currency,
+                reference: #"{transferRef}-W",
+                description: request.description ?? #"Transfer to account {request.destinationAccountId}",
+                counterpartyAccountId: request.destinationAccountId
+            });
+
+            #Transaction depositTx = txDb.Transaction.create({
+                accountId: request.destinationAccountId,
+                type: TransactionType.Transfer,
+                status: TransactionStatus.Pending,
+                amount: request.amount,
+                currency: request.currency,
+                reference: #"{transferRef}-D",
+                description: request.description ?? #"Transfer from account {request.sourceAccountId}",
+                counterpartyAccountId: request.sourceAccountId
+            });
+
+            try {
+                // Atomic: both sides of the transfer succeed or fail together
+                transaction(txDb) {
+                    withdrawalTx.save();
+                    depositTx.save();
+                    withdrawalTx.complete();
+                    depositTx.complete();
+                }
+
+                emit TransferCompleted(withdrawalTx.id, depositTx.id, request.sourceAccountId, request.destinationAccountId, request.amount, transferRef);
+
+            } catch (Exception e) {
+                withdrawalTx.fail(#"Transfer failed: {e}");
+                depositTx.fail(#"Transfer failed: {e}");
+                Log.error("Transfer failed", { reference: transferRef, error: e });
+                throw e;
+            }
+
+            return {
+                sourceTransaction: withdrawalTx,
+                destinationTransaction: depositTx,
+                transferReference: transferRef
+            };
+        }
+
+        // Submit a batch of transactions
+        @path('/batch')
+        post(CreateBatchRequest request) -> BatchResponse {
+            #String batchRef = generateReference("BAT");
+            #Money totalAmount = Money.of(0, Currency.USD);
+
+            foreach item in request.transactions {
+                totalAmount = totalAmount.add(item.amount);
+            }
+
+            #TransactionBatch batch = txDb.TransactionBatch.create({
+                batchId: batchRef,
+                status: BatchStatus.Processing,
+                totalAmount: totalAmount,
+                currency: Currency.USD,
+                transactionCount: request.transactions.length(),
+                submittedBy: Auth.user().id
+            });
+            batch.save();
+
+            #Int successes = 0;
+            #Int failures = 0;
+
+            foreach item in request.transactions {
+                #String ref = generateReference("TXN");
+                #Transaction tx = txDb.Transaction.create({
+                    accountId: item.accountId,
+                    type: item.type,
+                    status: TransactionStatus.Pending,
+                    amount: item.amount,
+                    currency: item.currency,
+                    reference: ref,
+                    description: item.description,
+                    batchId: batch.id
+                });
+
+                try {
+                    transaction(txDb) {
+                        tx.save();
+                        tx.complete();
+                    }
+                    successes = successes + 1;
+                } catch (Exception e) {
+                    tx.fail(#"Batch processing error: {e}");
+                    failures = failures + 1;
+                    Log.warn("Batch transaction failed", { batchId: batchRef, reference: ref, error: e });
+                }
+            }
+
+            batch.markCompleted(successes, failures);
+            emit BatchProcessed(batch.id, successes, failures);
+
+            return {
+                batchId: batch.id,
+                status: batch.status,
+                totalCount: request.transactions.length(),
+                successCount: successes,
+                failedCount: failures,
+                totalAmount: totalAmount
+            };
+        }
+
+        // Get transaction summary for an account
+        @path('/summary/:accountId')
+        get(UUID accountId) -> TransactionSummary {
+            #Array<Transaction> transactions = txDb.Transaction
+                .where(accountId: accountId)
+                .where(status: TransactionStatus.Completed)
+                .all();
+
+            #Money deposits = Money.of(0, Currency.USD);
+            #Money withdrawals = Money.of(0, Currency.USD);
+
+            foreach tx in transactions {
+                if (tx.type == TransactionType.Deposit || (tx.type == TransactionType.Transfer && tx.counterpartyAccountId != null)) {
+                    deposits = deposits.add(tx.amount);
+                } else if (tx.type == TransactionType.Withdrawal || tx.type == TransactionType.Payment) {
+                    withdrawals = withdrawals.add(tx.amount);
+                }
+            }
+
+            return {
+                accountId: accountId,
+                transactionCount: transactions.length(),
+                totalDeposits: deposits,
+                totalWithdrawals: withdrawals,
+                netChange: deposits.add(withdrawals.multiply(-1))
+            };
+        }
+
+        // Reverse a completed transaction
+        @path('/:id/reverse')
+        put(UUID id) : access(admin) -> txDb.Transaction {
+            #Transaction tx = txDb.Transaction.findOrFail(id);
+            tx.reverse();
+            return tx;
+        }
+
+        // Internal endpoint for cross-service lookups
+        @path('/internal/by-account/:accountId')
+        get(UUID accountId) : internal -> Array<txDb.Transaction> {
+            return txDb.Transaction
+                .where(accountId: accountId)
+                .orderBy(createdAt: desc)
+                .limit(100)
+                .all();
+        }
+    }
+
+    jobs('config/transaction-service/jobs.yaml') {
+        // Daily reconciliation job: summarize the day's transactions
+        job ReconcileDailyTransactions {
+            #DateTime today = now();
+            #Array<Transaction> dayTransactions = txDb.Transaction
+                .where(status: TransactionStatus.Completed)
+                .where(completedAt: gte(today.startOfDay()))
+                .where(completedAt: lt(today.endOfDay()))
+                .all();
+
+            #Money totalDebits = Money.of(0, Currency.USD);
+            #Money totalCredits = Money.of(0, Currency.USD);
+
+            foreach tx in dayTransactions {
+                if (tx.type == TransactionType.Withdrawal || tx.type == TransactionType.Payment) {
+                    totalDebits = totalDebits.add(tx.amount);
+                } else {
+                    totalCredits = totalCredits.add(tx.amount);
+                }
+            }
+
+            #Money netAmount = totalCredits.add(totalDebits.multiply(-1));
+            #Boolean balanced = netAmount.amount == 0;
+
+            #DailyReconciliation recon = txDb.DailyReconciliation.create({
+                reconciliationDate: today,
+                totalTransactions: dayTransactions.length(),
+                totalDebits: totalDebits,
+                totalCredits: totalCredits,
+                netAmount: netAmount,
+                isBalanced: balanced,
+                verifiedAt: now()
+            });
+            recon.save();
+
+            emit DailyReconciliationCompleted(today, dayTransactions.length(), balanced);
+            Log.info("Daily reconciliation completed", { date: today, total: dayTransactions.length(), balanced: balanced });
+        }
+    }
+
+    test("validation rejects non-positive transaction amount") {
+        assert throws(
+            () => txDb.Transaction.create({
+                accountId: uuid(),
+                type: TransactionType.Deposit,
+                amount: Money.of(0, Currency.USD),
+                currency: Currency.USD,
+                reference: "TXN-TEST-001"
+            }),
+            ValidationError("Transaction amount must be positive")
+        );
+    }
+
+    test("validation rejects transfer without counterparty") {
+        assert throws(
+            () => txDb.Transaction.create({
+                accountId: uuid(),
+                type: TransactionType.Transfer,
+                amount: Money.of(100, Currency.USD),
+                currency: Currency.USD,
+                reference: "TXN-TEST-002"
+            }),
+            ValidationError("Transfer transactions require a counterparty account")
+        );
+    }
+
+    test("afterCreate emits TransactionCreated event") {
+        #txDb.Transaction tx = txDb.Transaction.create({
+            accountId: uuid(),
+            type: TransactionType.Deposit,
+            amount: Money.of(500, Currency.USD),
+            currency: Currency.USD,
+            reference: "TXN-TEST-003",
+            description: "Test deposit"
+        });
+        tx.save();
+        assert emitted(TransactionCreated(tx.id, tx.accountId, TransactionType.Deposit, tx.amount, Currency.USD, tx.reference));
+    }
+
+    test("reverse fails for non-completed transaction") {
+        #txDb.Transaction tx = txDb.Transaction.create({
+            accountId: uuid(),
+            type: TransactionType.Deposit,
+            amount: Money.of(200, Currency.USD),
+            currency: Currency.USD,
+            reference: "TXN-TEST-004"
+        });
+        tx.save();
+        assert throws(
+            () => tx.reverse(),
+            ValidationException("Only completed transactions can be reversed")
+        );
+    }
+
+    test("batch marks completed with correct counts") {
+        #txDb.TransactionBatch batch = txDb.TransactionBatch.create({
+            batchId: "BAT-TEST-001",
+            status: BatchStatus.Processing,
+            totalAmount: Money.of(1000, Currency.USD),
+            currency: Currency.USD,
+            transactionCount: 5,
+            submittedBy: uuid()
+        });
+        batch.save();
+        batch.markCompleted(4, 1);
+        assert batch.status == BatchStatus.PartiallyCompleted;
+        assert batch.successCount == 4;
+        assert batch.failedCount == 1;
+    }
+}

@@ -1,0 +1,491 @@
+
+from ecommerce.common import BaseEntity, Address, hashPassword, verifyPassword, generateToken;
+
+// Define a service in the 'ecommerce' namespace with version and description
+service ecommerce.UserService : version('1.0.0'), description('user management service') {
+
+    // Service infrastructure configuration
+    config('config/user-service/user-service-config.yaml');
+    registration('config/user-service/registration.yaml');
+    discovery { }
+    resilience('config/user-service/resilience.yaml');
+    integrations('config/user-service/integrations.yaml');
+
+    enum UserRole {
+        Customer,
+        Admin,
+        Support
+    }
+
+    enum UserStatus {
+        Active,
+        Inactive,
+        Suspended,
+        Pending
+    }
+
+    // Structs for request/response payloads
+    struct LoginResponse {
+        // 'userDb.User' references an entity type from this service's database
+        userDb.User user;
+        String token;
+        DateTime expiresAt;
+    }
+
+    struct SessionValidationResponse {
+        Boolean valid;
+        userDb.User? user;
+    }
+
+    struct RegisterRequest {
+        Email email;
+        String password;
+        String firstName;
+        String lastName;
+    }
+
+    struct UpdateProfileRequest {
+        String? firstName;
+        String? lastName;
+        Phone? phoneNumber;
+        // Address struct imported from the common module
+        Address? shippingAddress;
+        Address? billingAddress;
+    }
+
+    struct LoginRequest {
+        Email email;
+        String password;
+    }
+
+    struct ChangePasswordRequest {
+        String currentPassword;
+        String newPassword;
+    }
+
+    struct VerifyEmailRequest {
+        String token;
+    }
+
+    struct ForgotPasswordRequest {
+        Email email;
+    }
+
+    struct ResetPasswordRequest {
+        String token;
+        String newPassword;
+    }
+
+    struct UpdateUserStatusRequest {
+        UserStatus status;
+    }
+
+    struct ValidateSessionRequest {
+        String token;
+    }
+
+    struct LogoutRequest {
+        Boolean? revokeAll = false;
+    }
+
+    // Relational database block
+    rdbms userDb('config/user-service/datasources.yaml') {
+
+        entity User extends BaseEntity {
+            Email email : unique;
+            Password passwordHash;
+            String(100) firstName : trim, regex("^[A-Za-z][A-Za-z0-9\\s'-]{0,99}$");
+            String(100) lastName : trim;
+            Phone? phoneNumber;
+            UserRole role = UserRole.Customer;
+            UserStatus status = UserStatus.Pending;
+
+            DateTime? lastLoginAt;
+            DateTime? emailVerifiedAt;
+            String? emailVerificationToken;
+            String? passwordResetToken;
+            DateTime? passwordResetExpiry;
+
+            // Embedded struct fields for complex nested data
+            Address? shippingAddress;
+            Address? billingAddress;
+
+            // Computed fields derived at runtime
+            String fullName := #"{firstName} {lastName}";
+            Boolean isActive := status == UserStatus.Active;
+            Boolean isVerified := emailVerifiedAt != null;
+            Boolean canLogin := isActive && isVerified;
+
+            // 'hasMany' defines a one-to-many relationship
+            hasMany UserSession as sessions;
+            // 'hasOne' defines a one-to-one relationship
+            hasOne UserPreferences as preferences;
+
+            index(status, role);
+            index(email);
+
+            validate {
+                if (!Validator.isEmail(email))
+                    ValidationError("Invalid email format");
+                if (phoneNumber != null && !Validator.isPhone(phoneNumber))
+                    ValidationError("Invalid phone number");
+                if (status == UserStatus.Active && !isVerified)
+                    ValidationError("Cannot activate unverified user");
+            }
+
+            beforeUpdate {
+                updatedAt = now();
+            }
+
+            afterCreate {
+                emit UserRegistered(id, email, fullName);
+
+                // Built-in Email.send() for sending templated emails
+                Email.send({
+                    to: email,
+                    subject: "Verify your email",
+                    template: "emailVerification",
+                    data: { token: emailVerificationToken, fullName: fullName }
+                });
+            }
+
+            afterUpdate {
+                if (isChanged(status)) {
+                    emit UserStatusChanged(id, oldValue(status), status);
+
+                    if (status == UserStatus.Active && isVerified) {
+                        emit UserVerified(id, email);
+                    }
+                }
+            }
+        }
+
+        entity UserSession extends BaseEntity {
+            String(255) token : unique;
+            String(500)? deviceName;
+            IPAddress? ipAddress;
+            String(255)? userAgent;
+            DateTime expiresAt;
+            DateTime? lastActivityAt;
+
+            Boolean isExpired := now() > expiresAt;
+            Boolean isActive := !isExpired && lastActivityAt != null;
+
+            belongsTo User : index;
+
+            index(userId, expiresAt);
+            index(token);
+
+            validate {
+                if (expiresAt <= createdAt)
+                    ValidationError("Expiry must be after creation");
+            }
+        }
+
+        entity UserPreferences extends BaseEntity {
+            String(10) language = "en";
+            String(50) timezone = "UTC";
+            Boolean emailNotifications = true;
+            Boolean smsNotifications = false;
+            // JSON type for schemaless data
+            JSON preferences;
+
+            // 'belongsTo ... : unique' enforces a one-to-one constraint
+            belongsTo User : unique;
+        }
+
+    }
+
+    // Cache block - defines in-memory data structures backed by Redis
+    cache redis('config/user-service/cache.yaml') {
+        hash SessionCache : prefix('session:'), ttl(2592000) {
+            String sessionId : key;
+            UUID userId;
+            DateTime lastActivity;
+        }
+
+        // 'counter' is an atomic increment/decrement data structure
+        counter RateLimitCounter : prefix('ratelimit:user:'), ttl(60);
+    }
+
+    // Pub/sub messaging block
+    pubsub mq('config/user-service/pubsub.yaml') {
+        topic UserEvents {
+            publish UserRegistered(UUID userId, Email email, String fullName) {
+                ensure fullName.length > 0;
+            }
+            publish UserVerified(UUID userId, Email email);
+            publish UserStatusChanged(UUID userId, UserStatus oldStatus, UserStatus newStatus) {
+                ensure oldStatus != newStatus;
+            }
+            publish UserLoggedIn(UUID userId, DateTime loginAt, String? ipAddress);
+        }
+
+        subscribe UserEvents {
+
+            on UserRegistered(UUID userId, Email email, String fullName) {
+                Log.info("User registered", { userId: userId, email: email, fullName: fullName });
+            }
+
+            on UserVerified(UUID userId, Email email) {
+                Log.info("User verified", { userId: userId, email: email });
+            }
+
+            on UserStatusChanged(UUID userId, UserStatus oldStatus, UserStatus newStatus) {
+                Log.info("User status changed", { userId: userId, oldStatus: oldStatus, newStatus: newStatus });
+            }
+
+            on UserLoggedIn(UUID userId, DateTime loginAt, String? ipAddress) {
+                Log.info("User logged in", { userId: userId, loginAt: loginAt, ipAddress: ipAddress });
+            }
+        }
+    }
+
+    // REST API block - generates CRUD endpoints and custom routes
+    rest_api UserAPI : basePath('/api/v1') {
+
+        resource userDb.User : access(admin);
+
+        @path('/register')
+        post(RegisterRequest request) : public -> userDb.User {
+            if (!Validator.isEmail(request.email))
+                throw ValidationException("Invalid email format");
+            if (request.password.length() < 8)
+                throw ValidationException("Password must be at least 8 characters");
+            if (!Validator.hasLowercase(request.password) || !Validator.hasUppercase(request.password) || !Validator.hasNumbers(request.password))
+                throw ValidationException("Password must contain lowercase, uppercase, and numbers");
+            #User? existing = userDb.User.where(email: request.email).first();
+            if (existing != null) {
+                throw ValidationException("Email already registered");
+            }
+
+            #User user = userDb.User.create({
+                email: request.email,
+                passwordHash: hashPassword(request.password),
+                firstName: request.firstName,
+                lastName: request.lastName,
+                role: UserRole.Customer,
+                status: UserStatus.Pending,
+                emailVerificationToken: generateToken()
+            });
+
+            return user;
+        }
+
+        @path('/login')
+        post(LoginRequest request) : public -> LoginResponse {
+            // 'firstOrFail()' throws NotFoundException if no match
+            #User user = userDb.User.where(email: request.email).firstOrFail();
+
+            if (!verifyPassword(request.password, user.passwordHash)) {
+                throw AuthenticationException("Invalid credentials");
+            }
+
+            if (!user.canLogin) {
+                throw AuthenticationException("Account is not active or verified");
+            }
+
+            #String token = generateSessionToken();
+            #UserSession session = userDb.UserSession.create({
+                user: user,
+                token: token,
+                deviceName: Request.device(),
+                ipAddress: Request.ip(),
+                userAgent: Request.userAgent(),
+                expiresAt: now().addDays(30),
+                lastActivityAt: now()
+            });
+
+            user.lastLoginAt = now();
+            user.save();
+
+            // Store session in cache for fast validation
+            redis.SessionCache.set(token, {
+                sessionId: token,
+                userId: user.id,
+                lastActivity: now()
+            });
+
+            emit UserLoggedIn(user.id, now(), Request.ip());
+
+            return {
+                user: user,
+                token: token,
+                expiresAt: session.expiresAt
+            };
+        }
+
+        @path('/logout')
+        post(LogoutRequest request) -> Void {
+            #String token = Auth.token();
+            #UserSession? session = userDb.UserSession.where(token: token).first();
+            if (session != null) {
+                session.delete();
+            }
+            redis.SessionCache.delete(token);
+        }
+
+        @path('/me')
+        get() -> userDb.User {
+            return Auth.user();
+        }
+
+        @path('/me')
+        put(UpdateProfileRequest request) -> userDb.User {
+            #User user = Auth.user();
+
+            if (request.firstName != null) user.firstName = request.firstName;
+            if (request.lastName != null) user.lastName = request.lastName;
+            if (request.phoneNumber != null) user.phoneNumber = request.phoneNumber;
+            if (request.shippingAddress != null) user.shippingAddress = request.shippingAddress;
+            if (request.billingAddress != null) user.billingAddress = request.billingAddress;
+
+            user.save();
+            return user;
+        }
+
+        @path('/me/password')
+        put(ChangePasswordRequest request) -> Void {
+            #User user = Auth.user();
+
+            if (!verifyPassword(request.currentPassword, user.passwordHash)) {
+                throw ValidationException("Current password is incorrect");
+            }
+
+            user.passwordHash = hashPassword(request.newPassword);
+            user.save();
+        }
+
+        @path('/verify-email')
+        post(VerifyEmailRequest request) : public -> userDb.User {
+            #User user = userDb.User.where(emailVerificationToken: request.token).firstOrFail();
+
+            user.emailVerifiedAt = now();
+            user.emailVerificationToken = null;
+            user.status = UserStatus.Active;
+            user.save();
+
+            return user;
+        }
+
+        @path('/forgot-password')
+        post(ForgotPasswordRequest request) : public -> Void {
+            #User? user = userDb.User.where(email: request.email).first();
+
+            if (user != null) {
+                user.passwordResetToken = generateToken();
+                user.passwordResetExpiry = now().addHours(24);
+                user.save();
+
+                sendPasswordResetEmail(user);
+            }
+        }
+
+        @path('/reset-password')
+        post(ResetPasswordRequest request) : public -> userDb.User {
+            #User user = userDb.User.where(passwordResetToken: request.token).firstOrFail();
+
+            if (user.passwordResetExpiry == null || now() > user.passwordResetExpiry) {
+                throw ValidationException("Password reset token has expired");
+            }
+
+            user.passwordHash = hashPassword(request.newPassword);
+            user.passwordResetToken = null;
+            user.passwordResetExpiry = null;
+            user.save();
+
+            return user;
+        }
+
+        @path('/:id/status')
+        put(UUID id, UpdateUserStatusRequest request) : access(admin) -> userDb.User {
+            #User user = userDb.User.findOrFail(id);
+            user.status = request.status;
+            user.save();
+            return user;
+        }
+
+        // @internal marks endpoints as internal-only, not exposed through the API gateway
+        @path('/internal/:id')
+        get(UUID id) : internal -> userDb.User {
+            return userDb.User.findOrFail(id);
+        }
+
+        @path('/internal/validate-session')
+        post(ValidateSessionRequest request) : internal -> SessionValidationResponse {
+            #UserSession? session = userDb.UserSession.where(token: request.token).first();
+
+            if (session == null || session.isExpired) {
+                return { valid: false, user: null };
+            }
+
+            session.lastActivityAt = now();
+            session.save();
+
+            return { valid: true, user: session.user };
+        }
+
+        // Private function scoped to the API block
+        fn generateSessionToken() -> String {
+            return #"session_{Random.string(64)}";
+        }
+    }
+
+    test("computed fullName concatenates first and last name") {
+        #userDb.User user = userDb.User.create({
+            email: "spec.name@example.com",
+            passwordHash: hashPassword("Str0ng#TestP@ss9"),
+            firstName: "John",
+            lastName: "Doe"
+        });
+        user.save();
+        assert user.fullName == "John Doe";
+    }
+
+    test("computed canLogin requires active and verified") {
+        #userDb.User user = userDb.User.create({
+            email: "spec.login@example.com",
+            passwordHash: hashPassword("Str0ng#TestP@ss9"),
+            firstName: "Jane",
+            lastName: "Smith",
+            status: UserStatus.Active,
+            emailVerifiedAt: now()
+        });
+        user.save();
+        assert user.canLogin == true;
+    }
+
+    test("validation rejects activating unverified user") {
+        assert throws(
+            () => userDb.User.create({
+                email: "spec.unverified@example.com",
+                passwordHash: hashPassword("Str0ng#TestP@ss9"),
+                firstName: "Unverified",
+                lastName: "User",
+                status: UserStatus.Active
+            }),
+            ValidationError("Cannot activate unverified user")
+        );
+    }
+
+    test("afterCreate emits UserRegistered event") {
+        #userDb.User user = userDb.User.create({
+            email: "spec.event@example.com",
+            passwordHash: hashPassword("Str0ng#TestP@ss9"),
+            firstName: "Alice",
+            lastName: "Johnson"
+        });
+        user.save();
+        assert emitted(UserRegistered(user.id, user.email, user.fullName));
+    }
+
+    // Service-level function
+    fn sendPasswordResetEmail(userDb.User user) {
+        Email.send({
+            to: user.email,
+            subject: "Reset your password",
+            template: "passwordReset",
+            data: { token: user.passwordResetToken, fullName: user.fullName }
+        });
+    }
+}

@@ -1,0 +1,21 @@
+test:
+  email:
+    provider: sendgrid
+    fromEmail: noreply@blog.example.com
+    fromName: Blog Service
+    templates:
+      postPublished: d-post-published
+development:
+  email:
+    provider: sendgrid
+    fromEmail: noreply@blog.example.com
+    fromName: Blog Service
+    templates:
+      postPublished: d-post-published
+production:
+  email:
+    provider: sendgrid
+    fromEmail: ${BLOG_FROM_EMAIL}
+    fromName: Blog Service
+    templates:
+      postPublished: ${POST_PUBLISHED_TEMPLATE_ID}

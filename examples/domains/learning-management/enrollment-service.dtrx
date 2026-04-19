@@ -1,0 +1,695 @@
+
+from lms.common import BaseEntity, MAX_PAGE_SIZE, MAX_SCORE, MIN_SCORE, PASSING_SCORE;
+
+service lms.EnrollmentService : version('1.0.0'), description('enrollment and academic progress tracking service') {
+
+    config('config/enrollment-service/enrollment-service-config.yaml');
+    registration('config/enrollment-service/registration.yaml');
+    discovery {
+        CourseService { loadBalance: roundRobin, healthyOnly: true }
+        StudentService { loadBalance: roundRobin, healthyOnly: true }
+    }
+    resilience('config/enrollment-service/resilience.yaml');
+
+    enum EnrollmentStatus {
+        Pending : value('pending'),
+        Active : value('active'),
+        Completed : value('completed'),
+        Dropped : value('dropped'),
+        Expired : value('expired')
+    }
+
+    enum GradeStatus {
+        NotSubmitted : value('not_submitted'),
+        Submitted : value('submitted'),
+        Graded : value('graded'),
+        Returned : value('returned')
+    }
+
+    struct PaginatedEnrollments {
+        Array<enrollmentDb.Enrollment> data;
+        JSON pagination;
+    }
+
+    struct EnrollRequest {
+        UUID courseId;
+    }
+
+    struct DropRequest {
+        String? reason;
+    }
+
+    struct SubmitGradeRequest {
+        UUID moduleId;
+        Decimal score;
+        Text? feedback;
+    }
+
+    struct UpdateProgressRequest {
+        Int progress;
+    }
+
+    struct EnrollmentSummary {
+        UUID enrollmentId;
+        UUID studentId;
+        UUID courseId;
+        EnrollmentStatus status;
+        Int progress;
+        Decimal averageScore;
+        DateTime enrolledAt;
+        DateTime? completedAt;
+    }
+
+    struct TranscriptEntry {
+        UUID courseId;
+        String courseName;
+        EnrollmentStatus status;
+        Decimal averageScore;
+        DateTime enrolledAt;
+        DateTime? completedAt;
+    }
+
+    rdbms enrollmentDb('config/enrollment-service/datasources.yaml') {
+
+        entity Enrollment extends BaseEntity : audit {
+            UUID studentId : index;
+            UUID courseId : index;
+            EnrollmentStatus status = EnrollmentStatus.Pending;
+            DateTime enrolledAt = now();
+            DateTime? completedAt;
+            DateTime? droppedAt;
+            Int progress = 0;
+            String? dropReason;
+            Decimal(5, 2) averageScore = 0.00;
+            Int gradeCount = 0;
+            DateTime? lastAccessedAt;
+
+            // Computed fields
+            Boolean isActive := status == EnrollmentStatus.Active;
+            Boolean isCompleted := status == EnrollmentStatus.Completed;
+            Boolean canSubmitGrades := status == EnrollmentStatus.Active;
+            Boolean hasPassed := averageScore >= PASSING_SCORE;
+            Int remainingProgress := 100 - progress;
+
+            hasMany GradeRecord as grades : cascade(delete);
+
+            index(studentId, courseId) : unique;
+            index(studentId, status);
+            index(courseId, status);
+            index(status, enrolledAt);
+
+            validate {
+                if (progress < MIN_SCORE || progress > MAX_SCORE)
+                    ValidationError("Progress must be between 0 and 100");
+            }
+
+            afterCreate {
+                emit StudentEnrolled(id, studentId, courseId);
+            }
+
+            afterUpdate {
+                if (isChanged(progress)) {
+                    emit ProgressUpdated(id, studentId, courseId, oldValue(progress), progress);
+
+                    if (progress == MAX_SCORE && status != EnrollmentStatus.Completed) {
+                        status = EnrollmentStatus.Completed;
+                        completedAt = now();
+                        this.save();
+                        emit EnrollmentCompleted(id, studentId, courseId, averageScore);
+
+                        Log.info("Enrollment completed", {
+                            enrollmentId: id,
+                            studentId: studentId,
+                            courseId: courseId,
+                            averageScore: averageScore
+                        });
+                    }
+                }
+
+                if (isChanged(status)) {
+                    emit EnrollmentStatusChanged(id, studentId, courseId, oldValue(status), status);
+
+                    if (status == EnrollmentStatus.Dropped) {
+                        droppedAt = now();
+                    }
+                }
+            }
+
+            fn recalculateAverageScore() {
+                #Array<GradeRecord> allGrades = enrollmentDb.GradeRecord
+                    .where(enrollmentId: id)
+                    .where(status: GradeStatus.Graded)
+                    .all();
+
+                if (allGrades.length() > 0) {
+                    #Decimal totalScore = 0;
+                    foreach grade in allGrades {
+                        totalScore = totalScore + grade.score;
+                    }
+                    averageScore = totalScore / allGrades.length();
+                    gradeCount = allGrades.length();
+                }
+            }
+        }
+
+        entity GradeRecord extends BaseEntity {
+            UUID moduleId : index;
+            Decimal(5, 2) score;
+            GradeStatus status = GradeStatus.NotSubmitted;
+            Text? feedback;
+            DateTime? submittedAt;
+            DateTime? gradedAt;
+            UUID? gradedBy;
+
+            belongsTo Enrollment : index;
+
+            index(enrollmentId, moduleId) : unique;
+
+            validate {
+                if (score < MIN_SCORE || score > MAX_SCORE)
+                    ValidationError("Score must be between 0 and 100");
+            }
+
+            afterCreate {
+                // Recalculate average score on the enrollment
+                #Enrollment? enrollment = enrollmentDb.Enrollment.find(enrollmentId);
+                if (enrollment != null) {
+                    enrollment.recalculateAverageScore();
+                    enrollment.save();
+                }
+            }
+        }
+
+        entity EnrollmentActivity extends BaseEntity {
+            UUID enrollmentId : index;
+            String(100) activityType;
+            JSON? metadata;
+            DateTime occurredAt = now();
+
+            index(enrollmentId, occurredAt);
+        }
+    }
+
+    pubsub mq('config/enrollment-service/pubsub.yaml') {
+
+        topic EnrollmentEvents {
+            publish StudentEnrolled(UUID enrollmentId, UUID studentId, UUID courseId) {
+                ensure enrollmentId != null;
+            }
+            publish EnrollmentStatusChanged(UUID enrollmentId, UUID studentId, UUID courseId, EnrollmentStatus oldStatus, EnrollmentStatus newStatus) {
+                ensure oldStatus != newStatus;
+            }
+            publish ProgressUpdated(UUID enrollmentId, UUID studentId, UUID courseId, Int oldProgress, Int newProgress) {
+                ensure newProgress >= 0;
+                ensure newProgress <= 100;
+            }
+            publish EnrollmentCompleted(UUID enrollmentId, UUID studentId, UUID courseId, Decimal averageScore) {
+                ensure averageScore >= 0;
+            }
+            publish StudentDropped(UUID enrollmentId, UUID studentId, UUID courseId, String? reason) {
+                ensure enrollmentId != null;
+            }
+            publish GradeSubmitted(UUID enrollmentId, UUID moduleId, Decimal score) {
+                ensure score >= 0;
+                ensure score <= 100;
+            }
+        }
+
+        subscribe EnrollmentEvents {
+            on StudentEnrolled(UUID enrollmentId, UUID studentId, UUID courseId) {
+                Log.info("Student enrolled in course", {
+                    enrollmentId: enrollmentId,
+                    studentId: studentId,
+                    courseId: courseId
+                });
+
+                // Increment course enrollment count
+                try {
+                    CourseService.CourseAPI.post(#"/internal/{courseId}/increment-enrollment");
+                } catch (Exception e) {
+                    Log.error(#"Failed to increment enrollment count: {e}");
+                }
+
+                // Track enrollment activity
+                #EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
+                    enrollmentId: enrollmentId,
+                    activityType: "enrolled"
+                });
+                activity.save();
+            }
+
+            on EnrollmentCompleted(UUID enrollmentId, UUID studentId, UUID courseId, Decimal averageScore) {
+                Log.info("Student completed course", {
+                    enrollmentId: enrollmentId,
+                    studentId: studentId,
+                    courseId: courseId,
+                    averageScore: averageScore
+                });
+
+                #EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
+                    enrollmentId: enrollmentId,
+                    activityType: "completed",
+                    metadata: { averageScore: averageScore }
+                });
+                activity.save();
+            }
+
+            on StudentDropped(UUID enrollmentId, UUID studentId, UUID courseId, String? reason) {
+                Log.info("Student dropped from course", {
+                    enrollmentId: enrollmentId,
+                    studentId: studentId,
+                    courseId: courseId,
+                    reason: reason
+                });
+
+                // Decrement course enrollment count
+                try {
+                    CourseService.CourseAPI.post(#"/internal/{courseId}/decrement-enrollment");
+                } catch (Exception e) {
+                    Log.error(#"Failed to decrement enrollment count: {e}");
+                }
+            }
+        }
+
+        subscribe CourseEvents {
+            on CourseArchived(UUID courseId) {
+                Log.info("Course archived, expiring active enrollments", { courseId: courseId });
+
+                #Array<Enrollment> activeEnrollments = enrollmentDb.Enrollment
+                    .where(courseId: courseId)
+                    .where(status: EnrollmentStatus.Active)
+                    .all();
+
+                foreach enrollment in activeEnrollments {
+                    enrollment.status = EnrollmentStatus.Expired;
+                    enrollment.save();
+                }
+
+                #Array<Enrollment> pendingEnrollments = enrollmentDb.Enrollment
+                    .where(courseId: courseId)
+                    .where(status: EnrollmentStatus.Pending)
+                    .all();
+
+                foreach enrollment in pendingEnrollments {
+                    enrollment.status = EnrollmentStatus.Expired;
+                    enrollment.save();
+                }
+
+                #Int expiredCount = activeEnrollments.length() + pendingEnrollments.length();
+                if (expiredCount > 0) {
+                    Log.info("Expired enrollments for archived course", {
+                        courseId: courseId,
+                        expiredCount: expiredCount
+                    });
+                }
+            }
+
+            on CourseStatusChanged(UUID courseId, String oldStatus, String newStatus) {
+                Log.info("Course status changed", { courseId: courseId, oldStatus: oldStatus, newStatus: newStatus });
+            }
+        }
+    }
+
+    rest_api EnrollmentAPI : basePath('/api/v1/enrollments') {
+
+        // Enroll in a course
+        post(EnrollRequest request) -> enrollmentDb.Enrollment {
+            #UUID studentId = Auth.user().id;
+
+            // Verify student exists and is active
+            #JSON student = StudentService.StudentAPI.get(#"/internal/{studentId}");
+
+            // Verify course can accept enrollments
+            #Boolean canEnroll = CourseService.CourseAPI.get(#"/internal/{request.courseId}/can-enroll");
+
+            if (!canEnroll) {
+                throw ValidationException({
+                    code: "ENROLLMENT_NOT_AVAILABLE",
+                    message: "This course is not available for enrollment"
+                });
+            }
+
+            // Check for existing enrollment
+            #Enrollment? existing = enrollmentDb.Enrollment
+                .where(studentId: studentId)
+                .where(courseId: request.courseId)
+                .first();
+
+            if (existing != null && (existing.status == EnrollmentStatus.Active || existing.status == EnrollmentStatus.Pending)) {
+                throw ValidationException({
+                    code: "ALREADY_ENROLLED",
+                    message: "You are already enrolled in this course"
+                });
+            }
+
+            #Enrollment enrollment = enrollmentDb.Enrollment.create({
+                studentId: studentId,
+                courseId: request.courseId,
+                status: EnrollmentStatus.Active,
+                progress: 0
+            });
+            enrollment.save();
+
+            return enrollment;
+        }
+
+        // Get current user's enrollments
+        get(EnrollmentStatus? status, Int page = 1, Int perPage = 20) -> PaginatedEnrollments {
+            #UUID studentId = Auth.user().id;
+            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+
+            #JSON query = enrollmentDb.Enrollment.where(studentId: studentId);
+
+            if (status != null) {
+                query = query.where(status: status);
+            }
+
+            #Int total = query.count();
+            #Array<Enrollment> enrollments = query
+                .orderBy(enrolledAt: desc)
+                .offset((page - 1) * cappedPerPage)
+                .limit(cappedPerPage)
+                .all();
+
+            #Int totalPages = Math.ceil(total / cappedPerPage);
+
+            return {
+                data: enrollments,
+                pagination: {
+                    currentPage: page,
+                    perPage: cappedPerPage,
+                    totalItems: total,
+                    totalPages: totalPages,
+                    hasNextPage: page < totalPages,
+                    hasPrevPage: page > 1
+                }
+            };
+        }
+
+        // Get a single enrollment
+        @path('/:id')
+        get(UUID id) -> enrollmentDb.Enrollment {
+            #Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
+            #UUID userId = Auth.user().id;
+
+            if (enrollment.studentId != userId && !Auth.hasRole("admin")) {
+                throw AuthorizationException("Access denied");
+            }
+
+            return enrollment;
+        }
+
+        // Drop an enrollment
+        @path('/:id/drop')
+        put(UUID id, DropRequest request) -> enrollmentDb.Enrollment {
+            #UUID userId = Auth.user().id;
+            #Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
+
+            if (enrollment.studentId != userId && !Auth.hasRole("admin")) {
+                throw AuthorizationException("You can only drop your own enrollments");
+            }
+
+            if (enrollment.status != EnrollmentStatus.Active && enrollment.status != EnrollmentStatus.Pending) {
+                throw ValidationException({
+                    code: "CANNOT_DROP",
+                    message: #"Cannot drop enrollment with status: {enrollment.status}"
+                });
+            }
+
+            enrollment.status = EnrollmentStatus.Dropped;
+            enrollment.dropReason = request.reason ?? "Dropped by student";
+            enrollment.save();
+
+            emit StudentDropped(id, enrollment.studentId, enrollment.courseId, enrollment.dropReason);
+
+            return enrollment;
+        }
+
+        // Update progress
+        @path('/:id/progress')
+        put(UUID id, UpdateProgressRequest request) -> enrollmentDb.Enrollment {
+            #UUID userId = Auth.user().id;
+            #Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
+
+            if (enrollment.studentId != userId && !Auth.hasRole("admin")) {
+                throw AuthorizationException("Access denied");
+            }
+
+            if (!enrollment.isActive) {
+                throw ValidationException({
+                    code: "ENROLLMENT_NOT_ACTIVE",
+                    message: "Cannot update progress on an inactive enrollment"
+                });
+            }
+
+            enrollment.progress = request.progress;
+            enrollment.lastAccessedAt = now();
+            enrollment.save();
+
+            return enrollment;
+        }
+
+        // Submit a grade for a module
+        @path('/:id/grades')
+        post(UUID id, SubmitGradeRequest request) -> enrollmentDb.GradeRecord {
+            #Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
+
+            if (!enrollment.canSubmitGrades) {
+                throw ValidationException({
+                    code: "CANNOT_SUBMIT_GRADE",
+                    message: "Grades can only be submitted for active enrollments"
+                });
+            }
+
+            // Check if grade already exists for this module
+            #GradeRecord? existing = enrollmentDb.GradeRecord
+                .where(enrollmentId: id)
+                .where(moduleId: request.moduleId)
+                .first();
+
+            if (existing != null) {
+                throw ValidationException({
+                    code: "GRADE_EXISTS",
+                    message: "A grade already exists for this module"
+                });
+            }
+
+            #GradeRecord grade = enrollmentDb.GradeRecord.create({
+                enrollmentId: id,
+                moduleId: request.moduleId,
+                score: request.score,
+                feedback: request.feedback,
+                status: GradeStatus.Graded,
+                submittedAt: now(),
+                gradedAt: now(),
+                gradedBy: Auth.user().id
+            });
+            grade.save();
+
+            emit GradeSubmitted(id, request.moduleId, request.score);
+
+            return grade;
+        }
+
+        // Get grades for an enrollment
+        @path('/:id/grades')
+        get(UUID id) -> Array<enrollmentDb.GradeRecord> {
+            #Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
+            #UUID userId = Auth.user().id;
+
+            if (enrollment.studentId != userId && !Auth.hasRole("admin")) {
+                throw AuthorizationException("Access denied");
+            }
+
+            return enrollmentDb.GradeRecord
+                .where(enrollmentId: id)
+                .orderBy(createdAt: asc)
+                .all();
+        }
+
+        // Get student transcript
+        @path('/transcript/:studentId')
+        get(UUID studentId) -> Array<enrollmentDb.Enrollment> {
+            #UUID userId = Auth.user().id;
+
+            if (studentId != userId && !Auth.hasRole("admin")) {
+                throw AuthorizationException("Access denied");
+            }
+
+            return enrollmentDb.Enrollment
+                .where(studentId: studentId)
+                .orderBy(enrolledAt: desc)
+                .all();
+        }
+
+        // Get enrollments for a specific course (admin)
+        @path('/course/:courseId')
+        get(UUID courseId, EnrollmentStatus? status, Int page = 1, Int perPage = 20) : access(admin) -> PaginatedEnrollments {
+            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+
+            #JSON query = enrollmentDb.Enrollment.where(courseId: courseId);
+
+            if (status != null) {
+                query = query.where(status: status);
+            }
+
+            #Int total = query.count();
+            #Array<Enrollment> enrollments = query
+                .orderBy(enrolledAt: desc)
+                .offset((page - 1) * cappedPerPage)
+                .limit(cappedPerPage)
+                .all();
+
+            #Int totalPages = Math.ceil(total / cappedPerPage);
+
+            return {
+                data: enrollments,
+                pagination: {
+                    currentPage: page,
+                    perPage: cappedPerPage,
+                    totalItems: total,
+                    totalPages: totalPages,
+                    hasNextPage: page < totalPages,
+                    hasPrevPage: page > 1
+                }
+            };
+        }
+
+        // Get enrollment activity log
+        @path('/:id/activity')
+        get(UUID id) -> Array<enrollmentDb.EnrollmentActivity> {
+            #Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
+            #UUID userId = Auth.user().id;
+
+            if (enrollment.studentId != userId && !Auth.hasRole("admin")) {
+                throw AuthorizationException("Access denied");
+            }
+
+            return enrollmentDb.EnrollmentActivity
+                .where(enrollmentId: id)
+                .orderBy(occurredAt: desc)
+                .all();
+        }
+
+        // Internal endpoint
+        @path('/internal/:id')
+        get(UUID id) : internal -> enrollmentDb.Enrollment {
+            return enrollmentDb.Enrollment.findOrFail(id);
+        }
+    }
+
+    test("validation rejects progress out of range") {
+        assert throws(
+            () => enrollmentDb.Enrollment.create({
+                studentId: uuid(),
+                courseId: uuid(),
+                status: EnrollmentStatus.Active,
+                progress: 101
+            }),
+            ValidationError(#"Progress must be between {MIN_SCORE} and {MAX_SCORE}")
+        );
+    }
+
+    test("validation rejects negative progress") {
+        assert throws(
+            () => enrollmentDb.Enrollment.create({
+                studentId: uuid(),
+                courseId: uuid(),
+                status: EnrollmentStatus.Active,
+                progress: -1
+            }),
+            ValidationError(#"Progress must be between {MIN_SCORE} and {MAX_SCORE}")
+        );
+    }
+
+    test("validation rejects score out of range") {
+        #enrollmentDb.Enrollment enrollment = enrollmentDb.Enrollment.create({
+            studentId: uuid(),
+            courseId: uuid(),
+            status: EnrollmentStatus.Active,
+            progress: 50
+        });
+        enrollment.save();
+        assert throws(
+            () => enrollmentDb.GradeRecord.create({
+                enrollmentId: enrollment.id,
+                moduleId: uuid(),
+                score: 150.0
+            }),
+            ValidationError(#"Score must be between {MIN_SCORE} and {MAX_SCORE}")
+        );
+    }
+
+    test("computed isActive for Active enrollment") {
+        #enrollmentDb.Enrollment enrollment = enrollmentDb.Enrollment.create({
+            studentId: uuid(),
+            courseId: uuid(),
+            status: EnrollmentStatus.Active,
+            progress: 25
+        });
+        enrollment.save();
+        assert enrollment.isActive == true;
+        assert enrollment.canSubmitGrades == true;
+    }
+
+    test("computed isCompleted for Completed enrollment") {
+        #enrollmentDb.Enrollment enrollment = enrollmentDb.Enrollment.create({
+            studentId: uuid(),
+            courseId: uuid(),
+            status: EnrollmentStatus.Completed,
+            progress: 100,
+            completedAt: now()
+        });
+        enrollment.save();
+        assert enrollment.isCompleted == true;
+        assert enrollment.remainingProgress == 0;
+    }
+
+    test("computed hasPassed for passing score") {
+        #enrollmentDb.Enrollment enrollment = enrollmentDb.Enrollment.create({
+            studentId: uuid(),
+            courseId: uuid(),
+            status: EnrollmentStatus.Completed,
+            progress: 100,
+            averageScore: 85.00
+        });
+        enrollment.save();
+        assert enrollment.hasPassed == true;
+    }
+
+    test("computed hasPassed is false for failing score") {
+        #enrollmentDb.Enrollment enrollment = enrollmentDb.Enrollment.create({
+            studentId: uuid(),
+            courseId: uuid(),
+            status: EnrollmentStatus.Completed,
+            progress: 100,
+            averageScore: 45.00
+        });
+        enrollment.save();
+        assert enrollment.hasPassed == false;
+    }
+
+    test("afterCreate emits StudentEnrolled event") {
+        #UUID studentId = uuid();
+        #UUID courseId = uuid();
+        #enrollmentDb.Enrollment enrollment = enrollmentDb.Enrollment.create({
+            studentId: studentId,
+            courseId: courseId,
+            status: EnrollmentStatus.Active,
+            progress: 0
+        });
+        enrollment.save();
+        assert emitted(StudentEnrolled(enrollment.id, studentId, courseId));
+    }
+
+    test("computed remainingProgress calculation") {
+        #enrollmentDb.Enrollment enrollment = enrollmentDb.Enrollment.create({
+            studentId: uuid(),
+            courseId: uuid(),
+            status: EnrollmentStatus.Active,
+            progress: 65
+        });
+        enrollment.save();
+        assert enrollment.remainingProgress == 35;
+    }
+}

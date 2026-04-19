@@ -1,0 +1,421 @@
+
+from social.common import BaseEntity, ContentStatus, MAX_PAGE_SIZE, paginate;
+
+service social.UserService : version('1.0.0'), description('user management and social graph service') {
+
+    config('config/user-service/user-service-config.yaml');
+    registration('config/user-service/registration.yaml');
+    discovery { }
+    resilience('config/user-service/resilience.yaml');
+    integrations('config/user-service/integrations.yaml');
+
+    enum UserStatus {
+        Active : value('active'),
+        Suspended : value('suspended'),
+        Deactivated : value('deactivated')
+    }
+
+    struct PaginatedUsers {
+        Array<userDb.User> data;
+        JSON pagination;
+    }
+
+    struct FollowRequest {
+        UUID followeeId;
+    }
+
+    struct UserSearchResult {
+        Array<userDb.User> users;
+        Int total;
+    }
+
+    struct UpdateProfileRequest {
+        String(100)? displayName;
+        String(500)? bio;
+        Url? avatarUrl;
+    }
+
+    rdbms userDb('config/user-service/datasources.yaml') {
+
+        entity User extends BaseEntity : audit {
+            String(50) username : unique, trim;
+            Email email : unique;
+            String(100) displayName : trim;
+            String(500)? bio;
+            Url? avatarUrl;
+            UserStatus status = UserStatus.Active;
+            Int followerCount = 0;
+            Int followingCount = 0;
+            Int postCount = 0;
+            DateTime? lastActiveAt;
+
+            // Computed fields
+            Boolean isActive := status == UserStatus.Active;
+            String profileUrl := #"/users/{username}";
+
+            index(username);
+            index(email);
+            index(status);
+            fulltext(username, displayName);
+
+            validate {
+                if (username.trim().isEmpty())
+                    ValidationError("Username cannot be empty");
+                if (username.length() < 3)
+                    ValidationError("Username must be at least 3 characters");
+                if (username.length() > 50)
+                    ValidationError("Username cannot exceed 50 characters");
+                if (bio != null && bio.length() > 500)
+                    ValidationError("Bio cannot exceed 500 characters");
+            }
+
+            afterCreate {
+                emit UserRegistered(id, username, email);
+            }
+
+            afterUpdate {
+                if (isChanged(status)) {
+                    emit UserStatusChanged(id, oldValue(status), status);
+
+                    if (status == UserStatus.Suspended) {
+                        Log.warn("User suspended", { userId: id, username: username });
+                    } else if (status == UserStatus.Deactivated) {
+                        Log.info("User deactivated", { userId: id, username: username });
+                    }
+                }
+            }
+        }
+
+        entity Follow extends BaseEntity {
+            UUID followerId : index;
+            UUID followeeId : index;
+            DateTime followedAt = now();
+
+            index(followerId, followeeId) : unique;
+            index(followeeId, followedAt);
+
+            validate {
+                if (followerId == followeeId)
+                    ValidationError("A user cannot follow themselves");
+            }
+
+            afterCreate {
+                // Update follower/following counts
+                #User? follower = userDb.User.find(followerId);
+                #User? followee = userDb.User.find(followeeId);
+
+                if (follower != null) {
+                    follower.followingCount = follower.followingCount + 1;
+                    follower.save();
+                }
+
+                if (followee != null) {
+                    followee.followerCount = followee.followerCount + 1;
+                    followee.save();
+                }
+
+                emit UserFollowed(followerId, followeeId);
+            }
+        }
+    }
+
+    cache redis('config/user-service/cache.yaml') {
+        hash UserProfileCache : prefix('user:profile:'), ttl(1800) {
+            UUID userId : primaryKey;
+            String username;
+            String displayName;
+            String? avatarUrl;
+            UserStatus status;
+            Int followerCount;
+            Int followingCount;
+        }
+
+        counter UserPostCount : prefix('user:posts:');
+    }
+
+    pubsub mq('config/user-service/pubsub.yaml') {
+
+        topic UserEvents {
+            publish UserRegistered(UUID userId, String username, String email) {
+                ensure username.length > 0;
+                ensure email.length > 0;
+            }
+            publish UserStatusChanged(UUID userId, UserStatus oldStatus, UserStatus newStatus) {
+                ensure oldStatus != newStatus;
+            }
+            publish UserFollowed(UUID followerId, UUID followeeId) {
+                ensure followerId != followeeId;
+            }
+            publish UserUnfollowed(UUID followerId, UUID followeeId) {
+                ensure followerId != followeeId;
+            }
+            publish UserProfileUpdated(UUID userId, String displayName) {
+                ensure displayName.length > 0;
+            }
+        }
+
+        subscribe UserEvents {
+            on UserRegistered(UUID userId, String username, String email) {
+                Log.info("New user registered", { userId: userId, username: username });
+
+                redis.UserProfileCache.set(userId, {
+                    userId: userId,
+                    username: username,
+                    displayName: username,
+                    avatarUrl: null,
+                    status: UserStatus.Active,
+                    followerCount: 0,
+                    followingCount: 0
+                });
+            }
+
+            on UserStatusChanged(UUID userId, UserStatus oldStatus, UserStatus newStatus) {
+                Log.info("User status changed", { userId: userId, oldStatus: oldStatus, newStatus: newStatus });
+
+                // Invalidate cache on status change
+                redis.UserProfileCache.delete(userId);
+            }
+        }
+    }
+
+    rest_api UserAPI : basePath('/api/v1/users') {
+
+        resource userDb.User : only(list, get), public;
+
+        // Get current user profile
+        @path('/me')
+        get() -> userDb.User {
+            #UUID userId = Auth.user().id;
+            return userDb.User.findOrFail(userId);
+        }
+
+        // Update current user profile
+        @path('/me')
+        put(UpdateProfileRequest request) -> userDb.User {
+            #UUID userId = Auth.user().id;
+            #User user = userDb.User.findOrFail(userId);
+
+            if (request.displayName != null) {
+                user.displayName = request.displayName;
+            }
+            if (request.bio != null) {
+                user.bio = request.bio;
+            }
+            if (request.avatarUrl != null) {
+                user.avatarUrl = request.avatarUrl;
+            }
+
+            user.save();
+
+            // Update cache
+            redis.UserProfileCache.set(userId, {
+                userId: userId,
+                username: user.username,
+                displayName: user.displayName,
+                avatarUrl: user.avatarUrl,
+                status: user.status,
+                followerCount: user.followerCount,
+                followingCount: user.followingCount
+            });
+
+            emit UserProfileUpdated(userId, user.displayName);
+
+            return user;
+        }
+
+        // Search users by username or display name
+        @path('/search')
+        get(String query, Int page = 1, Int perPage = 20) : public -> PaginatedUsers {
+            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            #Array<User> users = userDb.User
+                .fulltext(query)
+                .where(status: UserStatus.Active)
+                .offset((page - 1) * cappedPerPage)
+                .limit(cappedPerPage)
+                .all();
+
+            #Int total = userDb.User
+                .fulltext(query)
+                .where(status: UserStatus.Active)
+                .count();
+
+            return {
+                data: users,
+                pagination: paginate(total, page, cappedPerPage)
+            };
+        }
+
+        // Follow a user
+        @path('/:id/follow')
+        post(UUID id) -> userDb.Follow {
+            #UUID followerId = Auth.user().id;
+
+            if (followerId == id) {
+                throw ValidationException({
+                    code: "CANNOT_FOLLOW_SELF",
+                    message: "You cannot follow yourself"
+                });
+            }
+
+            // Verify target user exists and is active
+            #User followee = userDb.User.findOrFail(id);
+            if (!followee.isActive) {
+                throw ValidationException({
+                    code: "USER_NOT_ACTIVE",
+                    message: "Cannot follow an inactive user"
+                });
+            }
+
+            // Check if already following
+            #Follow? existing = userDb.Follow
+                .where(followerId: followerId)
+                .where(followeeId: id)
+                .first();
+
+            if (existing != null) {
+                throw ValidationException({
+                    code: "ALREADY_FOLLOWING",
+                    message: "You are already following this user"
+                });
+            }
+
+            #Follow follow = userDb.Follow.create({
+                followerId: followerId,
+                followeeId: id
+            });
+            follow.save();
+
+            return follow;
+        }
+
+        // Unfollow a user
+        @path('/:id/unfollow')
+        delete(UUID id) -> Void {
+            #UUID followerId = Auth.user().id;
+
+            #Follow follow = userDb.Follow
+                .where(followerId: followerId)
+                .where(followeeId: id)
+                .firstOrFail();
+
+            transaction(userDb) {
+                // Decrement counts
+                #User? follower = userDb.User.find(followerId);
+                #User? followee = userDb.User.find(id);
+
+                if (follower != null && follower.followingCount > 0) {
+                    follower.followingCount = follower.followingCount - 1;
+                    follower.save();
+                }
+
+                if (followee != null && followee.followerCount > 0) {
+                    followee.followerCount = followee.followerCount - 1;
+                    followee.save();
+                }
+
+                follow.delete();
+            }
+
+            emit UserUnfollowed(followerId, id);
+        }
+
+        // Get followers of a user
+        @path('/:id/followers')
+        get(UUID id, Int page = 1, Int perPage = 20) : public -> PaginatedUsers {
+            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            #Array<Follow> follows = userDb.Follow
+                .where(followeeId: id)
+                .orderBy(followedAt: desc)
+                .offset((page - 1) * cappedPerPage)
+                .limit(cappedPerPage)
+                .all();
+
+            #Array<User> users = follows.map(f => userDb.User.findOrFail(f.followerId));
+            #Int total = userDb.Follow.where(followeeId: id).count();
+
+            return {
+                data: users,
+                pagination: paginate(total, page, cappedPerPage)
+            };
+        }
+
+        // Get users that a user is following
+        @path('/:id/following')
+        get(UUID id, Int page = 1, Int perPage = 20) : public -> PaginatedUsers {
+            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            #Array<Follow> follows = userDb.Follow
+                .where(followerId: id)
+                .orderBy(followedAt: desc)
+                .offset((page - 1) * cappedPerPage)
+                .limit(cappedPerPage)
+                .all();
+
+            #Array<User> users = follows.map(f => userDb.User.findOrFail(f.followeeId));
+            #Int total = userDb.Follow.where(followerId: id).count();
+
+            return {
+                data: users,
+                pagination: paginate(total, page, cappedPerPage)
+            };
+        }
+
+        // Internal endpoint for other services
+        @path('/internal/:id')
+        get(UUID id) : internal -> userDb.User {
+            return userDb.User.findOrFail(id);
+        }
+
+        // Internal endpoint to get multiple users
+        @path('/internal/bulk')
+        post(Array<UUID> ids) : internal -> Array<userDb.User> {
+            return userDb.User.whereIn(id: ids).all();
+        }
+    }
+
+    test("validation rejects empty username") {
+        assert throws(
+            () => userDb.User.create({
+                username: "",
+                email: "test@example.com",
+                displayName: "Test User"
+            }),
+            ValidationError("Username cannot be empty")
+        );
+    }
+
+    test("validation rejects self-follow") {
+        #userDb.User user = userDb.User.create({
+            username: "testuser",
+            email: "test@example.com",
+            displayName: "Test User"
+        });
+        user.save();
+        assert throws(
+            () => userDb.Follow.create({
+                followerId: user.id,
+                followeeId: user.id
+            }),
+            ValidationError("A user cannot follow themselves")
+        );
+    }
+
+    test("computed isActive is true for Active status") {
+        #userDb.User user = userDb.User.create({
+            username: "activeuser",
+            email: "active@example.com",
+            displayName: "Active User"
+        });
+        user.save();
+        assert user.isActive == true;
+    }
+
+    test("afterCreate emits UserRegistered event") {
+        #userDb.User user = userDb.User.create({
+            username: "eventuser",
+            email: "event@example.com",
+            displayName: "Event User"
+        });
+        user.save();
+        assert emitted(UserRegistered(user.id, user.username, "event@example.com"));
+    }
+}

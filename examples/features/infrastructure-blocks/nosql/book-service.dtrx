@@ -1,0 +1,54 @@
+
+// Feature: NoSQL block - document-oriented storage for flexible schema data
+// Demonstrates collections with typed fields, JSON metadata, and indexes
+service library.BookService : version('1.0.0'), description('Book management service with NoSQL analytics') {
+
+    // Service infrastructure configuration
+    config('config/book-service/book-service-config.yaml');   // Service-specific settings
+    registration('config/book-service/registration.yaml');     // Service registry entry
+    discovery { }                                              // Service discovery (auto-configured)
+    resilience('config/book-service/resilience.yaml');          // Circuit breakers, retries, timeouts
+
+    // Relational database block for structured entity data
+    rdbms bookDb('config/book-service/datasources.yaml') {
+
+        // Abstract base entity with standard audit fields
+        abstract entity BaseEntity {
+            @UUID id : primaryKey = uuid();
+            @DateTime createdAt = now();
+            @DateTime updatedAt = now();
+        }
+
+        entity Book extends BaseEntity {
+            String(200) title : trim;
+            String(100) author : trim;
+        }
+    }
+
+    // NoSQL block defines a document database for schema-flexible data
+    // Unlike rdbms entities, collections store documents without rigid table schemas
+    nosql analytics('config/book-service/datasources.yaml') {
+
+        // 'collection' defines a document collection (analogous to a table in NoSQL)
+        // Fields declare the expected shape but allow flexible JSON metadata
+        collection ReadingHistory {
+            UUID userId;
+            UUID bookId;
+            @DateTime startedAt;
+            // '?' suffix makes a field nullable (optional)
+            @DateTime? completedAt;
+            Int pagesRead;
+            // 'JSON' type stores arbitrary structured data without a fixed schema
+            JSON metadata;
+        }
+
+        collection BookReview {
+            UUID bookId;
+            UUID userId;
+            Int rating;
+            // 'Text' is an unbounded string type for long-form content
+            Text content;
+            @DateTime createdAt;
+        }
+    }
+}

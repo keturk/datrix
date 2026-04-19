@@ -1,0 +1,38 @@
+test:
+  email:
+    provider: sendgrid
+    fromEmail: appointments@healthcare.example.com
+    fromName: Healthcare Scheduling
+    templates:
+      appointmentConfirmation: d-appt-confirm
+      appointmentReminder: d-appt-remind
+      appointmentCancellation: d-appt-cancel
+
+  sms:
+    provider: twilio
+
+development:
+  email:
+    provider: sendgrid
+    fromEmail: appointments@healthcare.example.com
+    fromName: Healthcare Scheduling
+    templates:
+      appointmentConfirmation: d-appt-confirm
+      appointmentReminder: d-appt-remind
+      appointmentCancellation: d-appt-cancel
+
+  sms:
+    provider: twilio
+
+production:
+  email:
+    provider: sendgrid
+    fromEmail: ${FROM_EMAIL}
+    fromName: Healthcare Scheduling
+    templates:
+      appointmentConfirmation: d-appt-confirm
+      appointmentReminder: d-appt-remind
+      appointmentCancellation: d-appt-cancel
+
+  sms:
+    provider: twilio

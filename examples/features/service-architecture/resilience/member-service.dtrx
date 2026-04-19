@@ -1,0 +1,24 @@
+
+// MemberService with its own resilience configuration
+from library.common import BaseEntity;
+
+service library.MemberService : version('1.0.0'), description('Member management service with resilience patterns') {
+
+    // Service infrastructure configuration
+    config('config/member-service/member-service-config.yaml');
+    registration('config/member-service/registration.yaml');
+    discovery { }
+    resilience('config/member-service/resilience.yaml');
+
+    rdbms memberDb('config/member-service/datasources.yaml') {
+
+        entity Member extends BaseEntity {
+            String(100) name : trim;
+            Email email : unique;
+        }
+    }
+
+    rest_api MemberAPI : basePath("/api/v1/members") {
+        resource memberDb.Member;
+    }
+}

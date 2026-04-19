@@ -1,0 +1,39 @@
+
+// Shared module - defines reusable types for HR platform services
+module hr.common {
+
+    // Abstract entities provide reusable field definitions; they don't generate tables
+    abstract entity BaseEntity {
+        @UUID id : primaryKey = uuid();
+        @DateTime createdAt = now();
+        @DateTime updatedAt = now();
+    }
+
+    // Extends BaseEntity with audit tracking fields
+    abstract entity AuditedEntity extends BaseEntity {
+        UUID? performedBy;
+        String(500)? auditNote;
+    }
+
+    // Department classification used across all HR services
+    enum Department {
+        Engineering : value('engineering'),
+        Marketing : value('marketing'),
+        Sales : value('sales'),
+        HR : value('hr'),
+        Finance : value('finance'),
+        Operations : value('operations'),
+        Legal : value('legal'),
+        CustomerSupport : value('customer_support')
+    }
+
+    // Generate a unique employee number
+    fn generateEmployeeNumber() -> String {
+        return #"EMP-{now().format('YYYY')}-{Random.string(6, '0123456789')}";
+    }
+
+    // Generate a payroll run reference
+    fn generatePayrollRef() -> String {
+        return #"PAY-{now().format('YYYYMMDDHHmmss')}-{Random.string(4).toUpperCase()}";
+    }
+}

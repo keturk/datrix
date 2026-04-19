@@ -1,0 +1,137 @@
+
+// Shared module - defines reusable types, traits, structs, and functions
+module ecommerce.common {
+
+    // Abstract entities provide reusable field definitions; they don't generate tables
+    abstract entity BaseEntity {
+        @UUID id : primaryKey = uuid();
+        @DateTime createdAt = now();
+        @DateTime updatedAt = now();
+    }
+
+    // Extends BaseEntity with audit tracking fields
+    abstract entity AuditedEntity extends BaseEntity {
+        UUID? createdBy;
+        UUID? updatedBy;
+    }
+
+    // SoftDeletable and Sluggable are builtin traits -- no need to define them.
+    // Use 'with SoftDeletable' or 'with Sluggable' on entities directly.
+
+    // Trait for inventory management with stock reservation logic
+    trait Inventoried {
+        // 'min(0)' sets a minimum value constraint
+        Int inventory : min(0) = 0;
+
+        fn reserveInventory(Int quantity) -> Boolean {
+            if (inventory >= quantity) {
+                inventory = inventory - quantity;
+                return true;
+            }
+            return false;
+        }
+
+        fn releaseInventory(Int quantity) {
+            inventory = inventory + quantity;
+        }
+
+        fn hasStock() -> Boolean {
+            return inventory > 0;
+        }
+    }
+
+    // Trait for price comparison and discount calculation
+    trait Discountable {
+        // Money is a semantic type for currency-safe arithmetic
+        Money price : positive;
+        Money? compareAtPrice;
+
+        fn hasDiscount() -> Boolean {
+            return compareAtPrice != null && compareAtPrice > price;
+        }
+
+        fn getDiscountPercent() -> Percentage {
+            if (!hasDiscount()) return 0;
+            return ((compareAtPrice - price) / compareAtPrice) * 100;
+        }
+    }
+
+    // Structs define reusable value objects (not database entities)
+    struct Address {
+        String(200) street;
+        String(100) city;
+        String(100) state;
+        String(10) zipCode;
+        // CountryCode is a semantic type for ISO country codes
+        CountryCode country;
+        Phone? phone;
+
+        // Structs can have methods
+        fn format() -> String {
+            // #"..." is string interpolation syntax
+            return #"{street}, {city}, {state} {zipCode}, {country}";
+        }
+    }
+
+    // Struct with computed fields
+    struct Pagination {
+        Int page = 1;
+        Int perPage = 20;
+        Int offset := (page - 1) * perPage;
+    }
+
+    struct OrderLineInput {
+        UUID productId;
+        Int quantity;
+    }
+
+    enum Currency {
+        USD,
+        EUR,
+        GBP
+    }
+
+    // Constants define named values reusable across the module
+    const MAX_PAGE_SIZE = 100;
+    const DEFAULT_PAGE_SIZE = 20;
+    const SESSION_TIMEOUT_SECONDS = 2592000;
+    const PASSWORD_MIN_LENGTH = 8;
+
+    // Shared utility functions importable by any service
+    fn generateToken(Int length = 32) -> String {
+        return Random.string(length);
+    }
+
+    fn hashPassword(String password) -> String {
+        return Auth.hashPassword(password);
+    }
+
+    fn verifyPassword(String password, String hash) -> Boolean {
+        return Crypto.bcryptVerify(password, hash);
+    }
+
+    fn generateOrderNumber() -> String {
+        return #"ORD-{now().format('YYYYMMDDHHmmss')}-{Random.string(4, '0123456789')}";
+    }
+
+    fn generateTransactionId() -> String {
+        return #"TXN-{now().format('YYYYMMDDHHmmss')}-{Random.string(8)}";
+    }
+
+    fn generateTrackingNumber() -> String {
+        return #"TRACK-{now().format('YYYYMMDD')}-{Random.string(10).toUpperCase()}";
+    }
+
+    // Functions can accept structs as parameters
+    fn paginate(Int total, Pagination p) -> JSON {
+        #Int totalPages = Math.ceil(total / p.perPage);
+        return {
+            page: p.page,
+            perPage: p.perPage,
+            total: total,
+            totalPages: totalPages,
+            hasNext: p.page < totalPages,
+            hasPrev: p.page > 1
+        };
+    }
+}

@@ -1,0 +1,110 @@
+test:
+  platform: compose
+  port: 8002
+  replicas: 5
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  healthCheck:
+    type: http
+    path: /health
+    initialDelay: 15s
+    period: 5s
+    failureThreshold: 3
+    successThreshold: 1
+  readinessCheck:
+    type: http
+    path: /ready
+    initialDelay: 5s
+    period: 5s
+development:
+  platform: compose
+  port: 8002
+  replicas: 5
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  healthCheck:
+    type: http
+    path: /health
+    initialDelay: 15s
+    period: 5s
+    failureThreshold: 3
+    successThreshold: 1
+  readinessCheck:
+    type: http
+    path: /ready
+    initialDelay: 5s
+    period: 5s
+production:
+  platform: ecs-fargate
+  port: 8002
+  strategy:
+    canary:
+      timeout: 30m
+      steps:
+      - weight: 5
+        pause: 5m
+      - weight: 25
+        pause: 10m
+      - weight: 50
+        pause: 15m
+      - weight: 100
+      analysis:
+        metrics:
+        - name: success-rate
+          provider: prometheus
+          query: sum(rate(http_requests_total{status=~"2.."}[5m])) / sum(rate(http_requests_total[5m]))
+          threshold: '> 0.99'
+        - name: latency-p99
+          provider: prometheus
+          query: histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))
+          threshold: < 0.5
+        - name: error-rate
+          provider: prometheus
+          query: sum(rate(http_requests_total{status=~"5.."}[5m])) / sum(rate(http_requests_total[5m]))
+          threshold: < 0.01
+        interval: 1m
+        failureThreshold: 3
+      autoPromote: true
+  replicas: 5
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  healthCheck:
+    type: http
+    path: /health
+    initialDelay: 15s
+    period: 5s
+    failureThreshold: 3
+    successThreshold: 1
+  readinessCheck:
+    type: http
+    path: /ready
+    initialDelay: 5s
+    period: 5s
+  rollback:
+    automatic: true
+    revisionHistory: 5
+  scaling:
+    replicas:
+      min: 3
+      max: 20
+    triggers:
+    - metric: cpu
+      target: 70%
+    - metric: custom
+      name: orders_per_minute
+      target: 100

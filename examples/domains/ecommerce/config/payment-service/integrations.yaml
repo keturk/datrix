@@ -1,0 +1,14 @@
+test:
+  payment:
+    provider: stripe
+    currency: USD
+
+development:
+  payment:
+    provider: stripe
+    currency: USD
+
+production:
+  payment:
+    provider: stripe
+    currency: USD

@@ -1,0 +1,54 @@
+
+// Fulltext search feature example - self-contained service demonstrating:
+// - fulltext(field1, field2, ...) index declaration on entities
+// - .fulltext(query) query method for natural-language search
+// - Combining fulltext search with standard query chain (.all())
+
+// Define a service in the 'library' namespace with version and description
+service library.BookService : version('1.0.0'), description('Book management service') {
+
+    // Service infrastructure configuration
+    config('config/book-service/book-service-config.yaml');   // Service-specific settings
+    registration('config/book-service/registration.yaml');     // Service registry entry
+    discovery { }                                              // Service discovery (auto-configured)
+    resilience('config/book-service/resilience.yaml');          // Circuit breakers, retries, timeouts
+
+    // Relational database block - groups entities (tables) under a named datasource
+    rdbms bookDb('config/book-service/datasources.yaml') {
+
+        // Abstract entities provide reusable field definitions; they don't generate tables
+        abstract entity BaseEntity {
+            @UUID id : primaryKey = uuid();
+            @DateTime createdAt = now();
+            @DateTime updatedAt = now();
+        }
+
+        // Book entity with fulltext-indexed fields for search
+        entity Book extends BaseEntity {
+            // 'trim' auto-trims whitespace on input
+            String(200) title : trim;
+            String(100) author : trim;
+            // Text is an unbounded string type for long-form content
+            Text? description;
+            // Array<String> stores a list of searchable keywords
+            Array<String> keywords = [];
+
+            // 'fulltext(...)' creates a full-text search index across the listed fields
+            // Enables natural-language search queries against title, author, and description
+            fulltext(title, author, description);
+        }
+    }
+
+    // REST API block with a search endpoint using fulltext queries
+    rest_api BookServiceAPI : basePath("/api/v1") {
+        // Auto-generate standard CRUD endpoints for Book
+        resource bookDb.Book;
+
+        // Search endpoint using fulltext query
+        // '.fulltext(query)' performs natural-language search across fulltext-indexed fields
+        @path('/books/search')
+        get(String query) : public -> Array<bookDb.Book> {
+            return bookDb.Book.fulltext(query).all();
+        }
+    }
+}

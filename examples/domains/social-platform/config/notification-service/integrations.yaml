@@ -1,0 +1,29 @@
+test:
+  email:
+    provider: sendgrid
+    fromEmail: noreply@ecommerce.example.com
+    fromName: E-commerce Platform
+    templates:
+      welcome: d-welcome-123
+      emailVerification: d-verify-456
+      passwordReset: d-reset-789
+
+development:
+  email:
+    provider: sendgrid
+    fromEmail: noreply@ecommerce.example.com
+    fromName: E-commerce Platform
+    templates:
+      welcome: d-welcome-123
+      emailVerification: d-verify-456
+      passwordReset: d-reset-789
+
+production:
+  email:
+    provider: sendgrid
+    fromEmail: ${SENDGRID_FROM_EMAIL}
+    fromName: E-commerce Platform
+    templates:
+      welcome: d-welcome-123
+      emailVerification: d-verify-456
+      passwordReset: d-reset-789

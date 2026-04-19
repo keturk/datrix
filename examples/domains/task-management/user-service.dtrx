@@ -1,0 +1,220 @@
+
+from taskapp.common import BaseEntity, MAX_PAGE_SIZE;
+
+service taskapp.UserService : version('1.0.0'), description('user and team member management service') {
+
+    config('config/user-service/user-service-config.yaml');
+    registration('config/user-service/registration.yaml');
+    discovery { }
+    resilience('config/user-service/resilience.yaml');
+
+    enum UserRole {
+        Admin : value('admin'),
+        Manager : value('manager'),
+        Member : value('member'),
+        Viewer : value('viewer')
+    }
+
+    enum UserStatus {
+        Active : value('active'),
+        Inactive : value('inactive'),
+        Invited : value('invited')
+    }
+
+    struct PaginatedUsers {
+        Array<userDb.User> data;
+        JSON pagination;
+    }
+
+    struct CreateUserRequest {
+        String username;
+        Email email;
+        String displayName;
+        UserRole role;
+    }
+
+    struct UpdateUserRequest {
+        String(100)? displayName;
+        UserRole? role;
+        Url? avatarUrl;
+    }
+
+    rdbms userDb('config/user-service/datasources.yaml') {
+
+        entity User extends BaseEntity {
+            String(50) username : unique, trim;
+            Email email : unique;
+            String(100) displayName : trim;
+            UserRole role = UserRole.Member;
+            UserStatus status = UserStatus.Active;
+            Url? avatarUrl;
+            DateTime? lastLoginAt;
+
+            // Computed fields
+            Boolean isActive := status == UserStatus.Active;
+            Boolean isAdmin := role == UserRole.Admin;
+            Boolean canManageProjects := role == UserRole.Admin || role == UserRole.Manager;
+
+            index(username);
+            index(email);
+            index(status, role);
+            fulltext(username, displayName);
+
+            validate {
+                if (username.trim().isEmpty())
+                    ValidationError("Username cannot be empty");
+                if (username.length() < 3)
+                    ValidationError("Username must be at least 3 characters");
+                if (displayName.trim().isEmpty())
+                    ValidationError("Display name cannot be empty");
+            }
+
+            afterCreate {
+                Log.info("User created", { userId: id, username: username, role: role });
+            }
+        }
+    }
+
+    rest_api UserAPI : basePath('/api/v1/users') {
+
+        resource userDb.User : only(list, get), public;
+
+        // Create a new user
+        post(CreateUserRequest request) : access(admin) -> userDb.User {
+            #User user = userDb.User.create({
+                username: request.username,
+                email: request.email,
+                displayName: request.displayName,
+                role: request.role,
+                status: UserStatus.Active
+            });
+            user.save();
+            return user;
+        }
+
+        // Update a user
+        @path('/:id')
+        put(UUID id, UpdateUserRequest request) -> userDb.User {
+            #User user = userDb.User.findOrFail(id);
+            #UUID currentUserId = Auth.user().id;
+
+            // Users can update their own profile, admins can update anyone
+            if (currentUserId != id && !Auth.hasRole("admin")) {
+                throw AuthorizationException("You can only update your own profile");
+            }
+
+            if (request.displayName != null) {
+                user.displayName = request.displayName;
+            }
+            if (request.avatarUrl != null) {
+                user.avatarUrl = request.avatarUrl;
+            }
+            // Only admins can change roles
+            if (request.role != null) {
+                if (!Auth.hasRole("admin")) {
+                    throw AuthorizationException("Only admins can change user roles");
+                }
+                user.role = request.role;
+            }
+
+            user.save();
+            return user;
+        }
+
+        // Search users
+        @path('/search')
+        get(String query, Int page = 1, Int perPage = 20) : public -> PaginatedUsers {
+            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            #Array<User> users = userDb.User
+                .fulltext(query)
+                .where(status: UserStatus.Active)
+                .offset((page - 1) * cappedPerPage)
+                .limit(cappedPerPage)
+                .all();
+
+            #Int total = userDb.User
+                .fulltext(query)
+                .where(status: UserStatus.Active)
+                .count();
+
+            #Int totalPages = Math.ceil(total / cappedPerPage);
+
+            return {
+                data: users,
+                pagination: {
+                    currentPage: page,
+                    perPage: cappedPerPage,
+                    totalItems: total,
+                    totalPages: totalPages,
+                    hasNextPage: page < totalPages,
+                    hasPrevPage: page > 1
+                }
+            };
+        }
+
+        // Get current user profile
+        @path('/me')
+        get() -> userDb.User {
+            #UUID userId = Auth.user().id;
+            return userDb.User.findOrFail(userId);
+        }
+
+        // Internal endpoint for other services
+        @path('/internal/:id')
+        get(UUID id) : internal -> userDb.User {
+            return userDb.User.findOrFail(id);
+        }
+
+        // Internal endpoint to get multiple users
+        @path('/internal/bulk')
+        post(Array<UUID> ids) : internal -> Array<userDb.User> {
+            return userDb.User.whereIn(id: ids).all();
+        }
+    }
+
+    test("validation rejects empty username") {
+        assert throws(
+            () => userDb.User.create({
+                username: "",
+                email: "test@example.com",
+                displayName: "Test User"
+            }),
+            ValidationError("Username cannot be empty")
+        );
+    }
+
+    test("validation rejects short username") {
+        assert throws(
+            () => userDb.User.create({
+                username: "ab",
+                email: "test@example.com",
+                displayName: "Test User"
+            }),
+            ValidationError("Username must be at least 3 characters")
+        );
+    }
+
+    test("computed isAdmin is true for Admin role") {
+        #userDb.User user = userDb.User.create({
+            username: "adminuser",
+            email: "admin@example.com",
+            displayName: "Admin User",
+            role: UserRole.Admin
+        });
+        user.save();
+        assert user.isAdmin == true;
+        assert user.canManageProjects == true;
+    }
+
+    test("computed canManageProjects for Manager role") {
+        #userDb.User user = userDb.User.create({
+            username: "manageruser",
+            email: "manager@example.com",
+            displayName: "Manager User",
+            role: UserRole.Manager
+        });
+        user.save();
+        assert user.canManageProjects == true;
+        assert user.isAdmin == false;
+    }
+}

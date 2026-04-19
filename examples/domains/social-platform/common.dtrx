@@ -1,0 +1,43 @@
+
+// Shared module - defines reusable types across all social platform services
+module social.common {
+
+    // Abstract entities provide reusable field definitions; they don't generate tables
+    abstract entity BaseEntity {
+        @UUID id : primaryKey = uuid();
+        @DateTime createdAt = now();
+        @DateTime updatedAt = now();
+    }
+
+    // Extends BaseEntity with audit tracking fields
+    abstract entity AuditedEntity extends BaseEntity {
+        UUID? createdBy;
+        UUID? updatedBy;
+    }
+
+    // Content lifecycle status shared across services
+    enum ContentStatus {
+        Draft : value('draft'),
+        Published : value('published'),
+        Archived : value('archived')
+    }
+
+    // Constants shared across services
+    const MAX_PAGE_SIZE = 100;
+    const DEFAULT_PAGE_SIZE = 20;
+    const MAX_BIO_LENGTH = 500;
+    const MAX_POST_LENGTH = 5000;
+
+    // Pagination helper
+    fn paginate(Int total, Int page, Int perPage) -> JSON {
+        #Int totalPages = Math.ceil(total / perPage);
+        return {
+            currentPage: page,
+            perPage: perPage,
+            totalItems: total,
+            totalPages: totalPages,
+            hasNextPage: page < totalPages,
+            hasPrevPage: page > 1
+        };
+    }
+}

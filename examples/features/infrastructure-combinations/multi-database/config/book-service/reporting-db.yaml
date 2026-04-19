@@ -1,0 +1,46 @@
+test:
+  rdbms:
+    engine: mysql
+    host: localhost
+    port: 3306
+    database: library_reporting
+    poolSize: 10
+    docker_image: mysql:8.4
+    volume_path: /var/lib/mysql
+    asyncDriver: mysql+aiomysql
+    syncDriver: mysql+pymysql
+    healthCheckSql: SELECT 1
+    healthCheckCmd: '["CMD", "mysqladmin", "ping", "-h", "localhost"]'
+    defaultUser: root
+    platform: container
+development:
+  rdbms:
+    engine: mysql
+    host: localhost
+    port: 3306
+    database: library_reporting
+    poolSize: 10
+    docker_image: mysql:8.4
+    volume_path: /var/lib/mysql
+    asyncDriver: mysql+aiomysql
+    syncDriver: mysql+pymysql
+    healthCheckSql: SELECT 1
+    healthCheckCmd: '["CMD", "mysqladmin", "ping", "-h", "localhost"]'
+    defaultUser: root
+    platform: container
+production:
+  rdbms:
+    engine: mysql
+    host: ${REPORTING_DB_HOST}
+    port: 3306
+    database: library_reporting
+    poolSize: 20
+    ssl: true
+    docker_image: mysql:8.4
+    volume_path: /var/lib/mysql
+    asyncDriver: mysql+aiomysql
+    syncDriver: mysql+pymysql
+    healthCheckSql: SELECT 1
+    healthCheckCmd: '["CMD", "mysqladmin", "ping", "-h", "localhost"]'
+    defaultUser: root
+    platform: rds

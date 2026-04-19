@@ -1,0 +1,20 @@
+test:
+  jobs:
+    SyncCarrierTracking:
+      schedule: '*/30 * * * *'
+      retry: { maxAttempts: 1, backoff: fixed }
+      timeout: 30s
+
+development:
+  jobs:
+    SyncCarrierTracking:
+      schedule: '*/30 * * * *'
+      retry: { maxAttempts: 1, backoff: fixed }
+      timeout: 30s
+
+production:
+  jobs:
+    SyncCarrierTracking:
+      schedule: '*/15 * * * *'
+      retry: { maxAttempts: 3, backoff: exponential }
+      timeout: 5m

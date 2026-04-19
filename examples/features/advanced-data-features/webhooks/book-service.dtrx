@@ -1,0 +1,69 @@
+
+// Webhooks feature example - self-contained service demonstrating:
+// - @idempotent(header: "...") decorator for idempotency key support
+// - WebhookEvent entity with unique idempotency key field
+// - request.header() for reading HTTP headers in endpoint logic
+
+// Define a service in the 'library' namespace with version and description
+service library.BookService : version('1.0.0'), description('Book management service') {
+
+    // Service infrastructure configuration
+    config('config/book-service/book-service-config.yaml');   // Service-specific settings
+    registration('config/book-service/registration.yaml');     // Service registry entry
+    discovery { }                                              // Service discovery (auto-configured)
+    resilience('config/book-service/resilience.yaml');          // Circuit breakers, retries, timeouts
+
+    // Enum for tracking book availability
+    enum BookStatus {
+        Available,
+        CheckedOut
+    }
+
+    // Relational database block - groups entities (tables) under a named datasource
+    rdbms bookDb('config/book-service/datasources.yaml') {
+
+        // Abstract entities provide reusable field definitions; they don't generate tables
+        abstract entity BaseEntity {
+            @UUID id : primaryKey = uuid();
+            @DateTime createdAt = now();
+            @DateTime updatedAt = now();
+        }
+
+        // Book entity with status tracking
+        entity Book extends BaseEntity {
+            String(200) title;
+            BookStatus status = BookStatus.Available;
+        }
+
+        // WebhookEvent records incoming webhook calls with idempotency protection
+        entity WebhookEvent extends BaseEntity {
+            String(200) eventType;
+            // Nullable UUID - some events may not reference a specific resource
+            UUID? resourceId;
+            // Unique idempotency key prevents duplicate webhook processing
+            String(64) idempotencyKey : unique;
+            // Tracks whether this event has been fully processed
+            Boolean processed = false;
+        }
+    }
+
+    // REST API block with webhook endpoint
+    rest_api BookServiceAPI : basePath("/api/v1") {
+        // Auto-generate standard CRUD endpoints for Book
+        resource bookDb.Book;
+
+        // Webhook receiver endpoint with idempotency support
+        // '@idempotent(header: "X-Idempotency-Key")' extracts the idempotency key
+        // from the specified HTTP header and prevents duplicate processing
+        @path('/webhooks/book-events')
+        @idempotent(header: "X-Idempotency-Key")
+        post(String eventType, UUID resourceId) -> bookDb.WebhookEvent {
+            #bookDb.WebhookEvent event = bookDb.WebhookEvent.create({
+                eventType: eventType,
+                resourceId: resourceId,
+                idempotencyKey: request.header("X-Idempotency-Key")
+            });
+            return event;
+        }
+    }
+}

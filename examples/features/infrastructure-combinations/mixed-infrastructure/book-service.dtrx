@@ -1,0 +1,75 @@
+
+// Mixed infrastructure feature example - self-contained service demonstrating:
+// - rdbms block for relational entity storage
+// - nosql block for document-oriented analytics data
+// - cache block for fast in-memory lookups
+// - storage block for file/blob storage
+// All four infrastructure types coexist in a single service
+
+// Define a service in the 'library' namespace with version and description
+service library.BookService : version('1.0.0'), description('Book management service') {
+
+    // Service infrastructure configuration
+    config('config/book-service/book-service-config.yaml');   // Service-specific settings
+    registration('config/book-service/registration.yaml');     // Service registry entry
+    discovery { }                                              // Service discovery (auto-configured)
+    resilience('config/book-service/resilience.yaml');          // Circuit breakers, retries, timeouts
+
+    // Enum for tracking book availability
+    enum BookStatus {
+        Available,
+        CheckedOut,
+        Reserved
+    }
+
+    // Relational database block - primary entity storage
+    rdbms bookDb('config/book-service/datasources.yaml') {
+
+        // Abstract entities provide reusable field definitions; they don't generate tables
+        abstract entity BaseEntity {
+            @UUID id : primaryKey = uuid();
+            @DateTime createdAt = now();
+            @DateTime updatedAt = now();
+        }
+
+        // Primary book data in relational storage
+        entity Book extends BaseEntity {
+            String(200) title;
+            String(100) author;
+            BookStatus status = BookStatus.Available;
+        }
+    }
+
+    // NoSQL document database block - for schema-flexible analytics data
+    nosql analytics('config/book-service/datasources.yaml') {
+
+        // 'collection' defines a document store for reading history
+        collection ReadingHistory {
+            UUID userId : index;
+            UUID bookId : index;
+            @DateTime startedAt = now();
+            Int pagesRead;
+            // JSON type stores arbitrary structured data without a fixed schema
+            JSON metadata;
+
+            // Composite index for querying a user's reading history by time
+            index(userId, startedAt);
+        }
+    }
+
+    // Cache block - in-memory data store for fast reads
+    cache redis('config/book-service/cache.yaml') {
+        // 'hash' stores a key-value structure in Redis with TTL
+        hash BookViewCache : prefix('bookview:'), ttl(300) {
+            UUID bookId : key;
+            Int viewCount;
+            @DateTime lastViewed;
+        }
+    }
+
+    // Storage block - file/blob storage for media assets
+    storage media('config/book-service/storage.yaml') {
+        // 'folder' declares a storage location with path, MIME restrictions, and size limit
+        folder covers : path('covers/'), allowed(['image/jpeg', 'image/png', 'image/webp']), maxSize('5mb')
+    }
+}

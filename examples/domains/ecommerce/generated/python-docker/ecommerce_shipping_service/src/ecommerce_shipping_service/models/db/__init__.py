@@ -1,0 +1,4 @@
+from ecommerce_shipping_service.models.db.base_entity import BaseEntity
+from ecommerce_shipping_service.models.db.shipment import Shipment
+from ecommerce_shipping_service.models.db.shipment_event import ShipmentEvent
+from ecommerce_shipping_service.models.db.shipment_item import ShipmentItem

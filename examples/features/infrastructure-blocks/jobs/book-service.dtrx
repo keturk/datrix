@@ -1,0 +1,62 @@
+
+// Feature: Jobs block - background tasks with scheduling and retry logic
+// Demonstrates job definitions with cron schedules, timeouts, and database queries
+service library.BookService : version('1.0.0'), description('Book management service with background jobs') {
+
+    // Service infrastructure configuration
+    config('config/book-service/book-service-config.yaml');   // Service-specific settings
+    registration('config/book-service/registration.yaml');     // Service registry entry
+    discovery { }                                              // Service discovery (auto-configured)
+    resilience('config/book-service/resilience.yaml');          // Circuit breakers, retries, timeouts
+
+    // Enum for tracking book availability status
+    enum BookStatus {
+        Available,
+        CheckedOut,
+        Reserved,
+        Maintenance
+    }
+
+    // Relational database block for persistent storage
+    rdbms bookDb('config/book-service/datasources.yaml') {
+
+        // Abstract base entity with standard audit fields
+        abstract entity BaseEntity {
+            @UUID id : primaryKey = uuid();
+            @DateTime createdAt = now();
+            @DateTime updatedAt = now();
+        }
+
+        entity Book extends BaseEntity {
+            String(200) title : trim;
+            String(100) author : trim;
+            BookStatus status = BookStatus.Available;
+            // Nullable due date - only set when book is checked out
+            @DateTime? dueDate;
+        }
+    }
+
+    // 'jobs' block defines background tasks that run asynchronously
+    // Jobs are configured via an external YAML file for scheduling, retries, etc.
+    jobs('config/book-service/jobs.yaml') {
+
+        // 'job' defines a named background task with inline logic
+        // Scheduling, timeout, and retry are configured in jobs.yaml
+        job CheckOverdueBooks {
+            // Query all checked-out books from the database
+            #Array<bookDb.Book> overdueBooks = bookDb.Book
+                .where(status: BookStatus.CheckedOut)
+                .all();
+
+            // 'foreach' iterates over a collection
+            foreach book in overdueBooks {
+                if (book.dueDate != null && book.dueDate < now()) {
+                    // Mark overdue books for maintenance review
+                    book.status = BookStatus.Maintenance;
+                    book.save();
+                    Log.info("Marked overdue", { bookId: book.id });
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,21 @@
+
+module iot.common {
+
+    abstract entity BaseEntity {
+        @UUID id : primaryKey = uuid();
+        @DateTime createdAt = now();
+        @DateTime updatedAt = now();
+    }
+
+    fn generateSerialNumber() -> String {
+        return #"IOT-{Random.string(4).toUpperCase()}-{Random.string(8).toUpperCase()}";
+    }
+
+    fn generateRolloutCode() -> String {
+        return #"FW-{now().format('YYYYMMDD')}-{Random.string(6).toUpperCase()}";
+    }
+
+    const HEARTBEAT_TIMEOUT_SECONDS = 300;
+    const MAX_BATCH_SIZE = 100;
+    const DEFAULT_ALERT_COOLDOWN_MINUTES = 15;
+}
