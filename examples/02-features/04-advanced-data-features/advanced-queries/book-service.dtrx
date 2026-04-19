@@ -1,0 +1,147 @@
+
+// Advanced queries feature example - demonstrates whereIn, orderBy, whereNull, count, limit, offset, chaining
+
+service library.BookService : version('1.0.0'), description('Advanced query operations demonstration') {
+
+    config('config/book-service/book-service-config.yaml');
+    registration('config/book-service/registration.yaml');
+    discovery { }
+    resilience('config/book-service/resilience.yaml');
+
+    enum BookStatus {
+        Available,
+        CheckedOut,
+        Reserved
+    }
+
+    rdbms bookDb('config/book-service/datasources.yaml') {
+        abstract entity BaseEntity {
+            @UUID id : primaryKey = uuid();
+            @DateTime createdAt = now();
+            @DateTime updatedAt = now();
+        }
+
+        entity Category extends BaseEntity {
+            String(100) name : unique, trim;
+            hasMany Book as books;
+        }
+
+        entity Book extends BaseEntity {
+            String(200) title : trim;
+            String(100) author : trim;
+            Int publicationYear;
+            BookStatus status = BookStatus.Available;
+            Decimal(10, 2) price;
+            DateTime? lastBorrowedAt;
+            belongsTo Category : index;
+
+            // fulltext index for natural-language search
+            fulltext(title, author);
+        }
+
+        entity Checkout extends BaseEntity {
+            UUID bookId : index;
+            DateTime checkoutDate = now();
+            DateTime dueDate;
+            DateTime? returnDate;
+        }
+    }
+
+    rest_api BookServiceAPI : basePath("/api/v1") {
+        resource bookDb.Book : only(create, get), public;
+        resource bookDb.Category : only(create, get, list), public;
+
+        // '.whereIn(field: array)' matches records where field is in the given list
+        @path('/books/bulk')
+        post(Array<UUID> ids) : public -> Array<bookDb.Book> {
+            return bookDb.Book.whereIn(id: ids).all();
+        }
+
+        // '.orderBy(field: direction)' sorts results; 'asc' or 'desc' direction
+        @path('/books/by-price')
+        get() : public -> Array<bookDb.Book> {
+            return bookDb.Book
+                .where(status: BookStatus.Available)
+                .orderBy(price: asc)
+                .all();
+        }
+
+        // '.whereNull(field)' matches records where the field is null
+        @path('/books/never-borrowed')
+        get() : public -> Array<bookDb.Book> {
+            return bookDb.Book.whereNull(lastBorrowedAt).all();
+        }
+
+        // '.count()' returns the number of matching records
+        @path('/books/count')
+        get(BookStatus status) : public -> Int {
+            return bookDb.Book.where(status: status).count();
+        }
+
+        // '.limit()' and '.offset()' enable pagination
+        @path('/books/paginated')
+        get(Int page, Int pageSize) : public -> Array<bookDb.Book> {
+            #Int offset = (page - 1) * pageSize;
+            return bookDb.Book
+                .where(status: BookStatus.Available)
+                .orderBy(createdAt: desc)
+                .limit(pageSize)
+                .offset(offset)
+                .all();
+        }
+
+        // Chained query: multiple .where() clauses combine as AND conditions
+        @path('/books/search')
+        get(String author, Int minYear, Int maxYear) : public -> Array<bookDb.Book> {
+            return bookDb.Book
+                .where(author: author)
+                .where(publicationYear: gte(minYear))
+                .where(publicationYear: lte(maxYear))
+                .orderBy(publicationYear: desc)
+                .all();
+        }
+
+        // '.fulltext(query)' performs natural-language search on indexed fields
+        @path('/books/fulltext')
+        get(String query, Int? limit) : public -> Array<bookDb.Book> {
+            return bookDb.Book
+                .fulltext(query)
+                .limit(limit ?? 20)
+                .all();
+        }
+
+        // Complex chaining with multiple operators
+        @path('/books/advanced-search')
+        get(UUID categoryId, Decimal minPrice, Decimal maxPrice, Int? limit) : public -> Array<bookDb.Book> {
+            return bookDb.Book
+                .where(categoryId: categoryId)
+                .where(status: BookStatus.Available)
+                .where(price: gte(minPrice))
+                .where(price: lte(maxPrice))
+                .orderBy(price: asc)
+                .limit(limit ?? 50)
+                .all();
+        }
+
+        // '.whereNull()' for finding overdue checkouts (no return date)
+        // 'lt(value)' comparison operator: less than
+        @path('/checkouts/overdue')
+        get() : public -> Array<bookDb.Checkout> {
+            return bookDb.Checkout
+                .whereNull(returnDate)
+                .where(dueDate: lt(now()))
+                .orderBy(dueDate: asc)
+                .limit(100)
+                .all();
+        }
+
+        // Count with multiple conditions
+        @path('/books/count-by-price-range')
+        get(Decimal minPrice, Decimal maxPrice) : public -> Int {
+            return bookDb.Book
+                .where(price: gte(minPrice))
+                .where(price: lte(maxPrice))
+                .count();
+        }
+    }
+}

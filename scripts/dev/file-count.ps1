@@ -18,6 +18,8 @@
  - datrix-codegen-azure
  - datrix-codegen-docker
  - datrix-codegen-k8s
+ - datrix-extensions
+ - datrix-projects
 
 .PARAMETER Extension
  The file extension to count (without leading dot). Defaults to "j2".

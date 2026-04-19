@@ -500,6 +500,7 @@ function Install-DatrixPackage {
  "datrix-codegen-k8s" = "datrix_codegen_k8s"
  "datrix-codegen-aws" = "datrix_codegen_aws"
  "datrix-codegen-azure" = "datrix_codegen_azure"
+ "datrix-extensions" = "datrix_extensions"
  }
 
  $pythonExe = Join-Path $venvPath "Scripts\python.exe"
@@ -728,7 +729,8 @@ function Get-DatrixPackages {
  "datrix-codegen-docker",
  "datrix-codegen-k8s",
  "datrix-codegen-aws",
- "datrix-codegen-azure"
+ "datrix-codegen-azure",
+ "datrix-extensions"
  )
 
  return $packages | Where-Object {
@@ -804,6 +806,7 @@ function Test-PackageNeedsReinstall {
  "datrix-codegen-k8s" = "datrix_codegen_k8s"
  "datrix-codegen-aws" = "datrix_codegen_aws"
  "datrix-codegen-azure" = "datrix_codegen_azure"
+ "datrix-extensions" = "datrix_extensions"
  }
 
  # Get module name from map or convert package name
