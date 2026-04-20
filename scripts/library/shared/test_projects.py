@@ -18,6 +18,11 @@ if _datrix_common_src.exists() and str(_datrix_common_src) not in sys.path:
     sys.path.insert(0, str(_datrix_common_src))
 from datrix_common import DATRIX_FILE_EXTENSION
 
+FOUNDATION_EXAMPLES_PREFIX = "examples/01-foundation/"
+LEGACY_TUTORIAL_TEST_SET = "tutorial-all"
+NON_TUTORIAL_TEST_SET = "non-tutorial"
+ALL_TEST_SET = "all"
+
 
 def normalize_path(path: str) -> str:
  """
@@ -99,6 +104,44 @@ def load_config() -> dict:
   return json.load(f)
 
 
+def _get_foundation_project_names(config: dict) -> list[str]:
+ """Return project names in examples/01-foundation.
+
+ Falls back to an empty list when no matching projects exist.
+ """
+ names: list[str] = []
+ categories = config.get("projects", {})
+ for category_projects in categories.values():
+  for project in category_projects:
+   path = normalize_path(project.get("path", ""))
+   if path.startswith(FOUNDATION_EXAMPLES_PREFIX):
+    name = project.get("name")
+    if isinstance(name, str) and name:
+     names.append(name)
+ return names
+
+
+def _resolve_legacy_test_set(test_set_name: str, config: dict) -> list[str] | None:
+ """Resolve compatibility test-set names to project lists.
+
+ Supports retained CLI flags (-Tutorial/-NonTutorial) after tutorial examples
+ were retired and replaced by examples/01-foundation.
+ """
+ test_sets: dict[str, list[str]] = config.get("testSets", {})
+
+ if test_set_name == LEGACY_TUTORIAL_TEST_SET:
+  if LEGACY_TUTORIAL_TEST_SET in test_sets:
+   return test_sets[LEGACY_TUTORIAL_TEST_SET]
+  return _get_foundation_project_names(config)
+
+ if test_set_name == NON_TUTORIAL_TEST_SET:
+  all_ordered = test_sets.get(ALL_TEST_SET, [])
+  tutorial_like_names = set(_resolve_legacy_test_set(LEGACY_TUTORIAL_TEST_SET, config) or [])
+  return [name for name in all_ordered if name not in tutorial_like_names]
+
+ return None
+
+
 def get_default_output_path(
  example_path: str,
  language: str | None = None,
@@ -159,7 +202,7 @@ def get_test_projects(
  Get project definitions for a test set.
 
  Args:
- test_set: Name of the test set (e.g., "default", "all", "quick", "domains", "generate-all")
+ test_set: Name of the test set (e.g., "default", "all", "quick", "domains")
  all_projects: If True, use "all" test set
  language: Target language (default: "python")
  platform: Target platform (default: "docker")
@@ -179,13 +222,12 @@ def get_test_projects(
 
  # Get project names from the test set
  test_sets = config.get("testSets", {})
- if test_set_name == "non-tutorial":
-  # All examples except those in tutorial-all (generate-all minus tutorial-all), preserve order
-  all_ordered = test_sets.get("generate-all", [])
-  tutorial_names = set(test_sets.get("tutorial-all", []))
-  project_names = [name for name in all_ordered if name not in tutorial_names]
+ legacy_projects = _resolve_legacy_test_set(test_set_name, config)
+ if legacy_projects is not None:
+  project_names = legacy_projects
  elif test_set_name not in test_sets:
-  raise ValueError(f"Test set '{test_set_name}' not found in configuration. Available: {list(test_sets.keys())}")
+  available = list_test_sets()
+  raise ValueError(f"Test set '{test_set_name}' not found in configuration. Available: {available}")
  else:
   project_names = test_sets[test_set_name]
 
@@ -263,8 +305,10 @@ def list_test_sets() -> List[str]:
  """
  config = load_config()
  keys = list(config.get("testSets", {}).keys())
- if "non-tutorial" not in keys:
-  keys.append("non-tutorial")
+ if LEGACY_TUTORIAL_TEST_SET not in keys:
+  keys.append(LEGACY_TUTORIAL_TEST_SET)
+ if NON_TUTORIAL_TEST_SET not in keys:
+  keys.append(NON_TUTORIAL_TEST_SET)
   keys.sort()
  return keys
 

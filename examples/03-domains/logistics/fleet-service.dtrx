@@ -199,6 +199,16 @@ service logistics.FleetService : version('1.0.0'), description('fleet and driver
 
         subscribe FleetEvents {
 
+            on VehicleRegistered(UUID vehicleId, String vehicleNumber, VehicleType type) {
+                Log.info("Vehicle registered", {
+                    vehicleId: vehicleId,
+                    vehicleNumber: vehicleNumber,
+                    type: type
+                });
+
+                redis.AvailableVehicleCount.incr("total");
+            }
+
             on VehicleStatusChanged(UUID vehicleId, String vehicleNumber, VehicleStatus oldStatus, VehicleStatus newStatus) {
                 Log.info("Vehicle status changed", {
                     vehicleId: vehicleId,
@@ -212,6 +222,14 @@ service logistics.FleetService : version('1.0.0'), description('fleet and driver
                 } else if (oldStatus == VehicleStatus.Available) {
                     redis.AvailableVehicleCount.decr("total");
                 }
+            }
+
+            on MaintenanceScheduled(UUID vehicleId, String vehicleNumber, DateTime scheduledDate) {
+                Log.info("Maintenance scheduled for vehicle", {
+                    vehicleId: vehicleId,
+                    vehicleNumber: vehicleNumber,
+                    scheduledDate: scheduledDate
+                });
             }
         }
     }

@@ -361,7 +361,7 @@ def step2_generate(
     output_path: Optional[str] = None,
     language: str = "python",
     platform: str = "docker",
-    test_set: str = "generate-all",
+    test_set: str = "all",
     hosting: Optional[str] = None,
     *,
     skip_install: bool = False,
@@ -393,7 +393,7 @@ def step2_generate(
         cmd.append("-All")
         cmd.extend(["-Language", language])
         cmd.extend(["-Platform", platform])
-        if test_set != "generate-all":
+        if test_set != "all":
             cmd.extend(["-TestSet", test_set])
     else:
         if not example_path or not output_path:
@@ -1957,8 +1957,8 @@ Examples:
     "--test-set",
     dest="test_set",
     type=str,
-    default="generate-all",
-    help="Test set name (e.g. generate-all, tutorial-all). Only used with -All."
+    default="all",
+    help="Test set name (e.g. all, tutorial-all). Only used with -All."
     )
     parser.add_argument(
     "-Language",
@@ -2107,7 +2107,7 @@ Examples:
                 args.output_path if not args.All else None,
                 args.language,
                 args.platform,
-                args.test_set if args.All else "generate-all",
+                args.test_set if args.All else "all",
                 args.hosting,
                 skip_install=args.skip_install,
             ):

@@ -290,6 +290,14 @@ service fooddelivery.DeliveryService : version('1.0.0'), description('delivery d
                     redis.ActiveDeliveryCount.decr("total");
                 }
             }
+
+            on DeliveryCreated(UUID deliveryId, String deliveryCode, UUID orderId) {
+                Log.info("Delivery created", { deliveryId: deliveryId, deliveryCode: deliveryCode, orderId: orderId });
+            }
+
+            on DriverStatusChanged(UUID driverId, String driverName, DriverStatus oldStatus, DriverStatus newStatus) {
+                Log.info("Driver status changed", { driverId: driverId, driverName: driverName, oldStatus: oldStatus, newStatus: newStatus });
+            }
         }
     }
 

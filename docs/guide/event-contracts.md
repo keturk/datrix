@@ -206,7 +206,7 @@ Owner: `Event.ensure_clauses: tuple[EnsureClause, ...]` in `datrix_common.datrix
 
 ## Domain Example
 
-See [ecommerce](../../examples/02-domains/ecommerce/system.dtrx) for a complete multi-service example with `ensure` clauses, showing publisher-side enforcement and generated contract tests.
+See [iot-platform](../../examples/03-domains/iot-platform/system.dtrx) for a complete multi-service example with `ensure` clauses, showing publisher-side enforcement and generated contract tests.
 
 ---
 

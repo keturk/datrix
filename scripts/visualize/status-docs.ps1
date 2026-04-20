@@ -20,7 +20,7 @@
     Domain examples only.
 
 .PARAMETER TestSet
-    Named test set from test-projects.json (default: generate-all).
+    Named test set from test-projects.json (default: all).
 
 .PARAMETER Dbg
     Enable debug logging.
@@ -45,7 +45,7 @@ param(
     [switch]$All,
     [switch]$Tutorial,
     [switch]$Domains,
-    [string]$TestSet = "generate-all",
+    [string]$TestSet = "all",
     [switch]$Dbg
 )
 
@@ -92,7 +92,7 @@ try {
     if ($All) { $pyArgs += "--all" }
     if ($Tutorial) { $pyArgs += "--tutorial" }
     if ($Domains) { $pyArgs += "--domains" }
-    if ($TestSet -ne "generate-all") {
+    if ($TestSet -ne "all") {
         $pyArgs += "--test-set"
         $pyArgs += $TestSet
     }

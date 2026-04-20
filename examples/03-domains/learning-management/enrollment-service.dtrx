@@ -193,9 +193,7 @@ service lms.EnrollmentService : version('1.0.0'), description('enrollment and ac
     pubsub mq('config/enrollment-service/pubsub.yaml') {
 
         topic EnrollmentEvents {
-            publish StudentEnrolled(UUID enrollmentId, UUID studentId, UUID courseId) {
-                ensure enrollmentId != null;
-            }
+            publish StudentEnrolled(UUID enrollmentId, UUID studentId, UUID courseId);
             publish EnrollmentStatusChanged(UUID enrollmentId, UUID studentId, UUID courseId, EnrollmentStatus oldStatus, EnrollmentStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
@@ -206,9 +204,7 @@ service lms.EnrollmentService : version('1.0.0'), description('enrollment and ac
             publish EnrollmentCompleted(UUID enrollmentId, UUID studentId, UUID courseId, Decimal averageScore) {
                 ensure averageScore >= 0;
             }
-            publish StudentDropped(UUID enrollmentId, UUID studentId, UUID courseId, String? reason) {
-                ensure enrollmentId != null;
-            }
+            publish StudentDropped(UUID enrollmentId, UUID studentId, UUID courseId, String? reason);
             publish GradeSubmitted(UUID enrollmentId, UUID moduleId, Decimal score) {
                 ensure score >= 0;
                 ensure score <= 100;
@@ -268,6 +264,55 @@ service lms.EnrollmentService : version('1.0.0'), description('enrollment and ac
                 } catch (Exception e) {
                     Log.error(#"Failed to decrement enrollment count: {e}");
                 }
+            }
+
+            on EnrollmentStatusChanged(UUID enrollmentId, UUID studentId, UUID courseId, EnrollmentStatus oldStatus, EnrollmentStatus newStatus) {
+                Log.info("Enrollment status changed", {
+                    enrollmentId: enrollmentId,
+                    studentId: studentId,
+                    courseId: courseId,
+                    oldStatus: oldStatus,
+                    newStatus: newStatus
+                });
+
+                #EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
+                    enrollmentId: enrollmentId,
+                    activityType: "status_changed",
+                    metadata: { oldStatus: oldStatus, newStatus: newStatus }
+                });
+                activity.save();
+            }
+
+            on ProgressUpdated(UUID enrollmentId, UUID studentId, UUID courseId, Int oldProgress, Int newProgress) {
+                Log.info("Enrollment progress updated", {
+                    enrollmentId: enrollmentId,
+                    studentId: studentId,
+                    courseId: courseId,
+                    oldProgress: oldProgress,
+                    newProgress: newProgress
+                });
+
+                #EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
+                    enrollmentId: enrollmentId,
+                    activityType: "progress_updated",
+                    metadata: { oldProgress: oldProgress, newProgress: newProgress }
+                });
+                activity.save();
+            }
+
+            on GradeSubmitted(UUID enrollmentId, UUID moduleId, Decimal score) {
+                Log.info("Grade submitted for enrollment", {
+                    enrollmentId: enrollmentId,
+                    moduleId: moduleId,
+                    score: score
+                });
+
+                #EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
+                    enrollmentId: enrollmentId,
+                    activityType: "grade_submitted",
+                    metadata: { moduleId: moduleId, score: score }
+                });
+                activity.save();
             }
         }
 

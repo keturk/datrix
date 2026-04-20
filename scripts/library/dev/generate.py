@@ -4,7 +4,7 @@ Generate all example projects.
 
 Usage:
     python scripts/library/dev/generate.py [--language python] [--platform docker]
-    [--output-base .generated] [--test-set generate-all]
+    [--output-base .generated] [--test-set all]
 
     Or use the PowerShell wrapper:
         .\scripts\dev\generate.ps1 -All [-Language <lang>] [-Platform <platform>] [-TestSet <set>]
@@ -483,7 +483,7 @@ def main():
         help="Forwarded to datrix generate --platform (service flavor); optional",
     )
     parser.add_argument("--output-base", type=str, default=".generated", help="Output base directory")
-    parser.add_argument("--test-set", type=str, default="generate-all", help="Test set to use (e.g. generate-all, tutorial-all, non-tutorial, domains, patterns, builtins, reference)")
+    parser.add_argument("--test-set", type=str, default="all", help="Test set to use (e.g. all, tutorial-all, non-tutorial, domains, features)")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
  
     args = parser.parse_args()

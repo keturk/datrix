@@ -475,7 +475,7 @@ Use the CLI to validate and generate:
 ```bash
 # Validate a file or directory of .dtrx files
 datrix validate system.dtrx
-datrix validate examples/01-tutorial/03-basic-api
+datrix validate examples/02-features/01-core-data-modeling/rest-api
 
 # Generate (defaults: profile test; language/hosting from YAML for that profile)
 datrix generate --source system.dtrx --output ./generated

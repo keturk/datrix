@@ -77,12 +77,12 @@ See [quick-reference.md](quick-reference.md) for the full conversion table.
 ### Generate Code
 ```powershell
 # Generate a single project
-.\dev\generate.ps1 examples/01-tutorial/system.dtrx .generated/python/docker/my-project
+.\dev\generate.ps1 examples/01-foundation/system.dtrx .generated/python/docker/my-project
 
 # Generate all examples
 .\dev\generate.ps1 -All
 
-# Generate tutorial examples only
+# Generate foundation examples only (legacy alias)
 .\dev\generate.ps1 -Tutorial
 ```
 

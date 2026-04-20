@@ -97,6 +97,8 @@ service finance.TransactionService : version('1.0.0'), description('financial tr
             UUID? counterpartyAccountId;
             UUID? batchId : index;
             String(500)? failureReason;
+
+            belongsTo TransactionBatch : index;
             DateTime? completedAt;
 
             // Computed fields
@@ -264,6 +266,25 @@ service finance.TransactionService : version('1.0.0'), description('financial tr
         subscribe TransactionEvents {
             on TransactionStatusChanged(UUID txId, UUID accountId, TransactionStatus oldStatus, TransactionStatus newStatus, Money amount) {
                 Log.info("Transaction status changed", { txId: txId, oldStatus: oldStatus, newStatus: newStatus });
+            }
+
+            on TransferCompleted(UUID sourceTxId, UUID destTxId, UUID sourceAccountId, UUID destAccountId, Money amount, String reference) {
+                Log.info("Transfer completed", {
+                    sourceTxId: sourceTxId,
+                    destTxId: destTxId,
+                    sourceAccountId: sourceAccountId,
+                    destAccountId: destAccountId,
+                    amount: amount,
+                    reference: reference
+                });
+            }
+
+            on BatchProcessed(UUID batchId, Int successCount, Int failedCount) {
+                Log.info("Batch processed", { batchId: batchId, successCount: successCount, failedCount: failedCount });
+            }
+
+            on DailyReconciliationCompleted(DateTime date, Int totalTransactions, Boolean isBalanced) {
+                Log.info("Daily reconciliation completed", { date: date, totalTransactions: totalTransactions, isBalanced: isBalanced });
             }
         }
     }

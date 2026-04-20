@@ -129,7 +129,7 @@ service finance.ComplianceService : version('1.0.0'), description('regulatory co
                 this.save();
             }
 
-            fn resolve(String resolutionNote, Boolean falsePositive) {
+            fn resolve(String resolutionNote, Boolean falsePositive, UUID userId) {
                 if (status != AlertStatus.UnderReview && status != AlertStatus.Open) {
                     throw ValidationException("Only open or under-review alerts can be resolved");
                 }
@@ -140,7 +140,7 @@ service finance.ComplianceService : version('1.0.0'), description('regulatory co
                 }
                 resolution = resolutionNote;
                 resolvedAt = now();
-                resolvedBy = Auth.user().id;
+                resolvedBy = userId;
                 this.save();
             }
 
@@ -290,6 +290,34 @@ service finance.ComplianceService : version('1.0.0'), description('regulatory co
                 audit.save();
             }
         }
+
+        subscribe ComplianceEvents {
+            on CriticalAlertRaised(UUID alertId, UUID accountId, AlertType type, String description) {
+                Log.warn("Critical compliance alert raised", {
+                    alertId: alertId,
+                    accountId: accountId,
+                    type: type,
+                    description: description
+                });
+            }
+
+            on AlertStatusChanged(UUID alertId, UUID accountId, AlertStatus oldStatus, AlertStatus newStatus) {
+                Log.info("Alert status changed", {
+                    alertId: alertId,
+                    accountId: accountId,
+                    oldStatus: oldStatus,
+                    newStatus: newStatus
+                });
+            }
+
+            on ComplianceReportGenerated(DateTime reportDate, String reportType, Int totalAlerts) {
+                Log.info("Compliance report generated", {
+                    reportDate: reportDate,
+                    reportType: reportType,
+                    totalAlerts: totalAlerts
+                });
+            }
+        }
     }
 
     rest_api ComplianceAPI : basePath('/api/v1/compliance') {
@@ -350,7 +378,7 @@ service finance.ComplianceService : version('1.0.0'), description('regulatory co
         @path('/alerts/:id/resolve')
         put(UUID id, ResolveAlertRequest request) : access(admin) -> complianceDb.ComplianceAlert {
             #ComplianceAlert alert = complianceDb.ComplianceAlert.findOrFail(id);
-            alert.resolve(request.resolution, request.isFalsePositive);
+            alert.resolve(request.resolution, request.isFalsePositive, Auth.user().id);
             return alert;
         }
 
@@ -531,7 +559,7 @@ service finance.ComplianceService : version('1.0.0'), description('regulatory co
             description: "Test velocity alert"
         });
         alert.save();
-        alert.resolve("Reviewed and cleared", false);
+        alert.resolve("Reviewed and cleared", false, uuid());
         assert alert.status == AlertStatus.Resolved;
     }
 
@@ -544,7 +572,7 @@ service finance.ComplianceService : version('1.0.0'), description('regulatory co
             description: "Test geographic anomaly"
         });
         alert.save();
-        alert.resolve("Customer confirmed travel", true);
+        alert.resolve("Customer confirmed travel", true, uuid());
         assert alert.status == AlertStatus.FalsePositive;
     }
 }

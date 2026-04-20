@@ -75,6 +75,11 @@ service lms.CourseService : version('1.0.0'), description('course catalog and co
         Int? durationMinutes;
     }
 
+    struct RateCourseRequest {
+        Int rating;
+        Text? review;
+    }
+
     struct CourseSummary {
         UUID courseId;
         String title;
@@ -266,9 +271,7 @@ service lms.CourseService : version('1.0.0'), description('course catalog and co
             publish CoursePublished(UUID courseId, String title) {
                 ensure title.length > 0;
             }
-            publish CourseArchived(UUID courseId) {
-                ensure courseId != null;
-            }
+            publish CourseArchived(UUID courseId);
             publish CourseEnrollmentUpdated(UUID courseId, Int currentEnrollment, Int? maxEnrollment) {
                 ensure currentEnrollment >= 0;
             }
@@ -319,6 +322,30 @@ service lms.CourseService : version('1.0.0'), description('course catalog and co
                 if (maxEnrollment != null && currentEnrollment >= maxEnrollment) {
                     Log.warn("Course is now full", { courseId: courseId });
                 }
+            }
+
+            on CoursePublished(UUID courseId, String title) {
+                Log.info("Course published", { courseId: courseId, title: title });
+            }
+
+            on CourseArchived(UUID courseId) {
+                Log.info("Course archived", { courseId: courseId });
+            }
+
+            on ModuleAdded(UUID courseId, UUID moduleId, String title) {
+                Log.info("Module added to course", {
+                    courseId: courseId,
+                    moduleId: moduleId,
+                    title: title
+                });
+            }
+
+            on LessonAdded(UUID moduleId, UUID lessonId, String title) {
+                Log.info("Lesson added to module", {
+                    moduleId: moduleId,
+                    lessonId: lessonId,
+                    title: title
+                });
             }
         }
     }
@@ -545,7 +572,7 @@ service lms.CourseService : version('1.0.0'), description('course catalog and co
 
         // Rate a course
         @path('/:id/rate')
-        post(UUID id, Int rating, Text? review) -> courseDb.CourseRating {
+        post(UUID id, RateCourseRequest request) -> courseDb.CourseRating {
             #UUID studentId = Auth.user().id;
             #Course course = courseDb.Course.findOrFail(id);
 
@@ -565,8 +592,8 @@ service lms.CourseService : version('1.0.0'), description('course catalog and co
             #CourseRating courseRating = courseDb.CourseRating.create({
                 courseId: id,
                 studentId: studentId,
-                rating: rating,
-                review: review
+                rating: request.rating,
+                review: request.review
             });
             courseRating.save();
 

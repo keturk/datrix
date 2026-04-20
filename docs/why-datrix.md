@@ -58,7 +58,7 @@ The 1:30 ratio between `.dtrx` and generated code isn't just about saving keystr
 
 A 5-service e-commerce platform written in plain Python or TypeScript spans thousands of files and hundreds of thousands of lines. No AI assistant can hold that in context. You end up showing it fragments — one file, one function, one endpoint — and hoping it can reason about a system it can't fully see. It can't. It guesses.
 
-That same platform in Datrix is on the order of **2,500 lines of `.dtrx`** across **seven** service and shared spec files under [`examples/02-domains/ecommerce/`](../examples/02-domains/ecommerce/). Your entire architecture fits in a single conversation.
+That same platform in Datrix is on the order of **2,500 lines of `.dtrx`** across **seven** service and shared spec files under [`examples/03-domains/ecommerce/`](../examples/03-domains/ecommerce/). Your entire architecture fits in a single conversation.
 
 ```
 Full e-commerce platform (Python/TypeScript): ~75,000+ lines across 1,595 files

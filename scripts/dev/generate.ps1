@@ -6,9 +6,9 @@
 .DESCRIPTION
  Generates Datrix projects from source files. Supports single-project or batch modes:
  1. Single project: source file (output folder optional; derived from test-projects.json when omitted)
- 2. -All: all projects (test set generate-all)
+ 2. -All: all projects (test set all)
  3. -Tutorial: examples/01-tutorial (tutorial-all)
- 4. -NonTutorial: all examples except 01-tutorial (generate-all minus tutorial-all)
+ 4. -NonTutorial: all examples except foundation (all minus tutorial-all alias)
  5. -Domains: examples/02-domains
 
  Batch modes use the same unified generation pipeline for consistent behavior.
@@ -48,7 +48,7 @@
  Output base directory (default: .generated). Only used with -All parameter.
 
 .PARAMETER TestSet
- Test set to use (default: generate-all). Only used with -All parameter.
+ Test set to use (default: all). Only used with -All parameter.
 
 .PARAMETER Debug
  Enable debug logging (DEBUG level instead of INFO).
@@ -131,7 +131,7 @@ param(
  [string]$OutputBase = ".generated",
 
  [Parameter()]
- [string]$TestSet = "generate-all",
+ [string]$TestSet = "all",
 
  [Parameter()]
  [switch]$Dbg,
@@ -439,7 +439,7 @@ function Write-GenerationSummaryToLog {
 $logFilePath = $null
 try {
  # generate-results-*.log always under <workspace>/.generated/.results (not -OutputBase or project output)
- $batchMode = $All -or $Tutorial -or $NonTutorial -or $Domains -or ($TestSet -ne "generate-all")
+ $batchMode = $All -or $Tutorial -or $NonTutorial -or $Domains -or ($TestSet -ne "all")
  $logResultsDir = Join-Path (Join-Path $datrixWorkspaceRoot ".generated") ".results"
 
  # Set up logging
@@ -544,7 +544,7 @@ $("=" * 80)
  $pythonArgs += "--output-base"
  $pythonArgs += $OutputBase
  }
- if ($effectiveTestSet -ne "generate-all") {
+ if ($effectiveTestSet -ne "all") {
  $pythonArgs += "--test-set"
  $pythonArgs += $effectiveTestSet
  }

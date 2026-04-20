@@ -259,6 +259,13 @@ service iot.TelemetryService : version('1.0.0'), description('telemetry data col
 
         subscribe TelemetryEvents {
 
+            on TelemetryIngested(UUID deviceId, DateTime timestamp, JSON readings) {
+                Log.info("Telemetry ingested", {
+                    deviceId: deviceId,
+                    timestamp: timestamp
+                });
+            }
+
             on AlertTriggered(UUID alertId, UUID deviceId, AlertSeverity severity, String condition, String message) {
                 Log.info("Alert triggered", {
                     alertId: alertId,
@@ -274,6 +281,15 @@ service iot.TelemetryService : version('1.0.0'), description('telemetry data col
                         message: message
                     });
                 }
+            }
+
+            on AlertStatusChanged(UUID alertId, UUID deviceId, AlertStatus oldStatus, AlertStatus newStatus) {
+                Log.info("Alert status changed", {
+                    alertId: alertId,
+                    deviceId: deviceId,
+                    oldStatus: oldStatus,
+                    newStatus: newStatus
+                });
             }
         }
     }

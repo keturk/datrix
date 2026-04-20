@@ -14,8 +14,9 @@ Documentation for the Datrix code generation platform.
 
 Runnable specs live next to this tree under [`examples/`](../examples/):
 
-- **[`examples/01-tutorial/`](../examples/01-tutorial/)** — 41 progressive lessons (Library Management System), from entities through GraphQL, jobs, and file operations. Start at [`01-basic-entity`](../examples/01-tutorial/01-basic-entity/).
-- **[`examples/02-domains/`](../examples/02-domains/)** — Six full domains (blog-cms, ecommerce, healthcare, learning-management, social-platform, task-management) with `system.dtrx`, services, and `config/`.
+- **[`examples/01-foundation/`](../examples/01-foundation/)** — minimal, baseline specs (`system.dtrx`, shared `common.dtrx`, and base service shape).
+- **[`examples/02-features/`](../examples/02-features/)** — focused feature examples grouped by area (core modeling, service architecture, infrastructure blocks, advanced data, infrastructure combinations, advanced language features).
+- **[`examples/03-domains/`](../examples/03-domains/)** — full domain applications (blog-cms, ecommerce, healthcare, learning-management, social-platform, task-management, plus finance, food-delivery, hr-platform, iot-platform, logistics, real-estate).
 
 See [`examples/README.md`](../examples/README.md) for structure, CLI usage, and patterns demonstrated in those trees.
 

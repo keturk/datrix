@@ -86,7 +86,7 @@ service hr.EmployeeService : version('1.0.0'), description('employee management 
             // Computed fields
             String fullName := #"{firstName} {lastName}";
             Boolean isActive := status == EmployeeStatus.Active;
-            Int yearsOfService := Math.floor((now().timestamp() - hireDate.timestamp()) / 31536000000);
+            Int yearsOfService := Math.floor(now().diffInDays(hireDate) / 365);
 
             hasMany EmergencyContact as emergencyContacts : cascade(delete);
 
@@ -172,7 +172,6 @@ service hr.EmployeeService : version('1.0.0'), description('employee management 
 
         // Emergency contact for employees
         entity EmergencyContact extends BaseEntity {
-            UUID employeeId : index;
             String(100) name : trim;
             String(50) relationship : trim;
             Phone phone : sensitive;
