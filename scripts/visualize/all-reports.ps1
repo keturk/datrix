@@ -25,7 +25,7 @@
     Domain examples only.
 
 .PARAMETER TestSet
-    Named test set from test-projects.json (default: generate-all).
+    Named test set from test-projects.json (default: all).
 
 .PARAMETER Profile
     Config profile to resolve (default: test).
@@ -53,7 +53,7 @@ param(
     [switch]$All,
     [switch]$Tutorial,
     [switch]$Domains,
-    [string]$TestSet = "generate-all",
+    [string]$TestSet = "all",
     [string]$Profile = "test",
     [switch]$Dbg
 )
@@ -80,7 +80,7 @@ if ($Source)   { $commonArgs.Source = $Source }
 if ($All)      { $commonArgs.All = $true }
 if ($Tutorial) { $commonArgs.Tutorial = $true }
 if ($Domains)  { $commonArgs.Domains = $true }
-if ($TestSet -ne "generate-all") { $commonArgs.TestSet = $TestSet }
+if ($TestSet -ne "all") { $commonArgs.TestSet = $TestSet }
 if ($Profile -ne "test") { $commonArgs.Profile = $Profile }
 if ($Dbg) { $commonArgs.Dbg = $true }
 

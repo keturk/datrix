@@ -128,7 +128,6 @@ service hr.PayrollService : version('1.0.0'), description('payroll processing an
 
         // Individual payroll entry for each employee in a run
         entity PayrollEntry extends BaseEntity {
-            UUID payrollRunId : index;
             UUID employeeId : index;
             Money grossPay : encrypted;
             Money deductions : encrypted;
@@ -167,6 +166,16 @@ service hr.PayrollService : version('1.0.0'), description('payroll processing an
             }
             publish PayStubsGenerated(UUID payrollRunId, String payrollRef, Int count) {
                 ensure count > 0;
+            }
+        }
+
+        subscribe PayrollEvents {
+            on PayrollCompleted(UUID payrollRunId, String payrollRef, PayPeriod payPeriod, Money totalGross, Money totalNet, Int entryCount) {
+                Log.info("Payroll run completed", { payrollRunId: payrollRunId, payrollRef: payrollRef, payPeriod: payPeriod, totalGross: totalGross, totalNet: totalNet, entryCount: entryCount });
+            }
+
+            on PayStubsGenerated(UUID payrollRunId, String payrollRef, Int count) {
+                Log.info("Pay stubs generated", { payrollRunId: payrollRunId, payrollRef: payrollRef, count: count });
             }
         }
 

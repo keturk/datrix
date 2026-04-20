@@ -143,15 +143,9 @@ service taskapp.ProjectService : version('1.0.0'), description('project and team
             publish ProjectStatusChanged(UUID projectId, ProjectStatus oldStatus, ProjectStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
-            publish MemberAdded(UUID projectId, UUID userId, MemberRole role) {
-                ensure projectId != null;
-            }
-            publish MemberRemoved(UUID projectId, UUID userId) {
-                ensure projectId != null;
-            }
-            publish ProjectArchived(UUID projectId) {
-                ensure projectId != null;
-            }
+            publish MemberAdded(UUID projectId, UUID userId, MemberRole role);
+            publish MemberRemoved(UUID projectId, UUID userId);
+            publish ProjectArchived(UUID projectId);
         }
 
         subscribe ProjectEvents {
@@ -173,6 +167,25 @@ service taskapp.ProjectService : version('1.0.0'), description('project and team
                     oldStatus: oldStatus,
                     newStatus: newStatus
                 });
+            }
+
+            on MemberAdded(UUID projectId, UUID userId, MemberRole role) {
+                Log.info("Member added to project", {
+                    projectId: projectId,
+                    userId: userId,
+                    role: role
+                });
+            }
+
+            on MemberRemoved(UUID projectId, UUID userId) {
+                Log.info("Member removed from project", {
+                    projectId: projectId,
+                    userId: userId
+                });
+            }
+
+            on ProjectArchived(UUID projectId) {
+                Log.info("Project archived", { projectId: projectId });
             }
         }
     }

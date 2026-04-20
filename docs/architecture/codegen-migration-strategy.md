@@ -62,18 +62,18 @@ Generate reference projects with **both Python and TypeScript** targets before a
 ```bash
 # Before change:
 powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" \
-  "d:/datrix/datrix/examples/02-domains/ecommerce/system.dtrx" \
+  "d:/datrix/datrix/examples/03-domains/ecommerce/system.dtrx" \
   "d:/datrix/.projects/ecommerce-before" -L python
 powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" \
-  "d:/datrix/datrix/examples/02-domains/ecommerce/system.dtrx" \
+  "d:/datrix/datrix/examples/03-domains/ecommerce/system.dtrx" \
   "d:/datrix/.projects/ecommerce-before-ts" -L typescript
 
 # After change:
 powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" \
-  "d:/datrix/datrix/examples/02-domains/ecommerce/system.dtrx" \
+  "d:/datrix/datrix/examples/03-domains/ecommerce/system.dtrx" \
   "d:/datrix/.projects/ecommerce-after" -L python
 powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" \
-  "d:/datrix/datrix/examples/02-domains/ecommerce/system.dtrx" \
+  "d:/datrix/datrix/examples/03-domains/ecommerce/system.dtrx" \
   "d:/datrix/.projects/ecommerce-after-ts" -L typescript
 
 # Diff (must be empty):

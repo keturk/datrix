@@ -166,7 +166,6 @@ service hr.RecruitmentService : version('1.0.0'), description('job posting and c
 
         // Application entity for tracking candidates
         entity Application extends BaseEntity {
-            UUID jobPostingId : index;
             String(100) candidateName : trim;
             Email candidateEmail;
             String(500)? resumeUrl;
@@ -279,6 +278,14 @@ service hr.RecruitmentService : version('1.0.0'), description('job posting and c
         }
 
         subscribe RecruitmentEvents {
+            on JobPostingCreated(UUID postingId, String title, Department department, Boolean isRemote) {
+                Log.info("Job posting created", { postingId: postingId, title: title, department: department, isRemote: isRemote });
+            }
+
+            on JobPostingStatusChanged(UUID postingId, String title, PostingStatus oldStatus, PostingStatus newStatus) {
+                Log.info("Job posting status changed", { postingId: postingId, title: title, oldStatus: oldStatus, newStatus: newStatus });
+            }
+
             on ApplicationStatusChanged(UUID applicationId, UUID jobPostingId, String candidateName, ApplicationStatus oldStatus, ApplicationStatus newStatus) {
                 Log.info("Application status changed", {
                     applicationId: applicationId,

@@ -76,7 +76,7 @@ service fooddelivery.MenuService : version('1.0.0'), description('menu and item 
 
             fulltext(name, description);
 
-            index(menu_categoryId, availability);
+            index(menuCategoryId, availability);
 
             validate {
                 if (name.trim().isEmpty())
@@ -155,6 +155,20 @@ service fooddelivery.MenuService : version('1.0.0'), description('menu and item 
                         restaurantName: name
                     });
                 }
+            }
+        }
+
+        subscribe MenuEvents {
+            on MenuItemAdded(UUID itemId, String name, Money price, UUID menuCategoryId) {
+                Log.info("Menu item added", { itemId: itemId, name: name, price: price, menuCategoryId: menuCategoryId });
+            }
+
+            on MenuItemAvailabilityChanged(UUID itemId, String name, ItemAvailability oldAvailability, ItemAvailability newAvailability) {
+                Log.info("Menu item availability changed", { itemId: itemId, name: name, oldAvailability: oldAvailability, newAvailability: newAvailability });
+            }
+
+            on MenuItemPriceChanged(UUID itemId, String name, Money oldPrice, Money newPrice) {
+                Log.info("Menu item price changed", { itemId: itemId, name: name, oldPrice: oldPrice, newPrice: newPrice });
             }
         }
     }

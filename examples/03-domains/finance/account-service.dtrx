@@ -99,7 +99,6 @@ service finance.AccountService : version('1.0.0'), description('account and cust
         // Account entity with financial constraints
         entity Account extends AuditedEntity : audit {
             String(20) accountNumber : unique;
-            UUID customerId : index;
             AccountType type;
             AccountStatus status = AccountStatus.PendingApproval;
             Money balance;

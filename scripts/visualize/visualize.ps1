@@ -20,7 +20,7 @@
     Domain examples only.
 
 .PARAMETER TestSet
-    Named test set from test-projects.json (default: generate-all).
+    Named test set from test-projects.json (default: all).
 
 .PARAMETER Type
     Diagram type: erd, service-map, event-flow, api-catalog, cqrs-flow,
@@ -58,7 +58,7 @@ param(
     [switch]$All,
     [switch]$Tutorial,
     [switch]$Domains,
-    [string]$TestSet = "generate-all",
+    [string]$TestSet = "all",
 
     [ValidateSet("erd", "service-map", "event-flow", "api-catalog", "cqrs-flow", "inheritance", "infrastructure", "system-context", "all")]
     [string]$Type = "all",
@@ -116,7 +116,7 @@ try {
     if ($All) { $pyArgs += "--all" }
     if ($Tutorial) { $pyArgs += "--tutorial" }
     if ($Domains) { $pyArgs += "--domains" }
-    if ($TestSet -ne "generate-all") {
+    if ($TestSet -ne "all") {
         $pyArgs += "--test-set"
         $pyArgs += $TestSet
     }

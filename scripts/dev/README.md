@@ -32,13 +32,13 @@ Main code generation script. Generates Python/TypeScript code from .dtrx source 
 
 ```powershell
 # Basic generation
-.\generate.ps1 examples/01-tutorial/system.dtrx .generated/python/docker/my-project
+.\generate.ps1 examples/01-foundation/system.dtrx .generated/python/docker/my-project
 
 # With custom language and platform
-.\generate.ps1 examples/01-tutorial/system.dtrx .generated/typescript/kubernetes/my-project -L typescript -P kubernetes
+.\generate.ps1 examples/01-foundation/system.dtrx .generated/typescript/kubernetes/my-project -L typescript -P kubernetes
 
 # Enable debug logging
-.\generate.ps1 examples/01-tutorial/system.dtrx .generated/python/docker/my-project -Dbg
+.\generate.ps1 examples/01-foundation/system.dtrx .generated/python/docker/my-project -Dbg
 ```
 
 ### Batch Mode
@@ -48,8 +48,8 @@ Main code generation script. Generates Python/TypeScript code from .dtrx source 
 .\generate.ps1 -All
 
 # Generate specific category
-.\generate.ps1 -Tutorial # examples/01-tutorial
-.\generate.ps1 -Domains # examples/02-domains
+.\generate.ps1 -Tutorial # examples/01-foundation (legacy alias name)
+.\generate.ps1 -Domains # examples/03-domains
 # With options
 .\generate.ps1 -All -Language typescript -Platform kubernetes
 ```
@@ -61,12 +61,12 @@ Main code generation script. Generates Python/TypeScript code from .dtrx source 
 | `-Source` | | | Path to .dtrx file (single mode) |
 | `-Output` | | | Output directory (single mode) |
 | `-All` | | | Generate all projects |
-| `-Tutorial` | | | Generate tutorial examples only |
+| `-Tutorial` | | | Generate foundation examples only (legacy alias) |
 | `-Domains` | | | Generate domain examples only |
 | `-Language` | `-L` | `python` | Target language (python, typescript) |
 | `-Platform` | `-P` | `docker` | Target platform (docker, kubernetes) |
 | `-OutputBase` | | `.generated` | Output base directory (batch mode) |
-| `-TestSet` | | `generate-all` | Test set name (batch mode) |
+| `-TestSet` | | `all` | Test set name (batch mode) |
 | `-Dbg` | | | Enable debug logging |
 
 ### Logs

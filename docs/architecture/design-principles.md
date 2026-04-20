@@ -195,7 +195,7 @@ Datrix is built on proven software engineering principles that ensure:
 
 **Application:**
 ```datrix
-// Same DSL works for all platforms (excerpt from examples/01-tutorial/01-basic-entity)
+// Same DSL works for all platforms (excerpt from examples/01-foundation/book-service-base.dtrx)
 service library.BookService : version('1.0.0') {
  rdbms db('config/book-service/datasources.yaml') {
  abstract entity BaseEntity {
@@ -231,7 +231,7 @@ service library.BookService : version('1.0.0') {
 
 **Application:**
 
-**Inheritance:** (inside an rdbms block; see [examples/01-tutorial/01-basic-entity](../../examples/01-tutorial/01-basic-entity/))
+**Inheritance:** (inside an rdbms block; see [examples/01-foundation](../../examples/01-foundation/))
 ```datrix
 abstract entity BaseEntity {
  @UUID id : primaryKey = uuid();
@@ -245,7 +245,7 @@ entity Order extends BaseEntity { }
 entity Product extends BaseEntity { }
 ```
 
-**Struct Reuse:** (structs and entities inside service blocks; see [examples/01-tutorial/13-structs](../../examples/01-tutorial/13-structs/))
+**Struct Reuse:** (structs and entities inside service blocks; see [examples/02-features/02-service-architecture/modules-imports](../../examples/02-features/02-service-architecture/modules-imports/))
 ```datrix
 struct Address {
  String street;
@@ -308,7 +308,7 @@ entity User extends BaseEntity {
 }
 ```
 
-**Complex entity (when needed; see [examples/01-tutorial/08-authentication/book-service.dtrx](../../examples/01-tutorial/08-authentication/book-service.dtrx) for User with Auth.hashPassword in beforeCreate):**
+**Complex entity (when needed; see [examples/02-features/01-core-data-modeling/authentication/book-service.dtrx](../../examples/02-features/01-core-data-modeling/authentication/book-service.dtrx) for User with Auth.hashPassword in beforeCreate):**
 ```datrix
 entity User extends BaseEntity {
  Email email : unique;

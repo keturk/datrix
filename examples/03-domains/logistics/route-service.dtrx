@@ -205,6 +205,15 @@ service logistics.RouteService : version('1.0.0'), description('route planning a
 
         subscribe RouteEvents {
 
+            on RouteCreated(UUID routeId, String routeCode, UUID vehicleId, UUID driverId) {
+                Log.info("Route created", {
+                    routeId: routeId,
+                    routeCode: routeCode,
+                    vehicleId: vehicleId,
+                    driverId: driverId
+                });
+            }
+
             on RouteStatusChanged(UUID routeId, String routeCode, RouteStatus oldStatus, RouteStatus newStatus) {
                 Log.info("Route status changed", {
                     routeId: routeId,
@@ -218,6 +227,21 @@ service logistics.RouteService : version('1.0.0'), description('route planning a
                 } else if (oldStatus == RouteStatus.Active) {
                     redis.ActiveRouteCount.decr("total");
                 }
+            }
+
+            on RouteOptimized(UUID routeId, Int totalStops) {
+                Log.info("Route optimized", {
+                    routeId: routeId,
+                    totalStops: totalStops
+                });
+            }
+
+            on StopCompleted(UUID routeId, UUID stopId, UUID shipmentId) {
+                Log.info("Route stop completed", {
+                    routeId: routeId,
+                    stopId: stopId,
+                    shipmentId: shipmentId
+                });
             }
         }
     }

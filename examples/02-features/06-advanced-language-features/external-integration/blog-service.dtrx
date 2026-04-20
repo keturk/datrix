@@ -48,6 +48,18 @@ service hostdemo.BlogService : version('1.0.0'), description('blog posts and com
             }
         }
 
+        subscribe BlogEvents {
+            on PostPublished(UUID postId, String title) {
+                Log.info("Post published", { postId: postId, title: title });
+
+                // Invalidate view count cache for the post
+                redis.PostViewCache.set(postId, {
+                    postId: postId,
+                    viewCount: 0
+                });
+            }
+        }
+
         subscribe UserEvents {
             on AccountCreated(UUID userId, String email) {
                 Log.info("cross-service: user registered", { userId: userId });

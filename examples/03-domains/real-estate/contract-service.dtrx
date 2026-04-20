@@ -90,9 +90,9 @@ service realestate.ContractService : version('1.0.0'), description('real estate 
             validate {
                 if (contractRef.trim().isEmpty())
                     ValidationError("Contract reference cannot be empty");
-                if (price.amount <= 0)
+                if (price <= 0)
                     ValidationError("Contract price must be positive");
-                if (earnestMoney != null && earnestMoney.amount > price.amount)
+                if (earnestMoney != null && earnestMoney > price)
                     ValidationError("Earnest money cannot exceed contract price");
             }
 
@@ -156,7 +156,6 @@ service realestate.ContractService : version('1.0.0'), description('real estate 
 
         // Documents attached to contracts
         entity ContractDocument extends BaseEntity {
-            UUID contractId : index;
             String(200) documentName : trim;
             String(500) documentUrl;
             DateTime uploadedAt = now();
@@ -189,6 +188,12 @@ service realestate.ContractService : version('1.0.0'), description('real estate 
             }
             publish ContractStatusChanged(UUID contractId, String contractRef, UUID listingId, ContractStatus oldStatus, ContractStatus newStatus) {
                 ensure oldStatus != newStatus;
+            }
+        }
+
+        subscribe ContractEvents {
+            on ContractCreated(UUID contractId, String contractRef, UUID listingId, UUID buyerId, UUID sellerId, ContractType contractType, Money price) {
+                Log.info("Contract created", { contractId: contractId, contractRef: contractRef, listingId: listingId, contractType: contractType, price: price });
             }
         }
 

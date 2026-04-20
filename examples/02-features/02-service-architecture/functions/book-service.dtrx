@@ -27,7 +27,7 @@ service library.BookService : version('1.0.0'), description('Book management ser
 
     // Service-level helper function
     fn daysSinceDue(DateTime dueDate) -> Int {
-        return now().diffDays(dueDate);
+        return now().diffInDays(dueDate);
     }
 
     rdbms bookDb('config/book-service/datasources.yaml') {

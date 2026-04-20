@@ -174,7 +174,6 @@ service realestate.ListingService : version('1.0.0'), description('property list
 
         // Images associated with a listing
         entity ListingImage extends BaseEntity {
-            UUID listingId : index;
             String(500) url;
             String(200)? caption;
             Int orderIndex : min(0);
@@ -194,7 +193,6 @@ service realestate.ListingService : version('1.0.0'), description('property list
 
         // Property features (e.g., "Pool: Yes", "Garage: 2-car")
         entity ListingFeature extends BaseEntity {
-            UUID listingId : index;
             String(100) featureName : trim;
             String(200) featureValue : trim;
 

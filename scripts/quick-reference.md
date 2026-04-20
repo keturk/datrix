@@ -43,17 +43,17 @@ Generates Datrix projects from `.dtrx` source files. Language and platform defau
 | **Single project (explicit output)** | `.\dev\generate.ps1 <source.dtrx> <output-dir>` | Explicit output directory |
 | **Single + language/platform** | `.\dev\generate.ps1 <source.dtrx> <output-dir> -L typescript -P kubernetes` | Override language and platform |
 | **Single + hosting/flavor** | `.\dev\generate.ps1 <source.dtrx> <out> -H kubernetes -ServicePlatform kubernetes` | Override hosting and service platform |
-| **All examples** | `.\dev\generate.ps1 -All` | Generate all (test set generate-all) |
+| **All examples** | `.\dev\generate.ps1 -All` | Generate all (test set all) |
 | **All + language** | `.\dev\generate.ps1 -All -L typescript` | All examples for TypeScript |
 | **All + custom output base** | `.\dev\generate.ps1 -All -OutputBase .generated2` | Custom output root |
-| **Tutorials only** | `.\dev\generate.ps1 -Tutorial` | examples/01-tutorial (test set tutorial-all) |
-| **Non-tutorial only** | `.\dev\generate.ps1 -NonTutorial` | Everything except tutorials |
-| **Domains only** | `.\dev\generate.ps1 -Domains` | examples/02-domains |
-| **Custom test set** | `.\dev\generate.ps1 -TestSet tutorial01-10` | Any named test set |
+| **Foundation only (legacy alias)** | `.\dev\generate.ps1 -Tutorial` | examples/01-foundation (test set tutorial-all alias) |
+| **Non-foundation only** | `.\dev\generate.ps1 -NonTutorial` | Everything except foundation examples |
+| **Domains only** | `.\dev\generate.ps1 -Domains` | examples/03-domains |
+| **Custom test set** | `.\dev\generate.ps1 -TestSet features-core` | Any named test set |
 | **TypeScript validation subset** | `.\dev\generate.ps1 -TestSet typescript-validation -L typescript` | Quick TS validation |
 | **Debug logging** | `.\dev\generate.ps1 -All -Dbg` | Enable DEBUG level logging |
 
-**Parameters:** `-Source` (positional 0), `-Output` (positional 1), `-All`, `-Tutorial`, `-NonTutorial`, `-Domains`, `-Language`/`-L` (python\|typescript, default: python), `-Platform`/`-P` (docker\|kubernetes\|k8s, default: docker), `-Hosting`/`-H`, `-ServicePlatform`, `-OutputBase` (default: .generated), `-TestSet` (default: generate-all), `-Dbg`
+**Parameters:** `-Source` (positional 0), `-Output` (positional 1), `-All`, `-Tutorial`, `-NonTutorial`, `-Domains`, `-Language`/`-L` (python\|typescript, default: python), `-Platform`/`-P` (docker\|kubernetes\|k8s, default: docker), `-Hosting`/`-H`, `-ServicePlatform`, `-OutputBase` (default: .generated), `-TestSet` (default: all), `-Dbg`
 
 ### `dev\syntax-checker.ps1`
 
@@ -90,12 +90,12 @@ Runs all visualization and documentation scripts for a project: diagrams, schema
 |------|---------|-------------|
 | **Single project** | `.\visualize\all-reports.ps1 <source.dtrx>` | All reports for one project |
 | **All projects** | `.\visualize\all-reports.ps1 -All` | All reports for all projects |
-| **Tutorials only** | `.\visualize\all-reports.ps1 -Tutorial` | Tutorial examples only |
+| **Foundation only (legacy alias)** | `.\visualize\all-reports.ps1 -Tutorial` | Foundation examples only |
 | **Domains only** | `.\visualize\all-reports.ps1 -Domains` | Domain examples only |
-| **Custom test set** | `.\visualize\all-reports.ps1 -TestSet tutorial01-10` | Named test set |
+| **Custom test set** | `.\visualize\all-reports.ps1 -TestSet features-core` | Named test set |
 | **Debug** | `.\visualize\all-reports.ps1 -All -Dbg` | Debug logging |
 
-**Parameters:** `-Source` (positional 0), `-All`, `-Tutorial`, `-Domains`, `-TestSet` (default: generate-all), `-Dbg`
+**Parameters:** `-Source` (positional 0), `-All`, `-Tutorial`, `-Domains`, `-TestSet` (default: all), `-Dbg`
 
 ### `visualize\visualize.ps1`
 
@@ -108,12 +108,12 @@ Generates Mermaid diagrams from `.dtrx` source files. Produces ERD, service map,
 | **Single + service** | `.\visualize\visualize.ps1 <source.dtrx> -Type erd -Service "ns.SvcName"` | Scoped to one service |
 | **Raw Mermaid** | `.\visualize\visualize.ps1 <source.dtrx> -Format mmd` | Output .mmd files instead of .md |
 | **All projects** | `.\visualize\visualize.ps1 -All` | Batch: all test-projects.json |
-| **Tutorials only** | `.\visualize\visualize.ps1 -Tutorial` | Batch: tutorial examples |
+| **Foundation only (legacy alias)** | `.\visualize\visualize.ps1 -Tutorial` | Batch: foundation examples |
 | **Domains only** | `.\visualize\visualize.ps1 -Domains` | Batch: domain examples |
-| **Custom test set** | `.\visualize\visualize.ps1 -TestSet tutorial01-10` | Named test set |
+| **Custom test set** | `.\visualize\visualize.ps1 -TestSet features-core` | Named test set |
 | **Debug** | `.\visualize\visualize.ps1 -All -Dbg` | Debug logging |
 
-**Parameters:** `-Source` (positional 0), `-All`, `-Tutorial`, `-Domains`, `-TestSet` (default: generate-all), `-Type` (erd\|service-map\|event-flow\|api-catalog\|cqrs-flow\|inheritance\|infrastructure\|system-context\|all, default: all), `-Service`, `-Format` (md\|mmd, default: md), `-Dbg`
+**Parameters:** `-Source` (positional 0), `-All`, `-Tutorial`, `-Domains`, `-TestSet` (default: all), `-Type` (erd\|service-map\|event-flow\|api-catalog\|cqrs-flow\|inheritance\|infrastructure\|system-context\|all, default: all), `-Service`, `-Format` (md\|mmd, default: md), `-Dbg`
 
 ### `visualize\schema-diff.ps1`
 
@@ -137,11 +137,11 @@ Saves `.dtrx` Application as a JSON snapshot for future diffs. Output is written
 | **Single project** | `.\visualize\schema-snapshot.ps1 <source.dtrx>` | Save to source dir docs/snapshots/ |
 | **Explicit output** | `.\visualize\schema-snapshot.ps1 <source.dtrx> -Output snap.json` | Custom output path |
 | **All projects** | `.\visualize\schema-snapshot.ps1 -All` | Batch: all test-projects.json |
-| **Tutorials only** | `.\visualize\schema-snapshot.ps1 -Tutorial` | Batch: tutorial examples |
+| **Foundation only (legacy alias)** | `.\visualize\schema-snapshot.ps1 -Tutorial` | Batch: foundation examples |
 | **Domains only** | `.\visualize\schema-snapshot.ps1 -Domains` | Batch: domain examples |
 | **Debug** | `.\visualize\schema-snapshot.ps1 -All -Dbg` | Debug logging |
 
-**Parameters:** `-Source` (positional 0), `-All`, `-Tutorial`, `-Domains`, `-TestSet` (default: generate-all), `-Output`, `-Dbg`
+**Parameters:** `-Source` (positional 0), `-All`, `-Tutorial`, `-Domains`, `-TestSet` (default: all), `-Output`, `-Dbg`
 
 ### `visualize\openapi-gen.ps1`
 
@@ -153,11 +153,11 @@ Generates OpenAPI 3.1 YAML per REST API and AsyncAPI 3.0 YAML per PubSub block. 
 | **OpenAPI only** | `.\visualize\openapi-gen.ps1 <source.dtrx> -Type openapi` | Only OpenAPI specs |
 | **AsyncAPI only** | `.\visualize\openapi-gen.ps1 <source.dtrx> -Type asyncapi` | Only AsyncAPI specs |
 | **All projects** | `.\visualize\openapi-gen.ps1 -All` | Batch: all test-projects.json |
-| **Tutorials only** | `.\visualize\openapi-gen.ps1 -Tutorial` | Batch: tutorial examples |
+| **Foundation only (legacy alias)** | `.\visualize\openapi-gen.ps1 -Tutorial` | Batch: foundation examples |
 | **Domains only** | `.\visualize\openapi-gen.ps1 -Domains` | Batch: domain examples |
 | **Debug** | `.\visualize\openapi-gen.ps1 -All -Dbg` | Debug logging |
 
-**Parameters:** `-Source` (positional 0), `-All`, `-Tutorial`, `-Domains`, `-TestSet` (default: generate-all), `-Type` (openapi\|asyncapi\|all, default: all), `-Dbg`
+**Parameters:** `-Source` (positional 0), `-All`, `-Tutorial`, `-Domains`, `-TestSet` (default: all), `-Type` (openapi\|asyncapi\|all, default: all), `-Dbg`
 
 ### `visualize\status-docs.ps1`
 
@@ -167,11 +167,11 @@ Reports documentation status for Datrix projects (diagrams, OpenAPI, AsyncAPI, s
 |------|---------|-------------|
 | **Single project** | `.\visualize\status-docs.ps1 <source.dtrx>` | Status for one project |
 | **All projects** | `.\visualize\status-docs.ps1 -All` | All test-projects.json |
-| **Tutorials only** | `.\visualize\status-docs.ps1 -Tutorial` | Tutorial examples only |
+| **Foundation only (legacy alias)** | `.\visualize\status-docs.ps1 -Tutorial` | Foundation examples only |
 | **Domains only** | `.\visualize\status-docs.ps1 -Domains` | Domain examples only |
 | **Debug** | `.\visualize\status-docs.ps1 -All -Dbg` | Debug logging |
 
-**Parameters:** `-Source` (positional 0), `-All`, `-Tutorial`, `-Domains`, `-TestSet` (default: generate-all), `-Dbg`
+**Parameters:** `-Source` (positional 0), `-All`, `-Tutorial`, `-Domains`, `-TestSet` (default: all), `-Dbg`
 
 ---
 
@@ -212,10 +212,10 @@ Complete workflow: syntax check, code generation, unit tests, deployment tests.
 | **Single (explicit output)** | `.\test\run-complete.ps1 "examples/.../system.dtrx" ".generated/python/docker/..."` | Explicit output path |
 | **Single + lang/platform** | `.\test\run-complete.ps1 "examples/.../system.dtrx" -L python -P docker` | Override language/platform |
 | **All examples** | `.\test\run-complete.ps1 -All` | Full workflow for all |
-| **Tutorials only** | `.\test\run-complete.ps1 -Tutorial` | Tutorial examples only |
-| **Non-tutorial** | `.\test\run-complete.ps1 -NonTutorial` | Everything except tutorials |
+| **Foundation only (legacy alias)** | `.\test\run-complete.ps1 -Tutorial` | Foundation examples only |
+| **Non-foundation** | `.\test\run-complete.ps1 -NonTutorial` | Everything except foundation examples |
 | **Domains only** | `.\test\run-complete.ps1 -Domains` | Domain examples only |
-| **Custom test set** | `.\test\run-complete.ps1 -TestSet tutorial01-10` | Named test set |
+| **Custom test set** | `.\test\run-complete.ps1 -TestSet features-core` | Named test set |
 | **Skip syntax check** | `.\test\run-complete.ps1 -All -Skip1` | Skip Step 1 (syntax checker) |
 | **Skip generation** | `.\test\run-complete.ps1 -All -Skip2` | Skip Step 2 (code generation) |
 | **Skip unit tests** | `.\test\run-complete.ps1 -All -Skip4` | Skip Step 4 (generated unit tests) |
@@ -225,7 +225,7 @@ Complete workflow: syntax check, code generation, unit tests, deployment tests.
 | **Skip venv** | `.\test\run-complete.ps1 -All -SkipVenv` | Use system Python |
 | **Debug** | `.\test\run-complete.ps1 -All -Dbg` | Debug logging |
 
-**Parameters:** `-ExamplePath` (positional 0), `-OutputPath` (positional 1), `-All`, `-Tutorial`, `-NonTutorial`, `-Domains`, `-Language`/`-L` (python\|typescript), `-Platform`/`-P` (docker\|kubernetes\|k8s), `-Hosting`/`-H`, `-TestSet` (default: generate-all), `-SkipVenv`, `-Skip1`, `-Skip2`, `-Skip4`, `-Skip5`, `-FreshBuild`, `-Dbg`/`-DebugLogging`
+**Parameters:** `-ExamplePath` (positional 0), `-OutputPath` (positional 1), `-All`, `-Tutorial`, `-NonTutorial`, `-Domains`, `-Language`/`-L` (python\|typescript), `-Platform`/`-P` (docker\|kubernetes\|k8s), `-Hosting`/`-H`, `-TestSet` (default: all), `-SkipVenv`, `-Skip1`, `-Skip2`, `-Skip4`, `-Skip5`, `-FreshBuild`, `-Dbg`/`-DebugLogging`
 
 **Note:** Deploy tests (Step 5) use Docker cache by default for faster builds and better network resilience. Use `-FreshBuild` to force `--no-cache` for maximum validation confidence.
 
@@ -236,7 +236,7 @@ Runs generation against both Python and TypeScript for the same test set and com
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Default** | `.\test\dual-target.ps1` | typescript-validation set, both languages |
-| **All examples** | `.\test\dual-target.ps1 -TestSet generate-all` | Full parity check |
+| **All examples** | `.\test\dual-target.ps1 -TestSet all` | Full parity check |
 | **Skip tests** | `.\test\dual-target.ps1 -Skip4 -Skip5` | Uses `run-complete.ps1` (steps 1-2 only; syntax + generation) |
 | **Fresh build** | `.\test\dual-target.ps1 -Skip4 -Skip5 -FreshBuild` | Use --no-cache for deploy tests (when run-complete.ps1 used) |
 
@@ -759,23 +759,22 @@ For `generate.ps1` and `run-complete.ps1` batch mode:
 
 | Flag | Path / Test Set | Content |
 |------|------|---------|
-| `-Tutorial` | `examples/01-tutorial/` (tutorial-all) | All tutorials (01-41) |
-| `-Domains` | `examples/02-domains/` (domains) | Domain examples (blog, ecommerce) |
-| `-NonTutorial` | generate-all minus tutorial-all | Everything except tutorials |
+| `-Tutorial` | `examples/01-foundation/` (`tutorial-all` compatibility alias) | Foundation examples |
+| `-Domains` | `examples/03-domains/` (`domains`) | Domain examples |
+| `-NonTutorial` | `all` minus `tutorial-all` | Everything except foundation examples |
 | `-TestSet <name>` | Any test set from test-projects.json | Custom test set |
 
 ### Available Test Sets
 
 | Test Set | Content |
 |----------|---------|
-| `tutorial01-10` | Tutorials 01-10 (basic entity through multiple services) |
-| `tutorial11-20` | Tutorials 11-20 (service dependencies through CQRS) |
-| `tutorial21-30` | Tutorials 21-30 (background jobs through GraphQL) |
-| `tutorial31-43` | Tutorials 31-43 (advanced queries through event contracts) |
-| `tutorial-all` | All tutorials 01-41 |
+| `foundation` | Foundation examples (`examples/01-foundation`) |
+| `tutorial-all` | Compatibility alias for foundation (`-Tutorial`) |
+| `features-core` | Core feature examples (entities, enums, REST API, etc.) |
+| `features` | All feature examples (`examples/02-features`) |
 | `typescript-validation` | Representative subset for TypeScript validation (01-basic-entity, 03-basic-api, 05-relationships, 09-events, 15-cache, 20-cqrs, 21-background-jobs, blog-cms) |
-| `domains` | All domain examples (ecommerce, healthcare, etc.) |
-| `generate-all` | Every example (default for `-All`) |
+| `domains` | All domain examples (`examples/03-domains`) |
+| `all` | Every example (default for `-All`) |
 
 ---
 
@@ -843,13 +842,13 @@ Most scripts support:
 
 ### Single Example End-to-End
 ```powershell
-.\test\run-complete.ps1 "examples/01-tutorial/01-basic-entity/system.dtrx"
+.\test\run-complete.ps1 "examples/01-foundation/system.dtrx"
 ```
 
 ### Generate Single + Validate
 ```powershell
-.\dev\generate.ps1 examples/01-tutorial/03-basic-api/system.dtrx
-.\dev\compile-any-path.ps1 .\.generated\python\docker\01-tutorial\03-basic-api\library_book_service\src
+.\dev\generate.ps1 examples/02-features/01-core-data-modeling/rest-api/system.dtrx
+.\dev\compile-any-path.ps1 .\.generated\python\docker\02-features\01-core-data-modeling\rest-api\library_book_service\src
 ```
 
 ### Code Review Prep

@@ -20,7 +20,7 @@
  Run complete workflow for tutorial examples only (examples/01-tutorial). Implies -All with test set tutorial-all.
 
 .PARAMETER NonTutorial
- Run complete workflow for everything except tutorial (all examples in generate-all minus 01-tutorial). Implies -All with test set non-tutorial.
+ Run complete workflow for everything except foundation (all examples in all minus foundation). Implies -All with test set non-tutorial.
 
 .PARAMETER Domains
  Run complete workflow for domain examples only (examples/02-domains). Implies -All with test set domains.
@@ -36,9 +36,9 @@
  Can be abbreviated as -P.
 
 .PARAMETER TestSet
- Run complete workflow for a specific test set by name (default: generate-all).
+ Run complete workflow for a specific test set by name (default: all).
  E.g. tutorial01-10, tutorial11-20, tutorial21-30, tutorial31-43.
- See scripts/config/test-projects.json for available test sets. Implies batch mode when not "generate-all".
+ See scripts/config/test-projects.json for available test sets. Implies batch mode when not "all".
 
 .PARAMETER SkipVenv
  Skip virtual environment activation (use current Python environment).
@@ -150,7 +150,7 @@ param(
  [string]$Hosting = "",
 
  [Parameter()]
- [string]$TestSet = "generate-all",
+ [string]$TestSet = "all",
 
  [switch]$SkipVenv,
  [switch]$Skip1,
@@ -208,7 +208,7 @@ if (-not (Test-Path $runCompleteScript)) {
 }
 
 # Validate parameters
-$batchMode = $All -or $Tutorial -or $NonTutorial -or $Domains -or ($TestSet -ne "generate-all")
+$batchMode = $All -or $Tutorial -or $NonTutorial -or $Domains -or ($TestSet -ne "all")
 if (-not $batchMode) {
  if ([string]::IsNullOrWhiteSpace($ExamplePath)) {
   Write-ErrorMsg "Error: ExamplePath is required when no batch switch (-All, -Tutorial, -NonTutorial, -Domains, -TestSet) is specified."
@@ -274,7 +274,7 @@ if ($batchMode) {
  elseif ($NonTutorial) { "non-tutorial" }
  elseif ($Domains) { "domains" }
  else { $TestSet }
- if ($testSetName -ne "generate-all") {
+ if ($testSetName -ne "all") {
  $pythonArgs += "--test-set"
  $pythonArgs += $testSetName
  }

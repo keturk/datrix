@@ -23,7 +23,8 @@ Defines example projects organized by category for batch testing and generation.
  "defaultLanguage": "python",
  "defaultPlatform": "docker",
  "projects": {
- "tutorial": [...],
+ "foundation": [...],
+ "features": [...],
  "domains": [...]
  }
 }
@@ -33,15 +34,16 @@ Defines example projects organized by category for batch testing and generation.
 
 | Category | Path | Description |
 |----------|------|-------------|
-| `tutorial` | `examples/01-tutorial/` | Step-by-step tutorial examples (23 projects) |
-| `domains` | `examples/02-domains/` | Domain-specific examples (blog, ecommerce, healthcare) |
+| `foundation` | `examples/01-foundation/` | Foundation examples (retains `-Tutorial` compatibility alias) |
+| `features` | `examples/02-features/` | Feature-focused examples by capability |
+| `domains` | `examples/03-domains/` | Domain-specific examples (blog, ecommerce, healthcare) |
 ### Project Entry Format
 
 ```json
 {
- "name": "01-basic-entity",
- "path": "examples/01-tutorial/01-basic-entity/system.dtrx",
- "description": "Basic entity with fields"
+ "name": "foundation",
+ "path": "examples/01-foundation/system.dtrx",
+ "description": "Foundation examples and core syntax patterns"
 }
 ```
 

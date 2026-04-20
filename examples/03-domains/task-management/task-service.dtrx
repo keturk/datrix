@@ -208,15 +208,9 @@ service taskapp.TaskService : version('1.0.0'), description('task tracking and w
             publish TaskStatusChanged(UUID taskId, UUID projectId, TaskStatus oldStatus, TaskStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
-            publish TaskAssigned(UUID taskId, UUID projectId, UUID? assigneeId) {
-                ensure taskId != null;
-            }
-            publish TaskOverdue(UUID taskId, UUID projectId, DateTime dueDate) {
-                ensure taskId != null;
-            }
-            publish TaskCommentAdded(UUID taskId, UUID commentId, UUID authorId) {
-                ensure taskId != null;
-            }
+            publish TaskAssigned(UUID taskId, UUID projectId, UUID? assigneeId);
+            publish TaskOverdue(UUID taskId, UUID projectId, DateTime dueDate);
+            publish TaskCommentAdded(UUID taskId, UUID commentId, UUID authorId);
         }
 
         subscribe TaskEvents {
@@ -254,6 +248,22 @@ service taskapp.TaskService : version('1.0.0'), description('task tracking and w
                 } else {
                     Log.info("Task unassigned", { taskId: taskId });
                 }
+            }
+
+            on TaskOverdue(UUID taskId, UUID projectId, DateTime dueDate) {
+                Log.warn("Task is overdue", {
+                    taskId: taskId,
+                    projectId: projectId,
+                    dueDate: dueDate
+                });
+            }
+
+            on TaskCommentAdded(UUID taskId, UUID commentId, UUID authorId) {
+                Log.info("Comment added to task", {
+                    taskId: taskId,
+                    commentId: commentId,
+                    authorId: authorId
+                });
             }
         }
 

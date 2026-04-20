@@ -353,9 +353,9 @@ service social.NotificationService : version('1.0.0'), description('notification
             return { updatedCount: updatedCount };
         }
 
-        // Mark all notifications as read
+        // Mark all notifications as read (optionally filtered by type)
         @path('/mark-all-read')
-        post() -> MarkReadResponse {
+        post(NotificationType? type) -> MarkReadResponse {
             #UUID userId = Auth.user().id;
             #Array<Notification> unread = notificationDb.Notification
                 .where(userId: userId)

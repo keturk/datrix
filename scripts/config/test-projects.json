@@ -3,6 +3,9 @@
   "defaultLanguage": "python",
   "defaultPlatform": "docker",
   "projects": {
+    "foundation": [
+      {"name": "foundation",            "path": "examples/01-foundation/system.dtrx",                                      "description": "Foundation examples and core syntax patterns"}
+    ],
     "features": [
       {"name": "entities",              "path": "examples/02-features/01-core-data-modeling/entities/system.dtrx",              "description": "Basic entity definitions with fields and types"},
       {"name": "enums",                 "path": "examples/02-features/01-core-data-modeling/enums/system.dtrx",                 "description": "Enum types with values"},
@@ -54,9 +57,10 @@
     ]
   },
   "testSets": {
-    "quick": ["entities", "ecommerce"],
-    "default": ["ecommerce", "social-platform", "finance"],
-    "all": ["entities", "enums", "rest-api", "computed-fields", "relationships", "validation", "lifecycle-hooks", "authentication", "pubsub", "multi-service", "modules-imports", "functions", "resilience", "cache", "cqrs", "jobs", "nosql", "storage", "graphql", "advanced-types", "advanced-relationships", "transactions", "advanced-cache", "fulltext-search", "batch-operations", "advanced-queries", "webhooks", "field-security", "multi-database", "mixed-infrastructure", "dual-api", "advanced-flow-control", "external-integration", "ecommerce", "healthcare", "blog-cms", "social-platform", "task-management", "learning-management", "real-estate", "logistics", "finance", "food-delivery", "iot-platform", "hr-platform"],
+    "quick": ["foundation", "entities", "ecommerce"],
+    "default": ["foundation", "ecommerce", "social-platform", "finance"],
+    "all": ["foundation", "entities", "enums", "rest-api", "computed-fields", "relationships", "validation", "lifecycle-hooks", "authentication", "pubsub", "multi-service", "modules-imports", "functions", "resilience", "cache", "cqrs", "jobs", "nosql", "storage", "graphql", "advanced-types", "advanced-relationships", "transactions", "advanced-cache", "fulltext-search", "batch-operations", "advanced-queries", "webhooks", "field-security", "multi-database", "mixed-infrastructure", "dual-api", "advanced-flow-control", "external-integration", "ecommerce", "healthcare", "blog-cms", "social-platform", "task-management", "learning-management", "real-estate", "logistics", "finance", "food-delivery", "iot-platform", "hr-platform"],
+    "foundation": ["foundation"],
     "features": ["entities", "enums", "rest-api", "computed-fields", "relationships", "validation", "lifecycle-hooks", "authentication", "pubsub", "multi-service", "modules-imports", "functions", "resilience", "cache", "cqrs", "jobs", "nosql", "storage", "graphql", "advanced-types", "advanced-relationships", "transactions", "advanced-cache", "fulltext-search", "batch-operations", "advanced-queries", "webhooks", "field-security", "multi-database", "mixed-infrastructure", "dual-api", "advanced-flow-control", "external-integration"],
     "features-core": ["entities", "enums", "rest-api", "computed-fields", "relationships", "validation", "lifecycle-hooks", "authentication"],
     "features-service-arch": ["pubsub", "multi-service", "modules-imports", "functions", "resilience"],
@@ -65,7 +69,6 @@
     "features-combos": ["multi-database", "mixed-infrastructure", "dual-api"],
     "features-language": ["advanced-flow-control", "external-integration"],
     "domains": ["ecommerce", "healthcare", "blog-cms", "social-platform", "task-management", "learning-management", "real-estate", "logistics", "finance", "food-delivery", "iot-platform", "hr-platform"],
-    "typescript-validation": ["entities", "rest-api", "relationships", "pubsub", "cache", "cqrs", "jobs", "blog-cms"],
-    "generate-all": ["entities", "enums", "rest-api", "computed-fields", "relationships", "validation", "lifecycle-hooks", "authentication", "pubsub", "multi-service", "modules-imports", "functions", "resilience", "cache", "cqrs", "jobs", "nosql", "storage", "graphql", "advanced-types", "advanced-relationships", "transactions", "advanced-cache", "fulltext-search", "batch-operations", "advanced-queries", "webhooks", "field-security", "multi-database", "mixed-infrastructure", "dual-api", "advanced-flow-control", "external-integration", "ecommerce", "healthcare", "blog-cms", "social-platform", "task-management", "learning-management", "real-estate", "logistics", "finance", "food-delivery", "iot-platform", "hr-platform"]
+    "typescript-validation": ["entities", "rest-api", "relationships", "pubsub", "cache", "cqrs", "jobs", "blog-cms"]
   }
 }

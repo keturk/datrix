@@ -194,6 +194,10 @@ service fooddelivery.OrderService : version('1.0.0'), description('food order ma
                     });
                 }
             }
+
+            on OrderConfirmed(UUID orderId, String orderNumber, UUID restaurantId, DeliveryAddress deliveryAddress) {
+                Log.info("Order confirmed", { orderId: orderId, orderNumber: orderNumber, restaurantId: restaurantId });
+            }
         }
 
         subscribe RestaurantEvents {

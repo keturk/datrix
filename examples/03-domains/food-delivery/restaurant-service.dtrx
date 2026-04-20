@@ -102,7 +102,6 @@ service fooddelivery.RestaurantService : version('1.0.0'), description('restaura
         }
 
         entity RestaurantReview extends BaseEntity {
-            UUID restaurantId : index;
             UUID customerId : index;
             Int rating;
             Text? comment;
@@ -179,6 +178,20 @@ service fooddelivery.RestaurantService : version('1.0.0'), description('restaura
                         name: cached.name,
                         rating: cached.rating,
                         status: newStatus
+                    });
+                }
+            }
+
+            on RestaurantRatingUpdated(UUID restaurantId, String name, Decimal rating) {
+                Log.info("Restaurant rating updated", { restaurantId: restaurantId, name: name, rating: rating });
+
+                #JSON? cached = redis.RestaurantCache.get(restaurantId);
+                if (cached != null) {
+                    redis.RestaurantCache.set(restaurantId, {
+                        restaurantId: restaurantId,
+                        name: cached.name,
+                        rating: rating,
+                        status: cached.status
                     });
                 }
             }

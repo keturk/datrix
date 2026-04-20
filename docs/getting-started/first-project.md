@@ -2,7 +2,7 @@
 
 **Last updated:** April 13, 2026
 
-Walkthrough for a minimal **library** service with one entity and a REST API—the same shape as [`examples/01-tutorial/03-basic-api`](../../examples/01-tutorial/03-basic-api/).
+Walkthrough for a minimal **library** service with one entity and a REST API—the same shape as [`examples/02-features/01-core-data-modeling/rest-api`](../../examples/02-features/01-core-data-modeling/rest-api/).
 
 **Time:** about 15–20 minutes (plus installs).
 
@@ -16,7 +16,7 @@ You will:
 - Point the `system` block at YAML under `config/`.
 - Validate and generate Python (FastAPI) output, then run the service.
 
-**Fastest path:** copy the folder [`examples/01-tutorial/03-basic-api`](../../examples/01-tutorial/03-basic-api/) and skip to [Validate and generate](#step-4-validate-and-generate).
+**Fastest path:** copy the folder [`examples/02-features/01-core-data-modeling/rest-api`](../../examples/02-features/01-core-data-modeling/rest-api/) and skip to [Validate and generate](#step-4-validate-and-generate).
 
 ---
 
@@ -40,7 +40,7 @@ my-library/
         └── datasources.yaml
 ```
 
-Copy the YAML files from [`examples/01-tutorial/03-basic-api/config/`](../../examples/01-tutorial/03-basic-api/config/) so paths and profile keys match what the generators expect.
+Copy the YAML files from [`examples/02-features/01-core-data-modeling/rest-api/config/`](../../examples/02-features/01-core-data-modeling/rest-api/config/) so paths and profile keys match what the generators expect.
 
 ---
 
@@ -198,8 +198,8 @@ curl -X POST "http://127.0.0.1:<port>/api/v1/books" \
 
 ## Next steps
 
-1. Follow more lessons in [`examples/01-tutorial/README.md`](../../examples/01-tutorial/README.md) (relationships, events, CQRS, GraphQL, jobs, …).
-2. Study full domains under [`examples/02-domains/`](../../examples/02-domains/).
+1. Explore focused feature examples under [`examples/02-features/`](../../examples/02-features/) (relationships, events, CQRS, GraphQL, jobs, and more).
+2. Study full domains under [`examples/03-domains/`](../../examples/03-domains/).
 3. Read [Writing Datrix Applications](../guide/writing-datrix-applications.md) and the [Configuration Guide](../guide/configuration-guide.md).
 
 ---
