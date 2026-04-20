@@ -104,12 +104,8 @@ service social.NotificationService : version('1.0.0'), description('notification
     pubsub mq('config/notification-service/pubsub.yaml') {
 
         topic NotificationEvents {
-            publish NotificationCreated(UUID notificationId, UUID userId, NotificationType type) {
-                ensure notificationId != null;
-            }
-            publish NotificationRead(UUID notificationId, UUID userId) {
-                ensure notificationId != null;
-            }
+            publish NotificationCreated(UUID notificationId, UUID userId, NotificationType type);
+            publish NotificationRead(UUID notificationId, UUID userId);
             publish NotificationsBatchRead(UUID userId, Int count) {
                 ensure count > 0;
             }
@@ -247,6 +243,31 @@ service social.NotificationService : version('1.0.0'), description('notification
                 }
             }
         }
+
+        subscribe NotificationEvents {
+            on NotificationCreated(UUID notificationId, UUID userId, NotificationType type) {
+                Log.info("Processing notification delivery", { notificationId: notificationId, userId: userId, type: type });
+
+                #NotificationPreference? prefs = notificationDb.NotificationPreference
+                    .where(userId: userId)
+                    .first();
+
+                if (prefs != null && prefs.pushEnabled) {
+                    Log.info("Queuing push notification", { notificationId: notificationId, userId: userId });
+                }
+                if (prefs != null && prefs.emailEnabled && type == NotificationType.System) {
+                    Log.info("Queuing email notification", { notificationId: notificationId, userId: userId });
+                }
+            }
+
+            on NotificationRead(UUID notificationId, UUID userId) {
+                Log.info("Notification marked as read", { notificationId: notificationId, userId: userId });
+            }
+
+            on NotificationsBatchRead(UUID userId, Int count) {
+                Log.info("Notifications batch marked as read", { userId: userId, count: count });
+            }
+        }
     }
 
     rest_api NotificationAPI : basePath('/api/v1/notifications') {
@@ -334,7 +355,7 @@ service social.NotificationService : version('1.0.0'), description('notification
 
         // Mark all notifications as read
         @path('/mark-all-read')
-        put() -> MarkReadResponse {
+        post() -> MarkReadResponse {
             #UUID userId = Auth.user().id;
             #Array<Notification> unread = notificationDb.Notification
                 .where(userId: userId)
