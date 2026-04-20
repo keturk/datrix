@@ -16,7 +16,7 @@ Datrix is a code generation system that transforms `.dtrx` domain specifications
 ✅ **Multi-Language Support** - Python, TypeScript, SQL
 ✅ **Multi-Platform Support** - Docker, Kubernetes, AWS, Azure
 ✅ **Type-Safe** - Exhaustive type mappings with validation
-✅ **Modular Architecture** - 11 packages plus showcase and projects repos
+✅ **Modular Architecture** - 12 installable packages (core toolchain + optional **datrix-extensions**) plus showcase and projects repos
 ✅ **Specification-Level Testing** - DSL `test` blocks transpile to pytest under `tests/spec/` (Python) and Jest under `test/spec/` (TypeScript); see tutorial `41-file-operations`
 ✅ **Event contracts** - `ensure` clauses on `publish` events enforce publisher-side validation before `emit`
 
@@ -39,6 +39,20 @@ Datrix is a code generation system that transforms `.dtrx` domain specifications
 │ AST (datrix-common) │
 │ - Immutable syntax tree │
 │ - Source locations preserved │
+└─────────────────────────────────┘
+ ↓
+┌─────────────────────────────────┐
+│ Extension directives (AST) │
+│ use extension <name>; on system │
+│ → app.extension_directives │
+└─────────────────────────────────┘
+ ↓
+┌─────────────────────────────────┐
+│ Extension resolution (logical) │
+│ PluginRegistry: datrix.extensions │
+│ entry points; load_declared_extensions │
+│ TypeRegistry.load_extensions(...) │
+│ when callers register pack scalars │
 └─────────────────────────────────┘
  ↓
 ┌─────────────────────────────────┐
@@ -74,6 +88,9 @@ Datrix is a code generation system that transforms `.dtrx` domain specifications
 │ - datrix-codegen-python │
 │ - datrix-codegen-typescript │
 │ - datrix-codegen-sql │
+│ (language-owned maps merge core │
+│ + declared extensions, e.g. │
+│ build_python_type_map) │
 └─────────────────────────────────┘
  ↓
 ┌─────────────────────────────────┐
@@ -88,6 +105,8 @@ Generated Application
 ```
 
 The `datrix generate` command supports `--language`, `--hosting`, and `--platform` to override config-driven values for a single generation run. In the generation pipeline, overrides run in the `apply_cli_overrides` stage after config resolution and service filtering, and before `platform_validation`.
+
+**Pipeline stages (GenerationPipeline)** align with the diagram above: `parse` → `resolve_service_configs` → `analyze` (semantic) → `resolve_infrastructure_configs` → optional `apply_cli_overrides` → `platform_validation` → generator discovery and execution. Extension **directives** are recorded during parse; **registry** and **type-registry** integration run when the active code path invokes `PluginRegistry` / `TypeRegistry` APIs (see [Domain extension system](#domain-extension-system)). Language generators receive declared extension names via `declared_extension_names(app)` and merge per-language maps (for example `build_python_type_map` in `datrix-codegen-python`).
 
 ### Phase 01 capabilities (Python and Docker)
 
@@ -131,7 +150,7 @@ Cross-cutting behavior described here matches the **current** generators; see [c
 
 ## Repository Architecture
 
-The project is split into 11 packages plus the **datrix** showcase repo (docs, examples, scripts) and **datrix-projects** repo (private production projects). This structure provides clear boundaries, independent versioning/releases, selective installation, and per-repo CI/CD pipelines.
+The project is split into **twelve** installable packages (eleven core toolchain packages plus optional **datrix-extensions**), plus the **datrix** showcase repo (docs, examples, scripts) and **datrix-projects** repo (private production projects). This structure provides clear boundaries, independent versioning/releases, selective installation, and per-repo CI/CD pipelines.
 
 ### Core Repositories (2)
 
@@ -225,23 +244,36 @@ Command-line interface for code generation
 
 ---
 
+### Extension packs (optional)
+
+#### 12. datrix-extensions
+Optional package of **domain extension** entry points registered under the `datrix.extensions` group. Each pack contributes language-agnostic scalar definitions, builtin objects, database extension names (for example PostGIS), extra dependency hints, and optional template directories. **Language-specific type mappings** live in `datrix-codegen-python`, `datrix-codegen-typescript`, `datrix-codegen-sql`, not in the extension pack (split ownership).
+
+**Dependencies:**
+- `datrix-common` (protocols, types)
+
+**Installation:** Only required when a project’s `system.dtrx` declares `use extension <name>;`. Not a hard dependency of `datrix-cli` or the language generators.
+
+---
+
 ### Showcase (1)
 
-#### 12. datrix
+#### 13. datrix
 Public repository with documentation, examples, scripts, and tutorials.
 
 ---
 
 ## Plugin Architecture
 
-Generators are discovered dynamically via a plugin architecture using four entry-point groups:
+Generators and domain extensions are discovered dynamically via a plugin architecture using **five** entry-point groups:
 
 1. **Protocol-based plugins** — Generators implement `GeneratorPlugin` or `PlatformPlugin` protocols. **Language targets should subclass `LanguageGenerator`** (`datrix_common.generation.language_generator`): it provides shared orchestration (`generate()` is `@final`) while subclasses implement **nine abstract methods** (six domain + three infrastructure hooks). See [code-generation.md](../../../datrix-common/docs/architecture/code-generation.md#consolidated-generator-infrastructure) in datrix-common.
 2. **Cross-language types** — **`TypeMappingRegistry`** (`datrix_common.generation.type_mapping_registry`) validates that every canonical type from `TypeRegistry` is mapped in each registered language (`global_registry.register_language()` at import time).
 3. **Language-specific hooks** — Language packages implement `LanguageHooks` and `LanguageRuntimeSpec` protocols
-4. **Dynamic discovery** — CLI discovers plugins via entry points at runtime
-5. **Independent packages** — Each generator is a separate package that can be installed independently
-6. **Clear interfaces** — Protocols define exactly what generators must implement
+4. **Domain extensions** — Optional packs implement **`DatrixExtension`** (`datrix_common.plugin.extension`): discovered under `datrix.extensions`; extensions own definitions, language generators own mappings
+5. **Dynamic discovery** — CLI discovers plugins via entry points at runtime
+6. **Independent packages** — Each generator is a separate package that can be installed independently
+7. **Clear interfaces** — Protocols define exactly what generators must implement
 
 ### Entry Point Groups
 
@@ -251,8 +283,44 @@ Generators are discovered dynamically via a plugin architecture using four entry
 | `datrix.platforms` | Platform generators (Docker, K8s, AWS, Azure) | `PlatformPlugin` |
 | `datrix.language_hooks` | Post-generation hooks (formatting, validation) | `LanguageHooks` |
 | `datrix.language_runtime_spec` | Infrastructure details (Dockerfiles, healthchecks, migrations) | `LanguageRuntimeSpec` |
+| `datrix.extensions` | Domain extension packs (types, builtins, DB extension names, templates) | `DatrixExtension` |
 
-All protocols are defined in `datrix-common` (see `datrix_common.plugin.protocol`, `datrix_common.generation.language_hooks`, `datrix_common.generation.language_runtime_spec`). The CLI and pipeline discover installed plugins at runtime. Users only install the generators they need — no unused dependencies.
+All protocols are defined in `datrix-common` (see `datrix_common.plugin.protocol`, `datrix_common.plugin.extension`, `datrix_common.generation.language_hooks`, `datrix_common.generation.language_runtime_spec`). The CLI and pipeline discover installed plugins at runtime. Users only install the generators they need — no unused dependencies. Install **`datrix-extensions`** only when using `use extension` in `system.dtrx`.
+
+---
+
+## Domain extension system
+
+Domain-specific scalars, builtin objects, and infrastructure hints (for example PostGIS) can ship in **extension packs** instead of bloating `datrix-common`. Full rationale and examples: [DESIGN-DOMAIN-EXTENSIONS.md](../../../design/DESIGN-DOMAIN-EXTENSIONS.md) (repo root `design/`).
+
+### Split ownership
+
+| Layer | Owns |
+|-------|------|
+| Extension pack (`datrix.extensions`) | Language-agnostic scalar defs, builtin object types, `db_extensions()`, `extra_dependencies()`, `template_dirs()` |
+| Each language generator (`datrix-codegen-python`, …) | All **language-specific** type mappings for core **and** declared extensions (for example `PYTHON_EXTENSION_MAPS` + `build_python_type_map` in `datrix_codegen_python.type_mappings`) |
+
+Adding a new target language updates **one** codegen package with core maps plus whichever extension keys it supports. Adding a new extension updates the extension pack **and** each language generator that should support it.
+
+### Discovery and types
+
+- **`PluginRegistry.discover_extensions()`** — loads classes from the `datrix.extensions` entry-point group (`datrix_common.plugin.registry`).
+- **`PluginRegistry.load_declared_extensions(declared)`** — resolves names from `app.extension_directives` to `DatrixExtension` instances; raises **`ExtensionNotFoundError`** with install hints when a name is missing.
+- **`TypeRegistry.load_extensions(extensions)`** — registers extension scalar definitions into the shared type registry when callers supply loaded instances (`datrix_common.types.registry`).
+
+### DSL
+
+Projects enable packs in **`system.dtrx`** with:
+
+```datrix
+use extension geo;
+```
+
+(`use extension` must appear inside the `system { }` block; see `datrix_language` transformer validation.)
+
+### Pipeline integration
+
+The high-level flow is: **parse** records extension directives on the AST → **registry / type registry** APIs load and validate packs when invoked → **semantic analysis** and **generators** consume the resulting types and maps. Exact call ordering follows the implementation in `GenerationPipeline` and semantic analysis; language generation always receives declared names via `declared_extension_names(app)` (`datrix_common.generation.language_helpers`).
 
 ### Adding a New Language
 
@@ -275,6 +343,7 @@ Platform generators consume `LanguageRuntimeSpec` via protocol dispatch instead 
 graph TD
  A[datrix-common]
  B[datrix-language] --> A
+ L[datrix-extensions] --> A
  A --> CC[datrix-codegen-component]
  A --> D[datrix-codegen-python]
  A --> E[datrix-codegen-typescript]
@@ -298,6 +367,7 @@ graph TD
 **Legend:**
 - **datrix-common** (no dependencies) — Foundation and generation framework (AST model, type system, semantic analysis, config resolution, plugin protocols, pipeline)
 - **datrix-language** (depends on datrix-common) — Parser + CST-to-AST transformers
+- **datrix-extensions** (depends on datrix-common) — Optional domain packs; **not** required by `datrix-cli` or generators unless you declare `use extension` and install the pack
 - **Code Generators** (depend on datrix-common) — Python, TypeScript, SQL, component
 - **Platform Generators** (depend on datrix-common) — Docker, Kubernetes, AWS, Azure
 - **datrix-cli** (depends on datrix-common, datrix-language; discovers generator plugins dynamically)

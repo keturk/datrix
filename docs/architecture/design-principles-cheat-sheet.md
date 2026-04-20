@@ -9,6 +9,7 @@
 5. **Single Responsibility** -- One clear purpose per package/module.
 6. **Dependency Inversion** -- Depend on protocols, not concretions.
 7. **Explicit Over Implicit** -- No magic. All parameters explicit. Builtin traits are opt-in.
+8. **Domain extensions** -- `use extension <name>;` in `system.dtrx` (DSL). Packs own definitions (`DatrixExtension`); language generators own all per-language maps (`PYTHON_EXTENSION_MAPS` + `build_python_type_map`, etc.). Core stays lean; infra-heavy domain types move to packs.
 
 ## DSL vs YAML Boundary
 
@@ -18,6 +19,7 @@
 | Entity structure, validation rules | CORS origins, JWT secrets |
 | Service version, topology | Job schedules, retry/timeout defaults |
 | Computed fields, spec tests | Provider credentials, replica count |
+| **`use extension`** (which domain packs are enabled) | (not used for extension enablement) |
 
 ## Code Generation Principles
 
