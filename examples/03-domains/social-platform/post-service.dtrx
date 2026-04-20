@@ -194,27 +194,15 @@ service social.PostService : version('1.0.0'), description('post and content man
     pubsub mq('config/post-service/pubsub.yaml') {
 
         topic PostEvents {
-            publish PostPublished(UUID postId, UUID authorId, PostVisibility visibility) {
-                ensure postId != null;
-            }
-            publish PostUpdated(UUID postId, UUID authorId) {
-                ensure postId != null;
-            }
+            publish PostPublished(UUID postId, UUID authorId, PostVisibility visibility);
+            publish PostUpdated(UUID postId, UUID authorId);
             publish PostStatusChanged(UUID postId, UUID authorId, ContentStatus oldStatus, ContentStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
-            publish PostDeleted(UUID postId, UUID authorId) {
-                ensure postId != null;
-            }
-            publish CommentAdded(UUID commentId, UUID postId, UUID authorId) {
-                ensure postId != null;
-            }
-            publish PostLiked(UUID postId, UUID userId) {
-                ensure postId != null;
-            }
-            publish PostUnliked(UUID postId, UUID userId) {
-                ensure postId != null;
-            }
+            publish PostDeleted(UUID postId, UUID authorId);
+            publish CommentAdded(UUID commentId, UUID postId, UUID authorId);
+            publish PostLiked(UUID postId, UUID userId);
+            publish PostUnliked(UUID postId, UUID userId);
         }
 
         subscribe PostEvents {
@@ -245,6 +233,26 @@ service social.PostService : version('1.0.0'), description('post and content man
 
             on PostLiked(UUID postId, UUID userId) {
                 // Update trending score when a post is liked
+                #Post? post = postDb.Post.find(postId);
+                if (post != null) {
+                    #Int score = post.likeCount + post.commentCount * 2;
+                    redis.TrendingPosts.add(postId, score);
+                }
+            }
+
+            on PostUpdated(UUID postId, UUID authorId) {
+                Log.info("Post content updated", { postId: postId, authorId: authorId });
+                redis.PostCache.delete(postId);
+            }
+
+            on PostDeleted(UUID postId, UUID authorId) {
+                Log.info("Post deleted", { postId: postId, authorId: authorId });
+                redis.PostCache.delete(postId);
+                redis.TrendingPosts.remove(postId);
+            }
+
+            on PostUnliked(UUID postId, UUID userId) {
+                // Update trending score when post is unliked
                 #Post? post = postDb.Post.find(postId);
                 if (post != null) {
                     #Int score = post.likeCount + post.commentCount * 2;

@@ -1,4 +1,0 @@
-from ecommerce_product_service.models.db.base_entity import BaseEntity
-from ecommerce_product_service.models.db.category import Category
-from ecommerce_product_service.models.db.inventory_reservation import InventoryReservation
-from ecommerce_product_service.models.db.product import Product

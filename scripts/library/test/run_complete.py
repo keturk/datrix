@@ -2080,17 +2080,21 @@ Examples:
     print_info(f"Working Directory: {paths['datrix_root']}")
     print_info("=" * 60)
 
-    # Track failures but continue through all steps
+    # Track failures. Steps 3–4 run only if every non-skipped step among 1–2 succeeded.
     failed_steps = []
 
     try:
+        step1_failed = False
+        step2_failed = False
+
         if args.Skip1:
             print_step(1, "Syntax Checker")
             print_warning("Skipping Step 1 as requested (-Skip1 flag)")
         else:
             if not step1_syntax_checker(paths):
-                print_warning("Step 1 failed. Continuing to next step...")
+                print_warning("Step 1 failed; Steps 3 and 4 will be skipped.")
                 failed_steps.append("Step 1: Syntax Checker")
+                step1_failed = True
 
         if args.Skip2:
             print_step(2, "Code Generation")
@@ -2107,12 +2111,18 @@ Examples:
                 args.hosting,
                 skip_install=args.skip_install,
             ):
-                print_warning("Step 2 failed. Continuing to next step...")
+                print_warning("Step 2 failed; Steps 3 and 4 will be skipped.")
                 failed_steps.append("Step 2: Code Generation")
+                step2_failed = True
+
+        early_steps_failed = step1_failed or step2_failed
 
         if args.Skip3:
             print_step(3, "Run Unit Tests for Generated Projects")
             print_warning("Skipping Step 3 as requested (-Skip3 flag)")
+        elif early_steps_failed:
+            print_step(3, "Run Unit Tests for Generated Projects")
+            print_warning("Skipping Step 3 (not run; Step 1 or Step 2 failed).")
         else:
             if not step3_run_unit_tests(
                 args.All,
@@ -2122,12 +2132,15 @@ Examples:
                 args.language,
                 args.platform,
             ):
-                print_warning("Step 3 failed. Continuing to next step...")
+                print_warning("Step 3 failed. Continuing to Step 4...")
                 failed_steps.append("Step 3: Unit Tests")
 
         if args.Skip4:
             print_step(4, "Run Deployment Tests (Spec + Integration) for Generated Projects")
             print_warning("Skipping Step 4 as requested (-Skip4 flag)")
+        elif early_steps_failed:
+            print_step(4, "Run Deployment Tests (Spec + Integration) for Generated Projects")
+            print_warning("Skipping Step 4 (not run; Step 1 or Step 2 failed).")
         else:
             if not step4_run_deployment_tests(
                 args.All,

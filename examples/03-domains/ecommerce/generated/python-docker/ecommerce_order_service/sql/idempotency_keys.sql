@@ -1,2 +1,0 @@
-CREATE TABLE "idempotency_keys" (
-    "id" UUID NOT NULL DEFAULT gen_random_uuid(),    "created_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,    "updated_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,    "key" VARCHAR(100) NOT NULL,    "operation" VARCHAR(50) NOT NULL,    "resource_id" UUID,    "response" JSONB,    "expires_at" TIMESTAMP NOT NULL,    CONSTRAINT pk_idempotency_keys PRIMARY KEY (id),    CONSTRAINT uq_idempotency_keys_key UNIQUE (key));

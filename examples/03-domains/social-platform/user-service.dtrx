@@ -175,6 +175,18 @@ service social.UserService : version('1.0.0'), description('user management and 
                 // Invalidate cache on status change
                 redis.UserProfileCache.delete(userId);
             }
+
+            on UserUnfollowed(UUID followerId, UUID followeeId) {
+                Log.info("User unfollowed", { followerId: followerId, followeeId: followeeId });
+                // Invalidate caches for both users (follower/following counts changed)
+                redis.UserProfileCache.delete(followerId);
+                redis.UserProfileCache.delete(followeeId);
+            }
+
+            on UserProfileUpdated(UUID userId, String displayName) {
+                Log.info("User profile updated", { userId: userId, displayName: displayName });
+                redis.UserProfileCache.delete(userId);
+            }
         }
     }
 
