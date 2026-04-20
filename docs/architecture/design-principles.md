@@ -362,6 +362,28 @@ entity User extends BaseEntity {
 
 ---
 
+### 7. Domain extensions and core boundary
+
+**Principle:** Domain-specific types, builtin functions, and database extension requirements that need **special infrastructure or runtime dependencies** belong in **optional extension packs** (`datrix.extensions`), not in `datrix-common`. Declaring a pack is a **behavioral** choice and belongs in the DSL.
+
+**Why:**
+- Keeps the core type system and generators maintainable as domains diverge (geo, timeseries, fintech, etc.)
+- Avoids forcing every language generator to map types a given project never uses
+- Preserves clear ownership: packs ship language-agnostic definitions; each **language generator** owns all mappings for core **and** supported extensions (split ownership)
+
+**Application:**
+
+| Concern | Owner |
+|---------|--------|
+| Scalar defs, builtin objects, `db_extensions()`, extra deps, templates | Extension pack implementing `DatrixExtension` |
+| Python / TypeScript / SQL type and ORM mappings | `datrix-codegen-python`, `datrix-codegen-typescript`, `datrix-codegen-sql` |
+
+Enable packs in **`system.dtrx`** with `use extension <name>;` (not YAML). Exhaustive mapping rules still apply: unknown extension keys or unmapped types **fail at generation time** with explicit errors (for example `ExtensionNotSupportedError` from `build_python_type_map` when Python has no map for a declared extension).
+
+**See also:** [DESIGN-DOMAIN-EXTENSIONS.md](../../../design/DESIGN-DOMAIN-EXTENSIONS.md) and [Architecture Overview — Domain extension system](./architecture-overview.md#domain-extension-system).
+
+---
+
 ## Code Generation Principles
 
 ### Specification-level verification
@@ -411,7 +433,7 @@ Datrix design principles ensure:
 2. **Type Safety** - Exhaustive mappings, no implicit conversions
 3. **Maintainability** - Template-based generation, single responsibility, immutable AST model
 4. **Developer Experience** - Clear errors, readable code, helpful messages
-5. **Language Quality** - Platform-independent, DRY, progressive disclosure, configuration boundary
+5. **Language Quality** - Platform-independent, DRY, progressive disclosure, configuration boundary, domain extension boundary
 6. **Code Quality** - Idiomatic, no dead code, readable output
 
 These principles guide all architectural and implementation decisions in the Datrix project.

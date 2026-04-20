@@ -1,6 +1,7 @@
 
 // Include service definitions from other source files
 include 'book-service.dtrx';
+include 'member-service.dtrx';
 
 // The system block is the top-level container that groups services
 // and defines shared infrastructure configuration
