@@ -189,6 +189,14 @@ Datrix is built on proven software engineering principles that ensure:
 
 ## Language Design Principles
 
+### Contextual keywords and server-managed fields
+
+**Server-managed fields** are marked with the **`server`** modifier in the field’s modifier list (for example `UUID id : primaryKey, server = uuid();`). The old **`@Type fieldName`** form for system-populated fields was **removed**; there is no parallel syntax or deprecation period (see [DESIGN-DSL-SYNTAX-EXTENSIONS.md](../../../design/DESIGN-DSL-SYNTAX-EXTENSIONS.md), tier 1A).
+
+**REST endpoint decorators** (`@retry`, `@rateLimit`, `@cache`, …) are unrelated: they stay **`@`-prefixed** on endpoints inside `rest_api` blocks.
+
+**Contextual keywords:** Identifiers such as `server`, `unique`, and `indexed` are recognized in **modifier position** after `:` on a field (and similar grammatical slots), not as a large set of global reserved words. This keeps the grammar readable while avoiding arbitrary name shadowing outside those positions.
+
 ### 1. Platform Independence
 
 **Principle:** DSL code should be platform-agnostic.
@@ -199,9 +207,9 @@ Datrix is built on proven software engineering principles that ensure:
 service library.BookService : version('1.0.0') {
  rdbms db('config/book-service/datasources.yaml') {
  abstract entity BaseEntity {
- @UUID id : primaryKey = uuid();
- @UDateTime createdAt = utcNow();
- @UDateTime updatedAt = utcNow();
+ UUID id : primaryKey, server = uuid();
+ UDateTime createdAt : server = utcNow();
+ UDateTime updatedAt : server = utcNow();
  }
  entity Book extends BaseEntity {
  String(200) title;
@@ -234,9 +242,9 @@ service library.BookService : version('1.0.0') {
 **Inheritance:** (inside an rdbms block; see [examples/01-foundation](../../examples/01-foundation/))
 ```datrix
 abstract entity BaseEntity {
- @UUID id : primaryKey = uuid();
- @UDateTime createdAt = utcNow();
- @UDateTime updatedAt = utcNow();
+ UUID id : primaryKey, server = uuid();
+ UDateTime createdAt : server = utcNow();
+ UDateTime updatedAt : server = utcNow();
 }
 
 // Inherit everywhere - no repetition

@@ -6,7 +6,7 @@ module library.common {
 
     // Abstract entities defined here are shared across all services that import them
     abstract entity BaseEntity with Timestampable {
-        @UUID id : primaryKey = uuid();
+        UUID id : primaryKey, server = uuid();
     }
 
     // Structs can contain semantic types and define functions

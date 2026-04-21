@@ -174,6 +174,9 @@ The project is split into **twelve** installable packages (eleven core toolchain
 **Responsibilities:**
 - Parsing .dtrx files (Tree-sitter grammar, lexer, parser)
 - CST-to-AST transformers that produce `Application` objects (defined in `datrix-common`)
+- **Server-managed fields** via the **`server`** field modifier (for example `UUID id : primaryKey, server = uuid();`, `DateTime createdAt : server = now();`) — not a `@` prefix on the type
+- **Custom exception catalogs** via `exceptions { … }` blocks on `module` and `service`
+- **User-defined scalars** via `scalar Name : BaseType { … }` on `module` and `service` (constrained aliases; distinct from extension-pack scalars — see [DESIGN-DSL-SYNTAX-EXTENSIONS.md](../../../design/DESIGN-DSL-SYNTAX-EXTENSIONS.md))
 
 **Key Insight:** The parser + transformers produce `Application` directly. There is no separate IR layer. The `Application` model and all AST types are defined in `datrix-common`; datrix-language imports them.
 

@@ -18,7 +18,7 @@ service healthcare.PatientService : version('1.0.0'), description('patient manag
 
     // Structs for API request/response payloads
     struct PatientSummary {
-        @UUID id;
+        UUID id : server;
         String mrn;
         String fullName;
         Date dateOfBirth;

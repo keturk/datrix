@@ -118,7 +118,7 @@ def _generate_specs(
         for service in app.services.values():
             for api_name, rest_api in service.rest_apis.items():
                 try:
-                    spec = build_openapi_spec(service, rest_api)
+                    spec = build_openapi_spec(service, rest_api, app)
                     sname = ServicePaths(service.name).simple_name
                     spec_path = output_path / "docs" / "openapi" / f"{sname}.yaml"
                     _write_yaml(spec, spec_path)

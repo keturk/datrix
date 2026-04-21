@@ -4,9 +4,9 @@ module hr.common {
 
     // Abstract entities provide reusable field definitions; they don't generate tables
     abstract entity BaseEntity {
-        @UUID id : primaryKey = uuid();
-        @DateTime createdAt = now();
-        @DateTime updatedAt = now();
+        UUID id : primaryKey, server = uuid();
+        DateTime createdAt : server = now();
+        DateTime updatedAt : server = now();
     }
 
     // Extends BaseEntity with audit tracking fields

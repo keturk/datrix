@@ -264,8 +264,8 @@ service library.BookService : version('1.0.0'), description('book management ser
     rdbms reporting('config/book-service/reporting-db.yaml') {
 
         abstract entity BaseReportEntity {
-            @UUID id : primaryKey = uuid();
-            @DateTime createdAt = now();
+            UUID id : primaryKey, server = uuid();
+            DateTime createdAt : server = now();
         }
 
         // Audit log records every significant change for compliance tracking
@@ -275,7 +275,7 @@ service library.BookService : version('1.0.0'), description('book management ser
             String(100)? performedBy;
             // JSON type stores arbitrary structured data
             JSON? changes;
-            @DateTime occurredAt = now();
+            DateTime occurredAt : server = now();
 
             // Composite index for efficient time-range queries per book
             index(bookId, occurredAt);
@@ -288,7 +288,7 @@ service library.BookService : version('1.0.0'), description('book management ser
             Int totalReturns = 0;
             Int newBooks = 0;
             Int activeMembers = 0;
-            @DateTime generatedAt = now();
+            DateTime generatedAt : server = now();
         }
     }
 
@@ -412,7 +412,7 @@ service library.BookService : version('1.0.0'), description('book management ser
         // 'view' defines a read-optimized data model for queries
         // 'refreshOn(events...)' automatically refreshes the view when listed events occur
         view BookCatalogView : refreshOn(BookAdded, BookStatusChanged) {
-            @UUID id : primaryKey;
+            UUID id : primaryKey, server;
             String title;
             String author;
             Int publicationYear;
@@ -557,7 +557,7 @@ service library.BookService : version('1.0.0'), description('book management ser
             UUID memberId : index;
             Int rating;
             Text? review;
-            @DateTime createdAt = now();
+            DateTime createdAt : server = now();
 
             index(bookId, createdAt);
         }

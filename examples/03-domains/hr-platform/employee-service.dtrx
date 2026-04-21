@@ -224,7 +224,7 @@ service hr.EmployeeService : version('1.0.0'), description('employee management 
     // CQRS block for optimized read queries
     cqrs {
         view EmployeeDirectoryView {
-            @UUID id : primaryKey;
+            UUID id : primaryKey, server;
             UUID employeeId;
             String fullName;
             String email;

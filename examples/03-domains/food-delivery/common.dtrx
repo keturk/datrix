@@ -2,9 +2,9 @@
 module fooddelivery.common {
 
     abstract entity BaseEntity {
-        @UUID id : primaryKey = uuid();
-        @DateTime createdAt = now();
-        @DateTime updatedAt = now();
+        UUID id : primaryKey, server = uuid();
+        DateTime createdAt : server = now();
+        DateTime updatedAt : server = now();
     }
 
     struct DeliveryAddress {
