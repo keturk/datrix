@@ -24,9 +24,9 @@ service library.MemberService : version('1.0.0'), description('member management
     rdbms memberDb('config/member-service/datasources.yaml') {
 
         abstract entity BaseEntity {
-            @UUID id : primaryKey = uuid();
-            @DateTime createdAt = now();
-            @DateTime updatedAt = now();
+            UUID id : primaryKey, server = uuid();
+            DateTime createdAt : server = now();
+            DateTime updatedAt : server = now();
         }
 
         entity Member extends BaseEntity {

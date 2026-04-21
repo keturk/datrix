@@ -59,6 +59,19 @@ Design reference: [DESIGN-DOMAIN-EXTENSIONS.md](../../../design/DESIGN-DOMAIN-EX
 - Prometheus metrics, Grafana dashboards, cAdvisor, alert rules
 - Multi-service NGINX gateway (upstreams, health aliases, CORS, rate limit zones)
 
+## DSL grammar snapshot (`.dtrx`)
+
+High-level constructs the parser and transformers understand today. Full detail: [language-reference.md](../reference/language-reference.md) and [DESIGN-DSL-SYNTAX-EXTENSIONS.md](../../../design/DESIGN-DSL-SYNTAX-EXTENSIONS.md).
+
+| Layer | Constructs |
+|-------|------------|
+| File structure | `include`, `from X import Y`, `system`, `module`, `service` |
+| Declarations | `entity`, `abstract entity`, `trait`, `enum`, `struct`, `const`, `fn` |
+| Field features | Types, optional (`?`), sized (`String(200)`), collections (`Array<T>`, `Map<K,V>`, `Set<T>`), modifiers (`: unique, indexed, immutable, server, …`), defaults (`= expr`). **Server-managed fields** use the **`server`** modifier (e.g. `UUID id : primaryKey, server = uuid();`) — there is **no** `@` prefix on field types. |
+| Catalog types | Module- or service-level **`scalar Name : BaseType { constraints… }`** for constrained aliases on existing types |
+| Errors | Module- or service-level **`exceptions { … }`** with `Name : status(N), message("…");` and optional structured fields |
+| REST (unchanged) | Endpoint decorators such as **`@retry`**, **`@rateLimit`**, **`@cache`** remain **`@`-prefixed**; that is separate from field modifiers |
+
 ## Technology
 
 Python 3.11+, Tree-sitter, Pydantic v2, Jinja2, ruff/Prettier, mypy strict, pytest.

@@ -28,11 +28,11 @@ service library.BookService : version('1.0.0'), description('book management ser
 
         // Abstract entities provide reusable field definitions; they don't generate tables
         abstract entity BaseEntity {
-            // @UUID is a semantic type; 'primaryKey' marks the PK; uuid() generates a default
-            @UUID id : primaryKey = uuid();
-            // @DateTime is a datetime type; now() sets the default to current time
-            @DateTime createdAt = now();
-            @DateTime updatedAt = now();
+            // UUID is a semantic type; 'primaryKey' marks the PK; uuid() generates a default
+            UUID id : primaryKey, server = uuid();
+            // DateTime holds timestamps; now() sets the default; : server marks system-populated fields
+            DateTime createdAt : server = now();
+            DateTime updatedAt : server = now();
         }
 
         entity Category extends BaseEntity {

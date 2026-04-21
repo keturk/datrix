@@ -16,9 +16,9 @@ service library.BookService : version('1.0.0'), description('Advanced query oper
 
     rdbms bookDb('config/book-service/datasources.yaml') {
         abstract entity BaseEntity {
-            @UUID id : primaryKey = uuid();
-            @DateTime createdAt = now();
-            @DateTime updatedAt = now();
+            UUID id : primaryKey, server = uuid();
+            DateTime createdAt : server = now();
+            DateTime updatedAt : server = now();
         }
 
         entity Category extends BaseEntity {

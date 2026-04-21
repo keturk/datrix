@@ -88,9 +88,9 @@ service library.BookService : version('1.0.0'), description('Book management ser
     rdbms bookDb('config/book-service/datasources.yaml') {
 
         abstract entity BaseEntity {
-            @UUID id : primaryKey = uuid();
-            @UDateTime createdAt = utcNow();
-            @UDateTime updatedAt = utcNow();
+            UUID id : primaryKey, server = uuid();
+            UDateTime createdAt : server = utcNow();
+            UDateTime updatedAt : server = utcNow();
         }
 
         entity Book extends BaseEntity {
@@ -111,6 +111,7 @@ service library.BookService : version('1.0.0'), description('Book management ser
 
 ### Field attributes (short list)
 
+- **`server`** — server-managed field (system-populated; not accepted on create/update APIs). Use `Type name : server` or combine with other modifiers (for example `UUID id : primaryKey, server = uuid();`).
 - **`trim`** — trim string input.
 - **`unique`** — unique constraint.
 - **`index`** — index (including FKs).

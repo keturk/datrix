@@ -21,9 +21,9 @@ service library.LoanService : version('1.0.0'), description('loan management ser
     rdbms loanDb('config/loan-service/datasources.yaml') {
 
         abstract entity BaseEntity {
-            @UUID id : primaryKey = uuid();
-            @DateTime createdAt = now();
-            @DateTime updatedAt = now();
+            UUID id : primaryKey, server = uuid();
+            DateTime createdAt : server = now();
+            DateTime updatedAt : server = now();
         }
 
         entity Loan extends BaseEntity {

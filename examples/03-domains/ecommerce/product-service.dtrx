@@ -258,7 +258,7 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
             Text? body;
             JSON? media;
             Boolean verified = false;
-            @DateTime createdAt = now();
+            DateTime createdAt : server = now();
 
             // Compound indexes for query performance
             index(productId, createdAt);

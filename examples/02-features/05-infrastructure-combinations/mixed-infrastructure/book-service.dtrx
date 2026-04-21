@@ -27,9 +27,9 @@ service library.BookService : version('1.0.0'), description('Book management ser
 
         // Abstract entities provide reusable field definitions; they don't generate tables
         abstract entity BaseEntity {
-            @UUID id : primaryKey = uuid();
-            @DateTime createdAt = now();
-            @DateTime updatedAt = now();
+            UUID id : primaryKey, server = uuid();
+            DateTime createdAt : server = now();
+            DateTime updatedAt : server = now();
         }
 
         // Primary book data in relational storage
@@ -47,7 +47,7 @@ service library.BookService : version('1.0.0'), description('Book management ser
         collection ReadingHistory {
             UUID userId : index;
             UUID bookId : index;
-            @DateTime startedAt = now();
+            DateTime startedAt : server = now();
             Int pagesRead;
             // JSON type stores arbitrary structured data without a fixed schema
             JSON metadata;
@@ -63,7 +63,7 @@ service library.BookService : version('1.0.0'), description('Book management ser
         hash BookViewCache : prefix('bookview:'), ttl(300) {
             UUID bookId : key;
             Int viewCount;
-            @DateTime lastViewed;
+            DateTime lastViewed : server;
         }
     }
 

@@ -316,6 +316,7 @@ List<String> tags;                          // Array/list field
 
 | Modifier | Applies To | Effect |
 |----------|------------|--------|
+| `server` | Any field | Server-managed: excluded from create/update API input; value from server defaults / hooks |
 | `primaryKey` | UUID, Integer | Primary key constraint |
 | `unique` | Any field | Unique constraint |
 | `index` | Any field, relationships | Database index for faster lookups |
@@ -330,19 +331,19 @@ List<String> tags;                          // Array/list field
 
 ### Server-Managed Fields
 
-Prefix a field with `@` to mark it as server-managed (not accepted in API input):
+Add the **`server`** modifier to a field’s modifier list to mark it as server-managed (not accepted in API input on create/update):
 
 ```dtrx
 entity Order {
-    @UUID id : primaryKey = uuid();        // Server generates on create
-    @DateTime createdAt = now();           // Server sets on create
-    @DateTime updatedAt = now();           // Server updates on save
+    UUID id : primaryKey, server = uuid();        // Server generates on create
+    DateTime createdAt : server = now();           // Server sets on create
+    DateTime updatedAt : server = now();           // Server updates on save
     String(200) customerName : trim;       // Client provides
 }
 ```
 
 **API behavior:**
-- `@` fields excluded from Create/Update request schemas
+- **`server`** fields are excluded from Create/Update request schemas
 - Always included in response schemas
 - Values set by server, not client
 
@@ -566,8 +567,8 @@ module ecommerce.common {
     }
 
     trait Timestamped {
-        @DateTime createdAt = now();
-        @DateTime updatedAt = now();
+        DateTime createdAt : server = now();
+        DateTime updatedAt : server = now();
     }
 }
 ```
@@ -591,7 +592,7 @@ Abstract entities provide base fields and cannot be instantiated directly.
 ```dtrx
 module ecommerce.common {
     abstract entity BaseEntity with Timestamped {
-        @UUID id : primaryKey = uuid();
+        UUID id : primaryKey, server = uuid();
         // Inherits: createdAt, updatedAt from Timestamped
     }
 }
@@ -619,7 +620,7 @@ entity User extends BaseEntity {
 
 ```dtrx
 abstract entity BaseEntity {
-    @UUID id : primaryKey = uuid();
+    UUID id : primaryKey, server = uuid();
 }
 
 abstract entity DomainEntity extends BaseEntity with Timestamped {
@@ -1439,9 +1440,9 @@ async listOrders(@TenantId() tenantId: string) {
 
 ```dtrx
 abstract entity BaseEntity {
-    @UUID id : primaryKey = uuid();
-    @DateTime createdAt = now();
-    @DateTime updatedAt = now();
+    UUID id : primaryKey, server = uuid();
+    DateTime createdAt : server = now();
+    DateTime updatedAt : server = now();
 }
 
 // All entities extend BaseEntity
@@ -1468,9 +1469,9 @@ entity Order extends BaseEntity with Auditable, SoftDeletable { ... }
 
 ```dtrx
 entity Order {
-    @UUID id : primaryKey = uuid();        // Server generates
-    @DateTime createdAt = now();           // Server sets
-    @DateTime updatedAt = now();           // Server updates
+    UUID id : primaryKey, server = uuid();        // Server generates
+    DateTime createdAt : server = now();           // Server sets
+    DateTime updatedAt : server = now();           // Server updates
     String customerName : trim;            // Client provides
 }
 ```

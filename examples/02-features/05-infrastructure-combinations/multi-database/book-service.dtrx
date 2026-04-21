@@ -108,7 +108,7 @@ service library.BookService : version('1.0.0'), description('book management ser
 
         // Abstract entities provide reusable field definitions; they don't generate tables
         abstract entity BaseEntity with Timestampable {
-            @UUID id : primaryKey = uuid();
+            UUID id : primaryKey, server = uuid();
         }
 
         entity Category extends BaseEntity {
@@ -300,8 +300,8 @@ service library.BookService : version('1.0.0'), description('book management ser
     rdbms reporting('config/book-service/reporting-db.yaml') {
 
         abstract entity BaseReportEntity {
-            @UUID id : primaryKey = uuid();
-            @DateTime createdAt = now();
+            UUID id : primaryKey, server = uuid();
+            DateTime createdAt : server = now();
         }
 
         // Audit log entity records every significant action for compliance/analytics
@@ -311,7 +311,7 @@ service library.BookService : version('1.0.0'), description('book management ser
             String(100)? performedBy;
             // 'JSON' type stores arbitrary change data without a fixed schema
             JSON? changes;
-            @DateTime occurredAt = now();
+            DateTime occurredAt : server = now();
 
             // Composite index for time-range queries per book
             index(bookId, occurredAt);
@@ -324,7 +324,7 @@ service library.BookService : version('1.0.0'), description('book management ser
             Int totalReturns = 0;
             Int newBooks = 0;
             Int activeMembers = 0;
-            @DateTime generatedAt = now();
+            DateTime generatedAt : server = now();
         }
     }
 
@@ -434,7 +434,7 @@ service library.BookService : version('1.0.0'), description('book management ser
         // 'view' defines a read-optimized data model for queries
         // Views are denormalized projections of entity data
         view BookCatalogView {
-            @UUID id : primaryKey;
+            UUID id : primaryKey, server;
             String title;
             String author;
             Int publicationYear;
@@ -592,7 +592,7 @@ service library.BookService : version('1.0.0'), description('book management ser
             UUID memberId : index;
             Int rating;
             Text? review;
-            @DateTime createdAt = now();
+            DateTime createdAt : server = now();
 
             index(bookId, createdAt);
         }

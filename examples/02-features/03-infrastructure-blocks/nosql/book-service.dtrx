@@ -54,9 +54,9 @@ service library.BookService : version('1.0.0'), description('book management ser
 
         // Abstract entities provide reusable field definitions; they don't generate tables
         abstract entity BaseEntity {
-            @UUID id : primaryKey = uuid();
-            @DateTime createdAt = now();
-            @DateTime updatedAt = now();
+            UUID id : primaryKey, server = uuid();
+            DateTime createdAt : server = now();
+            DateTime updatedAt : server = now();
         }
 
         entity Category extends BaseEntity {
@@ -231,7 +231,7 @@ service library.BookService : version('1.0.0'), description('book management ser
         // 'view' defines a read-optimized data model for queries
         // Views are denormalized projections of entity data
         view BookCatalogView {
-            @UUID id : primaryKey;
+            UUID id : primaryKey, server;
             String title;
             String author;
             Int publicationYear;
@@ -339,7 +339,7 @@ service library.BookService : version('1.0.0'), description('book management ser
             Int rating;
             // 'Text' is an unbounded string type for long-form content
             Text? review;
-            @DateTime createdAt = now();
+            DateTime createdAt : server = now();
 
             index(bookId, createdAt);
         }

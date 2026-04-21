@@ -5,7 +5,7 @@ module library.common {
 
     // Abstract entities provide reusable field definitions; they don't generate tables
     abstract entity BaseEntity with Timestampable {
-        @UUID id : primaryKey = uuid();
+        UUID id : primaryKey, server = uuid();
     }
 
     // Structs define reusable value objects (not database entities)

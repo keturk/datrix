@@ -32,9 +32,9 @@ This guide covers common patterns, best practices, and anti-patterns based on re
 
 ```dtrx
 abstract entity BaseEntity {
-    @UUID id : primaryKey = uuid();
-    @DateTime createdAt = now();
-    @DateTime updatedAt = now();
+    UUID id : primaryKey, server = uuid();
+    DateTime createdAt : server = now();
+    DateTime updatedAt : server = now();
 }
 
 entity User extends BaseEntity {
@@ -577,7 +577,7 @@ entity OrderEvent extends BaseEntity {
     UUID orderId : index;
     String eventType : index;
     JSON eventData;
-    @DateTime occurredAt = now();
+    DateTime occurredAt : server = now();
 }
 
 entity Order {
@@ -1277,9 +1277,9 @@ entity Product {
 
 ```dtrx
 abstract entity BaseEntity {
-    @UUID id : primaryKey = uuid();
-    @DateTime createdAt = now();
-    @DateTime updatedAt = now();
+    UUID id : primaryKey, server = uuid();
+    DateTime createdAt : server = now();
+    DateTime updatedAt : server = now();
 }
 
 entity User extends BaseEntity {

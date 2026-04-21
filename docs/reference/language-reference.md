@@ -24,7 +24,7 @@ system ecommerce : version('1.0.0') {
 | Block | Cardinality | Purpose |
 |-------|-------------|---------|
 | `system` | Exactly one per application | Global infrastructure: gateway, observability, service registry |
-| `module` | Multiple | Shared code: traits, abstract entities, enums, structs, constants |
+| `module` | Multiple | Shared code: traits, abstract entities, enums, structs, constants, `exceptions`, `scalar` |
 | `service` | Multiple | Business logic + owned infrastructure |
 
 Multiple files can contribute to the same service — the compiler merges them automatically.
@@ -307,9 +307,9 @@ module ecommerce.common {
     }
 
     abstract entity BaseEntity {
-        @UUID id : primaryKey = uuid();
-        @DateTime createdAt = now();
-        @DateTime updatedAt = now();
+        UUID id : primaryKey, server = uuid();
+        DateTime createdAt : server = now();
+        DateTime updatedAt : server = now();
     }
 }
 ```
@@ -320,17 +320,19 @@ Modules provide reusable traits, abstract entities, enums, and structs that can 
 
 ## Decorators and Modifiers
 
-**Decorators** (`@name`) apply to functions:
+**Decorators** (`@name`) apply to DSL functions and to REST endpoints (for example `@retry`, `@rateLimit` on a `rest_api` operation). They are **not** used for server-managed entity fields — those use the **`server`** modifier on the field instead (see below).
 
 ```dtrx
 @authorize @cache(ttl: 60s)
 fn getUser(UUID id) -> User { ... }
 ```
 
-**Modifiers** (`: name`) apply to fields and declarations:
+**Modifiers** (`: name, …`) apply to fields and declarations. **`server`** marks a field as server-managed (populate from server defaults / hooks, excluded from client create/update payloads):
 
 ```dtrx
 String email : unique, index, trim;
+UUID id : primaryKey, server = uuid();
+DateTime createdAt : server = now();
 UUID authorId -> db.Author : cascade(delete);
 resource db.Order : only(list, get), access(admin);
 ```
@@ -371,6 +373,53 @@ Key features:
 - **Cross-block** — Tests can reference entities from any `rdbms` block in the same service
 
 Transpiles to pytest (Python) or Jest (TypeScript) under `tests/spec/` / `test/spec/`. See the [Spec Testing Guide](../guide/spec-testing.md) for full syntax and best practices.
+
+---
+
+## Exceptions catalog
+
+Declare domain-specific errors with HTTP status codes on **`module`** or **`service`**. Each entry can include `status(N)`, optional `message("…")`, and optional structured fields in `{ … }`.
+
+```dtrx
+module ecommerce.common {
+    exceptions {
+        InvalidCurrencyError : status(400), message("Unsupported currency code");
+    }
+}
+
+service ecommerce.OrderService : version('1.0.0') {
+    exceptions {
+        OrderExpiredError : status(410), message("Order has expired and cannot be modified");
+        InsufficientStockError : status(409), message("Not enough stock available") {
+            Int availableStock;
+            Int requestedQuantity;
+        }
+    }
+}
+```
+
+Design and semantics: [DESIGN-DSL-SYNTAX-EXTENSIONS.md](../../../design/DESIGN-DSL-SYNTAX-EXTENSIONS.md) (section 2C).
+
+---
+
+## Custom scalar types
+
+Define constrained aliases on top of existing primitive or domain types inside **`module`** or **`service`**. Use the new scalar name as a field type elsewhere in the module/service.
+
+```dtrx
+module aviation.common {
+    scalar Altitude : Float {
+        min(0);
+        max(60000);
+    }
+
+    scalar IataCode : String(3) {
+        pattern("[A-Z]{3}");
+    }
+}
+```
+
+These differ from **extension-pack** scalars (declared via `use extension` and `DatrixExtension`): packs add wholly new types with per-language maps; custom scalars are aliases with constraints. See [DESIGN-DSL-SYNTAX-EXTENSIONS.md](../../../design/DESIGN-DSL-SYNTAX-EXTENSIONS.md) (section 2D) and [DESIGN-DOMAIN-EXTENSIONS.md](../../../design/DESIGN-DOMAIN-EXTENSIONS.md).
 
 ---
 
