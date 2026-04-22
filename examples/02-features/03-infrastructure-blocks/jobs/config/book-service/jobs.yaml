@@ -31,7 +31,6 @@ production:
       timeout: 600s
       retries: 3
       concurrency: 1
-      alertOnFailure: true
     RefreshBookCache:
       schedule: "0 */6 * * *"
       timeout: 300s

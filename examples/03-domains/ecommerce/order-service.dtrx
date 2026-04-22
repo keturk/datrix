@@ -511,18 +511,23 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
     }
 
     test("validation rejects order with no items") {
+        // First order.save() only refreshes (service create already committed).
+        // Second order.save() runs OrderService.update(..., OrderUpdate()) so
+        // _validate(..., include_collections=True) can reject zero line items.
+        #orderDb.Order order = orderDb.Order.create({
+            customerId: uuid(),
+            orderNumber: "ORD-SPEC-002",
+            subtotal: Money.of(50.00, Currency.USD),
+            tax: Money.of(5.00, Currency.USD),
+            shippingCost: Money.of(5.00, Currency.USD),
+            discount: Money.of(0.00, Currency.USD),
+            shippingAddress: { street: "456 Oak Ave", city: "Shelbyville", state: "IL", zipCode: "62565", country: "US" },
+            billingAddress: { street: "456 Oak Ave", city: "Shelbyville", state: "IL", zipCode: "62565", country: "US" },
+            inventoryReservationId: uuid()
+        });
+        order.save();
         assert throws(
-            () => orderDb.Order.create({
-                customerId: uuid(),
-                orderNumber: "ORD-SPEC-002",
-                subtotal: Money.of(50.00, Currency.USD),
-                tax: Money.of(5.00, Currency.USD),
-                shippingCost: Money.of(5.00, Currency.USD),
-                discount: Money.of(0.00, Currency.USD),
-                shippingAddress: { street: "456 Oak Ave", city: "Shelbyville", state: "IL", zipCode: "62565", country: "US" },
-                billingAddress: { street: "456 Oak Ave", city: "Shelbyville", state: "IL", zipCode: "62565", country: "US" },
-                inventoryReservationId: uuid()
-            }),
+            () => order.save(),
             ValidationError("Order must have at least one item")
         );
     }
@@ -557,6 +562,14 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
             cancellationReason: "Changed my mind"
         });
         order.save();
+        // Create a line item so collection validation passes on update
+        orderDb.OrderItem.create({
+            orderId: order.id,
+            productId: uuid(),
+            productName: "Test Product",
+            quantity: 1,
+            unitPrice: Money.of(10.00, Currency.USD)
+        });
         order.status = OrderStatus.Cancelled;
         order.save();
         assert emitted(OrderCancelled(order.id, order.cancellationReason, order.inventoryReservationId));

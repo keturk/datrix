@@ -989,10 +989,11 @@ job ProcessPayments cron('0 * * * *') config('config/jobs.yaml') {
 
 ```yaml
 test:
-  ProcessPayments:
-    timeout: 300000      # 5 minutes
-    retryLimit: 3
-    retryBackoff: exponential
+  jobs:
+    ProcessPayments:
+      schedule: "0 * * * *"
+      timeout: 5m
+      retry: { maxAttempts: 3, backoff: exponential }
 ```
 
 ---

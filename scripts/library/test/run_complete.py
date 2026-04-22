@@ -534,10 +534,15 @@ def _save_docker_logs_for_project(
         if not compose_file.exists():
             return
 
-    # Get container names: docker compose -f <file> ps -a --format "{{.Name}}"
+    # Get container names: docker compose [-p name] -f <file> ps -a --format "{{.Name}}"
+    ps_cmd = ["docker", "compose"]
+    project_name = _extract_compose_project_name(project)
+    if project_name:
+        ps_cmd.extend(["-p", project_name])
+    ps_cmd.extend(["-f", str(compose_file), "ps", "-a", "--format", "{{.Name}}"])
     try:
         result = subprocess.run(
-            ["docker", "compose", "-f", str(compose_file), "ps", "-a", "--format", "{{.Name}}"],
+            ps_cmd,
             cwd=project,
             capture_output=True,
             text=True,
@@ -578,6 +583,125 @@ def _save_docker_logs_for_project(
             print_warning(f"Could not save docker logs for {container_name}: {e}")
 
 
+_COMPOSE_NAME_RE_PY = re.compile(
+    r'^COMPOSE_PROJECT_NAME\s*=\s*["\']([^"\']+)["\']', re.MULTILINE,
+)
+_COMPOSE_NAME_RE_JS = re.compile(
+    r"const\s+COMPOSE_PROJECT_NAME\s*=\s*['\"]([^'\"]+)['\"]", re.MULTILINE,
+)
+
+_DATRIX_CONFIG_PATH_MARKERS = (".generated", ".projects")
+
+
+def _extract_compose_project_name(project: Path) -> str | None:
+    """Extract the compose project name from the generated deploy test script.
+
+    Searches ``tests/deploy_test.py`` (Python) and ``tests/deploy-test.js``
+    (TypeScript) for the ``COMPOSE_PROJECT_NAME`` constant.
+    Returns ``None`` if no test script is found or the constant is missing.
+    """
+    candidates: list[tuple[str, re.Pattern[str]]] = [
+        ("tests/deploy_test.py", _COMPOSE_NAME_RE_PY),
+        ("tests/deploy-test.js", _COMPOSE_NAME_RE_JS),
+    ]
+    for filename, pattern in candidates:
+        test_file = project / filename
+        if test_file.exists():
+            try:
+                content = test_file.read_text(encoding="utf-8")
+                match = pattern.search(content)
+                if match:
+                    return match.group(1)
+            except OSError:
+                pass
+    return None
+
+
+def _is_datrix_compose_project(config_files: str) -> bool:
+    """Return True if the compose project belongs to a datrix-generated example.
+
+    Checks whether the config file path contains ``.generated`` or
+    ``.projects`` — both are datrix-specific output directories.
+    """
+    config_lower = config_files.replace("\\", "/").lower()
+    return any(marker in config_lower for marker in _DATRIX_CONFIG_PATH_MARKERS)
+
+
+def _cleanup_all_datrix_compose_projects() -> None:
+    """Tear down ALL datrix-related Docker Compose projects before tests.
+
+    Discovers running/stopped compose projects via ``docker compose ls -a``
+    and tears down any whose config-file path is under ``.generated`` or
+    ``.projects``.  Idempotent and failure-tolerant — never blocks the test
+    step on cleanup errors.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "ls", "-a", "--format", "json"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        print_warning(f"Could not list compose projects: {exc}")
+        return
+
+    if result.returncode != 0 or not result.stdout.strip():
+        return
+
+    try:
+        projects = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return
+
+    datrix_projects = [
+        p for p in projects
+        if _is_datrix_compose_project(p.get("ConfigFiles", ""))
+    ]
+
+    if not datrix_projects:
+        return
+
+    print_info(f"Pre-flight cleanup: tearing down {len(datrix_projects)} datrix compose project(s)")
+    for proj in datrix_projects:
+        name = proj["Name"]
+        print_info(f"  [cleanup] {name}")
+        try:
+            subprocess.run(
+                ["docker", "compose", "-p", name, "down", "-v", "--remove-orphans"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=120,
+                check=False,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+            print_warning(f"Cleanup warning for project {name}: {exc}")
+
+        # Remove orphaned volumes that compose down -v may have missed
+        try:
+            vol_result = subprocess.run(
+                ["docker", "volume", "ls", "--filter", f"name={name}", "--quiet"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+            )
+            if vol_result.returncode == 0 and vol_result.stdout.strip():
+                for vol_name in vol_result.stdout.strip().splitlines():
+                    subprocess.run(
+                        ["docker", "volume", "rm", vol_name.strip()],
+                        capture_output=True,
+                        check=False,
+                    )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+
 def _ensure_docker_cleanup(project: Path) -> None:
     """Safety net: tear down Docker containers, volumes, and images for a project.
 
@@ -591,13 +715,15 @@ def _ensure_docker_cleanup(project: Path) -> None:
         if not compose_file.exists():
             return
 
+    cmd = ["docker", "compose"]
+    project_name = _extract_compose_project_name(project)
+    if project_name:
+        cmd.extend(["-p", project_name])
+    cmd.extend(["-f", str(compose_file), "down", "-v", "--rmi", "local", "--remove-orphans"])
+
     try:
         subprocess.run(
-            [
-                "docker", "compose",
-                "-f", str(compose_file),
-                "down", "-v", "--rmi", "local", "--remove-orphans",
-            ],
+            cmd,
             cwd=project,
             capture_output=True,
             text=True,
@@ -1234,6 +1360,9 @@ def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path
 def step4_run_deployment_tests(all_examples: bool, paths: dict[str, Path], output_path: Optional[str] = None, test_set: Optional[str] = None, language: str = "python", platform: str = "docker") -> bool:
     """Step 4: Run deployment tests (spec + integration) for generated projects using deploy_test.py"""
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+
+    # Pre-flight: tear down all datrix compose projects to prevent port conflicts
+    _cleanup_all_datrix_compose_projects()
 
     if all_examples:
         print_step(4, "Run Deployment Tests (Spec + Integration) for Generated Projects")
