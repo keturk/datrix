@@ -1,6 +1,18 @@
 # Architecture Cheat Sheet
 
-Pipeline: `.dtrx -> Parser (datrix-language) -> extension directives on AST -> extension resolution (registry / TypeRegistry when invoked) -> Semantic Analysis -> Config Resolution -> Application (AST) -> Generators`
+Pipeline (user sources): `.dtrx -> Parser (datrix-language) -> extension directives on AST -> extension resolution (registry / TypeRegistry when invoked) -> Semantic Analysis -> Config Resolution -> Application (AST) -> Generators`
+
+**Builtins and stdlib (language layer, before generators):** builtins ship as pre-parsed ASTs (traits, scalars, enums). Eight stdlib `.dtrx` modules ship as pre-parsed ASTs under `datrix-language/src/datrix_language/stdlib/` and stay lazy until semantic analysis needs them. User files still go through Tree-sitter parse + transformers into `Application`; stdlib symbols are registered as placeholders on the app scope and the owning stdlib module is deserialized on first reference during semantic analysis.
+
+```
+builtins        -> pre-parsed builtin ASTs
+stdlib/*.dtrx   -> eight pre-parsed module ASTs (lazy-loaded)
+user *.dtrx     -> TreeSitterParser + transformers -> Application
+semantic analysis -> stdlib placeholders + lazy module injection -> continuing phases -> Generators
+```
+
+**Load order:** builtins → stdlib placeholder registration → user parse/transform → semantic analysis (lazy stdlib deserialization when a stdlib export is first resolved).
+
 No IR layer. Parser produces Application directly. `GenerationPipeline` stage names: `parse`, `resolve_service_configs`, `analyze`, `resolve_infrastructure_configs`, …, `discover_generators`, …
 
 ## Packages (12)
@@ -10,7 +22,7 @@ Optional **datrix-extensions** (domain packs, `datrix.extensions` entry points) 
 | Package | Purpose |
 |---------|---------|
 | datrix-common | Foundation: AST model, types, semantic analysis, config resolution, generation framework. ZERO deps on other Datrix packages |
-| datrix-language | Parser (Tree-sitter) + CST-to-AST transformers. Depends on datrix-common |
+| datrix-language | Parser (Tree-sitter) + CST-to-AST transformers; shipped stdlib sources in `src/datrix_language/stdlib/` (eight `.dtrx` modules, pre-parsed at build time, lazy-loaded in analysis). Depends on datrix-common |
 | datrix-codegen-component | Platform-agnostic artifacts (docs, config, scripts) |
 | datrix-codegen-python | Python generation (FastAPI). Jinja2 + ruff format |
 | datrix-codegen-typescript | TypeScript generation (NestJS/Express). Jinja2 + Prettier |
@@ -79,4 +91,5 @@ Python 3.11+, Tree-sitter, Pydantic v2, Jinja2, ruff/Prettier, mypy strict, pyte
 ## Full docs
 
 - [architecture-overview.md](./architecture-overview.md)
+- [datrix-stdlib-reference.md](../../../datrix-language/docs/reference/datrix-stdlib-reference.md) (stdlib module catalog)
 - [code-generation.md](../../../datrix-common/docs/architecture/code-generation.md)

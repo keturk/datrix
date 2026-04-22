@@ -1,5 +1,5 @@
 
-from hr.common import BaseEntity, AuditedEntity, Department, generateEmployeeNumber;
+from hr.common import AuditedEntity, Department, generateEmployeeNumber;
 
 service hr.EmployeeService : version('1.0.0'), description('employee management and directory service') {
 

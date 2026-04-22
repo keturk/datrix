@@ -1,5 +1,5 @@
 
-from social.common import BaseEntity, MAX_PAGE_SIZE, paginate;
+from social.common import MAX_PAGE_SIZE, paginate;
 
 service social.NotificationService : version('1.0.0'), description('notification delivery and management service') {
 
@@ -18,12 +18,6 @@ service social.NotificationService : version('1.0.0'), description('notification
         Mention : value('mention'),
         System : value('system'),
         PostPublished : value('post_published')
-    }
-
-    enum NotificationChannel {
-        InApp : value('in_app'),
-        Email : value('email'),
-        Push : value('push')
     }
 
     enum PostVisibility {

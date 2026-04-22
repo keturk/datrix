@@ -1,7 +1,6 @@
 
 // BookService with resilience configuration
 // The resilience YAML defines timeouts, retries, and circuit breakers for downstream calls
-from library.common import BaseEntity;
 
 service library.BookService : version('1.0.0'), description('Book management service with resilience patterns') {
 

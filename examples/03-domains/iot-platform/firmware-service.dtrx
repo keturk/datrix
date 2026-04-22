@@ -1,5 +1,5 @@
 
-from iot.common import BaseEntity, generateRolloutCode, MAX_BATCH_SIZE;
+from iot.common import generateRolloutCode, MAX_BATCH_SIZE;
 
 service iot.FirmwareService : version('1.0.0'), description('firmware version and rollout management service') {
 

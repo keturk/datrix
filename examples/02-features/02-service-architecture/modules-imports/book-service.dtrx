@@ -1,7 +1,7 @@
 
 // 'from ... import ...' brings specific symbols from a shared module into scope
 // This replaces the need to redefine BaseEntity, traits, structs, and constants locally
-from library.common import BaseEntity, Auditable, SoftDeletable, GeoLocation, PriceRange, MAX_CHECKOUT_DAYS, MAX_RENEWALS, ISBN_PATTERN, calculateLateFee, formatBookReference;
+from library.common import MAX_CHECKOUT_DAYS, MAX_RENEWALS, ISBN_PATTERN, calculateLateFee, formatBookReference;
 
 // Define a service in the 'library' namespace with version and description
 service library.BookService : version('1.0.0'), description('book management service') {

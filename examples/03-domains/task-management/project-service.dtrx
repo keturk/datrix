@@ -1,5 +1,5 @@
 
-from taskapp.common import BaseEntity, MAX_PAGE_SIZE;
+from taskapp.common import MAX_PAGE_SIZE;
 
 service taskapp.ProjectService : version('1.0.0'), description('project and team management service') {
 

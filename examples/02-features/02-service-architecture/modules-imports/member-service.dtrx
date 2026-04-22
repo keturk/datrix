@@ -1,7 +1,7 @@
 
 // 'from ... import ...' brings specific symbols from a shared module into scope
 // MemberService imports BaseEntity and the regex constant from the common module
-from library.common import BaseEntity, MEMBERSHIP_NUMBER_PATTERN;
+from library.common import MEMBERSHIP_NUMBER_PATTERN;
 
 // A separate service in the same namespace handles member management
 service library.MemberService : version('1.0.0'), description('member management service') {

@@ -1,5 +1,4 @@
 
-from hostdemo.common import BaseEntity;
 
 service hostdemo.UserService : version('1.0.0'), description('user accounts') {
 

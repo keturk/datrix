@@ -1,5 +1,5 @@
 
-from healthcare.common import BaseEntity, AuditedEntity, Confidential;
+from healthcare.common import AuditedEntity, Confidential;
 
 service healthcare.MedicalRecordService : version('1.0.0'), description('medical record management service') {
 

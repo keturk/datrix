@@ -1,5 +1,4 @@
 
-from hostdemo.common import BaseEntity;
 
 service hostdemo.BlogService : version('1.0.0'), description('blog posts and comments') {
 

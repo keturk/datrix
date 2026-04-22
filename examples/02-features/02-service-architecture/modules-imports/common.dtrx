@@ -2,41 +2,9 @@
 // 'module' defines a shared namespace for reusable types, traits, constants, and functions
 // Modules are not services - they contain no infrastructure blocks (rdbms, pubsub, etc.)
 // Other files import from modules using 'from ... import ...'
+// BaseEntity, Pagination, PaginationResult, paginate(), Auditable, SoftDeletable,
+// GeoLocation (datrix.geo), and PriceRange (datrix.billing) are provided by the Datrix standard library.
 module library.common {
-
-    // Abstract entities defined here are shared across all services that import them
-    abstract entity BaseEntity with Timestampable {
-        UUID id : primaryKey, server = uuid();
-    }
-
-    // Structs can contain semantic types and define functions
-    // Latitude, Longitude are semantic types with built-in validation
-    struct GeoLocation {
-        Latitude lat;
-        Longitude lng;
-        String(200)? label;
-
-        // Structs can have instance-level functions just like entities
-        fn distanceLabel() -> String {
-            return #"{lat}, {lng}";
-        }
-    }
-
-    // Structs can also have computed fields derived from their own data
-    struct PriceRange {
-        Decimal(10, 2) minPrice;
-        Decimal(10, 2) maxPrice;
-
-        Boolean isValid := minPrice <= maxPrice;
-    }
-
-    // Pagination struct for reusable page/offset logic across services
-    struct Pagination {
-        Int page = 1;
-        Int perPage = 20;
-        // Computed field calculates the database offset from page number
-        Int offset := (page - 1) * perPage;
-    }
 
     // 'const' declares compile-time constants reusable by any importing service
     const MAX_CHECKOUT_DAYS = 30;

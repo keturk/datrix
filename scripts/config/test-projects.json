@@ -42,18 +42,18 @@
       {"name": "external-integration",  "path": "examples/02-features/06-advanced-language-features/external-integration/system.dtrx", "description": "External service integration patterns"}
     ],
     "domains": [
-      {"name": "ecommerce",           "path": "examples/03-domains/ecommerce/system.dtrx",           "description": "E-commerce system with 5 services"},
-      {"name": "healthcare",          "path": "examples/03-domains/healthcare/system.dtrx",           "description": "Healthcare system with HIPAA patterns"},
       {"name": "blog-cms",            "path": "examples/03-domains/blog-cms/system.dtrx",             "description": "Blog CMS with content management"},
-      {"name": "social-platform",     "path": "examples/03-domains/social-platform/system.dtrx",      "description": "Social platform with posts, follows, notifications"},
-      {"name": "task-management",     "path": "examples/03-domains/task-management/system.dtrx",      "description": "Task management with projects and assignments"},
-      {"name": "learning-management", "path": "examples/03-domains/learning-management/system.dtrx",  "description": "LMS with courses, enrollments, grading"},
-      {"name": "real-estate",         "path": "examples/03-domains/real-estate/system.dtrx",          "description": "Real estate listings, viewings, contracts"},
-      {"name": "logistics",           "path": "examples/03-domains/logistics/system.dtrx",            "description": "Logistics with shipments, fleet, routes"},
+      {"name": "ecommerce",           "path": "examples/03-domains/ecommerce/system.dtrx",           "description": "E-commerce system with 5 services"},
       {"name": "finance",             "path": "examples/03-domains/finance/system.dtrx",              "description": "Finance with accounts, transactions, compliance"},
       {"name": "food-delivery",       "path": "examples/03-domains/food-delivery/system.dtrx",        "description": "Food delivery with restaurants, orders, drivers"},
+      {"name": "healthcare",          "path": "examples/03-domains/healthcare/system.dtrx",           "description": "Healthcare system with HIPAA patterns"},
+      {"name": "hr-platform",         "path": "examples/03-domains/hr-platform/system.dtrx",          "description": "HR with employees, payroll, recruitment"},
       {"name": "iot-platform",        "path": "examples/03-domains/iot-platform/system.dtrx",         "description": "IoT with devices, telemetry, firmware rollout"},
-      {"name": "hr-platform",         "path": "examples/03-domains/hr-platform/system.dtrx",          "description": "HR with employees, payroll, recruitment"}
+      {"name": "learning-management", "path": "examples/03-domains/learning-management/system.dtrx",  "description": "LMS with courses, enrollments, grading"},
+      {"name": "logistics",           "path": "examples/03-domains/logistics/system.dtrx",            "description": "Logistics with shipments, fleet, routes"},
+      {"name": "real-estate",         "path": "examples/03-domains/real-estate/system.dtrx",          "description": "Real estate listings, viewings, contracts"},
+      {"name": "social-platform",     "path": "examples/03-domains/social-platform/system.dtrx",      "description": "Social platform with posts, follows, notifications"},
+      {"name": "task-management",     "path": "examples/03-domains/task-management/system.dtrx",      "description": "Task management with projects and assignments"}
     ]
   },
   "testSets": {
@@ -68,7 +68,7 @@
     "features-advanced": ["advanced-types", "advanced-relationships", "transactions", "advanced-cache", "fulltext-search", "batch-operations", "advanced-queries", "webhooks", "field-security"],
     "features-combos": ["multi-database", "mixed-infrastructure", "dual-api"],
     "features-language": ["advanced-flow-control", "external-integration"],
-    "domains": ["ecommerce", "healthcare", "blog-cms", "social-platform", "task-management", "learning-management", "real-estate", "logistics", "finance", "food-delivery", "iot-platform", "hr-platform"],
+    "domains": ["blog-cms", "ecommerce", "finance", "food-delivery", "healthcare", "hr-platform", "iot-platform", "learning-management", "logistics", "real-estate", "social-platform", "task-management"],
     "typescript-validation": ["entities", "rest-api", "relationships", "pubsub", "cache", "cqrs", "jobs", "blog-cms"]
   }
 }

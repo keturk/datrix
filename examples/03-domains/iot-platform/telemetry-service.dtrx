@@ -1,5 +1,5 @@
 
-from iot.common import BaseEntity, DEFAULT_ALERT_COOLDOWN_MINUTES;
+from iot.common import DEFAULT_ALERT_COOLDOWN_MINUTES;
 
 service iot.TelemetryService : version('1.0.0'), description('telemetry data collection and alert management service') {
 

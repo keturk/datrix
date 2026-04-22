@@ -1,5 +1,5 @@
 
-from ecommerce.common import BaseEntity, MAX_PAGE_SIZE, generateTransactionId;
+from ecommerce.common import MAX_PAGE_SIZE, generateTransactionId;
 
 service ecommerce.PaymentService : version('1.0.0'), description('payment management service') {
 

@@ -1,5 +1,5 @@
 
-from logistics.common import BaseEntity, GeoCoordinate, MAINTENANCE_MILEAGE_THRESHOLD;
+from logistics.common import GeoCoordinate, MAINTENANCE_MILEAGE_THRESHOLD;
 
 service logistics.FleetService : version('1.0.0'), description('fleet and driver management service') {
 

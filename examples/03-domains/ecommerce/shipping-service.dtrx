@@ -1,5 +1,5 @@
 
-from ecommerce.common import BaseEntity, Address, generateTrackingNumber;
+from ecommerce.common import generateTrackingNumber;
 
 service ecommerce.ShippingService : version('1.0.0'), description('shipping management service') {
 

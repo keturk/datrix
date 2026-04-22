@@ -1,11 +1,6 @@
 
+// BaseEntity is provided by the Datrix standard library.
 module iot.common {
-
-    abstract entity BaseEntity {
-        UUID id : primaryKey, server = uuid();
-        DateTime createdAt : server = now();
-        DateTime updatedAt : server = now();
-    }
 
     fn generateSerialNumber() -> String {
         return #"IOT-{Random.string(4).toUpperCase()}-{Random.string(8).toUpperCase()}";

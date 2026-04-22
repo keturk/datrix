@@ -1,5 +1,4 @@
 
-from blog.common import BaseEntity;
 
 service blog.CommentService : version('1.0.0'), description('comment management service') {
 

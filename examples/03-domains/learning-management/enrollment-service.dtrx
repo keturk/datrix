@@ -1,5 +1,5 @@
 
-from lms.common import BaseEntity, MAX_PAGE_SIZE, MAX_SCORE, MIN_SCORE, PASSING_SCORE;
+from lms.common import MAX_PAGE_SIZE, MAX_SCORE, MIN_SCORE, PASSING_SCORE;
 
 service lms.EnrollmentService : version('1.0.0'), description('enrollment and academic progress tracking service') {
 

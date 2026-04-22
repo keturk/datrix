@@ -1,5 +1,5 @@
 
-from realestate.common import BaseEntity, PropertyType, formatPrice, generateListingRef;
+from realestate.common import PropertyType, formatPrice, generateListingRef;
 
 service realestate.ListingService : version('1.0.0'), description('property listing management service') {
 

@@ -1,6 +1,5 @@
 
 // 'from ... import' brings shared types and functions from the common module
-from blog.common import BaseEntity, hashPassword, generateToken;
 
 // Define a service in the 'blog' namespace with version and description
 service blog.AuthorService : version('1.0.0'), description('author management service') {

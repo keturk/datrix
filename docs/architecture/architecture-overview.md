@@ -57,6 +57,7 @@ Datrix is a code generation system that transforms `.dtrx` domain specifications
  ↓
 ┌─────────────────────────────────┐
 │ Semantic Analysis (datrix-common) │
+│ - Stdlib placeholders + lazy load │
 │ - Symbol collection & imports │
 │ - Reference resolution │
 │ - Inheritance merging │
@@ -107,6 +108,27 @@ Generated Application
 The `datrix generate` command supports `--language`, `--hosting`, and `--platform` to override config-driven values for a single generation run. In the generation pipeline, overrides run in the `apply_cli_overrides` stage after config resolution and service filtering, and before `platform_validation`.
 
 **Pipeline stages (GenerationPipeline)** align with the diagram above: `parse` → `resolve_service_configs` → `analyze` (semantic) → `resolve_infrastructure_configs` → optional `apply_cli_overrides` → `platform_validation` → generator discovery and execution. Extension **directives** are recorded during parse; **registry** and **type-registry** integration run when the active code path invokes `PluginRegistry` / `TypeRegistry` APIs (see [Domain extension system](#domain-extension-system)). Language generators receive declared extension names via `declared_extension_names(app)` and merge per-language maps (for example `build_python_type_map` in `datrix-codegen-python`).
+
+### Standard library
+
+Datrix ships a **standard library**: eight `.dtrx` modules under `datrix-language/src/datrix_language/stdlib/` (`datrix.foundation`, `datrix.auth`, `datrix.geo`, `datrix.contact`, `datrix.api`, `datrix.data`, `datrix.billing`, `datrix.notification`). They provide commonly reused types, functions, and constants—`BaseEntity`, pagination helpers, `Address`, password/token helpers, rate-limit guards, geographic utilities, billing and notification enums, and similar patterns that were previously duplicated across dozens of example and production specs.
+
+**Why it exists:** The same structures (base entities, auth helpers, address shapes, API guard helpers) were copy-pasted identically across projects. The stdlib centralizes those patterns so new services start from shared, reviewed definitions instead of re-declaring them in every `common.dtrx`.
+
+**How it works (language layer):**
+
+1. **Build-time pre-parse** — Stdlib sources are parsed when `datrix-language` is built/packaged and stored as serialized module ASTs for fast startup.
+2. **Placeholder registration** — During semantic analysis, every stdlib export name is registered on the application scope as a lightweight placeholder backed by a symbol index. No full stdlib module is deserialized yet.
+3. **Implicit global availability** — User modules can reference stdlib exports by simple name (`BaseEntity`, `hashPassword`, …) without import statements, the same way other global symbols are resolved once analysis runs.
+4. **Lazy materialization** — The first resolution that needs symbols from a given stdlib module triggers deserialization of that module only; its declarations attach to `Application`, placeholders promote to real symbols, and analysis continues. Modules that are never referenced are never loaded.
+5. **Shadowing and qualification** — User-defined types and functions with the same simple name as a stdlib export always win. To refer to the shipped definition explicitly, use qualified names (for example `datrix.contact.Address` or the owning module path) as documented in the language rules.
+6. **Generators** — After analysis, generators see a normal validated `Application`: stdlib entities behave like user entities wherever they were materialized; unused stdlib leaves no footprint in the AST beyond placeholders that were never touched.
+
+**Relationship to builtins:** Builtins supply abstract primitives—scalar kinds, builtin traits, builtin objects—that the language and type system understand everywhere. The stdlib composes those primitives into concrete patterns (for example `abstract entity BaseEntity with Timestampable`). Builtins are prerequisites; stdlib is optional in the sense that unreferenced modules never load, but the feature is always present in the toolchain.
+
+**Relationship to domain extensions:** Extensions (`use extension …;`) add infrastructure-aware or domain-packaged scalars, extra dependencies, and DB extension hooks (PostGIS, TimescaleDB, etc.). Stdlib stays **database-agnostic** and ships with the core language—only builtin scalars and traits, no extension directives. Extensions and stdlib coexist: extensions answer “which engine extensions and pack types exist,” stdlib answers “which everyday service patterns ship by default.”
+
+**Further reading:** Module-by-module catalog and naming rules live in [datrix-stdlib-reference.md](../../../datrix-language/docs/reference/datrix-stdlib-reference.md) inside `datrix-language`.
 
 ### Phase 01 capabilities (Python and Docker)
 
@@ -173,6 +195,7 @@ The project is split into **twelve** installable packages (eleven core toolchain
 
 **Responsibilities:**
 - Parsing .dtrx files (Tree-sitter grammar, lexer, parser)
+- Shipped **standard library** `.dtrx` modules under `src/datrix_language/stdlib/` (pre-parsed artifacts, consumed by semantic analysis in `datrix-common` via the stdlib loader)
 - CST-to-AST transformers that produce `Application` objects (defined in `datrix-common`)
 - **Server-managed fields** via the **`server`** field modifier (for example `UUID id : primaryKey, server = uuid();`, `DateTime createdAt : server = now();`) — not a `@` prefix on the type
 - **Custom exception catalogs** via `exceptions { … }` blocks on `module` and `service`
@@ -405,11 +428,12 @@ Datrix provides a catalog of **ten builtin traits** and **two builtin enums** th
 
 ### How It Works
 
-1. Builtin traits and enums are **programmatically-constructed AST objects** defined in `datrix_common.builtins.traits` and `datrix_common.builtins.enums`
-2. They are **injected into every TypeContainer** (Service, Module) before reference resolution
-3. Users reference them with `with TraitName` on entity declarations (e.g., `entity User extends BaseEntity with Tenantable`)
-4. They are **opt-in** — no trait is automatically applied to entities
-5. User code **cannot redefine** builtin trait or enum names (BLT001 validator enforces this)
+1. Builtin traits and enums are **defined in Datrix DSL** in `datrix-language/src/datrix_language/builtins/builtins.dtrx`. `datrix_language.builtins.loader` parses that file once (with `inject_builtins=False` to avoid recursion), caches the module, and returns **deep copies** for injection.
+2. The CST→AST transformer **`_inject_builtins()`** merges those definitions into **every TypeContainer** (Service, Module) after the `Application` is built from user source and before reference resolution.
+3. Injected trait/enum nodes are tagged with **`is_builtin = True`**. `datrix_common` still exposes **`BUILTIN_TRAIT_NAMES`**, **`BUILTIN_ENUM_NAMES`**, and **`ENUM_REQUIRED_BY_TRAIT`** for BLT001 and injection policy (so validators do not depend on `datrix-language`).
+4. Users reference traits with `with TraitName` on entity declarations (e.g., `entity User extends BaseEntity with Tenantable`).
+5. Traits are **opt-in** — no trait is automatically applied to entities.
+6. User code **cannot redefine** builtin trait or enum names (BLT001 validator enforces this).
 
 ---
 

@@ -1,5 +1,5 @@
 
-from ecommerce.common import BaseEntity, OrderLineInput, Sluggable, Inventoried, Discountable;
+from ecommerce.common import OrderLineInput, Sluggable, Inventoried, Discountable;
 
 service ecommerce.ProductService : version('1.0.0'), description('product management service') {
 

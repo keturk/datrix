@@ -1,5 +1,4 @@
 
-from ecommerce.common import BaseEntity, Address, hashPassword, verifyPassword, generateToken;
 
 // Define a service in the 'ecommerce' namespace with version and description
 service ecommerce.UserService : version('1.0.0'), description('user management service') {
@@ -51,11 +50,6 @@ service ecommerce.UserService : version('1.0.0'), description('user management s
         // Address struct imported from the common module
         Address? shippingAddress;
         Address? billingAddress;
-    }
-
-    struct LoginRequest {
-        Email email;
-        String password;
     }
 
     struct ChangePasswordRequest {

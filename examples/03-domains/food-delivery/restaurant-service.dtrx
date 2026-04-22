@@ -1,5 +1,4 @@
 
-from fooddelivery.common import BaseEntity;
 
 service fooddelivery.RestaurantService : version('1.0.0'), description('restaurant registration and management service') {
 

@@ -1,5 +1,5 @@
 
-from iot.common import BaseEntity, generateSerialNumber, HEARTBEAT_TIMEOUT_SECONDS;
+from iot.common import generateSerialNumber, HEARTBEAT_TIMEOUT_SECONDS;
 
 service iot.DeviceService : version('1.0.0'), description('device registration and lifecycle management service') {
 
