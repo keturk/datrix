@@ -463,7 +463,7 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
             trackingNumber: "SPEC-TRACK-001",
             carrier: ShippingCarrier.FedEx,
             status: ShipmentStatus.Delivered,
-            destination: { street: "123 Main St", city: "Springfield", state: "IL", zip: "62701", country: "US" },
+            destination: { street: "123 Main St", city: "Springfield", state: "IL", zipCode: "62701", country: "US" },
             weight: 2.50,
             actualDelivery: now()
         });
@@ -477,7 +477,7 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
             trackingNumber: "SPEC-TRACK-002",
             carrier: ShippingCarrier.UPS,
             status: ShipmentStatus.InTransit,
-            destination: { street: "456 Oak Ave", city: "Shelbyville", state: "IL", zip: "62565", country: "US" },
+            destination: { street: "456 Oak Ave", city: "Shelbyville", state: "IL", zipCode: "62565", country: "US" },
             weight: 1.75
         });
         shipment.save();

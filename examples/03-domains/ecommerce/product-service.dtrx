@@ -473,13 +473,18 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
     }
 
     test("validation rejects non-positive reservation quantity") {
+        #productDb.Category category = productDb.Category.create({
+            name: "Test Category",
+            slug: "test-category"
+        });
+        category.save();
         #productDb.Product product = productDb.Product.create({
             name: "SpecTestProduct",
             description: "Test product for spec",
             price: Money.of(29.99, Currency.USD),
             status: ProductStatus.Active,
             slug: "spec-test-product",
-            categoryId: uuid(),
+            categoryId: category.id,
             images: [],
             tags: []
         });
@@ -495,13 +500,18 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
     }
 
     test("afterUpdate emits InventoryUpdated on inventory change") {
+        #productDb.Category category = productDb.Category.create({
+            name: "Inventory Test Category",
+            slug: "inventory-test-category"
+        });
+        category.save();
         #productDb.Product product = productDb.Product.create({
             name: "SpecInventoryProduct",
             description: "Test product for inventory spec",
             price: Money.of(19.99, Currency.USD),
             status: ProductStatus.Active,
             slug: "spec-inventory-product",
-            categoryId: uuid(),
+            categoryId: category.id,
             images: [],
             tags: []
         });

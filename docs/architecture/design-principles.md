@@ -191,7 +191,7 @@ Datrix is built on proven software engineering principles that ensure:
 
 ### Contextual keywords and server-managed fields
 
-**Server-managed fields** are marked with the **`server`** modifier in the field’s modifier list (for example `UUID id : primaryKey, server = uuid();`). The old **`@Type fieldName`** form for system-populated fields was **removed**; there is no parallel syntax or deprecation period (see [DESIGN-DSL-SYNTAX-EXTENSIONS.md](../../../design/DESIGN-DSL-SYNTAX-EXTENSIONS.md), tier 1A).
+**Server-managed fields** are marked with the **`server`** modifier in the field's modifier list (for example `UUID id : primaryKey, server = uuid();`). The old **`@Type fieldName`** form for system-populated fields was **removed**; there is no parallel syntax or deprecation period. See the [language reference](../reference/language-reference.md#decorators-and-modifiers).
 
 **REST endpoint decorators** (`@retry`, `@rateLimit`, `@cache`, …) are unrelated: they stay **`@`-prefixed** on endpoints inside `rest_api` blocks.
 
@@ -388,7 +388,7 @@ entity User extends BaseEntity {
 
 Enable packs in **`system.dtrx`** with `use extension <name>;` (not YAML). Exhaustive mapping rules still apply: unknown extension keys or unmapped types **fail at generation time** with explicit errors (for example `ExtensionNotSupportedError` from `build_python_type_map` when Python has no map for a declared extension).
 
-**See also:** [DESIGN-DOMAIN-EXTENSIONS.md](../../../design/DESIGN-DOMAIN-EXTENSIONS.md) and [Architecture Overview — Domain extension system](./architecture-overview.md#domain-extension-system).
+**See also:** [Extensions guide](../../../datrix-extensions/docs/extensions-guide.md) and [Architecture Overview — Domain extension system](./architecture-overview.md#domain-extension-system).
 
 ---
 

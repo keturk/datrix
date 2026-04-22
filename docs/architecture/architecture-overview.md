@@ -199,7 +199,7 @@ The project is split into **twelve** installable packages (eleven core toolchain
 - CST-to-AST transformers that produce `Application` objects (defined in `datrix-common`)
 - **Server-managed fields** via the **`server`** field modifier (for example `UUID id : primaryKey, server = uuid();`, `DateTime createdAt : server = now();`) — not a `@` prefix on the type
 - **Custom exception catalogs** via `exceptions { … }` blocks on `module` and `service`
-- **User-defined scalars** via `scalar Name : BaseType { … }` on `module` and `service` (constrained aliases; distinct from extension-pack scalars — see [DESIGN-DSL-SYNTAX-EXTENSIONS.md](../../../design/DESIGN-DSL-SYNTAX-EXTENSIONS.md))
+- **User-defined scalars** via `scalar Name : BaseType { … }` on `module` and `service` (constrained aliases; distinct from extension-pack scalars — see [language reference](../reference/language-reference.md#custom-scalar-types))
 
 **Key Insight:** The parser + transformers produce `Application` directly. There is no separate IR layer. The `Application` model and all AST types are defined in `datrix-common`; datrix-language imports them.
 
@@ -317,7 +317,7 @@ All protocols are defined in `datrix-common` (see `datrix_common.plugin.protocol
 
 ## Domain extension system
 
-Domain-specific scalars, builtin objects, and infrastructure hints (for example PostGIS) can ship in **extension packs** instead of bloating `datrix-common`. Full rationale and examples: [DESIGN-DOMAIN-EXTENSIONS.md](../../../design/DESIGN-DOMAIN-EXTENSIONS.md) (repo root `design/`).
+Domain-specific scalars, builtin objects, and infrastructure hints (for example PostGIS) can ship in **extension packs** instead of bloating `datrix-common`. See the [extensions guide](../../../datrix-extensions/docs/extensions-guide.md) and the [datrix-common extensions overview](../../../datrix-common/docs/extensions.md).
 
 ### Split ownership
 

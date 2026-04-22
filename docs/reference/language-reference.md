@@ -398,7 +398,7 @@ service ecommerce.OrderService : version('1.0.0') {
 }
 ```
 
-Design and semantics: [DESIGN-DSL-SYNTAX-EXTENSIONS.md](../../../design/DESIGN-DSL-SYNTAX-EXTENSIONS.md) (section 2C).
+Semantics: `status(N)` is required on every declared exception. Optional `message("…")` and data fields are independent. Module-level and service-level exceptions cannot share a name. Three builtin exception names (`EntityNotFoundError`, `CascadeRestrictionError`, `ValidationError`) are reserved.
 
 ---
 
@@ -419,7 +419,7 @@ module aviation.common {
 }
 ```
 
-These differ from **extension-pack** scalars (declared via `use extension` and `DatrixExtension`): packs add wholly new types with per-language maps; custom scalars are aliases with constraints. See [DESIGN-DSL-SYNTAX-EXTENSIONS.md](../../../design/DESIGN-DSL-SYNTAX-EXTENSIONS.md) (section 2D) and [DESIGN-DOMAIN-EXTENSIONS.md](../../../design/DESIGN-DOMAIN-EXTENSIONS.md).
+These differ from **extension-pack** scalars (declared via `use extension` and `DatrixExtension`): packs add wholly new types with per-language maps; custom scalars are aliases with constraints. Valid constraint names: `min(value)`, `max(value)`, `range(min, max)`, `pattern(regex)`. Custom scalars are globally visible (no import needed) and compose with collections (`Array<Altitude>`, etc.). See the [extensions guide](../../../datrix-extensions/docs/extensions-guide.md) for extension-pack scalars.
 
 ---
 
