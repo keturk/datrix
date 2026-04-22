@@ -109,7 +109,7 @@ EXCLUDED_CYCLOMATIC_BLOCKS: list[tuple[str, str]] = [
     ("datrix_codegen_python/generators/api_test_generator.py", "ApiTestGenerator"),
     ("datrix_codegen_python/generators/cache_generator.py", "CacheGenerator"),
     ("datrix_codegen_python/generators/cqrs_generator.py", "CqrsGenerator"),
-    ("datrix_codegen_python/generators/doc_generator.py", "DocGenerator"),
+    ("datrix_codegen_python/generators/service/doc_generator.py", "DocGenerator"),
     ("datrix_codegen_python/generators/event_generator.py", "EventGenerator"),
     ("datrix_codegen_python/generators/entity_test_generator.py", "EntityTestGenerator"),
     ("datrix_codegen_python/generators/model_generator.py", "ModelGenerator"),

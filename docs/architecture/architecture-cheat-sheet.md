@@ -61,7 +61,7 @@ Type mappings registered with `TypeMappingRegistry.global_registry`.
 - **Python maps:** `PYTHON_EXTENSION_MAPS` + `build_python_type_map()` in `datrix_codegen_python.type_mappings` (raises `ExtensionNotSupportedError` if a declared extension has no Python map).
 - **TypeScript / SQL:** Same split-ownership rule as Python; extension-only scalars would use the same *pattern* (per-extension dict merged into the language’s effective map) when implemented alongside core `TYPESCRIPT_TYPE_MAP` / `SQL_TYPE_MAP` — no separate `TS_EXTENSION_MAPS` / `SQL_EXTENSION_MAPS` modules in the tree yet.
 
-Design reference: [DESIGN-DOMAIN-EXTENSIONS.md](../../../design/DESIGN-DOMAIN-EXTENSIONS.md).
+Full guide: [extensions-guide.md](../../../datrix-extensions/docs/extensions-guide.md) · Core protocol: [datrix-common extensions](../../../datrix-common/docs/extensions.md).
 
 ## Key Capabilities
 
@@ -73,7 +73,7 @@ Design reference: [DESIGN-DOMAIN-EXTENSIONS.md](../../../design/DESIGN-DOMAIN-EX
 
 ## DSL grammar snapshot (`.dtrx`)
 
-High-level constructs the parser and transformers understand today. Full detail: [language-reference.md](../reference/language-reference.md) and [DESIGN-DSL-SYNTAX-EXTENSIONS.md](../../../design/DESIGN-DSL-SYNTAX-EXTENSIONS.md).
+High-level constructs the parser and transformers understand today. Full detail: [language-reference.md](../reference/language-reference.md) and [datrix-syntax-reference.md](../../../datrix-language/docs/reference/datrix-syntax-reference.md).
 
 | Layer | Constructs |
 |-------|------------|

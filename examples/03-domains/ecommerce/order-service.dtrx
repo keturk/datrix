@@ -502,8 +502,8 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
             tax: Money.of(10.00, Currency.USD),
             shippingCost: Money.of(5.00, Currency.USD),
             discount: Money.of(0.00, Currency.USD),
-            shippingAddress: { street: "123 Main St", city: "Springfield", state: "IL", zip: "62701", country: "US" },
-            billingAddress: { street: "123 Main St", city: "Springfield", state: "IL", zip: "62701", country: "US" },
+            shippingAddress: { street: "123 Main St", city: "Springfield", state: "IL", zipCode: "62701", country: "US" },
+            billingAddress: { street: "123 Main St", city: "Springfield", state: "IL", zipCode: "62701", country: "US" },
             inventoryReservationId: uuid()
         });
         order.save();
@@ -519,8 +519,8 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
                 tax: Money.of(5.00, Currency.USD),
                 shippingCost: Money.of(5.00, Currency.USD),
                 discount: Money.of(0.00, Currency.USD),
-                shippingAddress: { street: "456 Oak Ave", city: "Shelbyville", state: "IL", zip: "62565", country: "US" },
-                billingAddress: { street: "456 Oak Ave", city: "Shelbyville", state: "IL", zip: "62565", country: "US" },
+                shippingAddress: { street: "456 Oak Ave", city: "Shelbyville", state: "IL", zipCode: "62565", country: "US" },
+                billingAddress: { street: "456 Oak Ave", city: "Shelbyville", state: "IL", zipCode: "62565", country: "US" },
                 inventoryReservationId: uuid()
             }),
             ValidationError("Order must have at least one item")
@@ -535,8 +535,8 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
             tax: Money.of(20.00, Currency.USD),
             shippingCost: Money.of(10.00, Currency.USD),
             discount: Money.of(0.00, Currency.USD),
-            shippingAddress: { street: "789 Elm St", city: "Capital City", state: "IL", zip: "62702", country: "US" },
-            billingAddress: { street: "789 Elm St", city: "Capital City", state: "IL", zip: "62702", country: "US" },
+            shippingAddress: { street: "789 Elm St", city: "Capital City", state: "IL", zipCode: "62702", country: "US" },
+            billingAddress: { street: "789 Elm St", city: "Capital City", state: "IL", zipCode: "62702", country: "US" },
             inventoryReservationId: uuid()
         });
         order.save();
@@ -551,8 +551,8 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
             tax: Money.of(7.50, Currency.USD),
             shippingCost: Money.of(5.00, Currency.USD),
             discount: Money.of(0.00, Currency.USD),
-            shippingAddress: { street: "321 Pine Rd", city: "Ogdenville", state: "IL", zip: "62703", country: "US" },
-            billingAddress: { street: "321 Pine Rd", city: "Ogdenville", state: "IL", zip: "62703", country: "US" },
+            shippingAddress: { street: "321 Pine Rd", city: "Ogdenville", state: "IL", zipCode: "62703", country: "US" },
+            billingAddress: { street: "321 Pine Rd", city: "Ogdenville", state: "IL", zipCode: "62703", country: "US" },
             inventoryReservationId: uuid(),
             cancellationReason: "Changed my mind"
         });
