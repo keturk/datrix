@@ -1,13 +1,7 @@
 
 // Shared module - defines reusable types across all task management services
+// BaseEntity, MAX_PAGE_SIZE, and DEFAULT_PAGE_SIZE are provided by the Datrix standard library.
 module taskapp.common {
-
-    // Abstract entities provide reusable field definitions; they don't generate tables
-    abstract entity BaseEntity {
-        UUID id : primaryKey, server = uuid();
-        DateTime createdAt : server = now();
-        DateTime updatedAt : server = now();
-    }
 
     // Priority levels shared across services
     enum Priority {
@@ -17,9 +11,6 @@ module taskapp.common {
         Critical : value('critical')
     }
 
-    // Constants shared across services
-    const MAX_PAGE_SIZE = 100;
-    const DEFAULT_PAGE_SIZE = 20;
     const MAX_TITLE_LENGTH = 200;
     const MAX_DESCRIPTION_LENGTH = 10000;
 }

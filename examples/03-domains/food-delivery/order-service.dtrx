@@ -1,5 +1,5 @@
 
-from fooddelivery.common import BaseEntity, DeliveryAddress, generateOrderNumber, MAX_ORDER_ITEMS, DEFAULT_DELIVERY_FEE, MIN_ORDER_AMOUNT;
+from fooddelivery.common import DeliveryAddress, generateOrderNumber, MAX_ORDER_ITEMS, DEFAULT_DELIVERY_FEE, MIN_ORDER_AMOUNT;
 
 service fooddelivery.OrderService : version('1.0.0'), description('food order management service') {
 

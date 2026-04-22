@@ -1,5 +1,5 @@
 
-from logistics.common import BaseEntity, GeoCoordinate, generateRouteCode, MAX_STOPS_PER_ROUTE;
+from logistics.common import GeoCoordinate, generateRouteCode, MAX_STOPS_PER_ROUTE;
 
 service logistics.RouteService : version('1.0.0'), description('route planning and optimization service') {
 

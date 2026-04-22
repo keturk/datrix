@@ -1,6 +1,6 @@
 
 // 'from ... import' brings shared types and functions from the common module
-from healthcare.common import BaseEntity, SoftDeletable, Address, ContactInfo, EmergencyContact, InsuranceInfo, Gender, BloodType, calculateAge, generateMRN;
+from healthcare.common import SoftDeletable, InsuranceInfo, Gender, BloodType, calculateAge, generateMRN;
 
 // Define a service in the 'healthcare' namespace
 service healthcare.PatientService : version('1.0.0'), description('patient management service') {

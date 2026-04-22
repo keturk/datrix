@@ -1,5 +1,5 @@
 
-from lms.common import BaseEntity, MAX_PAGE_SIZE;
+from lms.common import MAX_PAGE_SIZE;
 
 service lms.CourseService : version('1.0.0'), description('course catalog and content management service') {
 

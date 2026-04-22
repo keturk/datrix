@@ -1,5 +1,5 @@
 
-from taskapp.common import BaseEntity, Priority, MAX_PAGE_SIZE, MAX_TITLE_LENGTH;
+from taskapp.common import Priority, MAX_PAGE_SIZE, MAX_TITLE_LENGTH;
 
 service taskapp.TaskService : version('1.0.0'), description('task tracking and workflow management service') {
 

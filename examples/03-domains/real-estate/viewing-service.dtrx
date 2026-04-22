@@ -1,5 +1,5 @@
 
-from realestate.common import BaseEntity, PropertyType;
+from realestate.common import PropertyType;
 
 service realestate.ViewingService : version('1.0.0'), description('property viewing scheduling service') {
 

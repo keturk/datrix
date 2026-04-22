@@ -1,5 +1,5 @@
 
-from hr.common import BaseEntity, AuditedEntity, Department, generatePayrollRef;
+from hr.common import AuditedEntity, Department, generatePayrollRef;
 
 service hr.PayrollService : version('1.0.0'), description('payroll processing and compensation service') {
 

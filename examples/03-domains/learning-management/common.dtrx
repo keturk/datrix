@@ -1,17 +1,8 @@
 
 // Shared module - defines reusable types across all learning management services
+// BaseEntity, MAX_PAGE_SIZE, and DEFAULT_PAGE_SIZE are provided by the Datrix standard library.
 module lms.common {
 
-    // Abstract entities provide reusable field definitions; they don't generate tables
-    abstract entity BaseEntity {
-        UUID id : primaryKey, server = uuid();
-        DateTime createdAt : server = now();
-        DateTime updatedAt : server = now();
-    }
-
-    // Constants shared across services
-    const MAX_PAGE_SIZE = 100;
-    const DEFAULT_PAGE_SIZE = 20;
     const MAX_SCORE = 100;
     const MIN_SCORE = 0;
     const PASSING_SCORE = 60;

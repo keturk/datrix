@@ -1,5 +1,5 @@
 
-from logistics.common import BaseEntity, GeoCoordinate, generateTrackingNumber;
+from logistics.common import GeoCoordinate, generateTrackingNumber;
 
 service logistics.ShipmentService : version('1.0.0'), description('shipment tracking and management service') {
 

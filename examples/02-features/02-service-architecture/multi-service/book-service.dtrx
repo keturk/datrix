@@ -1,6 +1,5 @@
 
 // BookService imports BaseEntity from the shared common module
-from library.common import BaseEntity;
 
 // Each service has its own database, config, and API surface
 service library.BookService : version('1.0.0'), description('Book management service') {

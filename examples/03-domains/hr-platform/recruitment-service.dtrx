@@ -1,5 +1,5 @@
 
-from hr.common import BaseEntity, Department;
+from hr.common import Department;
 
 service hr.RecruitmentService : version('1.0.0'), description('job posting and candidate application service') {
 

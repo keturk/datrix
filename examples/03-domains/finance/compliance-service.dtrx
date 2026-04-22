@@ -1,5 +1,5 @@
 
-from finance.common import BaseEntity, AuditedEntity, Currency;
+from finance.common import AuditedEntity, Currency;
 
 service finance.ComplianceService : version('1.0.0'), description('regulatory compliance and audit service') {
 

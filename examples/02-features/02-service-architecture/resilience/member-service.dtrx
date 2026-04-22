@@ -1,6 +1,5 @@
 
 // MemberService with its own resilience configuration
-from library.common import BaseEntity;
 
 service library.MemberService : version('1.0.0'), description('Member management service with resilience patterns') {
 

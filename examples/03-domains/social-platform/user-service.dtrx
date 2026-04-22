@@ -1,5 +1,5 @@
 
-from social.common import BaseEntity, ContentStatus, MAX_PAGE_SIZE, paginate;
+from social.common import ContentStatus, MAX_PAGE_SIZE, paginate;
 
 service social.UserService : version('1.0.0'), description('user management and social graph service') {
 

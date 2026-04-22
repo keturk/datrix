@@ -1,5 +1,5 @@
 
-from finance.common import BaseEntity, AuditedEntity, Currency, generateReference;
+from finance.common import AuditedEntity, Currency, generateReference;
 
 service finance.AccountService : version('1.0.0'), description('account and customer management service') {
 

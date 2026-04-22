@@ -1,5 +1,5 @@
 
-from fooddelivery.common import BaseEntity, DeliveryAddress, generateDeliveryCode;
+from fooddelivery.common import DeliveryAddress, generateDeliveryCode;
 
 service fooddelivery.DeliveryService : version('1.0.0'), description('delivery driver and assignment management service') {
 

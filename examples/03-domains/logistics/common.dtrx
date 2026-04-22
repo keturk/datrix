@@ -1,11 +1,6 @@
 
+// BaseEntity is provided by the Datrix standard library.
 module logistics.common {
-
-    abstract entity BaseEntity {
-        UUID id : primaryKey, server = uuid();
-        DateTime createdAt : server = now();
-        DateTime updatedAt : server = now();
-    }
 
     struct GeoCoordinate {
         Decimal(10, 6) latitude;

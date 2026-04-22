@@ -1,21 +1,6 @@
 
 // Shared module for the multi-service example
 // Defines reusable types (entities, structs) that multiple services import
+// BaseEntity and Address are provided by the Datrix standard library.
 module library.common {
-
-    // Abstract base entity shared across all services
-    // Services import this to avoid duplicating standard audit fields
-    abstract entity BaseEntity {
-        UUID id : primaryKey, server = uuid();
-        DateTime createdAt : server = now();
-        DateTime updatedAt : server = now();
-    }
-
-    // Struct for reusable address value objects
-    // Structs are not database entities - they define structured data shapes
-    struct Address {
-        String(200) street;
-        String(100) city;
-        String(10) zipCode;
-    }
 }

@@ -23,6 +23,18 @@
 | Computed fields, spec tests | Provider credentials, replica count |
 | **`use extension`** (which domain packs are enabled) | (not used for extension enablement) |
 
+## Standard library (product rules)
+
+Shipped `.dtrx` modules in `datrix-language` (see [datrix-stdlib-reference.md](../../../datrix-language/docs/reference/datrix-stdlib-reference.md)) are part of the language distribution, not optional user packages.
+
+- **Implicit availability** — Stdlib exports (`BaseEntity`, `Address`, `hashPassword`, …) resolve from global scope without `import` / `use` in user modules (same rules as the semantic pipeline; qualified `datrix.*` names still work when you need them).
+- **Lazy loading** — Serialized stdlib module ASTs deserialize only when a reference forces it; unused stdlib modules incur no deserialization work.
+- **User-first shadowing** — User definitions win over stdlib; use qualified names when you need the stdlib shape explicitly. Shadowing is intentional, not a warning surface.
+- **Concrete codegen** — Unlike builtins (mostly abstract mappings into host languages), stdlib entities, structs, and functions become real generated artifacts (tables, classes, transpiled methods) when referenced.
+- **Database-agnostic** — Stdlib uses builtin scalars only; no PostGIS/Timescale-style coupling. Infrastructure-specific types belong in **domain extensions**, not stdlib.
+- **Versions with `datrix-language`** — No separate stdlib semver; upgrading the language package upgrades stdlib.
+- **Low bar for inclusion** — Shared patterns used by more than one real project are candidates; lazy loading keeps unused modules cheap.
+
 ## Code Generation Principles
 
 - Generate **idiomatic** code per target language

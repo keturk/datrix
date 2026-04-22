@@ -1,5 +1,5 @@
 
-from healthcare.common import BaseEntity, Pagination, APPOINTMENT_DURATION_DEFAULT;
+from healthcare.common import APPOINTMENT_DURATION_DEFAULT;
 
 service healthcare.AppointmentService : version('1.0.0'), description('appointment management service') {
 

@@ -1,15 +1,9 @@
 
 // Shared module - defines reusable types for financial services
+// BaseEntity is provided by the Datrix standard library.
 module finance.common {
 
-    // Abstract entities provide reusable field definitions; they don't generate tables
-    abstract entity BaseEntity {
-        UUID id : primaryKey, server = uuid();
-        DateTime createdAt : server = now();
-        DateTime updatedAt : server = now();
-    }
-
-    // Extends BaseEntity with audit tracking fields for compliance
+    // Extends stdlib BaseEntity with audit tracking fields for compliance
     abstract entity AuditedEntity extends BaseEntity {
         UUID? performedBy;
         String(500)? auditNote;

@@ -1,5 +1,5 @@
 
-from lms.common import BaseEntity, MAX_PAGE_SIZE;
+from lms.common import MAX_PAGE_SIZE;
 
 service lms.StudentService : version('1.0.0'), description('student profile and account management service') {
 

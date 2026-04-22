@@ -1,15 +1,11 @@
 
 // Shared module - defines reusable types, traits, structs, and functions
+// BaseEntity, Address, Pagination, PaginationResult, paginate(), MAX_PAGE_SIZE,
+// DEFAULT_PAGE_SIZE, SESSION_TIMEOUT_SECONDS, PASSWORD_MIN_LENGTH, generateToken,
+// hashPassword, and verifyPassword are provided by the Datrix standard library.
 module ecommerce.common {
 
-    // Abstract entities provide reusable field definitions; they don't generate tables
-    abstract entity BaseEntity {
-        UUID id : primaryKey, server = uuid();
-        DateTime createdAt : server = now();
-        DateTime updatedAt : server = now();
-    }
-
-    // Extends BaseEntity with audit tracking fields
+    // Extends stdlib BaseEntity with audit tracking fields
     abstract entity AuditedEntity extends BaseEntity {
         UUID? createdBy;
         UUID? updatedBy;
@@ -56,30 +52,6 @@ module ecommerce.common {
         }
     }
 
-    // Structs define reusable value objects (not database entities)
-    struct Address {
-        String(200) street;
-        String(100) city;
-        String(100) state;
-        String(10) zipCode;
-        // CountryCode is a semantic type for ISO country codes
-        CountryCode country;
-        Phone? phone;
-
-        // Structs can have methods
-        fn format() -> String {
-            // #"..." is string interpolation syntax
-            return #"{street}, {city}, {state} {zipCode}, {country}";
-        }
-    }
-
-    // Struct with computed fields
-    struct Pagination {
-        Int page = 1;
-        Int perPage = 20;
-        Int offset := (page - 1) * perPage;
-    }
-
     struct OrderLineInput {
         UUID productId;
         Int quantity;
@@ -89,25 +61,6 @@ module ecommerce.common {
         USD,
         EUR,
         GBP
-    }
-
-    // Constants define named values reusable across the module
-    const MAX_PAGE_SIZE = 100;
-    const DEFAULT_PAGE_SIZE = 20;
-    const SESSION_TIMEOUT_SECONDS = 2592000;
-    const PASSWORD_MIN_LENGTH = 8;
-
-    // Shared utility functions importable by any service
-    fn generateToken(Int length = 32) -> String {
-        return Random.string(length);
-    }
-
-    fn hashPassword(String password) -> String {
-        return Auth.hashPassword(password);
-    }
-
-    fn verifyPassword(String password, String hash) -> Boolean {
-        return Crypto.bcryptVerify(password, hash);
     }
 
     fn generateOrderNumber() -> String {
@@ -120,18 +73,5 @@ module ecommerce.common {
 
     fn generateTrackingNumber() -> String {
         return #"TRACK-{now().format('YYYYMMDD')}-{Random.string(10).toUpperCase()}";
-    }
-
-    // Functions can accept structs as parameters
-    fn paginate(Int total, Pagination p) -> JSON {
-        #Int totalPages = Math.ceil(total / p.perPage);
-        return {
-            page: p.page,
-            perPage: p.perPage,
-            total: total,
-            totalPages: totalPages,
-            hasNext: p.page < totalPages,
-            hasPrev: p.page > 1
-        };
     }
 }

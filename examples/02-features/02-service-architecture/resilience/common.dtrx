@@ -1,11 +1,5 @@
 
 // Shared module with abstract base entity for both services
+// BaseEntity is provided by the Datrix standard library.
 module library.common {
-
-    // Abstract base entity shared across all services
-    abstract entity BaseEntity {
-        UUID id : primaryKey, server = uuid();
-        DateTime createdAt : server = now();
-        DateTime updatedAt : server = now();
-    }
 }

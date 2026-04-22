@@ -1,20 +1,5 @@
 
 // Shared module - defines reusable types and functions across all blog services
+// BaseEntity, hashPassword, generateToken, and verifyPassword (where used) are provided by the Datrix standard library.
 module blog.common {
-
-    // Abstract entities provide reusable field definitions; they don't generate tables
-    abstract entity BaseEntity {
-        UUID id : primaryKey, server = uuid();
-        DateTime createdAt : server = now();
-        DateTime updatedAt : server = now();
-    }
-
-    // Module-level functions are shared utilities importable by any service
-    fn hashPassword(String password) -> String {
-        return Auth.hashPassword(password);
-    }
-
-    fn generateToken(Int length = 32) -> String {
-        return Random.string(length);
-    }
 }

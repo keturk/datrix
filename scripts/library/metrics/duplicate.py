@@ -19,11 +19,31 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import io
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 DEFAULT_MIN_LINES = 4
+
+
+def _ensure_utf8_stdio() -> None:
+    """Avoid UnicodeEncodeError when printing pylint output on Windows (cp1252)."""
+    if sys.platform != "win32":
+        return
+    for stream in (sys.stdout, sys.stderr):
+        if stream is None:
+            continue
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (OSError, ValueError, AttributeError):
+                pass
+        elif hasattr(stream, "buffer"):
+            name = "stdout" if stream is sys.stdout else "stderr"
+            setattr(sys, name, io.TextIOWrapper(stream.buffer, encoding="utf-8", errors="replace"))
 
 
 def main() -> int:
@@ -53,6 +73,7 @@ def main() -> int:
     )
 
     args = parser.parse_args()
+    _ensure_utf8_stdio()
     project_roots = [p.resolve() for p in args.project_roots]
     for root in project_roots:
         if not root.is_dir():
@@ -102,12 +123,17 @@ def main() -> int:
     cmd.extend(str(path) for path in scan_paths)
 
     cwd = str(project_roots[0])
+    # Pylint R0801 embeds source snippets; Windows cp1252 stdout raises UnicodeEncodeError.
+    child_env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
     try:
         result = subprocess.run(
             cmd,
             capture_output=not args.verbose,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=cwd,
+            env=child_env,
         )
     except FileNotFoundError:
         print(

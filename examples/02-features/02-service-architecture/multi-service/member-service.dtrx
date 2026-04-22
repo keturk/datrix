@@ -1,6 +1,5 @@
 
 // MemberService imports BaseEntity and Address from the shared common module
-from library.common import BaseEntity, Address;
 
 // A separate service in the same namespace handles member management
 // Each service gets its own database, deployment unit, and API

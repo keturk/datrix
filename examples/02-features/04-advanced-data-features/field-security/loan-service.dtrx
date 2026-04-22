@@ -1,6 +1,5 @@
 
 // 'from ... import' brings shared definitions from a module into this service
-from library.common import BaseEntity;
 
 // LoanService depends on BookService and MemberService for cross-service operations
 service library.LoanService : version('1.0.0'), description('loan management service') {

@@ -1,5 +1,5 @@
 
-from finance.common import BaseEntity, AuditedEntity, Currency, generateReference;
+from finance.common import AuditedEntity, Currency, generateReference;
 
 service finance.TransactionService : version('1.0.0'), description('financial transaction processing service') {
 

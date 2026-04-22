@@ -1,5 +1,5 @@
 
-from realestate.common import BaseEntity, PropertyType, generateContractRef;
+from realestate.common import PropertyType, generateContractRef;
 
 service realestate.ContractService : version('1.0.0'), description('real estate contract management service') {
 

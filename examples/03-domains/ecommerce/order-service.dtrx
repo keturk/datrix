@@ -1,5 +1,5 @@
 
-from ecommerce.common import BaseEntity, Address, Currency, OrderLineInput, MAX_PAGE_SIZE, generateOrderNumber;
+from ecommerce.common import Currency, OrderLineInput, MAX_PAGE_SIZE, generateOrderNumber;
 
 service ecommerce.OrderService : version('1.0.0'), description('order management service') {
 
