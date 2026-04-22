@@ -7,6 +7,7 @@ service social.NotificationService : version('1.0.0'), description('notification
     registration('config/notification-service/registration.yaml');
     discovery {
         UserService { loadBalance: roundRobin, healthyOnly: true }
+        PostService { loadBalance: roundRobin, healthyOnly: true }
     }
     resilience('config/notification-service/resilience.yaml');
     integrations('config/notification-service/integrations.yaml');

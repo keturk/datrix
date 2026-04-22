@@ -132,12 +132,12 @@ service blog.AuthorService : version('1.0.0'), description('author management se
                 throw ValidationException("Email already registered");
             #Author author = authorDb.Author.create({
                 email: request.email,
-                passwordHash: hashPassword(request.password),
+                passwordHash: Auth.hashPassword(request.password),
                 firstName: request.firstName,
                 lastName: request.lastName,
                 role: AuthorRole.Writer,
                 status: AuthorStatus.Pending,
-                emailVerificationToken: generateToken()
+                emailVerificationToken: Token.generate(32)
             });
             return author;
         }
@@ -146,7 +146,7 @@ service blog.AuthorService : version('1.0.0'), description('author management se
     test("computed fullName concatenates first and last name") {
         #authorDb.Author author = authorDb.Author.create({
             email: "jane@example.com",
-            passwordHash: hashPassword("Str0ng#TestP@ss9"),
+            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
             firstName: "Jane",
             lastName: "Doe"
         });
@@ -157,7 +157,7 @@ service blog.AuthorService : version('1.0.0'), description('author management se
     test("computed isActive is true for Active status") {
         #authorDb.Author author = authorDb.Author.create({
             email: "active@example.com",
-            passwordHash: hashPassword("Str0ng#TestP@ss9"),
+            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
             firstName: "Active",
             lastName: "Author",
             status: AuthorStatus.Active,
@@ -170,7 +170,7 @@ service blog.AuthorService : version('1.0.0'), description('author management se
     test("computed canLogin requires active and verified") {
         #authorDb.Author author = authorDb.Author.create({
             email: "login@example.com",
-            passwordHash: hashPassword("Str0ng#TestP@ss9"),
+            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
             firstName: "Login",
             lastName: "User",
             status: AuthorStatus.Active,
@@ -184,7 +184,7 @@ service blog.AuthorService : version('1.0.0'), description('author management se
         assert throws(
             () => authorDb.Author.create({
                 email: "unverified@example.com",
-                passwordHash: hashPassword("Str0ng#TestP@ss9"),
+                passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
                 firstName: "Unverified",
                 lastName: "Author",
                 status: AuthorStatus.Active
@@ -196,7 +196,7 @@ service blog.AuthorService : version('1.0.0'), description('author management se
     test("afterCreate emits AuthorRegistered event") {
         #authorDb.Author author = authorDb.Author.create({
             email: "event@example.com",
-            passwordHash: hashPassword("Str0ng#TestP@ss9"),
+            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
             firstName: "Event",
             lastName: "Test"
         });
@@ -207,7 +207,7 @@ service blog.AuthorService : version('1.0.0'), description('author management se
     test("spec: fullName returns Jane Austen for literary author fixture") {
         #authorDb.Author author = authorDb.Author.create({
             email: "spec.display@example.com",
-            passwordHash: hashPassword("Str0ng#TestP@ss9"),
+            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
             firstName: "Jane",
             lastName: "Austen"
         });
@@ -218,7 +218,7 @@ service blog.AuthorService : version('1.0.0'), description('author management se
     test("spec: isActive is true for verified Active author Mark Twain") {
         #authorDb.Author author = authorDb.Author.create({
             email: "spec.active@example.com",
-            passwordHash: hashPassword("Str0ng#TestP@ss9"),
+            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
             firstName: "Mark",
             lastName: "Twain",
             status: AuthorStatus.Active,
@@ -231,7 +231,7 @@ service blog.AuthorService : version('1.0.0'), description('author management se
     test("spec: canLogin is true for active verified Ernest Hemingway") {
         #authorDb.Author author = authorDb.Author.create({
             email: "spec.login@example.com",
-            passwordHash: hashPassword("Str0ng#TestP@ss9"),
+            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
             firstName: "Ernest",
             lastName: "Hemingway",
             status: AuthorStatus.Active,
@@ -245,7 +245,7 @@ service blog.AuthorService : version('1.0.0'), description('author management se
         assert throws(
             () => authorDb.Author.create({
                 email: "spec.unverified@example.com",
-                passwordHash: hashPassword("Str0ng#TestP@ss9"),
+                passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
                 firstName: "Unverified",
                 lastName: "Author",
                 status: AuthorStatus.Active
@@ -257,7 +257,7 @@ service blog.AuthorService : version('1.0.0'), description('author management se
     test("spec: afterCreate emits AuthorRegistered for Virginia Woolf fixture") {
         #authorDb.Author author = authorDb.Author.create({
             email: "spec.event@example.com",
-            passwordHash: hashPassword("Str0ng#TestP@ss9"),
+            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
             firstName: "Virginia",
             lastName: "Woolf"
         });

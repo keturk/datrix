@@ -951,23 +951,33 @@ job ProcessOrders cron('0 * * * *') config('config/jobs.yaml') { ... }
 
 ### Example
 
+Per-profile entries live under a `jobs:` key. Each job requires a `schedule` (cron string), supports duration strings for `timeout`, and accepts either the `retries` shorthand (total attempts) or a nested `retry` object with `maxAttempts` and `backoff` (`fixed`, `linear`, or `exponential`). Unknown keys are rejected by the loader.
+
 ```yaml
 test:
-  ProcessOrders:
-    timeout: 300000            # 5 minutes
-    retryLimit: 3
-    retryBackoff: exponential
+  jobs:
+    ProcessOrders:
+      schedule: "0 * * * *"
+      timeout: 5m
+      retries: 3
 
-  CleanupExpired:
-    timeout: 600000            # 10 minutes
-    retryLimit: 5
-    retryBackoff: linear
+    CleanupExpired:
+      schedule: "30 */6 * * *"
+      timeout: 10m
+      retry: { maxAttempts: 5, backoff: linear }
 
 production:
-  ProcessOrders:
-    timeout: 900000            # 15 minutes
-    retryLimit: 5
-    retryBackoff: exponential
+  jobs:
+    ProcessOrders:
+      schedule: "0 */1 * * *"
+      timeout: 15m
+      retry: { maxAttempts: 5, backoff: exponential }
+
+    CleanupExpired:
+      schedule: "0 */6 * * *"
+      timeout: 20m
+      retries: 2
+      concurrency: 1
 ```
 
 ---

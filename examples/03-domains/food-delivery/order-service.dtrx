@@ -321,18 +321,20 @@ service fooddelivery.OrderService : version('1.0.0'), description('food order ma
             });
 
             foreach item in request.items {
-                #JSON menuItem = menuItems.find(m => m.id == item.menuItemId);
-                #Money itemSubtotal = menuItem.price.multiply(item.quantity);
+                #JSON? menuItem = menuItems.find(m => m.id == item.menuItemId);
+                if (menuItem != null) {
+                    #Money itemSubtotal = menuItem.price.multiply(item.quantity);
 
-                orderDb.OrderItem.create({
-                    order: order,
-                    menuItemId: item.menuItemId,
-                    name: menuItem.name,
-                    quantity: item.quantity,
-                    unitPrice: menuItem.price,
-                    subtotal: itemSubtotal,
-                    specialRequests: item.specialRequests
-                });
+                    orderDb.OrderItem.create({
+                        order: order,
+                        menuItemId: item.menuItemId,
+                        name: menuItem.name,
+                        quantity: item.quantity,
+                        unitPrice: menuItem.price,
+                        subtotal: itemSubtotal,
+                        specialRequests: item.specialRequests
+                    });
+                }
             }
 
             order.calculateTotals();

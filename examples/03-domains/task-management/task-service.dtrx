@@ -323,13 +323,17 @@ service taskapp.TaskService : version('1.0.0'), description('task tracking and w
 
             #Int count = 0;
             foreach task in overdueTasks {
-                emit TaskOverdue(task.id, task.projectId, task.dueDate);
-                count = count + 1;
+                if (task.dueDate != null) {
+                    emit TaskOverdue(task.id, task.projectId, task.dueDate);
+                    count = count + 1;
+                }
             }
 
             foreach task in overdueInProgress {
-                emit TaskOverdue(task.id, task.projectId, task.dueDate);
-                count = count + 1;
+                if (task.dueDate != null) {
+                    emit TaskOverdue(task.id, task.projectId, task.dueDate);
+                    count = count + 1;
+                }
             }
 
             if (count > 0) {
