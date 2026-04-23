@@ -41,6 +41,26 @@ service library.BookService : version('1.0.0'), description('book management ser
         Damaged
     }
 
+    // 'exceptions' block defines structured domain exceptions with HTTP status codes
+    // Each exception has a status code, optional message, and optional typed fields
+    exceptions {
+        BookNotAvailableError : status(409), message("Book is not available for checkout");
+
+        MaxRenewalsExceededError : status(409), message("Maximum renewals exceeded") {
+            Int currentRenewals;
+            Int maxAllowed;
+        }
+
+        BookNotFoundError : status(404), message("Book not found") {
+            UUID bookId;
+        }
+
+        OverdueBookError : status(403) {
+            UUID checkoutId;
+            Int daysOverdue;
+        }
+    }
+
     // 'const' declares compile-time constants reusable across the service
     const MAX_CHECKOUT_DAYS = 30;
     const MAX_RENEWALS = 3;
@@ -87,6 +107,21 @@ service library.BookService : version('1.0.0'), description('book management ser
     // Module-level function using string interpolation for formatting
     fn formatBookReference(String title, String author, Int year) -> String {
         return #"{author} ({year}). {title}";
+    }
+
+    // Compound assignment operators: -=, *=, /=, %=, ??= (in addition to +=)
+    fn calculateDiscountedTotal(Decimal unitPrice, Int quantity, Decimal? discountRate) -> Decimal {
+        #Decimal total = unitPrice;
+        total *= quantity;                    // *=  multiply by quantity
+        #Decimal discount = discountRate ?? 0.10;
+        #Decimal reduction = total * discount;
+        total -= reduction;                   // -=  subtract discount
+        #Decimal taxBucket = total;
+        taxBucket %= 100;                     // %=  remainder for tax bracket calc
+        #Decimal? surcharge = null;
+        surcharge ??= 0.0;                    // ??= assign if null
+        total += surcharge;                   // +=  (already demonstrated elsewhere)
+        return total;
     }
 
     // Relational database block - groups entities (tables) under a named datasource
@@ -211,6 +246,24 @@ service library.BookService : version('1.0.0'), description('book management ser
                         return "Unknown";
                     }
                 }
+            }
+
+            // 'match' expression returns a value based on pattern matching
+            // Unlike 'switch' (a statement), 'match' is an expression usable inline
+            fn getConditionMultiplier() -> Decimal {
+                return match (condition) {
+                    BookCondition.New => 1.0,
+                    BookCondition.Good => 0.8,
+                    BookCondition.Fair => 0.6,
+                    BookCondition.Poor => 0.3,
+                    BookCondition.Damaged => 0.1,
+                    _ => 0.0
+                };
+            }
+
+            // Ternary '? :' is a conditional expression — compact alternative to if/else
+            fn getAvailabilityMessage() -> String {
+                return isAvailable ? "In Stock" : "Not Available";
             }
 
             // Entity function that derives a boolean from the entity's own fields
@@ -466,6 +519,18 @@ service library.BookService : version('1.0.0'), description('book management ser
             }
 
             emit OverdueBooksProcessed(processed);
+        }
+
+        // Job using C-style 'for' loop for index-based batch iteration
+        // Unlike 'foreach', C-style 'for' provides explicit index control
+        job GenerateWeeklyReport {
+            #Array<Book> books = bookDb.Book.all();
+            #Int total = books.length();
+
+            for (#Int i = 0; i < total; i += 1) {
+                #Book book = books[i];
+                Log.info(#"Processing report entry {i} of {total}: {book.title}");
+            }
         }
     }
 

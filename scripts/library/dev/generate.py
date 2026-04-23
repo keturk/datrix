@@ -267,12 +267,18 @@ app()
                     # Print all output in real-time
                     print(plain_line, flush=True)
                     output_lines.append(plain_line)
-                    # Capture warning lines for the summary. Match both:
+                    # Capture warning and error lines for the summary.
+                    # Warnings match:
                     #   - "Warning: ..." (CLI-style)
                     #   - "WARNING logger.name ..." (Python logging default format)
+                    # Errors match:
+                    #   - "Error: ..." (CLI-style)
+                    #   - "ERROR logger.name ..." (Python logging default format)
                     stripped = plain_line.lstrip()
                     if stripped.startswith("Warning:") or stripped.startswith("WARNING "):
                         warnings.append(plain_line.strip())
+                    elif stripped.startswith("Error:") or stripped.startswith("ERROR "):
+                        errors.append(plain_line.strip())
 
             # Wait for process to complete
             exit_code = process.wait()
@@ -282,20 +288,21 @@ app()
             sys.stderr.flush()
 
             # If the subprocess itself failed, capture error-like lines BEFORE
-            # promoting warnings to errors, so we don't pollute the errors list
-            # with arbitrary trailing output from warning-only runs.
+            # promoting warnings/errors to failures, so we don't pollute the
+            # errors list with arbitrary trailing output from warning-only runs.
             subprocess_failed = exit_code != 0
 
-            # Any warning emitted during generation is treated as a hard failure:
-            # warnings indicate silent fallbacks or incomplete mappings and must
-            # not be allowed to ship in generated code.
-            if warnings and exit_code == 0:
+            # Any warning or error emitted during generation is treated as a
+            # hard failure: they indicate silent fallbacks, incomplete mappings,
+            # or contract violations that must not be allowed to ship.
+            if (warnings or errors) and exit_code == 0:
                 exit_code = 1
 
-            # If the subprocess failed, keep only error-like lines to avoid
-            # dumping the full log. Warning-only failures leave `errors` empty
-            # because the warnings list is already reported in the summary.
-            if subprocess_failed:
+            # If the subprocess failed and we didn't already capture specific
+            # ERROR lines from the output, extract error-like lines to avoid
+            # dumping the full log. Warning/error-only failures keep their
+            # already-captured lists (reported in the summary).
+            if subprocess_failed and not errors:
                 meaningful = [line for line in output_lines if line.strip()]
                 if meaningful:
                     error_indicators = (

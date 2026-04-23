@@ -33,6 +33,10 @@
 .PARAMETER ShowRaw
     Show raw semgrep output for each rule.
 
+.PARAMETER SinglePass
+    Run all selected rules in one semgrep process per file batch (faster when
+    using multiple -Rule values). Forwarded as --single-pass to semgrep_scanner.py.
+
 .EXAMPLE
     .\semgrep.ps1 -All
     Scan all projects with all rules.
@@ -67,7 +71,9 @@ param(
 
     [string]$Report = "",
 
-    [switch]$ShowRaw
+    [switch]$ShowRaw,
+
+    [switch]$SinglePass
 )
 
 if ($Projects.Count -eq 0 -and -not $All -and -not $ListRules) {
@@ -158,6 +164,9 @@ try {
     }
     if ($ShowRaw) {
         $pyArgs += "--verbose"
+    }
+    if ($SinglePass) {
+        $pyArgs += "--single-pass"
     }
 
     if (-not $ListRules) {

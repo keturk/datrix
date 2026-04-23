@@ -22,6 +22,7 @@ Usage:
     python scripts/library/dev/semgrep_scanner.py --all
     python scripts/library/dev/semgrep_scanner.py --all --rule missing-encoding-read
     python scripts/library/dev/semgrep_scanner.py datrix-common --rule return-none-lookup
+    python scripts/library/dev/semgrep_scanner.py datrix-common --rule a --rule b --single-pass
     python scripts/library/dev/semgrep_scanner.py --all --list-rules
 
     Or use the PowerShell wrapper:
@@ -39,7 +40,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-if sys.platform == "win32":
+if sys.platform == "win32" and __name__ == "__main__":
     if hasattr(sys.stdout, "buffer"):
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     if hasattr(sys.stderr, "buffer"):
@@ -228,6 +229,32 @@ def _run_semgrep_batch(
     return output, result.returncode
 
 
+def _run_semgrep_batch_multi_configs(
+    rules_paths: list[Path],
+    files: list[Path],
+    json_output: bool,
+) -> tuple[str, int]:
+    """Run semgrep once per batch with multiple rule files (one filesystem pass)."""
+    cmd: list[str] = ["semgrep", "scan", "--no-git-ignore"]
+    for rules_path in rules_paths:
+        cmd.extend(["--config", str(rules_path)])
+    if json_output:
+        cmd.append("--json")
+    cmd.extend(str(f) for f in files)
+
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    output = result.stdout
+    if result.stderr and not json_output:
+        output += "\n" + result.stderr
+    return output, result.returncode
+
+
 def run_semgrep(
     rules_path: Path,
     targets: list[Path],
@@ -273,6 +300,57 @@ def run_semgrep(
     return "\n".join(lines), last_exit
 
 
+def run_semgrep_multi_configs(
+    rules_paths: list[Path],
+    targets: list[Path],
+    json_output: bool = False,
+) -> tuple[str, int]:
+    """Run semgrep with multiple rule YAMLs in one invocation per file batch.
+
+    Faster than calling :func:`run_semgrep` once per rule when several rules
+    apply to the same files (one parse pass per batch instead of N).
+    """
+    if not rules_paths:
+        return '{"results":[],"errors":[]}' if json_output else "No rules.", 0
+
+    files = _expand_to_files(targets)
+    if not files:
+        return '{"results":[],"errors":[]}' if json_output else "No files to scan.", 0
+
+    batches = _batch_files(files)
+    if len(batches) == 1:
+        try:
+            return _run_semgrep_batch_multi_configs(rules_paths, batches[0], json_output)
+        except FileNotFoundError:
+            return "ERROR: semgrep not found. Install with: pip install semgrep", 127
+
+    all_findings: list[dict] = []
+    all_errors: list[dict] = []
+    last_exit = 0
+
+    for batch in batches:
+        try:
+            output, code = _run_semgrep_batch_multi_configs(
+                rules_paths, batch, json_output=True
+            )
+        except FileNotFoundError:
+            return "ERROR: semgrep not found. Install with: pip install semgrep", 127
+        if code != 0:
+            last_exit = code
+        findings, errors = parse_json_output(output)
+        all_findings.extend(findings)
+        all_errors.extend(errors)
+
+    if json_output:
+        merged = json.dumps({"results": all_findings, "errors": all_errors})
+        return merged, last_exit
+
+    lines = [
+        f"Batched multi-rule scan: {len(batches)} batches, {len(all_findings)} findings"
+    ]
+    return "\n".join(lines), last_exit
+
+
 def _clean_rule_id(check_id: str) -> str:
     """Strip config-path prefix from semgrep check_id.
 
@@ -307,10 +385,45 @@ def scan_with_rules(
     rule_paths: list[Path],
     targets: list[Path],
     verbose: bool = False,
+    single_pass: bool = False,
 ) -> tuple[list[dict], list[dict]]:
-    """Run semgrep once per rule file, aggregating findings and errors."""
+    """Run semgrep, aggregating findings and errors.
+
+    Args:
+        rule_paths: YAML rule files.
+        targets: Directories (or files) to scan.
+        verbose: If True, print raw semgrep text for each rule (non-single-pass).
+        single_pass: If True, pass all ``rule_paths`` as ``--config`` to one
+            semgrep process per batch (much faster for many rules on the same
+            tree). If False, run semgrep once per rule file (legacy behavior).
+    """
     all_findings: list[dict] = []
     all_errors: list[dict] = []
+
+    if single_pass and rule_paths:
+        names = ", ".join(p.stem for p in rule_paths)
+        print(
+            f"  Running rules in one Semgrep pass: {names} ...",
+            end="",
+            flush=True,
+        )
+        json_output, exit_code = run_semgrep_multi_configs(
+            rule_paths, targets, json_output=True
+        )
+        if exit_code == 127:
+            print(" SEMGREP NOT FOUND")
+            print(json_output, file=sys.stderr)
+            raise RuntimeError("semgrep not found")
+        findings, errors = parse_json_output(json_output)
+        all_findings.extend(findings)
+        all_errors.extend(errors)
+        print(f" {len(findings)} findings, {len(errors)} errors")
+        if verbose and findings:
+            text_output, _ = run_semgrep_multi_configs(
+                rule_paths, targets, json_output=False
+            )
+            print(text_output)
+        return all_findings, all_errors
 
     for rule_path in rule_paths:
         rule_name = rule_path.stem
@@ -491,6 +604,15 @@ def main() -> int:
         action="store_true",
         help="Show raw semgrep output for each rule",
     )
+    parser.add_argument(
+        "--single-pass",
+        action="store_true",
+        dest="single_pass",
+        help=(
+            "Run all selected rules in one semgrep invocation per file batch "
+            "(faster than the default one-invocation-per-rule)."
+        ),
+    )
     args = parser.parse_args()
 
     # --list-rules: just print available rules and exit
@@ -540,10 +662,21 @@ def main() -> int:
     ))
 
     print(f"Scanning {len(targets)} directories across {len(project_names)} project(s)")
-    print(f"Running {len(rule_paths)} rule(s)...\n")
+    if args.single_pass and len(rule_paths) > 1:
+        print(
+            f"Running {len(rule_paths)} rule(s) in single-pass mode "
+            f"(one semgrep invocation per batch)...\n"
+        )
+    else:
+        print(f"Running {len(rule_paths)} rule(s)...\n")
 
     try:
-        findings, errors = scan_with_rules(rule_paths, targets, verbose=args.verbose)
+        findings, errors = scan_with_rules(
+            rule_paths,
+            targets,
+            verbose=args.verbose,
+            single_pass=args.single_pass,
+        )
     except RuntimeError:
         return 1
 
