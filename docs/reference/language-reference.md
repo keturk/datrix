@@ -398,7 +398,7 @@ service ecommerce.OrderService : version('1.0.0') {
 }
 ```
 
-Semantics: `status(N)` is required on every declared exception. Optional `message("…")` and data fields are independent. Module-level and service-level exceptions cannot share a name. Three builtin exception names (`EntityNotFoundError`, `CascadeRestrictionError`, `ValidationError`) are reserved.
+Semantics: `status(N)` is required on every declared exception. Optional `message("…")` and data fields are independent. Module-level and service-level exceptions cannot share a name. Four builtin exception names (`EntityNotFoundError`, `CascadeRestrictionError`, `ValidationError`, `RateLimitError`) are reserved.
 
 ---
 
