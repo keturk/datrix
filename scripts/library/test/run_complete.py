@@ -22,7 +22,11 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any, Mapping, Optional, Tuple
+
+# Sentinel: git SHA not yet resolved from disk (env vars checked first each call).
+_GIT_HEAD_SHA_UNSET = object()
+_git_head_sha_memo: Any = _GIT_HEAD_SHA_UNSET
 
 # Ensure stdout/stderr handle Unicode (Docker output contains progress bars, etc.)
 if hasattr(sys.stdout, "reconfigure"):
@@ -128,12 +132,54 @@ def _strip_ansi(line: str) -> str:
 
 
 
+def _try_git_rev_parse(repo: Path) -> Optional[str]:
+    """Return current HEAD SHA if ``repo`` is a git checkout, else None."""
+    try:
+        if not repo.is_dir():
+            return None
+        proc = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=20,
+            check=False,
+        )
+        if proc.returncode != 0:
+            return None
+        line = (proc.stdout or "").strip()
+        if len(line) >= 7 and re.fullmatch(r"[0-9a-fA-F]+", line):
+            return line.lower()
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
+    return None
+
+
+def get_datrix_repo_sha() -> Optional[str]:
+    """SHA of the datrix repo for provenance (env override, else ``git rev-parse`` at datrix root)."""
+    env_sha = (os.environ.get("DATRIX_REPO_SHA") or os.environ.get("DATRIX_CODEGEN_SHA") or "").strip()
+    if env_sha:
+        return env_sha
+    global _git_head_sha_memo
+    if _git_head_sha_memo is not _GIT_HEAD_SHA_UNSET:
+        return _git_head_sha_memo
+    try:
+        root = get_paths()["datrix_root"]
+    except Exception:
+        _git_head_sha_memo = None
+        return None
+    _git_head_sha_memo = _try_git_rev_parse(root)
+    return _git_head_sha_memo
+
+
 def run_command(
     cmd: list[str],
     cwd: Optional[Path] = None,
     description: str = "",
     capture_output: bool = False,
     log_file: Optional[Path] = None,
+    env_overrides: Optional[Mapping[str, str]] = None,
 ) -> Tuple[bool, Optional[str]]:
     """
     Run a command and return True if successful
@@ -144,6 +190,7 @@ def run_command(
         description: Description of what the command does
         capture_output: If True, capture and return stdout/stderr while still displaying it
         log_file: If set, tee stdout/stderr to this file (plain text, no ANSI)
+        env_overrides: Extra environment variables for the child process
 
     Returns:
         Tuple of (success: bool, output: Optional[str])
@@ -153,10 +200,20 @@ def run_command(
 
     print_info(f"Command: {' '.join(str(c) for c in cmd)}")
 
-    if capture_output or log_file is not None:
-        # Set environment variables for unbuffered output
+    def _build_child_env() -> dict[str, str]:
         env = dict(os.environ)
         env["PYTHONUNBUFFERED"] = "1"
+        sha = get_datrix_repo_sha()
+        if sha:
+            env["DATRIX_REPO_SHA"] = sha
+        if env_overrides:
+            env.update(dict(env_overrides))
+        return env
+
+    if capture_output or log_file is not None:
+        env = _build_child_env()
+    elif env_overrides:
+        env = _build_child_env()
     else:
         env = None
 
@@ -291,7 +348,8 @@ def run_command(
         returncode = process.returncode
     else:
         try:
-            result = subprocess.run(cmd, cwd=cwd)
+            run_env = _build_child_env() if env is None and get_datrix_repo_sha() else env
+            result = subprocess.run(cmd, cwd=cwd, env=run_env)
             returncode = result.returncode
             output = None
         except KeyboardInterrupt:
@@ -427,19 +485,31 @@ def step2_generate(
     return success
 
 
+def _jest_suite_failures_from_output(output: str) -> int:
+    m = re.search(r"Test Suites:\s+(.+?total)", output)
+    if not m:
+        return 0
+    failed_m = re.search(r"(\d+) failed", m.group(1))
+    return int(failed_m.group(1)) if failed_m else 0
+
+
 def parse_test_statistics(output: str) -> dict:
     """Parse test statistics from unit_tests.py, deploy_test.py, or Jest output.
 
     Supports three formats:
     - unit_tests.py summary format: "Total Passed: 35"
     - pytest summary line format: "===== 35 passed, 1 failed in 8.48s ====="
-    - Jest summary format: "Tests:       5 passed, 5 total" or "Tests:  1 failed, 4 passed, 1 skipped, 6 total"
+    - Jest summary format: "Tests: ... total" plus "Test Suites: ..." (``suiteFailures`` is
+      tracked separately from ``errors`` so suite compile failures are not double-counted).
+
+    Mirrors ``parseTestStatistics`` in generated ``tests/unit-tests.js``.
     """
-    stats = {
+    stats: dict[str, int] = {
         "passed": 0,
         "failed": 0,
         "errors": 0,
         "skipped": 0,
+        "suiteFailures": 0,
     }
 
     if not output:
@@ -486,10 +556,10 @@ def parse_test_statistics(output: str) -> dict:
                 if m:
                     stats["skipped"] += int(m.group(1))
 
-    # If still no results, try Jest summary format.
-    # Jest outputs: "Tests:       5 passed, 5 total"
-    # or: "Tests:  1 failed, 4 passed, 1 skipped, 6 total"
+    # If still no results, try Jest summary format (align with unit-tests.js).
     if stats["passed"] == 0 and stats["failed"] == 0:
+        suites_failed = _jest_suite_failures_from_output(output)
+        stats["suiteFailures"] = suites_failed
         for line in output.split("\n"):
             line = line.strip()
             if line.startswith("Tests:") and "total" in line:
@@ -502,7 +572,16 @@ def parse_test_statistics(output: str) -> dict:
                 m = re.search(r"(\d+) skipped", line)
                 if m:
                     stats["skipped"] = int(m.group(1))
+                total_m = re.search(r"(\d+)\s*total", line)
+                total = int(total_m.group(1)) if total_m else (
+                    stats["passed"] + stats["failed"] + stats["skipped"]
+                )
+                if total == 0 and suites_failed > 0:
+                    stats["errors"] = suites_failed
                 break
+        else:
+            if suites_failed > 0:
+                stats["errors"] = suites_failed
 
     return stats
 
@@ -828,8 +907,105 @@ def save_test_summary_log(
             f.write("\n")
  
         f.write("=" * 60 + "\n")
- 
-        return log_path
+
+    if step5_output_dir is not None:
+        fail_json = step5_output_dir / "failures.json"
+        if fail_json.is_file():
+            _append_deploy_failure_index_to_summary(log_path, fail_json)
+
+    return log_path
+
+
+def _append_deploy_failure_index_to_summary(summary_log: Path, failures_json: Path) -> None:
+    """Append human-readable failure lines from failures.json (deploy / Jest / pytest)."""
+    try:
+        data = json.loads(failures_json.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    failures = data.get("failures") or []
+    if not failures:
+        return
+    lines = [
+        "",
+        "=" * 60,
+        "Failure index (from failures.json)",
+        "=" * 60,
+    ]
+    for item in failures:
+        svc = item.get("service", "")
+        full_name = item.get("fullName", "")
+        file_path = item.get("testFilePath", "")
+        line = item.get("line")
+        loc = f":{line}" if line is not None else ""
+        msg = ((item.get("message") or "").split("\n")[0])[:400]
+        lines.append(f"- [{svc}] {full_name}")
+        lines.append(f"    file: {file_path}{loc}")
+        if msg:
+            lines.append(f"    message: {msg}")
+    with summary_log.open("a", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+
+
+def _write_deploy_environment_json(results_dir: Path, project: Path, runner: str) -> None:
+    """Toolchain metadata for deploy-test result folders (AI triage)."""
+    payload: dict = {
+        "project": str(project.resolve()),
+        "generatedAt": datetime.now().isoformat(),
+        "platform": sys.platform,
+        "runner": runner,
+        "logNotes": [
+            "docker-logs/ contains container stdout/stderr captured before teardown.",
+            "Triage: read failures.json first for structured failures; open jest JSON or pytest JUnit for full stacks.",
+        ],
+    }
+    try:
+        proc = subprocess.run(
+            ["node", "--version"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
+        if proc.returncode == 0:
+            payload["nodeVersion"] = (proc.stdout or "").strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        payload["nodeVersion"] = None
+    try:
+        proc = subprocess.run(
+            ["pnpm", "--version"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
+        if proc.returncode == 0:
+            payload["pnpmVersion"] = (proc.stdout or "").strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        payload["pnpmVersion"] = None
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "pytest", "--version"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
+        if proc.returncode == 0:
+            payload["pytestVersion"] = (proc.stdout or "").strip().split("\n")[0]
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        payload["pytestVersion"] = None
+
+    sha = get_datrix_repo_sha()
+    if sha:
+        payload["datrixRepoSha"] = sha
+
+    (results_dir / "environment.json").write_text(
+        json.dumps(payload, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _has_test_script(pkg_json: Path) -> bool:
@@ -901,7 +1077,12 @@ def _shared_ts_node_modules_exists(project: Path) -> bool:
     return (ts_root / "node_modules").exists() and (ts_root / ".tsc_cache").exists()
 
 
-def _run_pnpm_install(service_dir: Path, label: str, parallel: bool) -> bool:
+def _run_pnpm_install(
+    service_dir: Path,
+    label: str,
+    parallel: bool,
+    install_log: Optional[Path] = None,
+) -> bool:
     """Run pnpm install for a TypeScript service if node_modules is missing."""
     node_modules = service_dir / "node_modules"
     if node_modules.exists():
@@ -917,8 +1098,132 @@ def _run_pnpm_install(service_dir: Path, label: str, parallel: bool) -> bool:
         cwd=service_dir,
         description=f"pnpm install for {label}" if not parallel else "",
         capture_output=True,
+        log_file=install_log,
     )
     return success
+
+
+def _write_ts_environment_json(results_dir: Path, project: Path) -> None:
+    """Write toolchain metadata for AI triage (mirrors generated tests/unit-tests.js)."""
+    payload: dict = {
+        "project": str(project.resolve()),
+        "generatedAt": datetime.now().isoformat(),
+        "platform": sys.platform,
+        "runner": "run_complete.py (TypeScript per-service pnpm fallback)",
+        "logNotes": [
+            "A trailing pnpm message about node_modules in a parent directory may appear after Jest exits; "
+            "it is not necessarily a test failure.",
+            "Triage: read failures.json first for structured failures; open per-service jest-results.json for full stacks.",
+        ],
+    }
+    try:
+        proc = subprocess.run(
+            ["node", "--version"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
+        if proc.returncode == 0:
+            payload["nodeVersion"] = (proc.stdout or "").strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        payload["nodeVersion"] = None
+    try:
+        proc = subprocess.run(
+            ["pnpm", "--version"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
+        if proc.returncode == 0:
+            payload["pnpmVersion"] = (proc.stdout or "").strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        payload["pnpmVersion"] = None
+
+    sha = get_datrix_repo_sha()
+    if sha:
+        payload["datrixRepoSha"] = sha
+
+    env_path = results_dir / "environment.json"
+    env_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def _jest_collect_failures_from_json(json_path: Path, service_name: str) -> list[dict]:
+    """Extract failed assertions from Jest --json output."""
+    if not json_path.is_file():
+        return []
+    try:
+        data = json.loads(json_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    out: list[dict] = []
+    for tr in data.get("testResults") or []:
+        test_file = tr.get("name") or ""
+        for ar in tr.get("assertionResults") or []:
+            if ar.get("status") != "failed":
+                continue
+            msgs = ar.get("failureMessages") or []
+            loc = ar.get("location") or {}
+            out.append(
+                {
+                    "service": service_name,
+                    "testFilePath": test_file,
+                    "fullName": ar.get("fullName") or ar.get("title") or "",
+                    "line": loc.get("line"),
+                    "column": loc.get("column"),
+                    "message": (msgs[0] if msgs else "").strip(),
+                }
+            )
+    return out
+
+
+def _write_ts_failures_json(results_dir: Path, project: Path, failures: list[dict]) -> None:
+    payload = {
+        "project": str(project.resolve()),
+        "generatedAt": datetime.now().isoformat(),
+        "failures": failures,
+    }
+    (results_dir / "failures.json").write_text(
+        json.dumps(payload, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_ts_service_failures_only_log(results_dir: Path, failures: list[dict]) -> None:
+    if not failures:
+        return
+    lines: list[str] = []
+    for f in failures:
+        loc = f":{f['line']}" if f.get("line") else ""
+        head = f"{f.get('testFilePath', '')}{loc} — {f.get('fullName', '')}"
+        body = "\n".join((f.get("message") or "").split("\n")[:12])
+        lines.append(f"{head}\n{body}")
+    text = "\n\n---\n\n".join(lines) + "\n"
+    service = failures[0].get("service") or "unknown"
+    (results_dir / f"{service}-failures-only.log").write_text(text, encoding="utf-8")
+
+
+def _append_ts_failure_index_to_summary(summary_path: Path, failures: list[dict]) -> None:
+    if not failures:
+        return
+    lines = [
+        "",
+        "=" * 40,
+        "Failure index (machine-oriented triage)",
+        "=" * 40,
+    ]
+    for f in failures:
+        loc = f":{f['line']}" if f.get("line") else ""
+        one_line = ((f.get("message") or "").split("\n")[0])[:400]
+        lines.append(f"- [{f.get('service', '')}] {f.get('fullName', '')}")
+        lines.append(f"    file: {f.get('testFilePath', '')}{loc}")
+        if one_line:
+            lines.append(f"    message: {one_line}")
+    with summary_path.open("a", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
 
 
 def _write_ts_unit_unit_tests_summary_log(
@@ -941,7 +1246,7 @@ def _write_ts_unit_unit_tests_summary_log(
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     lines: list[str] = [
         "=" * 40,
-        "Run Tests Summary Log",
+        "Unit Tests Summary Log",
         "=" * 40,
         f"Project: {project}",
         f"Timestamp: {stamp}",
@@ -979,7 +1284,7 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
         test_type: Type of tests to run ("unit", "spec", "integration")
     """
     project_name = project.relative_to(generated_base)
-    empty_stats = {"passed": 0, "failed": 0, "errors": 0, "skipped": 0}
+    empty_stats = {"passed": 0, "failed": 0, "errors": 0, "skipped": 0, "suiteFailures": 0}
 
     # --- Python project: tests/unit_tests.py ---
     unit_tests_script = project / "tests" / "unit_tests.py"
@@ -1044,6 +1349,7 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         results_dir = project / ".test_results" / f"{test_type}-tests-{timestamp}"
         results_dir.mkdir(parents=True, exist_ok=True)
+        _write_ts_environment_json(results_dir, project)
 
         all_success = True
         total_passed = 0
@@ -1051,6 +1357,8 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
         total_errors = 0
         total_skipped = 0
         combined_output: list[str] = []
+        all_failures: list[dict] = []
+        failures_by_service: dict[str, list[dict]] = {}
 
         # Check for shared node_modules at the TypeScript root (created by hooks.py)
         shared_available = _shared_ts_node_modules_exists(project)
@@ -1060,14 +1368,32 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
 
             # Skip per-service install if shared node_modules is available
             if not shared_available:
-                if not _run_pnpm_install(svc_dir, svc_label, parallel):
+                install_log = results_dir / f"{svc_dir.name}-pnpm-install.log"
+                if not _run_pnpm_install(svc_dir, svc_label, parallel, install_log=install_log):
                     all_success = False
                     total_errors += 1
                     combined_output.append(f"pnpm install failed for {svc_dir.name}")
                     continue
 
-            # Run Jest via pnpm test
-            cmd = [pnpm, "test", "--", "--forceExit", "--no-cache"]
+            svc_results_subdir = results_dir / svc_dir.name
+            svc_results_subdir.mkdir(parents=True, exist_ok=True)
+            jest_json = svc_results_subdir / "jest-results.json"
+            jest_json_arg = str(jest_json.resolve())
+            if os.name == "nt":
+                jest_json_arg = jest_json_arg.replace("\\", "/")
+
+            # Run Jest via pnpm test (JSON report for AI-friendly triage)
+            cmd = [
+                pnpm,
+                "test",
+                "--",
+                "--forceExit",
+                "--detectOpenHandles",
+                "--no-cache",
+                "--json",
+                f"--outputFile={jest_json_arg}",
+                "--testLocationInResults",
+            ]
             success, output = run_command(
                 cmd,
                 cwd=svc_dir,
@@ -1076,16 +1402,31 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
             )
             if not success:
                 all_success = False
+            out = output or ""
             if output:
                 combined_output.append(output)
-                stats = parse_test_statistics(output)
-                total_passed += stats["passed"]
-                total_failed += stats["failed"]
-                total_errors += stats["errors"]
-                total_skipped += stats["skipped"]
-                # Save per-service output to results dir
-                svc_log = results_dir / f"{svc_dir.name}-tests.log"
-                svc_log.write_text(_strip_ansi(output), encoding="utf-8")
+            stats = parse_test_statistics(out)
+            total_passed += stats["passed"]
+            total_failed += stats["failed"]
+            total_errors += stats["errors"]
+            total_skipped += stats["skipped"]
+            noise = "Local package.json exists, but node_modules missing"
+            cleaned = "\n".join(
+                ln for ln in _strip_ansi(out).split("\n") if noise not in ln
+            )
+            svc_log = results_dir / f"{svc_dir.name}-unit-tests.log"
+            svc_log.write_text(cleaned, encoding="utf-8")
+
+            svc_failures = _jest_collect_failures_from_json(jest_json, svc_dir.name)
+            if svc_failures:
+                all_failures.extend(svc_failures)
+                failures_by_service[svc_dir.name] = svc_failures
+
+        for _svc_name, flist in failures_by_service.items():
+            _write_ts_service_failures_only_log(results_dir, flist)
+
+        if all_failures:
+            _write_ts_failures_json(results_dir, project, all_failures)
 
         _write_ts_unit_unit_tests_summary_log(
             project,
@@ -1096,6 +1437,8 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
             total_skipped=total_skipped,
             all_success=all_success,
         )
+        if all_failures:
+            _append_ts_failure_index_to_summary(results_dir / "unit-tests-summary.log", all_failures)
         if not parallel:
             print_info(f" Results saved to: {results_dir.relative_to(project)}")
 
@@ -1603,7 +1946,7 @@ def _run_single_project_deploy_tests(
     """Run deployment tests for one project.  Returns result dict, or None if skipped."""
     deploy_test_script_py = project / "tests" / "deploy_test.py"
     deploy_test_script_js = project / "tests" / "deploy-test.js"
-    empty_stats = {"passed": 0, "failed": 0, "errors": 0, "skipped": 0}
+    empty_stats = {"passed": 0, "failed": 0, "errors": 0, "skipped": 0, "suiteFailures": 0}
 
     # --- Python project: tests/deploy_test.py ---
     if deploy_test_script_py.exists():
@@ -1715,6 +2058,11 @@ def _run_single_project_deploy_tests(
         deploy_test_dir = project / ".test_results" / f"deploy-test-{timestamp}"
         deploy_test_dir.mkdir(parents=True, exist_ok=True)
         (deploy_test_dir / "docker-logs").mkdir(parents=True, exist_ok=True)
+        _write_deploy_environment_json(
+            deploy_test_dir,
+            project,
+            "run_complete.py (jest-deploy fallback)",
+        )
 
         pnpm = _find_pnpm()
         if pnpm is None:
@@ -1724,7 +2072,8 @@ def _run_single_project_deploy_tests(
         tests_dir = project / "tests"
 
         # Install test dependencies (jest, ts-jest, typescript)
-        if not _run_pnpm_install(tests_dir, f"{project_name}/tests", parallel=False):
+        install_log = deploy_test_dir / "pnpm-install-tests.log"
+        if not _run_pnpm_install(tests_dir, f"{project_name}/tests", parallel=False, install_log=install_log):
             result = {"name": project_name, "success": False, **empty_stats}
             (deploy_test_dir / "deploy-test-output.log").write_text(
                 f"pnpm install failed for {project_name}/tests\n", encoding="utf-8",
@@ -1842,9 +2191,25 @@ def _run_single_project_deploy_tests(
                 return result
 
         # Run Jest deploy tests (health checks + endpoint validation)
+        jest_json = deploy_test_dir / "jest-deploy-results.json"
+        jest_json_arg = str(jest_json.resolve())
+        if os.name == "nt":
+            jest_json_arg = jest_json_arg.replace("\\", "/")
         try:
             success, output = run_command(
-                [pnpm, "exec", "jest", "--config", "jest-deploy.config.ts", "--forceExit", "--no-cache"],
+                [
+                    pnpm,
+                    "exec",
+                    "jest",
+                    "--config",
+                    "jest-deploy.config.ts",
+                    "--forceExit",
+                    "--detectOpenHandles",
+                    "--no-cache",
+                    "--json",
+                    f"--outputFile={jest_json_arg}",
+                    "--testLocationInResults",
+                ],
                 cwd=tests_dir,
                 description=f"Jest deployment tests for {project_name}",
                 capture_output=True,
@@ -1862,9 +2227,23 @@ def _run_single_project_deploy_tests(
         }
 
         if output is not None:
-            (deploy_test_dir / "deploy-test-output.log").write_text(
-                _strip_ansi(output), encoding="utf-8",
+            noise = "Local package.json exists, but node_modules missing"
+            cleaned = "\n".join(
+                ln for ln in _strip_ansi(output).split("\n") if noise not in ln
             )
+            (deploy_test_dir / "deploy-test-output.log").write_text(cleaned, encoding="utf-8")
+
+        deploy_failures = _jest_collect_failures_from_json(jest_json, "jest-deploy")
+        _write_ts_failures_json(deploy_test_dir, project, deploy_failures)
+        if deploy_failures:
+            fo = deploy_test_dir / "deploy-failures-only.log"
+            lines = []
+            for f in deploy_failures:
+                loc = f":{f['line']}" if f.get("line") else ""
+                head = f"{f.get('testFilePath', '')}{loc} — {f.get('fullName', '')}"
+                body = "\n".join((f.get("message") or "").split("\n")[:14])
+                lines.append(f"{head}\n{body}")
+            fo.write_text("\n\n---\n\n".join(lines) + "\n", encoding="utf-8")
 
         save_test_summary_log(
             step_num=5,
