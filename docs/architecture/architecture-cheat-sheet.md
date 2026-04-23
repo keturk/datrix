@@ -2,7 +2,7 @@
 
 Pipeline (user sources): `.dtrx -> Parser (datrix-language) -> extension directives on AST -> extension resolution (registry / TypeRegistry when invoked) -> Semantic Analysis -> Config Resolution -> Application (AST) -> Generators`
 
-**Builtins and stdlib (language layer, before generators):** builtins ship as pre-parsed ASTs (traits, scalars, enums). Eight stdlib `.dtrx` modules ship as pre-parsed ASTs under `datrix-language/src/datrix_language/stdlib/` and stay lazy until semantic analysis needs them. User files still go through Tree-sitter parse + transformers into `Application`; stdlib symbols are registered as placeholders on the app scope and the owning stdlib module is deserialized on first reference during semantic analysis.
+**Builtins and stdlib (language layer, before generators):** builtins ship as pre-parsed ASTs (traits, scalars, enums, and the four builtin domain exceptions in `builtins.dtrx`). Eight stdlib `.dtrx` modules ship as pre-parsed ASTs under `datrix-language/src/datrix_language/stdlib/` and stay lazy until semantic analysis needs them. User files still go through Tree-sitter parse + transformers into `Application`; stdlib symbols are registered as placeholders on the app scope and the owning stdlib module is deserialized on first reference during semantic analysis.
 
 ```
 builtins        -> pre-parsed builtin ASTs
