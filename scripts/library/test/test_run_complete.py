@@ -85,7 +85,13 @@ def test_unit_tests_total_format_takes_priority() -> None:
 def test_empty_output() -> None:
     """Empty output returns all zeros."""
     stats = parse_test_statistics("")
-    assert stats == {"passed": 0, "failed": 0, "errors": 0, "skipped": 0}
+    assert stats == {
+        "passed": 0,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "suiteFailures": 0,
+    }
 
 
 def test_non_pytest_output() -> None:
@@ -95,7 +101,13 @@ def test_non_pytest_output() -> None:
         "2026-03-07 10:49:23 INFO docker_build_completed\n"
     )
     stats = parse_test_statistics(output)
-    assert stats == {"passed": 0, "failed": 0, "errors": 0, "skipped": 0}
+    assert stats == {
+        "passed": 0,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "suiteFailures": 0,
+    }
 
 
 def test_deselected_not_counted_as_passed() -> None:
@@ -115,3 +127,37 @@ def test_log_lines_with_error_word_not_matched() -> None:
     stats = parse_test_statistics(output)
     assert stats["passed"] == 3
     assert stats["errors"] == 0  # The ERROR log line should not be parsed
+
+
+def test_jest_suite_failure_not_counted_as_errors_when_tests_ran() -> None:
+    """One failing suite with assertion failures: suiteFailures separate from errors."""
+    output = (
+        "Test Suites: 1 failed, 50 passed, 51 total\n"
+        "Tests:       2 failed, 100 passed, 102 total\n"
+    )
+    stats = parse_test_statistics(output)
+    assert stats["passed"] == 100
+    assert stats["failed"] == 2
+    assert stats["errors"] == 0
+    assert stats["suiteFailures"] == 1
+
+
+def test_jest_suite_failure_maps_to_errors_when_no_tests_executed() -> None:
+    """Compile/setup failure: zero tests, suite failures become errors (matches unit-tests.js)."""
+    output = (
+        "Test Suites: 1 failed, 1 total\n"
+        "Tests:       0 total\n"
+    )
+    stats = parse_test_statistics(output)
+    assert stats["passed"] == 0
+    assert stats["failed"] == 0
+    assert stats["errors"] == 1
+    assert stats["suiteFailures"] == 1
+
+
+def test_jest_only_suite_line_no_tests_line() -> None:
+    """Jest output with suite failure but no Tests line yet."""
+    output = "Test Suites: 2 failed, 2 total\n"
+    stats = parse_test_statistics(output)
+    assert stats["errors"] == 2
+    assert stats["suiteFailures"] == 2
