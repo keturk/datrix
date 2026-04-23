@@ -29,7 +29,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-if sys.platform == "win32":
+if sys.platform == "win32" and __name__ == "__main__":
     if hasattr(sys.stdout, "buffer"):
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     if hasattr(sys.stderr, "buffer"):

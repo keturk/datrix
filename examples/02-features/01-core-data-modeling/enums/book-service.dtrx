@@ -39,6 +39,26 @@ service library.BookService : version('1.0.0'), description('Book management ser
         Damaged  : value('damaged')
     }
 
+    // 'scalar' declares a constrained wrapper type around a base type
+    // Scalars enforce domain-specific validation rules at the type level
+
+    // Scalar with min/max constraints on a numeric base type
+    scalar Rating : Float {
+        min(0);
+        max(5);
+    }
+
+    // Scalar with a regex pattern constraint on a String base type
+    scalar ISBN : String {
+        pattern("^[0-9\\-]{10,13}$");
+    }
+
+    // Scalar with range constraint for bounded integers
+    scalar PublicationYear : Int {
+        min(1450);
+        max(2100);
+    }
+
     // Relational database block - groups entities (tables) under a named datasource
     rdbms bookDb('config/book-service/datasources.yaml') {
 
@@ -52,9 +72,11 @@ service library.BookService : version('1.0.0'), description('Book management ser
         // Entity using enum fields with default values
         entity Book extends BaseEntity {
             String(200) title : trim;
-            String(20) isbn;
+            // ISBN and PublicationYear use scalar types declared above
+            // Scalars apply their constraints automatically on every value
+            ISBN isbn;
             String(100) author : trim;
-            Int publicationYear;
+            PublicationYear publicationYear;
             // Enum fields enforce type safety; defaults use EnumName.Value syntax
             BookStatus status = BookStatus.Available;
             BookFormat format = BookFormat.Hardcover;
