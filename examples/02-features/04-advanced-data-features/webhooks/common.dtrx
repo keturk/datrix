@@ -11,6 +11,13 @@ module library.common {
     const ISBN_PATTERN = "^[0-9\-]{10,13}$";
     const MEMBERSHIP_NUMBER_PATTERN = "^[A-Z0-9]{6,20}$";
 
+    // ISO-style currency codes for Money values (import into services that use Money)
+    enum Currency {
+        USD,
+        EUR,
+        GBP,
+    }
+
     // Module-level functions are defined at module scope
     // They provide shared logic reusable by any importing service
     fn calculateLateFee(Int daysOverdue) -> Decimal {
