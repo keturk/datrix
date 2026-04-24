@@ -1,7 +1,7 @@
 # Datrix Architecture Overview
 
 **Version:** 2.0
-**Last Updated:** April 17, 2026
+**Last Updated:** April 24, 2026
 
 ---
 
@@ -36,8 +36,9 @@ Datrix is a code generation system that transforms `.dtrx` domain specifications
 └─────────────────────────────────┘
  ↓
 ┌─────────────────────────────────┐
-│ AST (datrix-common) │
-│ - Immutable syntax tree │
+│ Application (immutable AST) │
+│ - Pydantic models in datrix-common │
+│ - Built by datrix-language transforms │
 │ - Source locations preserved │
 └─────────────────────────────────┘
  ↓
@@ -75,12 +76,11 @@ Datrix is a code generation system that transforms `.dtrx` domain specifications
 └─────────────────────────────────┘
  ↓
 ┌─────────────────────────────────┐
-│ Application (datrix-common) │
-│ - Language-agnostic AST model │
-│ - Service-scoped entities │
-│ (service.rdbms_blocks[name]) │
-│ - Immutable representation │
-│ - Config attached to blocks │
+│ Same Application, config-bound │
+│ - YAML resolved per profile │
+│ - resolved_config on blocks │
+│ - Ready for platform validation │
+│ - Generators read-only over AST │
 └─────────────────────────────────┘
  ↓
 ┌─────────────────────────────────┐
@@ -105,9 +105,9 @@ Datrix is a code generation system that transforms `.dtrx` domain specifications
 Generated Application
 ```
 
-The `datrix generate` command supports `--language`, `--hosting`, and `--platform` to override config-driven values for a single generation run. In the generation pipeline, overrides run in the `apply_cli_overrides` stage after config resolution and service filtering, and before `platform_validation`.
+The `datrix generate` command supports `--language`, `--hosting`, and `--platform` to override config-driven values for a single generation run. Overrides run in the `apply_cli_overrides` stage after service and infrastructure YAML are resolved on the AST (and after optional `--service` filtering), and before `platform_validation`.
 
-**Pipeline stages (GenerationPipeline)** align with the diagram above: `parse` → `resolve_service_configs` → `analyze` (semantic) → `resolve_infrastructure_configs` → optional `apply_cli_overrides` → `platform_validation` → generator discovery and execution. Extension **directives** are recorded during parse; **registry** and **type-registry** integration run when the active code path invokes `PluginRegistry` / `TypeRegistry` APIs (see [Domain extension system](#domain-extension-system)). Language generators receive declared extension names via `declared_extension_names(app)` and merge per-language maps (for example `build_python_type_map` in `datrix-codegen-python`).
+**Pipeline stages (`GenerationPipeline.run` in `datrix-common`)** align with the diagram above through semantic analysis; afterward the implementation continues with: optional service filter → `apply_cli_overrides` → `normalize_service_memory_limits` → `platform_validation` → incremental merge (may early-exit when nothing changed) → `discover_generators` and `discover_platforms` → execute generators → write files → optional migrations stage → `LanguageHooks` post-processing (import fix, format, validate when `format_output` is enabled) → JSON normalization → `snapshot`. Extension **directives** are recorded during parse; **registry** and **type-registry** integration run when the active code path invokes `PluginRegistry` / `TypeRegistry` APIs (see [Domain extension system](#domain-extension-system)). Language generators receive declared extension names via `declared_extension_names(app)` and merge per-language maps (for example `build_python_type_map` in `datrix-codegen-python`).
 
 ### Standard library
 
@@ -181,7 +181,7 @@ The project is split into **twelve** installable packages (eleven core toolchain
 
 **Responsibilities:**
 - **AST and types:** AST model (`Application`, `Entity`, `Service`, `RdbmsBlock`, etc.) — the single representation consumed by all generators; type system (`TypeRegistry`, `ScalarType`) and builtin scalar type definitions
-- **Semantic analysis:** 6-phase pipeline (symbol collection, import resolution, reference resolution, inheritance merging, type checking, domain validation)
+- **Semantic analysis:** ordered passes in `SemanticAnalyzer.analyze` (`datrix_common.semantic.analyzer`) — stdlib symbol registration, symbol collection, import and reference resolution, field typing, inheritance merge, FK synthesis, index resolution, type checking, and domain validators (collects diagnostics; fails the pipeline when errors remain)
 - **Config resolution:** parses YAML config files referenced by AST blocks, selects active profile, validates against schemas, attaches resolved config to blocks
 - **Generation framework:** Generator base classes, plugin protocols (`GeneratorPlugin`, `PlatformPlugin`), pipeline orchestration, template rendering (Jinja2), YAML/JSON document builders, file coordination, code formatting integration, testing utilities for generator packages
 - **Shared:** Rendering utilities, error classes, configuration models, shared utilities
@@ -291,15 +291,11 @@ Public repository with documentation, examples, scripts, and tutorials.
 
 ## Plugin Architecture
 
-Generators and domain extensions are discovered dynamically via a plugin architecture using **five** entry-point groups:
+Generators and domain extensions load through **setuptools entry-point groups** discovered at runtime (see table). Cross-cutting pieces:
 
-1. **Protocol-based plugins** — Generators implement `GeneratorPlugin` or `PlatformPlugin` protocols. **Language targets should subclass `LanguageGenerator`** (`datrix_common.generation.language_generator`): it provides shared orchestration (`generate()` is `@final`) while subclasses implement **nine abstract methods** (six domain + three infrastructure hooks). See [code-generation.md](../../../datrix-common/docs/architecture/code-generation.md#consolidated-generator-infrastructure) in datrix-common.
-2. **Cross-language types** — **`TypeMappingRegistry`** (`datrix_common.generation.type_mapping_registry`) validates that every canonical type from `TypeRegistry` is mapped in each registered language (`global_registry.register_language()` at import time).
-3. **Language-specific hooks** — Language packages implement `LanguageHooks` and `LanguageRuntimeSpec` protocols
-4. **Domain extensions** — Optional packs implement **`DatrixExtension`** (`datrix_common.plugin.extension`): discovered under `datrix.extensions`; extensions own definitions, language generators own mappings
-5. **Dynamic discovery** — CLI discovers plugins via entry points at runtime
-6. **Independent packages** — Each generator is a separate package that can be installed independently
-7. **Clear interfaces** — Protocols define exactly what generators must implement
+- **Protocols** — Code generators implement `GeneratorPlugin`; platform generators implement `PlatformPlugin`. **Language targets subclass `LanguageGenerator`** (`datrix_common.generation.language_generator`): `generate()` is `@final` in the base class; subclasses implement **nine abstract methods**. See [code-generation.md](../../../datrix-common/docs/architecture/code-generation.md#consolidated-generator-infrastructure) in datrix-common.
+- **`TypeMappingRegistry`** (`datrix_common.generation.type_mapping_registry`) — each registered language maps canonical `TypeRegistry` types (`global_registry.register_language()` at import time).
+- **`LanguageHooks` / `LanguageRuntimeSpec`** — post-write formatting and validation hooks, and infrastructure details for Docker/K8s (Dockerfile context, health checks, migration commands), respectively.
 
 ### Entry Point Groups
 
@@ -415,7 +411,7 @@ Datrix provides a catalog of **ten builtin traits** and **two builtin enums** th
 | **Sluggable** | `String(200) slug : unique` | URL-friendly slugs |
 | **SoftDeletable** | `DateTime? deletedAt`, `UUID? deletedBy`, computed `isDeleted` | Soft deletion |
 | **Taggable** | `Array<String> tags` | Tagging |
-| **Tenantable** | `UUID tenantId : immutable, indexed` | Row-level tenant isolation |
+| **Tenantable** | `UUID tenantId : server, immutable, indexed` | Row-level tenant isolation |
 | **Timestampable** | `DateTime createdAt`, `DateTime updatedAt` | Automatic timestamps |
 | **Versionable** | `Int version` | Optimistic locking |
 
@@ -594,7 +590,3 @@ datrix generate --source system.dtrx --output ./generated -L python -H docker -P
 - Read [Design Principles](./design-principles.md) to understand core principles
 - Read [Language Reference](../reference/language-reference.md) to learn how to write `.dtrx` files
 - See [Getting Started](../getting-started/first-project.md) and the runnable trees under [`examples/`](../../examples/)
-
----
-
-**Last Updated:** April 13, 2026

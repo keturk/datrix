@@ -33,8 +33,8 @@ This guide covers common patterns, best practices, and anti-patterns based on re
 ```dtrx
 abstract entity BaseEntity {
     UUID id : primaryKey, server = uuid();
-    DateTime createdAt : server = now();
-    DateTime updatedAt : server = now();
+    UDateTime createdAt : server = utcNow();
+    UDateTime updatedAt : server = utcNow();
 }
 
 entity User extends BaseEntity {
@@ -1530,4 +1530,4 @@ get listUsers() -> List<User> {
 
 ---
 
-**Last Updated:** 2026-03-28
+**Last Updated:** April 24, 2026

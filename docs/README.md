@@ -2,7 +2,7 @@
 
 Documentation for the Datrix code generation platform.
 
-**Last updated:** April 13, 2026
+**Last updated:** April 24, 2026
 
 ---
 

@@ -1,6 +1,6 @@
 # Complete Examples
 
-**Last updated:** April 13, 2026
+**Last updated:** April 24, 2026
 
 The **canonical, maintained examples** live under [`examples/`](../../examples/) in this repository. They are validated against the current DSL and generators. Use them as copy-paste starting points and as the ground truth for syntax.
 

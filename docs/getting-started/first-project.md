@@ -1,6 +1,6 @@
 # Your First Project
 
-**Last updated:** April 13, 2026
+**Last updated:** April 24, 2026
 
 Walkthrough for a minimal **library** service with one entity and a REST API—the same shape as [`examples/02-features/01-core-data-modeling/rest-api`](../../examples/02-features/01-core-data-modeling/rest-api/).
 
@@ -111,7 +111,7 @@ service library.BookService : version('1.0.0'), description('Book management ser
 
 ### Field attributes (short list)
 
-- **`server`** — server-managed field (system-populated; not accepted on create/update APIs). Use `Type name : server` or combine with other modifiers (for example `UUID id : primaryKey, server = uuid();`).
+- **`server`** — server-managed field (system-populated; not accepted on create/update APIs). Use the `server` modifier in the field’s modifier list after `:` (for example `UUID id : primaryKey, server = uuid();` or `UDateTime createdAt : server = utcNow();`).
 - **`trim`** — trim string input.
 - **`unique`** — unique constraint.
 - **`index`** — index (including FKs).

@@ -13,7 +13,7 @@ semantic analysis -> stdlib placeholders + lazy module injection -> continuing p
 
 **Load order:** builtins → stdlib placeholder registration → user parse/transform → semantic analysis (lazy stdlib deserialization when a stdlib export is first resolved).
 
-No IR layer. Parser produces Application directly. `GenerationPipeline` stage names: `parse`, `resolve_service_configs`, `analyze`, `resolve_infrastructure_configs`, …, `discover_generators`, …
+No IR layer. Parser produces `Application` directly. Named `GenerationPipeline.run` stages include: `parse` → `resolve_service_configs` → `analyze` → `resolve_infrastructure_configs` → `apply_cli_overrides` → `normalize_service_memory_limits` → `platform_validation` → `discover_generators` / `discover_platforms` → file write → migrations (when configured) → language hooks + JSON format → `snapshot` (service filter and incremental merge sit between infra resolution and discovery when enabled).
 
 ## Packages (12)
 

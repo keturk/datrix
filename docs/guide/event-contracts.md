@@ -1,6 +1,6 @@
 # Event Contracts
 
-**Last Updated:** April 16, 2026
+**Last Updated:** April 24, 2026
 
 Event contracts enforce **value-level invariants** on event payloads using `ensure` clauses. They complement the structural validation already performed by the semantic analyzer (EVT001-EVT006) by catching semantically invalid data **before** it propagates to subscribers.
 
