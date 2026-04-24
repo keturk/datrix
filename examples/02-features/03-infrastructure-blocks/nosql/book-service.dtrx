@@ -199,7 +199,7 @@ service library.BookService : version('1.0.0'), description('book management ser
             }
 
             on BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
-                book = bookDb.Book.findById(bookId);
+                #Book book = bookDb.Book.findById(bookId);
                 if (book != null) {
                     Log.info(#"Book '{book.title}' status changed from {oldStatus} to {newStatus}");
                 }

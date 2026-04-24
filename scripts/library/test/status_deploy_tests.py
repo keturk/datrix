@@ -181,7 +181,8 @@ def parse_summary_log(log_file: Path) -> TestResult:
         failed_projects_match = re.search(r'Failed Projects:\s*([1-9]\d*)', content)
         if (
             failed_projects_match
-            or '\u2717' in content  # ✗
+            or '\u2717' in content  # ✗ (legacy deploy_test.py output)
+            or '[FAIL] LOGIC FAILURES' in content
             or total_failed > 0
             or total_errors > 0
         ):
@@ -192,7 +193,11 @@ def parse_summary_log(log_file: Path) -> TestResult:
             re.search(r'Failed Projects:\s*0', content)
             and total_failed == 0
             and total_errors == 0
-            and ('Successful Projects' in content or '\u2713' in content)  # ✓
+            and (
+                'Successful Projects' in content
+                or '\u2713' in content  # ✓ (legacy deploy_test.py output)
+                or '[OK] All tests passed' in content
+            )
         ):
             status = 'PASSED'
         elif (
