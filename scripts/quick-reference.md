@@ -613,6 +613,32 @@ Lists Datrix project directories and subfolders.
 
 **Parameters:** `-Src`, `-Tests`, `-Docs`
 
+### `dev\logic-map.ps1`
+
+Extracts logic map markers from Python source files into a SQLite database (`d:\datrix\.logic-map\markers.db`). Markers are structured comments (`@canonical`, `@pattern`, `@boundary`, `@invariant`, `@consumes`) that document canonical implementations and patterns.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **All projects** | `.\dev\logic-map.ps1 -All` | Rebuild entire database |
+| **One project** | `.\dev\logic-map.ps1 datrix-language` | Scan one project |
+| **Multiple projects** | `.\dev\logic-map.ps1 datrix-language datrix-common` | Scan several |
+| **Src only** | `.\dev\logic-map.ps1 -All -Src` | Only src/ directories |
+| **Tests only** | `.\dev\logic-map.ps1 -All -Tests` | Only tests/ directories |
+| **Debug** | `.\dev\logic-map.ps1 -All -Dbg` | Debug logging |
+
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Src`, `-Tests`, `-Dbg`
+
+### `dev\logic-map-report.ps1`
+
+Dumps the logic map SQLite database to a readable Markdown report for human verification.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Default** | `.\dev\logic-map-report.ps1` | Write logic-map-report.md to current dir |
+| **Custom output** | `.\dev\logic-map-report.ps1 -Output docs\logic-map.md` | Custom output path |
+
+**Parameters:** `-Output` (positional 0)
+
 ### `dev\compile.ps1`
 
 Compiles all Python in Datrix project folders (syntax + import check, including cross-project).
@@ -821,6 +847,8 @@ Most scripts support:
 | Semgrep rules | `scripts/config/semgrep-rules/` |
 | Metrics scripts | `scripts/metrics/` |
 | Anti-pattern scanners | `scripts/dev/libcst.ps1`, `scripts/dev/semgrep.ps1` |
+| Logic map database | `d:\datrix\.logic-map\markers.db` |
+| Logic map scripts | `scripts/dev/logic-map.ps1`, `scripts/dev/logic-map-report.ps1` |
 | Python implementations | `scripts/library/` |
 | Cleanup utilities | `scripts/common/CleanupUtils.psm1` |
 | Shared helpers | `scripts/common/DatrixScriptCommon.psm1` |
