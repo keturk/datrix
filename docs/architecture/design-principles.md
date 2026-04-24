@@ -1,6 +1,6 @@
 # Datrix Design Principles
 
-**Last Updated:** April 12, 2026
+**Last Updated:** April 24, 2026
 
 ---
 
@@ -49,18 +49,17 @@ Datrix is built on proven software engineering principles that ensure:
 
 **Why:**
 - Templates are readable and look like the output
-- ruff format (Python) and Prettier (TypeScript) check formatting consistency
-- Generated code is no longer auto-formatted; formatting is checked and warnings are surfaced instead
+- After files are written, `GenerationPipeline` runs `LanguageHooks` post-processing (import fix, then ruff format / Prettier when `PipelineConfig.format_output` is true, then semantic checks such as ruff rules) so output stays consistent with project standards
 - Easy to maintain and modify
 - Reusable template macros
 
-**Application:** Generators use Jinja2 (e.g. `PackageLoader` for templates), render to raw code, and validate syntax before output. Model templates emit a Pydantic model class keyed by entity name, with conditional imports (e.g. UUID when needed) and one field per entity field. Templates should produce well-formatted output; ruff format / Prettier check formatting. Raw string concatenation is not used. See the codebase for template files (e.g. `model.py.j2` in datrix-codegen-python).
+**Application:** Generators use Jinja2 (e.g. `PackageLoader` for templates), render to raw code, and validate syntax before output. Model templates emit a Pydantic model class keyed by entity name, with conditional imports (e.g. UUID when needed) and one field per entity field. Templates should produce well-formatted output; hook formatters normalize what lands on disk. Raw string concatenation is not used. See the codebase for template files (e.g. `model.py.j2` in datrix-codegen-python).
 
 **Example (transpiled job handlers):** `JobsGenerator` (`datrix_codegen_python.generators.messaging.jobs_generator`) combines Jinja2 templates such as `messaging/jobs_scheduler.py.j2` and `messaging/jobs_runner.py.j2` with output from `PythonTranspiler` so each scheduled job’s DSL body becomes real Python inside the generated scheduler/runner modules.
 
 **Example (Grafana dashboard JSON):** `DashboardBuilder` (`datrix_codegen_docker.generators.infra.dashboard_builder`) assembles Grafana **provisioned** dashboard documents in Python (nested dicts), serializes them to JSON under `config/grafana/dashboards/`, and pairs them with Jinja2-rendered Prometheus alert YAML — no ad-hoc string concatenation of panel definitions.
 
-**Key Insight:** Templates should produce well-formatted output; ruff format --check catches formatting issues.
+**Key Insight:** Templates should aim for clean output; the pipeline’s formatter pass catches remaining drift when `format_output` is enabled (set false only for diagnostics or dry runs).
 
 **When to Use Each Approach:**
 
@@ -445,7 +444,3 @@ Datrix design principles ensure:
 6. **Code Quality** - Idiomatic, no dead code, readable output
 
 These principles guide all architectural and implementation decisions in the Datrix project.
-
----
-
-**Last Updated:** April 13, 2026

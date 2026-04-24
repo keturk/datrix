@@ -1,6 +1,6 @@
 # Codegen Consolidation: Migration & Testing Strategy
 
-**Last Updated:** April 16, 2026
+**Last Updated:** April 24, 2026
 
 Migration plan for the codegen consolidation described in [codegen-consolidation.md](../../../datrix-common/docs/architecture/codegen-consolidation.md). Covers phase ordering, per-phase validation, rollback, and testing strategy.
 
