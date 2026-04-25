@@ -2,9 +2,9 @@
 """Extract logic markers from Python source into a SQLite database.
 
 Scans Python files for specially formatted comment markers (@canonical, @pattern,
-@boundary, @invariant, @consumes) and stores them in a queryable SQLite database.
+@boundary, @invariant) and stores them in a queryable SQLite database.
 This enables AI agents to look up canonical implementations, approved patterns,
-system boundaries, invariants, and dependency relationships before writing code.
+system boundaries, and invariants before writing code.
 
 Marker syntax::
 
@@ -14,7 +14,7 @@ Marker syntax::
     # @anti-pattern: What NOT to do
     # @see: related-topic/subtopic
 
-Supported marker kinds: canonical, pattern, boundary, invariant, consumes.
+Supported marker kinds: canonical, pattern, boundary, invariant.
 
 Usage:
     python scripts/library/dev/logic_map.py --all
@@ -52,7 +52,7 @@ from shared.venv import get_datrix_root
 # Marker kinds
 # ---------------------------------------------------------------------------
 
-MARKER_KINDS = frozenset({"canonical", "pattern", "boundary", "invariant", "consumes"})
+MARKER_KINDS = frozenset({"canonical", "pattern", "boundary", "invariant"})
 
 # ---------------------------------------------------------------------------
 # Regex patterns
@@ -103,7 +103,6 @@ class Marker:
     rules: list[str] = field(default_factory=list)
     anti_patterns: list[str] = field(default_factory=list)
     see_refs: list[str] = field(default_factory=list)
-    consumes_topics: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -142,12 +141,6 @@ def parse_markers(lines: list[str], relative_path: str) -> list[Marker]:
         rules: list[str] = []
         anti_patterns: list[str] = []
         see_refs: list[str] = []
-        consumes_topics: list[str] = []
-
-        # For @consumes, the topic itself lists dependencies (comma-separated)
-        if kind == "consumes":
-            consumes_topics = [t.strip() for t in topic.split(",") if t.strip()]
-
         i += 1
         while i < total:
             bline = lines[i].strip()
@@ -213,7 +206,6 @@ def parse_markers(lines: list[str], relative_path: str) -> list[Marker]:
             rules=rules,
             anti_patterns=anti_patterns,
             see_refs=see_refs,
-            consumes_topics=consumes_topics,
         ))
 
     return markers
@@ -337,16 +329,9 @@ CREATE TABLE IF NOT EXISTS see_refs (
     target_topic  TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS dependencies (
-    id               INTEGER PRIMARY KEY,
-    consumer_id      INTEGER NOT NULL REFERENCES markers(id) ON DELETE CASCADE,
-    depends_on_topic TEXT NOT NULL
-);
-
 CREATE INDEX IF NOT EXISTS idx_markers_topic ON markers(topic);
 CREATE INDEX IF NOT EXISTS idx_markers_kind ON markers(kind);
 CREATE INDEX IF NOT EXISTS idx_markers_file ON markers(file);
-CREATE INDEX IF NOT EXISTS idx_deps_topic ON dependencies(depends_on_topic);
 """
 
 
@@ -366,7 +351,7 @@ def build_database(db_path: Path, markers: list[Marker]) -> None:
     try:
         cur = conn.cursor()
         # Drop existing tables for a clean rebuild
-        cur.execute("DROP TABLE IF EXISTS dependencies")
+        cur.execute("DROP TABLE IF EXISTS dependencies")  # legacy table, removed
         cur.execute("DROP TABLE IF EXISTS see_refs")
         cur.execute("DROP TABLE IF EXISTS anti_patterns")
         cur.execute("DROP TABLE IF EXISTS rules")
@@ -408,12 +393,6 @@ def build_database(db_path: Path, markers: list[Marker]) -> None:
                     (marker_id, see_topic),
                 )
 
-            for dep_topic in marker.consumes_topics:
-                cur.execute(
-                    "INSERT INTO dependencies (consumer_id, depends_on_topic) VALUES (?, ?)",
-                    (marker_id, dep_topic),
-                )
-
         conn.commit()
     finally:
         conn.close()
@@ -438,7 +417,6 @@ def print_summary(markers: list[Marker], db_path: Path, scan_pairs: list[tuple[s
     unique_projects = sorted({name for name, _ in scan_pairs})
     total_rules = sum(len(m.rules) for m in markers)
     total_anti_patterns = sum(len(m.anti_patterns) for m in markers)
-    total_deps = sum(len(m.consumes_topics) for m in markers)
     unique_topics = sorted({m.topic for m in markers})
 
     print()
@@ -452,7 +430,6 @@ def print_summary(markers: list[Marker], db_path: Path, scan_pairs: list[tuple[s
         print(f"    {kind}: {by_kind[kind]}")
     print(f"  Rules:           {total_rules}")
     print(f"  Anti-patterns:   {total_anti_patterns}")
-    print(f"  Dependencies:    {total_deps}")
     print(f"  Unique topics:   {len(unique_topics)}")
     if unique_topics:
         for topic in unique_topics:

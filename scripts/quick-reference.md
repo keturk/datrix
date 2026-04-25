@@ -17,6 +17,7 @@ AI agents run in a **bash** shell, not PowerShell. All examples below use PowerS
 | `.\test\test.ps1 datrix-common` | `powershell -File "d:/datrix/datrix/scripts/test/test.ps1" datrix-common` |
 | `.\dev\generate.ps1 -All` | `powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" -All` |
 | `.\metrics\complexity.ps1 datrix-common` | `powershell -File "d:/datrix/datrix/scripts/metrics/complexity.ps1" datrix-common` |
+| `.\metrics\code-analyzer.ps1 datrix-common` | `powershell -File "d:/datrix/datrix/scripts/metrics/code-analyzer.ps1" datrix-common` |
 | `.\git\status.ps1 -Detailed` | `powershell -File "d:/datrix/datrix/scripts/git/status.ps1" -Detailed` |
 | `.\tasks\todo.ps1` | `powershell -File "d:/datrix/datrix/scripts/tasks/todo.ps1"` |
 
@@ -497,6 +498,20 @@ Pytest coverage reports via pytest-cov.
 
 **Parameters:** `-Projects` (positional, variadic), `-All`, `-Format` (term\|term-missing\|html\|xml, default: term-missing), `-FailUnder` (default: 0), `-StopOnError`, `-VerboseOutput`
 
+### `metrics\code-analyzer.ps1`
+
+AST inventory of classes, methods, module functions, constants (UPPER_SNAKE heuristic), and type aliases, plus a **duplicate top-level names** section (same class/function name in two or more files) to spot accidental parallel architectures. Uses metrics **`-All`** semantics (`datrix-*` packages only). Report path defaults to **`./code-structure-report.md` under the process cwd** (where you run the script); relative `-Output` resolves against cwd.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **One project (src)** | `.\metrics\code-analyzer.ps1 datrix-common` | Default: `src/` only |
+| **All packages (src)** | `.\metrics\code-analyzer.ps1 -All` | Every `datrix-*` package, `src/` only |
+| **Tests only** | `.\metrics\code-analyzer.ps1 datrix-common -Tests` | `tests/` tree only |
+| **Src and tests** | `.\metrics\code-analyzer.ps1 -All -Src -Tests` | Both trees, all packages |
+| **Custom output** | `.\metrics\code-analyzer.ps1 -All -Output reports\structure.md` | Markdown under cwd (or absolute path) |
+
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Src`, `-Tests`, `-Output`, `-Dbg`
+
 ### `metrics\dependency.ps1`
 
 Reports dependency relationships between Datrix packages (from pyproject.toml).
@@ -615,7 +630,7 @@ Lists Datrix project directories and subfolders.
 
 ### `dev\logic-map.ps1`
 
-Extracts logic map markers from Python source files into a SQLite database (`d:\datrix\.logic-map\markers.db`). Markers are structured comments (`@canonical`, `@pattern`, `@boundary`, `@invariant`, `@consumes`) that document canonical implementations and patterns.
+Extracts logic map markers from Python source files into a SQLite database (`d:\datrix\.logic-map\markers.db`). Markers are structured comments (`@canonical`, `@pattern`, `@boundary`, `@invariant`) that document canonical implementations and patterns.
 
 | Mode | Command | Description |
 |------|---------|-------------|
