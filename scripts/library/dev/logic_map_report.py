@@ -3,7 +3,7 @@
 
 Reads .logic-map/markers.db and writes a grouped Markdown file for human review.
 The report includes all markers grouped by topic, with rules, anti-patterns,
-cross-references, and a dependency graph.
+and cross-references.
 
 Usage:
     python scripts/library/dev/logic_map_report.py
@@ -36,13 +36,12 @@ if _library_dir.exists() and str(_library_dir) not in sys.path:
 from shared.venv import get_datrix_root
 
 # Kind display order and labels
-_KIND_ORDER = ["canonical", "boundary", "pattern", "invariant", "consumes"]
+_KIND_ORDER = ["canonical", "boundary", "pattern", "invariant"]
 _KIND_LABELS = {
     "canonical": "Canonical Implementation",
     "boundary": "System Boundary",
     "pattern": "Approved Pattern",
     "invariant": "Invariant",
-    "consumes": "Dependency",
 }
 
 
@@ -53,7 +52,7 @@ def _load_markers(db_path: Path) -> list[dict[str, object]]:
         db_path: Path to the SQLite database.
 
     Returns:
-        List of marker dicts with nested lists for rules, anti_patterns, see_refs, deps.
+        List of marker dicts with nested lists for rules, anti_patterns, see_refs.
     """
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
@@ -75,12 +74,6 @@ def _load_markers(db_path: Path) -> list[dict[str, object]]:
             marker["see_refs"] = [
                 r["target_topic"] for r in conn.execute(
                     "SELECT target_topic FROM see_refs WHERE from_marker = ? ORDER BY id", (marker_id,)
-                )
-            ]
-            marker["deps"] = [
-                r["depends_on_topic"] for r in conn.execute(
-                    "SELECT depends_on_topic FROM dependencies WHERE consumer_id = ? ORDER BY id",
-                    (marker_id,),
                 )
             ]
             markers.append(marker)
@@ -110,7 +103,6 @@ def _build_report(markers: list[dict[str, object]], db_path: Path) -> str:
     total_rules = sum(len(m["rules"]) for m in markers)
     total_ap = sum(len(m["anti_patterns"]) for m in markers)
     total_refs = sum(len(m["see_refs"]) for m in markers)
-    total_deps = sum(len(m["deps"]) for m in markers)
     unique_files = sorted({str(m["file"]) for m in markers})
 
     lines.append("# Logic Map Report")
@@ -129,7 +121,6 @@ def _build_report(markers: list[dict[str, object]], db_path: Path) -> str:
     lines.append(f"| Rules | {total_rules} |")
     lines.append(f"| Anti-patterns | {total_ap} |")
     lines.append(f"| Cross-references | {total_refs} |")
-    lines.append(f"| Dependencies | {total_deps} |")
     lines.append(f"| Files | {len(unique_files)} |")
     lines.append("")
 
@@ -206,39 +197,20 @@ def _build_report(markers: list[dict[str, object]], db_path: Path) -> str:
                     lines.append(f"- `{ref}`")
                 lines.append("")
 
-            deps = m["deps"]
-            if deps:
-                lines.append("**Depends on:**")
-                for dep in deps:
-                    lines.append(f"- `{dep}`")
-                lines.append("")
-
             lines.append("---")
             lines.append("")
 
     # --- Cross-reference graph ---
     all_refs = [(str(m["topic"]), ref) for m in markers for ref in m["see_refs"]]
-    all_deps = [(str(m["topic"]), dep) for m in markers for dep in m["deps"]]
 
-    if all_refs or all_deps:
+    if all_refs:
         lines.append("## Cross-Reference Graph")
         lines.append("")
-        if all_refs:
-            lines.append("### See-also links")
-            lines.append("")
-            lines.append("| From | To |")
-            lines.append("|------|----|")
-            for from_topic, to_topic in sorted(all_refs):
-                lines.append(f"| `{from_topic}` | `{to_topic}` |")
-            lines.append("")
-        if all_deps:
-            lines.append("### Dependencies (@consumes)")
-            lines.append("")
-            lines.append("| Consumer | Depends on |")
-            lines.append("|----------|------------|")
-            for from_topic, to_topic in sorted(all_deps):
-                lines.append(f"| `{from_topic}` | `{to_topic}` |")
-            lines.append("")
+        lines.append("| From | To |")
+        lines.append("|------|----|")
+        for from_topic, to_topic in sorted(all_refs):
+            lines.append(f"| `{from_topic}` | `{to_topic}` |")
+        lines.append("")
 
     # --- File index ---
     lines.append("## File Index")
