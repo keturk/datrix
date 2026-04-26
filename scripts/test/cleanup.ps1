@@ -2,14 +2,19 @@
 # Lists .test_results under each datrix-* project and under .generated (pruned walk), and lists files
 # and subfolders inside each .test_results directory (same as legacy output).
 # If -Force is provided, asks for confirmation before deletion.
-# Usage: .\scripts\test\cleanup.ps1 [-BaseDir <path>] [-Force] [-Dbg]
+# If -Force -Trim is provided, keeps the 10 newest top-level items (by LastWriteTime) in each
+# .test_results folder and deletes the rest. Applies to datrix and generated .test_results alike.
+# Usage: .\scripts\test\cleanup.ps1 [-BaseDir <path>] [-Force] [-Trim] [-Dbg]
 
 [CmdletBinding()]
 param(
  [string]$BaseDir = (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))),
  [switch]$Force,
+ [switch]$Trim,
  [switch]$Dbg
 )
+
+$TestResultsTrimKeepCount = 10
 
 $ErrorActionPreference = "Stop"
 
@@ -100,6 +105,34 @@ function Get-TestResultsPathsUnderGeneratedPruned {
  return $list
 }
 
+<#
+.SYNOPSIS
+ Removes all content under a .test_results path, or only older top-level results when -Trim.
+#>
+function Remove-TestResultsPathContent {
+ param(
+  [string]$TestResultsPath,
+  [bool]$DoTrim,
+  [int]$KeepCount
+ )
+ if (-not (Test-Path -LiteralPath $TestResultsPath)) {
+  return [PSCustomObject]@{ FullFolderRemoved = $false; RemovedSomething = $false }
+ }
+ if (-not $DoTrim) {
+  Remove-Item -LiteralPath $TestResultsPath -Recurse -Force -ErrorAction Stop
+  return [PSCustomObject]@{ FullFolderRemoved = $true; RemovedSomething = $true }
+ }
+ $items = @(Get-ChildItem -LiteralPath $TestResultsPath -ErrorAction SilentlyContinue)
+ if ($items.Count -le $KeepCount) {
+  return [PSCustomObject]@{ FullFolderRemoved = $false; RemovedSomething = $false }
+ }
+ $toRemove = $items | Sort-Object -Property LastWriteTime -Descending | Select-Object -Skip $KeepCount
+ foreach ($item in $toRemove) {
+  Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction Stop
+ }
+ return [PSCustomObject]@{ FullFolderRemoved = $false; RemovedSomething = $true }
+}
+
 $projects = Get-ChildItem -Path $BaseDir -Directory | Where-Object { $_.Name -like "datrix*" }
 
 Write-Host "========================================" -ForegroundColor Cyan
@@ -172,9 +205,19 @@ foreach ($group in $groupedByParent) {
  Write-Host ""
 }
 
+if ($Trim -and -not $Force) {
+ Write-Host "Note: -Trim only applies with -Force. Re-run with -Force -Trim to remove older results (keeps $TestResultsTrimKeepCount newest per folder)." -ForegroundColor Yellow
+ Write-Host ""
+}
+
 if ($Force) {
  Write-Host "========================================" -ForegroundColor Yellow
- Write-Host "WARNING: You are about to delete ALL $($allTestResultsFolders.Count) .test_results folder(s)" -ForegroundColor Yellow
+ if ($Trim) {
+  Write-Host "WARNING: You are about to delete older test results under $($allTestResultsFolders.Count) .test_results folder(s)." -ForegroundColor Yellow
+  Write-Host "The $TestResultsTrimKeepCount newest top-level item(s) in each folder will be kept (by LastWriteTime)." -ForegroundColor Yellow
+ } else {
+  Write-Host "WARNING: You are about to delete ALL $($allTestResultsFolders.Count) .test_results folder(s)" -ForegroundColor Yellow
+ }
  Write-Host "========================================" -ForegroundColor Yellow
  Write-Host ""
 
@@ -185,20 +228,35 @@ if ($Force) {
  }
 
  Write-Host ""
- Write-Host "Deleting .test_results folders..." -ForegroundColor Yellow
+ if ($Trim) {
+  Write-Host "Trimming .test_results folders..." -ForegroundColor Yellow
+ } else {
+  Write-Host "Deleting .test_results folders..." -ForegroundColor Yellow
+ }
 
  $deletedCount = 0
+ $trimmedCount = 0
  $errorCount = 0
 
  foreach ($folder in $allTestResultsFolders) {
   try {
-   Remove-Item -Path $folder.FullPath -Recurse -Force -ErrorAction Stop
-   Write-Host " Deleted: $($folder.FullPath)" -ForegroundColor Green
-   $deletedCount++
-
-   Remove-EmptyParentFolders -ItemPath $folder.FullPath -BaseDir $BaseDir
+   $result = Remove-TestResultsPathContent -TestResultsPath $folder.FullPath -DoTrim $Trim -KeepCount $TestResultsTrimKeepCount
+   if ($result.FullFolderRemoved) {
+    Write-Host " Deleted: $($folder.FullPath)" -ForegroundColor Green
+    $deletedCount++
+    Remove-EmptyParentFolders -ItemPath $folder.FullPath -BaseDir $BaseDir
+   } elseif ($result.RemovedSomething) {
+    Write-Host " Trimmed: $($folder.FullPath) (kept $TestResultsTrimKeepCount newest)" -ForegroundColor Green
+    $trimmedCount++
+   } else {
+    if ($Trim) {
+     Write-Host " Skipped: $($folder.FullPath) (at most $TestResultsTrimKeepCount item(s), nothing to remove)" -ForegroundColor DarkGray
+    } else {
+     Write-Host " Skipped: $($folder.FullPath) (empty or missing)" -ForegroundColor DarkGray
+    }
+   }
   } catch {
-   Write-Host " Error deleting $($folder.FullPath): $_" -ForegroundColor Red
+   Write-Host " Error at $($folder.FullPath): $_" -ForegroundColor Red
    $errorCount++
   }
  }
@@ -206,9 +264,18 @@ if ($Force) {
  Write-Host ""
  Write-Host "========================================" -ForegroundColor Cyan
  if ($errorCount -eq 0) {
-  Write-Host "Successfully deleted $deletedCount folder(s)." -ForegroundColor Green
+  if ($Trim) {
+   $unchanged = $allTestResultsFolders.Count - $trimmedCount
+   Write-Host "Finished: removed older results in $trimmedCount folder(s); $unchanged folder(s) had at most $TestResultsTrimKeepCount top-level item(s) already." -ForegroundColor Green
+  } else {
+   Write-Host "Successfully deleted $deletedCount folder(s)." -ForegroundColor Green
+  }
  } else {
-  Write-Host "Deleted $deletedCount folder(s), $errorCount error(s)" -ForegroundColor Yellow
+  if ($Trim) {
+   Write-Host "Done with $errorCount error(s) (trimmed in $trimmedCount folder(s))." -ForegroundColor Yellow
+  } else {
+   Write-Host "Deleted $deletedCount folder(s), $errorCount error(s)" -ForegroundColor Yellow
+  }
  }
  Write-Host "========================================" -ForegroundColor Cyan
 } else {
@@ -217,6 +284,7 @@ if ($Force) {
  Write-Host ""
  Write-Host "Usage:" -ForegroundColor Gray
  Write-Host " .\scripts\test\cleanup.ps1 -Force" -ForegroundColor Gray
+ Write-Host " .\scripts\test\cleanup.ps1 -Force -Trim   # keep $TestResultsTrimKeepCount newest per .test_results" -ForegroundColor Gray
  Write-Host "========================================" -ForegroundColor Cyan
 }
 
