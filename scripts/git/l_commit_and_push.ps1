@@ -25,6 +25,9 @@ Output JSON path. Default: commit-messages.json under the workspace root.
 .PARAMETER MaxDiffCharsPerRepo
 Maximum characters of unified diff text to include per repo (excluding stat block).
 
+.PARAMETER OllamaNumPredict
+Ollama option num_predict (max tokens). Lower values discourage long tutorial-style answers. Default 896.
+
 .PARAMETER SkipCommitPush
 If set, only writes commit-messages.json and does not run commit-and-push.ps1.
 
@@ -51,6 +54,9 @@ param(
     [Parameter(Mandatory = $false)]
     [int]$MaxDiffCharsPerRepo = 45000,
 
+    [Parameter(Mandatory = $false)]
+    [int]$OllamaNumPredict = 896,
+
     [switch]$SkipCommitPush
 )
 
@@ -76,14 +82,18 @@ function Invoke-OllamaGenerate {
         [string]$BaseUrl,
         [string]$Model,
         [string]$Prompt,
-        [int]$TimeoutMs
+        [int]$TimeoutMs,
+        [int]$NumPredict
     )
     $baseTrimmed = $BaseUrl.TrimEnd('/')
     $uri = "$baseTrimmed/api/generate"
     $body = [ordered]@{
-        model  = $Model
-        prompt = $Prompt
-        stream = $false
+        model   = $Model
+        prompt  = $Prompt
+        stream  = $false
+        options = @{
+            num_predict = $NumPredict
+        }
     }
     $jsonBody = $body | ConvertTo-Json -Compress -Depth 10
     $timeoutSec = [Math]::Max(1, [int][Math]::Ceiling($TimeoutMs / 1000.0))
@@ -136,21 +146,24 @@ function Request-SingleRepoCommitMessagePlainText {
         [string]$RepoBundle,
         [string]$BaseUrl,
         [string]$Model,
-        [int]$TimeoutMs
+        [int]$TimeoutMs,
+        [int]$NumPredict
     )
     $prompt = @"
-You write ONE git commit message for the repository folder named: $RepoName
-Use only the git bundle below.
+You are filling in a git commit message for repository folder: $RepoName
+Read ONLY the git bundle below (status, paths, diff). Do not explain the code to a reader. Do not tutor, review, or suggest improvements. Do not ask questions. Do not use markdown headings (no ### lines). No fenced code blocks. No "Summary of" sections.
 
-Output rules:
-- Output ONLY the commit message body as plain text. No JSON, no YAML, no XML, no markdown code fences, no schema, no line like "Commit message:" before the text, no wrapping the whole message in quotes.
-- First line: one clear summary. Do NOT use conventional-commit prefixes (no feat:, fix:, chore:, etc.).
-- Optional following lines: short notes per changed path or file (each line may start with "- ").
+Output EXACTLY this shape (plain text only):
+Line 1: One concise summary of what changed (not a prefix like feat:).
+Line 2: blank.
+Lines 3+: zero or more lines starting with "- " naming paths or areas touched (derive from the bundle; stay under 25 lines total).
+
+Hard limits: total output under 35 lines; under 3500 characters.
 
 Repository bundle:
 $RepoBundle
 "@
-    $resp = Invoke-OllamaGenerate -BaseUrl $BaseUrl -Model $Model -Prompt $prompt -TimeoutMs $TimeoutMs
+    $resp = Invoke-OllamaGenerate -BaseUrl $BaseUrl -Model $Model -Prompt $prompt -TimeoutMs $TimeoutMs -NumPredict $NumPredict
     if (-not $resp.response) {
         throw "Ollama returned no .response field for repo '$RepoName'"
     }
@@ -260,7 +273,7 @@ foreach ($dr in $dirtyRepos) {
     Write-Host "Calling Ollama ($OllamaModel) for $repoName..." -ForegroundColor Cyan
     $section = Get-DirtyRepoBundleSection -Dr $dr
     $msg = Request-SingleRepoCommitMessagePlainText -RepoName $repoName -RepoBundle $section `
-        -BaseUrl $OllamaBaseUrl -Model $OllamaModel -TimeoutMs $OllamaTimeoutMs
+        -BaseUrl $OllamaBaseUrl -Model $OllamaModel -TimeoutMs $OllamaTimeoutMs -NumPredict $OllamaNumPredict
     $filtered[$repoName] = [string]$msg
 
     Write-Host ""
@@ -270,7 +283,8 @@ foreach ($dr in $dirtyRepos) {
     Write-Host ""
 }
 
-$outJson = $filtered | ConvertTo-Json -Depth 5 -Compress
+# No -Compress: one line per top-level key is easier to inspect; -Compress looked like a single-line "one repo" file.
+$outJson = $filtered | ConvertTo-Json -Depth 5
 [System.IO.File]::WriteAllText($MessagesPath, $outJson, [System.Text.UTF8Encoding]::new($false))
 Write-Host "Wrote $MessagesPath" -ForegroundColor Green
 
