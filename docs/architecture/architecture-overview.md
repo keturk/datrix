@@ -184,6 +184,7 @@ The project is split into **twelve** installable packages (eleven core toolchain
 - **Semantic analysis:** ordered passes in `SemanticAnalyzer.analyze` (`datrix_common.semantic.analyzer`) — stdlib symbol registration, symbol collection, import and reference resolution, field typing, inheritance merge, FK synthesis, index resolution, type checking, and domain validators (collects diagnostics; fails the pipeline when errors remain)
 - **Config resolution:** parses YAML config files referenced by AST blocks, selects active profile, validates against schemas, attaches resolved config to blocks
 - **Generation framework:** Generator base classes, plugin protocols (`GeneratorPlugin`, `PlatformPlugin`), pipeline orchestration, template rendering (Jinja2), YAML/JSON document builders, file coordination, code formatting integration, testing utilities for generator packages
+- **Transpiler:** Staged DSL-to-source pipeline shared across language packages — **`NameResolver`** (Stage 1) and **`QueryExpander`** (Stage 2) in **datrix-common** produce **`ResolutionTable`** / query-annotation side-tables; each **`LanguageTranspiler`** subclass (Stage 3) consumes those tables and returns **`TranspileResult`**. Configuration is a frozen **`TranspileContext`**; per-file sibling-flow state lives in **`FileScope`** / **`PythonFileScope`** / **`TypeScriptFileScope`**. Expression and statement work uses **`ExpressionVisitor`** / **`StatementVisitor`** and **`node.accept()`**; call targets use **`CallTargetEmitter`** and **`dispatch_call()`**. See [datrix-common — Transpiler architecture](../../../datrix-common/docs/architecture.md#transpiler-architecture-staged-pipeline), [code-generation.md — Consolidated generator infrastructure](../../../datrix-common/docs/architecture/code-generation.md#consolidated-generator-infrastructure), and [datrix-common-api — Transpiler modules](../../../datrix-common/docs/datrix-common-api.md#transpiler-modules).
 - **Shared:** Rendering utilities, error classes, configuration models, shared utilities
 
 **Dependencies:** None (zero dependencies on other Datrix packages)
@@ -349,7 +350,7 @@ The high-level flow is: **parse** records extension directives on the AST → **
 Adding a new target language (e.g., Go, Rust, Java) requires a new `datrix-codegen-{lang}` package. Follow the **consolidated checklist** (aligned with `LanguageGenerator` / `LanguageTranspiler` / `TypeMappingRegistry`):
 
 1. Subclass **`LanguageGenerator`** — implement the nine abstract methods; wire sub-generators and project-level output through the shared `generate()` implementation.
-2. Subclass **`LanguageTranspiler`** — set `LiteralKeywords`, unary/binary/assignment operator tables, and implement language-specific visitors.
+2. Subclass **`LanguageTranspiler`** — supply a **`TranspileContext`** (with `LiteralKeywords` and operator maps), implement Stage **3** emission (`ExpressionVisitor[TranspileResult]`, `StatementVisitor[TranspileResult]`, `CallTargetEmitter` as required), and wire **`StagePipeline`** for shared Stages **1–2** (`NameResolver`, `QueryExpander`).
 3. Add **`type_mappings.py`** — map every canonical type; register with `global_registry.register_language()`.
 4. Implement **`LanguageHooks`** — post-generation formatting and validation (e.g. ruff, Prettier).
 5. Implement **`LanguageRuntimeSpec`** — Dockerfile context, healthchecks, DB URL schemes, migration commands, job runner commands.
@@ -492,6 +493,7 @@ Each repository has ONE clear purpose:
 - **ruff format** - Python code formatting
 - **Prettier** - TypeScript code formatting
 - **ruamel.yaml** - YAML generation
+- **Transpiler** — `StagePipeline` + `TranspileContext` + `TranspileResult` + visitor protocols (`datrix_common.transpiler`, `datrix_common.datrix_model.visitor_protocols`); see [datrix-common-api — Transpiler modules](../../../datrix-common/docs/datrix-common-api.md#transpiler-modules)
 
 ### Code Quality
 - **ruff** - Python linting and formatting
