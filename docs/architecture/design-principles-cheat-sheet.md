@@ -12,6 +12,9 @@
 8. **Domain extensions** -- `use extension <name>;` in `system.dtrx` (DSL). Packs own definitions (`DatrixExtension`); language generators own all per-language maps (`PYTHON_EXTENSION_MAPS` + `build_python_type_map`, etc.). Core stays lean; infra-heavy domain types move to packs.
 9. **No backward compatibility in the DSL** -- One supported syntax path at a time. When syntax changes (for example removing `@` on types for server-managed fields), old forms are removed rather than deprecated in parallel.
 10. **Minimal reserved words / contextual keywords** -- Modifiers such as `server`, `unique`, and `indexed` appear only in modifier lists after `:` on fields (and similar positions). They are not a separate global “keyword soup”; the grammar keeps reserved words tight and uses contextual positions for these identifiers.
+11. **Protocol dispatch over isinstance** -- Use `ExpressionVisitor` / `StatementVisitor` and `node.accept(visitor)` for AST operations; use `CallTargetEmitter` + `dispatch_call()` for call targets. Do not grow `isinstance` ladders on expression nodes.
+12. **Explicit data flow** -- Service-wide config is frozen (`TranspileContext`). Per-file sibling state uses fresh `FileScope` objects. Visit results return `TranspileResult` (merge with `merge_artifacts`) — not hidden mutation on the transpiler for imports/flags.
+13. **Staged transpilation** -- Name resolution and query expansion run as explicit Stages 1–2 (`StagePipeline`); each language emitter is Stage 3. Keep stage boundaries and side-tables (`ResolutionTable`) instead of monolithic “do everything in one visit” growth.
 
 ## DSL vs YAML Boundary
 

@@ -51,6 +51,22 @@ Generators and extensions discovered via entry points: `datrix.generators`, `dat
 Language generators subclass `LanguageGenerator` (9 abstract methods).
 Type mappings registered with `TypeMappingRegistry.global_registry`.
 
+## Transpiler pipeline (per file)
+
+```
+Stage 1: NameResolver     -> ResolutionTable (id(ast_node) -> ResolutionInfo)
+Stage 2: QueryExpander    -> updated table + query annotations
+Stage 3: LanguageTranspiler (Python / TypeScript / …) -> TranspileResult (code + imports + flags)
+```
+
+Orchestration: `StagePipeline` in **datrix-common** runs Stages 1–2 and configures the emitter; templates call the language transpiler for DSL bodies. Details: [code-generation.md](../../../datrix-common/docs/architecture/code-generation.md), [datrix-common architecture](../../../datrix-common/docs/architecture.md#transpiler-architecture-staged-pipeline).
+
+| Category | Type | Lifetime |
+|----------|------|----------|
+| Config | `TranspileContext` | Per service; frozen |
+| Per-file state | `FileScope` / language subclass | Fresh per emitted file; mutable |
+| Upward artifacts | `TranspileResult` | Per visit; frozen |
+
 ## Domain extensions
 
 - **DSL:** `use extension <name>;` inside `system { }` (stored on `app.extension_directives`).
@@ -88,8 +104,11 @@ High-level constructs the parser and transformers understand today. Full detail:
 
 Python 3.11+, Tree-sitter, Pydantic v2, Jinja2, ruff/Prettier, mypy strict, pytest.
 
+**AST dispatch:** `ExpressionVisitor[T]` / `StatementVisitor[T]` + `node.accept()` for expressions/statements (same pattern as `TypeVisitor[T]` for types); `CallTargetEmitter` + `dispatch_call()` for call targets — see [datrix-common-api — Transpiler modules](../../../datrix-common/docs/datrix-common-api.md#transpiler-modules).
+
 ## Full docs
 
 - [architecture-overview.md](./architecture-overview.md)
 - [datrix-stdlib-reference.md](../../../datrix-language/docs/reference/datrix-stdlib-reference.md) (stdlib module catalog)
 - [code-generation.md](../../../datrix-common/docs/architecture/code-generation.md)
+- [datrix-common-api.md — Transpiler modules](../../../datrix-common/docs/datrix-common-api.md#transpiler-modules)

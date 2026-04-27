@@ -393,6 +393,14 @@ Enable packs in **`system.dtrx`** with `use extension <name>;` (not YAML). Exhau
 
 ## Code Generation Principles
 
+### Staged transpilation and explicit state
+
+**Principle:** Imperative DSL bodies are lowered to target source through **explicit stages and data classes**, not implicit mutable transpiler fields.
+
+**Application:** **datrix-common** owns **`TranspileContext`** (frozen per-service configuration), **`FileScope`** variants (mutable per-file sibling-flow state), **`TranspileResult`** (frozen per-visit code + imports + capability flags), **`StagePipeline`** (**`NameResolver`** → **`QueryExpander`** → configure **`LanguageTranspiler`**), and **`ResolutionTable`** keyed by `id(ast_node)` so the AST stays frozen. **`ExpressionVisitor`** / **`StatementVisitor`** plus **`node.accept()`** replace large `isinstance` trees for expressions and statements; **`CallTargetEmitter`** + **`dispatch_call()`** specialize call targets. Rationale and history: [`design/transpiler-improvement.md`](../../../design/transpiler-improvement.md). API summary: [datrix-common-api.md — Transpiler modules](../../datrix-common/docs/datrix-common-api.md#transpiler-modules).
+
+---
+
 ### Specification-level verification
 
 **Principle:** Business rules declared in the DSL can be exercised with service-level tests that share the same imperative syntax as handlers and jobs.
