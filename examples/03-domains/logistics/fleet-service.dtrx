@@ -82,12 +82,12 @@ service logistics.FleetService : version('1.0.0'), description('fleet and driver
             }
 
             afterCreate {
-                emit VehicleRegistered(id, vehicleNumber, type);
+                dispatch VehicleRegistered(id, vehicleNumber, type);
             }
 
             afterUpdate {
                 if (isChanged(status)) {
-                    emit VehicleStatusChanged(id, vehicleNumber, oldValue(status), status);
+                    dispatch VehicleStatusChanged(id, vehicleNumber, oldValue(status), status);
 
                     if (status == VehicleStatus.Maintenance) {
                         lastMaintenanceDate = now();
@@ -268,7 +268,7 @@ service logistics.FleetService : version('1.0.0'), description('fleet and driver
                 driver.save();
             }
 
-            emit DriverAssigned(vehicle.id, driver.id, vehicle.vehicleNumber);
+            dispatch DriverAssigned(vehicle.id, driver.id, vehicle.vehicleNumber);
 
             Log.info("Driver assigned to vehicle", {
                 vehicleId: vehicle.id,
@@ -379,7 +379,7 @@ service logistics.FleetService : version('1.0.0'), description('fleet and driver
                     });
                     record.save();
 
-                    emit MaintenanceScheduled(vehicle.id, vehicle.vehicleNumber, record.scheduledDate);
+                    dispatch MaintenanceScheduled(vehicle.id, vehicle.vehicleNumber, record.scheduledDate);
 
                     Log.info("Maintenance scheduled for vehicle", {
                         vehicleId: vehicle.id,

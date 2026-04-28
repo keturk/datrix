@@ -78,7 +78,7 @@ service iot.FirmwareService : version('1.0.0'), description('firmware version an
             }
 
             afterCreate {
-                emit FirmwareReleased(id, version, isStable);
+                dispatch FirmwareReleased(id, version, isStable);
             }
         }
 
@@ -110,7 +110,7 @@ service iot.FirmwareService : version('1.0.0'), description('firmware version an
 
             afterUpdate {
                 if (isChanged(status)) {
-                    emit RolloutStatusChanged(id, rolloutCode, oldValue(status), status);
+                    dispatch RolloutStatusChanged(id, rolloutCode, oldValue(status), status);
                 }
             }
 
@@ -227,7 +227,7 @@ service iot.FirmwareService : version('1.0.0'), description('firmware version an
                     #FirmwareRollout rollout = firmwareDb.FirmwareRollout.findOrFail(log.firmwareRolloutId);
                     rollout.recordSuccess();
 
-                    emit DeviceUpdateCompleted(rollout.id, deviceId, newVersion);
+                    dispatch DeviceUpdateCompleted(rollout.id, deviceId, newVersion);
 
                     Log.info("Rollout log updated for device firmware change", {
                         rolloutId: rollout.id,
@@ -515,7 +515,7 @@ service iot.FirmwareService : version('1.0.0'), description('firmware version an
                         log.markFailed(e.message);
                         rollout.recordFailure();
 
-                        emit DeviceUpdateFailed(rollout.id, log.deviceId, e.message);
+                        dispatch DeviceUpdateFailed(rollout.id, log.deviceId, e.message);
 
                         Log.error("Firmware update failed for device", {
                             rolloutId: rollout.id,

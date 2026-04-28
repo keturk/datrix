@@ -86,7 +86,7 @@ service fooddelivery.DeliveryService : version('1.0.0'), description('delivery d
 
             afterUpdate {
                 if (isChanged(status)) {
-                    emit DriverStatusChanged(id, fullName, oldValue(status), status);
+                    dispatch DriverStatusChanged(id, fullName, oldValue(status), status);
                 }
             }
 
@@ -145,12 +145,12 @@ service fooddelivery.DeliveryService : version('1.0.0'), description('delivery d
             }
 
             afterCreate {
-                emit DeliveryCreated(id, deliveryCode, orderId);
+                dispatch DeliveryCreated(id, deliveryCode, orderId);
             }
 
             afterUpdate {
                 if (isChanged(status)) {
-                    emit DeliveryStatusChanged(id, orderId, oldValue(status), status);
+                    dispatch DeliveryStatusChanged(id, orderId, oldValue(status), status);
                 }
             }
 

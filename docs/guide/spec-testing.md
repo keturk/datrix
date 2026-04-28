@@ -45,7 +45,7 @@ service library.BookService : version('1.0.0') {
             }
 
             afterCreate {
-                emit BookCreated(id, title);
+                dispatch BookCreated(id, title);
             }
         }
     }
@@ -154,7 +154,7 @@ Spec tests are designed for verifying **behavioral logic** declared in the DSL:
 | **Computed fields** (`:=` expressions) | Create an entity and assert the computed field value |
 | **Validation rules** (`validate { }`) | Assert `throws` on invalid input |
 | **Entity functions** (`fn` on entities) | Call the function and assert the return value |
-| **Event emission** (`emit` in hooks) | Assert `emitted(EventName(...))` after an operation |
+| **Event emission** (`dispatch` in hooks) | Assert `emitted(EventName(...))` after an operation |
 
 Spec tests do **not** replace auto-generated tests. Auto-generated tests verify wiring (structure, types, factories, routing). Spec tests verify that user-defined business logic works correctly through real execution.
 

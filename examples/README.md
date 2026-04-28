@@ -160,12 +160,12 @@ entity Book extends BaseEntity {
     }
 
     afterCreate {
-        emit BookAdded(id, title);
+        dispatch BookAdded(id, title);
     }
 
     afterUpdate {
         if (isChanged(status)) {
-            emit BookStatusChanged(id, oldValue(status), status);
+            dispatch BookStatusChanged(id, oldValue(status), status);
         }
     }
 }

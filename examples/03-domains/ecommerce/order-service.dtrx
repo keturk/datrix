@@ -11,6 +11,7 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
         ProductService { loadBalance: roundRobin, healthyOnly: true }
         PaymentService { loadBalance: roundRobin, healthyOnly: true }
         ShippingService { loadBalance: roundRobin, healthyOnly: true }
+        UserService { loadBalance: roundRobin, healthyOnly: true }
     }
     resilience('config/order-service/resilience.yaml');
 
@@ -96,20 +97,23 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
             }
 
             afterCreate {
-                emit OrderCreated(id, orderNumber, customerId, total, inventoryReservationId);
+                dispatch OrderCreated(id, orderNumber, customerId, total, inventoryReservationId);
+                dispatch ProcessPayment(id, total, total.currency.value.toLowerCase());
+                #JSON u = UserService.UserAPI.get('/internal/:id', customerId);
+                dispatch SendOrderConfirmation(id, u.email, orderNumber);
             }
 
             afterUpdate {
                 if (isChanged(status)) {
-                    emit OrderStatusChanged(id, oldValue(status), status);
+                    dispatch OrderStatusChanged(id, oldValue(status), status);
 
                     if (status == OrderStatus.Confirmed) {
                         #Array<JSON> orderItems = items.map(i => { productId: i.productId, quantity: i.quantity });
                         #Float estimatedWeight = items.length() * 1.0;
-                        emit OrderConfirmed(id, paymentId, inventoryReservationId, shippingAddress, orderItems, estimatedWeight);
+                        dispatch OrderConfirmed(id, paymentId, inventoryReservationId, shippingAddress, orderItems, estimatedWeight);
                     } else if (status == OrderStatus.Cancelled) {
                         // '??' is the null-coalescing operator
-                        emit OrderCancelled(id, cancellationReason ?? "Cancelled", inventoryReservationId);
+                        dispatch OrderCancelled(id, cancellationReason ?? "Cancelled", inventoryReservationId);
                     }
                 }
             }
@@ -235,6 +239,7 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
                 }
 
                 Log.info("Order confirmed after payment", { orderId: orderId });
+                dispatch SettlePayment(paymentId, "ECOM-DEMO-MERCHANT", amount.amount);
             }
 
             on PaymentFailed(UUID paymentId, UUID orderId, String reason) {
@@ -297,6 +302,22 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
             on ShipmentFailed(UUID shipmentId, UUID orderId, String reason) {
                 Log.warn("Shipment failed for order", { shipmentId: shipmentId, orderId: orderId, reason: reason });
             }
+        }
+    }
+
+    queues('config/order-service/queue.yaml') {
+        queue ProcessPayment(UUID orderId, Money amount, String currency) {
+            ensure amount > 0;
+            ensure currency.length == 3;
+        }
+
+        queue SendOrderConfirmation(UUID orderId, Email customerEmail, String orderNumber) {
+            ensure customerEmail.length > 0;
+        }
+
+        queue SettlePayment(UUID paymentId, String merchantId, Decimal amount) : fifo(merchantId) {
+            ensure amount > 0;
+            ensure merchantId.length > 0;
         }
     }
 
@@ -546,6 +567,7 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
         });
         order.save();
         assert emitted(OrderCreated(order.id, order.orderNumber, order.customerId, order.total, order.inventoryReservationId));
+        assert dispatched(ProcessPayment(order.id, order.total, order.total.currency.value.toLowerCase()));
     }
 
     test("status change to Cancelled emits OrderCancelled") {

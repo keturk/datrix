@@ -83,15 +83,15 @@ service iot.DeviceService : version('1.0.0'), description('device registration a
             }
 
             afterCreate {
-                emit DeviceRegistered(id, serialNumber, name, type);
+                dispatch DeviceRegistered(id, serialNumber, name, type);
             }
 
             afterUpdate {
                 if (isChanged(status)) {
-                    emit DeviceStatusChanged(id, serialNumber, oldValue(status), status);
+                    dispatch DeviceStatusChanged(id, serialNumber, oldValue(status), status);
                 }
                 if (isChanged(firmwareVersion)) {
-                    emit DeviceFirmwareUpdated(id, serialNumber, oldValue(firmwareVersion), firmwareVersion);
+                    dispatch DeviceFirmwareUpdated(id, serialNumber, oldValue(firmwareVersion), firmwareVersion);
                 }
             }
 
@@ -272,7 +272,7 @@ service iot.DeviceService : version('1.0.0'), description('device registration a
                 lastSeenAt: now()
             });
 
-            emit DeviceHeartbeat(device.id, device.serialNumber, request.firmwareVersion);
+            dispatch DeviceHeartbeat(device.id, device.serialNumber, request.firmwareVersion);
 
             return device;
         }

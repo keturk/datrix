@@ -63,15 +63,15 @@ service blog.AuthorService : version('1.0.0'), description('author management se
 
             // Lifecycle hook - runs after creation
             afterCreate {
-                // 'emit' publishes an event to the message bus
-                emit AuthorRegistered(id, email, fullName);
+                // 'dispatch' publishes an event to the message bus (or dispatches a queue task)
+                dispatch AuthorRegistered(id, email, fullName);
             }
 
             afterUpdate {
                 // 'isChanged(...)' checks if a field was modified in this update
                 if (isChanged(status)) {
                     // 'oldValue(...)' retrieves the previous value before the update
-                    emit AuthorStatusChanged(id, oldValue(status), status);
+                    dispatch AuthorStatusChanged(id, oldValue(status), status);
                 }
             }
 

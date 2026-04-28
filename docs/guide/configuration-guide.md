@@ -21,10 +21,11 @@ This guide covers all configuration files in Datrix, their structure, options, a
 11. [Observability Configuration](#observability-configuration)
 12. [Storage Configuration](#storage-configuration)
 13. [Jobs Configuration](#jobs-configuration)
-14. [Integrations Configuration](#integrations-configuration)
-15. [Platform-Specific Configuration](#platform-specific-configuration)
-16. [Environment Variables](#environment-variables)
-17. [Secrets Management](#secrets-management)
+14. [Queue Configuration](#queue-configuration)
+15. [Integrations Configuration](#integrations-configuration)
+16. [Platform-Specific Configuration](#platform-specific-configuration)
+17. [Environment Variables](#environment-variables)
+18. [Secrets Management](#secrets-management)
 
 ---
 
@@ -77,7 +78,8 @@ Tier 4: Block-Level Config (profile-based YAML)
 ├── PubSub (datasources.yaml)
 ├── NoSQL (datasources.yaml)
 ├── Storage (storage.yaml)
-└── Jobs (jobs.yaml)
+├── Jobs (jobs.yaml)
+└── Queues (queue.yaml — separate file, not a datasource)
 ```
 
 ---
@@ -979,6 +981,109 @@ production:
       retries: 2
       concurrency: 1
 ```
+
+---
+
+## Queue Configuration
+
+**File:** `config/<service-name>/queue.yaml`
+
+**Referenced in:** `queues('…/queue.yaml') { … }` on a **producing** service only.
+
+`queue.yaml` configures **task-dispatch** brokers (RabbitMQ, SQS, Azure Service Bus, Azure Storage Queue). It is **not** a datasource and does **not** live in `datasources.yaml`. Services that only **consume** queues via `enqueue OtherService.TaskName { … }` do **not** ship a `queue.yaml`; workers and clients resolve settings from the **producer’s** file.
+
+### Profiles and engines
+
+Each profile (`test`, `production`, …) is a `QueueConfig` object:
+
+- **`engine`** (required): `rabbitmq` \| `sqs` \| `service-bus` \| `storage-queue`
+- **`platform`** (required): `container` \| `operator` \| `external` \| `sqs` \| `amazon-mq` \| `service-bus` \| `storage-queue` — must match hosting + engine (see [config-system architecture](../../../datrix-common/docs/architecture/config-system.md#queue-configuration-queueyaml) in datrix-common)
+
+Connection and ops fields (when required): `host`, `port`, `managementPort`, `defaultUser`, `dockerImage`, `volumePath`, `healthCheckCmd`, `region`, `queuePrefix`, `connectionString`, `sku`.
+
+### Defaults and overrides
+
+| YAML key | Role |
+|----------|------|
+| `visibilityTimeout` | Seconds before redelivery (default 30) |
+| `maxReceiveCount` | Max deliveries before DLQ routing (default 5) |
+| `retentionDays` | Retention in days (default 14) |
+| `delay` | Default delay seconds (0); RabbitMQ may use delayed-exchange plugin when non-zero |
+| `maxConcurrency` | Worker prefetch / concurrency (default 5) |
+| `timeout` | Handler timeout seconds (default 60) |
+| `workerReplicas` | Worker replica count for generated deployments (default 1) |
+| `queues` | Map of **queue name** → optional overrides of the fields above |
+
+### Example: RabbitMQ (test + production)
+
+```yaml
+test:
+  engine: rabbitmq
+  platform: container
+  host: localhost
+  port: 5672
+  managementPort: 15672
+  defaultUser: datrix
+  dockerImage: rabbitmq:3-management-alpine
+  volumePath: /var/lib/rabbitmq
+  healthCheckCmd: '["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]'
+  visibilityTimeout: 30
+  maxReceiveCount: 5
+  retentionDays: 14
+  delay: 0
+  maxConcurrency: 5
+  timeout: 60
+  workerReplicas: 1
+  queues:
+    ProcessPayment:
+      visibilityTimeout: 300
+      maxReceiveCount: 2
+      maxConcurrency: 2
+      timeout: 300
+
+production:
+  engine: rabbitmq
+  platform: amazon-mq
+  host: ${QUEUE_RABBITMQ_HOST}
+  port: 5671
+  visibilityTimeout: 60
+  maxReceiveCount: 3
+  retentionDays: 14
+  maxConcurrency: 10
+  timeout: 120
+  workerReplicas: 2
+```
+
+### Example: SQS (LocalStack test + AWS production)
+
+```yaml
+test:
+  engine: sqs
+  platform: container
+  host: localhost
+  port: 4566
+  region: us-east-1
+  visibilityTimeout: 30
+  maxReceiveCount: 5
+  retentionDays: 14
+  delay: 0
+  maxConcurrency: 5
+  timeout: 60
+  workerReplicas: 1
+
+production:
+  engine: sqs
+  platform: sqs
+  region: us-east-1
+  visibilityTimeout: 60
+  maxReceiveCount: 5
+  retentionDays: 14
+  maxConcurrency: 10
+  timeout: 120
+  workerReplicas: 2
+```
+
+**Language codegen note:** Python and TypeScript queue **clients and workers** are generated for `rabbitmq`, `sqs`, and `service-bus` only today; `storage-queue` is for Azure infra / future parity.
 
 ---
 

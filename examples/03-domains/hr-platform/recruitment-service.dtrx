@@ -116,13 +116,13 @@ service hr.RecruitmentService : version('1.0.0'), description('job posting and c
             }
 
             afterCreate {
-                emit JobPostingCreated(id, title, department, isRemote);
+                dispatch JobPostingCreated(id, title, department, isRemote);
                 Log.info("Job posting created", { postingId: id, title: title, department: department });
             }
 
             afterUpdate {
                 if (isChanged(status)) {
-                    emit JobPostingStatusChanged(id, title, oldValue(status), status);
+                    dispatch JobPostingStatusChanged(id, title, oldValue(status), status);
 
                     if (status == PostingStatus.Filled) {
                         Log.info("Job posting filled", { postingId: id, title: title });
@@ -196,7 +196,7 @@ service hr.RecruitmentService : version('1.0.0'), description('job posting and c
             afterUpdate {
                 if (isChanged(status)) {
                     statusChangedAt = now();
-                    emit ApplicationStatusChanged(id, jobPostingId, candidateName, oldValue(status), status);
+                    dispatch ApplicationStatusChanged(id, jobPostingId, candidateName, oldValue(status), status);
 
                     if (status == ApplicationStatus.Hired) {
                         Log.info("Candidate hired", { applicationId: id, candidate: candidateName });

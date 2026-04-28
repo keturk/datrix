@@ -43,7 +43,7 @@
     ],
     "domains": [
       {"name": "blog-cms",            "path": "examples/03-domains/blog-cms/system.dtrx",             "description": "Blog CMS with content management"},
-      {"name": "ecommerce",           "path": "examples/03-domains/ecommerce/system.dtrx",           "description": "E-commerce system with 5 services"},
+      {"name": "ecommerce",           "path": "examples/03-domains/ecommerce/system.dtrx",           "description": "E-commerce system with 6 services"},
       {"name": "finance",             "path": "examples/03-domains/finance/system.dtrx",              "description": "Finance with accounts, transactions, compliance"},
       {"name": "food-delivery",       "path": "examples/03-domains/food-delivery/system.dtrx",        "description": "Food delivery with restaurants, orders, drivers"},
       {"name": "healthcare",          "path": "examples/03-domains/healthcare/system.dtrx",           "description": "Healthcare system with HIPAA patterns"},

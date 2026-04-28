@@ -39,6 +39,9 @@ Commonly referenced feature folders:
 - Authentication: [`01-core-data-modeling/authentication`](../../examples/02-features/01-core-data-modeling/authentication/)
 - Jobs: [`03-infrastructure-blocks/jobs`](../../examples/02-features/03-infrastructure-blocks/jobs/)
 - GraphQL: [`03-infrastructure-blocks/graphql`](../../examples/02-features/03-infrastructure-blocks/graphql/)
+- **Queues (task dispatch):** [`03-infrastructure-blocks/queue`](../../examples/02-features/03-infrastructure-blocks/queue/) — producer `queues('config/.../queue.yaml')`, consumer `enqueue BookService.TaskName(…)`, `dispatch` from hooks; includes `config/book-service/queue.yaml` and paired `notification-service` consumer.
+
+**Generated output (high level):** the producer service gets **`queue/payloads`** and **`queue/client`** modules; the consumer gets **`workers/queue_worker`** plus per-queue **handler** modules. Platform generators add broker containers (Compose/K8s) and cloud queue resources when enabled.
 
 ---
 

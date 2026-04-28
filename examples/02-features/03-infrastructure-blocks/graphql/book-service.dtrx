@@ -110,7 +110,7 @@ service library.BookService : version('1.0.0'), description('GraphQL API demonst
                 status: BookStatus.Available
             });
             book.save();
-            emit BookAdded(book.id, book.title);
+            dispatch BookAdded(book.id, book.title);
             return book;
         }
 
@@ -121,7 +121,7 @@ service library.BookService : version('1.0.0'), description('GraphQL API demonst
             if (input.status != null) {
                 #BookStatus oldStatus = book.status;
                 book.status = input.status;
-                emit BookStatusChanged(id, oldStatus, input.status);
+                dispatch BookStatusChanged(id, oldStatus, input.status);
             }
             book.save();
             return book;

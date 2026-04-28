@@ -11,14 +11,15 @@ This guide covers common patterns, best practices, and anti-patterns based on re
 1. [Entity Design Patterns](#entity-design-patterns)
 2. [API Design Patterns](#api-design-patterns)
 3. [Event-Driven Patterns](#event-driven-patterns)
-4. [Multi-Tenancy Patterns](#multi-tenancy-patterns)
-5. [Caching Strategies](#caching-strategies)
-6. [Error Handling](#error-handling)
-7. [Data Validation](#data-validation)
-8. [Testing Strategies](#testing-strategies)
-9. [Performance Optimization](#performance-optimization)
-10. [Deployment Considerations](#deployment-considerations)
-11. [Anti-Patterns to Avoid](#anti-patterns-to-avoid)
+4. [Queue Patterns](#queue-patterns)
+5. [Multi-Tenancy Patterns](#multi-tenancy-patterns)
+6. [Caching Strategies](#caching-strategies)
+7. [Error Handling](#error-handling)
+8. [Data Validation](#data-validation)
+9. [Testing Strategies](#testing-strategies)
+10. [Performance Optimization](#performance-optimization)
+11. [Deployment Considerations](#deployment-considerations)
+12. [Anti-Patterns to Avoid](#anti-patterns-to-avoid)
 
 ---
 
@@ -265,7 +266,7 @@ rest_api OrderAPI : basePath('/api/v1/orders') {
         order.status = OrderStatus.Cancelled;
         db.Order.save(order);
 
-        emit OrderCancelled(id, reason ?? "No reason provided");
+        dispatch OrderCancelled(id, reason ?? "No reason provided");
         return order;
     }
 
@@ -408,24 +409,24 @@ rest_api OrderAPIV2 : basePath('/api/v2/orders') {
 
 **Problem:** Notify other services when important things happen.
 
-**Solution:** Emit events in lifecycle hooks.
+**Solution:** Dispatch events in lifecycle hooks.
 
 ```dtrx
 entity Order {
     OrderStatus status;
 
     afterCreate {
-        emit OrderCreated(id, customerId, total);
+        dispatch OrderCreated(id, customerId, total);
     }
 
     afterUpdate {
         if (status != $old.status) {
-            emit OrderStatusChanged(id, $old.status, status);
+            dispatch OrderStatusChanged(id, $old.status, status);
         }
     }
 
     afterDelete {
-        emit OrderDeleted(id);
+        dispatch OrderDeleted(id);
     }
 }
 ```
@@ -492,7 +493,7 @@ pubsub mq {
             let order = db.Order.findOrFail(orderId);
             order.status = OrderStatus.Cancelled;
             db.Order.save(order);
-            emit OrderCancelled(orderId, "Payment failed: " + reason);
+            dispatch OrderCancelled(orderId, "Payment failed: " + reason);
         }
     }
 
@@ -501,14 +502,14 @@ pubsub mq {
             let order = db.Order.findOrFail(orderId);
             order.status = OrderStatus.Confirmed;
             db.Order.save(order);
-            emit OrderConfirmed(orderId);
+            dispatch OrderConfirmed(orderId);
         }
 
         on InventoryInsufficient(UUID orderId) {
             let order = db.Order.findOrFail(orderId);
             order.status = OrderStatus.Cancelled;
             db.Order.save(order);
-            emit OrderCancelled(orderId, "Insufficient inventory");
+            dispatch OrderCancelled(orderId, "Insufficient inventory");
         }
     }
 }
@@ -525,9 +526,9 @@ pubsub mq {
             let success = processPayment(customerId, calculateTotal(items));
 
             if (success) {
-                emit PaymentSucceeded(orderId, calculateTotal(items));
+                dispatch PaymentSucceeded(orderId, calculateTotal(items));
             } else {
-                emit PaymentFailed(orderId, "Card declined");
+                dispatch PaymentFailed(orderId, "Card declined");
             }
         }
 
@@ -550,9 +551,9 @@ pubsub mq {
             let canReserve = checkAndReserve(items);
 
             if (canReserve) {
-                emit InventoryReserved(orderId);
+                dispatch InventoryReserved(orderId);
             } else {
-                emit InventoryInsufficient(orderId);
+                dispatch InventoryInsufficient(orderId);
             }
         }
 
@@ -612,6 +613,57 @@ fn reconstructOrder(UUID orderId) -> Order {
     return order;
 }
 ```
+
+---
+
+## Queue Patterns
+
+### Pattern: Background task processing
+
+**Problem:** Expensive work must not block HTTP request threads.
+
+**Solution:** Declare a `queue` on the owning service, `dispatch` from the handler, and run logic in a **worker** process generated for the consumer service.
+
+```dtrx
+// OrderService — producer
+queues('config/order-service/queue.yaml') {
+    queue ProcessPayment(UUID orderId, Money amount, String currency) {
+        ensure amount > 0;
+    }
+}
+// In createOrder endpoint or afterCreate:
+// dispatch ProcessPayment(orderId, total, currency);
+```
+
+### Pattern: Cross-service queue consumption
+
+**Problem:** Service A creates work that Service B must execute exactly once.
+
+**Solution:** Service A owns `queue.yaml` and `queues { }`; Service B lists A in `discovery` and implements `enqueue A.TaskName(…) { … }`.
+
+### Pattern: FIFO queue for ordered processing
+
+**Problem:** Tasks for the same business key must run in order.
+
+**Solution:** Use the FIFO modifier: `queue SettlePayment(...) : fifo(merchantId) { … }`.
+
+### Anti-pattern: Using queues for broadcast
+
+**Problem:** Several services need the same notification.
+
+**Wrong:** Multiple `enqueue` targets for the same queue (semantic error **QUE003**).
+
+**Right:** Use **pubsub** for broadcast; use **queues** for point-to-point work.
+
+### When to use queues vs pub/sub
+
+| Scenario | Use |
+|----------|-----|
+| Notify all interested services | Pub/Sub |
+| One worker processes each task | Queue |
+| Fire-and-forget fan-out | Pub/Sub |
+| Retries, DLQ, visibility timeout | Queue |
+| FIFO ordering per key | Queue |
 
 ---
 
@@ -921,7 +973,7 @@ post processPayment(UUID orderId, PaymentDetails payment) -> PaymentResult {
             customerId: order.customerId
         });
 
-        emit PaymentFailed(orderId, error.message);
+        dispatch PaymentFailed(orderId, error.message);
         throw error;
     }
 }
@@ -1341,7 +1393,7 @@ post createOrder(...) -> Order {
 ```dtrx
 entity Order {
     afterCreate {
-        emit OrderCreated(id, customerId, total);
+        dispatch OrderCreated(id, customerId, total);
     }
 }
 

@@ -107,7 +107,7 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
 
             afterUpdate {
                 if (isChanged(inventory)) {
-                    emit InventoryUpdated(id, oldValue(inventory), inventory);
+                    dispatch InventoryUpdated(id, oldValue(inventory), inventory);
                 }
                 if (isChanged(status)) {
                     // Invalidate cache when status changes
@@ -240,7 +240,7 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
                     }
                 }
 
-                emit InventoryReleased(reservationId, #"Order cancelled: {reason}");
+                dispatch InventoryReleased(reservationId, #"Order cancelled: {reason}");
                 Log.info("Inventory released for cancelled order", { orderId: orderId, reservationId: reservationId });
             }
         }
@@ -334,7 +334,7 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
             product.generateSlug(request.name);
             product.save();
 
-            emit ProductCreated(product.id, product.name, product.price);
+            dispatch ProductCreated(product.id, product.name, product.price);
 
             return product;
         }
@@ -346,7 +346,7 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
             product.inventory = request.inventory;
             product.save();
 
-            emit InventoryUpdated(product.id, oldInventory, request.inventory);
+            dispatch InventoryUpdated(product.id, oldInventory, request.inventory);
 
             return product;
         }
@@ -415,7 +415,7 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
 
             // Lambda expression: '.map(i => i.productId)'
             #Array<UUID> productIds = request.items.map(i => i.productId);
-            emit InventoryReserved(request.reservationId, productIds);
+            dispatch InventoryReserved(request.reservationId, productIds);
 
             return { success: true, reservationId: request.reservationId };
         }
@@ -456,7 +456,7 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
                 }
             }
 
-            emit InventoryReleased(request.reservationId, "Released by request");
+            dispatch InventoryReleased(request.reservationId, "Released by request");
             Log.info("Inventory reservation released", { reservationId: request.reservationId });
         }
 
@@ -557,7 +557,7 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
                     }
                 }
 
-                emit InventoryReleased(UUID.parse(reservationId), "Expired");
+                dispatch InventoryReleased(UUID.parse(reservationId), "Expired");
                 count = count + 1;
 
                 Log.info("Released expired reservation", { reservationId: reservationId });

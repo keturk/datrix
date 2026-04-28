@@ -97,12 +97,12 @@ service realestate.ContractService : version('1.0.0'), description('real estate 
             }
 
             afterCreate {
-                emit ContractCreated(id, contractRef, listingId, buyerId, sellerId, contractType, price);
+                dispatch ContractCreated(id, contractRef, listingId, buyerId, sellerId, contractType, price);
             }
 
             afterUpdate {
                 if (isChanged(status)) {
-                    emit ContractStatusChanged(id, contractRef, listingId, oldValue(status), status);
+                    dispatch ContractStatusChanged(id, contractRef, listingId, oldValue(status), status);
 
                     if (status == ContractStatus.Signed) {
                         signedAt = now();

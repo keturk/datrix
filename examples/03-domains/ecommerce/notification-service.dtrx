@@ -1,0 +1,38 @@
+
+service ecommerce.NotificationService : version('1.0.0'), description('order notification consumer') {
+
+    config('config/notification-service/notification-service-config.yaml');
+    registration('config/notification-service/registration.yaml');
+    discovery {
+        ecommerce.OrderService { loadBalance: roundRobin, healthyOnly: true }
+    }
+    resilience('config/notification-service/resilience.yaml');
+    integrations('config/notification-service/integrations.yaml');
+
+    rdbms notificationDb('config/notification-service/datasources.yaml') {
+
+        entity NotificationAudit extends BaseEntity {
+            UUID orderId : index;
+            Email recipientEmail;
+            String(64) orderNumber;
+        }
+    }
+
+    enqueue ecommerce.OrderService.SendOrderConfirmation(UUID orderId, Email customerEmail, String orderNumber) {
+        Log.info("SendOrderConfirmation task", { orderId: orderId, orderNumber: orderNumber });
+
+        Email.send(customerEmail, #"Order {orderNumber} confirmed", "order-confirmation", {
+            orderId: orderId,
+            orderNumber: orderNumber
+        });
+
+        #NotificationAudit row = notificationDb.NotificationAudit.create({
+            orderId: orderId,
+            recipientEmail: customerEmail,
+            orderNumber: orderNumber
+        });
+        row.save();
+
+        Log.info("Order confirmation email queued for delivery", { orderId: orderId });
+    }
+}

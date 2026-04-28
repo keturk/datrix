@@ -96,7 +96,7 @@ service social.PostService : version('1.0.0'), description('post and content man
 
             afterCreate {
                 if (status == ContentStatus.Published) {
-                    emit PostPublished(id, authorId, visibility);
+                    dispatch PostPublished(id, authorId, visibility);
                 }
             }
 
@@ -105,11 +105,11 @@ service social.PostService : version('1.0.0'), description('post and content man
                     if (status == ContentStatus.Published && publishedAt == null) {
                         publishedAt = now();
                     }
-                    emit PostStatusChanged(id, authorId, oldValue(status), status);
+                    dispatch PostStatusChanged(id, authorId, oldValue(status), status);
                 }
 
                 if (isChanged(content)) {
-                    emit PostUpdated(id, authorId);
+                    dispatch PostUpdated(id, authorId);
                 }
             }
         }
@@ -138,7 +138,7 @@ service social.PostService : version('1.0.0'), description('post and content man
                     post.save();
                 }
 
-                emit CommentAdded(id, postId, authorId);
+                dispatch CommentAdded(id, postId, authorId);
             }
         }
 
@@ -378,7 +378,7 @@ service social.PostService : version('1.0.0'), description('post and content man
             post.status = ContentStatus.Archived;
             post.save();
 
-            emit PostDeleted(id, post.authorId);
+            dispatch PostDeleted(id, post.authorId);
         }
 
         // Get posts by a specific author
@@ -455,7 +455,7 @@ service social.PostService : version('1.0.0'), description('post and content man
             });
             like.save();
 
-            emit PostLiked(id, userId);
+            dispatch PostLiked(id, userId);
 
             return {
                 postId: id,
@@ -481,7 +481,7 @@ service social.PostService : version('1.0.0'), description('post and content man
                 post.save();
             }
 
-            emit PostUnliked(id, userId);
+            dispatch PostUnliked(id, userId);
 
             return {
                 postId: id,

@@ -212,18 +212,18 @@ service library.BookService : version('1.0.0'), description('book management ser
             // Lifecycle hook - runs after a new record is created
             afterCreate {
                 status = BookStatus.Available;
-                // 'emit' publishes an event to the message bus
-                emit BookAdded(id, title);
+                // 'dispatch' publishes an event to the message bus (or dispatches a queue task)
+                dispatch BookAdded(id, title);
             }
 
             // Lifecycle hook - runs after an existing record is updated
             afterUpdate {
                 // 'isChanged(field)' checks if a field was modified in this update
                 if (isChanged(status)) {
-                    emit BookStatusChanged(id, oldValue(status), status);
+                    dispatch BookStatusChanged(id, oldValue(status), status);
                 }
                 if (isChanged(condition)) {
-                    emit BookConditionChanged(id, oldValue(condition), condition);
+                    dispatch BookConditionChanged(id, oldValue(condition), condition);
                 }
             }
         }
@@ -417,13 +417,13 @@ service library.BookService : version('1.0.0'), description('book management ser
             index status;
         }
 
-        // 'command' defines a write operation that mutates state and may emit events
+        // 'command' defines a write operation that mutates state and may dispatch events
         command UpdateBookStatus(UUID bookId, BookStatus newStatus) -> catalog.Book {
             #Book? book = catalog.Book.findById(bookId);
             #BookStatus oldStatus = book.status;
             book.status = newStatus;
             book.save();
-            emit BookStatusChanged(bookId, oldStatus, newStatus);
+            dispatch BookStatusChanged(bookId, oldStatus, newStatus);
             return book;
         }
 
@@ -472,7 +472,7 @@ service library.BookService : version('1.0.0'), description('book management ser
                 processed = processed + 1;
             }
 
-            emit OverdueBooksProcessed(processed);
+            dispatch OverdueBooksProcessed(processed);
         }
 
         job RefreshBookCache {
@@ -506,7 +506,7 @@ service library.BookService : version('1.0.0'), description('book management ser
                 }
             }
 
-            emit OverdueBooksProcessed(processed);
+            dispatch OverdueBooksProcessed(processed);
         }
 
         // Aggregation job that queries across databases and writes summary statistics
@@ -734,7 +734,7 @@ service library.BookService : version('1.0.0'), description('book management ser
                     checkout.save();
                 }
 
-                emit CheckoutCreated(checkout.id, id);
+                dispatch CheckoutCreated(checkout.id, id);
                 return checkout;
             } catch (Exception e) {
                 Log.error(#"Checkout failed for book {id}: {e}");
@@ -765,7 +765,7 @@ service library.BookService : version('1.0.0'), description('book management ser
                 checkout.save();
             }
 
-            emit CheckoutReturned(checkout.id, id);
+            dispatch CheckoutReturned(checkout.id, id);
             return checkout;
         }
 
@@ -789,7 +789,7 @@ service library.BookService : version('1.0.0'), description('book management ser
 
             book.condition = request.newCondition;
             book.save();
-            emit BookConditionChanged(id, oldCondition, request.newCondition);
+            dispatch BookConditionChanged(id, oldCondition, request.newCondition);
             return book;
         }
 
@@ -911,7 +911,7 @@ service library.BookService : version('1.0.0'), description('book management ser
                 status: BookStatus.Available
             });
             book.save();
-            emit BookAdded(book.id, book.title);
+            dispatch BookAdded(book.id, book.title);
             return book;
         }
 
@@ -922,7 +922,7 @@ service library.BookService : version('1.0.0'), description('book management ser
             if (input.status != null) {
                 #BookStatus oldStatus = book.status;
                 book.status = input.status;
-                emit BookStatusChanged(id, oldStatus, input.status);
+                dispatch BookStatusChanged(id, oldStatus, input.status);
             }
             book.save();
             return book;
@@ -1094,7 +1094,7 @@ service library.BookService : version('1.0.0'), description('book management ser
         assert emitted(BookStatusChanged(book.id, BookStatus.Available, BookStatus.CheckedOut));
     }
 
-    test("title update does not emit BookStatusChanged") {
+    test("title update does not dispatch BookStatusChanged") {
         #catalog.Category cat = catalog.Category.create({ name: "SpecCatNoEvent" });
         cat.save();
         #catalog.Branch br = catalog.Branch.create({ name: "SpecBranchNoEvent", latitude: 40.7128, longitude: -74.0060, country: "US" });

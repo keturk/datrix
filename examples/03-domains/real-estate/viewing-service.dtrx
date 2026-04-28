@@ -84,13 +84,13 @@ service realestate.ViewingService : version('1.0.0'), description('property view
             }
 
             afterCreate {
-                emit ViewingScheduled(id, listingId, clientName, clientEmail, scheduledAt);
+                dispatch ViewingScheduled(id, listingId, clientName, clientEmail, scheduledAt);
                 Log.info("Viewing scheduled", { viewingId: id, listingId: listingId, scheduledAt: scheduledAt });
             }
 
             afterUpdate {
                 if (isChanged(status)) {
-                    emit ViewingStatusChanged(id, listingId, oldValue(status), status);
+                    dispatch ViewingStatusChanged(id, listingId, oldValue(status), status);
 
                     if (status == ViewingStatus.Cancelled) {
                         Log.info("Viewing cancelled", { viewingId: id, reason: cancellationReason });

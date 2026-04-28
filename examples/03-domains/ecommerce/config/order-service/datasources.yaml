@@ -4,7 +4,7 @@ test:
     host: localhost
     port: 5432
     database: ecommerce_orders
-    poolSize: 20
+    poolSize: 15
     docker_image: postgres:17-alpine
     volume_path: /var/lib/postgresql/data
     asyncDriver: postgresql+asyncpg
@@ -35,7 +35,7 @@ development:
     host: localhost
     port: 5432
     database: ecommerce_orders
-    poolSize: 20
+    poolSize: 15
     docker_image: postgres:17-alpine
     volume_path: /var/lib/postgresql/data
     asyncDriver: postgresql+asyncpg

@@ -94,7 +94,7 @@ service hr.PayrollService : version('1.0.0'), description('payroll processing an
                 if (isChanged(status)) {
                     if (status == PayrollStatus.Completed) {
                         processedAt = now();
-                        emit PayrollCompleted(id, payrollRef, payPeriod, totalGross, totalNet, entryCount);
+                        dispatch PayrollCompleted(id, payrollRef, payPeriod, totalGross, totalNet, entryCount);
                         Log.info("Payroll run completed", { payrollRef: payrollRef, totalNet: totalNet, entries: entryCount });
                     } else if (status == PayrollStatus.Failed) {
                         Log.error("Payroll run failed", { payrollRef: payrollRef, reason: failureReason });
@@ -415,7 +415,7 @@ service hr.PayrollService : version('1.0.0'), description('payroll processing an
                 }
 
                 if (count > 0) {
-                    emit PayStubsGenerated(run.id, run.payrollRef, count);
+                    dispatch PayStubsGenerated(run.id, run.payrollRef, count);
                     Log.info("Pay stubs generated", { payrollRef: run.payrollRef, count: count });
                 }
             }

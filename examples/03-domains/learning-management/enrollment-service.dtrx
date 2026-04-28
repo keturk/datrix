@@ -104,18 +104,18 @@ service lms.EnrollmentService : version('1.0.0'), description('enrollment and ac
             }
 
             afterCreate {
-                emit StudentEnrolled(id, studentId, courseId);
+                dispatch StudentEnrolled(id, studentId, courseId);
             }
 
             afterUpdate {
                 if (isChanged(progress)) {
-                    emit ProgressUpdated(id, studentId, courseId, oldValue(progress), progress);
+                    dispatch ProgressUpdated(id, studentId, courseId, oldValue(progress), progress);
 
                     if (progress == MAX_SCORE && status != EnrollmentStatus.Completed) {
                         status = EnrollmentStatus.Completed;
                         completedAt = now();
                         this.save();
-                        emit EnrollmentCompleted(id, studentId, courseId, averageScore);
+                        dispatch EnrollmentCompleted(id, studentId, courseId, averageScore);
 
                         Log.info("Enrollment completed", {
                             enrollmentId: id,
@@ -127,7 +127,7 @@ service lms.EnrollmentService : version('1.0.0'), description('enrollment and ac
                 }
 
                 if (isChanged(status)) {
-                    emit EnrollmentStatusChanged(id, studentId, courseId, oldValue(status), status);
+                    dispatch EnrollmentStatusChanged(id, studentId, courseId, oldValue(status), status);
 
                     if (status == EnrollmentStatus.Dropped) {
                         droppedAt = now();
@@ -465,7 +465,7 @@ service lms.EnrollmentService : version('1.0.0'), description('enrollment and ac
             enrollment.dropReason = request.reason ?? "Dropped by student";
             enrollment.save();
 
-            emit StudentDropped(id, enrollment.studentId, enrollment.courseId, enrollment.dropReason);
+            dispatch StudentDropped(id, enrollment.studentId, enrollment.courseId, enrollment.dropReason);
 
             return enrollment;
         }
@@ -531,7 +531,7 @@ service lms.EnrollmentService : version('1.0.0'), description('enrollment and ac
             });
             grade.save();
 
-            emit GradeSubmitted(id, request.moduleId, request.score);
+            dispatch GradeSubmitted(id, request.moduleId, request.score);
 
             return grade;
         }

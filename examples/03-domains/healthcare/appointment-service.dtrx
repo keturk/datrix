@@ -120,7 +120,7 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
             }
 
             afterCreate {
-                emit AppointmentScheduled(id, patientId, providerId, scheduledAt, type);
+                dispatch AppointmentScheduled(id, patientId, providerId, scheduledAt, type);
 
                 Log.info("Appointment scheduled", {
                     appointmentId: id,
@@ -132,12 +132,12 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
 
             afterUpdate {
                 if (isChanged(status)) {
-                    emit AppointmentStatusChanged(id, patientId, oldValue(status), status);
+                    dispatch AppointmentStatusChanged(id, patientId, oldValue(status), status);
 
                     if (status == AppointmentStatus.Completed) {
-                        emit AppointmentCompleted(id, patientId, providerId, providerName, type);
+                        dispatch AppointmentCompleted(id, patientId, providerId, providerName, type);
                     } else if (status == AppointmentStatus.Cancelled) {
-                        emit AppointmentCancelled(id, patientId, cancellationReason);
+                        dispatch AppointmentCancelled(id, patientId, cancellationReason);
                     }
 
                     Log.info("Appointment status changed", {

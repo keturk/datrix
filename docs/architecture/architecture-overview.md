@@ -18,7 +18,7 @@ Datrix is a code generation system that transforms `.dtrx` domain specifications
 ✅ **Type-Safe** - Exhaustive type mappings with validation
 ✅ **Modular Architecture** - 12 installable packages (core toolchain + optional **datrix-extensions**) plus showcase and projects repos
 ✅ **Specification-Level Testing** - DSL `test` blocks transpile to pytest under `tests/spec/` (Python) and Jest under `test/spec/` (TypeScript); see tutorial `41-file-operations`
-✅ **Event contracts** - `ensure` clauses on `publish` events enforce publisher-side validation before `emit`
+✅ **Event contracts** - `ensure` clauses on `publish` events enforce publisher-side validation before `dispatch`
 
 ---
 

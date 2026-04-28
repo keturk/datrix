@@ -219,7 +219,7 @@ def _collect_thrown_exception_names_from_statements(
     from datrix_common.datrix_model.expressions import (
         AssertStatement,
         AssignmentStatement,
-        EmitStatement,
+        DispatchStatement,
         ExpressionStatement,
         ForLoopStatement,
         ForStatement,
@@ -281,7 +281,7 @@ def _collect_thrown_exception_names_from_statements(
                 walk_expressions(stmt.expression)
             elif isinstance(stmt, AssertStatement):
                 walk_expressions(stmt.expression)
-            elif isinstance(stmt, EmitStatement):
+            elif isinstance(stmt, DispatchStatement):
                 for arg in stmt.arguments:
                     walk_expressions(arg)
 

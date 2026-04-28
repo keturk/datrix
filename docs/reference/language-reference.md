@@ -25,7 +25,7 @@ system ecommerce : version('1.0.0') {
 |-------|-------------|---------|
 | `system` | Exactly one per application | Global infrastructure: gateway, observability, service registry |
 | `module` | Multiple | Shared code: traits, abstract entities, enums, structs, constants, `exceptions`, `scalar` |
-| `service` | Multiple | Business logic + owned infrastructure |
+| `service` | Multiple | Business logic + owned infrastructure (`rdbms`, `pubsub`, **`queues`**, APIs, `enqueue`, …) |
 
 Multiple files can contribute to the same service — the compiler merges them automatically.
 
@@ -51,6 +51,7 @@ service ecommerce.OrderService : version('1.0.0') {
     rdbms db('config/order-service/datasources.yaml') { ... }
     cache redis('config/order-service/cache.yaml') { ... }
     pubsub mq('config/order-service/pubsub.yaml') { ... }
+    queues('config/order-service/queue.yaml') { ... }
 
     rest_api OrderAPI : basePath('/api/v1/orders') { ... }
 }
@@ -73,7 +74,7 @@ entity Order extends BaseEntity with Auditable {
     index(customerId, status);
 
     afterCreate {
-        emit OrderCreated(id, total);
+        dispatch OrderCreated(id, total);
     }
 }
 ```
@@ -189,7 +190,50 @@ publish OrderCreated(UUID orderId, Decimal totalAmount, Int itemCount) {
 }
 ```
 
-Contracts are enforced at the publisher side — fail-fast at `emit`, before invalid payloads reach subscribers. See the [Event Contracts Guide](../guide/event-contracts.md) for full syntax, generated code examples, and design decisions.
+Contracts are enforced at the publisher side — fail-fast at `dispatch`, before invalid payloads reach subscribers. See the [Event Contracts Guide](../guide/event-contracts.md) for full syntax, generated code examples, and design decisions.
+
+---
+
+## Queues (task dispatch)
+
+**Point-to-point** work queues: each message is processed by **one** worker (competing consumers), with broker semantics for retries, visibility timeout, and DLQ driven by `queue.yaml` (see [Configuration Guide — Queue Configuration](../guide/configuration-guide.md#queue-configuration)).
+
+**Producer** (same service owns `queue.yaml`):
+
+```dtrx
+queues('config/order-service/queue.yaml') {
+    queue ProcessPayment(UUID orderId, Money amount, String currency) {
+        ensure amount > 0;
+    }
+    queue SettlePayment(UUID paymentId, String merchantId, Decimal amount) : fifo(merchantId) {
+        ensure amount > 0;
+    }
+}
+```
+
+**Consumer** (another service; add producer to `discovery`):
+
+```dtrx
+enqueue OrderService.ProcessPayment(UUID orderId, Money amount, String currency) {
+    Log.info("Processing payment", { orderId: orderId });
+}
+```
+
+**Dispatch** (same verb as pubsub — semantic resolution):
+
+```dtrx
+dispatch ProcessPayment(orderId, amount, currency);
+```
+
+| | Pub/Sub | Queues |
+|---|---------|--------|
+| Delivery | Every subscriber | Exactly one consumer |
+| Block | `pubsub … { topic … }` | `queues('queue.yaml') { queue … }` |
+| Declaration | `publish Event(…)` | `queue Task(…)` |
+| Consumer | `subscribe` / `on Event` | `enqueue Service.Task` at service scope |
+| Verb | `dispatch Event(…)` | `dispatch Task(…)` |
+
+Cross-service `enqueue` requires the producing service in `discovery { }` and a single consumer per qualified queue (semantic errors **QUE001**–**QUE003**). Queue names and pubsub event names cannot collide on the same service (**QUE004**). See [datrix-validators — Queue](../../../datrix-language/docs/reference/datrix-validators.md#queue-validators-que).
 
 ---
 
@@ -358,7 +402,7 @@ test("validation rejects empty title") {
     assert throws(() => db.Book.create({ title: "" }), ValidationError("Title is required"));
 }
 
-test("afterCreate emits BookCreated") {
+test("afterCreate dispatches BookCreated") {
     #Book book = db.Book.create({ title: "New Book" });
     assert emitted(BookCreated(book.id, book.title));
 }

@@ -37,7 +37,7 @@ Index of **repository** examples under [`examples/`](../../examples/) (tutorials
 How to use `ensure` clauses on `publish` events to enforce value-level invariants on event payloads:
 - Problem: structurally valid but semantically broken payloads
 - `ensure` clause syntax inside event declarations
-- Publisher-side enforcement (fail-fast at emit)
+- Publisher-side enforcement (fail-fast at dispatch)
 - Generated contract validation (Python + TypeScript)
 - Static analysis (CTR001-CTR003) and runtime assertions
 - Design decisions and rationale

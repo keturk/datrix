@@ -97,12 +97,12 @@ service logistics.ShipmentService : version('1.0.0'), description('shipment trac
             }
 
             afterCreate {
-                emit ShipmentCreated(id, trackingNumber, senderId, origin, destination);
+                dispatch ShipmentCreated(id, trackingNumber, senderId, origin, destination);
             }
 
             afterUpdate {
                 if (isChanged(status)) {
-                    emit ShipmentStatusChanged(id, trackingNumber, oldValue(status), status);
+                    dispatch ShipmentStatusChanged(id, trackingNumber, oldValue(status), status);
 
                     if (status == ShipmentStatus.Delivered) {
                         actualDelivery = now();

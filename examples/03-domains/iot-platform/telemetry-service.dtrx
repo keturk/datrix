@@ -126,12 +126,12 @@ service iot.TelemetryService : version('1.0.0'), description('telemetry data col
             }
 
             afterCreate {
-                emit AlertTriggered(id, deviceId, severity, condition, message);
+                dispatch AlertTriggered(id, deviceId, severity, condition, message);
             }
 
             afterUpdate {
                 if (isChanged(status)) {
-                    emit AlertStatusChanged(id, deviceId, oldValue(status), status);
+                    dispatch AlertStatusChanged(id, deviceId, oldValue(status), status);
                 }
             }
 
@@ -321,7 +321,7 @@ service iot.TelemetryService : version('1.0.0'), description('telemetry data col
 
             redis.TelemetryIngestCount.incr(now().format('YYYY-MM-DD'));
 
-            emit TelemetryIngested(request.deviceId, now(), {
+            dispatch TelemetryIngested(request.deviceId, now(), {
                 temperature: request.temperature,
                 humidity: request.humidity,
                 pressure: request.pressure,

@@ -129,8 +129,8 @@ service healthcare.PatientService : version('1.0.0'), description('patient manag
             }
 
             afterCreate {
-                // 'emit' publishes an event to the message bus
-                emit PatientRegistered(id, mrn, fullName, dateOfBirth);
+                // 'dispatch' publishes an event to the message bus (or dispatches a queue task)
+                dispatch PatientRegistered(id, mrn, fullName, dateOfBirth);
 
                 Log.info("Patient registered", {
                     patientId: id,
@@ -141,7 +141,7 @@ service healthcare.PatientService : version('1.0.0'), description('patient manag
 
             afterUpdate {
                 if (isChanged(status)) {
-                    emit PatientStatusChanged(id, mrn, oldValue(status), status);
+                    dispatch PatientStatusChanged(id, mrn, oldValue(status), status);
                 }
 
                 Log.info("Patient updated", {
@@ -390,7 +390,7 @@ service healthcare.PatientService : version('1.0.0'), description('patient manag
             });
 
             if (changedFields.length() > 0) {
-                emit PatientUpdated(patient.id, patient.mrn, changedFields);
+                dispatch PatientUpdated(patient.id, patient.mrn, changedFields);
             }
 
             return patient;

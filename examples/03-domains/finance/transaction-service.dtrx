@@ -120,12 +120,12 @@ service finance.TransactionService : version('1.0.0'), description('financial tr
             }
 
             afterCreate {
-                emit TransactionCreated(id, accountId, type, amount, currency, reference);
+                dispatch TransactionCreated(id, accountId, type, amount, currency, reference);
             }
 
             afterUpdate {
                 if (isChanged(status)) {
-                    emit TransactionStatusChanged(id, accountId, oldValue(status), status, amount);
+                    dispatch TransactionStatusChanged(id, accountId, oldValue(status), status, amount);
 
                     if (status == TransactionStatus.Completed) {
                         completedAt = now();
@@ -414,7 +414,7 @@ service finance.TransactionService : version('1.0.0'), description('financial tr
                     depositTx.complete();
                 }
 
-                emit TransferCompleted(withdrawalTx.id, depositTx.id, request.sourceAccountId, request.destinationAccountId, request.amount, transferRef);
+                dispatch TransferCompleted(withdrawalTx.id, depositTx.id, request.sourceAccountId, request.destinationAccountId, request.amount, transferRef);
 
             } catch (Exception e) {
                 withdrawalTx.fail(#"Transfer failed: {e}");
@@ -480,7 +480,7 @@ service finance.TransactionService : version('1.0.0'), description('financial tr
             }
 
             batch.markCompleted(successes, failures);
-            emit BatchProcessed(batch.id, successes, failures);
+            dispatch BatchProcessed(batch.id, successes, failures);
 
             return {
                 batchId: batch.id,
@@ -574,7 +574,7 @@ service finance.TransactionService : version('1.0.0'), description('financial tr
             });
             recon.save();
 
-            emit DailyReconciliationCompleted(today, dayTransactions.length(), balanced);
+            dispatch DailyReconciliationCompleted(today, dayTransactions.length(), balanced);
             Log.info("Daily reconciliation completed", { date: today, total: dayTransactions.length(), balanced: balanced });
         }
     }

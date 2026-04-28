@@ -70,15 +70,15 @@ service fooddelivery.RestaurantService : version('1.0.0'), description('restaura
             }
 
             afterCreate {
-                emit RestaurantRegistered(id, name, cuisineType);
+                dispatch RestaurantRegistered(id, name, cuisineType);
             }
 
             afterUpdate {
                 if (isChanged(status)) {
-                    emit RestaurantStatusChanged(id, name, oldValue(status), status);
+                    dispatch RestaurantStatusChanged(id, name, oldValue(status), status);
                 }
                 if (isChanged(rating)) {
-                    emit RestaurantRatingUpdated(id, name, rating);
+                    dispatch RestaurantRatingUpdated(id, name, rating);
                 }
             }
 
