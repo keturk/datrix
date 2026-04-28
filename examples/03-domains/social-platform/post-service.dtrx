@@ -493,6 +493,7 @@ service social.PostService : version('1.0.0'), description('post and content man
         // Get comments on a post
         @path('/:id/comments')
         get(UUID id, Int page = 1, Int perPage = 20) : public -> Array<postDb.Comment> {
+            #Post _parentCheck = postDb.Post.findOrFail(id);
             #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             return postDb.Comment
                 .where(postId: id)
