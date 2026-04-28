@@ -147,46 +147,45 @@ service taskapp.ProjectService : version('1.0.0'), description('project and team
             publish MemberRemoved(UUID projectId, UUID userId);
             publish ProjectArchived(UUID projectId);
         }
+    }
+    subscribe ProjectEvents {
+        on ProjectCreated(UUID projectId, String name, UUID ownerId) {
+            Log.info("Project created", { projectId: projectId, name: name, ownerId: ownerId });
 
-        subscribe ProjectEvents {
-            on ProjectCreated(UUID projectId, String name, UUID ownerId) {
-                Log.info("Project created", { projectId: projectId, name: name, ownerId: ownerId });
+            // Automatically add the owner as a project member with Owner role
+            #ProjectMember member = projectDb.ProjectMember.create({
+                projectId: projectId,
+                userId: ownerId,
+                role: MemberRole.Owner
+            });
+            member.save();
+        }
 
-                // Automatically add the owner as a project member with Owner role
-                #ProjectMember member = projectDb.ProjectMember.create({
-                    projectId: projectId,
-                    userId: ownerId,
-                    role: MemberRole.Owner
-                });
-                member.save();
-            }
+        on ProjectStatusChanged(UUID projectId, ProjectStatus oldStatus, ProjectStatus newStatus) {
+            Log.info("Project status changed", {
+                projectId: projectId,
+                oldStatus: oldStatus,
+                newStatus: newStatus
+            });
+        }
 
-            on ProjectStatusChanged(UUID projectId, ProjectStatus oldStatus, ProjectStatus newStatus) {
-                Log.info("Project status changed", {
-                    projectId: projectId,
-                    oldStatus: oldStatus,
-                    newStatus: newStatus
-                });
-            }
+        on MemberAdded(UUID projectId, UUID userId, MemberRole role) {
+            Log.info("Member added to project", {
+                projectId: projectId,
+                userId: userId,
+                role: role
+            });
+        }
 
-            on MemberAdded(UUID projectId, UUID userId, MemberRole role) {
-                Log.info("Member added to project", {
-                    projectId: projectId,
-                    userId: userId,
-                    role: role
-                });
-            }
+        on MemberRemoved(UUID projectId, UUID userId) {
+            Log.info("Member removed from project", {
+                projectId: projectId,
+                userId: userId
+            });
+        }
 
-            on MemberRemoved(UUID projectId, UUID userId) {
-                Log.info("Member removed from project", {
-                    projectId: projectId,
-                    userId: userId
-                });
-            }
-
-            on ProjectArchived(UUID projectId) {
-                Log.info("Project archived", { projectId: projectId });
-            }
+        on ProjectArchived(UUID projectId) {
+            Log.info("Project archived", { projectId: projectId });
         }
     }
 

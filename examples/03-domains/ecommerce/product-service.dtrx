@@ -182,67 +182,64 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
                 ensure reason.length > 0;
             }
         }
+    }
+    subscribe ProductEvents {
 
-        subscribe ProductEvents {
-
-            on ProductCreated(UUID productId, String name, Money price) {
-                Log.info("Product created", { productId: productId, name: name, price: price });
-            }
-
-            on InventoryUpdated(UUID productId, Int oldQuantity, Int newQuantity) {
-                Log.info("Inventory updated", { productId: productId, oldQuantity: oldQuantity, newQuantity: newQuantity });
-            }
-
-            on InventoryReserved(UUID reservationId, Array<UUID> productIds) {
-                Log.info("Inventory reserved", { reservationId: reservationId, productIds: productIds });
-            }
-
-            on InventoryReleased(UUID reservationId, String reason) {
-                Log.info("Inventory released", { reservationId: reservationId, reason: reason });
-            }
+        on ProductCreated(UUID productId, String name, Money price) {
+            Log.info("Product created", { productId: productId, name: name, price: price });
         }
 
-        // Subscribe to events from another service's topic
-        subscribe OrderEvents {
+        on InventoryUpdated(UUID productId, Int oldQuantity, Int newQuantity) {
+            Log.info("Inventory updated", { productId: productId, oldQuantity: oldQuantity, newQuantity: newQuantity });
+        }
 
-            on OrderConfirmed(UUID orderId, UUID? paymentId, UUID reservationId, Address shippingAddress, Array<JSON> items, Decimal estimatedWeight) {
-                #Array<InventoryReservation> reservations = productDb.InventoryReservation
-                    .where(reservationId: reservationId)
-                    .where(status: ReservationStatus.Reserved)
-                    .all();
+        on InventoryReserved(UUID reservationId, Array<UUID> productIds) {
+            Log.info("Inventory reserved", { reservationId: reservationId, productIds: productIds });
+        }
 
+        on InventoryReleased(UUID reservationId, String reason) {
+            Log.info("Inventory released", { reservationId: reservationId, reason: reason });
+        }
+    }
+    subscribe OrderEvents {
+
+        on OrderConfirmed(UUID orderId, UUID? paymentId, UUID reservationId, Address shippingAddress, Array<JSON> items, Decimal estimatedWeight) {
+            #Array<InventoryReservation> reservations = productDb.InventoryReservation
+                .where(reservationId: reservationId)
+                .where(status: ReservationStatus.Reserved)
+                .all();
+
+            foreach reservation in reservations {
+                reservation.status = ReservationStatus.Confirmed;
+                reservation.save();
+            }
+
+            Log.info("Inventory reservation confirmed", { reservationId: reservationId, orderId: orderId });
+        }
+
+        on OrderCancelled(UUID orderId, String reason, UUID reservationId) {
+            #Array<InventoryReservation> reservations = productDb.InventoryReservation
+                .where(reservationId: reservationId)
+                .where(status: ReservationStatus.Reserved)
+                .all();
+
+            // 'transaction(productDb)' wraps operations in a database transaction
+            transaction(productDb) {
                 foreach reservation in reservations {
-                    reservation.status = ReservationStatus.Confirmed;
+                    #Product? product = productDb.Product.find(reservation.productId);
+
+                    if (product != null) {
+                        product.inventory = product.inventory + reservation.quantity;
+                        product.save();
+                    }
+
+                    reservation.status = ReservationStatus.Released;
                     reservation.save();
                 }
-
-                Log.info("Inventory reservation confirmed", { reservationId: reservationId, orderId: orderId });
             }
 
-            on OrderCancelled(UUID orderId, String reason, UUID reservationId) {
-                #Array<InventoryReservation> reservations = productDb.InventoryReservation
-                    .where(reservationId: reservationId)
-                    .where(status: ReservationStatus.Reserved)
-                    .all();
-
-                // 'transaction(productDb)' wraps operations in a database transaction
-                transaction(productDb) {
-                    foreach reservation in reservations {
-                        #Product? product = productDb.Product.find(reservation.productId);
-
-                        if (product != null) {
-                            product.inventory = product.inventory + reservation.quantity;
-                            product.save();
-                        }
-
-                        reservation.status = ReservationStatus.Released;
-                        reservation.save();
-                    }
-                }
-
-                dispatch InventoryReleased(reservationId, #"Order cancelled: {reason}");
-                Log.info("Inventory released for cancelled order", { orderId: orderId, reservationId: reservationId });
-            }
+            dispatch InventoryReleased(reservationId, #"Order cancelled: {reason}");
+            Log.info("Inventory released for cancelled order", { orderId: orderId, reservationId: reservationId });
         }
     }
 

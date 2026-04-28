@@ -192,15 +192,14 @@ service finance.AccountService : version('1.0.0'), description('account and cust
                 ensure oldStatus != newStatus;
             }
         }
+    }
+    subscribe AccountEvents {
+        on AccountOpened(UUID accountId, String accountNumber, UUID customerId, AccountType type, Currency currency) {
+            Log.info("Account opened event received", { accountId: accountId, accountNumber: accountNumber, type: type });
+        }
 
-        subscribe AccountEvents {
-            on AccountOpened(UUID accountId, String accountNumber, UUID customerId, AccountType type, Currency currency) {
-                Log.info("Account opened event received", { accountId: accountId, accountNumber: accountNumber, type: type });
-            }
-
-            on AccountStatusChanged(UUID accountId, String accountNumber, AccountStatus oldStatus, AccountStatus newStatus) {
-                Log.info("Account status changed", { accountId: accountId, oldStatus: oldStatus, newStatus: newStatus });
-            }
+        on AccountStatusChanged(UUID accountId, String accountNumber, AccountStatus oldStatus, AccountStatus newStatus) {
+            Log.info("Account status changed", { accountId: accountId, oldStatus: oldStatus, newStatus: newStatus });
         }
     }
 

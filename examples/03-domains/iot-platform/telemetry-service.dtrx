@@ -215,82 +215,80 @@ service iot.TelemetryService : version('1.0.0'), description('telemetry data col
                 ensure oldStatus != newStatus;
             }
         }
+    }
+    subscribe DeviceEvents {
 
-        subscribe DeviceEvents {
-
-            on DeviceRegistered(UUID deviceId, String serialNumber, String name, DeviceType type) {
-                Log.info("New device registered, ready for telemetry", {
-                    deviceId: deviceId,
-                    serialNumber: serialNumber,
-                    name: name,
-                    type: type
-                });
-            }
-
-            on DeviceStatusChanged(UUID deviceId, String serialNumber, DeviceStatus oldStatus, DeviceStatus newStatus) {
-                if (newStatus == DeviceStatus.Decommissioned) {
-                    #Array<Alert> activeAlerts = alertDb.Alert
-                        .where(deviceId: deviceId)
-                        .where(status: AlertStatus.Active)
-                        .all();
-
-                    foreach alert in activeAlerts {
-                        alert.resolve();
-                        Log.info("Auto-resolved alert for decommissioned device", {
-                            alertId: alert.id,
-                            deviceId: deviceId
-                        });
-                    }
-                }
-
-                if (newStatus == DeviceStatus.Inactive) {
-                    redis.LatestTelemetryCache.delete(deviceId);
-                }
-            }
-
-            on DeviceHeartbeat(UUID deviceId, String serialNumber, String firmwareVersion) {
-                Log.debug("Device heartbeat received in telemetry service", {
-                    deviceId: deviceId,
-                    serialNumber: serialNumber,
-                    firmwareVersion: firmwareVersion
-                });
-            }
+        on DeviceRegistered(UUID deviceId, String serialNumber, String name, DeviceType type) {
+            Log.info("New device registered, ready for telemetry", {
+                deviceId: deviceId,
+                serialNumber: serialNumber,
+                name: name,
+                type: type
+            });
         }
 
-        subscribe TelemetryEvents {
+        on DeviceStatusChanged(UUID deviceId, String serialNumber, DeviceStatus oldStatus, DeviceStatus newStatus) {
+            if (newStatus == DeviceStatus.Decommissioned) {
+                #Array<Alert> activeAlerts = alertDb.Alert
+                    .where(deviceId: deviceId)
+                    .where(status: AlertStatus.Active)
+                    .all();
 
-            on TelemetryIngested(UUID deviceId, DateTime timestamp, JSON readings) {
-                Log.info("Telemetry ingested", {
-                    deviceId: deviceId,
-                    timestamp: timestamp
-                });
-            }
-
-            on AlertTriggered(UUID alertId, UUID deviceId, AlertSeverity severity, String condition, String message) {
-                Log.info("Alert triggered", {
-                    alertId: alertId,
-                    deviceId: deviceId,
-                    severity: severity,
-                    condition: condition
-                });
-
-                if (severity == AlertSeverity.Critical) {
-                    Log.error("CRITICAL alert triggered", {
-                        alertId: alertId,
-                        deviceId: deviceId,
-                        message: message
+                foreach alert in activeAlerts {
+                    alert.resolve();
+                    Log.info("Auto-resolved alert for decommissioned device", {
+                        alertId: alert.id,
+                        deviceId: deviceId
                     });
                 }
             }
 
-            on AlertStatusChanged(UUID alertId, UUID deviceId, AlertStatus oldStatus, AlertStatus newStatus) {
-                Log.info("Alert status changed", {
+            if (newStatus == DeviceStatus.Inactive) {
+                redis.LatestTelemetryCache.delete(deviceId);
+            }
+        }
+
+        on DeviceHeartbeat(UUID deviceId, String serialNumber, String firmwareVersion) {
+            Log.debug("Device heartbeat received in telemetry service", {
+                deviceId: deviceId,
+                serialNumber: serialNumber,
+                firmwareVersion: firmwareVersion
+            });
+        }
+    }
+    subscribe TelemetryEvents {
+
+        on TelemetryIngested(UUID deviceId, DateTime timestamp, JSON readings) {
+            Log.info("Telemetry ingested", {
+                deviceId: deviceId,
+                timestamp: timestamp
+            });
+        }
+
+        on AlertTriggered(UUID alertId, UUID deviceId, AlertSeverity severity, String condition, String message) {
+            Log.info("Alert triggered", {
+                alertId: alertId,
+                deviceId: deviceId,
+                severity: severity,
+                condition: condition
+            });
+
+            if (severity == AlertSeverity.Critical) {
+                Log.error("CRITICAL alert triggered", {
                     alertId: alertId,
                     deviceId: deviceId,
-                    oldStatus: oldStatus,
-                    newStatus: newStatus
+                    message: message
                 });
             }
+        }
+
+        on AlertStatusChanged(UUID alertId, UUID deviceId, AlertStatus oldStatus, AlertStatus newStatus) {
+            Log.info("Alert status changed", {
+                alertId: alertId,
+                deviceId: deviceId,
+                oldStatus: oldStatus,
+                newStatus: newStatus
+            });
         }
     }
 

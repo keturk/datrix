@@ -310,66 +310,65 @@ service library.BookService : version('1.0.0'), description('book management ser
             publish CheckoutCreated(UUID checkoutId, UUID bookId);
             publish CheckoutReturned(UUID checkoutId, UUID bookId);
         }
+    }
+    subscribe BookEvents {
+        on BookAdded(UUID bookId, String title) {
+            Log.info("New book added", { bookId: bookId, title: title });
 
-        subscribe BookEvents {
-            on BookAdded(UUID bookId, String title) {
-                Log.info("New book added", { bookId: bookId, title: title });
+            // Cross-database write: event handler writes to the reporting database
+            #BookAuditLog auditLog = reporting.BookAuditLog.create({
+                bookId: bookId,
+                action: AuditAction.Created,
+                performedBy: "system",
+                occurredAt: now()
+            });
+            auditLog.save();
+        }
 
-                // Cross-database write: event handler writes to the reporting database
-                #BookAuditLog auditLog = reporting.BookAuditLog.create({
-                    bookId: bookId,
-                    action: AuditAction.Created,
-                    performedBy: "system",
-                    occurredAt: now()
-                });
-                auditLog.save();
+        on BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
+            // Reference 'catalog' (not 'db') since the primary rdbms block is named 'catalog'
+            #Book book = catalog.Book.findById(bookId);
+            if (book != null) {
+                Log.info(#"Book '{book.title}' status changed from {oldStatus} to {newStatus}");
             }
 
-            on BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
-                // Reference 'catalog' (not 'db') since the primary rdbms block is named 'catalog'
-                #Book book = catalog.Book.findById(bookId);
-                if (book != null) {
-                    Log.info(#"Book '{book.title}' status changed from {oldStatus} to {newStatus}");
-                }
-
-                #AuditAction auditAction = AuditAction.Updated;
-                if (newStatus == BookStatus.CheckedOut) {
-                    auditAction = AuditAction.CheckedOut;
-                }
-
-                // Write audit trail to the separate reporting database
-                #BookAuditLog auditLog = reporting.BookAuditLog.create({
-                    bookId: bookId,
-                    action: auditAction,
-                    changes: { oldStatus: oldStatus, newStatus: newStatus },
-                    occurredAt: now()
-                });
-                auditLog.save();
+            #AuditAction auditAction = AuditAction.Updated;
+            if (newStatus == BookStatus.CheckedOut) {
+                auditAction = AuditAction.CheckedOut;
             }
 
-            on OverdueBooksProcessed(Int count) {
-                Log.info("Overdue books processed", { count: count });
-            }
+            // Write audit trail to the separate reporting database
+            #BookAuditLog auditLog = reporting.BookAuditLog.create({
+                bookId: bookId,
+                action: auditAction,
+                changes: { oldStatus: oldStatus, newStatus: newStatus },
+                occurredAt: now()
+            });
+            auditLog.save();
+        }
 
-            on BookConditionChanged(UUID bookId, BookCondition oldCondition, BookCondition newCondition) {
-                Log.info("Book condition changed", { bookId: bookId, oldCondition: oldCondition, newCondition: newCondition });
+        on OverdueBooksProcessed(Int count) {
+            Log.info("Overdue books processed", { count: count });
+        }
 
-                #BookAuditLog auditLog = reporting.BookAuditLog.create({
-                    bookId: bookId,
-                    action: AuditAction.ConditionChanged,
-                    changes: { oldCondition: oldCondition, newCondition: newCondition },
-                    occurredAt: now()
-                });
-                auditLog.save();
-            }
+        on BookConditionChanged(UUID bookId, BookCondition oldCondition, BookCondition newCondition) {
+            Log.info("Book condition changed", { bookId: bookId, oldCondition: oldCondition, newCondition: newCondition });
 
-            on CheckoutCreated(UUID checkoutId, UUID bookId) {
-                Log.info("Checkout created", { checkoutId: checkoutId, bookId: bookId });
-            }
+            #BookAuditLog auditLog = reporting.BookAuditLog.create({
+                bookId: bookId,
+                action: AuditAction.ConditionChanged,
+                changes: { oldCondition: oldCondition, newCondition: newCondition },
+                occurredAt: now()
+            });
+            auditLog.save();
+        }
 
-            on CheckoutReturned(UUID checkoutId, UUID bookId) {
-                Log.info("Checkout returned", { checkoutId: checkoutId, bookId: bookId });
-            }
+        on CheckoutCreated(UUID checkoutId, UUID bookId) {
+            Log.info("Checkout created", { checkoutId: checkoutId, bookId: bookId });
+        }
+
+        on CheckoutReturned(UUID checkoutId, UUID bookId) {
+            Log.info("Checkout returned", { checkoutId: checkoutId, bookId: bookId });
         }
     }
 

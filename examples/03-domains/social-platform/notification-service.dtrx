@@ -109,163 +109,160 @@ service social.NotificationService : version('1.0.0'), description('notification
                 ensure count > 0;
             }
         }
+    }
+    subscribe PostEvents {
+        on PostPublished(UUID postId, UUID authorId, PostVisibility visibility) {
+            Log.info("Creating notification for published post", { postId: postId, authorId: authorId });
 
-        subscribe PostEvents {
-            on PostPublished(UUID postId, UUID authorId, PostVisibility visibility) {
-                Log.info("Creating notification for published post", { postId: postId, authorId: authorId });
+            // Notifications handled by follower logic - no self-notification
+        }
 
-                // Notifications handled by follower logic - no self-notification
-            }
+        on CommentAdded(UUID commentId, UUID postId, UUID authorId) {
+            Log.info("Creating notification for new comment", { commentId: commentId, postId: postId });
 
-            on CommentAdded(UUID commentId, UUID postId, UUID authorId) {
-                Log.info("Creating notification for new comment", { commentId: commentId, postId: postId });
+            // Look up the post to notify the post author
+            #JSON post = PostService.PostAPI.get(#"/internal/{postId}");
+            #UUID postAuthorId = post.authorId;
 
-                // Look up the post to notify the post author
-                #JSON post = PostService.PostAPI.get(#"/internal/{postId}");
-                #UUID postAuthorId = post.authorId;
+            // Don't notify yourself
+            if (postAuthorId != authorId) {
+                // Check preferences
+                #NotificationPreference? prefs = notificationDb.NotificationPreference
+                    .where(userId: postAuthorId)
+                    .first();
 
-                // Don't notify yourself
-                if (postAuthorId != authorId) {
-                    // Check preferences
-                    #NotificationPreference? prefs = notificationDb.NotificationPreference
-                        .where(userId: postAuthorId)
-                        .first();
+                if (prefs == null || prefs.commentNotifications) {
+                    #Notification notification = notificationDb.Notification.create({
+                        userId: postAuthorId,
+                        type: NotificationType.Comment,
+                        title: "New comment on your post",
+                        body: "Someone commented on your post",
+                        referenceId: postId,
+                        referenceType: "Post",
+                        actorId: authorId
+                    });
+                    notification.save();
 
-                    if (prefs == null || prefs.commentNotifications) {
-                        #Notification notification = notificationDb.Notification.create({
-                            userId: postAuthorId,
-                            type: NotificationType.Comment,
-                            title: "New comment on your post",
-                            body: "Someone commented on your post",
-                            referenceId: postId,
-                            referenceType: "Post",
-                            actorId: authorId
-                        });
-                        notification.save();
-
-                        dispatch NotificationCreated(notification.id, postAuthorId, NotificationType.Comment);
-                    }
-                }
-            }
-
-            on PostLiked(UUID postId, UUID userId) {
-                Log.info("Creating notification for post like", { postId: postId, userId: userId });
-
-                #JSON post = PostService.PostAPI.get(#"/internal/{postId}");
-                #UUID postAuthorId = post.authorId;
-
-                // Don't notify yourself
-                if (postAuthorId != userId) {
-                    #NotificationPreference? prefs = notificationDb.NotificationPreference
-                        .where(userId: postAuthorId)
-                        .first();
-
-                    if (prefs == null || prefs.likeNotifications) {
-                        #Notification notification = notificationDb.Notification.create({
-                            userId: postAuthorId,
-                            type: NotificationType.Like,
-                            title: "Someone liked your post",
-                            body: "Your post received a new like",
-                            referenceId: postId,
-                            referenceType: "Post",
-                            actorId: userId
-                        });
-                        notification.save();
-
-                        dispatch NotificationCreated(notification.id, postAuthorId, NotificationType.Like);
-                    }
+                    dispatch NotificationCreated(notification.id, postAuthorId, NotificationType.Comment);
                 }
             }
         }
 
-        subscribe UserEvents {
-            on UserRegistered(UUID userId, String username, String email) {
-                Log.info("Creating welcome notification", { userId: userId, username: username });
+        on PostLiked(UUID postId, UUID userId) {
+            Log.info("Creating notification for post like", { postId: postId, userId: userId });
 
-                // Create default notification preferences
-                #NotificationPreference prefs = notificationDb.NotificationPreference.create({
-                    userId: userId
-                });
-                prefs.save();
+            #JSON post = PostService.PostAPI.get(#"/internal/{postId}");
+            #UUID postAuthorId = post.authorId;
 
-                // Send welcome notification
+            // Don't notify yourself
+            if (postAuthorId != userId) {
+                #NotificationPreference? prefs = notificationDb.NotificationPreference
+                    .where(userId: postAuthorId)
+                    .first();
+
+                if (prefs == null || prefs.likeNotifications) {
+                    #Notification notification = notificationDb.Notification.create({
+                        userId: postAuthorId,
+                        type: NotificationType.Like,
+                        title: "Someone liked your post",
+                        body: "Your post received a new like",
+                        referenceId: postId,
+                        referenceType: "Post",
+                        actorId: userId
+                    });
+                    notification.save();
+
+                    dispatch NotificationCreated(notification.id, postAuthorId, NotificationType.Like);
+                }
+            }
+        }
+    }
+    subscribe UserEvents {
+        on UserRegistered(UUID userId, String username, String email) {
+            Log.info("Creating welcome notification", { userId: userId, username: username });
+
+            // Create default notification preferences
+            #NotificationPreference prefs = notificationDb.NotificationPreference.create({
+                userId: userId
+            });
+            prefs.save();
+
+            // Send welcome notification
+            #Notification notification = notificationDb.Notification.create({
+                userId: userId,
+                type: NotificationType.System,
+                title: "Welcome to the platform!",
+                body: #"Hello {username}! Your account has been created successfully.",
+                channel: NotificationChannel.InApp
+            });
+            notification.save();
+
+            dispatch NotificationCreated(notification.id, userId, NotificationType.System);
+        }
+
+        on UserFollowed(UUID followerId, UUID followeeId) {
+            Log.info("Creating follow notification", { followerId: followerId, followeeId: followeeId });
+
+            #NotificationPreference? prefs = notificationDb.NotificationPreference
+                .where(userId: followeeId)
+                .first();
+
+            if (prefs == null || prefs.followNotifications) {
+                // Get the follower's info
+                #JSON follower = UserService.UserAPI.get(#"/internal/{followerId}");
+
                 #Notification notification = notificationDb.Notification.create({
-                    userId: userId,
-                    type: NotificationType.System,
-                    title: "Welcome to the platform!",
-                    body: #"Hello {username}! Your account has been created successfully.",
-                    channel: NotificationChannel.InApp
+                    userId: followeeId,
+                    type: NotificationType.Follow,
+                    title: "New follower",
+                    body: #"{follower.displayName} started following you",
+                    referenceId: followerId,
+                    referenceType: "User",
+                    actorId: followerId
                 });
                 notification.save();
 
-                dispatch NotificationCreated(notification.id, userId, NotificationType.System);
-            }
-
-            on UserFollowed(UUID followerId, UUID followeeId) {
-                Log.info("Creating follow notification", { followerId: followerId, followeeId: followeeId });
-
-                #NotificationPreference? prefs = notificationDb.NotificationPreference
-                    .where(userId: followeeId)
-                    .first();
-
-                if (prefs == null || prefs.followNotifications) {
-                    // Get the follower's info
-                    #JSON follower = UserService.UserAPI.get(#"/internal/{followerId}");
-
-                    #Notification notification = notificationDb.Notification.create({
-                        userId: followeeId,
-                        type: NotificationType.Follow,
-                        title: "New follower",
-                        body: #"{follower.displayName} started following you",
-                        referenceId: followerId,
-                        referenceType: "User",
-                        actorId: followerId
-                    });
-                    notification.save();
-
-                    dispatch NotificationCreated(notification.id, followeeId, NotificationType.Follow);
-                }
-            }
-
-            on UserStatusChanged(UUID userId, UserStatus oldStatus, UserStatus newStatus) {
-                Log.info("User status changed", { userId: userId, oldStatus: oldStatus, newStatus: newStatus });
-
-                if (newStatus == UserStatus.Suspended) {
-                    #Notification notification = notificationDb.Notification.create({
-                        userId: userId,
-                        type: NotificationType.System,
-                        title: "Account suspended",
-                        body: "Your account has been suspended. Please contact support for more information.",
-                        channel: NotificationChannel.InApp
-                    });
-                    notification.save();
-                }
+                dispatch NotificationCreated(notification.id, followeeId, NotificationType.Follow);
             }
         }
 
-        subscribe NotificationEvents {
-            on NotificationCreated(UUID notificationId, UUID userId, NotificationType type) {
-                Log.info("Processing notification delivery", { notificationId: notificationId, userId: userId, type: type });
+        on UserStatusChanged(UUID userId, UserStatus oldStatus, UserStatus newStatus) {
+            Log.info("User status changed", { userId: userId, oldStatus: oldStatus, newStatus: newStatus });
 
-                #NotificationPreference? prefs = notificationDb.NotificationPreference
-                    .where(userId: userId)
-                    .first();
-
-                if (prefs != null && prefs.pushEnabled) {
-                    Log.info("Queuing push notification", { notificationId: notificationId, userId: userId });
-                }
-                if (prefs != null && prefs.emailEnabled && type == NotificationType.System) {
-                    Log.info("Queuing email notification", { notificationId: notificationId, userId: userId });
-                }
+            if (newStatus == UserStatus.Suspended) {
+                #Notification notification = notificationDb.Notification.create({
+                    userId: userId,
+                    type: NotificationType.System,
+                    title: "Account suspended",
+                    body: "Your account has been suspended. Please contact support for more information.",
+                    channel: NotificationChannel.InApp
+                });
+                notification.save();
             }
+        }
+    }
+    subscribe NotificationEvents {
+        on NotificationCreated(UUID notificationId, UUID userId, NotificationType type) {
+            Log.info("Processing notification delivery", { notificationId: notificationId, userId: userId, type: type });
 
-            on NotificationRead(UUID notificationId, UUID userId) {
-                Log.info("Notification marked as read", { notificationId: notificationId, userId: userId });
-            }
+            #NotificationPreference? prefs = notificationDb.NotificationPreference
+                .where(userId: userId)
+                .first();
 
-            on NotificationsBatchRead(UUID userId, Int count) {
-                Log.info("Notifications batch marked as read", { userId: userId, count: count });
+            if (prefs != null && prefs.pushEnabled) {
+                Log.info("Queuing push notification", { notificationId: notificationId, userId: userId });
             }
+            if (prefs != null && prefs.emailEnabled && type == NotificationType.System) {
+                Log.info("Queuing email notification", { notificationId: notificationId, userId: userId });
+            }
+        }
+
+        on NotificationRead(UUID notificationId, UUID userId) {
+            Log.info("Notification marked as read", { notificationId: notificationId, userId: userId });
+        }
+
+        on NotificationsBatchRead(UUID userId, Int count) {
+            Log.info("Notifications batch marked as read", { userId: userId, count: count });
         }
     }
 

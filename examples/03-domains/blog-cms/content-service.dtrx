@@ -44,61 +44,57 @@ service blog.ContentService : version('1.0.0'), description('content management 
     }
 
     pubsub mq('config/content-service/pubsub.yaml') {
+    }
+    subscribe AuthorEvents {
 
-        // 'subscribe' listens for events published by other services
-        subscribe AuthorEvents {
+        on AuthorRegistered(UUID authorId, Email email, String fullName) {
+            // Cache the author locally for fast lookups
+            redis.AuthorCache.set(authorId, {
+                authorId: authorId,
+                fullName: fullName,
+                isActive: false
+            });
 
-            on AuthorRegistered(UUID authorId, Email email, String fullName) {
-                // Cache the author locally for fast lookups
-                redis.AuthorCache.set(authorId, {
-                    authorId: authorId,
-                    fullName: fullName,
-                    isActive: false
-                });
+            Log.info("Author registered, cached", { authorId: authorId, fullName: fullName });
+        }
 
-                Log.info("Author registered, cached", { authorId: authorId, fullName: fullName });
-            }
+        on AuthorStatusChanged(UUID authorId, String oldStatus, String newStatus) {
+            redis.AuthorCache.set(authorId, {
+                authorId: authorId,
+                isActive: newStatus == "Active"
+            });
 
-            on AuthorStatusChanged(UUID authorId, String oldStatus, String newStatus) {
-                redis.AuthorCache.set(authorId, {
-                    authorId: authorId,
-                    isActive: newStatus == "Active"
-                });
+            // React to cross-service events: archive posts when author becomes inactive
+            if (newStatus == "Suspended" || newStatus == "Inactive") {
+                #Array<Post> publishedPosts = contentDb.Post
+                    .where(authorId: authorId)
+                    .where(status: ContentStatus.Published)
+                    .all();
 
-                // React to cross-service events: archive posts when author becomes inactive
-                if (newStatus == "Suspended" || newStatus == "Inactive") {
-                    #Array<Post> publishedPosts = contentDb.Post
-                        .where(authorId: authorId)
-                        .where(status: ContentStatus.Published)
-                        .all();
+                // 'foreach' iterates over a collection
+                foreach post in publishedPosts {
+                    post.status = ContentStatus.Archived;
+                    post.save();
+                }
 
-                    // 'foreach' iterates over a collection
-                    foreach post in publishedPosts {
-                        post.status = ContentStatus.Archived;
-                        post.save();
-                    }
-
-                    if (publishedPosts.length() > 0) {
-                        Log.info("Archived posts for inactive author", {
-                            authorId: authorId,
-                            newStatus: newStatus,
-                            archivedCount: publishedPosts.length()
-                        });
-                    }
+                if (publishedPosts.length() > 0) {
+                    Log.info("Archived posts for inactive author", {
+                        authorId: authorId,
+                        newStatus: newStatus,
+                        archivedCount: publishedPosts.length()
+                    });
                 }
             }
         }
+    }
+    subscribe CommentEvents {
 
-        // Subscribe to events from a different service's topic
-        subscribe CommentEvents {
+        on CommentApproved(UUID commentId, UUID contentId) {
+            #Post? post = contentDb.Post.find(contentId);
 
-            on CommentApproved(UUID commentId, UUID contentId) {
-                #Post? post = contentDb.Post.find(contentId);
-
-                if (post != null) {
-                    post.approvedCommentCount = post.approvedCommentCount + 1;
-                    post.save();
-                }
+            if (post != null) {
+                post.approvedCommentCount = post.approvedCommentCount + 1;
+                post.save();
             }
         }
     }

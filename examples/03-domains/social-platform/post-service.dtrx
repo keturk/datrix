@@ -204,81 +204,79 @@ service social.PostService : version('1.0.0'), description('post and content man
             publish PostLiked(UUID postId, UUID userId);
             publish PostUnliked(UUID postId, UUID userId);
         }
+    }
+    subscribe PostEvents {
+        on PostPublished(UUID postId, UUID authorId, PostVisibility visibility) {
+            Log.info("Post published", { postId: postId, authorId: authorId, visibility: visibility });
 
-        subscribe PostEvents {
-            on PostPublished(UUID postId, UUID authorId, PostVisibility visibility) {
-                Log.info("Post published", { postId: postId, authorId: authorId, visibility: visibility });
-
-                // Cache the newly published post
-                #Post? post = postDb.Post.find(postId);
-                if (post != null) {
-                    redis.PostCache.set(postId, {
-                        postId: postId,
-                        authorId: authorId,
-                        status: post.status,
-                        likeCount: 0,
-                        commentCount: 0
-                    });
-                }
-            }
-
-            on PostStatusChanged(UUID postId, UUID authorId, ContentStatus oldStatus, ContentStatus newStatus) {
-                Log.info("Post status changed", { postId: postId, oldStatus: oldStatus, newStatus: newStatus });
-
-                if (newStatus == ContentStatus.Archived) {
-                    redis.PostCache.delete(postId);
-                    redis.TrendingPosts.remove(postId);
-                }
-            }
-
-            on PostLiked(UUID postId, UUID userId) {
-                // Update trending score when a post is liked
-                #Post? post = postDb.Post.find(postId);
-                if (post != null) {
-                    #Int score = post.likeCount + post.commentCount * 2;
-                    redis.TrendingPosts.add(postId, score);
-                }
-            }
-
-            on PostUpdated(UUID postId, UUID authorId) {
-                Log.info("Post content updated", { postId: postId, authorId: authorId });
-                redis.PostCache.delete(postId);
-            }
-
-            on PostDeleted(UUID postId, UUID authorId) {
-                Log.info("Post deleted", { postId: postId, authorId: authorId });
-                redis.PostCache.delete(postId);
-                redis.TrendingPosts.remove(postId);
-            }
-
-            on PostUnliked(UUID postId, UUID userId) {
-                // Update trending score when post is unliked
-                #Post? post = postDb.Post.find(postId);
-                if (post != null) {
-                    #Int score = post.likeCount + post.commentCount * 2;
-                    redis.TrendingPosts.add(postId, score);
-                }
+            // Cache the newly published post
+            #Post? post = postDb.Post.find(postId);
+            if (post != null) {
+                redis.PostCache.set(postId, {
+                    postId: postId,
+                    authorId: authorId,
+                    status: post.status,
+                    likeCount: 0,
+                    commentCount: 0
+                });
             }
         }
 
-        subscribe UserEvents {
-            on UserStatusChanged(UUID userId, UserStatus oldStatus, UserStatus newStatus) {
-                Log.info("User status changed, checking posts", { userId: userId, newStatus: newStatus });
+        on PostStatusChanged(UUID postId, UUID authorId, ContentStatus oldStatus, ContentStatus newStatus) {
+            Log.info("Post status changed", { postId: postId, oldStatus: oldStatus, newStatus: newStatus });
 
-                // If user is suspended or deactivated, archive their posts
-                if (newStatus == UserStatus.Suspended || newStatus == UserStatus.Deactivated) {
-                    #Array<Post> posts = postDb.Post
-                        .where(authorId: userId)
-                        .where(status: ContentStatus.Published)
-                        .all();
+            if (newStatus == ContentStatus.Archived) {
+                redis.PostCache.delete(postId);
+                redis.TrendingPosts.remove(postId);
+            }
+        }
 
-                    foreach post in posts {
-                        post.status = ContentStatus.Archived;
-                        post.save();
-                    }
+        on PostLiked(UUID postId, UUID userId) {
+            // Update trending score when a post is liked
+            #Post? post = postDb.Post.find(postId);
+            if (post != null) {
+                #Int score = post.likeCount + post.commentCount * 2;
+                redis.TrendingPosts.add(postId, score);
+            }
+        }
 
-                    Log.info("Archived posts for deactivated user", { userId: userId, count: posts.length() });
+        on PostUpdated(UUID postId, UUID authorId) {
+            Log.info("Post content updated", { postId: postId, authorId: authorId });
+            redis.PostCache.delete(postId);
+        }
+
+        on PostDeleted(UUID postId, UUID authorId) {
+            Log.info("Post deleted", { postId: postId, authorId: authorId });
+            redis.PostCache.delete(postId);
+            redis.TrendingPosts.remove(postId);
+        }
+
+        on PostUnliked(UUID postId, UUID userId) {
+            // Update trending score when post is unliked
+            #Post? post = postDb.Post.find(postId);
+            if (post != null) {
+                #Int score = post.likeCount + post.commentCount * 2;
+                redis.TrendingPosts.add(postId, score);
+            }
+        }
+    }
+    subscribe UserEvents {
+        on UserStatusChanged(UUID userId, UserStatus oldStatus, UserStatus newStatus) {
+            Log.info("User status changed, checking posts", { userId: userId, newStatus: newStatus });
+
+            // If user is suspended or deactivated, archive their posts
+            if (newStatus == UserStatus.Suspended || newStatus == UserStatus.Deactivated) {
+                #Array<Post> posts = postDb.Post
+                    .where(authorId: userId)
+                    .where(status: ContentStatus.Published)
+                    .all();
+
+                foreach post in posts {
+                    post.status = ContentStatus.Archived;
+                    post.save();
                 }
+
+                Log.info("Archived posts for deactivated user", { userId: userId, count: posts.length() });
             }
         }
     }

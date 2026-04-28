@@ -128,47 +128,45 @@ service fooddelivery.MenuService : version('1.0.0'), description('menu and item 
             }
             publish MenuItemPriceChanged(UUID itemId, String name, Money oldPrice, Money newPrice);
         }
+    }
+    subscribe RestaurantEvents {
 
-        subscribe RestaurantEvents {
+        on RestaurantStatusChanged(UUID restaurantId, String name, RestaurantStatus oldStatus, RestaurantStatus newStatus) {
+            if (newStatus == RestaurantStatus.Suspended || newStatus == RestaurantStatus.Closed) {
+                #Array<MenuCategory> categories = menuDb.MenuCategory
+                    .where(restaurantId: restaurantId)
+                    .all();
 
-            on RestaurantStatusChanged(UUID restaurantId, String name, RestaurantStatus oldStatus, RestaurantStatus newStatus) {
-                if (newStatus == RestaurantStatus.Suspended || newStatus == RestaurantStatus.Closed) {
-                    #Array<MenuCategory> categories = menuDb.MenuCategory
-                        .where(restaurantId: restaurantId)
+                foreach category in categories {
+                    #Array<MenuItem> items = menuDb.MenuItem
+                        .where(menuCategoryId: category.id)
+                        .where(availability: ItemAvailability.Available)
                         .all();
 
-                    foreach category in categories {
-                        #Array<MenuItem> items = menuDb.MenuItem
-                            .where(menuCategoryId: category.id)
-                            .where(availability: ItemAvailability.Available)
-                            .all();
-
-                        foreach item in items {
-                            item.availability = ItemAvailability.SoldOut;
-                            item.save();
-                        }
+                    foreach item in items {
+                        item.availability = ItemAvailability.SoldOut;
+                        item.save();
                     }
-
-                    Log.info("Menu items marked as sold out for closed restaurant", {
-                        restaurantId: restaurantId,
-                        restaurantName: name
-                    });
                 }
+
+                Log.info("Menu items marked as sold out for closed restaurant", {
+                    restaurantId: restaurantId,
+                    restaurantName: name
+                });
             }
         }
+    }
+    subscribe MenuEvents {
+        on MenuItemAdded(UUID itemId, String name, Money price, UUID menuCategoryId) {
+            Log.info("Menu item added", { itemId: itemId, name: name, price: price, menuCategoryId: menuCategoryId });
+        }
 
-        subscribe MenuEvents {
-            on MenuItemAdded(UUID itemId, String name, Money price, UUID menuCategoryId) {
-                Log.info("Menu item added", { itemId: itemId, name: name, price: price, menuCategoryId: menuCategoryId });
-            }
+        on MenuItemAvailabilityChanged(UUID itemId, String name, ItemAvailability oldAvailability, ItemAvailability newAvailability) {
+            Log.info("Menu item availability changed", { itemId: itemId, name: name, oldAvailability: oldAvailability, newAvailability: newAvailability });
+        }
 
-            on MenuItemAvailabilityChanged(UUID itemId, String name, ItemAvailability oldAvailability, ItemAvailability newAvailability) {
-                Log.info("Menu item availability changed", { itemId: itemId, name: name, oldAvailability: oldAvailability, newAvailability: newAvailability });
-            }
-
-            on MenuItemPriceChanged(UUID itemId, String name, Money oldPrice, Money newPrice) {
-                Log.info("Menu item price changed", { itemId: itemId, name: name, oldPrice: oldPrice, newPrice: newPrice });
-            }
+        on MenuItemPriceChanged(UUID itemId, String name, Money oldPrice, Money newPrice) {
+            Log.info("Menu item price changed", { itemId: itemId, name: name, oldPrice: oldPrice, newPrice: newPrice });
         }
     }
 

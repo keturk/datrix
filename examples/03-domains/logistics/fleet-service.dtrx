@@ -174,63 +174,61 @@ service logistics.FleetService : version('1.0.0'), description('fleet and driver
             publish DriverAssigned(UUID vehicleId, UUID driverId, String vehicleNumber);
             publish MaintenanceScheduled(UUID vehicleId, String vehicleNumber, DateTime scheduledDate);
         }
+    }
+    subscribe ShipmentEvents {
 
-        subscribe ShipmentEvents {
+        on ShipmentCreated(UUID shipmentId, String trackingNumber, UUID senderId, String origin, String destination) {
+            Log.info("New shipment received for fleet assignment", {
+                shipmentId: shipmentId,
+                trackingNumber: trackingNumber,
+                origin: origin,
+                destination: destination
+            });
+        }
 
-            on ShipmentCreated(UUID shipmentId, String trackingNumber, UUID senderId, String origin, String destination) {
-                Log.info("New shipment received for fleet assignment", {
+        on ShipmentStatusChanged(UUID shipmentId, String trackingNumber, ShipmentStatus oldStatus, ShipmentStatus newStatus) {
+            if (newStatus == ShipmentStatus.Delivered || newStatus == ShipmentStatus.Failed) {
+                Log.info("Shipment completed, vehicle may be released", {
                     shipmentId: shipmentId,
                     trackingNumber: trackingNumber,
-                    origin: origin,
-                    destination: destination
+                    status: newStatus
                 });
             }
+        }
+    }
+    subscribe FleetEvents {
 
-            on ShipmentStatusChanged(UUID shipmentId, String trackingNumber, ShipmentStatus oldStatus, ShipmentStatus newStatus) {
-                if (newStatus == ShipmentStatus.Delivered || newStatus == ShipmentStatus.Failed) {
-                    Log.info("Shipment completed, vehicle may be released", {
-                        shipmentId: shipmentId,
-                        trackingNumber: trackingNumber,
-                        status: newStatus
-                    });
-                }
+        on VehicleRegistered(UUID vehicleId, String vehicleNumber, VehicleType type) {
+            Log.info("Vehicle registered", {
+                vehicleId: vehicleId,
+                vehicleNumber: vehicleNumber,
+                type: type
+            });
+
+            redis.AvailableVehicleCount.incr("total");
+        }
+
+        on VehicleStatusChanged(UUID vehicleId, String vehicleNumber, VehicleStatus oldStatus, VehicleStatus newStatus) {
+            Log.info("Vehicle status changed", {
+                vehicleId: vehicleId,
+                vehicleNumber: vehicleNumber,
+                oldStatus: oldStatus,
+                newStatus: newStatus
+            });
+
+            if (newStatus == VehicleStatus.Available) {
+                redis.AvailableVehicleCount.incr("total");
+            } else if (oldStatus == VehicleStatus.Available) {
+                redis.AvailableVehicleCount.decr("total");
             }
         }
 
-        subscribe FleetEvents {
-
-            on VehicleRegistered(UUID vehicleId, String vehicleNumber, VehicleType type) {
-                Log.info("Vehicle registered", {
-                    vehicleId: vehicleId,
-                    vehicleNumber: vehicleNumber,
-                    type: type
-                });
-
-                redis.AvailableVehicleCount.incr("total");
-            }
-
-            on VehicleStatusChanged(UUID vehicleId, String vehicleNumber, VehicleStatus oldStatus, VehicleStatus newStatus) {
-                Log.info("Vehicle status changed", {
-                    vehicleId: vehicleId,
-                    vehicleNumber: vehicleNumber,
-                    oldStatus: oldStatus,
-                    newStatus: newStatus
-                });
-
-                if (newStatus == VehicleStatus.Available) {
-                    redis.AvailableVehicleCount.incr("total");
-                } else if (oldStatus == VehicleStatus.Available) {
-                    redis.AvailableVehicleCount.decr("total");
-                }
-            }
-
-            on MaintenanceScheduled(UUID vehicleId, String vehicleNumber, DateTime scheduledDate) {
-                Log.info("Maintenance scheduled for vehicle", {
-                    vehicleId: vehicleId,
-                    vehicleNumber: vehicleNumber,
-                    scheduledDate: scheduledDate
-                });
-            }
+        on MaintenanceScheduled(UUID vehicleId, String vehicleNumber, DateTime scheduledDate) {
+            Log.info("Maintenance scheduled for vehicle", {
+                vehicleId: vehicleId,
+                vehicleNumber: vehicleNumber,
+                scheduledDate: scheduledDate
+            });
         }
     }
 

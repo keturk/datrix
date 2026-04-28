@@ -271,38 +271,37 @@ service hr.RecruitmentService : version('1.0.0'), description('job posting and c
         }
 
         // Listen to employee events - when an employee is hired, try to close related postings
-        subscribe EmployeeEvents {
-            on EmployeeHired(UUID employeeId, String employeeNumber, String firstName, String lastName, String email, Department department, EmploymentType employmentType) {
-                Log.info("New employee hire notification in recruitment", { employeeId: employeeId, department: department });
-            }
+    }
+    subscribe EmployeeEvents {
+        on EmployeeHired(UUID employeeId, String employeeNumber, String firstName, String lastName, String email, Department department, EmploymentType employmentType) {
+            Log.info("New employee hire notification in recruitment", { employeeId: employeeId, department: department });
+        }
+    }
+    subscribe RecruitmentEvents {
+        on JobPostingCreated(UUID postingId, String title, Department department, Boolean isRemote) {
+            Log.info("Job posting created", { postingId: postingId, title: title, department: department, isRemote: isRemote });
         }
 
-        subscribe RecruitmentEvents {
-            on JobPostingCreated(UUID postingId, String title, Department department, Boolean isRemote) {
-                Log.info("Job posting created", { postingId: postingId, title: title, department: department, isRemote: isRemote });
-            }
+        on JobPostingStatusChanged(UUID postingId, String title, PostingStatus oldStatus, PostingStatus newStatus) {
+            Log.info("Job posting status changed", { postingId: postingId, title: title, oldStatus: oldStatus, newStatus: newStatus });
+        }
 
-            on JobPostingStatusChanged(UUID postingId, String title, PostingStatus oldStatus, PostingStatus newStatus) {
-                Log.info("Job posting status changed", { postingId: postingId, title: title, oldStatus: oldStatus, newStatus: newStatus });
-            }
+        on ApplicationStatusChanged(UUID applicationId, UUID jobPostingId, String candidateName, ApplicationStatus oldStatus, ApplicationStatus newStatus) {
+            Log.info("Application status changed", {
+                applicationId: applicationId,
+                candidate: candidateName,
+                oldStatus: oldStatus,
+                newStatus: newStatus
+            });
 
-            on ApplicationStatusChanged(UUID applicationId, UUID jobPostingId, String candidateName, ApplicationStatus oldStatus, ApplicationStatus newStatus) {
-                Log.info("Application status changed", {
-                    applicationId: applicationId,
-                    candidate: candidateName,
-                    oldStatus: oldStatus,
-                    newStatus: newStatus
-                });
-
-                // When a candidate is hired, mark the job posting as filled
-                if (newStatus == ApplicationStatus.Hired) {
-                    try {
-                        #JobPosting posting = recruitDb.JobPosting.findOrFail(jobPostingId);
-                        posting.fill(applicationId);
-                        Log.info("Job posting filled", { postingId: jobPostingId, applicationId: applicationId });
-                    } catch (Exception e) {
-                        Log.error("Failed to update posting status after hire", { postingId: jobPostingId, error: e });
-                    }
+            // When a candidate is hired, mark the job posting as filled
+            if (newStatus == ApplicationStatus.Hired) {
+                try {
+                    #JobPosting posting = recruitDb.JobPosting.findOrFail(jobPostingId);
+                    posting.fill(applicationId);
+                    Log.info("Job posting filled", { postingId: jobPostingId, applicationId: applicationId });
+                } catch (Exception e) {
+                    Log.error("Failed to update posting status after hire", { postingId: jobPostingId, error: e });
                 }
             }
         }

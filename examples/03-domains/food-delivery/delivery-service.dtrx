@@ -203,101 +203,99 @@ service fooddelivery.DeliveryService : version('1.0.0'), description('delivery d
                 ensure oldStatus != newStatus;
             }
         }
+    }
+    subscribe OrderEvents {
 
-        subscribe OrderEvents {
+        on OrderPlaced(UUID orderId, String orderNumber, UUID customerId, UUID restaurantId, Money total) {
+            Log.info("New order received, creating delivery", {
+                orderId: orderId,
+                orderNumber: orderNumber,
+                restaurantId: restaurantId
+            });
 
-            on OrderPlaced(UUID orderId, String orderNumber, UUID customerId, UUID restaurantId, Money total) {
-                Log.info("New order received, creating delivery", {
-                    orderId: orderId,
-                    orderNumber: orderNumber,
-                    restaurantId: restaurantId
-                });
+            #JSON restaurant = OrderService.OrderAPI.get('/internal/:id', orderId);
 
-                #JSON restaurant = OrderService.OrderAPI.get('/internal/:id', orderId);
+            #Delivery delivery = deliveryDb.Delivery.create({
+                deliveryCode: generateDeliveryCode(),
+                orderId: orderId,
+                pickupAddress: #"Restaurant {restaurantId}",
+                deliveryAddress: restaurant.deliveryAddress,
+                status: DeliveryStatus.Pending,
+                estimatedMinutes: 45
+            });
 
-                #Delivery delivery = deliveryDb.Delivery.create({
-                    deliveryCode: generateDeliveryCode(),
-                    orderId: orderId,
-                    pickupAddress: #"Restaurant {restaurantId}",
-                    deliveryAddress: restaurant.deliveryAddress,
-                    status: DeliveryStatus.Pending,
-                    estimatedMinutes: 45
-                });
+            redis.ActiveDeliveryCount.incr("total");
 
-                redis.ActiveDeliveryCount.incr("total");
+            Log.info("Delivery created for order", {
+                deliveryId: delivery.id,
+                deliveryCode: delivery.deliveryCode,
+                orderId: orderId
+            });
+        }
 
-                Log.info("Delivery created for order", {
+        on OrderCancelled(UUID orderId, String orderNumber, UUID customerId) {
+            #Delivery? delivery = deliveryDb.Delivery
+                .where(orderId: orderId)
+                .whereIn(status: [DeliveryStatus.Pending, DeliveryStatus.Assigned])
+                .first();
+
+            if (delivery != null) {
+                if (delivery.driverId != null) {
+                    #DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(delivery.driverId);
+                    driver.completeDelivery();
+                }
+
+                delivery.status = DeliveryStatus.Failed;
+                delivery.save();
+
+                redis.ActiveDeliveryCount.decr("total");
+
+                Log.info("Delivery cancelled due to order cancellation", {
                     deliveryId: delivery.id,
-                    deliveryCode: delivery.deliveryCode,
-                    orderId: orderId
+                    orderId: orderId,
+                    orderNumber: orderNumber
                 });
-            }
-
-            on OrderCancelled(UUID orderId, String orderNumber, UUID customerId) {
-                #Delivery? delivery = deliveryDb.Delivery
-                    .where(orderId: orderId)
-                    .whereIn(status: [DeliveryStatus.Pending, DeliveryStatus.Assigned])
-                    .first();
-
-                if (delivery != null) {
-                    if (delivery.driverId != null) {
-                        #DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(delivery.driverId);
-                        driver.completeDelivery();
-                    }
-
-                    delivery.status = DeliveryStatus.Failed;
-                    delivery.save();
-
-                    redis.ActiveDeliveryCount.decr("total");
-
-                    Log.info("Delivery cancelled due to order cancellation", {
-                        deliveryId: delivery.id,
-                        orderId: orderId,
-                        orderNumber: orderNumber
-                    });
-                }
-            }
-
-            on OrderReady(UUID orderId, String orderNumber, UUID restaurantId) {
-                #Delivery? delivery = deliveryDb.Delivery
-                    .where(orderId: orderId)
-                    .where(status: DeliveryStatus.Assigned)
-                    .first();
-
-                if (delivery != null) {
-                    delivery.markPickedUp();
-
-                    Log.info("Order ready for pickup, delivery updated", {
-                        deliveryId: delivery.id,
-                        orderId: orderId,
-                        orderNumber: orderNumber
-                    });
-                }
             }
         }
 
-        subscribe DeliveryEvents {
+        on OrderReady(UUID orderId, String orderNumber, UUID restaurantId) {
+            #Delivery? delivery = deliveryDb.Delivery
+                .where(orderId: orderId)
+                .where(status: DeliveryStatus.Assigned)
+                .first();
 
-            on DeliveryStatusChanged(UUID deliveryId, UUID orderId, DeliveryStatus oldStatus, DeliveryStatus newStatus) {
-                Log.info("Delivery status changed", {
-                    deliveryId: deliveryId,
+            if (delivery != null) {
+                delivery.markPickedUp();
+
+                Log.info("Order ready for pickup, delivery updated", {
+                    deliveryId: delivery.id,
                     orderId: orderId,
-                    oldStatus: oldStatus,
-                    newStatus: newStatus
+                    orderNumber: orderNumber
                 });
-
-                if (newStatus == DeliveryStatus.Delivered || newStatus == DeliveryStatus.Failed) {
-                    redis.ActiveDeliveryCount.decr("total");
-                }
             }
+        }
+    }
+    subscribe DeliveryEvents {
 
-            on DeliveryCreated(UUID deliveryId, String deliveryCode, UUID orderId) {
-                Log.info("Delivery created", { deliveryId: deliveryId, deliveryCode: deliveryCode, orderId: orderId });
-            }
+        on DeliveryStatusChanged(UUID deliveryId, UUID orderId, DeliveryStatus oldStatus, DeliveryStatus newStatus) {
+            Log.info("Delivery status changed", {
+                deliveryId: deliveryId,
+                orderId: orderId,
+                oldStatus: oldStatus,
+                newStatus: newStatus
+            });
 
-            on DriverStatusChanged(UUID driverId, String driverName, DriverStatus oldStatus, DriverStatus newStatus) {
-                Log.info("Driver status changed", { driverId: driverId, driverName: driverName, oldStatus: oldStatus, newStatus: newStatus });
+            if (newStatus == DeliveryStatus.Delivered || newStatus == DeliveryStatus.Failed) {
+                redis.ActiveDeliveryCount.decr("total");
             }
+        }
+
+        on DeliveryCreated(UUID deliveryId, String deliveryCode, UUID orderId) {
+            Log.info("Delivery created", { deliveryId: deliveryId, deliveryCode: deliveryCode, orderId: orderId });
+        }
+
+        on DriverStatusChanged(UUID driverId, String driverName, DriverStatus oldStatus, DriverStatus newStatus) {
+            Log.info("Driver status changed", { driverId: driverId, driverName: driverName, oldStatus: oldStatus, newStatus: newStatus });
         }
     }
 

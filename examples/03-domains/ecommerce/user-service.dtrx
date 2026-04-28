@@ -214,24 +214,23 @@ service ecommerce.UserService : version('1.0.0'), description('user management s
             }
             publish UserLoggedIn(UUID userId, DateTime loginAt, String? ipAddress);
         }
+    }
+    subscribe UserEvents {
 
-        subscribe UserEvents {
+        on UserRegistered(UUID userId, Email email, String fullName) {
+            Log.info("User registered", { userId: userId, email: email, fullName: fullName });
+        }
 
-            on UserRegistered(UUID userId, Email email, String fullName) {
-                Log.info("User registered", { userId: userId, email: email, fullName: fullName });
-            }
+        on UserVerified(UUID userId, Email email) {
+            Log.info("User verified", { userId: userId, email: email });
+        }
 
-            on UserVerified(UUID userId, Email email) {
-                Log.info("User verified", { userId: userId, email: email });
-            }
+        on UserStatusChanged(UUID userId, UserStatus oldStatus, UserStatus newStatus) {
+            Log.info("User status changed", { userId: userId, oldStatus: oldStatus, newStatus: newStatus });
+        }
 
-            on UserStatusChanged(UUID userId, UserStatus oldStatus, UserStatus newStatus) {
-                Log.info("User status changed", { userId: userId, oldStatus: oldStatus, newStatus: newStatus });
-            }
-
-            on UserLoggedIn(UUID userId, DateTime loginAt, String? ipAddress) {
-                Log.info("User logged in", { userId: userId, loginAt: loginAt, ipAddress: ipAddress });
-            }
+        on UserLoggedIn(UUID userId, DateTime loginAt, String? ipAddress) {
+            Log.info("User logged in", { userId: userId, loginAt: loginAt, ipAddress: ipAddress });
         }
     }
 

@@ -169,34 +169,34 @@ service hr.PayrollService : version('1.0.0'), description('payroll processing an
             }
         }
 
-        subscribe PayrollEvents {
-            on PayrollCompleted(UUID payrollRunId, String payrollRef, PayPeriod payPeriod, Money totalGross, Money totalNet, Int entryCount) {
-                Log.info("Payroll run completed", { payrollRunId: payrollRunId, payrollRef: payrollRef, payPeriod: payPeriod, totalGross: totalGross, totalNet: totalNet, entryCount: entryCount });
-            }
 
-            on PayStubsGenerated(UUID payrollRunId, String payrollRef, Int count) {
-                Log.info("Pay stubs generated", { payrollRunId: payrollRunId, payrollRef: payrollRef, count: count });
+        // Listen to employee events for payroll adjustments
+    }
+    subscribe PayrollEvents {
+        on PayrollCompleted(UUID payrollRunId, String payrollRef, PayPeriod payPeriod, Money totalGross, Money totalNet, Int entryCount) {
+            Log.info("Payroll run completed", { payrollRunId: payrollRunId, payrollRef: payrollRef, payPeriod: payPeriod, totalGross: totalGross, totalNet: totalNet, entryCount: entryCount });
+        }
+
+        on PayStubsGenerated(UUID payrollRunId, String payrollRef, Int count) {
+            Log.info("Pay stubs generated", { payrollRunId: payrollRunId, payrollRef: payrollRef, count: count });
+        }
+    }
+    subscribe EmployeeEvents {
+        on EmployeeHired(UUID employeeId, String employeeNumber, String firstName, String lastName, String email, Department department, EmploymentType employmentType) {
+            Log.info("New employee for payroll", { employeeId: employeeId, employeeNumber: employeeNumber, department: department });
+        }
+
+        on EmployeeStatusChanged(UUID employeeId, String employeeNumber, EmployeeStatus oldStatus, EmployeeStatus newStatus) {
+            Log.info("Employee status change received in payroll", { employeeId: employeeId, oldStatus: oldStatus, newStatus: newStatus });
+
+            // If employee is terminated, flag any pending payroll entries
+            if (newStatus == EmployeeStatus.Terminated) {
+                Log.warn("Terminated employee may have pending payroll entries", { employeeId: employeeId, employeeNumber: employeeNumber });
             }
         }
 
-        // Listen to employee events for payroll adjustments
-        subscribe EmployeeEvents {
-            on EmployeeHired(UUID employeeId, String employeeNumber, String firstName, String lastName, String email, Department department, EmploymentType employmentType) {
-                Log.info("New employee for payroll", { employeeId: employeeId, employeeNumber: employeeNumber, department: department });
-            }
-
-            on EmployeeStatusChanged(UUID employeeId, String employeeNumber, EmployeeStatus oldStatus, EmployeeStatus newStatus) {
-                Log.info("Employee status change received in payroll", { employeeId: employeeId, oldStatus: oldStatus, newStatus: newStatus });
-
-                // If employee is terminated, flag any pending payroll entries
-                if (newStatus == EmployeeStatus.Terminated) {
-                    Log.warn("Terminated employee may have pending payroll entries", { employeeId: employeeId, employeeNumber: employeeNumber });
-                }
-            }
-
-            on EmployeeSalaryChanged(UUID employeeId, String employeeNumber, Money oldSalary, Money newSalary) {
-                Log.info("Employee salary change received", { employeeId: employeeId, oldSalary: oldSalary, newSalary: newSalary });
-            }
+        on EmployeeSalaryChanged(UUID employeeId, String employeeNumber, Money oldSalary, Money newSalary) {
+            Log.info("Employee salary change received", { employeeId: employeeId, oldSalary: oldSalary, newSalary: newSalary });
         }
     }
 

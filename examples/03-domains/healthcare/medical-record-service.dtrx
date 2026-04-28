@@ -331,51 +331,51 @@ service healthcare.MedicalRecordService : version('1.0.0'), description('medical
             }
         }
 
-        subscribe RecordEvents {
-
-            on RecordCreated(UUID recordId, UUID patientId, RecordType type, UUID? providerId) {
-                Log.info("Medical record created", { recordId: recordId, patientId: patientId, type: type, providerId: providerId });
-            }
-
-            on RecordFinalized(UUID recordId, UUID patientId, RecordType type) {
-                Log.info("Medical record finalized", { recordId: recordId, patientId: patientId, type: type });
-            }
-
-            on RecordAmended(UUID recordId, UUID patientId, String reason) {
-                Log.info("Medical record amended", { recordId: recordId, patientId: patientId, reason: reason });
-            }
-
-            on PrescriptionCreated(UUID prescriptionId, UUID patientId, String medication, String prescriber) {
-                Log.info("Prescription created", { prescriptionId: prescriptionId, patientId: patientId, medication: medication, prescriber: prescriber });
-            }
-        }
 
         // Auto-create draft records when appointments complete
-        subscribe AppointmentEvents {
+    }
+    subscribe RecordEvents {
 
-            on AppointmentCompleted(UUID appointmentId, UUID patientId, UUID? providerId, String providerName, String type) {
-                #MedicalRecord record = medicalRecordDb.MedicalRecord.create({
-                    patientId: patientId,
-                    appointmentId: appointmentId,
-                    providerId: providerId,
-                    providerName: providerName,
-                    type: RecordType.Note,
-                    title: #"{type} note - {providerName}",
-                    content: "",
-                    recordDate: now(),
-                    status: RecordStatus.Draft
-                });
+        on RecordCreated(UUID recordId, UUID patientId, RecordType type, UUID? providerId) {
+            Log.info("Medical record created", { recordId: recordId, patientId: patientId, type: type, providerId: providerId });
+        }
 
-                // Push to recent records list for fast retrieval
-                redis.RecentRecords.lpush(#"patient:records:{patientId}", record.id);
+        on RecordFinalized(UUID recordId, UUID patientId, RecordType type) {
+            Log.info("Medical record finalized", { recordId: recordId, patientId: patientId, type: type });
+        }
 
-                Log.info("Draft record created for completed appointment", {
-                    recordId: record.id,
-                    appointmentId: appointmentId,
-                    patientId: patientId,
-                    providerId: providerId
-                });
-            }
+        on RecordAmended(UUID recordId, UUID patientId, String reason) {
+            Log.info("Medical record amended", { recordId: recordId, patientId: patientId, reason: reason });
+        }
+
+        on PrescriptionCreated(UUID prescriptionId, UUID patientId, String medication, String prescriber) {
+            Log.info("Prescription created", { prescriptionId: prescriptionId, patientId: patientId, medication: medication, prescriber: prescriber });
+        }
+    }
+    subscribe AppointmentEvents {
+
+        on AppointmentCompleted(UUID appointmentId, UUID patientId, UUID? providerId, String providerName, String type) {
+            #MedicalRecord record = medicalRecordDb.MedicalRecord.create({
+                patientId: patientId,
+                appointmentId: appointmentId,
+                providerId: providerId,
+                providerName: providerName,
+                type: RecordType.Note,
+                title: #"{type} note - {providerName}",
+                content: "",
+                recordDate: now(),
+                status: RecordStatus.Draft
+            });
+
+            // Push to recent records list for fast retrieval
+            redis.RecentRecords.lpush(#"patient:records:{patientId}", record.id);
+
+            Log.info("Draft record created for completed appointment", {
+                recordId: record.id,
+                appointmentId: appointmentId,
+                patientId: patientId,
+                providerId: providerId
+            });
         }
     }
 

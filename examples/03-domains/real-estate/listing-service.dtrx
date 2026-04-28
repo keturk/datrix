@@ -230,19 +230,18 @@ service realestate.ListingService : version('1.0.0'), description('property list
                 ensure oldPrice != newPrice;
             }
         }
+    }
+    subscribe ListingEvents {
+        on ListingCreated(UUID listingId, String listingRef, String title, PropertyType propertyType, Money price, String city, String state) {
+            Log.info("New listing created", { listingId: listingId, listingRef: listingRef, city: city, state: state });
+        }
 
-        subscribe ListingEvents {
-            on ListingCreated(UUID listingId, String listingRef, String title, PropertyType propertyType, Money price, String city, String state) {
-                Log.info("New listing created", { listingId: listingId, listingRef: listingRef, city: city, state: state });
-            }
+        on ListingStatusChanged(UUID listingId, String listingRef, ListingStatus oldStatus, ListingStatus newStatus) {
+            Log.info("Listing status changed", { listingId: listingId, listingRef: listingRef, oldStatus: oldStatus, newStatus: newStatus });
+        }
 
-            on ListingStatusChanged(UUID listingId, String listingRef, ListingStatus oldStatus, ListingStatus newStatus) {
-                Log.info("Listing status changed", { listingId: listingId, listingRef: listingRef, oldStatus: oldStatus, newStatus: newStatus });
-            }
-
-            on ListingPriceChanged(UUID listingId, String listingRef, Money oldPrice, Money newPrice) {
-                Log.info("Listing price changed", { listingId: listingId, listingRef: listingRef, oldPrice: oldPrice, newPrice: newPrice });
-            }
+        on ListingPriceChanged(UUID listingId, String listingRef, Money oldPrice, Money newPrice) {
+            Log.info("Listing price changed", { listingId: listingId, listingRef: listingRef, oldPrice: oldPrice, newPrice: newPrice });
         }
     }
 

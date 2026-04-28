@@ -173,71 +173,68 @@ service fooddelivery.OrderService : version('1.0.0'), description('food order ma
             publish OrderCancelled(UUID orderId, String orderNumber, UUID customerId);
             publish OrderReady(UUID orderId, String orderNumber, UUID restaurantId);
         }
+    }
+    subscribe OrderEvents {
 
-        subscribe OrderEvents {
+        on OrderStatusChanged(UUID orderId, String orderNumber, OrderStatus oldStatus, OrderStatus newStatus) {
+            Log.info("Order status changed", {
+                orderId: orderId,
+                orderNumber: orderNumber,
+                oldStatus: oldStatus,
+                newStatus: newStatus
+            });
 
-            on OrderStatusChanged(UUID orderId, String orderNumber, OrderStatus oldStatus, OrderStatus newStatus) {
-                Log.info("Order status changed", {
+            #JSON? cached = redis.OrderStatusCache.get(orderId);
+            if (cached != null) {
+                redis.OrderStatusCache.set(orderId, {
                     orderId: orderId,
-                    orderNumber: orderNumber,
-                    oldStatus: oldStatus,
-                    newStatus: newStatus
+                    status: newStatus,
+                    restaurant: cached.restaurant,
+                    estimatedDelivery: cached.estimatedDelivery
                 });
-
-                #JSON? cached = redis.OrderStatusCache.get(orderId);
-                if (cached != null) {
-                    redis.OrderStatusCache.set(orderId, {
-                        orderId: orderId,
-                        status: newStatus,
-                        restaurant: cached.restaurant,
-                        estimatedDelivery: cached.estimatedDelivery
-                    });
-                }
-            }
-
-            on OrderConfirmed(UUID orderId, String orderNumber, UUID restaurantId, DeliveryAddress deliveryAddress) {
-                Log.info("Order confirmed", { orderId: orderId, orderNumber: orderNumber, restaurantId: restaurantId });
             }
         }
 
-        subscribe RestaurantEvents {
-
-            on RestaurantStatusChanged(UUID restaurantId, String name, RestaurantStatus oldStatus, RestaurantStatus newStatus) {
-                if (newStatus == RestaurantStatus.Closed || newStatus == RestaurantStatus.Suspended) {
-                    #Array<Order> activeOrders = orderDb.Order
-                        .where(restaurantId: restaurantId)
-                        .whereIn(status: [OrderStatus.Placed, OrderStatus.Confirmed])
-                        .all();
-
-                    foreach order in activeOrders {
-                        Log.warn("Restaurant closed with active orders", {
-                            orderId: order.id,
-                            orderNumber: order.orderNumber,
-                            restaurantId: restaurantId,
-                            restaurantName: name
-                        });
-                    }
-                }
-            }
+        on OrderConfirmed(UUID orderId, String orderNumber, UUID restaurantId, DeliveryAddress deliveryAddress) {
+            Log.info("Order confirmed", { orderId: orderId, orderNumber: orderNumber, restaurantId: restaurantId });
         }
+    }
+    subscribe RestaurantEvents {
 
-        subscribe DeliveryEvents {
+        on RestaurantStatusChanged(UUID restaurantId, String name, RestaurantStatus oldStatus, RestaurantStatus newStatus) {
+            if (newStatus == RestaurantStatus.Closed || newStatus == RestaurantStatus.Suspended) {
+                #Array<Order> activeOrders = orderDb.Order
+                    .where(restaurantId: restaurantId)
+                    .whereIn(status: [OrderStatus.Placed, OrderStatus.Confirmed])
+                    .all();
 
-            on DeliveryStatusChanged(UUID deliveryId, UUID orderId, DeliveryStatus oldStatus, DeliveryStatus newStatus) {
-                if (newStatus == DeliveryStatus.Delivered) {
-                    #Order order = orderDb.Order.findOrFail(orderId);
-
-                    transaction(orderDb) {
-                        order.status = OrderStatus.Delivered;
-                        order.save();
-                    }
-
-                    Log.info("Order marked as delivered", {
-                        orderId: orderId,
+                foreach order in activeOrders {
+                    Log.warn("Restaurant closed with active orders", {
+                        orderId: order.id,
                         orderNumber: order.orderNumber,
-                        deliveryId: deliveryId
+                        restaurantId: restaurantId,
+                        restaurantName: name
                     });
                 }
+            }
+        }
+    }
+    subscribe DeliveryEvents {
+
+        on DeliveryStatusChanged(UUID deliveryId, UUID orderId, DeliveryStatus oldStatus, DeliveryStatus newStatus) {
+            if (newStatus == DeliveryStatus.Delivered) {
+                #Order order = orderDb.Order.findOrFail(orderId);
+
+                transaction(orderDb) {
+                    order.status = OrderStatus.Delivered;
+                    order.save();
+                }
+
+                Log.info("Order marked as delivered", {
+                    orderId: orderId,
+                    orderNumber: order.orderNumber,
+                    deliveryId: deliveryId
+                });
             }
         }
     }

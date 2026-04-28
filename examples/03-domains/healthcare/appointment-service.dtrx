@@ -231,44 +231,44 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
             }
         }
 
-        subscribe AppointmentEvents {
-
-            on AppointmentScheduled(UUID appointmentId, UUID patientId, UUID? providerId, DateTime scheduledAt, String type) {
-                Log.info("Appointment scheduled", { appointmentId: appointmentId, patientId: patientId, providerId: providerId, scheduledAt: scheduledAt, type: type });
-            }
-
-            on AppointmentStatusChanged(UUID appointmentId, UUID patientId, String oldStatus, String newStatus) {
-                Log.info("Appointment status changed", { appointmentId: appointmentId, patientId: patientId, oldStatus: oldStatus, newStatus: newStatus });
-            }
-
-            on AppointmentCancelled(UUID appointmentId, UUID patientId, String? reason) {
-                Log.info("Appointment cancelled", { appointmentId: appointmentId, patientId: patientId, reason: reason });
-            }
-        }
 
         // React to patient events from another service
-        subscribe PatientEvents {
+    }
+    subscribe AppointmentEvents {
 
-            // Auto-cancel appointments when patient becomes inactive
-            on PatientStatusChanged(UUID patientId, String mrn, String oldStatus, String newStatus) {
-                if (newStatus == "Inactive" || newStatus == "Deceased") {
-                    #Array<Appointment> pendingAppointments = appointmentDb.Appointment
-                        .where(patientId: patientId)
-                        .whereIn(status: [AppointmentStatus.Scheduled, AppointmentStatus.Confirmed])
-                        .all();
+        on AppointmentScheduled(UUID appointmentId, UUID patientId, UUID? providerId, DateTime scheduledAt, String type) {
+            Log.info("Appointment scheduled", { appointmentId: appointmentId, patientId: patientId, providerId: providerId, scheduledAt: scheduledAt, type: type });
+        }
 
-                    foreach appointment in pendingAppointments {
-                        appointment.cancel(#"Patient status changed to {newStatus}");
-                    }
+        on AppointmentStatusChanged(UUID appointmentId, UUID patientId, String oldStatus, String newStatus) {
+            Log.info("Appointment status changed", { appointmentId: appointmentId, patientId: patientId, oldStatus: oldStatus, newStatus: newStatus });
+        }
 
-                    if (pendingAppointments.length() > 0) {
-                        Log.info("Cancelled appointments for inactive patient", {
-                            patientId: patientId,
-                            mrn: mrn,
-                            cancelledCount: pendingAppointments.length(),
-                            newStatus: newStatus
-                        });
-                    }
+        on AppointmentCancelled(UUID appointmentId, UUID patientId, String? reason) {
+            Log.info("Appointment cancelled", { appointmentId: appointmentId, patientId: patientId, reason: reason });
+        }
+    }
+    subscribe PatientEvents {
+
+        // Auto-cancel appointments when patient becomes inactive
+        on PatientStatusChanged(UUID patientId, String mrn, String oldStatus, String newStatus) {
+            if (newStatus == "Inactive" || newStatus == "Deceased") {
+                #Array<Appointment> pendingAppointments = appointmentDb.Appointment
+                    .where(patientId: patientId)
+                    .whereIn(status: [AppointmentStatus.Scheduled, AppointmentStatus.Confirmed])
+                    .all();
+
+                foreach appointment in pendingAppointments {
+                    appointment.cancel(#"Patient status changed to {newStatus}");
+                }
+
+                if (pendingAppointments.length() > 0) {
+                    Log.info("Cancelled appointments for inactive patient", {
+                        patientId: patientId,
+                        mrn: mrn,
+                        cancelledCount: pendingAppointments.length(),
+                        newStatus: newStatus
+                    });
                 }
             }
         }

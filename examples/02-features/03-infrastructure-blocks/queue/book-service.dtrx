@@ -102,14 +102,13 @@ service library.BookService : version('1.0.0'), description('book management ser
                 ensure oldStatus != newStatus;
             }
         }
-
-        subscribe BookEvents {
-            on BookAdded(UUID bookId, String title) {
-                Log.info("New book added", { bookId: bookId, title: title });
-            }
-            on BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
-                Log.info("Book status changed", { bookId: bookId, oldStatus: oldStatus, newStatus: newStatus });
-            }
+    }
+    subscribe BookEvents {
+        on BookAdded(UUID bookId, String title) {
+            Log.info("New book added", { bookId: bookId, title: title });
+        }
+        on BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
+            Log.info("Book status changed", { bookId: bookId, oldStatus: oldStatus, newStatus: newStatus });
         }
     }
 

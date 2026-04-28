@@ -125,17 +125,16 @@ service ecommerce.PaymentService : version('1.0.0'), description('payment manage
                 ensure amount > 0;
             }
         }
+    }
+    subscribe OrderEvents {
 
-        subscribe OrderEvents {
-
-            on OrderCreated(UUID orderId, String orderNumber, UUID customerId, Money total, UUID reservationId) {
-                Log.info("New order created, awaiting payment", {
-                    orderId: orderId,
-                    orderNumber: orderNumber,
-                    total: total,
-                    reservationId: reservationId
-                });
-            }
+        on OrderCreated(UUID orderId, String orderNumber, UUID customerId, Money total, UUID reservationId) {
+            Log.info("New order created, awaiting payment", {
+                orderId: orderId,
+                orderNumber: orderNumber,
+                total: total,
+                reservationId: reservationId
+            });
         }
     }
 

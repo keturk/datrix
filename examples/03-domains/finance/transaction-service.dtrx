@@ -243,49 +243,48 @@ service finance.TransactionService : version('1.0.0'), description('financial tr
         }
 
         // React to account events from AccountService
-        subscribe AccountEvents {
-            on AccountStatusChanged(UUID accountId, String accountNumber, AccountStatus oldStatus, AccountStatus newStatus) {
-                Log.info("Account status change received", { accountId: accountId, oldStatus: oldStatus, newStatus: newStatus });
+    }
+    subscribe AccountEvents {
+        on AccountStatusChanged(UUID accountId, String accountNumber, AccountStatus oldStatus, AccountStatus newStatus) {
+            Log.info("Account status change received", { accountId: accountId, oldStatus: oldStatus, newStatus: newStatus });
 
-                // If account is frozen or closed, fail all pending transactions
-                if (newStatus == AccountStatus.Frozen || newStatus == AccountStatus.Closed) {
-                    #Array<Transaction> pendingTxs = txDb.Transaction
-                        .where(accountId: accountId)
-                        .where(status: TransactionStatus.Pending)
-                        .all();
+            // If account is frozen or closed, fail all pending transactions
+            if (newStatus == AccountStatus.Frozen || newStatus == AccountStatus.Closed) {
+                #Array<Transaction> pendingTxs = txDb.Transaction
+                    .where(accountId: accountId)
+                    .where(status: TransactionStatus.Pending)
+                    .all();
 
-                    foreach tx in pendingTxs {
-                        tx.fail(#"Account {accountNumber} is {newStatus}");
-                    }
-
-                    Log.info("Failed pending transactions for account", { accountId: accountId, count: pendingTxs.length() });
+                foreach tx in pendingTxs {
+                    tx.fail(#"Account {accountNumber} is {newStatus}");
                 }
+
+                Log.info("Failed pending transactions for account", { accountId: accountId, count: pendingTxs.length() });
             }
         }
+    }
+    subscribe TransactionEvents {
+        on TransactionStatusChanged(UUID txId, UUID accountId, TransactionStatus oldStatus, TransactionStatus newStatus, Money amount) {
+            Log.info("Transaction status changed", { txId: txId, oldStatus: oldStatus, newStatus: newStatus });
+        }
 
-        subscribe TransactionEvents {
-            on TransactionStatusChanged(UUID txId, UUID accountId, TransactionStatus oldStatus, TransactionStatus newStatus, Money amount) {
-                Log.info("Transaction status changed", { txId: txId, oldStatus: oldStatus, newStatus: newStatus });
-            }
+        on TransferCompleted(UUID sourceTxId, UUID destTxId, UUID sourceAccountId, UUID destAccountId, Money amount, String reference) {
+            Log.info("Transfer completed", {
+                sourceTxId: sourceTxId,
+                destTxId: destTxId,
+                sourceAccountId: sourceAccountId,
+                destAccountId: destAccountId,
+                amount: amount,
+                reference: reference
+            });
+        }
 
-            on TransferCompleted(UUID sourceTxId, UUID destTxId, UUID sourceAccountId, UUID destAccountId, Money amount, String reference) {
-                Log.info("Transfer completed", {
-                    sourceTxId: sourceTxId,
-                    destTxId: destTxId,
-                    sourceAccountId: sourceAccountId,
-                    destAccountId: destAccountId,
-                    amount: amount,
-                    reference: reference
-                });
-            }
+        on BatchProcessed(UUID batchId, Int successCount, Int failedCount) {
+            Log.info("Batch processed", { batchId: batchId, successCount: successCount, failedCount: failedCount });
+        }
 
-            on BatchProcessed(UUID batchId, Int successCount, Int failedCount) {
-                Log.info("Batch processed", { batchId: batchId, successCount: successCount, failedCount: failedCount });
-            }
-
-            on DailyReconciliationCompleted(DateTime date, Int totalTransactions, Boolean isBalanced) {
-                Log.info("Daily reconciliation completed", { date: date, totalTransactions: totalTransactions, isBalanced: isBalanced });
-            }
+        on DailyReconciliationCompleted(DateTime date, Int totalTransactions, Boolean isBalanced) {
+            Log.info("Daily reconciliation completed", { date: date, totalTransactions: totalTransactions, isBalanced: isBalanced });
         }
     }
 

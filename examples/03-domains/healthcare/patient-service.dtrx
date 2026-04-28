@@ -195,16 +195,15 @@ service healthcare.PatientService : version('1.0.0'), description('patient manag
                 ensure changedFields.length > 0;
             }
         }
+    }
+    subscribe PatientEvents {
 
-        subscribe PatientEvents {
+        on PatientRegistered(UUID patientId, String mrn, String fullName, Date dateOfBirth) {
+            Log.info("Patient registered", { patientId: patientId, mrn: mrn, fullName: fullName, dateOfBirth: dateOfBirth });
+        }
 
-            on PatientRegistered(UUID patientId, String mrn, String fullName, Date dateOfBirth) {
-                Log.info("Patient registered", { patientId: patientId, mrn: mrn, fullName: fullName, dateOfBirth: dateOfBirth });
-            }
-
-            on PatientUpdated(UUID patientId, String mrn, Array<String> changedFields) {
-                Log.info("Patient updated", { patientId: patientId, mrn: mrn, changedFields: changedFields });
-            }
+        on PatientUpdated(UUID patientId, String mrn, Array<String> changedFields) {
+            Log.info("Patient updated", { patientId: patientId, mrn: mrn, changedFields: changedFields });
         }
     }
 

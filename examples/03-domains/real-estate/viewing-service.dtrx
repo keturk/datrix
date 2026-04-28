@@ -150,45 +150,45 @@ service realestate.ViewingService : version('1.0.0'), description('property view
             }
         }
 
-        subscribe ViewingEvents {
-            on ViewingScheduled(UUID viewingId, UUID listingId, String clientName, String clientEmail, DateTime scheduledAt) {
-                Log.info("Viewing scheduled event received", { viewingId: viewingId, listingId: listingId });
-            }
-
-            on ViewingStatusChanged(UUID viewingId, UUID listingId, ViewingStatus oldStatus, ViewingStatus newStatus) {
-                Log.info("Viewing status changed", { viewingId: viewingId, oldStatus: oldStatus, newStatus: newStatus });
-            }
-        }
 
         // Listen for listing status changes
-        subscribe ListingEvents {
-            on ListingStatusChanged(UUID listingId, String listingRef, ListingStatus oldStatus, ListingStatus newStatus) {
-                Log.info("Listing status change received", { listingId: listingId, oldStatus: oldStatus, newStatus: newStatus });
+    }
+    subscribe ViewingEvents {
+        on ViewingScheduled(UUID viewingId, UUID listingId, String clientName, String clientEmail, DateTime scheduledAt) {
+            Log.info("Viewing scheduled event received", { viewingId: viewingId, listingId: listingId });
+        }
 
-                // Cancel all pending viewings if listing is withdrawn or sold
-                if (newStatus == ListingStatus.Withdrawn || newStatus == ListingStatus.Sold) {
-                    #Array<Viewing> pendingViewings = viewingDb.Viewing
-                        .where(listingId: listingId)
-                        .where(status: ViewingStatus.Scheduled)
-                        .all();
+        on ViewingStatusChanged(UUID viewingId, UUID listingId, ViewingStatus oldStatus, ViewingStatus newStatus) {
+            Log.info("Viewing status changed", { viewingId: viewingId, oldStatus: oldStatus, newStatus: newStatus });
+        }
+    }
+    subscribe ListingEvents {
+        on ListingStatusChanged(UUID listingId, String listingRef, ListingStatus oldStatus, ListingStatus newStatus) {
+            Log.info("Listing status change received", { listingId: listingId, oldStatus: oldStatus, newStatus: newStatus });
 
-                    #Array<Viewing> confirmedViewings = viewingDb.Viewing
-                        .where(listingId: listingId)
-                        .where(status: ViewingStatus.Confirmed)
-                        .all();
+            // Cancel all pending viewings if listing is withdrawn or sold
+            if (newStatus == ListingStatus.Withdrawn || newStatus == ListingStatus.Sold) {
+                #Array<Viewing> pendingViewings = viewingDb.Viewing
+                    .where(listingId: listingId)
+                    .where(status: ViewingStatus.Scheduled)
+                    .all();
 
-                    foreach viewing in pendingViewings {
-                        viewing.cancel(#"Listing {listingRef} is no longer available ({newStatus})");
-                    }
+                #Array<Viewing> confirmedViewings = viewingDb.Viewing
+                    .where(listingId: listingId)
+                    .where(status: ViewingStatus.Confirmed)
+                    .all();
 
-                    foreach viewing in confirmedViewings {
-                        viewing.cancel(#"Listing {listingRef} is no longer available ({newStatus})");
-                    }
+                foreach viewing in pendingViewings {
+                    viewing.cancel(#"Listing {listingRef} is no longer available ({newStatus})");
+                }
 
-                    #Int cancelledCount = pendingViewings.length() + confirmedViewings.length();
-                    if (cancelledCount > 0) {
-                        Log.info("Cancelled viewings for unavailable listing", { listingId: listingId, count: cancelledCount });
-                    }
+                foreach viewing in confirmedViewings {
+                    viewing.cancel(#"Listing {listingRef} is no longer available ({newStatus})");
+                }
+
+                #Int cancelledCount = pendingViewings.length() + confirmedViewings.length();
+                if (cancelledCount > 0) {
+                    Log.info("Cancelled viewings for unavailable listing", { listingId: listingId, count: cancelledCount });
                 }
             }
         }
