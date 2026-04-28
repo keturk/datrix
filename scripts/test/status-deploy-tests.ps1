@@ -3,6 +3,7 @@
 
 [CmdletBinding()]
 param(
+ [string]$Report,
  [switch]$Dbg
 )
 
@@ -52,8 +53,11 @@ try {
  $workspaceRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
  $defaultRoot = Join-Path $workspaceRoot ".generated"
 
- # Build arguments for Python script
- $pythonArgs = @($PythonScript, "--root", $defaultRoot)
+ # Build arguments for Python script — always show spec/integration breakdown
+ $pythonArgs = @($PythonScript, "--root", $defaultRoot, "--detail")
+ if ($Report) {
+ $pythonArgs += @("--report", $Report)
+ }
  if ($Dbg) {
  $pythonArgs += "--debug"
  }
