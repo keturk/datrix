@@ -205,19 +205,18 @@ service hr.EmployeeService : version('1.0.0'), description('employee management 
                 ensure oldSalary != newSalary;
             }
         }
+    }
+    subscribe EmployeeEvents {
+        on EmployeeHired(UUID employeeId, String employeeNumber, String firstName, String lastName, String email, Department department, EmploymentType employmentType) {
+            Log.info("Employee hired event received", { employeeId: employeeId, employeeNumber: employeeNumber, department: department });
+        }
 
-        subscribe EmployeeEvents {
-            on EmployeeHired(UUID employeeId, String employeeNumber, String firstName, String lastName, String email, Department department, EmploymentType employmentType) {
-                Log.info("Employee hired event received", { employeeId: employeeId, employeeNumber: employeeNumber, department: department });
-            }
+        on EmployeeStatusChanged(UUID employeeId, String employeeNumber, EmployeeStatus oldStatus, EmployeeStatus newStatus) {
+            Log.info("Employee status changed", { employeeId: employeeId, oldStatus: oldStatus, newStatus: newStatus });
+        }
 
-            on EmployeeStatusChanged(UUID employeeId, String employeeNumber, EmployeeStatus oldStatus, EmployeeStatus newStatus) {
-                Log.info("Employee status changed", { employeeId: employeeId, oldStatus: oldStatus, newStatus: newStatus });
-            }
-
-            on EmployeeDepartmentChanged(UUID employeeId, String employeeNumber, Department oldDepartment, Department newDepartment) {
-                Log.info("Employee department changed", { employeeId: employeeId, oldDepartment: oldDepartment, newDepartment: newDepartment });
-            }
+        on EmployeeDepartmentChanged(UUID employeeId, String employeeNumber, Department oldDepartment, Department newDepartment) {
+            Log.info("Employee department changed", { employeeId: employeeId, oldDepartment: oldDepartment, newDepartment: newDepartment });
         }
     }
 

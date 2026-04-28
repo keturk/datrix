@@ -282,71 +282,70 @@ service lms.CourseService : version('1.0.0'), description('course catalog and co
                 ensure title.length > 0;
             }
         }
+    }
+    subscribe CourseEvents {
+        on CourseCreated(UUID courseId, String title, UUID instructorId, DifficultyLevel difficulty) {
+            Log.info("Course created", {
+                courseId: courseId,
+                title: title,
+                instructorId: instructorId,
+                difficulty: difficulty
+            });
+        }
 
-        subscribe CourseEvents {
-            on CourseCreated(UUID courseId, String title, UUID instructorId, DifficultyLevel difficulty) {
-                Log.info("Course created", {
-                    courseId: courseId,
-                    title: title,
-                    instructorId: instructorId,
-                    difficulty: difficulty
-                });
-            }
+        on CourseStatusChanged(UUID courseId, CourseStatus oldStatus, CourseStatus newStatus) {
+            Log.info("Course status changed", {
+                courseId: courseId,
+                oldStatus: oldStatus,
+                newStatus: newStatus
+            });
 
-            on CourseStatusChanged(UUID courseId, CourseStatus oldStatus, CourseStatus newStatus) {
-                Log.info("Course status changed", {
-                    courseId: courseId,
-                    oldStatus: oldStatus,
-                    newStatus: newStatus
-                });
-
-                if (newStatus == CourseStatus.Published) {
-                    #Course? course = courseDb.Course.find(courseId);
-                    if (course != null) {
-                        dispatch CoursePublished(courseId, course.title);
-                    }
-                }
-
-                if (newStatus == CourseStatus.Archived) {
-                    dispatch CourseArchived(courseId);
+            if (newStatus == CourseStatus.Published) {
+                #Course? course = courseDb.Course.find(courseId);
+                if (course != null) {
+                    dispatch CoursePublished(courseId, course.title);
                 }
             }
 
-            on CourseEnrollmentUpdated(UUID courseId, Int currentEnrollment, Int? maxEnrollment) {
-                Log.info("Course enrollment updated", {
-                    courseId: courseId,
-                    currentEnrollment: currentEnrollment,
-                    maxEnrollment: maxEnrollment
-                });
-
-                if (maxEnrollment != null && currentEnrollment >= maxEnrollment) {
-                    Log.warn("Course is now full", { courseId: courseId });
-                }
+            if (newStatus == CourseStatus.Archived) {
+                dispatch CourseArchived(courseId);
             }
+        }
 
-            on CoursePublished(UUID courseId, String title) {
-                Log.info("Course published", { courseId: courseId, title: title });
-            }
+        on CourseEnrollmentUpdated(UUID courseId, Int currentEnrollment, Int? maxEnrollment) {
+            Log.info("Course enrollment updated", {
+                courseId: courseId,
+                currentEnrollment: currentEnrollment,
+                maxEnrollment: maxEnrollment
+            });
 
-            on CourseArchived(UUID courseId) {
-                Log.info("Course archived", { courseId: courseId });
+            if (maxEnrollment != null && currentEnrollment >= maxEnrollment) {
+                Log.warn("Course is now full", { courseId: courseId });
             }
+        }
 
-            on ModuleAdded(UUID courseId, UUID moduleId, String title) {
-                Log.info("Module added to course", {
-                    courseId: courseId,
-                    moduleId: moduleId,
-                    title: title
-                });
-            }
+        on CoursePublished(UUID courseId, String title) {
+            Log.info("Course published", { courseId: courseId, title: title });
+        }
 
-            on LessonAdded(UUID moduleId, UUID lessonId, String title) {
-                Log.info("Lesson added to module", {
-                    moduleId: moduleId,
-                    lessonId: lessonId,
-                    title: title
-                });
-            }
+        on CourseArchived(UUID courseId) {
+            Log.info("Course archived", { courseId: courseId });
+        }
+
+        on ModuleAdded(UUID courseId, UUID moduleId, String title) {
+            Log.info("Module added to course", {
+                courseId: courseId,
+                moduleId: moduleId,
+                title: title
+            });
+        }
+
+        on LessonAdded(UUID moduleId, UUID lessonId, String title) {
+            Log.info("Lesson added to module", {
+                moduleId: moduleId,
+                lessonId: lessonId,
+                title: title
+            });
         }
     }
 

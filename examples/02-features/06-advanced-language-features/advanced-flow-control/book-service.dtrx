@@ -357,34 +357,33 @@ service library.BookService : version('1.0.0'), description('book management ser
             publish CheckoutCreated(UUID checkoutId, UUID bookId);
             publish CheckoutReturned(UUID checkoutId, UUID bookId);
         }
+    }
+    subscribe BookEvents {
+        on BookAdded(UUID bookId, String title) {
+            Log.info("New book added", { bookId: bookId, title: title });
+        }
 
-        subscribe BookEvents {
-            on BookAdded(UUID bookId, String title) {
-                Log.info("New book added", { bookId: bookId, title: title });
+        on BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
+            #Book book = bookDb.Book.findById(bookId);
+            if (book != null) {
+                Log.info(#"Book '{book.title}' status changed from {oldStatus} to {newStatus}");
             }
+        }
 
-            on BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
-                #Book book = bookDb.Book.findById(bookId);
-                if (book != null) {
-                    Log.info(#"Book '{book.title}' status changed from {oldStatus} to {newStatus}");
-                }
-            }
+        on OverdueBooksProcessed(Int count) {
+            Log.info("Overdue books processed", { count: count });
+        }
 
-            on OverdueBooksProcessed(Int count) {
-                Log.info("Overdue books processed", { count: count });
-            }
+        on BookConditionChanged(UUID bookId, BookCondition oldCondition, BookCondition newCondition) {
+            Log.info("Book condition changed", { bookId: bookId, oldCondition: oldCondition, newCondition: newCondition });
+        }
 
-            on BookConditionChanged(UUID bookId, BookCondition oldCondition, BookCondition newCondition) {
-                Log.info("Book condition changed", { bookId: bookId, oldCondition: oldCondition, newCondition: newCondition });
-            }
+        on CheckoutCreated(UUID checkoutId, UUID bookId) {
+            Log.info("Checkout created", { checkoutId: checkoutId, bookId: bookId });
+        }
 
-            on CheckoutCreated(UUID checkoutId, UUID bookId) {
-                Log.info("Checkout created", { checkoutId: checkoutId, bookId: bookId });
-            }
-
-            on CheckoutReturned(UUID checkoutId, UUID bookId) {
-                Log.info("Checkout returned", { checkoutId: checkoutId, bookId: bookId });
-            }
+        on CheckoutReturned(UUID checkoutId, UUID bookId) {
+            Log.info("Checkout returned", { checkoutId: checkoutId, bookId: bookId });
         }
     }
 

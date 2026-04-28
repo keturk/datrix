@@ -185,49 +185,49 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
         }
 
         // React to order confirmation by automatically creating shipments
-        subscribe OrderEvents {
+    }
+    subscribe OrderEvents {
 
-            on OrderConfirmed(UUID orderId, UUID? paymentId, UUID reservationId, Address shippingAddress, Array<JSON> items, Decimal estimatedWeight) {
-                #ShippingCarrier carrier = selectCarrier(shippingAddress, estimatedWeight);
-                #DateTime estimatedDelivery = calculateEstimatedDelivery(carrier, shippingAddress);
+        on OrderConfirmed(UUID orderId, UUID? paymentId, UUID reservationId, Address shippingAddress, Array<JSON> items, Decimal estimatedWeight) {
+            #ShippingCarrier carrier = selectCarrier(shippingAddress, estimatedWeight);
+            #DateTime estimatedDelivery = calculateEstimatedDelivery(carrier, shippingAddress);
 
-                #Shipment shipment = shippingDb.Shipment.create({
-                    orderId: orderId,
-                    trackingNumber: generateTrackingNumber(),
-                    carrier: carrier,
-                    destination: shippingAddress,
-                    weight: estimatedWeight,
-                    status: ShipmentStatus.Pending,
-                    estimatedDelivery: estimatedDelivery
-                });
+            #Shipment shipment = shippingDb.Shipment.create({
+                orderId: orderId,
+                trackingNumber: generateTrackingNumber(),
+                carrier: carrier,
+                destination: shippingAddress,
+                weight: estimatedWeight,
+                status: ShipmentStatus.Pending,
+                estimatedDelivery: estimatedDelivery
+            });
 
-                foreach item in items {
-                    shippingDb.ShipmentItem.create({
-                        shipment: shipment,
-                        productId: item.productId,
-                        quantity: item.quantity
-                    });
-                }
-
-                shippingDb.ShipmentEvent.create({
+            foreach item in items {
+                shippingDb.ShipmentItem.create({
                     shipment: shipment,
-                    timestamp: now(),
-                    status: ShipmentStatus.Pending,
-                    location: "Warehouse",
-                    description: "Shipment created, awaiting pickup"
-                });
-
-                dispatch ShipmentCreated(shipment.id, orderId);
-                // Increment daily shipment counter
-                redis.ShipmentsToday.incr(now().format('YYYY-MM-DD'));
-
-                Log.info("Shipment created from order confirmation", {
-                    shipmentId: shipment.id,
-                    orderId: orderId,
-                    carrier: carrier,
-                    trackingNumber: shipment.trackingNumber
+                    productId: item.productId,
+                    quantity: item.quantity
                 });
             }
+
+            shippingDb.ShipmentEvent.create({
+                shipment: shipment,
+                timestamp: now(),
+                status: ShipmentStatus.Pending,
+                location: "Warehouse",
+                description: "Shipment created, awaiting pickup"
+            });
+
+            dispatch ShipmentCreated(shipment.id, orderId);
+            // Increment daily shipment counter
+            redis.ShipmentsToday.incr(now().format('YYYY-MM-DD'));
+
+            Log.info("Shipment created from order confirmation", {
+                shipmentId: shipment.id,
+                orderId: orderId,
+                carrier: carrier,
+                trackingNumber: shipment.trackingNumber
+            });
         }
     }
 

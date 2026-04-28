@@ -144,55 +144,54 @@ service fooddelivery.RestaurantService : version('1.0.0'), description('restaura
             }
             publish RestaurantRatingUpdated(UUID restaurantId, String name, Decimal rating);
         }
+    }
+    subscribe RestaurantEvents {
 
-        subscribe RestaurantEvents {
+        on RestaurantRegistered(UUID restaurantId, String name, String cuisineType) {
+            Log.info("New restaurant registered", {
+                restaurantId: restaurantId,
+                name: name,
+                cuisineType: cuisineType
+            });
 
-            on RestaurantRegistered(UUID restaurantId, String name, String cuisineType) {
-                Log.info("New restaurant registered", {
-                    restaurantId: restaurantId,
-                    name: name,
-                    cuisineType: cuisineType
-                });
+            redis.RestaurantCache.set(restaurantId, {
+                restaurantId: restaurantId,
+                name: name,
+                rating: 0.00,
+                status: RestaurantStatus.PendingApproval
+            });
+        }
 
+        on RestaurantStatusChanged(UUID restaurantId, String name, RestaurantStatus oldStatus, RestaurantStatus newStatus) {
+            Log.info("Restaurant status changed", {
+                restaurantId: restaurantId,
+                name: name,
+                oldStatus: oldStatus,
+                newStatus: newStatus
+            });
+
+            #JSON? cached = redis.RestaurantCache.get(restaurantId);
+            if (cached != null) {
                 redis.RestaurantCache.set(restaurantId, {
                     restaurantId: restaurantId,
-                    name: name,
-                    rating: 0.00,
-                    status: RestaurantStatus.PendingApproval
+                    name: cached.name,
+                    rating: cached.rating,
+                    status: newStatus
                 });
             }
+        }
 
-            on RestaurantStatusChanged(UUID restaurantId, String name, RestaurantStatus oldStatus, RestaurantStatus newStatus) {
-                Log.info("Restaurant status changed", {
+        on RestaurantRatingUpdated(UUID restaurantId, String name, Decimal rating) {
+            Log.info("Restaurant rating updated", { restaurantId: restaurantId, name: name, rating: rating });
+
+            #JSON? cached = redis.RestaurantCache.get(restaurantId);
+            if (cached != null) {
+                redis.RestaurantCache.set(restaurantId, {
                     restaurantId: restaurantId,
-                    name: name,
-                    oldStatus: oldStatus,
-                    newStatus: newStatus
+                    name: cached.name,
+                    rating: rating,
+                    status: cached.status
                 });
-
-                #JSON? cached = redis.RestaurantCache.get(restaurantId);
-                if (cached != null) {
-                    redis.RestaurantCache.set(restaurantId, {
-                        restaurantId: restaurantId,
-                        name: cached.name,
-                        rating: cached.rating,
-                        status: newStatus
-                    });
-                }
-            }
-
-            on RestaurantRatingUpdated(UUID restaurantId, String name, Decimal rating) {
-                Log.info("Restaurant rating updated", { restaurantId: restaurantId, name: name, rating: rating });
-
-                #JSON? cached = redis.RestaurantCache.get(restaurantId);
-                if (cached != null) {
-                    redis.RestaurantCache.set(restaurantId, {
-                        restaurantId: restaurantId,
-                        name: cached.name,
-                        rating: rating,
-                        status: cached.status
-                    });
-                }
             }
         }
     }

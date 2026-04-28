@@ -208,100 +208,100 @@ service ecommerce.OrderService : version('1.0.0'), description('order management
             }
         }
 
-        subscribe OrderEvents {
-
-            on OrderStatusChanged(UUID orderId, OrderStatus oldStatus, OrderStatus newStatus) {
-                Log.info("Order status changed", { orderId: orderId, oldStatus: oldStatus, newStatus: newStatus });
-
-                // Keep cache in sync with order status changes
-                #JSON? cached = redis.OrderCache.get(orderId);
-                if (cached != null) {
-                    redis.OrderCache.set(orderId, {
-                        orderId: orderId,
-                        orderNumber: cached.orderNumber,
-                        status: newStatus,
-                        total: cached.total
-                    });
-                }
-            }
-        }
 
         // React to payment events from another service
-        subscribe PaymentEvents {
-
-            on PaymentProcessed(UUID paymentId, UUID orderId, Money amount) {
-                #Order order = orderDb.Order.findOrFail(orderId);
-
-                transaction(orderDb) {
-                    order.paymentId = paymentId;
-                    order.status = OrderStatus.Confirmed;
-                    order.save();
-                }
-
-                Log.info("Order confirmed after payment", { orderId: orderId });
-                dispatch SettlePayment(paymentId, "ECOM-DEMO-MERCHANT", amount.amount);
-            }
-
-            on PaymentFailed(UUID paymentId, UUID orderId, String reason) {
-                #Order order = orderDb.Order.findOrFail(orderId);
-
-                transaction(orderDb) {
-                    order.status = OrderStatus.Cancelled;
-                    order.cancellationReason = #"Payment failed: {reason}";
-                    order.save();
-                }
-
-                Log.warn("Order cancelled due to payment failure", {
-                    orderId: orderId,
-                    reason: reason
-                });
-            }
-
-            on PaymentRefunded(UUID paymentId, UUID orderId, Money amount) {
-                #Order order = orderDb.Order.findOrFail(orderId);
-
-                transaction(orderDb) {
-                    order.status = OrderStatus.Refunded;
-                    order.save();
-                }
-
-                Log.info("Order refunded after payment refund", { orderId: orderId, paymentId: paymentId, amount: amount });
-            }
-        }
 
         // React to shipping events from another service
-        subscribe ShipmentEvents {
+    }
+    subscribe OrderEvents {
 
-            on ShipmentCreated(UUID shipmentId, UUID orderId) {
-                Log.info("Shipment created for order", { shipmentId: shipmentId, orderId: orderId });
+        on OrderStatusChanged(UUID orderId, OrderStatus oldStatus, OrderStatus newStatus) {
+            Log.info("Order status changed", { orderId: orderId, oldStatus: oldStatus, newStatus: newStatus });
+
+            // Keep cache in sync with order status changes
+            #JSON? cached = redis.OrderCache.get(orderId);
+            if (cached != null) {
+                redis.OrderCache.set(orderId, {
+                    orderId: orderId,
+                    orderNumber: cached.orderNumber,
+                    status: newStatus,
+                    total: cached.total
+                });
+            }
+        }
+    }
+    subscribe PaymentEvents {
+
+        on PaymentProcessed(UUID paymentId, UUID orderId, Money amount) {
+            #Order order = orderDb.Order.findOrFail(orderId);
+
+            transaction(orderDb) {
+                order.paymentId = paymentId;
+                order.status = OrderStatus.Confirmed;
+                order.save();
             }
 
-            on ShipmentDispatched(UUID shipmentId, UUID orderId, String trackingNumber) {
-                #Order order = orderDb.Order.findOrFail(orderId);
+            Log.info("Order confirmed after payment", { orderId: orderId });
+            dispatch SettlePayment(paymentId, "ECOM-DEMO-MERCHANT", amount.amount);
+        }
 
-                transaction(orderDb) {
-                    order.shipmentId = shipmentId;
-                    order.status = OrderStatus.Shipped;
-                    order.save();
-                }
+        on PaymentFailed(UUID paymentId, UUID orderId, String reason) {
+            #Order order = orderDb.Order.findOrFail(orderId);
 
-                Log.info("Order shipped", { orderId: orderId, shipmentId: shipmentId, trackingNumber: trackingNumber });
+            transaction(orderDb) {
+                order.status = OrderStatus.Cancelled;
+                order.cancellationReason = #"Payment failed: {reason}";
+                order.save();
             }
 
-            on ShipmentDelivered(UUID shipmentId, UUID orderId, DateTime deliveredAt) {
-                #Order order = orderDb.Order.findOrFail(orderId);
+            Log.warn("Order cancelled due to payment failure", {
+                orderId: orderId,
+                reason: reason
+            });
+        }
 
-                transaction(orderDb) {
-                    order.status = OrderStatus.Delivered;
-                    order.save();
-                }
+        on PaymentRefunded(UUID paymentId, UUID orderId, Money amount) {
+            #Order order = orderDb.Order.findOrFail(orderId);
 
-                Log.info("Order delivered", { orderId: orderId, deliveredAt: deliveredAt });
+            transaction(orderDb) {
+                order.status = OrderStatus.Refunded;
+                order.save();
             }
 
-            on ShipmentFailed(UUID shipmentId, UUID orderId, String reason) {
-                Log.warn("Shipment failed for order", { shipmentId: shipmentId, orderId: orderId, reason: reason });
+            Log.info("Order refunded after payment refund", { orderId: orderId, paymentId: paymentId, amount: amount });
+        }
+    }
+    subscribe ShipmentEvents {
+
+        on ShipmentCreated(UUID shipmentId, UUID orderId) {
+            Log.info("Shipment created for order", { shipmentId: shipmentId, orderId: orderId });
+        }
+
+        on ShipmentDispatched(UUID shipmentId, UUID orderId, String trackingNumber) {
+            #Order order = orderDb.Order.findOrFail(orderId);
+
+            transaction(orderDb) {
+                order.shipmentId = shipmentId;
+                order.status = OrderStatus.Shipped;
+                order.save();
             }
+
+            Log.info("Order shipped", { orderId: orderId, shipmentId: shipmentId, trackingNumber: trackingNumber });
+        }
+
+        on ShipmentDelivered(UUID shipmentId, UUID orderId, DateTime deliveredAt) {
+            #Order order = orderDb.Order.findOrFail(orderId);
+
+            transaction(orderDb) {
+                order.status = OrderStatus.Delivered;
+                order.save();
+            }
+
+            Log.info("Order delivered", { orderId: orderId, deliveredAt: deliveredAt });
+        }
+
+        on ShipmentFailed(UUID shipmentId, UUID orderId, String reason) {
+            Log.warn("Shipment failed for order", { shipmentId: shipmentId, orderId: orderId, reason: reason });
         }
     }
 

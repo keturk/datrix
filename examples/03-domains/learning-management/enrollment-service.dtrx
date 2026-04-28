@@ -210,148 +210,146 @@ service lms.EnrollmentService : version('1.0.0'), description('enrollment and ac
                 ensure score <= 100;
             }
         }
+    }
+    subscribe EnrollmentEvents {
+        on StudentEnrolled(UUID enrollmentId, UUID studentId, UUID courseId) {
+            Log.info("Student enrolled in course", {
+                enrollmentId: enrollmentId,
+                studentId: studentId,
+                courseId: courseId
+            });
 
-        subscribe EnrollmentEvents {
-            on StudentEnrolled(UUID enrollmentId, UUID studentId, UUID courseId) {
-                Log.info("Student enrolled in course", {
-                    enrollmentId: enrollmentId,
-                    studentId: studentId,
-                    courseId: courseId
-                });
-
-                // Increment course enrollment count
-                try {
-                    CourseService.CourseAPI.post(#"/internal/{courseId}/increment-enrollment");
-                } catch (Exception e) {
-                    Log.error(#"Failed to increment enrollment count: {e}");
-                }
-
-                // Track enrollment activity
-                #EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
-                    enrollmentId: enrollmentId,
-                    activityType: "enrolled"
-                });
-                activity.save();
+            // Increment course enrollment count
+            try {
+                CourseService.CourseAPI.post(#"/internal/{courseId}/increment-enrollment");
+            } catch (Exception e) {
+                Log.error(#"Failed to increment enrollment count: {e}");
             }
 
-            on EnrollmentCompleted(UUID enrollmentId, UUID studentId, UUID courseId, Decimal averageScore) {
-                Log.info("Student completed course", {
-                    enrollmentId: enrollmentId,
-                    studentId: studentId,
-                    courseId: courseId,
-                    averageScore: averageScore
-                });
+            // Track enrollment activity
+            #EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
+                enrollmentId: enrollmentId,
+                activityType: "enrolled"
+            });
+            activity.save();
+        }
 
-                #EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
-                    enrollmentId: enrollmentId,
-                    activityType: "completed",
-                    metadata: { averageScore: averageScore }
-                });
-                activity.save();
-            }
+        on EnrollmentCompleted(UUID enrollmentId, UUID studentId, UUID courseId, Decimal averageScore) {
+            Log.info("Student completed course", {
+                enrollmentId: enrollmentId,
+                studentId: studentId,
+                courseId: courseId,
+                averageScore: averageScore
+            });
 
-            on StudentDropped(UUID enrollmentId, UUID studentId, UUID courseId, String? reason) {
-                Log.info("Student dropped from course", {
-                    enrollmentId: enrollmentId,
-                    studentId: studentId,
-                    courseId: courseId,
-                    reason: reason
-                });
+            #EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
+                enrollmentId: enrollmentId,
+                activityType: "completed",
+                metadata: { averageScore: averageScore }
+            });
+            activity.save();
+        }
 
-                // Decrement course enrollment count
-                try {
-                    CourseService.CourseAPI.post(#"/internal/{courseId}/decrement-enrollment");
-                } catch (Exception e) {
-                    Log.error(#"Failed to decrement enrollment count: {e}");
-                }
-            }
+        on StudentDropped(UUID enrollmentId, UUID studentId, UUID courseId, String? reason) {
+            Log.info("Student dropped from course", {
+                enrollmentId: enrollmentId,
+                studentId: studentId,
+                courseId: courseId,
+                reason: reason
+            });
 
-            on EnrollmentStatusChanged(UUID enrollmentId, UUID studentId, UUID courseId, EnrollmentStatus oldStatus, EnrollmentStatus newStatus) {
-                Log.info("Enrollment status changed", {
-                    enrollmentId: enrollmentId,
-                    studentId: studentId,
-                    courseId: courseId,
-                    oldStatus: oldStatus,
-                    newStatus: newStatus
-                });
-
-                #EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
-                    enrollmentId: enrollmentId,
-                    activityType: "status_changed",
-                    metadata: { oldStatus: oldStatus, newStatus: newStatus }
-                });
-                activity.save();
-            }
-
-            on ProgressUpdated(UUID enrollmentId, UUID studentId, UUID courseId, Int oldProgress, Int newProgress) {
-                Log.info("Enrollment progress updated", {
-                    enrollmentId: enrollmentId,
-                    studentId: studentId,
-                    courseId: courseId,
-                    oldProgress: oldProgress,
-                    newProgress: newProgress
-                });
-
-                #EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
-                    enrollmentId: enrollmentId,
-                    activityType: "progress_updated",
-                    metadata: { oldProgress: oldProgress, newProgress: newProgress }
-                });
-                activity.save();
-            }
-
-            on GradeSubmitted(UUID enrollmentId, UUID moduleId, Decimal score) {
-                Log.info("Grade submitted for enrollment", {
-                    enrollmentId: enrollmentId,
-                    moduleId: moduleId,
-                    score: score
-                });
-
-                #EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
-                    enrollmentId: enrollmentId,
-                    activityType: "grade_submitted",
-                    metadata: { moduleId: moduleId, score: score }
-                });
-                activity.save();
+            // Decrement course enrollment count
+            try {
+                CourseService.CourseAPI.post(#"/internal/{courseId}/decrement-enrollment");
+            } catch (Exception e) {
+                Log.error(#"Failed to decrement enrollment count: {e}");
             }
         }
 
-        subscribe CourseEvents {
-            on CourseArchived(UUID courseId) {
-                Log.info("Course archived, expiring active enrollments", { courseId: courseId });
+        on EnrollmentStatusChanged(UUID enrollmentId, UUID studentId, UUID courseId, EnrollmentStatus oldStatus, EnrollmentStatus newStatus) {
+            Log.info("Enrollment status changed", {
+                enrollmentId: enrollmentId,
+                studentId: studentId,
+                courseId: courseId,
+                oldStatus: oldStatus,
+                newStatus: newStatus
+            });
 
-                #Array<Enrollment> activeEnrollments = enrollmentDb.Enrollment
-                    .where(courseId: courseId)
-                    .where(status: EnrollmentStatus.Active)
-                    .all();
+            #EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
+                enrollmentId: enrollmentId,
+                activityType: "status_changed",
+                metadata: { oldStatus: oldStatus, newStatus: newStatus }
+            });
+            activity.save();
+        }
 
-                foreach enrollment in activeEnrollments {
-                    enrollment.status = EnrollmentStatus.Expired;
-                    enrollment.save();
-                }
+        on ProgressUpdated(UUID enrollmentId, UUID studentId, UUID courseId, Int oldProgress, Int newProgress) {
+            Log.info("Enrollment progress updated", {
+                enrollmentId: enrollmentId,
+                studentId: studentId,
+                courseId: courseId,
+                oldProgress: oldProgress,
+                newProgress: newProgress
+            });
 
-                #Array<Enrollment> pendingEnrollments = enrollmentDb.Enrollment
-                    .where(courseId: courseId)
-                    .where(status: EnrollmentStatus.Pending)
-                    .all();
+            #EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
+                enrollmentId: enrollmentId,
+                activityType: "progress_updated",
+                metadata: { oldProgress: oldProgress, newProgress: newProgress }
+            });
+            activity.save();
+        }
 
-                foreach enrollment in pendingEnrollments {
-                    enrollment.status = EnrollmentStatus.Expired;
-                    enrollment.save();
-                }
+        on GradeSubmitted(UUID enrollmentId, UUID moduleId, Decimal score) {
+            Log.info("Grade submitted for enrollment", {
+                enrollmentId: enrollmentId,
+                moduleId: moduleId,
+                score: score
+            });
 
-                #Int expiredCount = activeEnrollments.length() + pendingEnrollments.length();
-                if (expiredCount > 0) {
-                    Log.info("Expired enrollments for archived course", {
-                        courseId: courseId,
-                        expiredCount: expiredCount
-                    });
-                }
+            #EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
+                enrollmentId: enrollmentId,
+                activityType: "grade_submitted",
+                metadata: { moduleId: moduleId, score: score }
+            });
+            activity.save();
+        }
+    }
+    subscribe CourseEvents {
+        on CourseArchived(UUID courseId) {
+            Log.info("Course archived, expiring active enrollments", { courseId: courseId });
+
+            #Array<Enrollment> activeEnrollments = enrollmentDb.Enrollment
+                .where(courseId: courseId)
+                .where(status: EnrollmentStatus.Active)
+                .all();
+
+            foreach enrollment in activeEnrollments {
+                enrollment.status = EnrollmentStatus.Expired;
+                enrollment.save();
             }
 
-            on CourseStatusChanged(UUID courseId, CourseStatus oldStatus, CourseStatus newStatus) {
-                Log.info("Course status changed", { courseId: courseId, oldStatus: oldStatus, newStatus: newStatus });
+            #Array<Enrollment> pendingEnrollments = enrollmentDb.Enrollment
+                .where(courseId: courseId)
+                .where(status: EnrollmentStatus.Pending)
+                .all();
+
+            foreach enrollment in pendingEnrollments {
+                enrollment.status = EnrollmentStatus.Expired;
+                enrollment.save();
             }
+
+            #Int expiredCount = activeEnrollments.length() + pendingEnrollments.length();
+            if (expiredCount > 0) {
+                Log.info("Expired enrollments for archived course", {
+                    courseId: courseId,
+                    expiredCount: expiredCount
+                });
+            }
+        }
+
+        on CourseStatusChanged(UUID courseId, CourseStatus oldStatus, CourseStatus newStatus) {
+            Log.info("Course status changed", { courseId: courseId, oldStatus: oldStatus, newStatus: newStatus });
         }
     }
 

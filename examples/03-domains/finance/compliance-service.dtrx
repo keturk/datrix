@@ -218,105 +218,104 @@ service finance.ComplianceService : version('1.0.0'), description('regulatory co
         }
 
         // Listen to transaction events for compliance monitoring
-        subscribe TransactionEvents {
-            on TransactionCreated(UUID txId, UUID accountId, TransactionType type, Money amount, Currency currency, String reference) {
-                Log.info("Transaction received for compliance check", { txId: txId, accountId: accountId, amount: amount });
-
-                // Check for large transactions exceeding threshold
-                if (amount.amount >= LARGE_TRANSACTION_THRESHOLD) {
-                    #ComplianceAlert alert = complianceDb.ComplianceAlert.create({
-                        accountId: accountId,
-                        type: AlertType.LargeTransaction,
-                        severity: AlertSeverity.High,
-                        description: #"Large transaction detected: {currency} {amount.amount} (ref: {reference})",
-                        transactionAmount: amount,
-                        transactionId: txId
-                    });
-                    alert.save();
-
-                    Log.warn("Large transaction alert created", { txId: txId, amount: amount, alertId: alert.id });
-                }
-
-                // Record in audit trail
-                #AuditTrail audit = complianceDb.AuditTrail.create({
-                    entityType: "Transaction",
-                    entityId: txId,
-                    action: "created",
-                    changes: { type: type, amount: amount, currency: currency, reference: reference },
-                    performedBy: accountId,
-                    performedAt: now()
-                });
-                audit.save();
-            }
-
-            on TransactionStatusChanged(UUID txId, UUID accountId, TransactionStatus oldStatus, TransactionStatus newStatus, Money amount) {
-                #AuditTrail audit = complianceDb.AuditTrail.create({
-                    entityType: "Transaction",
-                    entityId: txId,
-                    action: "status_changed",
-                    changes: { oldStatus: oldStatus, newStatus: newStatus, amount: amount },
-                    performedBy: accountId,
-                    performedAt: now()
-                });
-                audit.save();
-            }
-        }
 
         // Listen to account events for compliance tracking
-        subscribe AccountEvents {
-            on AccountOpened(UUID accountId, String accountNumber, UUID customerId, AccountType type, Currency currency) {
-                #AuditTrail audit = complianceDb.AuditTrail.create({
-                    entityType: "Account",
-                    entityId: accountId,
-                    action: "opened",
-                    changes: { accountNumber: accountNumber, customerId: customerId, type: type, currency: currency },
-                    performedBy: customerId,
-                    performedAt: now()
-                });
-                audit.save();
+    }
+    subscribe TransactionEvents {
+        on TransactionCreated(UUID txId, UUID accountId, TransactionType type, Money amount, Currency currency, String reference) {
+            Log.info("Transaction received for compliance check", { txId: txId, accountId: accountId, amount: amount });
 
-                Log.info("Account opening recorded in audit trail", { accountId: accountId, accountNumber: accountNumber });
+            // Check for large transactions exceeding threshold
+            if (amount.amount >= LARGE_TRANSACTION_THRESHOLD) {
+                #ComplianceAlert alert = complianceDb.ComplianceAlert.create({
+                    accountId: accountId,
+                    type: AlertType.LargeTransaction,
+                    severity: AlertSeverity.High,
+                    description: #"Large transaction detected: {currency} {amount.amount} (ref: {reference})",
+                    transactionAmount: amount,
+                    transactionId: txId
+                });
+                alert.save();
+
+                Log.warn("Large transaction alert created", { txId: txId, amount: amount, alertId: alert.id });
             }
 
-            on AccountStatusChanged(UUID accountId, String accountNumber, AccountStatus oldStatus, AccountStatus newStatus) {
-                #AuditTrail audit = complianceDb.AuditTrail.create({
-                    entityType: "Account",
-                    entityId: accountId,
-                    action: "status_changed",
-                    changes: { accountNumber: accountNumber, oldStatus: oldStatus, newStatus: newStatus },
-                    performedBy: accountId,
-                    performedAt: now()
-                });
-                audit.save();
-            }
+            // Record in audit trail
+            #AuditTrail audit = complianceDb.AuditTrail.create({
+                entityType: "Transaction",
+                entityId: txId,
+                action: "created",
+                changes: { type: type, amount: amount, currency: currency, reference: reference },
+                performedBy: accountId,
+                performedAt: now()
+            });
+            audit.save();
         }
 
-        subscribe ComplianceEvents {
-            on CriticalAlertRaised(UUID alertId, UUID accountId, AlertType type, String description) {
-                Log.warn("Critical compliance alert raised", {
-                    alertId: alertId,
-                    accountId: accountId,
-                    type: type,
-                    description: description
-                });
-            }
+        on TransactionStatusChanged(UUID txId, UUID accountId, TransactionStatus oldStatus, TransactionStatus newStatus, Money amount) {
+            #AuditTrail audit = complianceDb.AuditTrail.create({
+                entityType: "Transaction",
+                entityId: txId,
+                action: "status_changed",
+                changes: { oldStatus: oldStatus, newStatus: newStatus, amount: amount },
+                performedBy: accountId,
+                performedAt: now()
+            });
+            audit.save();
+        }
+    }
+    subscribe AccountEvents {
+        on AccountOpened(UUID accountId, String accountNumber, UUID customerId, AccountType type, Currency currency) {
+            #AuditTrail audit = complianceDb.AuditTrail.create({
+                entityType: "Account",
+                entityId: accountId,
+                action: "opened",
+                changes: { accountNumber: accountNumber, customerId: customerId, type: type, currency: currency },
+                performedBy: customerId,
+                performedAt: now()
+            });
+            audit.save();
 
-            on AlertStatusChanged(UUID alertId, UUID accountId, AlertStatus oldStatus, AlertStatus newStatus) {
-                Log.info("Alert status changed", {
-                    alertId: alertId,
-                    accountId: accountId,
-                    oldStatus: oldStatus,
-                    newStatus: newStatus
-                });
-            }
+            Log.info("Account opening recorded in audit trail", { accountId: accountId, accountNumber: accountNumber });
+        }
 
-            on ComplianceReportGenerated(DateTime reportDate, String reportType, Int totalAlerts) {
-                Log.info("Compliance report generated", {
-                    reportDate: reportDate,
-                    reportType: reportType,
-                    totalAlerts: totalAlerts
-                });
-            }
+        on AccountStatusChanged(UUID accountId, String accountNumber, AccountStatus oldStatus, AccountStatus newStatus) {
+            #AuditTrail audit = complianceDb.AuditTrail.create({
+                entityType: "Account",
+                entityId: accountId,
+                action: "status_changed",
+                changes: { accountNumber: accountNumber, oldStatus: oldStatus, newStatus: newStatus },
+                performedBy: accountId,
+                performedAt: now()
+            });
+            audit.save();
+        }
+    }
+    subscribe ComplianceEvents {
+        on CriticalAlertRaised(UUID alertId, UUID accountId, AlertType type, String description) {
+            Log.warn("Critical compliance alert raised", {
+                alertId: alertId,
+                accountId: accountId,
+                type: type,
+                description: description
+            });
+        }
+
+        on AlertStatusChanged(UUID alertId, UUID accountId, AlertStatus oldStatus, AlertStatus newStatus) {
+            Log.info("Alert status changed", {
+                alertId: alertId,
+                accountId: accountId,
+                oldStatus: oldStatus,
+                newStatus: newStatus
+            });
+        }
+
+        on ComplianceReportGenerated(DateTime reportDate, String reportType, Int totalAlerts) {
+            Log.info("Compliance report generated", {
+                reportDate: reportDate,
+                reportType: reportType,
+                totalAlerts: totalAlerts
+            });
         }
     }
 

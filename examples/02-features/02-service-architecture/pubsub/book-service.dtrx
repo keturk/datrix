@@ -144,17 +144,15 @@ service library.BookService : version('1.0.0'), description('book management ser
                 ensure oldStatus != newStatus;
             }
         }
+    }
+    subscribe BookEvents {
+        on BookAdded(UUID bookId, String title) {
+            // Log utility for structured logging
+            Log.info("New book added", { bookId: bookId, title: title });
+        }
 
-        // 'subscribe' listens to a topic; 'on' handlers process specific events
-        subscribe BookEvents {
-            on BookAdded(UUID bookId, String title) {
-                // Log utility for structured logging
-                Log.info("New book added", { bookId: bookId, title: title });
-            }
-
-            on BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
-                Log.info(#"Book {bookId} status changed from {oldStatus} to {newStatus}");
-            }
+        on BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
+            Log.info(#"Book {bookId} status changed from {oldStatus} to {newStatus}");
         }
     }
 

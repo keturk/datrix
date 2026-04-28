@@ -197,81 +197,79 @@ service iot.FirmwareService : version('1.0.0'), description('firmware version an
             publish DeviceUpdateCompleted(UUID rolloutId, UUID deviceId, String version);
             publish DeviceUpdateFailed(UUID rolloutId, UUID deviceId, String error);
         }
+    }
+    subscribe DeviceEvents {
 
-        subscribe DeviceEvents {
-
-            on DeviceRegistered(UUID deviceId, String serialNumber, String name, DeviceType type) {
-                Log.info("New device registered, checking firmware", {
-                    deviceId: deviceId,
-                    serialNumber: serialNumber,
-                    type: type
-                });
-            }
-
-            on DeviceFirmwareUpdated(UUID deviceId, String serialNumber, String oldVersion, String newVersion) {
-                Log.info("Device firmware updated", {
-                    deviceId: deviceId,
-                    serialNumber: serialNumber,
-                    oldVersion: oldVersion,
-                    newVersion: newVersion
-                });
-
-                #Array<RolloutLog> pendingLogs = firmwareDb.RolloutLog
-                    .where(deviceId: deviceId)
-                    .where(status: DeviceUpdateStatus.Installing)
-                    .all();
-
-                foreach log in pendingLogs {
-                    log.markCompleted();
-
-                    #FirmwareRollout rollout = firmwareDb.FirmwareRollout.findOrFail(log.firmwareRolloutId);
-                    rollout.recordSuccess();
-
-                    dispatch DeviceUpdateCompleted(rollout.id, deviceId, newVersion);
-
-                    Log.info("Rollout log updated for device firmware change", {
-                        rolloutId: rollout.id,
-                        deviceId: deviceId,
-                        newVersion: newVersion
-                    });
-                }
-            }
+        on DeviceRegistered(UUID deviceId, String serialNumber, String name, DeviceType type) {
+            Log.info("New device registered, checking firmware", {
+                deviceId: deviceId,
+                serialNumber: serialNumber,
+                type: type
+            });
         }
 
-        subscribe FirmwareEvents {
+        on DeviceFirmwareUpdated(UUID deviceId, String serialNumber, String oldVersion, String newVersion) {
+            Log.info("Device firmware updated", {
+                deviceId: deviceId,
+                serialNumber: serialNumber,
+                oldVersion: oldVersion,
+                newVersion: newVersion
+            });
 
-            on FirmwareReleased(UUID firmwareId, String version, Boolean isStable) {
-                Log.info("Firmware released", {
-                    firmwareId: firmwareId,
-                    version: version,
-                    isStable: isStable
-                });
-            }
+            #Array<RolloutLog> pendingLogs = firmwareDb.RolloutLog
+                .where(deviceId: deviceId)
+                .where(status: DeviceUpdateStatus.Installing)
+                .all();
 
-            on RolloutStatusChanged(UUID rolloutId, String rolloutCode, RolloutStatus oldStatus, RolloutStatus newStatus) {
-                Log.info("Rollout status changed", {
-                    rolloutId: rolloutId,
-                    rolloutCode: rolloutCode,
-                    oldStatus: oldStatus,
-                    newStatus: newStatus
-                });
-            }
+            foreach log in pendingLogs {
+                log.markCompleted();
 
-            on DeviceUpdateCompleted(UUID rolloutId, UUID deviceId, String version) {
-                Log.info("Device update completed", {
-                    rolloutId: rolloutId,
+                #FirmwareRollout rollout = firmwareDb.FirmwareRollout.findOrFail(log.firmwareRolloutId);
+                rollout.recordSuccess();
+
+                dispatch DeviceUpdateCompleted(rollout.id, deviceId, newVersion);
+
+                Log.info("Rollout log updated for device firmware change", {
+                    rolloutId: rollout.id,
                     deviceId: deviceId,
-                    version: version
+                    newVersion: newVersion
                 });
             }
+        }
+    }
+    subscribe FirmwareEvents {
 
-            on DeviceUpdateFailed(UUID rolloutId, UUID deviceId, String error) {
-                Log.warn("Device update failed", {
-                    rolloutId: rolloutId,
-                    deviceId: deviceId,
-                    error: error
-                });
-            }
+        on FirmwareReleased(UUID firmwareId, String version, Boolean isStable) {
+            Log.info("Firmware released", {
+                firmwareId: firmwareId,
+                version: version,
+                isStable: isStable
+            });
+        }
+
+        on RolloutStatusChanged(UUID rolloutId, String rolloutCode, RolloutStatus oldStatus, RolloutStatus newStatus) {
+            Log.info("Rollout status changed", {
+                rolloutId: rolloutId,
+                rolloutCode: rolloutCode,
+                oldStatus: oldStatus,
+                newStatus: newStatus
+            });
+        }
+
+        on DeviceUpdateCompleted(UUID rolloutId, UUID deviceId, String version) {
+            Log.info("Device update completed", {
+                rolloutId: rolloutId,
+                deviceId: deviceId,
+                version: version
+            });
+        }
+
+        on DeviceUpdateFailed(UUID rolloutId, UUID deviceId, String error) {
+            Log.warn("Device update failed", {
+                rolloutId: rolloutId,
+                deviceId: deviceId,
+                error: error
+            });
         }
     }
 

@@ -191,57 +191,56 @@ service realestate.ContractService : version('1.0.0'), description('real estate 
             }
         }
 
-        subscribe ContractEvents {
-            on ContractCreated(UUID contractId, String contractRef, UUID listingId, UUID buyerId, UUID sellerId, ContractType contractType, Money price) {
-                Log.info("Contract created", { contractId: contractId, contractRef: contractRef, listingId: listingId, contractType: contractType, price: price });
-            }
-        }
 
         // Listen to listing events
-        subscribe ListingEvents {
-            on ListingStatusChanged(UUID listingId, String listingRef, ListingStatus oldStatus, ListingStatus newStatus) {
-                Log.info("Listing status change received in contract service", { listingId: listingId, oldStatus: oldStatus, newStatus: newStatus });
+    }
+    subscribe ContractEvents {
+        on ContractCreated(UUID contractId, String contractRef, UUID listingId, UUID buyerId, UUID sellerId, ContractType contractType, Money price) {
+            Log.info("Contract created", { contractId: contractId, contractRef: contractRef, listingId: listingId, contractType: contractType, price: price });
+        }
+    }
+    subscribe ListingEvents {
+        on ListingStatusChanged(UUID listingId, String listingRef, ListingStatus oldStatus, ListingStatus newStatus) {
+            Log.info("Listing status change received in contract service", { listingId: listingId, oldStatus: oldStatus, newStatus: newStatus });
 
-                // If listing is withdrawn, terminate any draft or pending contracts
-                if (newStatus == ListingStatus.Withdrawn) {
-                    #Array<Contract> draftContracts = contractDb.Contract
-                        .where(listingId: listingId)
-                        .where(status: ContractStatus.Draft)
-                        .all();
+            // If listing is withdrawn, terminate any draft or pending contracts
+            if (newStatus == ListingStatus.Withdrawn) {
+                #Array<Contract> draftContracts = contractDb.Contract
+                    .where(listingId: listingId)
+                    .where(status: ContractStatus.Draft)
+                    .all();
 
-                    #Array<Contract> pendingContracts = contractDb.Contract
-                        .where(listingId: listingId)
-                        .where(status: ContractStatus.Pending)
-                        .all();
+                #Array<Contract> pendingContracts = contractDb.Contract
+                    .where(listingId: listingId)
+                    .where(status: ContractStatus.Pending)
+                    .all();
 
-                    foreach contract in draftContracts {
-                        contract.terminate(#"Listing {listingRef} was withdrawn");
-                    }
+                foreach contract in draftContracts {
+                    contract.terminate(#"Listing {listingRef} was withdrawn");
+                }
 
-                    foreach contract in pendingContracts {
-                        contract.terminate(#"Listing {listingRef} was withdrawn");
-                    }
+                foreach contract in pendingContracts {
+                    contract.terminate(#"Listing {listingRef} was withdrawn");
+                }
 
-                    #Int terminatedCount = draftContracts.length() + pendingContracts.length();
-                    if (terminatedCount > 0) {
-                        Log.info("Terminated contracts for withdrawn listing", { listingId: listingId, count: terminatedCount });
-                    }
+                #Int terminatedCount = draftContracts.length() + pendingContracts.length();
+                if (terminatedCount > 0) {
+                    Log.info("Terminated contracts for withdrawn listing", { listingId: listingId, count: terminatedCount });
                 }
             }
         }
+    }
+    subscribe ContractEvents {
+        on ContractStatusChanged(UUID contractId, String contractRef, UUID listingId, ContractStatus oldStatus, ContractStatus newStatus) {
+            Log.info("Contract status changed", { contractId: contractId, oldStatus: oldStatus, newStatus: newStatus });
 
-        subscribe ContractEvents {
-            on ContractStatusChanged(UUID contractId, String contractRef, UUID listingId, ContractStatus oldStatus, ContractStatus newStatus) {
-                Log.info("Contract status changed", { contractId: contractId, oldStatus: oldStatus, newStatus: newStatus });
-
-                // When a contract becomes active (sale), mark the listing as under contract
-                if (newStatus == ContractStatus.Active) {
-                    try {
-                        ListingService.ListingAPI.put(#"/internal/{listingId}/under-contract");
-                        Log.info("Listing marked as under contract", { listingId: listingId, contractRef: contractRef });
-                    } catch (Exception e) {
-                        Log.error("Failed to update listing status", { listingId: listingId, error: e });
-                    }
+            // When a contract becomes active (sale), mark the listing as under contract
+            if (newStatus == ContractStatus.Active) {
+                try {
+                    ListingService.ListingAPI.put(#"/internal/{listingId}/under-contract");
+                    Log.info("Listing marked as under contract", { listingId: listingId, contractRef: contractRef });
+                } catch (Exception e) {
+                    Log.error("Failed to update listing status", { listingId: listingId, error: e });
                 }
             }
         }

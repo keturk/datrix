@@ -153,40 +153,39 @@ service social.UserService : version('1.0.0'), description('user management and 
                 ensure displayName.length > 0;
             }
         }
+    }
+    subscribe UserEvents {
+        on UserRegistered(UUID userId, String username, String email) {
+            Log.info("New user registered", { userId: userId, username: username });
 
-        subscribe UserEvents {
-            on UserRegistered(UUID userId, String username, String email) {
-                Log.info("New user registered", { userId: userId, username: username });
+            redis.UserProfileCache.set(userId, {
+                userId: userId,
+                username: username,
+                displayName: username,
+                avatarUrl: null,
+                status: UserStatus.Active,
+                followerCount: 0,
+                followingCount: 0
+            });
+        }
 
-                redis.UserProfileCache.set(userId, {
-                    userId: userId,
-                    username: username,
-                    displayName: username,
-                    avatarUrl: null,
-                    status: UserStatus.Active,
-                    followerCount: 0,
-                    followingCount: 0
-                });
-            }
+        on UserStatusChanged(UUID userId, UserStatus oldStatus, UserStatus newStatus) {
+            Log.info("User status changed", { userId: userId, oldStatus: oldStatus, newStatus: newStatus });
 
-            on UserStatusChanged(UUID userId, UserStatus oldStatus, UserStatus newStatus) {
-                Log.info("User status changed", { userId: userId, oldStatus: oldStatus, newStatus: newStatus });
+            // Invalidate cache on status change
+            redis.UserProfileCache.delete(userId);
+        }
 
-                // Invalidate cache on status change
-                redis.UserProfileCache.delete(userId);
-            }
+        on UserUnfollowed(UUID followerId, UUID followeeId) {
+            Log.info("User unfollowed", { followerId: followerId, followeeId: followeeId });
+            // Invalidate caches for both users (follower/following counts changed)
+            redis.UserProfileCache.delete(followerId);
+            redis.UserProfileCache.delete(followeeId);
+        }
 
-            on UserUnfollowed(UUID followerId, UUID followeeId) {
-                Log.info("User unfollowed", { followerId: followerId, followeeId: followeeId });
-                // Invalidate caches for both users (follower/following counts changed)
-                redis.UserProfileCache.delete(followerId);
-                redis.UserProfileCache.delete(followeeId);
-            }
-
-            on UserProfileUpdated(UUID userId, String displayName) {
-                Log.info("User profile updated", { userId: userId, displayName: displayName });
-                redis.UserProfileCache.delete(userId);
-            }
+        on UserProfileUpdated(UUID userId, String displayName) {
+            Log.info("User profile updated", { userId: userId, displayName: displayName });
+            redis.UserProfileCache.delete(userId);
         }
     }
 

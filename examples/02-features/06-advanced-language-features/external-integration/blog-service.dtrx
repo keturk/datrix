@@ -46,23 +46,21 @@ service hostdemo.BlogService : version('1.0.0'), description('blog posts and com
                 ensure title.length > 0;
             }
         }
+    }
+    subscribe BlogEvents {
+        on PostPublished(UUID postId, String title) {
+            Log.info("Post published", { postId: postId, title: title });
 
-        subscribe BlogEvents {
-            on PostPublished(UUID postId, String title) {
-                Log.info("Post published", { postId: postId, title: title });
-
-                // Invalidate view count cache for the post
-                redis.PostViewCache.set(postId, {
-                    postId: postId,
-                    viewCount: 0
-                });
-            }
+            // Invalidate view count cache for the post
+            redis.PostViewCache.set(postId, {
+                postId: postId,
+                viewCount: 0
+            });
         }
-
-        subscribe UserEvents {
-            on AccountCreated(UUID userId, String email) {
-                Log.info("cross-service: user registered", { userId: userId });
-            }
+    }
+    subscribe UserEvents {
+        on AccountCreated(UUID userId, String email) {
+            Log.info("cross-service: user registered", { userId: userId });
         }
     }
 

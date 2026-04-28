@@ -160,38 +160,37 @@ service iot.DeviceService : version('1.0.0'), description('device registration a
             publish DeviceFirmwareUpdated(UUID deviceId, String serialNumber, String oldVersion, String newVersion);
             publish DeviceHeartbeat(UUID deviceId, String serialNumber, String firmwareVersion);
         }
+    }
+    subscribe DeviceEvents {
 
-        subscribe DeviceEvents {
+        on DeviceRegistered(UUID deviceId, String serialNumber, String name, DeviceType type) {
+            Log.info("New device registered", {
+                deviceId: deviceId,
+                serialNumber: serialNumber,
+                name: name,
+                type: type
+            });
+        }
 
-            on DeviceRegistered(UUID deviceId, String serialNumber, String name, DeviceType type) {
-                Log.info("New device registered", {
-                    deviceId: deviceId,
-                    serialNumber: serialNumber,
-                    name: name,
-                    type: type
-                });
-            }
+        on DeviceStatusChanged(UUID deviceId, String serialNumber, DeviceStatus oldStatus, DeviceStatus newStatus) {
+            Log.info("Device status changed", {
+                deviceId: deviceId,
+                serialNumber: serialNumber,
+                oldStatus: oldStatus,
+                newStatus: newStatus
+            });
 
-            on DeviceStatusChanged(UUID deviceId, String serialNumber, DeviceStatus oldStatus, DeviceStatus newStatus) {
-                Log.info("Device status changed", {
-                    deviceId: deviceId,
-                    serialNumber: serialNumber,
-                    oldStatus: oldStatus,
-                    newStatus: newStatus
-                });
+            redis.DeviceStatusCache.set(deviceId, {
+                deviceId: deviceId,
+                status: newStatus,
+                firmwareVersion: "",
+                lastSeenAt: now()
+            });
 
-                redis.DeviceStatusCache.set(deviceId, {
-                    deviceId: deviceId,
-                    status: newStatus,
-                    firmwareVersion: "",
-                    lastSeenAt: now()
-                });
-
-                if (newStatus == DeviceStatus.Active) {
-                    redis.OnlineDeviceCount.incr("total");
-                } else if (oldStatus == DeviceStatus.Active) {
-                    redis.OnlineDeviceCount.decr("total");
-                }
+            if (newStatus == DeviceStatus.Active) {
+                redis.OnlineDeviceCount.incr("total");
+            } else if (oldStatus == DeviceStatus.Active) {
+                redis.OnlineDeviceCount.decr("total");
             }
         }
     }

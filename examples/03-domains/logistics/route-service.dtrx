@@ -173,76 +173,74 @@ service logistics.RouteService : version('1.0.0'), description('route planning a
             publish RouteOptimized(UUID routeId, Int totalStops);
             publish StopCompleted(UUID routeId, UUID stopId, UUID shipmentId);
         }
+    }
+    subscribe FleetEvents {
 
-        subscribe FleetEvents {
+        on VehicleStatusChanged(UUID vehicleId, String vehicleNumber, VehicleStatus oldStatus, VehicleStatus newStatus) {
+            if (newStatus == VehicleStatus.Maintenance || newStatus == VehicleStatus.Retired) {
+                #Array<Route> activeRoutes = routeDb.Route
+                    .where(vehicleId: vehicleId)
+                    .where(status: RouteStatus.Active)
+                    .all();
 
-            on VehicleStatusChanged(UUID vehicleId, String vehicleNumber, VehicleStatus oldStatus, VehicleStatus newStatus) {
-                if (newStatus == VehicleStatus.Maintenance || newStatus == VehicleStatus.Retired) {
-                    #Array<Route> activeRoutes = routeDb.Route
-                        .where(vehicleId: vehicleId)
-                        .where(status: RouteStatus.Active)
-                        .all();
-
-                    foreach route in activeRoutes {
-                        Log.warn("Active route affected by vehicle status change", {
-                            routeId: route.id,
-                            routeCode: route.routeCode,
-                            vehicleId: vehicleId,
-                            vehicleStatus: newStatus
-                        });
-                    }
+                foreach route in activeRoutes {
+                    Log.warn("Active route affected by vehicle status change", {
+                        routeId: route.id,
+                        routeCode: route.routeCode,
+                        vehicleId: vehicleId,
+                        vehicleStatus: newStatus
+                    });
                 }
-            }
-
-            on DriverAssigned(UUID vehicleId, UUID driverId, String vehicleNumber) {
-                Log.info("Driver assigned to vehicle, available for routing", {
-                    vehicleId: vehicleId,
-                    driverId: driverId,
-                    vehicleNumber: vehicleNumber
-                });
             }
         }
 
-        subscribe RouteEvents {
+        on DriverAssigned(UUID vehicleId, UUID driverId, String vehicleNumber) {
+            Log.info("Driver assigned to vehicle, available for routing", {
+                vehicleId: vehicleId,
+                driverId: driverId,
+                vehicleNumber: vehicleNumber
+            });
+        }
+    }
+    subscribe RouteEvents {
 
-            on RouteCreated(UUID routeId, String routeCode, UUID vehicleId, UUID driverId) {
-                Log.info("Route created", {
-                    routeId: routeId,
-                    routeCode: routeCode,
-                    vehicleId: vehicleId,
-                    driverId: driverId
-                });
+        on RouteCreated(UUID routeId, String routeCode, UUID vehicleId, UUID driverId) {
+            Log.info("Route created", {
+                routeId: routeId,
+                routeCode: routeCode,
+                vehicleId: vehicleId,
+                driverId: driverId
+            });
+        }
+
+        on RouteStatusChanged(UUID routeId, String routeCode, RouteStatus oldStatus, RouteStatus newStatus) {
+            Log.info("Route status changed", {
+                routeId: routeId,
+                routeCode: routeCode,
+                oldStatus: oldStatus,
+                newStatus: newStatus
+            });
+
+            if (newStatus == RouteStatus.Active) {
+                redis.ActiveRouteCount.incr("total");
+            } else if (oldStatus == RouteStatus.Active) {
+                redis.ActiveRouteCount.decr("total");
             }
+        }
 
-            on RouteStatusChanged(UUID routeId, String routeCode, RouteStatus oldStatus, RouteStatus newStatus) {
-                Log.info("Route status changed", {
-                    routeId: routeId,
-                    routeCode: routeCode,
-                    oldStatus: oldStatus,
-                    newStatus: newStatus
-                });
+        on RouteOptimized(UUID routeId, Int totalStops) {
+            Log.info("Route optimized", {
+                routeId: routeId,
+                totalStops: totalStops
+            });
+        }
 
-                if (newStatus == RouteStatus.Active) {
-                    redis.ActiveRouteCount.incr("total");
-                } else if (oldStatus == RouteStatus.Active) {
-                    redis.ActiveRouteCount.decr("total");
-                }
-            }
-
-            on RouteOptimized(UUID routeId, Int totalStops) {
-                Log.info("Route optimized", {
-                    routeId: routeId,
-                    totalStops: totalStops
-                });
-            }
-
-            on StopCompleted(UUID routeId, UUID stopId, UUID shipmentId) {
-                Log.info("Route stop completed", {
-                    routeId: routeId,
-                    stopId: stopId,
-                    shipmentId: shipmentId
-                });
-            }
+        on StopCompleted(UUID routeId, UUID stopId, UUID shipmentId) {
+            Log.info("Route stop completed", {
+                routeId: routeId,
+                stopId: stopId,
+                shipmentId: shipmentId
+            });
         }
     }
 

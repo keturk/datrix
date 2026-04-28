@@ -212,100 +212,98 @@ service taskapp.TaskService : version('1.0.0'), description('task tracking and w
             publish TaskOverdue(UUID taskId, UUID projectId, DateTime dueDate);
             publish TaskCommentAdded(UUID taskId, UUID commentId, UUID authorId);
         }
+    }
+    subscribe TaskEvents {
+        on TaskCreated(UUID taskId, UUID projectId, String title, Priority priority, UUID? assigneeId) {
+            Log.info("Task created", {
+                taskId: taskId,
+                projectId: projectId,
+                title: title,
+                priority: priority
+            });
+        }
 
-        subscribe TaskEvents {
-            on TaskCreated(UUID taskId, UUID projectId, String title, Priority priority, UUID? assigneeId) {
-                Log.info("Task created", {
-                    taskId: taskId,
-                    projectId: projectId,
-                    title: title,
-                    priority: priority
-                });
-            }
+        on TaskStatusChanged(UUID taskId, UUID projectId, TaskStatus oldStatus, TaskStatus newStatus) {
+            Log.info("Task status changed", {
+                taskId: taskId,
+                projectId: projectId,
+                oldStatus: oldStatus,
+                newStatus: newStatus
+            });
 
-            on TaskStatusChanged(UUID taskId, UUID projectId, TaskStatus oldStatus, TaskStatus newStatus) {
-                Log.info("Task status changed", {
-                    taskId: taskId,
-                    projectId: projectId,
-                    oldStatus: oldStatus,
-                    newStatus: newStatus
-                });
-
-                // Update project task counts when task is completed
-                if (newStatus == TaskStatus.Done) {
-                    try {
-                        #JSON project = ProjectService.ProjectAPI.get(#"/internal/{projectId}");
-                        Log.info("Task completed for project", { projectId: projectId, taskId: taskId });
-                    } catch (Exception e) {
-                        Log.error(#"Failed to update project counts: {e}");
-                    }
+            // Update project task counts when task is completed
+            if (newStatus == TaskStatus.Done) {
+                try {
+                    #JSON project = ProjectService.ProjectAPI.get(#"/internal/{projectId}");
+                    Log.info("Task completed for project", { projectId: projectId, taskId: taskId });
+                } catch (Exception e) {
+                    Log.error(#"Failed to update project counts: {e}");
                 }
-            }
-
-            on TaskAssigned(UUID taskId, UUID projectId, UUID? assigneeId) {
-                if (assigneeId != null) {
-                    Log.info("Task assigned to user", { taskId: taskId, assigneeId: assigneeId });
-                } else {
-                    Log.info("Task unassigned", { taskId: taskId });
-                }
-            }
-
-            on TaskOverdue(UUID taskId, UUID projectId, DateTime dueDate) {
-                Log.warn("Task is overdue", {
-                    taskId: taskId,
-                    projectId: projectId,
-                    dueDate: dueDate
-                });
-            }
-
-            on TaskCommentAdded(UUID taskId, UUID commentId, UUID authorId) {
-                Log.info("Comment added to task", {
-                    taskId: taskId,
-                    commentId: commentId,
-                    authorId: authorId
-                });
             }
         }
 
-        subscribe ProjectEvents {
-            on ProjectStatusChanged(UUID projectId, ProjectStatus oldStatus, ProjectStatus newStatus) {
-                Log.info("Project status changed, checking tasks", { projectId: projectId, newStatus: newStatus });
+        on TaskAssigned(UUID taskId, UUID projectId, UUID? assigneeId) {
+            if (assigneeId != null) {
+                Log.info("Task assigned to user", { taskId: taskId, assigneeId: assigneeId });
+            } else {
+                Log.info("Task unassigned", { taskId: taskId });
+            }
+        }
 
-                // If project is archived, cancel all open tasks
-                if (newStatus == ProjectStatus.Archived) {
-                    #Array<Task> openTasks = taskDb.Task
-                        .where(projectId: projectId)
-                        .where(status: TaskStatus.Todo)
-                        .all();
+        on TaskOverdue(UUID taskId, UUID projectId, DateTime dueDate) {
+            Log.warn("Task is overdue", {
+                taskId: taskId,
+                projectId: projectId,
+                dueDate: dueDate
+            });
+        }
 
-                    #Array<Task> inProgressTasks = taskDb.Task
-                        .where(projectId: projectId)
-                        .where(status: TaskStatus.InProgress)
-                        .all();
+        on TaskCommentAdded(UUID taskId, UUID commentId, UUID authorId) {
+            Log.info("Comment added to task", {
+                taskId: taskId,
+                commentId: commentId,
+                authorId: authorId
+            });
+        }
+    }
+    subscribe ProjectEvents {
+        on ProjectStatusChanged(UUID projectId, ProjectStatus oldStatus, ProjectStatus newStatus) {
+            Log.info("Project status changed, checking tasks", { projectId: projectId, newStatus: newStatus });
 
-                    foreach task in openTasks {
-                        task.status = TaskStatus.Cancelled;
-                        task.save();
-                    }
+            // If project is archived, cancel all open tasks
+            if (newStatus == ProjectStatus.Archived) {
+                #Array<Task> openTasks = taskDb.Task
+                    .where(projectId: projectId)
+                    .where(status: TaskStatus.Todo)
+                    .all();
 
-                    foreach task in inProgressTasks {
-                        task.status = TaskStatus.Cancelled;
-                        task.save();
-                    }
+                #Array<Task> inProgressTasks = taskDb.Task
+                    .where(projectId: projectId)
+                    .where(status: TaskStatus.InProgress)
+                    .all();
 
-                    #Int cancelledCount = openTasks.length() + inProgressTasks.length();
-                    if (cancelledCount > 0) {
-                        Log.info("Cancelled tasks for archived project", {
-                            projectId: projectId,
-                            cancelledCount: cancelledCount
-                        });
-                    }
+                foreach task in openTasks {
+                    task.status = TaskStatus.Cancelled;
+                    task.save();
+                }
+
+                foreach task in inProgressTasks {
+                    task.status = TaskStatus.Cancelled;
+                    task.save();
+                }
+
+                #Int cancelledCount = openTasks.length() + inProgressTasks.length();
+                if (cancelledCount > 0) {
+                    Log.info("Cancelled tasks for archived project", {
+                        projectId: projectId,
+                        cancelledCount: cancelledCount
+                    });
                 }
             }
+        }
 
-            on ProjectArchived(UUID projectId) {
-                Log.info("Project archived, cancelling remaining tasks", { projectId: projectId });
-            }
+        on ProjectArchived(UUID projectId) {
+            Log.info("Project archived, cancelling remaining tasks", { projectId: projectId });
         }
     }
 

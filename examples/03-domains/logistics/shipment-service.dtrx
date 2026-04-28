@@ -172,28 +172,27 @@ service logistics.ShipmentService : version('1.0.0'), description('shipment trac
                 ensure oldStatus != newStatus;
             }
         }
+    }
+    subscribe ShipmentEvents {
 
-        subscribe ShipmentEvents {
+        on ShipmentStatusChanged(UUID shipmentId, String trackingNumber, ShipmentStatus oldStatus, ShipmentStatus newStatus) {
+            Log.info("Shipment status changed", {
+                shipmentId: shipmentId,
+                trackingNumber: trackingNumber,
+                oldStatus: oldStatus,
+                newStatus: newStatus
+            });
 
-            on ShipmentStatusChanged(UUID shipmentId, String trackingNumber, ShipmentStatus oldStatus, ShipmentStatus newStatus) {
-                Log.info("Shipment status changed", {
-                    shipmentId: shipmentId,
-                    trackingNumber: trackingNumber,
-                    oldStatus: oldStatus,
-                    newStatus: newStatus
-                });
+            redis.ShipmentStatusCache.set(shipmentId, {
+                shipmentId: shipmentId,
+                status: newStatus,
+                location: "In Transit"
+            });
 
-                redis.ShipmentStatusCache.set(shipmentId, {
-                    shipmentId: shipmentId,
-                    status: newStatus,
-                    location: "In Transit"
-                });
-
-                if (newStatus == ShipmentStatus.Delivered) {
-                    redis.ActiveShipments.decr("total");
-                } else if (oldStatus == ShipmentStatus.Created && newStatus == ShipmentStatus.PickedUp) {
-                    redis.ActiveShipments.incr("total");
-                }
+            if (newStatus == ShipmentStatus.Delivered) {
+                redis.ActiveShipments.decr("total");
+            } else if (oldStatus == ShipmentStatus.Created && newStatus == ShipmentStatus.PickedUp) {
+                redis.ActiveShipments.incr("total");
             }
         }
     }
