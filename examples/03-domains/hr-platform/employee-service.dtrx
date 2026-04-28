@@ -108,13 +108,13 @@ service hr.EmployeeService : version('1.0.0'), description('employee management 
             }
 
             afterCreate {
-                emit EmployeeHired(id, employeeNumber, firstName, lastName, email, department, employmentType);
+                dispatch EmployeeHired(id, employeeNumber, firstName, lastName, email, department, employmentType);
                 Log.info("Employee hired", { employeeId: id, employeeNumber: employeeNumber, department: department });
             }
 
             afterUpdate {
                 if (isChanged(status)) {
-                    emit EmployeeStatusChanged(id, employeeNumber, oldValue(status), status);
+                    dispatch EmployeeStatusChanged(id, employeeNumber, oldValue(status), status);
 
                     if (status == EmployeeStatus.Terminated) {
                         terminationDate = now();
@@ -124,11 +124,11 @@ service hr.EmployeeService : version('1.0.0'), description('employee management 
                     }
                 }
                 if (isChanged(department)) {
-                    emit EmployeeDepartmentChanged(id, employeeNumber, oldValue(department), department);
+                    dispatch EmployeeDepartmentChanged(id, employeeNumber, oldValue(department), department);
                     Log.info("Employee department changed", { employeeId: id, oldDept: oldValue(department), newDept: department });
                 }
                 if (isChanged(salary)) {
-                    emit EmployeeSalaryChanged(id, employeeNumber, oldValue(salary), salary);
+                    dispatch EmployeeSalaryChanged(id, employeeNumber, oldValue(salary), salary);
                     Log.info("Employee salary updated", { employeeId: id, employeeNumber: employeeNumber });
                 }
             }

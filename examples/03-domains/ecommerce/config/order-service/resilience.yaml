@@ -60,6 +60,23 @@ test:
         type: handler
         handler: handleShippingFallback
 
+    UserService:
+      timeout: 5s
+      retry:
+        maxAttempts: 2
+        backoff: { type: exponential, initial: 50ms, multiplier: 2, max: 1s, jitter: 0.1 }
+      circuitBreaker:
+        failureThreshold: 5
+        successThreshold: 2
+        timeout: 15s
+        halfOpenRequests: 3
+      bulkhead:
+        maxConcurrent: 20
+        maxWait: 3s
+      fallback:
+        type: handler
+        handler: handleUserFallback
+
 development:
   defaults:
     timeout: 15s
@@ -122,6 +139,23 @@ development:
         type: handler
         handler: handleShippingFallback
 
+    UserService:
+      timeout: 5s
+      retry:
+        maxAttempts: 2
+        backoff: { type: exponential, initial: 50ms, multiplier: 2, max: 1s, jitter: 0.1 }
+      circuitBreaker:
+        failureThreshold: 5
+        successThreshold: 2
+        timeout: 15s
+        halfOpenRequests: 3
+      bulkhead:
+        maxConcurrent: 20
+        maxWait: 3s
+      fallback:
+        type: handler
+        handler: handleUserFallback
+
 production:
   defaults:
     timeout: 15s
@@ -183,3 +217,20 @@ production:
       fallback:
         type: handler
         handler: handleShippingFallback
+
+    UserService:
+      timeout: 5s
+      retry:
+        maxAttempts: 2
+        backoff: { type: exponential, initial: 50ms, multiplier: 2, max: 1s, jitter: 0.1 }
+      circuitBreaker:
+        failureThreshold: 5
+        successThreshold: 2
+        timeout: 15s
+        halfOpenRequests: 3
+      bulkhead:
+        maxConcurrent: 20
+        maxWait: 3s
+      fallback:
+        type: handler
+        handler: handleUserFallback

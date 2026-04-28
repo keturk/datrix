@@ -95,19 +95,19 @@ service fooddelivery.OrderService : version('1.0.0'), description('food order ma
             }
 
             afterCreate {
-                emit OrderPlaced(id, orderNumber, customerId, restaurantId, total);
+                dispatch OrderPlaced(id, orderNumber, customerId, restaurantId, total);
             }
 
             afterUpdate {
                 if (isChanged(status)) {
-                    emit OrderStatusChanged(id, orderNumber, oldValue(status), status);
+                    dispatch OrderStatusChanged(id, orderNumber, oldValue(status), status);
 
                     if (status == OrderStatus.Confirmed) {
-                        emit OrderConfirmed(id, orderNumber, restaurantId, deliveryAddress);
+                        dispatch OrderConfirmed(id, orderNumber, restaurantId, deliveryAddress);
                     } else if (status == OrderStatus.Cancelled) {
-                        emit OrderCancelled(id, orderNumber, customerId);
+                        dispatch OrderCancelled(id, orderNumber, customerId);
                     } else if (status == OrderStatus.Ready) {
-                        emit OrderReady(id, orderNumber, restaurantId);
+                        dispatch OrderReady(id, orderNumber, restaurantId);
                     }
                 }
             }

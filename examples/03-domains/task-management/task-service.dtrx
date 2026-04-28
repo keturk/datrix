@@ -130,12 +130,12 @@ service taskapp.TaskService : version('1.0.0'), description('task tracking and w
             }
 
             afterCreate {
-                emit TaskCreated(id, projectId, title, priority, assigneeId);
+                dispatch TaskCreated(id, projectId, title, priority, assigneeId);
             }
 
             afterUpdate {
                 if (isChanged(status)) {
-                    emit TaskStatusChanged(id, projectId, oldValue(status), status);
+                    dispatch TaskStatusChanged(id, projectId, oldValue(status), status);
 
                     if (status == TaskStatus.InProgress && startedAt == null) {
                         startedAt = now();
@@ -148,7 +148,7 @@ service taskapp.TaskService : version('1.0.0'), description('task tracking and w
                 }
 
                 if (isChanged(assigneeId)) {
-                    emit TaskAssigned(id, projectId, assigneeId);
+                    dispatch TaskAssigned(id, projectId, assigneeId);
                     Log.info("Task assigned", { taskId: id, assigneeId: assigneeId });
                 }
 
@@ -324,14 +324,14 @@ service taskapp.TaskService : version('1.0.0'), description('task tracking and w
             #Int count = 0;
             foreach task in overdueTasks {
                 if (task.dueDate != null) {
-                    emit TaskOverdue(task.id, task.projectId, task.dueDate);
+                    dispatch TaskOverdue(task.id, task.projectId, task.dueDate);
                     count = count + 1;
                 }
             }
 
             foreach task in overdueInProgress {
                 if (task.dueDate != null) {
-                    emit TaskOverdue(task.id, task.projectId, task.dueDate);
+                    dispatch TaskOverdue(task.id, task.projectId, task.dueDate);
                     count = count + 1;
                 }
             }
@@ -521,7 +521,7 @@ service taskapp.TaskService : version('1.0.0'), description('task tracking and w
             });
             comment.save();
 
-            emit TaskCommentAdded(id, comment.id, authorId);
+            dispatch TaskCommentAdded(id, comment.id, authorId);
 
             return comment;
         }

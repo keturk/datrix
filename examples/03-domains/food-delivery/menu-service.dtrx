@@ -87,15 +87,15 @@ service fooddelivery.MenuService : version('1.0.0'), description('menu and item 
             }
 
             afterCreate {
-                emit MenuItemAdded(id, name, price, menuCategoryId);
+                dispatch MenuItemAdded(id, name, price, menuCategoryId);
             }
 
             afterUpdate {
                 if (isChanged(availability)) {
-                    emit MenuItemAvailabilityChanged(id, name, oldValue(availability), availability);
+                    dispatch MenuItemAvailabilityChanged(id, name, oldValue(availability), availability);
                 }
                 if (isChanged(price)) {
-                    emit MenuItemPriceChanged(id, name, oldValue(price), price);
+                    dispatch MenuItemPriceChanged(id, name, oldValue(price), price);
                 }
             }
         }

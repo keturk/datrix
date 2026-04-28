@@ -139,12 +139,12 @@ service lms.CourseService : version('1.0.0'), description('course catalog and co
             }
 
             afterCreate {
-                emit CourseCreated(id, title, instructorId, difficulty);
+                dispatch CourseCreated(id, title, instructorId, difficulty);
             }
 
             afterUpdate {
                 if (isChanged(status)) {
-                    emit CourseStatusChanged(id, oldValue(status), status);
+                    dispatch CourseStatusChanged(id, oldValue(status), status);
 
                     if (status == CourseStatus.Published && publishedAt == null) {
                         publishedAt = now();
@@ -158,7 +158,7 @@ service lms.CourseService : version('1.0.0'), description('course catalog and co
                 }
 
                 if (isChanged(currentEnrollment)) {
-                    emit CourseEnrollmentUpdated(id, currentEnrollment, maxEnrollment);
+                    dispatch CourseEnrollmentUpdated(id, currentEnrollment, maxEnrollment);
                 }
             }
 
@@ -303,12 +303,12 @@ service lms.CourseService : version('1.0.0'), description('course catalog and co
                 if (newStatus == CourseStatus.Published) {
                     #Course? course = courseDb.Course.find(courseId);
                     if (course != null) {
-                        emit CoursePublished(courseId, course.title);
+                        dispatch CoursePublished(courseId, course.title);
                     }
                 }
 
                 if (newStatus == CourseStatus.Archived) {
-                    emit CourseArchived(courseId);
+                    dispatch CourseArchived(courseId);
                 }
             }
 
@@ -508,7 +508,7 @@ service lms.CourseService : version('1.0.0'), description('course catalog and co
             });
             module.save();
 
-            emit ModuleAdded(id, module.id, module.title);
+            dispatch ModuleAdded(id, module.id, module.title);
 
             return module;
         }
@@ -537,7 +537,7 @@ service lms.CourseService : version('1.0.0'), description('course catalog and co
             });
             lesson.save();
 
-            emit LessonAdded(moduleId, lesson.id, lesson.title);
+            dispatch LessonAdded(moduleId, lesson.id, lesson.title);
 
             return lesson;
         }

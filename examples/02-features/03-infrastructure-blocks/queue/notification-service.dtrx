@@ -1,0 +1,38 @@
+
+// NotificationService consumes queue tasks from BookService
+service library.NotificationService : version('1.0.0'), description('notification handling service') {
+
+    config('config/notification-service/notification-service-config.yaml');
+    registration('config/notification-service/registration.yaml');
+    discovery {
+        library.BookService { loadBalance: roundRobin, healthyOnly: true }
+    }
+    resilience('config/notification-service/resilience.yaml');
+    integrations('config/notification-service/integrations.yaml');
+
+    rdbms notifDb('config/notification-service/datasources.yaml') {
+
+        abstract entity BaseEntity {
+            UUID id : primaryKey, server = uuid();
+            DateTime createdAt : server = now();
+            DateTime updatedAt : server = now();
+        }
+
+        entity NotificationDeliveryLog extends BaseEntity {
+            UUID bookId;
+            Email recipientEmail;
+            String(2000) messagePreview;
+        }
+    }
+
+    enqueue library.BookService.SendBookNotification(UUID bookId, Email recipientEmail, String message) {
+        Log.info("Sending book notification", { bookId: bookId, email: recipientEmail });
+
+        Email.send(recipientEmail, "Book Notification", "book-notification", {
+            bookId: bookId,
+            message: message
+        });
+
+        Log.info("Book notification sent", { bookId: bookId, email: recipientEmail });
+    }
+}

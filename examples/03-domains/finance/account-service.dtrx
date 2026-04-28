@@ -125,12 +125,12 @@ service finance.AccountService : version('1.0.0'), description('account and cust
             }
 
             afterCreate {
-                emit AccountOpened(id, accountNumber, customerId, type, currency);
+                dispatch AccountOpened(id, accountNumber, customerId, type, currency);
             }
 
             afterUpdate {
                 if (isChanged(status)) {
-                    emit AccountStatusChanged(id, accountNumber, oldValue(status), status);
+                    dispatch AccountStatusChanged(id, accountNumber, oldValue(status), status);
 
                     if (status == AccountStatus.Frozen) {
                         Log.warn("Account frozen", { accountId: id, accountNumber: accountNumber });

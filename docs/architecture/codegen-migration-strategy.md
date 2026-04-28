@@ -86,7 +86,7 @@ diff -r ecommerce-before-ts ecommerce-after-ts
 - `01-basic-entity` — minimal: single entity, no API
 - `03-basic-api` — REST API with CRUD
 - `21-background-jobs` — jobs + transpiled bodies
-- `09-events` — pubsub events with emit/subscribe
+- `09-events` — pubsub events with dispatch/subscribe
 
 ### 2. Unit Tests
 

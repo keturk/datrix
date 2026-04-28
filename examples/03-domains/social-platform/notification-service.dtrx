@@ -143,7 +143,7 @@ service social.NotificationService : version('1.0.0'), description('notification
                         });
                         notification.save();
 
-                        emit NotificationCreated(notification.id, postAuthorId, NotificationType.Comment);
+                        dispatch NotificationCreated(notification.id, postAuthorId, NotificationType.Comment);
                     }
                 }
             }
@@ -172,7 +172,7 @@ service social.NotificationService : version('1.0.0'), description('notification
                         });
                         notification.save();
 
-                        emit NotificationCreated(notification.id, postAuthorId, NotificationType.Like);
+                        dispatch NotificationCreated(notification.id, postAuthorId, NotificationType.Like);
                     }
                 }
             }
@@ -198,7 +198,7 @@ service social.NotificationService : version('1.0.0'), description('notification
                 });
                 notification.save();
 
-                emit NotificationCreated(notification.id, userId, NotificationType.System);
+                dispatch NotificationCreated(notification.id, userId, NotificationType.System);
             }
 
             on UserFollowed(UUID followerId, UUID followeeId) {
@@ -223,7 +223,7 @@ service social.NotificationService : version('1.0.0'), description('notification
                     });
                     notification.save();
 
-                    emit NotificationCreated(notification.id, followeeId, NotificationType.Follow);
+                    dispatch NotificationCreated(notification.id, followeeId, NotificationType.Follow);
                 }
             }
 
@@ -326,7 +326,7 @@ service social.NotificationService : version('1.0.0'), description('notification
 
             notification.markAsRead();
 
-            emit NotificationRead(id, userId);
+            dispatch NotificationRead(id, userId);
 
             return notification;
         }
@@ -346,7 +346,7 @@ service social.NotificationService : version('1.0.0'), description('notification
             }
 
             if (updatedCount > 0) {
-                emit NotificationsBatchRead(userId, updatedCount);
+                dispatch NotificationsBatchRead(userId, updatedCount);
             }
 
             return { updatedCount: updatedCount };
@@ -368,7 +368,7 @@ service social.NotificationService : version('1.0.0'), description('notification
             }
 
             if (updatedCount > 0) {
-                emit NotificationsBatchRead(userId, updatedCount);
+                dispatch NotificationsBatchRead(userId, updatedCount);
             }
 
             return { updatedCount: updatedCount };

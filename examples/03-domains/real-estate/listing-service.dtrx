@@ -121,12 +121,12 @@ service realestate.ListingService : version('1.0.0'), description('property list
             }
 
             afterCreate {
-                emit ListingCreated(id, listingRef, title, propertyType, price, city, state);
+                dispatch ListingCreated(id, listingRef, title, propertyType, price, city, state);
             }
 
             afterUpdate {
                 if (isChanged(status)) {
-                    emit ListingStatusChanged(id, listingRef, oldValue(status), status);
+                    dispatch ListingStatusChanged(id, listingRef, oldValue(status), status);
 
                     if (status == ListingStatus.Sold) {
                         Log.info("Listing sold", { listingId: id, listingRef: listingRef, price: price });
@@ -135,7 +135,7 @@ service realestate.ListingService : version('1.0.0'), description('property list
                     }
                 }
                 if (isChanged(price)) {
-                    emit ListingPriceChanged(id, listingRef, oldValue(price), price);
+                    dispatch ListingPriceChanged(id, listingRef, oldValue(price), price);
                 }
             }
 

@@ -70,12 +70,12 @@ service social.UserService : version('1.0.0'), description('user management and 
             }
 
             afterCreate {
-                emit UserRegistered(id, username, email);
+                dispatch UserRegistered(id, username, email);
             }
 
             afterUpdate {
                 if (isChanged(status)) {
-                    emit UserStatusChanged(id, oldValue(status), status);
+                    dispatch UserStatusChanged(id, oldValue(status), status);
 
                     if (status == UserStatus.Suspended) {
                         Log.warn("User suspended", { userId: id, username: username });
@@ -114,7 +114,7 @@ service social.UserService : version('1.0.0'), description('user management and 
                     followee.save();
                 }
 
-                emit UserFollowed(followerId, followeeId);
+                dispatch UserFollowed(followerId, followeeId);
             }
         }
     }
@@ -230,7 +230,7 @@ service social.UserService : version('1.0.0'), description('user management and 
                 followingCount: user.followingCount
             });
 
-            emit UserProfileUpdated(userId, user.displayName);
+            dispatch UserProfileUpdated(userId, user.displayName);
 
             return user;
         }
@@ -328,7 +328,7 @@ service social.UserService : version('1.0.0'), description('user management and 
                 follow.delete();
             }
 
-            emit UserUnfollowed(followerId, id);
+            dispatch UserUnfollowed(followerId, id);
         }
 
         // Get followers of a user

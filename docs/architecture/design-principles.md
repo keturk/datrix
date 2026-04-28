@@ -336,7 +336,7 @@ entity User extends BaseEntity {
  }
 
  afterCreate {
- emit UserRegistered(id, email);
+ dispatch UserRegistered(id, email);
  }
 }
 ```

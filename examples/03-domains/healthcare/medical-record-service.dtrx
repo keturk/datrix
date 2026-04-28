@@ -166,7 +166,7 @@ service healthcare.MedicalRecordService : version('1.0.0'), description('medical
             }
 
             afterCreate {
-                emit RecordCreated(id, patientId, type, providerId);
+                dispatch RecordCreated(id, patientId, type, providerId);
 
                 Log.info("Medical record created", {
                     recordId: id,
@@ -179,7 +179,7 @@ service healthcare.MedicalRecordService : version('1.0.0'), description('medical
 
             afterUpdate {
                 if (isChanged(status) && status == RecordStatus.Final) {
-                    emit RecordFinalized(id, patientId, type);
+                    dispatch RecordFinalized(id, patientId, type);
                 }
 
                 Log.info("Medical record updated", {
@@ -261,7 +261,7 @@ service healthcare.MedicalRecordService : version('1.0.0'), description('medical
             }
 
             afterCreate {
-                emit PrescriptionCreated(id, patientId, medicationName, prescribingDoctor);
+                dispatch PrescriptionCreated(id, patientId, medicationName, prescribingDoctor);
 
                 Log.info("Prescription created", {
                     prescriptionId: id,
@@ -564,7 +564,7 @@ service healthcare.MedicalRecordService : version('1.0.0'), description('medical
             }
             record.amend(request.reason);
 
-            emit RecordAmended(record.id, record.patientId, request.reason);
+            dispatch RecordAmended(record.id, record.patientId, request.reason);
 
             return record;
         }

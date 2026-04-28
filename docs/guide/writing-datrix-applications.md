@@ -808,12 +808,12 @@ entity Order {
     OrderStatus status;
 
     afterCreate {
-        emit OrderCreated(id, total, customerId);
+        dispatch OrderCreated(id, total, customerId);
     }
 
     afterUpdate {
         if (status == OrderStatus.Shipped && $old.status != OrderStatus.Shipped) {
-            emit OrderShipped(id, now());
+            dispatch OrderShipped(id, now());
         }
     }
 }
@@ -826,7 +826,7 @@ post cancelOrder(UUID id) -> Order {
     let order = db.Order.findOrFail(id);
     order.status = OrderStatus.Cancelled;
     db.Order.save(order);
-    emit OrderCancelled(id, "User requested cancellation");
+    dispatch OrderCancelled(id, "User requested cancellation");
     return order;
 }
 ```
@@ -876,6 +876,18 @@ topic OrderEvents {
     publish OrderShipped(...) : persist;     // Persist to event store
 }
 ```
+
+---
+
+## Task queues (point-to-point)
+
+Queues offload **exactly-once consumer** work to workers. Configuration is in **`queue.yaml`** (not `datasources.yaml`). Only the **producing** service adds that file and a `queues('…/queue.yaml') { queue Name(…) { … } }` block.
+
+1. Add `config/<service>/queue.yaml` with `engine`, `platform`, broker settings, and worker defaults (`visibilityTimeout`, `maxConcurrency`, `workerReplicas`, …). See [Configuration Guide — Queue Configuration](./configuration-guide.md#queue-configuration).
+2. Declare queues in DSL; use `dispatch TaskName(args);` from entities, commands, or HTTP handlers (same keyword as pubsub events — **QUE005** ensures the name resolves).
+3. For a **consumer** in another service: add the producer to `discovery { }` and write `enqueue ProducerService.TaskName(…) { … }`. The generator emits a **separate worker entrypoint** (e.g. `python -m …workers.queue_worker`) suitable for its own container/pod.
+
+Walkthrough: [`examples/02-features/03-infrastructure-blocks/queue`](../../examples/02-features/03-infrastructure-blocks/queue/).
 
 ---
 
@@ -956,7 +968,7 @@ job CleanupExpiredOrders cron('0 2 * * *') {  // Daily at 2 AM
     for (order in expired) {
         order.status = OrderStatus.Cancelled;
         db.Order.save(order);
-        emit OrderCancelled(order.id, "Expired");
+        dispatch OrderCancelled(order.id, "Expired");
     }
 
     Log.info("Cleanup completed", { count: expired.length });
@@ -1070,7 +1082,7 @@ cqrs {
             });
         }
 
-        emit OrderCreated(order.id, total, customerId);
+        dispatch OrderCreated(order.id, total, customerId);
         return order;
     }
 }
@@ -1236,7 +1248,7 @@ entity Order {
 
     afterCreate {
         // Emit event
-        emit OrderCreated(id, total, customerId);
+        dispatch OrderCreated(id, total, customerId);
 
         // Update metrics
         DailyOrders.increment(utcToday().toString());
@@ -1253,14 +1265,14 @@ entity Order {
 
         // Check for status change
         if (status != $old.status) {
-            emit OrderStatusChanged(id, $old.status, status);
+            dispatch OrderStatusChanged(id, $old.status, status);
         }
     }
 
     afterDelete {
         // Cleanup
         OrderCache.delete(id);
-        emit OrderDeleted(id);
+        dispatch OrderDeleted(id);
     }
 }
 ```
@@ -1276,7 +1288,7 @@ entity Order {
 ```dtrx
 afterUpdate {
     if (status == OrderStatus.Shipped && $old.status != OrderStatus.Shipped) {
-        emit OrderShipped(id, now());
+        dispatch OrderShipped(id, now());
     }
 }
 ```
@@ -1493,12 +1505,12 @@ entity Order {
 ```dtrx
 entity Order {
     afterCreate {
-        emit OrderCreated(id, total, customerId);
+        dispatch OrderCreated(id, total, customerId);
     }
 
     afterUpdate {
         if (status != $old.status) {
-            emit OrderStatusChanged(id, $old.status, status);
+            dispatch OrderStatusChanged(id, $old.status, status);
         }
     }
 }
@@ -1670,9 +1682,9 @@ pubsub mq {
             // Reserve payment
             let success = PaymentService.reservePayment(customerId, total);
             if (success) {
-                emit PaymentReserved(orderId, total);
+                dispatch PaymentReserved(orderId, total);
             } else {
-                emit PaymentFailed(orderId, "Insufficient funds");
+                dispatch PaymentFailed(orderId, "Insufficient funds");
             }
         }
     }
@@ -1686,9 +1698,9 @@ pubsub mq {
             let items = OrderService.getOrderItems(orderId);
             let success = InventoryService.reserveItems(items);
             if (success) {
-                emit InventoryReserved(orderId);
+                dispatch InventoryReserved(orderId);
             } else {
-                emit InventoryFailed(orderId, "Out of stock");
+                dispatch InventoryFailed(orderId, "Out of stock");
             }
         }
     }

@@ -86,12 +86,12 @@ service logistics.RouteService : version('1.0.0'), description('route planning a
             }
 
             afterCreate {
-                emit RouteCreated(id, routeCode, vehicleId, driverId);
+                dispatch RouteCreated(id, routeCode, vehicleId, driverId);
             }
 
             afterUpdate {
                 if (isChanged(status)) {
-                    emit RouteStatusChanged(id, routeCode, oldValue(status), status);
+                    dispatch RouteStatusChanged(id, routeCode, oldValue(status), status);
                 }
             }
 
@@ -387,7 +387,7 @@ service logistics.RouteService : version('1.0.0'), description('route planning a
 
             stop.markCompleted();
 
-            emit StopCompleted(route.id, stop.id, stop.shipmentId);
+            dispatch StopCompleted(route.id, stop.id, stop.shipmentId);
 
             #Int completedStops = routeDb.RouteStop
                 .where(routeId: route.id)

@@ -214,17 +214,17 @@ service library.BookService : version('1.0.0'), description('book management ser
             // Lifecycle hook - runs after a new record is created
             afterCreate {
                 status = BookStatus.Available;
-                // 'emit' publishes an event to the message bus
-                emit BookAdded(id, title);
+                // 'dispatch' publishes an event to the message bus (or dispatches a queue task)
+                dispatch BookAdded(id, title);
             }
 
             // Lifecycle hook - runs after an existing record is updated
             afterUpdate {
                 if (isChanged(status)) {
-                    emit BookStatusChanged(id, oldValue(status), status);
+                    dispatch BookStatusChanged(id, oldValue(status), status);
                 }
                 if (isChanged(condition)) {
-                    emit BookConditionChanged(id, oldValue(condition), condition);
+                    dispatch BookConditionChanged(id, oldValue(condition), condition);
                 }
             }
         }
@@ -405,14 +405,14 @@ service library.BookService : version('1.0.0'), description('book management ser
             index status;
         }
 
-        // 'command' defines a write operation that mutates state and may emit events
+        // 'command' defines a write operation that mutates state and may dispatch events
         // References 'catalog.Book' to target the correct rdbms block
         command UpdateBookStatus(UUID bookId, BookStatus newStatus) -> catalog.Book {
             #Book? book = catalog.Book.findById(bookId);
             #BookStatus oldStatus = book.status;
             book.status = newStatus;
             book.save();
-            emit BookStatusChanged(bookId, oldStatus, newStatus);
+            dispatch BookStatusChanged(bookId, oldStatus, newStatus);
             return book;
         }
 
@@ -455,7 +455,7 @@ service library.BookService : version('1.0.0'), description('book management ser
     // Jobs are configured via an external YAML file for scheduling, retries, etc.
     jobs('config/book-service/jobs.yaml') {
         // 'job' defines a named background task with inline logic
-        // Jobs can query the database and emit events like any other block
+        // Jobs can query the database and dispatch events like any other block
         job CheckOverdueBooks {
             #Array<Book> checkedOut = catalog.Book.where(status: BookStatus.CheckedOut).all();
             #Int processed = 0;
@@ -465,8 +465,8 @@ service library.BookService : version('1.0.0'), description('book management ser
                 processed = processed + 1;
             }
 
-            // Jobs can emit events to notify other parts of the system
-            emit OverdueBooksProcessed(processed);
+            // Jobs can dispatch events to notify other parts of the system
+            dispatch OverdueBooksProcessed(processed);
         }
 
         // Another background job that refreshes the cache layer
@@ -504,7 +504,7 @@ service library.BookService : version('1.0.0'), description('book management ser
                 }
             }
 
-            emit OverdueBooksProcessed(processed);
+            dispatch OverdueBooksProcessed(processed);
         }
 
         // Cross-database job: reads from 'catalog' and writes to 'reporting'
@@ -696,7 +696,7 @@ service library.BookService : version('1.0.0'), description('book management ser
                 });
                 checkout.save();
 
-                emit CheckoutCreated(checkout.id, id);
+                dispatch CheckoutCreated(checkout.id, id);
                 return checkout;
             } catch (Exception e) {
                 Log.error(#"Checkout failed for book {id}: {e}");
@@ -726,7 +726,7 @@ service library.BookService : version('1.0.0'), description('book management ser
 
             book.condition = request.newCondition;
             book.save();
-            emit BookConditionChanged(id, oldCondition, request.newCondition);
+            dispatch BookConditionChanged(id, oldCondition, request.newCondition);
             return book;
         }
 
@@ -910,7 +910,7 @@ service library.BookService : version('1.0.0'), description('book management ser
         assert emitted(BookStatusChanged(book.id, BookStatus.Available, BookStatus.CheckedOut));
     }
 
-    test("title update does not emit BookStatusChanged") {
+    test("title update does not dispatch BookStatusChanged") {
         #catalog.Category cat = catalog.Category.create({ name: "SpecCatNoEvent" });
         cat.save();
         #catalog.Branch br = catalog.Branch.create({ name: "SpecBranchNoEvent", latitude: 40.7128, longitude: -74.0060, country: "US" });

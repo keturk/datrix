@@ -43,7 +43,7 @@ service blog.CommentService : version('1.0.0'), description('comment management 
 
             afterUpdate {
                 if (isChanged(status) && status == CommentStatus.Approved) {
-                    emit CommentApproved(id, contentId);
+                    dispatch CommentApproved(id, contentId);
                 }
             }
         }

@@ -21,7 +21,7 @@ Service B receives `totalAmount = -50.00`, processes it, and corrupts downstream
 
 ## Solution
 
-`ensure` clauses inside event declarations express value invariants on event parameters. Contracts are enforced at the **publisher** side — fail-fast at `emit`, before bad data propagates. Subscribers can trust the contract.
+`ensure` clauses inside event declarations express value invariants on event parameters. Contracts are enforced at the **publisher** side — fail-fast at `dispatch`, before bad data propagates. Subscribers can trust the contract.
 
 ---
 
@@ -64,7 +64,7 @@ publish OrderShipped(UUID orderId, DateTime shippedAt);
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Enforcement point | Publisher side (fail-fast at `emit`) | Datrix philosophy is fail-fast. If Service A emits invalid data, that's A's bug — catch it before propagation. Subscribers can trust the contract. |
+| Enforcement point | Publisher side (fail-fast at `dispatch`) | Datrix philosophy is fail-fast. If Service A emits invalid data, that's A's bug — catch it before propagation. Subscribers can trust the contract. |
 | Placement | Inside the `publish` event declaration body | Eliminates scoping ambiguity — event names are unique within a topic but not across topics in the same pubsub block. Inline placement makes scope unambiguous. |
 | Syntax | `ensure <expression>;` (semicolon-terminated) | Consistent with the rest of the Datrix grammar. Declarative style fits the DSL philosophy. |
 | No separate `contract` block | `ensure` clauses live directly in the event body | A separate `contract` block at the pubsub level would require binding to events by name, creating ambiguity when two topics share an event name. Inline ensures avoid this entirely. |

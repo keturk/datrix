@@ -110,13 +110,13 @@ service finance.ComplianceService : version('1.0.0'), description('regulatory co
                 });
 
                 if (severity == AlertSeverity.Critical) {
-                    emit CriticalAlertRaised(id, accountId, type, description);
+                    dispatch CriticalAlertRaised(id, accountId, type, description);
                 }
             }
 
             afterUpdate {
                 if (isChanged(status)) {
-                    emit AlertStatusChanged(id, accountId, oldValue(status), status);
+                    dispatch AlertStatusChanged(id, accountId, oldValue(status), status);
                 }
             }
 
@@ -509,7 +509,7 @@ service finance.ComplianceService : version('1.0.0'), description('regulatory co
             });
             report.save();
 
-            emit ComplianceReportGenerated(today, "daily_compliance", allAlerts.length());
+            dispatch ComplianceReportGenerated(today, "daily_compliance", allAlerts.length());
             Log.info("Compliance report generated", { date: today, totalAlerts: allAlerts.length(), critical: criticalAlerts.length() });
         }
     }

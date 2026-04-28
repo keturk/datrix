@@ -1,0 +1,189 @@
+
+// BookService produces queues for background processing tasks
+service library.BookService : version('1.0.0'), description('book management service') {
+
+    config('config/book-service/book-service-config.yaml');
+    registration('config/book-service/registration.yaml');
+    discovery { }
+    resilience('config/book-service/resilience.yaml');
+    integrations('config/book-service/integrations.yaml');
+
+    enum BookStatus {
+        Available,
+        CheckedOut,
+        Reserved,
+        Maintenance
+    }
+
+    enum BookFormat {
+        Hardcover,
+        Paperback,
+        eBook,
+        Audiobook
+    }
+
+    enum UserRole {
+        Member,
+        Librarian,
+        Admin
+    }
+
+    rdbms bookDb('config/book-service/datasources.yaml') {
+
+        abstract entity BaseEntity {
+            UUID id : primaryKey, server = uuid();
+            DateTime createdAt : server = now();
+            DateTime updatedAt : server = now();
+        }
+
+        entity Category extends BaseEntity {
+            String(100) name : unique, trim;
+            String(500)? description;
+            hasMany Book as books;
+        }
+
+        entity User extends BaseEntity {
+            String(255) email : unique, trim;
+            Password passwordHash;
+            UserRole role = UserRole.Member;
+
+            beforeCreate {
+                passwordHash = Auth.hashPassword(passwordHash);
+            }
+        }
+
+        entity Book extends BaseEntity {
+            String(200) title : trim;
+            String(10, 13) isbn;
+            String(100) author : trim;
+            Int publicationYear;
+            BookStatus status = BookStatus.Available;
+            BookFormat format = BookFormat.Hardcover;
+            String(50)? catalogNumber;
+            Array<String> keywords = [];
+            Decimal(3, 2) rating = 0.0;
+
+            Boolean isAvailable := status == BookStatus.Available;
+            String displayTitle := #"{title} ({publicationYear})";
+
+            belongsTo Category : index;
+
+            validate {
+                if (title.trim().isEmpty())
+                    ValidationError("Title cannot be empty");
+                if (publicationYear > now().year())
+                    ValidationError("Publication year cannot be in the future");
+            }
+
+            beforeCreate {
+                catalogNumber = #"CAT-{Random.string(8).toUpperCase()}";
+            }
+
+            afterCreate {
+                status = BookStatus.Available;
+                dispatch IndexBook(id, title, author);
+                dispatch GenerateBookCover(id, title);
+            }
+
+            afterUpdate {
+                if (isChanged(status)) {
+                    dispatch IndexBook(id, title, author);
+                }
+            }
+        }
+    }
+
+    pubsub mq('config/book-service/pubsub.yaml') {
+        topic BookEvents {
+            publish BookAdded(UUID bookId, String title) {
+                ensure title.length > 0;
+            }
+            publish BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
+                ensure oldStatus != newStatus;
+            }
+        }
+
+        subscribe BookEvents {
+            on BookAdded(UUID bookId, String title) {
+                Log.info("New book added", { bookId: bookId, title: title });
+            }
+            on BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
+                Log.info("Book status changed", { bookId: bookId, oldStatus: oldStatus, newStatus: newStatus });
+            }
+        }
+    }
+
+    queues('config/book-service/queue.yaml') {
+        queue IndexBook(UUID bookId, String title, String author) {
+            ensure title.length > 0;
+            ensure author.length > 0;
+        }
+
+        queue GenerateBookCover(UUID bookId, String title) : fifo(bookId) {
+            ensure title.length > 0;
+        }
+
+        queue SendBookNotification(UUID bookId, Email recipientEmail, String message) {
+            ensure recipientEmail.length > 0;
+            ensure message.length > 0;
+        }
+    }
+
+    struct BookNotifyRequest {
+        Email recipientEmail;
+        String(2000) message;
+    }
+
+    rest_api BookServiceAPI : basePath("/api/v1") {
+        resource bookDb.Book : only(list, get), public;
+        resource bookDb.Book : only(create, update, delete), access(librarian);
+        resource bookDb.Category : only(list, get), public;
+
+        @path('/books/search')
+        get(String query) : public -> Array<bookDb.Book> {
+            return bookDb.Book.where(title: query).all();
+        }
+
+        @path('/books/:bookId/reindex')
+        post(UUID bookId) : access(admin) -> bookDb.Book {
+            #Book book = bookDb.Book.findOrFail(bookId);
+            dispatch IndexBook(book.id, book.title, book.author);
+            return book;
+        }
+
+        @path('/books/:bookId/notify')
+        post(UUID bookId, BookNotifyRequest request) : access(admin) -> bookDb.Book {
+            #Book book = bookDb.Book.findOrFail(bookId);
+            dispatch SendBookNotification(book.id, request.recipientEmail, request.message);
+            return book;
+        }
+    }
+
+    test("afterCreate dispatches IndexBook task") {
+        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatQueue" });
+        cat.save();
+        #bookDb.Book book = bookDb.Book.create({
+            title: "Domain-Driven Design",
+            isbn: "9780321125217",
+            author: "Eric Evans",
+            publicationYear: 2003,
+            categoryId: cat.id
+        });
+        book.save();
+        assert dispatched(IndexBook(book.id, book.title, book.author));
+    }
+
+    test("afterCreate dispatches GenerateBookCover task") {
+        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatCover" });
+        cat.save();
+        #bookDb.Book book = bookDb.Book.create({
+            title: "Clean Code",
+            isbn: "9780132350884",
+            author: "Robert Martin",
+            publicationYear: 2008,
+            categoryId: cat.id
+        });
+        book.save();
+        assert dispatched(GenerateBookCover(book.id, book.title));
+    }
+}

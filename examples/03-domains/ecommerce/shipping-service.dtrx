@@ -115,11 +115,11 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
                     });
 
                     if (status == ShipmentStatus.InTransit) {
-                        emit ShipmentDispatched(id, orderId, trackingNumber);
+                        dispatch ShipmentDispatched(id, orderId, trackingNumber);
                     } else if (status == ShipmentStatus.Delivered) {
-                        emit ShipmentDelivered(id, orderId, actualDelivery ?? now());
+                        dispatch ShipmentDelivered(id, orderId, actualDelivery ?? now());
                     } else if (status == ShipmentStatus.Failed) {
-                        emit ShipmentFailed(id, orderId, failureReason ?? "Delivery failed");
+                        dispatch ShipmentFailed(id, orderId, failureReason ?? "Delivery failed");
                     }
                 }
             }
@@ -217,7 +217,7 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
                     description: "Shipment created, awaiting pickup"
                 });
 
-                emit ShipmentCreated(shipment.id, orderId);
+                dispatch ShipmentCreated(shipment.id, orderId);
                 // Increment daily shipment counter
                 redis.ShipmentsToday.incr(now().format('YYYY-MM-DD'));
 
@@ -298,7 +298,7 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
                 description: "Shipment created, awaiting pickup"
             });
 
-            emit ShipmentCreated(shipment.id, request.orderId);
+            dispatch ShipmentCreated(shipment.id, request.orderId);
 
             redis.ShipmentsToday.incr(now().format('YYYY-MM-DD'));
 
