@@ -1,0 +1,8 @@
+services:
+  DataIngestionService:
+    url: http://data-ingestion-service:8080
+    version: "1.0"
+    healthCheck: /health
+
+shared:
+  IngestionEvents: {}

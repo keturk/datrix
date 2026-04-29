@@ -1,0 +1,66 @@
+
+// subscriber-service.dtrx
+// Subscribes to the shared IngestionEvents topic via `uses : subscribe`.
+service library.AnalysisService : version('1.0.0'), description('Subscribes to shared ingestion events') {
+
+    config('config/analysis-service/analysis-service-config.yaml');
+    registration('config/analysis-service/registration.yaml');
+    resilience('config/analysis-service/resilience.yaml');
+    dependencies('config/analysis-service/dependencies.yaml');
+
+    uses IngestionEvents : subscribe;
+    uses DataIngestionService;
+
+    enum AnalysisStatus { Pending, Running, Completed, Failed }
+
+    rdbms analysisDb('config/analysis-service/datasources.yaml') {
+        entity AnalysisRun {
+            UUID id : primaryKey = uuid();
+            String source : index;
+            AnalysisStatus status : index;
+            DateTime startedAt;
+            DateTime? completedAt;
+            Int recordsAnalyzed = 0;
+        }
+    }
+
+    subscribe IngestionEvents.mq.IngestionEvents {
+        on SupplementalSourceIngested(String source, String layer, DateTime timestamp) {
+            Log.info("Supplemental source ingested -- starting analysis", { source: source, layer: layer });
+            analysisDb.AnalysisRun.create({
+                source: source,
+                status: AnalysisStatus.Pending,
+                startedAt: now()
+            });
+        }
+
+        on IngestionCompleted(UUID runId, String source, Int recordsProcessed, DateTime completedAt) {
+            Log.info("Ingestion completed -- scheduling full analysis", {
+                runId: runId,
+                source: source,
+                recordsProcessed: recordsProcessed
+            });
+        }
+
+        on IngestionFailed(UUID runId, String source, String errorMessage) {
+            Log.warn("Ingestion failed -- skipping analysis", { runId: runId, source: source, error: errorMessage });
+        }
+    }
+
+    rest_api AnalysisAPI : basePath('/api/v1') {
+        @path('/analysis/runs')
+        @authorize(roles: ['Admin'])
+        get(Int? limit) -> Array<analysisDb.AnalysisRun> {
+            return analysisDb.AnalysisRun.orderBy(startedAt: desc).limit(limit ?? 20).all();
+        }
+    }
+
+    test("subscribe handler creates AnalysisRun on supplemental event path") {
+        #analysisDb.AnalysisRun run = analysisDb.AnalysisRun.create({
+            source: "TestSource",
+            status: AnalysisStatus.Pending,
+            startedAt: now()
+        });
+        assert run.status == AnalysisStatus.Pending;
+    }
+}

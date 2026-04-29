@@ -13,19 +13,20 @@ This guide covers all configuration files in Datrix, their structure, options, a
 3. [Profiles and Environments](#profiles-and-environments)
 4. [System Configuration](#system-configuration)
 5. [Service Configuration](#service-configuration)
-6. [Datasources Configuration](#datasources-configuration)
-7. [Service Registration](#service-registration)
-8. [Resilience Configuration](#resilience-configuration)
-9. [Gateway Configuration](#gateway-configuration)
-10. [Registry Configuration](#registry-configuration)
-11. [Observability Configuration](#observability-configuration)
-12. [Storage Configuration](#storage-configuration)
-13. [Jobs Configuration](#jobs-configuration)
-14. [Queue Configuration](#queue-configuration)
-15. [Integrations Configuration](#integrations-configuration)
-16. [Platform-Specific Configuration](#platform-specific-configuration)
-17. [Environment Variables](#environment-variables)
-18. [Secrets Management](#secrets-management)
+6. [Service dependencies (`dependencies.yaml`)](#service-dependencies-dependenciesyaml)
+7. [Datasources Configuration](#datasources-configuration)
+8. [Service Registration](#service-registration)
+9. [Resilience Configuration](#resilience-configuration)
+10. [Gateway Configuration](#gateway-configuration)
+11. [Registry Configuration](#registry-configuration)
+12. [Observability Configuration](#observability-configuration)
+13. [Storage Configuration](#storage-configuration)
+14. [Jobs Configuration](#jobs-configuration)
+15. [Queue Configuration](#queue-configuration)
+16. [Integrations Configuration](#integrations-configuration)
+17. [Platform-Specific Configuration](#platform-specific-configuration)
+18. [Environment Variables](#environment-variables)
+19. [Secrets Management](#secrets-management)
 
 ---
 
@@ -73,7 +74,7 @@ Tier 3: Service-Level Config (profile-based YAML)
 └── Multi-tenancy settings
 
 Tier 4: Block-Level Config (profile-based YAML)
-├── RDBMS (datasources.yaml)
+├── RDBMS (datasources.yaml) — per **service** or **`shared`** block
 ├── Cache (datasources.yaml)
 ├── PubSub (datasources.yaml)
 ├── NoSQL (datasources.yaml)
@@ -81,6 +82,8 @@ Tier 4: Block-Level Config (profile-based YAML)
 ├── Jobs (jobs.yaml)
 └── Queues (queue.yaml — separate file, not a datasource)
 ```
+
+**`shared` blocks** use the **same** Tier 4 YAML shapes as services; paths in `.dtrx` are resolved relative to the project root during **`resolve_infrastructure_configs`** just like service-owned blocks.
 
 ---
 
@@ -213,6 +216,36 @@ production:
 | `kubernetes` | Kubernetes | `kubernetes` |
 | `aws` | Amazon Web Services | `ecs-fargate`, `ecs-ec2`, `lambda`, `app-runner`, `eks` |
 | `azure` | Microsoft Azure | `container-apps`, `functions`, `aks`, `app-service` |
+
+---
+
+## Service dependencies (`dependencies.yaml`)
+
+**DSL:** `dependencies('config/<service-name>/dependencies.yaml');` inside a **`service { }`** body sets **`Service.dependencies_path`**. Stage 1 config resolution loads **`DependenciesProfileConfig`** (`datrix_common.config.dependencies`) into **`service.dependencies`**.
+
+**Purpose:** supply **operational** metadata for **`uses`** targets — remote **service** URLs, timeouts, retries, and optional **shared**-block overrides — separate from behavioral DSL.
+
+**Shape (per active profile):**
+
+```yaml
+services:
+  PaymentService:
+    url: http://payment-service:8080
+    version: "1.0"
+    healthCheck: /health
+    timeout: 30s
+    retry:
+      maxAttempts: 3
+      backoff: exponential
+
+shared:
+  IngestionEvents: {}
+```
+
+- **`services`** — keys are the **simple** service names referenced by **`uses`**. Each value is a **`ServiceDependencyConfig`** (`url`, `version`, `healthCheck`, `timeout`, `retry`, optional `loadBalance`, `healthyOnly`).
+- **`shared`** — keys match **`shared BlockName`** containers. Values are **`SharedDependencyConfig`** objects (`extra="allow"`) for engine-specific connection overrides.
+
+Files may be **flat** (top-level keys `development` / `production` / `test`) or **nested** profiles; see the loader docstring in **`datrix_common/config/dependencies.py`**.
 
 ---
 

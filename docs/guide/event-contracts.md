@@ -8,7 +8,7 @@ Event contracts enforce **value-level invariants** on event payloads using `ensu
 
 ## Problem
 
-The semantic analyzer validates **structural** correctness: parameter counts match, parameter types match, topics exist, subscribers reference real events. But nothing prevents a publisher from emitting structurally valid yet semantically broken payloads:
+The semantic analyzer validates **structural** correctness: parameter counts match, parameter types match, topics exist, subscribers reference real events. But nothing prevents a publisher from **dispatching** structurally valid yet semantically broken payloads:
 
 ```python
 # Structurally correct, semantically wrong — negative amount
@@ -44,10 +44,10 @@ service ecommerce.OrderService : version('1.0.0') {
                 ensure reason.length <= 500;
             }
         }
+    }
 
-        subscribe OrderEvents from ecommerce.OrderService {
-            on OrderPlaced(orderId, totalAmount, itemCount) { ... }
-        }
+    subscribe ecommerce.OrderService.mq.OrderEvents {
+        on OrderPlaced(orderId, totalAmount, itemCount) { ... }
     }
 }
 ```
@@ -167,6 +167,34 @@ Contract test files verify:
 
 ---
 
+## Shared topics and qualified `subscribe`
+
+When a **`topic`** lives under **`shared IngestionEvents { pubsub mq('…') { topic IngestionEvents { … }}}`**, every consuming service uses a **qualified** topic name and declares **`uses`**:
+
+```datrix
+shared IngestionEvents {
+    pubsub mq('config/ingestion-pubsub.yaml') {
+        topic IngestionEvents {
+            publish SupplementalSourceIngested(String source, String layer, DateTime timestamp);
+        }
+    }
+}
+
+service analysis.AnalysisService : version('1.0') {
+    uses IngestionEvents : subscribe;
+
+    subscribe IngestionEvents.mq.IngestionEvents {
+        on SupplementalSourceIngested(String source, String layer, DateTime timestamp) {
+            // handler
+        }
+    }
+}
+```
+
+Fan-in patterns (for example aggregating multiple producers into one handler namespace) may use wildcard-style qualified names as documented in the language reference — keep **`uses`** aligned with every shared or external service you touch.
+
+---
+
 ## Infrastructure Leveraged
 
 Event contracts build on existing Datrix infrastructure:
@@ -175,7 +203,7 @@ Event contracts build on existing Datrix infrastructure:
 |-----------|------|
 | **Expression AST** | 16 expression node types in `datrix_common.datrix_model.expressions` — `ensure` clauses use the full expression language |
 | **Event model** | `PubsubBlock` > `Topic` > `Event` > `Parameter` — ensure clauses attach directly to `Event` via `ensure_clauses: tuple[EnsureClause, ...]` |
-| **Event validator** | EVT001-EVT006 validate structural event correctness — contract validation (CTR001-CTR003) runs after and extends this |
+| **Event validator** | EVT001-EVT006 validate structural event correctness (subscriptions are on **`Service.subscriptions`**, not `PubsubBlock`) — contract validation (CTR001-CTR003) runs after and extends this |
 | **Transpilers** | Visitor-based `PythonTranspiler` and `TypeScriptTranspiler` — contract validation functions are transpiled from `ensure` expressions |
 
 ---

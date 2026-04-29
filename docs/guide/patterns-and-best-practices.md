@@ -405,6 +405,10 @@ rest_api OrderAPIV2 : basePath('/api/v2/orders') {
 
 ## Event-Driven Patterns
 
+**Service-level `subscribe`:** Consumer handlers live in **`subscribe QualifiedTopicName { on Event … }`** blocks that are **siblings** of `pubsub` inside the **service** — not nested under `pubsub`. Use a **qualified** topic name when the topic is defined on another service or on a **`shared`** block (for example `ecommerce.OrderService.mq.OrderEvents` or `IngestionEvents.mq.IngestionEvents`). Declare **`uses TargetName : subscribe;`** (and other modifiers as needed) so the analyzer can enforce SHR004–SHR006.
+
+**`dispatch`** sends pubsub events and queue tasks from hooks and handlers (queue **`dispatch`** follows the same keyword).
+
 ### Pattern: Domain Events
 
 **Problem:** Notify other services when important things happen.
@@ -441,8 +445,11 @@ entity Order {
 
 ```dtrx
 // In NotificationService
-pubsub mq {
-    subscribe OrderEvents from order {
+service notification.NotificationService : version('1.0.0') {
+    pubsub mq('config/notification-service/pubsub.yaml') {
+    }
+
+    subscribe ecommerce.OrderService.mq.OrderEvents {
         on OrderCreated(UUID orderId, UUID customerId, Money total) {
             let customer = UserService.getUser(customerId);
 
@@ -481,14 +488,16 @@ pubsub mq {
 
 ```dtrx
 // Order Service
-pubsub mq {
-    topic OrderEvents {
-        publish OrderPlaced(UUID orderId, UUID customerId, List<OrderItem> items);
-        publish OrderConfirmed(UUID orderId);
-        publish OrderCancelled(UUID orderId, String reason);
+service ecommerce.OrderService : version('1.0.0') {
+    pubsub mq('config/order-service/pubsub.yaml') {
+        topic OrderEvents {
+            publish OrderPlaced(UUID orderId, UUID customerId, List<OrderItem> items);
+            publish OrderConfirmed(UUID orderId);
+            publish OrderCancelled(UUID orderId, String reason);
+        }
     }
 
-    subscribe PaymentEvents from payment {
+    subscribe ecommerce.PaymentService.mq.PaymentEvents {
         on PaymentFailed(UUID orderId, String reason) {
             let order = db.Order.findOrFail(orderId);
             order.status = OrderStatus.Cancelled;
@@ -497,7 +506,7 @@ pubsub mq {
         }
     }
 
-    subscribe InventoryEvents from inventory {
+    subscribe ecommerce.InventoryService.mq.InventoryEvents {
         on InventoryReserved(UUID orderId) {
             let order = db.Order.findOrFail(orderId);
             order.status = OrderStatus.Confirmed;
@@ -515,13 +524,15 @@ pubsub mq {
 }
 
 // Payment Service
-pubsub mq {
-    topic PaymentEvents {
-        publish PaymentSucceeded(UUID orderId, Money amount);
-        publish PaymentFailed(UUID orderId, String reason);
+service ecommerce.PaymentService : version('1.0.0') {
+    pubsub mq('config/payment-service/pubsub.yaml') {
+        topic PaymentEvents {
+            publish PaymentSucceeded(UUID orderId, Money amount);
+            publish PaymentFailed(UUID orderId, String reason);
+        }
     }
 
-    subscribe OrderEvents from order {
+    subscribe ecommerce.OrderService.mq.OrderEvents {
         on OrderPlaced(UUID orderId, UUID customerId, List<OrderItem> items) {
             let success = processPayment(customerId, calculateTotal(items));
 
@@ -540,13 +551,15 @@ pubsub mq {
 }
 
 // Inventory Service
-pubsub mq {
-    topic InventoryEvents {
-        publish InventoryReserved(UUID orderId);
-        publish InventoryInsufficient(UUID orderId);
+service ecommerce.InventoryService : version('1.0.0') {
+    pubsub mq('config/inventory-service/pubsub.yaml') {
+        topic InventoryEvents {
+            publish InventoryReserved(UUID orderId);
+            publish InventoryInsufficient(UUID orderId);
+        }
     }
 
-    subscribe OrderEvents from order {
+    subscribe ecommerce.OrderService.mq.OrderEvents {
         on OrderPlaced(UUID orderId, UUID customerId, List<OrderItem> items) {
             let canReserve = checkAndReserve(items);
 
@@ -564,6 +577,16 @@ pubsub mq {
     }
 }
 ```
+
+---
+
+### Pattern: Shared infrastructure (`shared { }`)
+
+**When to use:** Put **pubsub**, **rdbms**, **cache**, **storage**, **queues**, or **nosql** under a top-level **`shared Name { … }`** when **multiple services** must publish, subscribe, or query the **same** broker, schema, bucket, or queue contract. Examples: one **`topic`** for ingestion events shared by many writers; reference **RDBMS** entities (airport tables) read-only from several services; a **cache** used for rate limits across an edge tier.
+
+**When not to use:** If only **one** service touches a resource, keep the block **inside that service** — shared blocks add cross-service coupling and require explicit **`uses`** on every consumer/producer.
+
+**Operational pairing:** Pair DSL **`uses SharedName : subscribe | publish | readonly | readwrite;`** with **`dependencies('config/dependencies.yaml');`** for URLs, timeouts, and health checks (see [Configuration guide](./configuration-guide.md)).
 
 ---
 
