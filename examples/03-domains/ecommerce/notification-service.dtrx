@@ -21,9 +21,14 @@ service ecommerce.NotificationService : version('1.0.0'), description('order not
     enqueue ecommerce.OrderService.SendOrderConfirmation(UUID orderId, Email customerEmail, String orderNumber) {
         Log.info("SendOrderConfirmation task", { orderId: orderId, orderNumber: orderNumber });
 
-        Email.send(customerEmail, #"Order {orderNumber} confirmed", "order-confirmation", {
-            orderId: orderId,
-            orderNumber: orderNumber
+        Email.send({
+            to: customerEmail,
+            subject: #"Order {orderNumber} confirmed",
+            template: "order-confirmation",
+            data: {
+                orderId: orderId,
+                orderNumber: orderNumber
+            }
         });
 
         #NotificationAudit row = notificationDb.NotificationAudit.create({
