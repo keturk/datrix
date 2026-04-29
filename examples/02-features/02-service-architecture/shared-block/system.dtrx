@@ -1,0 +1,18 @@
+
+// Shared infrastructure and services demonstrating `shared { }` and `uses`.
+include 'shared-events.dtrx';
+include 'shared-reference-db.dtrx';
+include 'shared-data-exchange.dtrx';
+include 'shared-session-store.dtrx';
+include 'publisher-service.dtrx';
+include 'subscriber-service.dtrx';
+include 'reader-service.dtrx';
+include 'storage-writer-service.dtrx';
+include 'cache-reader-service.dtrx';
+
+system library.SharedBlockExampleSystem : version('1.0.0') {
+    config('config/system-config.yaml');
+    registry('config/registry.yaml');
+    gateway('config/gateway.yaml');
+    observability('config/observability.yaml');
+}

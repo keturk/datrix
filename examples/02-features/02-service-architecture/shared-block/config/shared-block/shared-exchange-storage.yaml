@@ -1,0 +1,22 @@
+test:
+  provider: minio
+  endpoint: http://localhost:9000
+  bucket: shared-data-exchange
+  accessKey: ${MINIO_ACCESS_KEY}
+  secretKey: ${MINIO_SECRET_KEY}
+  region: us-east-1
+  platform: minio
+development:
+  provider: minio
+  endpoint: http://localhost:9000
+  bucket: shared-data-exchange
+  accessKey: ${MINIO_ACCESS_KEY}
+  secretKey: ${MINIO_SECRET_KEY}
+  region: us-east-1
+  platform: minio
+production:
+  provider: s3
+  bucket: shared-data-exchange
+  region: ${AWS_REGION}
+  credentials: iam
+  platform: s3

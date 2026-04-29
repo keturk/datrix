@@ -19,17 +19,18 @@ This guide teaches you how to write complete, production-ready Datrix applicatio
 9. [Traits and Inheritance](#traits-and-inheritance)
 10. [Enums and Structs](#enums-and-structs)
 11. [REST APIs](#rest-apis)
-12. [Event-Driven Messaging](#event-driven-messaging)
-13. [Caching](#caching)
-14. [Background Jobs](#background-jobs)
-15. [CQRS](#cqrs)
-16. [Storage](#storage)
-17. [Validation and Computed Fields](#validation-and-computed-fields)
-18. [Lifecycle Hooks](#lifecycle-hooks)
-19. [Service Discovery and Resilience](#service-discovery-and-resilience)
-20. [Multi-Tenancy](#multi-tenancy)
-21. [Best Practices](#best-practices)
-22. [Common Patterns](#common-patterns)
+12. [Shared infrastructure (`shared { }`)](#shared-infrastructure-shared-)
+13. [Event-Driven Messaging](#event-driven-messaging)
+14. [Caching](#caching)
+15. [Background Jobs](#background-jobs)
+16. [CQRS](#cqrs)
+17. [Storage](#storage)
+18. [Validation and Computed Fields](#validation-and-computed-fields)
+19. [Lifecycle Hooks](#lifecycle-hooks)
+20. [Service Discovery and Resilience](#service-discovery-and-resilience)
+21. [Multi-Tenancy](#multi-tenancy)
+22. [Best Practices](#best-practices)
+23. [Common Patterns](#common-patterns)
 
 ---
 
@@ -781,6 +782,21 @@ GET /orders?search=laptop
 
 ---
 
+## Shared infrastructure (`shared { }`)
+
+Use a **top-level** `shared QualifiedName { … }` block when **several services** must share the same broker topics, reference tables, buckets, caches, or queues. Allowed members mirror service infrastructure: **`rdbms`**, **`nosql`**, **`cache`**, **`pubsub`**, **`storage`**, **`queues`**. There are **no** REST/GraphQL APIs, jobs, CQRS, or `subscribe` inside `shared` — consumers always **`subscribe`** from a **service**, with a **qualified** topic name and a matching **`uses`** declaration.
+
+**Authoring checklist**
+
+1. Pick a **descriptive** block name (`IngestionEvents`, `AviationReferenceData`).
+2. Place `shared` blocks in the same **`specs/`** tree as services (or `include` them from `system.dtrx`).
+3. Point each infrastructure member at the same style of YAML as services (`pubsub mq('config/shared/…yaml')`, etc.).
+4. In every service that publishes or subscribes across the boundary, add **`uses SharedName : publish | subscribe | readonly | readwrite;`** and operational rows in **`dependencies.yaml`** (see [Configuration guide](./configuration-guide.md)).
+
+**Generated layout:** shared artifacts land under **`shared/<kebab-name>/…`** next to **`services/<service>/…`** in the codegen output.
+
+---
+
 ## Event-Driven Messaging
 
 Datrix supports publish/subscribe messaging with type-safe events.
@@ -836,9 +852,11 @@ post cancelOrder(UUID id) -> Order {
 **Same service:**
 
 ```dtrx
-pubsub mq('config/order-service/pubsub.yaml') {
-    topic OrderEvents {
-        publish OrderCreated(UUID orderId, Money total, UUID customerId);
+service ecommerce.OrderService : version('1.0.0') {
+    pubsub mq('config/order-service/pubsub.yaml') {
+        topic OrderEvents {
+            publish OrderCreated(UUID orderId, Money total, UUID customerId);
+        }
     }
 
     subscribe OrderEvents {
@@ -854,8 +872,11 @@ pubsub mq('config/order-service/pubsub.yaml') {
 
 ```dtrx
 // In notification-service.dtrx
-pubsub mq('config/notification-service/pubsub.yaml') {
-    subscribe OrderEvents from order {        // 'order' is service namespace
+service notification.NotificationService : version('1.0.0') {
+    pubsub mq('config/notification-service/pubsub.yaml') {
+    }
+
+    subscribe ecommerce.OrderService.mq.OrderEvents {
         on OrderCreated(UUID orderId, Money total, UUID customerId) {
             let customer = UserService.getUser(customerId);
             Email.send(
@@ -1668,16 +1689,21 @@ post processPayment(String idempotencyKey, Money amount) -> PaymentTransaction {
 
 ```dtrx
 // Order Service
-pubsub mq {
-    topic OrderEvents {
-        publish OrderPlaced(UUID orderId, UUID customerId, Money total);
-        publish OrderCancelled(UUID orderId);
+service ecommerce.OrderService : version('1.0.0') {
+    pubsub mq('config/order-service/pubsub.yaml') {
+        topic OrderEvents {
+            publish OrderPlaced(UUID orderId, UUID customerId, Money total);
+            publish OrderCancelled(UUID orderId);
+        }
     }
 }
 
 // Payment Service
-pubsub mq {
-    subscribe OrderEvents {
+service ecommerce.PaymentService : version('1.0.0') {
+    pubsub mq('config/payment-service/pubsub.yaml') {
+    }
+
+    subscribe ecommerce.OrderService.mq.OrderEvents {
         on OrderPlaced(UUID orderId, UUID customerId, Money total) {
             // Reserve payment
             let success = PaymentService.reservePayment(customerId, total);
@@ -1691,8 +1717,11 @@ pubsub mq {
 }
 
 // Inventory Service
-pubsub mq {
-    subscribe OrderEvents {
+service ecommerce.InventoryService : version('1.0.0') {
+    pubsub mq('config/inventory-service/pubsub.yaml') {
+    }
+
+    subscribe ecommerce.OrderService.mq.OrderEvents {
         on OrderPlaced(UUID orderId, UUID customerId, Money total) {
             // Reserve inventory
             let items = OrderService.getOrderItems(orderId);

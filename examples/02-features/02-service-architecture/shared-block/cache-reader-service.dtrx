@@ -1,0 +1,26 @@
+
+// cache-reader-service.dtrx
+// Read-only `uses` on a shared cache block.
+service library.CacheReaderService : version('1.0.0'), description('Reads shared session cache metadata') {
+
+    config('config/cache-reader-service/cache-reader-service-config.yaml');
+    registration('config/cache-reader-service/registration.yaml');
+    resilience('config/cache-reader-service/resilience.yaml');
+    dependencies('config/cache-reader-service/dependencies.yaml');
+
+    uses SessionStore : readonly;
+
+    rdbms readerMeta('config/cache-reader-service/datasources.yaml') {
+        entity ReaderState {
+            UUID id : primaryKey = uuid();
+            DateTime checkedAt = now();
+        }
+    }
+
+    rest_api CacheReaderAPI : basePath('/api/v1/cache-reader') {
+        @path('/health')
+        get() -> String {
+            return "ok";
+        }
+    }
+}

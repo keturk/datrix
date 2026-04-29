@@ -1,0 +1,28 @@
+
+// reader-service.dtrx
+// Read-only `uses` on a shared rdbms block (qualified access is type-checked;
+// runtime queries against shared schemas are wired like local blocks once deployed).
+service library.ReportService : version('1.0.0'), description('Reports from shared reference data') {
+
+    config('config/report-service/report-service-config.yaml');
+    registration('config/report-service/registration.yaml');
+    resilience('config/report-service/resilience.yaml');
+    dependencies('config/report-service/dependencies.yaml');
+
+    uses AviationReferenceData.aviation_db : readonly;
+
+    rdbms reportMeta('config/report-service/datasources.yaml') {
+        entity ReportWatermark {
+            UUID id : primaryKey = uuid();
+            DateTime lastRunAt = now();
+        }
+    }
+
+    rest_api ReportAPI : basePath('/api/v1') {
+        @path('/reports/health')
+        @authorize
+        get() -> String {
+            return "ok";
+        }
+    }
+}

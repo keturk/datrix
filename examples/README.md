@@ -92,10 +92,12 @@ service ecommerce.OrderService : version('1.0.0') {
 
 ### 4. Event-Driven Communication
 ```datrix
-pubsub mq('config/pubsub.yaml') {
-    topic BookEvents {
-        publish BookAdded(UUID bookId, String title);
-        publish BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus);
+service library.BookService : version('1.0.0') {
+    pubsub mq('config/pubsub.yaml') {
+        topic BookEvents {
+            publish BookAdded(UUID bookId, String title);
+            publish BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus);
+        }
     }
 
     subscribe BookEvents {

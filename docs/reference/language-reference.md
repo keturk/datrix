@@ -163,10 +163,12 @@ rest_api OrderAPI : basePath('/api/v1/orders') {
 ## Event-Driven Messaging
 
 ```dtrx
-pubsub mq('config/pubsub.yaml') {
-    topic OrderEvents {
-        publish OrderCreated(UUID orderId, Money total);
-        publish OrderShipped(UUID orderId, DateTime shippedAt);
+service ecommerce.OrderService : version('1.0.0') {
+    pubsub mq('config/pubsub.yaml') {
+        topic OrderEvents {
+            publish OrderCreated(UUID orderId, Money total);
+            publish OrderShipped(UUID orderId, DateTime shippedAt);
+        }
     }
 
     subscribe OrderEvents {

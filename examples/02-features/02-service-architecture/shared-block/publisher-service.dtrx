@@ -1,0 +1,63 @@
+
+// publisher-service.dtrx
+// Publishes to the shared IngestionEvents topic via `uses IngestionEvents;`.
+service library.DataIngestionService : version('1.0.0'), description('Ingests data and publishes to shared topic') {
+
+    config('config/data-ingestion-service/data-ingestion-service-config.yaml');
+    registration('config/data-ingestion-service/registration.yaml');
+    resilience('config/data-ingestion-service/resilience.yaml');
+    dependencies('config/data-ingestion-service/dependencies.yaml');
+
+    uses IngestionEvents;
+
+    enum IngestionStatus { Idle, Running, Completed, Failed }
+
+    rdbms ingestionDb('config/data-ingestion-service/datasources.yaml') {
+        entity IngestionRun {
+            UUID id : primaryKey = uuid();
+            String source : index;
+            IngestionStatus status : index;
+            DateTime startedAt;
+            DateTime? completedAt;
+            Int recordsProcessed = 0;
+            String? errorMessage;
+
+            afterCreate {
+                Log.info("Ingestion run started", { runId: id, source: source });
+            }
+
+            afterUpdate {
+                if (isChanged(status) && status == IngestionStatus.Completed) {
+                    Log.info("ingestion completed", { runId: id, recordsProcessed: recordsProcessed });
+                }
+                if (isChanged(status) && status == IngestionStatus.Failed) {
+                    Log.warn("ingestion failed", { runId: id, error: errorMessage ?? "" });
+                }
+            }
+        }
+    }
+
+    rest_api IngestionAPI : basePath('/api/v1/internal') {
+        @path('/ingestion/trigger')
+        @authorize(roles: ['Admin'])
+        post(String source) -> ingestionDb.IngestionRun {
+            return ingestionDb.IngestionRun.create({
+                source: source,
+                status: IngestionStatus.Running,
+                startedAt: now()
+            });
+        }
+    }
+
+    test("afterUpdate sets completed status") {
+        #ingestionDb.IngestionRun run = ingestionDb.IngestionRun.create({
+            source: "TestSource",
+            status: IngestionStatus.Running,
+            startedAt: now(),
+            recordsProcessed: 42
+        });
+        run.status = IngestionStatus.Completed;
+        run.save();
+        assert run.status == IngestionStatus.Completed;
+    }
+}
