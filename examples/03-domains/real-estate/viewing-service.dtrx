@@ -62,7 +62,7 @@ service realestate.ViewingService : version('1.0.0'), description('property view
             String(1000)? notes;
             DateTime? completedAt;
             String(1000)? feedback;
-            Int? rating;
+            Int? rating : min(1), max(5);
             String(500)? cancellationReason;
 
             // Computed fields
