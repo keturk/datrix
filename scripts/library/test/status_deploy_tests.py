@@ -368,9 +368,10 @@ def find_all_test_results(root_dir: Path, *, detail: bool = False) -> List[TestR
                     result.xml_suites = parse_xml_results(latest_folder)
                 results.append(result)
             else:
-                # No summary log — the deploy pipeline crashed before
-                # writing results (e.g. Docker build failure).  Report
-                # as FAILED so the project is never silently omitted.
+                # No summary log — the deploy test is either still
+                # running or crashed before writing results.  Report as
+                # UNKNOWN so the project is not silently omitted but
+                # also not falsely marked as FAILED.
                 xml_suites = parse_xml_results(latest_folder) if detail else []
                 total_passed = sum(s.passed for s in xml_suites)
                 total_failed = sum(s.failures for s in xml_suites)
@@ -378,7 +379,7 @@ def find_all_test_results(root_dir: Path, *, detail: bool = False) -> List[TestR
                 timestamp = _timestamp_from_folder_name(latest_folder.name)
                 results.append(TestResult(
                     project_path=project_path,
-                    status="FAILED",
+                    status="UNKNOWN",
                     total_passed=total_passed,
                     total_failed=total_failed,
                     total_errors=total_errors,
@@ -581,8 +582,9 @@ def generate_markdown_report(results: List[TestResult], root_dir: Path) -> str:
     w("## Per-Project Results")
     w("")
 
-    passing_results = [r for r in results if r.status != 'FAILED']
+    passing_results = [r for r in results if r.status == 'PASSED']
     failing_results = [r for r in results if r.status == 'FAILED']
+    unknown_results = [r for r in results if r.status == 'UNKNOWN']
 
     for result in passing_results:
         display_path = _shorten_path(result.project_path, root_dir)
@@ -619,6 +621,20 @@ def generate_markdown_report(results: List[TestResult], root_dir: Path) -> str:
             else:
                 w(f"Passed: {result.total_passed}, Failed: {result.total_failed}, Errors: {result.total_errors}")
                 w("")
+
+    if unknown_results:
+        w("---")
+        w("")
+        w(f"## Unknown Projects ({len(unknown_results)} of {len(results)})")
+        w("")
+        w("These projects have a test folder but no summary log — the deploy test may still")
+        w("be running or may have crashed before writing results.")
+        w("")
+
+        for result in unknown_results:
+            display_path = _shorten_path(result.project_path, root_dir)
+            w(f"- {display_path}")
+        w("")
 
     return "\n".join(lines) + "\n"
 
