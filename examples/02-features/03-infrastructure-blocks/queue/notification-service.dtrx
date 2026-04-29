@@ -28,9 +28,14 @@ service library.NotificationService : version('1.0.0'), description('notificatio
     enqueue library.BookService.SendBookNotification(UUID bookId, Email recipientEmail, String message) {
         Log.info("Sending book notification", { bookId: bookId, email: recipientEmail });
 
-        Email.send(recipientEmail, "Book Notification", "book-notification", {
-            bookId: bookId,
-            message: message
+        Email.send({
+            to: recipientEmail,
+            subject: "Book Notification",
+            template: "book-notification",
+            data: {
+                bookId: bookId,
+                message: message
+            }
         });
 
         Log.info("Book notification sent", { bookId: bookId, email: recipientEmail });
