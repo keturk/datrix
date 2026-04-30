@@ -194,6 +194,10 @@ publish OrderCreated(UUID orderId, Decimal totalAmount, Int itemCount) {
 
 Contracts are enforced at the publisher side — fail-fast at `dispatch`, before invalid payloads reach subscribers. See the [Event Contracts Guide](../guide/event-contracts.md) for full syntax, generated code examples, and design decisions.
 
+### Serverless deployment boundary
+
+The **`serverless`** block groups **`subscribe`**, **`job`**, HTTP endpoints (`@path`, optional `@name('HandlerKey')`), and **`enqueue`** consumers so their **YAML** can target AWS Lambda, Azure Functions, or the service container per profile — without changing handler syntax. See [Writing Datrix Applications — Serverless](../guide/writing-datrix-applications.md#serverless-blocks) and **`design/03-serverless-functions.md`**.
+
 ---
 
 ## Queues (task dispatch)
@@ -232,7 +236,7 @@ dispatch ProcessPayment(orderId, amount, currency);
 | Delivery | Every subscriber | Exactly one consumer |
 | Block | `pubsub … { topic … }` | `queues('queue.yaml') { queue … }` |
 | Declaration | `publish Event(…)` | `queue Task(…)` |
-| Consumer | `subscribe` / `on Event` | `enqueue Service.Task` at service scope |
+| Consumer | `subscribe` / `on Event` (or inside **`serverless`**) | `enqueue Service.Task` at service scope or inside **`serverless`** |
 | Verb | `dispatch Event(…)` | `dispatch Task(…)` |
 
 Cross-service `enqueue` requires the producing service in `discovery { }` and a single consumer per qualified queue (semantic errors **QUE001**–**QUE003**). Queue names and pubsub event names cannot collide on the same service (**QUE004**). See [datrix-validators — Queue](../../../datrix-language/docs/reference/datrix-validators.md#queue-validators-que).

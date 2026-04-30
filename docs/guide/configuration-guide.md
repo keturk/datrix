@@ -337,9 +337,10 @@ production:
 production:
   platform: ecs-fargate    # Recommended for most workloads
   # platform: ecs-ec2      # When you need EC2 control
-  # platform: lambda       # For event-driven functions
   # platform: app-runner   # Fully managed container service
   # platform: eks          # When using EKS cluster
+  # Event-driven / Lambda-style handlers: declare a serverless {} block in the DSL
+  # and set platform: lambda | functions | container in that block's YAML — not here.
 ```
 
 **Azure hosting:**
@@ -347,9 +348,9 @@ production:
 ```yaml
 production:
   platform: container-apps   # Recommended for containers
-  # platform: functions      # For event-driven functions
   # platform: aks            # When using AKS cluster
   # platform: app-service    # For web apps
+  # Azure Functions-style handlers: serverless block YAML (platform: functions), not service platform.
 ```
 
 ### Resources Configuration
@@ -1014,6 +1015,22 @@ production:
       retries: 2
       concurrency: 1
 ```
+
+---
+
+## Serverless configuration {#serverless-configuration}
+
+**File:** one YAML per `serverless` block (path in the DSL, e.g. `serverless handlers('config/my-service/handlers.yaml')`).
+
+**Resolved in:** infrastructure config resolution (`resolve_infrastructure_configs`) onto **`ServerlessBlock.config`** as the active profile’s **`ServerlessProfileConfig`**.
+
+Each profile root (`test`, `development`, `production`, …) includes:
+
+- **`platform`** (required): `lambda` \| `functions` \| `container` — where handlers run for that environment.
+- **`defaults`** (optional): `timeout` (seconds), `memory` (MB) applied to every handler unless overridden.
+- **`handlers`** (optional): map from DSL-derived handler name to per-handler overrides (`timeout`, `memory`, Lambda-only `reservedConcurrency` / `provisionedConcurrency`, Azure-only `planSku` / `runtimeVersion`).
+
+Handler keys match **`on EventName`**, **`job JobName`**, **`@name('X')`** for HTTP endpoints inside `serverless`, or the **queue name** for `enqueue` consumers. Full rules and platform limits: **`design/03-serverless-functions.md`** and [config-system — Serverless](../../../datrix-common/docs/architecture/config-system.md#serverless-handler-configuration).
 
 ---
 

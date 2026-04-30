@@ -1,0 +1,72 @@
+
+// Order service: REST + in-process jobs + serverless event handlers, schedules, and queue workers.
+service examples.OrderService : version('1.0.0'), description('Serverless demo — orders') {
+
+    config('config/order-service/order-service-config.yaml');
+    registration('config/order-service/registration.yaml');
+    discovery {
+        examples.OrderService { loadBalance: roundRobin, healthyOnly: true }
+    }
+    resilience('config/order-service/resilience.yaml');
+    integrations('config/order-service/integrations.yaml');
+
+    rdbms db('config/order-service/datasources.yaml') {
+        entity Order {
+            UUID id : primaryKey = uuid();
+            Decimal amount;
+            String currency;
+            String status;
+        }
+    }
+
+    pubsub mq('config/order-service/pubsub.yaml') {
+        topic OrderEvents {
+            publish OrderPlaced(UUID orderId, Decimal amount);
+            publish OrderCancelled(UUID orderId);
+        }
+    }
+
+    queues('config/order-service/queues.yaml') {
+        queue ProcessShipment(UUID orderId);
+    }
+
+    rest_api OrderApi : basePath('/api/v1') {
+        resource db.Order : only(list, get), public;
+    }
+
+    jobs('config/order-service/jobs.yaml') {
+        job QuickCleanup {
+            Log.info("Running quick cleanup");
+        }
+    }
+
+    serverless eventHandlers('config/order-service/event-handlers.yaml') {
+        subscribe mq.OrderEvents {
+            on OrderPlaced(UUID orderId, Decimal amount) {
+                Log.warn(#"OrderPlaced handler: {orderId} amount={amount}");
+            }
+
+            on OrderCancelled(UUID orderId) {
+                Log.info(#"Order cancelled: {orderId}");
+            }
+        }
+
+        @path('/webhooks/stripe')
+        @name('StripeWebhook')
+        post(JSON payload) -> Void {
+            Log.info("Stripe webhook received");
+        }
+    }
+
+    serverless scheduledTasks('config/order-service/scheduled-tasks.yaml') {
+        job DailyOrderReport {
+            Log.info("Daily order report running");
+        }
+    }
+
+    serverless queueWorkers('config/order-service/queue-workers.yaml') {
+        enqueue examples.OrderService.ProcessShipment(UUID orderId) {
+            Log.info(#"ProcessShipment worker: {orderId}");
+        }
+    }
+}
