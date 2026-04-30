@@ -25,4 +25,7 @@ Output defaults under `.generated/python/docker/02-features/02-service-architect
 
 ## Further reading
 
-See `design/03-serverless-functions.md` for rationale, config schema, and planned codegen.
+See the following for complete documentation:
+- [Writing Datrix Applications — Serverless](../../../../../docs/guide/writing-datrix-applications.md#serverless-blocks) — user guide with examples
+- [Configuration Guide — Serverless](../../../../../docs/guide/configuration-guide.md#serverless-configuration) — YAML config schema
+- [Code Generation — Serverless](../../../../../../datrix-common/docs/architecture/code-generation.md#serverless-functions-planned) — implementation specification

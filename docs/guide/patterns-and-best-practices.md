@@ -643,7 +643,81 @@ fn reconstructOrder(UUID orderId) -> Order {
 
 **Problem:** Ingestion, webhooks, or scheduled work must deploy as **Lambda** or **Azure Functions** in production, but developers still want **in-process** execution in dev/test without maintaining two copies of the handler.
 
-**Solution:** Put **`subscribe`**, **`job`**, HTTP (`get` / `post` / …), or **`enqueue`** consumers inside **`serverless BlockName('config/<service>/serverless-….yaml') { … }`**. YAML profiles choose **`platform`**: `container` for local parity, `lambda` or `functions` for cloud. Handler keys under `handlers:` must match **`on` event names**, **`job` identifiers**, **`@name('…')`**, or the **queue task name** — the semantic layer enforces the same reference rules as service-level blocks. **`shared`** may own **`serverless`** blocks when several services need the same serverless bundle; pair with **`uses`** like other shared infrastructure. See **`design/03-serverless-functions.md`** and [Writing Datrix Applications — Serverless blocks](./writing-datrix-applications.md#serverless-blocks).
+**Solution:** Put **`subscribe`**, **`job`**, HTTP endpoints, or **`enqueue`** consumers inside **`serverless BlockName('config/<service>/serverless.yaml') { … }`**. YAML profiles choose **`platform`**: `container` for local parity, `lambda` or `functions` for cloud.
+
+**Example:**
+
+```dtrx
+service NotificationService {
+    pubsub mq('config/notification-service/pubsub.yaml') {
+        topic UserEvents {
+            publish UserRegistered(UUID userId, String email);
+        }
+    }
+
+    // Serverless event handler
+    serverless eventHandlers('config/notification-service/event-handlers.yaml') {
+        subscribe mq.UserEvents {
+            on UserRegistered(UUID userId, String email) {
+                // Send welcome email
+                Log.info(#"Sending welcome email to {email}");
+            }
+        }
+    }
+}
+```
+
+**Config (production):**
+```yaml
+production:
+  platform: lambda        # Deploy as Lambda
+  defaults:
+    timeout: 60
+    memory: 256
+```
+
+**Config (development):**
+```yaml
+development:
+  platform: container     # Run in-process locally
+```
+
+**Result:** Same handler code runs in-process during local development and as a Lambda function in production. No code duplication, no conditional logic.
+
+**Handler keys:** Config keys under `handlers:` must match DSL-derived names:
+- **Event handlers:** `on` event name (e.g., `UserRegistered`)
+- **Jobs:** `job` identifier (e.g., `DailyReport`)
+- **HTTP endpoints:** `@name('...')` or auto-derived from path+method
+- **Queue consumers:** Queue task name
+
+The semantic layer enforces the same reference rules as service-level blocks.
+
+**Shared serverless functions:** **`shared`** blocks may own **`serverless`** blocks when several services need the same serverless bundle. Pair with **`uses`** like other shared infrastructure:
+
+```dtrx
+shared Analytics {
+    pubsub mq('config/shared/analytics-pubsub.yaml') { ... }
+
+    serverless processors('config/shared/analytics-processors.yaml') {
+        subscribe mq.AnalyticsEvents { ... }
+    }
+}
+
+service OrderService {
+    uses Analytics;
+    // Can dispatch events to Analytics.mq topics
+}
+```
+
+**When to use serverless blocks:**
+- ✅ Event-driven handlers that scale to zero between invocations
+- ✅ Scheduled tasks that run infrequently (daily/weekly reports)
+- ✅ Webhook processors with unpredictable traffic
+- ✅ Lightweight data transforms or notifications
+- ❌ Long-running processes or connection pools (use service containers)
+- ❌ Handlers needing persistent WebSocket connections
+
+See [Writing Datrix Applications — Serverless blocks](./writing-datrix-applications.md#serverless-blocks) for complete examples.
 
 ---
 
