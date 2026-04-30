@@ -1140,7 +1140,7 @@ Each profile root (`test`, `development`, `production`, …) includes:
 - **`defaults`** (optional): `timeout` (seconds), `memory` (MB) applied to every handler unless overridden.
 - **`handlers`** (optional): map from DSL-derived handler name to per-handler overrides (`timeout`, `memory`, Lambda-only `reservedConcurrency` / `provisionedConcurrency`, Azure-only `planSku` / `runtimeVersion`).
 
-Handler keys match **`on EventName`**, **`job JobName`**, **`@name('X')`** for HTTP endpoints inside `serverless`, or the **queue name** for `enqueue` consumers. Full rules and platform limits: **`design/03-serverless-functions.md`** and [config-system — Serverless](../../../datrix-common/docs/architecture/config-system.md#serverless-handler-configuration).
+Handler keys match **`on EventName`**, **`job JobName`**, **`@name('X')`** for HTTP endpoints inside `serverless`, or the **queue name** for `enqueue` consumers. Full rules and platform limits: [config-system — Serverless](../../../datrix-common/docs/architecture/config-system.md#serverless-handler-configuration) and [Code Generation — Serverless](../../../datrix-common/docs/architecture/code-generation.md#serverless-functions-planned).
 
 ---
 

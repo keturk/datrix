@@ -900,7 +900,155 @@ topic OrderEvents {
 
 ### Serverless blocks
 
-Use one or more **`serverless BlockName('config/...yaml') { … }`** sections when handlers should deploy as **Lambda / Azure Functions** in production but still run **in the service process** locally (`platform: container` in dev/test YAML). Paste the same **`subscribe`**, **`job`**, HTTP, or **`enqueue`** bodies you would use at service scope; only the **block wrapper and YAML** change. Profiled keys under `handlers:` match `on` names, `job` names, `@name('…')` for HTTP, or the queue task name for consumers — see [Configuration Guide — Serverless](./configuration-guide.md#serverless-configuration) and **`design/03-serverless-functions.md`**. Example: [`examples/02-features/02-service-architecture/serverless`](../../examples/02-features/02-service-architecture/serverless/).
+Use one or more **`serverless BlockName('config/...yaml') { … }`** sections when handlers should deploy as **Lambda / Azure Functions** in production but still run **in the service process** locally (`platform: container` in dev/test YAML).
+
+**Key concept:** The `serverless` block is a **deployment boundary only**. It contains the same DSL members you would use at service scope (`subscribe`, `job`, HTTP endpoints, `enqueue` consumers) with **identical syntax**. Moving a handler between in-process and serverless deployment is a simple cut-and-paste operation — no code changes required.
+
+#### Complete example
+
+```dtrx
+service OrderService {
+    config('config/order-service/service-config.yaml')
+
+    rdbms db('config/order-service/rdbms.yaml') {
+        entity Order {
+            Decimal amount
+            String currency
+            String status
+        }
+    }
+
+    pubsub mq('config/order-service/pubsub.yaml') {
+        topic OrderEvents {
+            publish OrderPlaced(UUID orderId, Decimal amount);
+            publish OrderCancelled(UUID orderId);
+        }
+    }
+
+    rest_api : basePath('/api/v1') {
+        resource db.Order;
+    }
+
+    // This job runs in-process inside the service container
+    jobs('config/order-service/jobs.yaml') {
+        job QuickCleanup {
+            // lightweight task, runs alongside the API
+        }
+    }
+
+    // Event handlers deployed as Lambda/Azure Functions
+    serverless eventHandlers('config/order-service/event-handlers.yaml') {
+
+        subscribe mq.OrderEvents {
+            on OrderPlaced(UUID orderId, Decimal amount) {
+                // Can access db.Order — same service scope
+                #Order order = db.Order.findOrFail(orderId);
+                if (amount > 10000) {
+                    Log.warn(#"Large order detected: {orderId} amount={amount}");
+                }
+            }
+
+            on OrderCancelled(UUID orderId) {
+                Log.info(#"Order cancelled: {orderId}");
+            }
+        }
+
+        // HTTP endpoint — standalone Lambda behind API Gateway
+        @path('/webhooks/stripe')
+        post(JSON payload) -> Void {
+            // Process webhook
+        }
+    }
+
+    // Scheduled tasks — separate config, separate deployment
+    serverless scheduledTasks('config/order-service/scheduled-tasks.yaml') {
+        job DailyOrderReport {
+            #Array<Order> orders = db.Order.where(status: "completed").all();
+            Log.info(#"Daily report: {orders.length()} completed orders");
+        }
+    }
+}
+```
+
+#### Configuration
+
+Each `serverless` block references its own config file:
+
+```yaml
+# config/order-service/event-handlers.yaml
+production:
+  platform: lambda              # or: functions (Azure)
+
+  defaults:                     # applied to all handlers
+    timeout: 300
+    memory: 512
+
+  handlers:
+    OrderPlaced:                # matches event handler name
+      timeout: 60
+      memory: 256
+      reservedConcurrency: 50
+    OrderCancelled: {}          # uses defaults
+
+development:
+  platform: container           # runs in-process for local dev
+```
+
+#### Multiple blocks for organization
+
+A service can have multiple `serverless` blocks to group handlers by concern:
+
+- **Event handlers** — one block, one config (event-driven logic)
+- **Scheduled tasks** — separate block, separate config (cron jobs)
+- **Webhooks** — another block for HTTP-triggered handlers
+
+Each block can have different timeout/memory settings or even different platforms per environment.
+
+#### Serverless in shared blocks
+
+Shared blocks can also contain serverless handlers for cross-service functions:
+
+```dtrx
+shared IngestionPipeline {
+    pubsub mq('config/shared/ingestion-pubsub.yaml') {
+        topic IngestionEvents {
+            publish SourceIngested(UUID runId, String source, Integer recordCount);
+        }
+    }
+
+    serverless ingestionHandlers('config/shared/ingestion-handlers.yaml') {
+        subscribe mq.IngestionEvents {
+            on SourceIngested(UUID runId, String source, Integer recordCount) {
+                Log.info(#"Ingested {recordCount} records from {source}");
+            }
+        }
+    }
+}
+```
+
+Services that `uses IngestionPipeline` can dispatch events that trigger the shared function.
+
+#### Moving between in-process and serverless
+
+Refactoring is a cut-and-paste operation:
+
+```dtrx
+// Before: runs in the service container
+jobs('config/jobs.yaml') {
+    job DailyReport { ... }    // <-- cut this
+}
+
+// After: deploys as Lambda/Azure Function
+serverless tasks('config/serverless.yaml') {
+    job DailyReport { ... }    // <-- paste here, unchanged
+}
+```
+
+Same for `subscribe` handlers, `enqueue` consumers, and HTTP endpoints.
+
+**Handler name matching:** Config keys under `handlers:` match DSL-derived names: `on` event names, `job` identifiers, `@name('…')` for HTTP endpoints, or queue task names. See [Configuration Guide — Serverless](./configuration-guide.md#serverless-configuration) for details.
+
+**Example:** [`examples/02-features/02-service-architecture/serverless`](../../examples/02-features/02-service-architecture/serverless/)
 
 ---
 

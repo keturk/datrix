@@ -196,7 +196,7 @@ Contracts are enforced at the publisher side — fail-fast at `dispatch`, before
 
 ### Serverless deployment boundary
 
-The **`serverless`** block groups **`subscribe`**, **`job`**, HTTP endpoints (`@path`, optional `@name('HandlerKey')`), and **`enqueue`** consumers so their **YAML** can target AWS Lambda, Azure Functions, or the service container per profile — without changing handler syntax. See [Writing Datrix Applications — Serverless](../guide/writing-datrix-applications.md#serverless-blocks) and **`design/03-serverless-functions.md`**.
+The **`serverless`** block groups **`subscribe`**, **`job`**, HTTP endpoints (`@path`, optional `@name('HandlerKey')`), and **`enqueue`** consumers so their **YAML** can target AWS Lambda, Azure Functions, or the service container per profile — without changing handler syntax. See [Writing Datrix Applications — Serverless](../guide/writing-datrix-applications.md#serverless-blocks) and [Grammar Reference — Serverless](../../datrix-language/docs/reference/datrix-grammar.md#serverless-blocks).
 
 ---
 
