@@ -1,0 +1,24 @@
+test:
+  platform: container
+  defaults:
+    timeout: 600
+    memory: 1024
+  handlers:
+    SourceIngested:
+      memory: 2048
+    WeeklyDataPull:
+      timeout: 900
+
+development:
+  platform: container
+
+production:
+  platform: lambda
+  defaults:
+    timeout: 600
+    memory: 1024
+  handlers:
+    SourceIngested:
+      memory: 2048
+    WeeklyDataPull:
+      timeout: 900

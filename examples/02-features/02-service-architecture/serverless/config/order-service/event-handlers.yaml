@@ -1,0 +1,32 @@
+test:
+  platform: container
+  defaults:
+    timeout: 300
+    memory: 512
+  handlers:
+    OrderPlaced:
+      timeout: 60
+      memory: 256
+    OrderCancelled: {}
+    StripeWebhook:
+      timeout: 30
+      memory: 128
+
+development:
+  platform: container
+
+production:
+  platform: lambda
+  defaults:
+    timeout: 300
+    memory: 512
+  handlers:
+    OrderPlaced:
+      timeout: 60
+      memory: 256
+      reservedConcurrency: 50
+      provisionedConcurrency: 5
+    OrderCancelled: {}
+    StripeWebhook:
+      timeout: 30
+      memory: 128

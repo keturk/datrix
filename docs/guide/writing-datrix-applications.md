@@ -898,6 +898,10 @@ topic OrderEvents {
 }
 ```
 
+### Serverless blocks
+
+Use one or more **`serverless BlockName('config/...yaml') { … }`** sections when handlers should deploy as **Lambda / Azure Functions** in production but still run **in the service process** locally (`platform: container` in dev/test YAML). Paste the same **`subscribe`**, **`job`**, HTTP, or **`enqueue`** bodies you would use at service scope; only the **block wrapper and YAML** change. Profiled keys under `handlers:` match `on` names, `job` names, `@name('…')` for HTTP, or the queue task name for consumers — see [Configuration Guide — Serverless](./configuration-guide.md#serverless-configuration) and **`design/03-serverless-functions.md`**. Example: [`examples/02-features/02-service-architecture/serverless`](../../examples/02-features/02-service-architecture/serverless/).
+
 ---
 
 ## Task queues (point-to-point)

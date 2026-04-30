@@ -639,6 +639,14 @@ fn reconstructOrder(UUID orderId) -> Order {
 
 ---
 
+### Pattern: Serverless handlers (same semantics, different deployment)
+
+**Problem:** Ingestion, webhooks, or scheduled work must deploy as **Lambda** or **Azure Functions** in production, but developers still want **in-process** execution in dev/test without maintaining two copies of the handler.
+
+**Solution:** Put **`subscribe`**, **`job`**, HTTP (`get` / `post` / …), or **`enqueue`** consumers inside **`serverless BlockName('config/<service>/serverless-….yaml') { … }`**. YAML profiles choose **`platform`**: `container` for local parity, `lambda` or `functions` for cloud. Handler keys under `handlers:` must match **`on` event names**, **`job` identifiers**, **`@name('…')`**, or the **queue task name** — the semantic layer enforces the same reference rules as service-level blocks. **`shared`** may own **`serverless`** blocks when several services need the same serverless bundle; pair with **`uses`** like other shared infrastructure. See **`design/03-serverless-functions.md`** and [Writing Datrix Applications — Serverless blocks](./writing-datrix-applications.md#serverless-blocks).
+
+---
+
 ## Queue Patterns
 
 ### Pattern: Background task processing

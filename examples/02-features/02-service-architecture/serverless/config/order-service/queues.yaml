@@ -1,0 +1,69 @@
+test:
+  engine: rabbitmq
+  platform: container
+  host: localhost
+  port: 5672
+  managementPort: 15672
+  defaultUser: datrix
+  docker_image: rabbitmq:3-management-alpine
+  volume_path: /var/lib/rabbitmq
+  healthCheckCmd: '["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]'
+
+  visibilityTimeout: 30
+  maxReceiveCount: 5
+  retentionDays: 14
+  delay: 0
+  maxConcurrency: 5
+  timeout: 60
+  workerReplicas: 1
+
+  queues:
+    ProcessShipment:
+      visibilityTimeout: 120
+      maxConcurrency: 2
+      timeout: 120
+
+development:
+  engine: rabbitmq
+  platform: container
+  host: localhost
+  port: 5672
+  managementPort: 15672
+  defaultUser: datrix
+  docker_image: rabbitmq:3-management-alpine
+  volume_path: /var/lib/rabbitmq
+  healthCheckCmd: '["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]'
+
+  visibilityTimeout: 30
+  maxReceiveCount: 5
+  retentionDays: 14
+  delay: 0
+  maxConcurrency: 5
+  timeout: 60
+  workerReplicas: 1
+
+  queues:
+    ProcessShipment:
+      visibilityTimeout: 120
+      maxConcurrency: 2
+      timeout: 120
+
+production:
+  engine: rabbitmq
+  platform: amazon-mq
+  host: ${QUEUE_RABBITMQ_HOST}
+  port: 5671
+
+  visibilityTimeout: 60
+  maxReceiveCount: 3
+  retentionDays: 14
+  maxConcurrency: 10
+  timeout: 120
+  workerReplicas: 2
+
+  queues:
+    ProcessShipment:
+      visibilityTimeout: 300
+      maxConcurrency: 5
+      timeout: 300
+      workerReplicas: 3

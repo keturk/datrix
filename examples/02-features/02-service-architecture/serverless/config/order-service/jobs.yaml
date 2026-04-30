@@ -1,0 +1,23 @@
+test:
+  jobs:
+    QuickCleanup:
+      schedule: "0 */6 * * *"
+      timeout: 60s
+      retries: 1
+      concurrency: 1
+
+development:
+  jobs:
+    QuickCleanup:
+      schedule: "0 */6 * * *"
+      timeout: 60s
+      retries: 1
+      concurrency: 1
+
+production:
+  jobs:
+    QuickCleanup:
+      schedule: "0 */4 * * *"
+      timeout: 120s
+      retries: 2
+      concurrency: 1

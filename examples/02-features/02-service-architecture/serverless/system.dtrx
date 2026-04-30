@@ -1,0 +1,11 @@
+
+// Serverless examples: shared ingestion pipeline and order service entrypoint.
+include 'shared-ingestion.dtrx';
+include 'order-service.dtrx';
+
+system examples.ServerlessDemoSystem : version('1.0.0') {
+    config('config/system-config.yaml');
+    registry('config/registry.yaml');
+    gateway('config/gateway.yaml');
+    observability('config/observability.yaml');
+}
