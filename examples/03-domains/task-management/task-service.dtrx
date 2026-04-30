@@ -1,16 +1,11 @@
 
 from taskapp.common import Priority, MAX_PAGE_SIZE, MAX_TITLE_LENGTH;
 
-service taskapp.TaskService : version('1.0.0'), description('task tracking and workflow management service') {
-
-    config('config/task-service/task-service-config.yaml');
-    registration('config/task-service/registration.yaml');
+service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), description('task tracking and workflow management service') {
     discovery {
         ProjectService { loadBalance: roundRobin, healthyOnly: true }
         UserService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/task-service/resilience.yaml');
-
     enum TaskStatus {
         Todo : value('todo'),
         InProgress : value('in_progress'),
@@ -75,7 +70,7 @@ service taskapp.TaskService : version('1.0.0'), description('task tracking and w
         Int overdueCount;
     }
 
-    rdbms taskDb('config/task-service/datasources.yaml') {
+    rdbms taskDb {
 
         entity Task extends BaseEntity : audit {
             UUID projectId : index;
@@ -199,7 +194,7 @@ service taskapp.TaskService : version('1.0.0'), description('task tracking and w
         }
     }
 
-    pubsub mq('config/task-service/pubsub.yaml') {
+    pubsub mq {
 
         topic TaskEvents {
             publish TaskCreated(UUID taskId, UUID projectId, String title, Priority priority, UUID? assigneeId) {
@@ -307,7 +302,7 @@ service taskapp.TaskService : version('1.0.0'), description('task tracking and w
         }
     }
 
-    jobs('config/task-service/jobs.yaml') {
+    jobs('config/task-service.yaml') {
         job CheckOverdueTasks {
             #Array<Task> overdueTasks = taskDb.Task
                 .where(status: TaskStatus.Todo)

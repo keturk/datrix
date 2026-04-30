@@ -1,17 +1,12 @@
 
 from fooddelivery.common import DeliveryAddress, generateOrderNumber, MAX_ORDER_ITEMS, DEFAULT_DELIVERY_FEE, MIN_ORDER_AMOUNT;
 
-service fooddelivery.OrderService : version('1.0.0'), description('food order management service') {
-
-    config('config/order-service/order-service-config.yaml');
-    registration('config/order-service/registration.yaml');
+service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'), description('food order management service') {
     discovery {
         RestaurantService { loadBalance: roundRobin, healthyOnly: true }
         MenuService { loadBalance: roundRobin, healthyOnly: true }
         DeliveryService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/order-service/resilience.yaml');
-
     enum OrderStatus {
         Placed,
         Confirmed,
@@ -59,7 +54,7 @@ service fooddelivery.OrderService : version('1.0.0'), description('food order ma
         JSON pagination;
     }
 
-    rdbms orderDb('config/order-service/datasources.yaml') {
+    rdbms orderDb {
 
         entity Order extends BaseEntity : audit {
             UUID customerId : index;
@@ -147,7 +142,7 @@ service fooddelivery.OrderService : version('1.0.0'), description('food order ma
         }
     }
 
-    cache redis('config/order-service/cache.yaml') {
+    cache redis {
 
         hash OrderStatusCache : prefix('order:status:'), ttl(3600) {
             UUID orderId : primaryKey;
@@ -159,7 +154,7 @@ service fooddelivery.OrderService : version('1.0.0'), description('food order ma
         counter OrdersToday : prefix('orders:daily:'), ttl(86400);
     }
 
-    pubsub mq('config/order-service/pubsub.yaml') {
+    pubsub mq {
 
         topic OrderEvents {
             publish OrderPlaced(UUID orderId, String orderNumber, UUID customerId, UUID restaurantId, Money total) {

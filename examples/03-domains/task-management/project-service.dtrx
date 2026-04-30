@@ -1,15 +1,10 @@
 
 from taskapp.common import MAX_PAGE_SIZE;
 
-service taskapp.ProjectService : version('1.0.0'), description('project and team management service') {
-
-    config('config/project-service/project-service-config.yaml');
-    registration('config/project-service/registration.yaml');
+service taskapp.ProjectService('config/project-service.yaml') : version('1.0.0'), description('project and team management service') {
     discovery {
         UserService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/project-service/resilience.yaml');
-
     enum ProjectStatus {
         Planning : value('planning'),
         Active : value('active'),
@@ -58,7 +53,7 @@ service taskapp.ProjectService : version('1.0.0'), description('project and team
         DateTime createdAt;
     }
 
-    rdbms projectDb('config/project-service/datasources.yaml') {
+    rdbms projectDb {
 
         entity Project extends BaseEntity : audit {
             String(200) name : trim;
@@ -134,7 +129,7 @@ service taskapp.ProjectService : version('1.0.0'), description('project and team
         }
     }
 
-    pubsub mq('config/project-service/pubsub.yaml') {
+    pubsub mq {
 
         topic ProjectEvents {
             publish ProjectCreated(UUID projectId, String name, UUID ownerId) {

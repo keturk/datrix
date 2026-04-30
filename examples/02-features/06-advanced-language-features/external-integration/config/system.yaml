@@ -1,0 +1,88 @@
+base:
+  language: python
+  hosting: docker
+  defaultTimeout: 30000
+  maxPageSize: 100
+  defaultLocale: en-US
+  timezone: UTC
+  secrets:
+    provider: env
+  gateway:
+    port: 8080
+    rateLimit:
+      default:
+        requests: 200
+        window: 1m
+        key: ip
+      BlogAPI:
+        requests: 100
+        window: 1m
+        key: user
+      UserAPI:
+        requests: 50
+        window: 1m
+        key: user
+    auth:
+      jwt:
+        algorithm: HS256
+        issuer: hostdemo
+        expiresIn: 3600
+        exclude:
+        - /health
+    cors:
+      origins:
+      - http://localhost:3000
+      methods:
+      - GET
+      - POST
+      - PUT
+      - DELETE
+      - PATCH
+      - OPTIONS
+      headers:
+      - Content-Type
+      - Authorization
+  observability:
+    metrics:
+      provider: prometheus
+      endpoint: /metrics
+      includeDefault: true
+    tracing:
+      provider: jaeger
+      samplingRate: 0.1
+    logging:
+      level: info
+      format: json
+      provider: loki
+    visualization:
+      provider: grafana
+  serviceDiscovery:
+    type: consul
+    host: localhost
+    port: 8500
+    datacenter: dc1
+production:
+  hosting: aws
+  gateway:
+    port: 443
+    rateLimit:
+      default:
+        requests: 500
+      BlogAPI:
+        requests: 200
+      UserAPI:
+        requests: 100
+    cors:
+      origins:
+      - https://app.example.com
+  serviceDiscovery:
+    host: ${CONSUL_HOST}
+  region: us-east-1
+  network:
+    vpcId: ${AWS_VPC_ID}
+    appSubnets:
+    - ${AWS_APP_SUBNET_1}
+    - ${AWS_APP_SUBNET_2}
+    dataSubnets:
+    - ${AWS_DATA_SUBNET_1}
+    - ${AWS_DATA_SUBNET_2}

@@ -1,14 +1,8 @@
 
 
-service hostdemo.BlogService : version('1.0.0'), description('blog posts and comments') {
-
-    config('config/blog-service/blog-service-config.yaml');
-    registration('config/blog-service/registration.yaml');
+service hostdemo.BlogService('config/blog-service.yaml') : version('1.0.0'), description('blog posts and comments') {
     discovery { }
-    resilience('config/blog-service/resilience.yaml');
-    integrations('config/blog-service/integrations.yaml');
-
-    rdbms blogDb('config/blog-service/datasources.yaml') {
+    rdbms blogDb {
 
         entity Post extends BaseEntity {
             UUID authorUserId : index;
@@ -29,18 +23,18 @@ service hostdemo.BlogService : version('1.0.0'), description('blog posts and com
         }
     }
 
-    cache redis('config/blog-service/cache.yaml') {
+    cache redis {
         hash PostViewCache : prefix('postview:'), ttl(300) {
             UUID postId : key;
             Int viewCount;
         }
     }
 
-    storage media('config/blog-service/storage.yaml') {
+    storage media {
         folder uploads : path('uploads/{postId}'), allowed(['image/jpeg', 'image/png']), maxSize('10mb')
     }
 
-    pubsub mq('config/blog-service/pubsub.yaml') {
+    pubsub mq {
         topic BlogEvents {
             publish PostPublished(UUID postId, String title) {
                 ensure title.length > 0;

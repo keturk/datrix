@@ -1,15 +1,10 @@
 
 from hr.common import Department;
 
-service hr.RecruitmentService : version('1.0.0'), description('job posting and candidate application service') {
-
-    config('config/recruitment-service/recruitment-service-config.yaml');
-    registration('config/recruitment-service/registration.yaml');
+service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.0'), description('job posting and candidate application service') {
     discovery {
         EmployeeService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/recruitment-service/resilience.yaml');
-
     enum ApplicationStatus {
         Received : value('received'),
         Screening : value('screening'),
@@ -83,7 +78,7 @@ service hr.RecruitmentService : version('1.0.0'), description('job posting and c
         Int rejectedCount;
     }
 
-    rdbms recruitDb('config/recruitment-service/datasources.yaml') {
+    rdbms recruitDb {
         alert queryDuration(p95) over(5m) > 200ms @severity(warning);
 
         // Job posting entity
@@ -257,7 +252,7 @@ service hr.RecruitmentService : version('1.0.0'), description('job posting and c
         }
     }
 
-    pubsub mq('config/recruitment-service/pubsub.yaml') {
+    pubsub mq {
         topic RecruitmentEvents {
             publish JobPostingCreated(UUID postingId, String title, Department department, Boolean isRemote) {
                 ensure title.length > 0;

@@ -1,16 +1,13 @@
 
 // Feature: Storage block - file/blob storage for book covers and documents
 // Demonstrates folder definitions with path templates, MIME restrictions, and size limits
-service library.BookService : version('1.0.0'), description('Book management service with file storage') {
+service library.BookService('config/book-service.yaml') : version('1.0.0'), description('Book management service with file storage') {
 
     // Service infrastructure configuration
-    config('config/book-service/book-service-config.yaml');   // Service-specific settings
-    registration('config/book-service/registration.yaml');     // Service registry entry
     discovery { }                                              // Service discovery (auto-configured)
-    resilience('config/book-service/resilience.yaml');          // Circuit breakers, retries, timeouts
 
     // Relational database block for persistent entity storage
-    rdbms bookDb('config/book-service/datasources.yaml') {
+    rdbms bookDb {
 
         // Abstract base entity with standard audit fields
         abstract entity BaseEntity {
@@ -27,7 +24,7 @@ service library.BookService : version('1.0.0'), description('Book management ser
 
     // 'storage' block defines file/blob storage with named folders
     // Configured via an external YAML file for provider settings (S3, MinIO, etc.)
-    storage media('config/book-service/storage.yaml') {
+    storage media {
 
         // 'folder' declares a storage location with path prefix, MIME type restrictions, and size limits
         // 'path' supports template variables like {bookId} for per-entity file organization

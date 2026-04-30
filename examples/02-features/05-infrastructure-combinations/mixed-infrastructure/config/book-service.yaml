@@ -1,0 +1,99 @@
+base:
+  platform: compose
+  port: 8000
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  healthCheck:
+    path: /health
+    initialDelay: 10s
+  rdbms:
+    bookDb:
+      engine: postgres
+      host: localhost
+      database: library_books
+      poolSize: 20
+      platform: container
+  nosql:
+    analytics:
+      engine: mongodb
+      uri: mongodb://localhost:27017
+      database: library_analytics
+      platform: container
+  registration:
+    tags:
+    - api
+    - library
+    - v1
+    meta: {}
+    healthCheck:
+      type: http
+      path: /health
+      interval: 10s
+  resilience:
+    defaults:
+      timeout: 10s
+      retry:
+        maxAttempts: 2
+        backoff:
+          type: exponential
+          initial: 100ms
+          multiplier: 2
+  cache:
+    redis:
+      engine: redis
+      host: localhost
+      platform: container
+  storage:
+    media:
+      provider: minio
+      endpoint: http://localhost:9000
+      bucket: library-files
+      accessKey: ${MINIO_ACCESS_KEY}
+      secretKey: ${MINIO_SECRET_KEY}
+      region: us-east-1
+      platform: minio
+production:
+  platform: ecs-fargate
+  replicas: 2
+  rdbms:
+    bookDb:
+      engine: postgres
+      host: ${DB_HOST}
+      database: library_books
+      poolSize: 40
+      platform: rds
+      ssl: true
+      _replace: true
+  nosql:
+    analytics:
+      engine: mongodb
+      uri: ${BOOK_NOSQL_URI}
+      database: library_analytics
+      platform: managed
+      _replace: true
+  cache:
+    redis:
+      engine: redis
+      url: ${BOOK_SERVICE_REDIS_URL}
+      platform: elasticache
+      _replace: true
+  storage:
+    media:
+      provider: s3
+      endpoint: http://localhost:9000
+      bucket: library-files
+      accessKey: ${MINIO_ACCESS_KEY}
+      secretKey: ${MINIO_SECRET_KEY}
+      region: ${AWS_REGION}
+      platform: s3
+      credentials: iam
+      _replace: true
+  strategy:
+    rolling:
+      maxUnavailable: 25%

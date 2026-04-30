@@ -1,16 +1,10 @@
 
 // NotificationService consumes queue tasks from BookService
-service library.NotificationService : version('1.0.0'), description('notification handling service') {
-
-    config('config/notification-service/notification-service-config.yaml');
-    registration('config/notification-service/registration.yaml');
+service library.NotificationService('config/notification-service.yaml') : version('1.0.0'), description('notification handling service') {
     discovery {
         library.BookService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/notification-service/resilience.yaml');
-    integrations('config/notification-service/integrations.yaml');
-
-    rdbms notifDb('config/notification-service/datasources.yaml') {
+    rdbms notifDb {
 
         abstract entity BaseEntity {
             UUID id : primaryKey, server = uuid();

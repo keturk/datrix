@@ -1,18 +1,12 @@
 
 // publisher-service.dtrx
 // Publishes to the shared IngestionEvents topic via `uses IngestionEvents;`.
-service library.DataIngestionService : version('1.0.0'), description('Ingests data and publishes to shared topic') {
-
-    config('config/data-ingestion-service/data-ingestion-service-config.yaml');
-    registration('config/data-ingestion-service/registration.yaml');
-    resilience('config/data-ingestion-service/resilience.yaml');
-    dependencies('config/data-ingestion-service/dependencies.yaml');
-
+service library.DataIngestionService('config/data-ingestion-service.yaml') : version('1.0.0'), description('Ingests data and publishes to shared topic') {
     uses IngestionEvents;
 
     enum IngestionStatus { Idle, Running, Completed, Failed }
 
-    rdbms ingestionDb('config/data-ingestion-service/datasources.yaml') {
+    rdbms ingestionDb {
         entity IngestionRun {
             UUID id : primaryKey = uuid();
             String source : index;

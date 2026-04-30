@@ -2,14 +2,10 @@
 // 'from ... import' brings shared types and functions from the common module
 
 // Define a service in the 'blog' namespace with version and description
-service blog.AuthorService : version('1.0.0'), description('author management service') {
+service blog.AuthorService('config/author-service.yaml') : version('1.0.0'), description('author management service') {
 
     // Service infrastructure configuration
-    config('config/author-service/author-service-config.yaml');
-    registration('config/author-service/registration.yaml');
     discovery { }                                                   // Service discovery (auto-configured)
-    resilience('config/author-service/resilience.yaml');
-    integrations('config/author-service/integrations.yaml');         // Third-party integration settings
 
     // Enums define a fixed set of allowed values for type-safe fields
     enum AuthorRole {
@@ -26,7 +22,7 @@ service blog.AuthorService : version('1.0.0'), description('author management se
     }
 
     // Relational database block - groups entities (tables) under a named datasource
-    rdbms authorDb('config/author-service/datasources.yaml') {
+    rdbms authorDb {
 
         entity Author extends BaseEntity {
             // Email is a semantic type that validates email format
@@ -97,7 +93,7 @@ service blog.AuthorService : version('1.0.0'), description('author management se
     }
 
     // Pub/sub messaging block - defines event-driven communication
-    pubsub mq('config/author-service/pubsub.yaml') {
+    pubsub mq {
         // Topics group related events for publishing
         topic AuthorEvents {
             publish AuthorRegistered(UUID authorId, Email email, String fullName) {

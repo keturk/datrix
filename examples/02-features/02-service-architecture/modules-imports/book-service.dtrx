@@ -4,16 +4,11 @@
 from library.common import MAX_CHECKOUT_DAYS, MAX_RENEWALS, ISBN_PATTERN, calculateLateFee, formatBookReference;
 
 // Define a service in the 'library' namespace with version and description
-service library.BookService : version('1.0.0'), description('book management service') {
+service library.BookService('config/book-service.yaml') : version('1.0.0'), description('book management service') {
 
     // Service infrastructure configuration
-    config('config/book-service/book-service-config.yaml');   // Service-specific settings
-    registration('config/book-service/registration.yaml');     // Service registry entry
     discovery { }                                              // Service discovery (auto-configured)
-    resilience('config/book-service/resilience.yaml');          // Circuit breakers, retries, timeouts
     // 'integrations' declares third-party service connectors (email, SMS, payment, etc.)
-    integrations('config/book-service/integrations.yaml');
-
     // Enums define a fixed set of allowed values for type-safe fields
     enum BookStatus {
         Available,
@@ -67,7 +62,7 @@ service library.BookService : version('1.0.0'), description('book management ser
     // A service can have multiple rdbms blocks pointing to different databases
     // This first block named 'catalog' holds the primary book data
     // BaseEntity, Auditable, SoftDeletable are imported from the common module
-    rdbms catalog('config/book-service/catalog-db.yaml') {
+    rdbms catalog {
 
         entity Category extends BaseEntity {
             String(100) name : unique, trim;
@@ -256,7 +251,7 @@ service library.BookService : version('1.0.0'), description('book management ser
 
     // Second rdbms block - a separate database for reporting and audit data
     // Multiple rdbms blocks let a single service write to different databases
-    rdbms reporting('config/book-service/reporting-db.yaml') {
+    rdbms reporting {
 
         abstract entity BaseReportEntity {
             UUID id : primaryKey, server = uuid();
@@ -288,7 +283,7 @@ service library.BookService : version('1.0.0'), description('book management ser
     }
 
     // Pub/sub messaging block - defines event-driven communication
-    pubsub mq('config/book-service/pubsub.yaml') {
+    pubsub mq {
         // Alert on consumer lag exceeding threshold
         alert consumerLag(max) over(5m) > 1000 @severity(critical);
         topic BookEvents {
@@ -373,7 +368,7 @@ service library.BookService : version('1.0.0'), description('book management ser
     }
 
     // Cache block - defines an in-memory data store for fast reads
-    cache redis('config/book-service/cache.yaml') {
+    cache redis {
         // 'hash' defines a key-value structure cached in Redis
         hash BookCache {
             UUID bookId : primaryKey;
@@ -452,7 +447,7 @@ service library.BookService : version('1.0.0'), description('book management ser
 
     // 'jobs' block defines background tasks that run asynchronously
     // Jobs are configured via an external YAML file for scheduling, retries, etc.
-    jobs('config/book-service/jobs.yaml') {
+    jobs('config/book-service.yaml') {
         // 'job' defines a named background task with inline logic
         // Jobs can query the database and dispatch events like any other block
         job CheckOverdueBooks {
@@ -529,7 +524,7 @@ service library.BookService : version('1.0.0'), description('book management ser
 
     // 'nosql' block defines a document database for schema-flexible data
     // Unlike rdbms entities, collections store documents without rigid table schemas
-    nosql docdb('config/book-service/nosql-db.yaml') {
+    nosql docdb {
 
         // 'collection' defines a document collection (analogous to a table in NoSQL)
         collection ReadingActivity {
@@ -558,7 +553,7 @@ service library.BookService : version('1.0.0'), description('book management ser
 
     // 'storage' block defines file/blob storage with named folders
     // Configured via an external YAML file for provider settings (S3, Azure Blob, etc.)
-    storage store('config/book-service/storage.yaml') {
+    storage store {
         // 'folder' declares a storage location with path prefix, MIME type restrictions, and size limits
         // 'allowed' restricts uploads to specific content types; 'maxSize' caps file size
         folder covers : path('covers/'), allowed(['image/jpeg', 'image/png', 'image/webp']), maxSize('5mb')

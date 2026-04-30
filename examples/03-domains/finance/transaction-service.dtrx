@@ -1,15 +1,10 @@
 
 from finance.common import AuditedEntity, Currency, generateReference;
 
-service finance.TransactionService : version('1.0.0'), description('financial transaction processing service') {
-
-    config('config/transaction-service/transaction-service-config.yaml');
-    registration('config/transaction-service/registration.yaml');
+service finance.TransactionService('config/transaction-service.yaml') : version('1.0.0'), description('financial transaction processing service') {
     discovery {
         AccountService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/transaction-service/resilience.yaml');
-
     enum TransactionType {
         Deposit : value('deposit'),
         Withdrawal : value('withdrawal'),
@@ -81,7 +76,7 @@ service finance.TransactionService : version('1.0.0'), description('financial tr
         JSON pagination;
     }
 
-    rdbms txDb('config/transaction-service/datasources.yaml') {
+    rdbms txDb {
         alert queryDuration(p95) over(5m) > 150ms @severity(warning);
         alert connectionPool(utilization) over(1m) > 80% @severity(critical);
 
@@ -219,7 +214,7 @@ service finance.TransactionService : version('1.0.0'), description('financial tr
         }
     }
 
-    pubsub mq('config/transaction-service/pubsub.yaml') {
+    pubsub mq {
         alert consumerLag(max) over(5m) > 500 @severity(critical);
         alert failedMessages(count) over(5m) > 5 @severity(warning);
 
@@ -538,7 +533,7 @@ service finance.TransactionService : version('1.0.0'), description('financial tr
         }
     }
 
-    jobs('config/transaction-service/jobs.yaml') {
+    jobs('config/transaction-service.yaml') {
         // Daily reconciliation job: summarize the day's transactions
         job ReconcileDailyTransactions {
             #DateTime today = now();

@@ -1,15 +1,10 @@
 
 from hr.common import AuditedEntity, Department, generatePayrollRef;
 
-service hr.PayrollService : version('1.0.0'), description('payroll processing and compensation service') {
-
-    config('config/payroll-service/payroll-service-config.yaml');
-    registration('config/payroll-service/registration.yaml');
+service hr.PayrollService('config/payroll-service.yaml') : version('1.0.0'), description('payroll processing and compensation service') {
     discovery {
         EmployeeService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/payroll-service/resilience.yaml');
-
     enum PayrollStatus {
         Pending : value('pending'),
         Processing : value('processing'),
@@ -56,7 +51,7 @@ service hr.PayrollService : version('1.0.0'), description('payroll processing an
         Money totalNet;
     }
 
-    rdbms payrollDb('config/payroll-service/datasources.yaml') {
+    rdbms payrollDb {
         alert queryDuration(p95) over(5m) > 200ms @severity(warning);
         alert connectionPool(utilization) over(1m) > 80% @severity(critical);
 
@@ -156,7 +151,7 @@ service hr.PayrollService : version('1.0.0'), description('payroll processing an
         }
     }
 
-    pubsub mq('config/payroll-service/pubsub.yaml') {
+    pubsub mq {
         alert consumerLag(max) over(5m) > 500 @severity(critical);
 
         topic PayrollEvents {
@@ -357,7 +352,7 @@ service hr.PayrollService : version('1.0.0'), description('payroll processing an
         }
     }
 
-    jobs('config/payroll-service/jobs.yaml') {
+    jobs('config/payroll-service.yaml') {
         // Scheduled monthly payroll processing
         job ProcessMonthlyPayroll {
             #DateTime today = now();

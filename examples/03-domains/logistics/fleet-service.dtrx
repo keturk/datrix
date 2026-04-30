@@ -1,15 +1,10 @@
 
 from logistics.common import GeoCoordinate, MAINTENANCE_MILEAGE_THRESHOLD;
 
-service logistics.FleetService : version('1.0.0'), description('fleet and driver management service') {
-
-    config('config/fleet-service/fleet-service-config.yaml');
-    registration('config/fleet-service/registration.yaml');
+service logistics.FleetService('config/fleet-service.yaml') : version('1.0.0'), description('fleet and driver management service') {
     discovery {
         ShipmentService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/fleet-service/resilience.yaml');
-
     enum VehicleStatus {
         Available,
         InUse,
@@ -55,7 +50,7 @@ service logistics.FleetService : version('1.0.0'), description('fleet and driver
         VehicleStatus status;
     }
 
-    rdbms fleetDb('config/fleet-service/datasources.yaml') {
+    rdbms fleetDb {
 
         entity Vehicle extends BaseEntity {
             String(50) vehicleNumber : unique;
@@ -152,7 +147,7 @@ service logistics.FleetService : version('1.0.0'), description('fleet and driver
         }
     }
 
-    cache redis('config/fleet-service/cache.yaml') {
+    cache redis {
 
         hash VehicleLocationCache : prefix('vehicle:location:'), ttl(300) {
             UUID vehicleId : primaryKey;
@@ -164,7 +159,7 @@ service logistics.FleetService : version('1.0.0'), description('fleet and driver
         counter AvailableVehicleCount : prefix('fleet:available:');
     }
 
-    pubsub mq('config/fleet-service/pubsub.yaml') {
+    pubsub mq {
 
         topic FleetEvents {
             publish VehicleRegistered(UUID vehicleId, String vehicleNumber, VehicleType type);
@@ -359,7 +354,7 @@ service logistics.FleetService : version('1.0.0'), description('fleet and driver
         }
     }
 
-    jobs('config/fleet-service/jobs.yaml') {
+    jobs('config/fleet-service.yaml') {
 
         job CheckMaintenanceSchedule {
             #Array<Vehicle> vehicles = fleetDb.Vehicle

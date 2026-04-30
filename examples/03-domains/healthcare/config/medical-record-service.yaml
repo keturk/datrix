@@ -1,0 +1,218 @@
+base:
+  platform: compose
+  port: 8052
+  tracing:
+    level: full
+  replicas: 3
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  healthCheck:
+    type: http
+    path: /health
+    initialDelay: 10s
+    period: 5s
+    failureThreshold: 3
+    successThreshold: 1
+  readinessCheck:
+    type: http
+    path: /ready
+    initialDelay: 5s
+    period: 5s
+  rdbms:
+    medicalRecordDb:
+      engine: postgres
+      host: localhost
+      database: healthcare_records
+      poolSize: 20
+      ssl: false
+      platform: container
+  registration:
+    tags:
+    - api
+    - records
+    - clinical
+    - phi
+    - v1
+    meta:
+      team: clinical
+      compliance: hipaa
+    healthCheck:
+      type: http
+      path: /health
+      interval: 10s
+  resilience:
+    defaults:
+      timeout: 15s
+      retry:
+        maxAttempts: 2
+        backoff:
+          type: exponential
+          initial: 100ms
+          multiplier: 2
+          max: 2s
+          jitter: 0.1
+        retryableErrors:
+        - ConnectionError
+        - TimeoutError
+        - ServiceUnavailable
+        nonRetryableErrors:
+        - ValidationError
+        - AuthenticationError
+    config:
+      PatientService:
+        timeout: 5s
+        retry:
+          maxAttempts: 2
+          backoff:
+            type: exponential
+            initial: 100ms
+            multiplier: 2
+            max: 2s
+        circuitBreaker:
+          failureThreshold: 5
+          successThreshold: 3
+          timeout: 30s
+          halfOpenRequests: 3
+        bulkhead:
+          maxConcurrent: 20
+          maxWait: 5s
+        fallback:
+          type: handler
+          handler: handlePatientFallback
+      AppointmentService:
+        timeout: 5s
+        retry:
+          maxAttempts: 2
+          backoff:
+            type: exponential
+            initial: 100ms
+            multiplier: 2
+            max: 2s
+        circuitBreaker:
+          failureThreshold: 5
+          successThreshold: 3
+          timeout: 30s
+          halfOpenRequests: 3
+        fallback:
+          type: handler
+          handler: handleAppointmentFallback
+  cache:
+    redis:
+      engine: redis
+      host: localhost
+      platform: container
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - localhost:9092
+      topics:
+        RecordEvents:
+          partitions: 3
+          retention: 90d
+      platform: container
+  storage:
+    store:
+      provider: s3
+      bucket: healthcare-records
+      region: us-east-1
+      encryption: AES256
+      folders:
+        attachments:
+          path: attachments/{patientId}/{recordId}
+          allowedTypes:
+          - application/pdf
+          - image/jpeg
+          - image/png
+          - image/dicom
+          maxSize: 50MB
+          private: true
+        images:
+          path: images/{patientId}
+          allowedTypes:
+          - image/jpeg
+          - image/png
+          - image/dicom
+          maxSize: 100MB
+          private: true
+      platform: minio
+production:
+  platform: ecs-fargate
+  strategy:
+    rolling:
+      maxUnavailable: 25%
+      maxSurge: 25%
+      timeout: 10m
+  rollback:
+    automatic: true
+    revisionHistory: 5
+  scaling:
+    replicas:
+      min: 2
+      max: 8
+    triggers:
+    - metric: cpu
+      target: 70%
+  rdbms:
+    medicalRecordDb:
+      engine: postgres
+      host: ${RECORD_DB_HOST}
+      database: healthcare_records
+      poolSize: 40
+      ssl: true
+      platform: rds
+      _replace: true
+  cache:
+    redis:
+      engine: redis
+      url: ${RECORD_REDIS_URL}
+      platform: elasticache
+      _replace: true
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - ${KAFKA_BROKER_1}
+      - ${KAFKA_BROKER_2}
+      - ${KAFKA_BROKER_3}
+      topics:
+        RecordEvents:
+          partitions: 12
+          retention: 365d
+      platform: managed
+      _replace: true
+  storage:
+    store:
+      provider: s3
+      bucket: ${RECORDS_BUCKET}
+      region: ${AWS_REGION}
+      encryption: AES256
+      folders:
+        attachments:
+          path: attachments/{patientId}/{recordId}
+          allowedTypes:
+          - application/pdf
+          - image/jpeg
+          - image/png
+          - image/dicom
+          maxSize: 50MB
+          private: true
+        images:
+          path: images/{patientId}
+          allowedTypes:
+          - image/jpeg
+          - image/png
+          - image/dicom
+          maxSize: 100MB
+          private: true
+      platform: s3
+      _replace: true

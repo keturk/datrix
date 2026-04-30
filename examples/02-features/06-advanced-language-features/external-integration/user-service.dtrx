@@ -1,14 +1,8 @@
 
 
-service hostdemo.UserService : version('1.0.0'), description('user accounts') {
-
-    config('config/user-service/user-service-config.yaml');
-    registration('config/user-service/registration.yaml');
+service hostdemo.UserService('config/user-service.yaml') : version('1.0.0'), description('user accounts') {
     discovery { }
-    resilience('config/user-service/resilience.yaml');
-    integrations('config/user-service/integrations.yaml');
-
-    rdbms usersDb('config/user-service/datasources.yaml') {
+    rdbms usersDb {
 
         entity User extends BaseEntity {
             Email email : unique, trim;
@@ -21,14 +15,14 @@ service hostdemo.UserService : version('1.0.0'), description('user accounts') {
         }
     }
 
-    cache redis('config/user-service/cache.yaml') {
+    cache redis {
         hash SessionCache : prefix('session:'), ttl(600) {
             UUID userId : key;
             String token;
         }
     }
 
-    pubsub mq('config/user-service/pubsub.yaml') {
+    pubsub mq {
         topic UserEvents {
             publish AccountCreated(UUID userId, String email) {
                 ensure email.length > 0;

@@ -1,12 +1,7 @@
 
 
-service fooddelivery.RestaurantService : version('1.0.0'), description('restaurant registration and management service') {
-
-    config('config/restaurant-service/restaurant-service-config.yaml');
-    registration('config/restaurant-service/registration.yaml');
+service fooddelivery.RestaurantService('config/restaurant-service.yaml') : version('1.0.0'), description('restaurant registration and management service') {
     discovery { }
-    resilience('config/restaurant-service/resilience.yaml');
-
     enum RestaurantStatus {
         Active,
         Closed,
@@ -33,7 +28,7 @@ service fooddelivery.RestaurantService : version('1.0.0'), description('restaura
         Text? comment;
     }
 
-    rdbms restaurantDb('config/restaurant-service/datasources.yaml') {
+    rdbms restaurantDb {
 
         entity Restaurant extends BaseEntity {
             String(200) name : trim;
@@ -121,7 +116,7 @@ service fooddelivery.RestaurantService : version('1.0.0'), description('restaura
         }
     }
 
-    cache redis('config/restaurant-service/cache.yaml') {
+    cache redis {
 
         hash RestaurantCache : prefix('restaurant:'), ttl(3600) {
             UUID restaurantId : primaryKey;
@@ -133,7 +128,7 @@ service fooddelivery.RestaurantService : version('1.0.0'), description('restaura
         counter RestaurantViewCount : prefix('restaurant:views:');
     }
 
-    pubsub mq('config/restaurant-service/pubsub.yaml') {
+    pubsub mq {
 
         topic RestaurantEvents {
             publish RestaurantRegistered(UUID restaurantId, String name, String cuisineType) {

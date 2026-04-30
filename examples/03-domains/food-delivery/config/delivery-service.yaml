@@ -1,0 +1,93 @@
+base:
+  platform: compose
+  port: 8003
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  healthCheck:
+    path: /health
+    initialDelay: 10s
+  rdbms:
+    deliveryDb:
+      engine: postgres
+      host: localhost
+      database: fooddelivery_deliveries
+      poolSize: 20
+      platform: container
+  registration:
+    tags:
+    - api
+    - library
+    - v1
+    meta: {}
+    healthCheck:
+      type: http
+      path: /health
+      interval: 10s
+  resilience:
+    defaults:
+      timeout: 10s
+      retry:
+        maxAttempts: 2
+        backoff:
+          type: exponential
+          initial: 100ms
+          multiplier: 2
+  cache:
+    redis:
+      engine: redis
+      host: localhost
+      platform: container
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - localhost:9092
+      topics:
+        DeliveryEvents:
+          partitions: 6
+          retention: 14d
+      platform: container
+production:
+  platform: ecs-fargate
+  strategy:
+    rolling:
+      maxUnavailable: 25%
+  replicas: 2
+  rdbms:
+    deliveryDb:
+      engine: postgres
+      host: ${DB_HOST}
+      database: fooddelivery_deliveries
+      poolSize: 40
+      ssl: true
+      platform: rds
+      _replace: true
+  cache:
+    redis:
+      engine: redis
+      url: ${DELIVERY_REDIS_URL}
+      platform: elasticache
+      _replace: true
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - ${KAFKA_BROKER_1}
+      - ${KAFKA_BROKER_2}
+      - ${KAFKA_BROKER_3}
+      topics:
+        DeliveryEvents:
+          partitions: 12
+          retention: 90d
+      platform: managed
+      _replace: true

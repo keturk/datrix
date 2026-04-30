@@ -1,0 +1,82 @@
+base:
+  platform: compose
+  port: 8000
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  healthCheck:
+    path: /health
+    initialDelay: 10s
+  rdbms:
+    bookDb:
+      engine: postgres
+      host: localhost
+      database: library_books
+      poolSize: 20
+      platform: container
+  registration:
+    tags:
+    - api
+    - library
+    - v1
+    meta: {}
+    healthCheck:
+      type: http
+      path: /health
+      interval: 10s
+  resilience:
+    defaults:
+      timeout: 10s
+      retry:
+        maxAttempts: 2
+        backoff:
+          type: exponential
+          initial: 100ms
+          multiplier: 2
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - localhost:9092
+      topics:
+        BookEvents:
+          partitions: 3
+          retention: 7d
+      platform: container
+production:
+  platform: ecs-fargate
+  replicas: 2
+  rdbms:
+    bookDb:
+      engine: postgres
+      host: ${DB_HOST}
+      database: library_books
+      poolSize: 40
+      platform: rds
+      ssl: true
+      _replace: true
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - ${KAFKA_BROKER_1}
+      - ${KAFKA_BROKER_2}
+      - ${KAFKA_BROKER_3}
+      topics:
+        BookEvents:
+          partitions: 12
+          retention: 30d
+      platform: managed
+      _replace: true
+  strategy:
+    rolling:
+      maxUnavailable: 25%

@@ -3,13 +3,10 @@
 // 1. Module-level (service scope) - shared logic callable from anywhere in the service
 // 2. Entity-level - instance methods that access the entity's own fields
 // 3. API-level - helper functions scoped to a specific rest_api block
-service library.BookService : version('1.0.0'), description('Book management service demonstrating function scopes') {
+service library.BookService('config/book-service.yaml') : version('1.0.0'), description('Book management service demonstrating function scopes') {
 
     // Service infrastructure configuration
-    config('config/book-service/book-service-config.yaml');   // Service-specific settings
-    registration('config/book-service/registration.yaml');     // Service registry entry
     discovery { }                                              // Service discovery (auto-configured)
-    resilience('config/book-service/resilience.yaml');          // Circuit breakers, retries, timeouts
 
     // --- Module-level functions (service scope) ---
     // These are defined at the top level of the service, outside any block
@@ -30,7 +27,7 @@ service library.BookService : version('1.0.0'), description('Book management ser
         return now().diffInDays(dueDate);
     }
 
-    rdbms bookDb('config/book-service/datasources.yaml') {
+    rdbms bookDb {
 
         // Abstract base entity with standard audit fields
         abstract entity BaseEntity {

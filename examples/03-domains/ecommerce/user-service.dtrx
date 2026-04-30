@@ -1,15 +1,10 @@
 
 
 // Define a service in the 'ecommerce' namespace with version and description
-service ecommerce.UserService : version('1.0.0'), description('user management service') {
+service ecommerce.UserService('config/user-service.yaml') : version('1.0.0'), description('user management service') {
 
     // Service infrastructure configuration
-    config('config/user-service/user-service-config.yaml');
-    registration('config/user-service/registration.yaml');
     discovery { }
-    resilience('config/user-service/resilience.yaml');
-    integrations('config/user-service/integrations.yaml');
-
     enum UserRole {
         Customer,
         Admin,
@@ -83,7 +78,7 @@ service ecommerce.UserService : version('1.0.0'), description('user management s
     }
 
     // Relational database block
-    rdbms userDb('config/user-service/datasources.yaml') {
+    rdbms userDb {
 
         entity User extends BaseEntity {
             Email email : unique;
@@ -191,7 +186,7 @@ service ecommerce.UserService : version('1.0.0'), description('user management s
     }
 
     // Cache block - defines in-memory data structures backed by Redis
-    cache redis('config/user-service/cache.yaml') {
+    cache redis {
         hash SessionCache : prefix('session:'), ttl(2592000) {
             String sessionId : key;
             UUID userId;
@@ -203,7 +198,7 @@ service ecommerce.UserService : version('1.0.0'), description('user management s
     }
 
     // Pub/sub messaging block
-    pubsub mq('config/user-service/pubsub.yaml') {
+    pubsub mq {
         topic UserEvents {
             publish UserRegistered(UUID userId, Email email, String fullName) {
                 ensure fullName.length > 0;

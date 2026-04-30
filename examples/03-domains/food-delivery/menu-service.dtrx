@@ -1,14 +1,9 @@
 
 
-service fooddelivery.MenuService : version('1.0.0'), description('menu and item catalog management service') {
-
-    config('config/menu-service/menu-service-config.yaml');
-    registration('config/menu-service/registration.yaml');
+service fooddelivery.MenuService('config/menu-service.yaml') : version('1.0.0'), description('menu and item catalog management service') {
     discovery {
         RestaurantService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/menu-service/resilience.yaml');
-
     enum ItemAvailability {
         Available,
         SoldOut,
@@ -38,7 +33,7 @@ service fooddelivery.MenuService : version('1.0.0'), description('menu and item 
         Boolean isGlutenFree = false;
     }
 
-    rdbms menuDb('config/menu-service/datasources.yaml') {
+    rdbms menuDb {
 
         entity MenuCategory extends BaseEntity {
             UUID restaurantId : index;
@@ -101,7 +96,7 @@ service fooddelivery.MenuService : version('1.0.0'), description('menu and item 
         }
     }
 
-    cache redis('config/menu-service/cache.yaml') {
+    cache redis {
 
         hash MenuItemCache : prefix('menuitem:'), ttl(1800) {
             UUID itemId : primaryKey;
@@ -113,11 +108,11 @@ service fooddelivery.MenuService : version('1.0.0'), description('menu and item 
         counter MenuItemViewCount : prefix('menu:views:');
     }
 
-    storage store('config/menu-service/storage.yaml') {
+    storage store {
         folder menuImages : path('menu-images/'), allowed(['image/jpeg', 'image/png', 'image/webp']), maxSize('5mb')
     }
 
-    pubsub mq('config/menu-service/pubsub.yaml') {
+    pubsub mq {
 
         topic MenuEvents {
             publish MenuItemAdded(UUID itemId, String name, Money price, UUID menuCategoryId) {

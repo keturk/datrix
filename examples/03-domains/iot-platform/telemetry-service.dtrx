@@ -1,15 +1,10 @@
 
 from iot.common import DEFAULT_ALERT_COOLDOWN_MINUTES;
 
-service iot.TelemetryService : version('1.0.0'), description('telemetry data collection and alert management service') {
-
-    config('config/telemetry-service/telemetry-service-config.yaml');
-    registration('config/telemetry-service/registration.yaml');
+service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0'), description('telemetry data collection and alert management service') {
     discovery {
         DeviceService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/telemetry-service/resilience.yaml');
-
     enum AlertSeverity {
         Info,
         Warning,
@@ -72,7 +67,7 @@ service iot.TelemetryService : version('1.0.0'), description('telemetry data col
         DateTime timestamp;
     }
 
-    nosql docdb('config/telemetry-service/nosql-db.yaml') {
+    nosql docdb {
 
         collection TelemetryData {
             UUID deviceId : index;
@@ -98,7 +93,7 @@ service iot.TelemetryService : version('1.0.0'), description('telemetry data col
         }
     }
 
-    rdbms alertDb('config/telemetry-service/datasources.yaml') {
+    rdbms alertDb {
 
         entity Alert extends BaseEntity {
             UUID deviceId : index;
@@ -190,7 +185,7 @@ service iot.TelemetryService : version('1.0.0'), description('telemetry data col
         }
     }
 
-    cache redis('config/telemetry-service/cache.yaml') {
+    cache redis {
 
         hash LatestTelemetryCache : prefix('telemetry:latest:'), ttl(300) {
             UUID deviceId : primaryKey;
@@ -203,7 +198,7 @@ service iot.TelemetryService : version('1.0.0'), description('telemetry data col
         counter TelemetryIngestCount : prefix('telemetry:ingest:'), ttl(86400);
     }
 
-    pubsub mq('config/telemetry-service/pubsub.yaml') {
+    pubsub mq {
 
         topic TelemetryEvents {
             publish TelemetryIngested(UUID deviceId, DateTime timestamp, JSON readings);
@@ -489,7 +484,7 @@ service iot.TelemetryService : version('1.0.0'), description('telemetry data col
         }
     }
 
-    jobs('config/telemetry-service/jobs.yaml') {
+    jobs('config/telemetry-service.yaml') {
 
         job CheckAlertRules {
             #Array<AlertRule> rules = alertDb.AlertRule

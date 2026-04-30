@@ -1,0 +1,108 @@
+base:
+  platform: compose
+  port: 8001
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  healthCheck:
+    path: /health
+    initialDelay: 10s
+  rdbms:
+    payrollDb:
+      engine: postgres
+      host: localhost
+      database: hr_payroll
+      poolSize: 20
+      platform: container
+  registration:
+    tags:
+    - api
+    - library
+    - v1
+    meta: {}
+    healthCheck:
+      type: http
+      path: /health
+      interval: 10s
+  resilience:
+    defaults:
+      timeout: 10s
+      retry:
+        maxAttempts: 2
+        backoff:
+          type: exponential
+          initial: 100ms
+          multiplier: 2
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - localhost:9092
+      topics:
+        PayrollEvents:
+          partitions: 6
+          retention: 30d
+      platform: container
+  jobs:
+    jobs:
+      ProcessMonthlyPayroll:
+        schedule: 0 0 1 * *
+        retry:
+          maxAttempts: 1
+          backoff: fixed
+        timeout: 60s
+      GeneratePayStubs:
+        schedule: 0 6 * * *
+        retry:
+          maxAttempts: 1
+          backoff: fixed
+        timeout: 30s
+production:
+  platform: ecs-fargate
+  strategy:
+    rolling:
+      maxUnavailable: 25%
+  replicas: 2
+  rdbms:
+    payrollDb:
+      engine: postgres
+      host: ${DB_HOST}
+      database: hr_payroll
+      poolSize: 40
+      ssl: true
+      platform: rds
+      _replace: true
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - ${KAFKA_BROKER_1}
+      - ${KAFKA_BROKER_2}
+      - ${KAFKA_BROKER_3}
+      topics:
+        PayrollEvents:
+          partitions: 24
+          retention: 365d
+      platform: managed
+      _replace: true
+  jobs:
+    jobs:
+      ProcessMonthlyPayroll:
+        retry:
+          maxAttempts: 3
+          backoff: exponential
+        timeout: 30m
+      GeneratePayStubs:
+        retry:
+          maxAttempts: 3
+          backoff: exponential
+        timeout: 15m

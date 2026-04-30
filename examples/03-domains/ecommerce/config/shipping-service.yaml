@@ -1,0 +1,169 @@
+base:
+  platform: compose
+  port: 8004
+  replicas: 3
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 768Mi
+  healthCheck:
+    type: http
+    path: /health
+    initialDelay: 10s
+    period: 5s
+    failureThreshold: 3
+    successThreshold: 1
+  readinessCheck:
+    type: http
+    path: /ready
+    initialDelay: 5s
+    period: 5s
+  rdbms:
+    shippingDb:
+      engine: postgres
+      host: localhost
+      database: ecommerce_shipping
+      poolSize: 15
+      platform: container
+  registration:
+    tags:
+    - api
+    - shipping
+    - fulfillment
+    - v1
+    meta:
+      team: fulfillment
+    healthCheck:
+      type: http
+      path: /health
+      interval: 10s
+  resilience:
+    defaults:
+      timeout: 10s
+      retry:
+        maxAttempts: 2
+        backoff:
+          type: exponential
+          initial: 100ms
+          multiplier: 2
+          max: 2s
+          jitter: 0.1
+        retryableErrors:
+        - ConnectionError
+        - TimeoutError
+        - ServiceUnavailable
+        nonRetryableErrors:
+        - ValidationError
+        - AuthenticationError
+    config:
+      OrderService:
+        timeout: 10s
+        retry:
+          maxAttempts: 2
+          backoff:
+            type: exponential
+            initial: 100ms
+            multiplier: 2
+            max: 2s
+        circuitBreaker:
+          failureThreshold: 5
+          successThreshold: 3
+          timeout: 30s
+          halfOpenRequests: 3
+        bulkhead:
+          maxConcurrent: 15
+          maxWait: 5s
+        fallback:
+          type: handler
+          handler: handleOrderFallback
+  integrations:
+    shipping:
+      fedex: {}
+      ups: {}
+      usps: {}
+  cache:
+    redis:
+      engine: redis
+      host: localhost
+      platform: container
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - localhost:9092
+      topics:
+        ShipmentEvents:
+          partitions: 3
+          retention: 14d
+      platform: container
+  jobs:
+    jobs:
+      SyncCarrierTracking:
+        schedule: '*/30 * * * *'
+        retry:
+          maxAttempts: 1
+          backoff: fixed
+        timeout: 30s
+production:
+  platform: ecs-fargate
+  resources:
+    limits:
+      memory: 512Mi
+  rdbms:
+    shippingDb:
+      engine: postgres
+      host: ${SHIPPING_DB_HOST}
+      database: ecommerce_shipping
+      poolSize: 40
+      ssl: true
+      platform: rds
+      _replace: true
+  cache:
+    redis:
+      engine: redis
+      url: ${SHIPPING_REDIS_URL}
+      platform: elasticache
+      _replace: true
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - ${KAFKA_BROKER_1}
+      - ${KAFKA_BROKER_2}
+      - ${KAFKA_BROKER_3}
+      topics:
+        ShipmentEvents:
+          partitions: 12
+          retention: 90d
+      platform: managed
+      _replace: true
+  jobs:
+    jobs:
+      SyncCarrierTracking:
+        schedule: '*/15 * * * *'
+        retry:
+          maxAttempts: 3
+          backoff: exponential
+        timeout: 5m
+  strategy:
+    rolling:
+      maxUnavailable: 25%
+      maxSurge: 25%
+      timeout: 10m
+  rollback:
+    automatic: true
+    revisionHistory: 5
+  scaling:
+    replicas:
+      min: 2
+      max: 8
+    triggers:
+    - metric: cpu
+      target: 70%

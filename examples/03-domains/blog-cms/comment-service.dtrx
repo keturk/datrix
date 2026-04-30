@@ -1,15 +1,10 @@
 
 
-service blog.CommentService : version('1.0.0'), description('comment management service') {
-
-    config('config/comment-service/comment-service-config.yaml');
-    registration('config/comment-service/registration.yaml');
+service blog.CommentService('config/comment-service.yaml') : version('1.0.0'), description('comment management service') {
     // discovery block declares dependencies on other services
     discovery {
         ContentService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/comment-service/resilience.yaml');
-
     enum CommentStatus {
         Pending,
         Approved,
@@ -18,7 +13,7 @@ service blog.CommentService : version('1.0.0'), description('comment management 
         Deleted
     }
 
-    rdbms commentDb('config/comment-service/datasources.yaml') {
+    rdbms commentDb {
 
         entity Comment extends BaseEntity {
             // UUID field referencing another service's entity (cross-service foreign key)
@@ -49,7 +44,7 @@ service blog.CommentService : version('1.0.0'), description('comment management 
         }
     }
 
-    pubsub mq('config/comment-service/pubsub.yaml') {
+    pubsub mq {
         topic CommentEvents {
             publish CommentApproved(UUID commentId, UUID contentId);
         }

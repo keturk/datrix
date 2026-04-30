@@ -7,9 +7,5 @@ include 'task-service.dtrx';
 
 // The system block is the top-level container that groups services
 // and defines shared infrastructure configuration
-system taskapp.System : version('1.0.0') {
-    config('config/system-config.yaml');          // Application-wide settings
-    registry('config/registry.yaml');              // Service registry for discovery
-    gateway('config/gateway.yaml');                // API gateway routing rules
-    observability('config/observability.yaml');     // Logging, metrics, and tracing
+system taskapp.System('config/system.yaml') : version('1.0.0') {
 }

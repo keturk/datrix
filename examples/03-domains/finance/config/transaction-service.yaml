@@ -1,0 +1,97 @@
+base:
+  platform: compose
+  port: 8001
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  healthCheck:
+    path: /health
+    initialDelay: 10s
+  rdbms:
+    txDb:
+      engine: postgres
+      host: localhost
+      database: finance_transactions
+      poolSize: 20
+      platform: container
+  registration:
+    tags:
+    - api
+    - library
+    - v1
+    meta: {}
+    healthCheck:
+      type: http
+      path: /health
+      interval: 10s
+  resilience:
+    defaults:
+      timeout: 10s
+      retry:
+        maxAttempts: 2
+        backoff:
+          type: exponential
+          initial: 100ms
+          multiplier: 2
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - localhost:9092
+      topics:
+        TransactionEvents:
+          partitions: 12
+          retention: 30d
+      platform: container
+  jobs:
+    jobs:
+      ReconcileDailyTransactions:
+        schedule: 0 2 * * *
+        retry:
+          maxAttempts: 1
+          backoff: fixed
+        timeout: 60s
+production:
+  platform: ecs-fargate
+  strategy:
+    rolling:
+      maxUnavailable: 25%
+  replicas: 2
+  rdbms:
+    txDb:
+      engine: postgres
+      host: ${DB_HOST}
+      database: finance_transactions
+      poolSize: 40
+      ssl: true
+      platform: rds
+      _replace: true
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - ${KAFKA_BROKER_1}
+      - ${KAFKA_BROKER_2}
+      - ${KAFKA_BROKER_3}
+      topics:
+        TransactionEvents:
+          partitions: 48
+          retention: 365d
+      platform: managed
+      _replace: true
+  jobs:
+    jobs:
+      ReconcileDailyTransactions:
+        retry:
+          maxAttempts: 3
+          backoff: exponential
+        timeout: 10m

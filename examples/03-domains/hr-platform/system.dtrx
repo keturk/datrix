@@ -7,9 +7,5 @@ include 'recruitment-service.dtrx';
 
 // The system block is the top-level container that groups services
 // and defines shared infrastructure configuration
-system hr : version('1.0.0') {
-    config('config/system-config.yaml');
-    registry('config/registry.yaml');
-    gateway('config/gateway.yaml');
-    observability('config/observability.yaml');
+system hr('config/system.yaml') : version('1.0.0') {
 }

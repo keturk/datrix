@@ -1,0 +1,115 @@
+base:
+  platform: compose
+  port: 8002
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  healthCheck:
+    path: /health
+    initialDelay: 10s
+  rdbms:
+    firmwareDb:
+      engine: postgres
+      host: localhost
+      database: iot_firmware
+      poolSize: 20
+      platform: container
+  registration:
+    tags:
+    - api
+    - library
+    - v1
+    meta: {}
+    healthCheck:
+      type: http
+      path: /health
+      interval: 10s
+  resilience:
+    defaults:
+      timeout: 10s
+      retry:
+        maxAttempts: 2
+        backoff:
+          type: exponential
+          initial: 100ms
+          multiplier: 2
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - localhost:9092
+      topics:
+        FirmwareEvents:
+          partitions: 3
+          retention: 14d
+      platform: container
+  storage:
+    store:
+      provider: minio
+      endpoint: http://localhost:9000
+      bucket: iot-firmware
+      accessKey: ${MINIO_ACCESS_KEY}
+      secretKey: ${MINIO_SECRET_KEY}
+      region: us-east-1
+      platform: minio
+  jobs:
+    jobs:
+      ProcessRolloutBatch:
+        schedule: '*/10 * * * *'
+        retry:
+          maxAttempts: 1
+          backoff: fixed
+        timeout: 120s
+production:
+  platform: ecs-fargate
+  strategy:
+    rolling:
+      maxUnavailable: 25%
+  replicas: 2
+  rdbms:
+    firmwareDb:
+      engine: postgres
+      host: ${DB_HOST}
+      database: iot_firmware
+      poolSize: 40
+      ssl: true
+      platform: rds
+      _replace: true
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - ${KAFKA_BROKER_1}
+      - ${KAFKA_BROKER_2}
+      - ${KAFKA_BROKER_3}
+      topics:
+        FirmwareEvents:
+          partitions: 6
+          retention: 90d
+      platform: managed
+      _replace: true
+  storage:
+    store:
+      provider: s3
+      bucket: iot-firmware-prod
+      region: ${AWS_REGION}
+      credentials: iam
+      platform: s3
+      _replace: true
+  jobs:
+    jobs:
+      ProcessRolloutBatch:
+        schedule: '*/5 * * * *'
+        retry:
+          maxAttempts: 3
+          backoff: exponential
+        timeout: 10m

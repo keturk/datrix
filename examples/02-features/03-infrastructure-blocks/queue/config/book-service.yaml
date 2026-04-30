@@ -1,0 +1,139 @@
+base:
+  platform: compose
+  port: 8000
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1280Mi
+  healthCheck:
+    path: /health
+    initialDelay: 10s
+  rdbms:
+    bookDb:
+      engine: postgres
+      host: localhost
+      database: library_books
+      poolSize: 20
+      platform: container
+  registration:
+    tags:
+    - api
+    - library
+    - v1
+    meta: {}
+    healthCheck:
+      type: http
+      path: /health
+      interval: 10s
+  resilience:
+    defaults:
+      timeout: 10s
+      retry:
+        maxAttempts: 2
+        backoff:
+          type: exponential
+          initial: 100ms
+          multiplier: 2
+  integrations:
+    email:
+      provider: sendgrid
+      fromEmail: noreply@library.example.com
+      fromName: Library Book Service
+      templates:
+        bookAvailable: d-book-available
+        overdueNotice: d-overdue-notice
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - localhost:9092
+      topics:
+        BookEvents:
+          partitions: 3
+          retention: 7d
+      platform: container
+  queues:
+    engine: rabbitmq
+    platform: container
+    host: localhost
+    port: 5672
+    managementPort: 15672
+    defaultUser: datrix
+    docker_image: rabbitmq:3-management-alpine
+    volume_path: /var/lib/rabbitmq
+    healthCheckCmd: '["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]'
+    visibilityTimeout: 30
+    maxReceiveCount: 5
+    retentionDays: 14
+    delay: 0
+    maxConcurrency: 5
+    timeout: 60
+    workerReplicas: 1
+    queues:
+      GenerateBookCover:
+        visibilityTimeout: 120
+        maxConcurrency: 2
+        timeout: 120
+      SendBookNotification:
+        maxReceiveCount: 10
+        timeout: 30
+production:
+  platform: ecs-fargate
+  replicas: 2
+  resources:
+    limits:
+      memory: 1Gi
+  rdbms:
+    bookDb:
+      engine: postgres
+      host: ${BOOK_DB_HOST}
+      database: library_books
+      poolSize: 40
+      platform: rds
+      ssl: true
+      _replace: true
+  integrations:
+    email:
+      fromEmail: ${BOOK_SERVICE_FROM_EMAIL}
+      templates:
+        bookAvailable: ${BOOK_AVAILABLE_TEMPLATE_ID}
+        overdueNotice: ${OVERDUE_NOTICE_TEMPLATE_ID}
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - ${KAFKA_BROKER_1}
+      - ${KAFKA_BROKER_2}
+      - ${KAFKA_BROKER_3}
+      topics:
+        BookEvents:
+          partitions: 12
+          retention: 30d
+      platform: managed
+      _replace: true
+  queues:
+    platform: amazon-mq
+    host: ${QUEUE_RABBITMQ_HOST}
+    port: 5671
+    visibilityTimeout: 60
+    maxReceiveCount: 3
+    maxConcurrency: 10
+    timeout: 120
+    workerReplicas: 2
+    queues:
+      GenerateBookCover:
+        visibilityTimeout: 300
+        maxConcurrency: 5
+        timeout: 300
+        workerReplicas: 3
+  strategy:
+    rolling:
+      maxUnavailable: 25%

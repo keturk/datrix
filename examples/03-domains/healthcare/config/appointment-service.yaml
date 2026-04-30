@@ -1,0 +1,188 @@
+base:
+  platform: compose
+  port: 8051
+  replicas: 3
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 768Mi
+  healthCheck:
+    type: http
+    path: /health
+    initialDelay: 10s
+    period: 5s
+    failureThreshold: 3
+    successThreshold: 1
+  readinessCheck:
+    type: http
+    path: /ready
+    initialDelay: 5s
+    period: 5s
+  rdbms:
+    appointmentDb:
+      engine: postgres
+      host: localhost
+      database: healthcare_appointments
+      poolSize: 20
+      ssl: false
+      platform: container
+  registration:
+    tags:
+    - api
+    - appointments
+    - scheduling
+    - v1
+    meta:
+      team: scheduling
+      compliance: hipaa
+    healthCheck:
+      type: http
+      path: /health
+      interval: 10s
+  resilience:
+    defaults:
+      timeout: 10s
+      retry:
+        maxAttempts: 2
+        backoff:
+          type: exponential
+          initial: 100ms
+          multiplier: 2
+          max: 2s
+          jitter: 0.1
+        retryableErrors:
+        - ConnectionError
+        - TimeoutError
+        - ServiceUnavailable
+        nonRetryableErrors:
+        - ValidationError
+        - AuthenticationError
+    config:
+      PatientService:
+        timeout: 5s
+        retry:
+          maxAttempts: 2
+          backoff:
+            type: exponential
+            initial: 100ms
+            multiplier: 2
+            max: 2s
+        circuitBreaker:
+          failureThreshold: 5
+          successThreshold: 3
+          timeout: 30s
+          halfOpenRequests: 3
+        fallback:
+          type: handler
+          handler: handlePatientFallback
+  integrations:
+    email:
+      provider: sendgrid
+      fromEmail: appointments@healthcare.example.com
+      fromName: Healthcare Scheduling
+      templates:
+        appointmentConfirmation: d-appt-confirm
+        appointmentReminder: d-appt-remind
+        appointmentCancellation: d-appt-cancel
+    sms:
+      provider: twilio
+  cache:
+    redis:
+      engine: redis
+      host: localhost
+      platform: container
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - localhost:9092
+      topics:
+        AppointmentEvents:
+          partitions: 3
+          retention: 30d
+      platform: container
+  jobs:
+    jobs:
+      SendAppointmentReminders:
+        schedule: 0 */2 * * *
+        retry:
+          maxAttempts: 1
+          backoff: fixed
+        timeout: 30s
+      MarkNoShows:
+        schedule: 0 * * * *
+        retry:
+          maxAttempts: 1
+          backoff: fixed
+        timeout: 30s
+production:
+  platform: ecs-fargate
+  strategy:
+    rolling:
+      maxUnavailable: 25%
+      maxSurge: 25%
+      timeout: 10m
+  resources:
+    limits:
+      memory: 512Mi
+  rollback:
+    automatic: true
+    revisionHistory: 5
+  scaling:
+    replicas:
+      min: 2
+      max: 10
+    triggers:
+    - metric: cpu
+      target: 70%
+  rdbms:
+    appointmentDb:
+      engine: postgres
+      host: ${APPOINTMENT_DB_HOST}
+      database: healthcare_appointments
+      poolSize: 40
+      ssl: true
+      platform: rds
+      _replace: true
+  integrations:
+    email:
+      fromEmail: ${FROM_EMAIL}
+  cache:
+    redis:
+      engine: redis
+      url: ${APPOINTMENT_REDIS_URL}
+      platform: elasticache
+      _replace: true
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - ${KAFKA_BROKER_1}
+      - ${KAFKA_BROKER_2}
+      - ${KAFKA_BROKER_3}
+      topics:
+        AppointmentEvents:
+          partitions: 12
+          retention: 90d
+      platform: managed
+      _replace: true
+  jobs:
+    jobs:
+      SendAppointmentReminders:
+        schedule: 0 8 * * *
+        retry:
+          maxAttempts: 3
+          backoff: exponential
+        timeout: 5m
+      MarkNoShows:
+        retry:
+          maxAttempts: 3
+          backoff: exponential
+        timeout: 2m

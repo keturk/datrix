@@ -1,0 +1,117 @@
+base:
+  platform: compose
+  port: 8005
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  healthCheck:
+    type: http
+    path: /health
+    initialDelay: 10s
+    period: 5s
+    failureThreshold: 3
+    successThreshold: 1
+  readinessCheck:
+    type: http
+    path: /ready
+    initialDelay: 5s
+    period: 5s
+  rdbms:
+    notificationDb:
+      engine: postgres
+      host: localhost
+      database: ecommerce_notifications
+      poolSize: 5
+      platform: container
+  registration:
+    tags:
+    - api
+    - notifications
+    - ecommerce
+    - v1
+    meta:
+      team: platform
+    healthCheck:
+      type: http
+      path: /health
+      interval: 10s
+  resilience:
+    defaults:
+      timeout: 10s
+      retry:
+        maxAttempts: 2
+        backoff:
+          type: exponential
+          initial: 100ms
+          multiplier: 2
+          max: 2s
+          jitter: 0.1
+        retryableErrors:
+        - ConnectionError
+        - TimeoutError
+        - ServiceUnavailable
+        nonRetryableErrors:
+        - ValidationError
+        - AuthenticationError
+    config:
+      OrderService:
+        timeout: 10s
+        retry:
+          maxAttempts: 2
+          backoff:
+            type: exponential
+            initial: 100ms
+            multiplier: 2
+            max: 2s
+        circuitBreaker:
+          failureThreshold: 5
+          successThreshold: 3
+          timeout: 30s
+          halfOpenRequests: 3
+        bulkhead:
+          maxConcurrent: 15
+          maxWait: 5s
+        fallback:
+          type: handler
+          handler: handleOrderFallback
+  integrations:
+    email:
+      provider: smtp
+      fromEmail: noreply@ecommerce.example.com
+      fromName: Ecommerce Demo
+production:
+  platform: ecs-fargate
+  replicas: 2
+  rdbms:
+    notificationDb:
+      engine: postgres
+      host: ${NOTIFICATION_DB_HOST}
+      database: ecommerce_notifications
+      poolSize: 20
+      ssl: true
+      platform: rds
+      _replace: true
+  integrations:
+    email:
+      provider: ses
+      fromName: Ecommerce Store
+  strategy:
+    rolling:
+      maxUnavailable: 25%
+      maxSurge: 25%
+      timeout: 10m
+  rollback:
+    automatic: true
+    revisionHistory: 5
+  scaling:
+    replicas:
+      min: 1
+      max: 4
+    triggers:
+    - metric: cpu
+      target: 70%

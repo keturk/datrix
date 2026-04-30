@@ -4,13 +4,8 @@
 from library.common import MEMBERSHIP_NUMBER_PATTERN;
 
 // A separate service in the same namespace handles member management
-service library.MemberService : version('1.0.0'), description('member management service') {
-
-    config('config/member-service/member-service-config.yaml');
-    registration('config/member-service/registration.yaml');
+service library.MemberService('config/member-service.yaml') : version('1.0.0'), description('member management service') {
     discovery { }
-    resilience('config/member-service/resilience.yaml');
-
     enum MembershipType {
         Standard,
         Premium,
@@ -25,7 +20,7 @@ service library.MemberService : version('1.0.0'), description('member management
         MembershipType membershipType;
     }
 
-    rdbms memberDb('config/member-service/datasources.yaml') {
+    rdbms memberDb {
 
         // BaseEntity is imported from the common module - no need to redefine it
         entity Member extends BaseEntity {

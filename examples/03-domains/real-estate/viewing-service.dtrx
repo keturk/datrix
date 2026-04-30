@@ -1,15 +1,10 @@
 
 from realestate.common import PropertyType;
 
-service realestate.ViewingService : version('1.0.0'), description('property viewing scheduling service') {
-
-    config('config/viewing-service/viewing-service-config.yaml');
-    registration('config/viewing-service/registration.yaml');
+service realestate.ViewingService('config/viewing-service.yaml') : version('1.0.0'), description('property viewing scheduling service') {
     discovery {
         ListingService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/viewing-service/resilience.yaml');
-
     enum ViewingStatus {
         Scheduled : value('scheduled'),
         Confirmed : value('confirmed'),
@@ -47,7 +42,7 @@ service realestate.ViewingService : version('1.0.0'), description('property view
         JSON pagination;
     }
 
-    rdbms viewingDb('config/viewing-service/datasources.yaml') {
+    rdbms viewingDb {
         alert queryDuration(p95) over(5m) > 200ms @severity(warning);
 
         // Viewing appointment entity
@@ -140,7 +135,7 @@ service realestate.ViewingService : version('1.0.0'), description('property view
         }
     }
 
-    pubsub mq('config/viewing-service/pubsub.yaml') {
+    pubsub mq {
         topic ViewingEvents {
             publish ViewingScheduled(UUID viewingId, UUID listingId, String clientName, String clientEmail, DateTime scheduledAt) {
                 ensure clientName.length > 0;

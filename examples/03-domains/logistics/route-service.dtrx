@@ -1,16 +1,11 @@
 
 from logistics.common import GeoCoordinate, generateRouteCode, MAX_STOPS_PER_ROUTE;
 
-service logistics.RouteService : version('1.0.0'), description('route planning and optimization service') {
-
-    config('config/route-service/route-service-config.yaml');
-    registration('config/route-service/registration.yaml');
+service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), description('route planning and optimization service') {
     discovery {
         FleetService { loadBalance: roundRobin, healthyOnly: true }
         ShipmentService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/route-service/resilience.yaml');
-
     enum RouteStatus {
         Planned,
         Active,
@@ -52,7 +47,7 @@ service logistics.RouteService : version('1.0.0'), description('route planning a
         Decimal progressPercent;
     }
 
-    rdbms routeDb('config/route-service/datasources.yaml') {
+    rdbms routeDb {
 
         entity Route extends BaseEntity {
             String(30) routeCode : unique;
@@ -151,7 +146,7 @@ service logistics.RouteService : version('1.0.0'), description('route planning a
         }
     }
 
-    cache redis('config/route-service/cache.yaml') {
+    cache redis {
 
         hash ActiveRouteCache : prefix('route:active:'), ttl(600) {
             UUID routeId : primaryKey;
@@ -163,7 +158,7 @@ service logistics.RouteService : version('1.0.0'), description('route planning a
         counter ActiveRouteCount : prefix('routes:active:');
     }
 
-    pubsub mq('config/route-service/pubsub.yaml') {
+    pubsub mq {
 
         topic RouteEvents {
             publish RouteCreated(UUID routeId, String routeCode, UUID vehicleId, UUID driverId);

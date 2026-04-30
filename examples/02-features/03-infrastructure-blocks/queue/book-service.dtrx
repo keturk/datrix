@@ -1,13 +1,7 @@
 
 // BookService produces queues for background processing tasks
-service library.BookService : version('1.0.0'), description('book management service') {
-
-    config('config/book-service/book-service-config.yaml');
-    registration('config/book-service/registration.yaml');
+service library.BookService('config/book-service.yaml') : version('1.0.0'), description('book management service') {
     discovery { }
-    resilience('config/book-service/resilience.yaml');
-    integrations('config/book-service/integrations.yaml');
-
     enum BookStatus {
         Available,
         CheckedOut,
@@ -28,7 +22,7 @@ service library.BookService : version('1.0.0'), description('book management ser
         Admin
     }
 
-    rdbms bookDb('config/book-service/datasources.yaml') {
+    rdbms bookDb {
 
         abstract entity BaseEntity {
             UUID id : primaryKey, server = uuid();
@@ -93,7 +87,7 @@ service library.BookService : version('1.0.0'), description('book management ser
         }
     }
 
-    pubsub mq('config/book-service/pubsub.yaml') {
+    pubsub mq {
         topic BookEvents {
             publish BookAdded(UUID bookId, String title) {
                 ensure title.length > 0;
@@ -112,7 +106,7 @@ service library.BookService : version('1.0.0'), description('book management ser
         }
     }
 
-    queues('config/book-service/queue.yaml') {
+    queues {
         queue IndexBook(UUID bookId, String title, String author) {
             ensure title.length > 0;
             ensure author.length > 0;

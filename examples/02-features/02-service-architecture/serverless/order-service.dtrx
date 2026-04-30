@@ -1,16 +1,10 @@
 
 // Order service: REST + in-process jobs + serverless event handlers, schedules, and queue workers.
-service examples.OrderService : version('1.0.0'), description('Serverless demo â€” orders') {
-
-    config('config/order-service/order-service-config.yaml');
-    registration('config/order-service/registration.yaml');
+service examples.OrderService('config/order-service.yaml') : version('1.0.0'), description('Serverless demo â€” orders') {
     discovery {
         examples.OrderService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/order-service/resilience.yaml');
-    integrations('config/order-service/integrations.yaml');
-
-    rdbms db('config/order-service/datasources.yaml') {
+    rdbms db {
         entity Order {
             UUID id : primaryKey = uuid();
             Decimal amount;
@@ -19,14 +13,14 @@ service examples.OrderService : version('1.0.0'), description('Serverless demo â
         }
     }
 
-    pubsub mq('config/order-service/pubsub.yaml') {
+    pubsub mq {
         topic OrderEvents {
             publish OrderPlaced(UUID orderId, Decimal amount);
             publish OrderCancelled(UUID orderId);
         }
     }
 
-    queues('config/order-service/queues.yaml') {
+    queues {
         queue ProcessShipment(UUID orderId);
     }
 
@@ -34,13 +28,13 @@ service examples.OrderService : version('1.0.0'), description('Serverless demo â
         resource db.Order : only(list, get), public;
     }
 
-    jobs('config/order-service/jobs.yaml') {
+    jobs('config/order-service.yaml') {
         job QuickCleanup {
             Log.info("Running quick cleanup");
         }
     }
 
-    serverless eventHandlers('config/order-service/event-handlers.yaml') {
+    serverless eventHandlers {
         subscribe mq.OrderEvents {
             on OrderPlaced(UUID orderId, Decimal amount) {
                 Log.warn(#"OrderPlaced handler: {orderId} amount={amount}");
@@ -58,13 +52,13 @@ service examples.OrderService : version('1.0.0'), description('Serverless demo â
         }
     }
 
-    serverless scheduledTasks('config/order-service/scheduled-tasks.yaml') {
+    serverless scheduledTasks {
         job DailyOrderReport {
             Log.info("Daily order report running");
         }
     }
 
-    serverless queueWorkers('config/order-service/queue-workers.yaml') {
+    serverless queueWorkers {
         enqueue examples.OrderService.ProcessShipment(UUID orderId) {
             Log.info(#"ProcessShipment worker: {orderId}");
         }

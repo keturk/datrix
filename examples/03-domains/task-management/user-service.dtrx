@@ -1,13 +1,8 @@
 
 from taskapp.common import MAX_PAGE_SIZE;
 
-service taskapp.UserService : version('1.0.0'), description('user and team member management service') {
-
-    config('config/user-service/user-service-config.yaml');
-    registration('config/user-service/registration.yaml');
+service taskapp.UserService('config/user-service.yaml') : version('1.0.0'), description('user and team member management service') {
     discovery { }
-    resilience('config/user-service/resilience.yaml');
-
     enum UserRole {
         Admin : value('admin'),
         Manager : value('manager'),
@@ -39,7 +34,7 @@ service taskapp.UserService : version('1.0.0'), description('user and team membe
         Url? avatarUrl;
     }
 
-    rdbms userDb('config/user-service/datasources.yaml') {
+    rdbms userDb {
 
         entity User extends BaseEntity {
             String(50) username : unique, trim;

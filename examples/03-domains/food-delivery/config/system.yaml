@@ -1,0 +1,81 @@
+base:
+  language: python
+  hosting: docker
+  defaultTimeout: 30000
+  maxPageSize: 100
+  env:
+    DEBUG: false
+    CORS_ORIGINS: '["*"]'
+    SECRETS_BACKEND: environment
+  secrets:
+    provider: env
+  gateway:
+    port: 80
+    rateLimit:
+      default:
+        requests: 100
+        window: 1m
+        key: ip
+    auth:
+      jwt:
+        algorithm: HS256
+        issuer: food-delivery
+        expiresIn: 86400
+        exclude:
+        - /health
+        - publicRoutes
+    cors:
+      origins:
+      - http://localhost:3000
+      methods:
+      - GET
+      - POST
+      - PUT
+      - DELETE
+      - PATCH
+      headers:
+      - Content-Type
+      - Authorization
+  observability:
+    metrics:
+      provider: prometheus
+      endpoint: /metrics
+      includeDefault: true
+      server: http://10.94.143.92:9090
+    tracing:
+      provider: jaeger
+      samplingRate: 0.1
+      endpoint: http://10.94.143.92:4317
+    logging:
+      level: info
+      format: json
+      provider: loki
+      endpoint: http://10.94.143.92:3100
+    visualization:
+      provider: grafana
+      endpoint: http://10.94.143.92:3000
+    alerting:
+      provider: alertmanager
+      endpoint: http://10.94.143.92:9093
+  serviceDiscovery:
+    type: consul
+    host: localhost
+    port: 8500
+    datacenter: dc1
+production:
+  hosting: aws
+  region: us-east-1
+  secrets:
+    provider: vault
+    path: secret/food-delivery
+  gateway:
+    cors:
+      origins:
+      - https://food-delivery.example.com
+  observability:
+    tracing:
+      endpoint: ${JAEGER_URL}
+  serviceDiscovery:
+    type: kubernetes
+    namespace: default
+    labelSelector: app=food-delivery

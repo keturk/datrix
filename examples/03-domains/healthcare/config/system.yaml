@@ -1,0 +1,165 @@
+base:
+  language: python
+  hosting: docker
+  defaultTimeout: 30000
+  maxPageSize: 50
+  defaultLocale: en-US
+  timezone: UTC
+  env:
+    DEBUG: false
+    CORS_ORIGINS: '["*"]'
+    SECRETS_BACKEND: environment
+    JWT_SECRET: dev-secret-change-in-production
+    JWT_ALGORITHM: HS256
+    JWT_EXPIRY: 3600
+  hipaa:
+    auditAllAccess: true
+    encryptPHI: true
+    sessionTimeout: 900
+    passwordPolicy:
+      minLength: 12
+      requireUppercase: true
+      requireLowercase: true
+      requireNumbers: true
+      requireSpecial: true
+      maxAge: 90
+  secrets:
+    provider: env
+  encryption:
+    atRest: true
+    inTransit: true
+    algorithm: AES-256-GCM
+  gateway:
+    port: 443
+    rateLimit:
+      default:
+        requests: 50
+        window: 1m
+        key: user
+      PatientAPI:
+        requests: 30
+        window: 1m
+        key: user
+      AppointmentAPI:
+        requests: 30
+        window: 1m
+        key: user
+      MedicalRecordAPI:
+        requests: 10
+        window: 5m
+        key: user
+    auth:
+      jwt:
+        algorithm: HS256
+        issuer: healthcare-platform
+        audience: healthcare-api
+        expiresIn: 3600
+        exclude:
+        - /health
+        - publicRoutes
+    cors:
+      origins:
+      - http://localhost:3000
+      - https://healthcare.example.com
+      methods:
+      - GET
+      - POST
+      - PUT
+      - DELETE
+      headers:
+      - Content-Type
+      - Authorization
+      - X-Request-ID
+      allowCredentials: true
+      maxAge: 3600
+    transform:
+      response:
+        addHeader:
+          Strict-Transport-Security: max-age=31536000; includeSubDomains
+          X-Content-Type-Options: nosniff
+          X-Frame-Options: DENY
+          X-XSS-Protection: 1; mode=block
+          Content-Security-Policy: default-src 'self'
+        removeHeader:
+        - X-Powered-By
+        - Server
+    circuitBreaker:
+      failureThreshold: 5
+      timeout: 60s
+      halfOpenRequests: 3
+  observability:
+    metrics:
+      provider: prometheus
+      endpoint: /metrics
+      includeDefault: true
+      labels:
+        environment: development
+        region: us-east-1
+        compliance: hipaa
+      server: http://10.94.143.92:9090
+    tracing:
+      provider: jaeger
+      samplingRate: 1.0
+      propagation: w3c
+      endpoint: http://10.94.143.92:4317
+    logging:
+      level: info
+      format: json
+      includeTrace: true
+      additionalFields:
+        application: healthcare-platform
+        compliance: hipaa
+      provider: loki
+      endpoint: http://10.94.143.92:3100
+    audit:
+      enabled: true
+      storage:
+        type: elasticsearch
+        endpoint: ${AUDIT_ES_URL}
+        index: healthcare-audit
+        retention: 7y
+      events:
+      - patient.view
+      - patient.create
+      - patient.update
+      - record.view
+      - record.create
+      - record.update
+      - record.delete
+      - appointment.create
+      - appointment.update
+      - auth.login
+      - auth.logout
+      - auth.failed
+    visualization:
+      provider: grafana
+      endpoint: http://10.94.143.92:3000
+    alerting:
+      provider: alertmanager
+      endpoint: http://10.94.143.92:9093
+  serviceDiscovery:
+    type: consul
+    host: localhost
+    port: 8500
+    datacenter: dc1
+production:
+  hosting: aws
+  region: us-east-1
+  secrets:
+    provider: vault
+    path: secret/healthcare
+    encryption: aes-256-gcm
+  gateway:
+    cors:
+      origins:
+      - https://healthcare.example.com
+  observability:
+    metrics:
+      labels:
+        environment: production
+    tracing:
+      endpoint: ${JAEGER_URL}
+  serviceDiscovery:
+    type: kubernetes
+    namespace: default
+    labelSelector: app=healthcare

@@ -3,9 +3,5 @@ include 'common.dtrx';
 include 'blog-service.dtrx';
 include 'user-service.dtrx';
 
-system hostdemo.System : version('1.0.0') {
-    config('config/system-config.yaml');
-    registry('config/registry.yaml');
-    gateway('config/gateway.yaml');
-    observability('config/observability.yaml');
+system hostdemo.System('config/system.yaml') : version('1.0.0') {
 }

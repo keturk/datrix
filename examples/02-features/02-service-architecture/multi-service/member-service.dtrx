@@ -3,16 +3,12 @@
 
 // A separate service in the same namespace handles member management
 // Each service gets its own database, deployment unit, and API
-service library.MemberService : version('1.0.0'), description('Member management service') {
+service library.MemberService('config/member-service.yaml') : version('1.0.0'), description('Member management service') {
 
     // Service infrastructure configuration - each service has its own config directory
-    config('config/member-service/member-service-config.yaml');
-    registration('config/member-service/registration.yaml');
     discovery { }
-    resilience('config/member-service/resilience.yaml');
-
     // MemberService has its own dedicated database, separate from BookService
-    rdbms memberDb('config/member-service/datasources.yaml') {
+    rdbms memberDb {
 
         // Member entity uses imported BaseEntity and the Address struct
         entity Member extends BaseEntity {

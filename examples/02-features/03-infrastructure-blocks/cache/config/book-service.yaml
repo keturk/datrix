@@ -1,0 +1,110 @@
+base:
+  platform: compose
+  port: 8000
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 704Mi
+  healthCheck:
+    path: /health
+    initialDelay: 10s
+  rdbms:
+    bookDb:
+      engine: postgres
+      host: localhost
+      database: library_books
+      poolSize: 20
+      platform: container
+  registration:
+    tags:
+    - api
+    - library
+    - v1
+    meta: {}
+    healthCheck:
+      type: http
+      path: /health
+      interval: 10s
+  resilience:
+    defaults:
+      timeout: 10s
+      retry:
+        maxAttempts: 2
+        backoff:
+          type: exponential
+          initial: 100ms
+          multiplier: 2
+  integrations:
+    email:
+      provider: sendgrid
+      fromEmail: noreply@library.example.com
+      fromName: Library Book Service
+      templates:
+        bookAvailable: d-book-available
+        overdueNotice: d-overdue-notice
+  cache:
+    redis:
+      engine: redis
+      host: localhost
+      platform: container
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - localhost:9092
+      topics:
+        BookEvents:
+          partitions: 3
+          retention: 7d
+      platform: container
+production:
+  platform: ecs-fargate
+  replicas: 2
+  resources:
+    limits:
+      memory: 512Mi
+  rdbms:
+    bookDb:
+      engine: postgres
+      host: ${BOOK_DB_HOST}
+      database: library_books
+      poolSize: 40
+      platform: rds
+      ssl: true
+      _replace: true
+  integrations:
+    email:
+      fromEmail: ${BOOK_SERVICE_FROM_EMAIL}
+      templates:
+        bookAvailable: ${BOOK_AVAILABLE_TEMPLATE_ID}
+        overdueNotice: ${OVERDUE_NOTICE_TEMPLATE_ID}
+  cache:
+    redis:
+      engine: redis
+      url: ${BOOK_SERVICE_REDIS_URL}
+      platform: elasticache
+      _replace: true
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - ${KAFKA_BROKER_1}
+      - ${KAFKA_BROKER_2}
+      - ${KAFKA_BROKER_3}
+      topics:
+        BookEvents:
+          partitions: 12
+          retention: 30d
+      platform: managed
+      _replace: true
+  strategy:
+    rolling:
+      maxUnavailable: 25%

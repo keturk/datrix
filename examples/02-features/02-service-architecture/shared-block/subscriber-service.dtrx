@@ -1,19 +1,13 @@
 
 // subscriber-service.dtrx
 // Subscribes to the shared IngestionEvents topic via `uses : subscribe`.
-service library.AnalysisService : version('1.0.0'), description('Subscribes to shared ingestion events') {
-
-    config('config/analysis-service/analysis-service-config.yaml');
-    registration('config/analysis-service/registration.yaml');
-    resilience('config/analysis-service/resilience.yaml');
-    dependencies('config/analysis-service/dependencies.yaml');
-
+service library.AnalysisService('config/analysis-service.yaml') : version('1.0.0'), description('Subscribes to shared ingestion events') {
     uses IngestionEvents : subscribe;
     uses DataIngestionService;
 
     enum AnalysisStatus { Pending, Running, Completed, Failed }
 
-    rdbms analysisDb('config/analysis-service/datasources.yaml') {
+    rdbms analysisDb {
         entity AnalysisRun {
             UUID id : primaryKey = uuid();
             String source : index;
