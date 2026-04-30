@@ -1,8 +1,8 @@
 
 // shared-session-store.dtrx
 // Shared Redis-style cache (demonstrates `cache` in a shared block).
-shared SessionStore {
-    cache auth_cache('config/shared-block/shared-session-cache.yaml') {
+shared SessionStore('config/session-store.yaml') {
+    cache auth_cache {
         hash SessionData : prefix('session:'), ttl(3600) {
             String userId;
             String token;

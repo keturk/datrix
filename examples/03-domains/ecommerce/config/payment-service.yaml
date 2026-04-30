@@ -1,0 +1,148 @@
+base:
+  platform: compose
+  port: 8003
+  tracing:
+    level: full
+  replicas: 5
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: '1'
+      memory: 1Gi
+  healthCheck:
+    type: http
+    path: /health
+    initialDelay: 15s
+    period: 10s
+    failureThreshold: 3
+    successThreshold: 1
+  readinessCheck:
+    type: http
+    path: /ready
+    initialDelay: 5s
+    period: 5s
+  rdbms:
+    paymentDb:
+      engine: postgres
+      host: localhost
+      database: ecommerce_payments
+      poolSize: 15
+      platform: container
+  registration:
+    tags:
+    - api
+    - payments
+    - v1
+    meta:
+      team: payments
+    healthCheck:
+      type: http
+      path: /health
+      interval: 10s
+  resilience:
+    defaults:
+      timeout: 30s
+      retry:
+        maxAttempts: 3
+        backoff:
+          type: exponential
+          initial: 500ms
+          multiplier: 2
+          max: 5s
+          jitter: 0.1
+        retryableErrors:
+        - ConnectionError
+        - TimeoutError
+        - ServiceUnavailable
+        nonRetryableErrors:
+        - ValidationError
+        - AuthenticationError
+    config:
+      OrderService:
+        timeout: 10s
+        retry:
+          maxAttempts: 2
+          backoff:
+            type: exponential
+            initial: 100ms
+            multiplier: 2
+            max: 2s
+        circuitBreaker:
+          failureThreshold: 5
+          successThreshold: 3
+          timeout: 30s
+          halfOpenRequests: 3
+        bulkhead:
+          maxConcurrent: 20
+          maxWait: 5s
+        fallback:
+          type: handler
+          handler: handleOrderFallback
+  integrations:
+    payment:
+      provider: stripe
+      currency: USD
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - localhost:9092
+      topics:
+        PaymentEvents:
+          partitions: 3
+          retention: 14d
+      platform: container
+production:
+  platform: ecs-fargate
+  rdbms:
+    paymentDb:
+      engine: postgres
+      host: ${PAYMENT_DB_HOST}
+      database: ecommerce_payments
+      poolSize: 40
+      ssl: true
+      platform: rds
+      _replace: true
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - ${KAFKA_BROKER_1}
+      - ${KAFKA_BROKER_2}
+      - ${KAFKA_BROKER_3}
+      topics:
+        PaymentEvents:
+          partitions: 12
+          retention: 90d
+      platform: managed
+      _replace: true
+  strategy:
+    blueGreen:
+      timeout: 10m
+      validateBefore: true
+      autoPromote: false
+      scaleDownDelay: 30m
+      validation:
+        tests:
+        - /health
+        - /api/v1/payments/validate
+        successThreshold: 100%
+        timeout: 5m
+  rollback:
+    automatic: true
+    revisionHistory: 5
+  scaling:
+    replicas:
+      min: 5
+      max: 20
+    triggers:
+    - metric: cpu
+      target: 70%
+    - metric: memory
+      target: 80%

@@ -3,13 +3,8 @@
 from healthcare.common import SoftDeletable, InsuranceInfo, Gender, BloodType, calculateAge, generateMRN;
 
 // Define a service in the 'healthcare' namespace
-service healthcare.PatientService : version('1.0.0'), description('patient management service') {
-
-    config('config/patient-service/patient-service-config.yaml');
-    registration('config/patient-service/registration.yaml');
+service healthcare.PatientService('config/patient-service.yaml') : version('1.0.0'), description('patient management service') {
     discovery { }
-    resilience('config/patient-service/resilience.yaml');
-
     enum PatientStatus {
         Active,
         Inactive,
@@ -69,7 +64,7 @@ service healthcare.PatientService : version('1.0.0'), description('patient manag
     }
 
     // ': audit' on the rdbms block enables audit logging for all entities
-    rdbms patientDb('config/patient-service/datasources.yaml') : audit {
+    rdbms patientDb : audit {
         // 'alert' defines monitoring thresholds for the datasource
         alert queryDuration(p95) over(5m) > 200ms @severity(warning);
         alert slowQueries(count) over(5m) > 50 @severity(critical);
@@ -166,7 +161,7 @@ service healthcare.PatientService : version('1.0.0'), description('patient manag
     }
 
     // Cache block with multiple data structures
-    cache redis('config/patient-service/cache.yaml') {
+    cache redis {
         hash PatientCache : prefix('patient:'), ttl(1800) {
             UUID patientId : key;
             String mrn;
@@ -182,7 +177,7 @@ service healthcare.PatientService : version('1.0.0'), description('patient manag
     }
 
     // Pub/sub messaging block
-    pubsub mq('config/patient-service/pubsub.yaml') {
+    pubsub mq {
         topic PatientEvents {
             publish PatientRegistered(UUID patientId, String mrn, String fullName, Date dateOfBirth) {
                 ensure mrn.length > 0;

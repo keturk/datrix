@@ -1,0 +1,70 @@
+base:
+  platform: compose
+  port: 8001
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  healthCheck:
+    path: /health
+    initialDelay: 10s
+  rdbms:
+    notifDb:
+      engine: postgres
+      host: localhost
+      database: library_notifications
+      poolSize: 10
+      platform: container
+  registration:
+    tags:
+    - api
+    - library
+    - notifications
+    - v1
+    meta: {}
+    healthCheck:
+      type: http
+      path: /health
+      interval: 10s
+  resilience:
+    defaults:
+      timeout: 10s
+      retry:
+        maxAttempts: 2
+        backoff:
+          type: exponential
+          initial: 100ms
+          multiplier: 2
+  integrations:
+    email:
+      provider: sendgrid
+      fromEmail: noreply@library.example.com
+      fromName: Library Book Service
+      templates:
+        bookAvailable: d-book-available
+        overdueNotice: d-overdue-notice
+production:
+  platform: ecs-fargate
+  replicas: 2
+  rdbms:
+    notifDb:
+      engine: postgres
+      host: ${NOTIFICATION_DB_HOST}
+      database: library_notifications
+      poolSize: 20
+      platform: rds
+      ssl: true
+      _replace: true
+  integrations:
+    email:
+      fromEmail: ${BOOK_SERVICE_FROM_EMAIL}
+      templates:
+        bookAvailable: ${BOOK_AVAILABLE_TEMPLATE_ID}
+        overdueNotice: ${OVERDUE_NOTICE_TEMPLATE_ID}
+  strategy:
+    rolling:
+      maxUnavailable: 25%

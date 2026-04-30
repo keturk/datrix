@@ -1,15 +1,10 @@
 
 from social.common import ContentStatus, MAX_PAGE_SIZE, MAX_POST_LENGTH, paginate;
 
-service social.PostService : version('1.0.0'), description('post and content management service') {
-
-    config('config/post-service/post-service-config.yaml');
-    registration('config/post-service/registration.yaml');
+service social.PostService('config/post-service.yaml') : version('1.0.0'), description('post and content management service') {
     discovery {
         UserService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/post-service/resilience.yaml');
-
     enum PostVisibility {
         Public : value('public'),
         Private : value('private'),
@@ -54,7 +49,7 @@ service social.PostService : version('1.0.0'), description('post and content man
         Int total;
     }
 
-    rdbms postDb('config/post-service/datasources.yaml') {
+    rdbms postDb {
 
         entity Post extends BaseEntity : audit {
             UUID authorId : index;
@@ -174,7 +169,7 @@ service social.PostService : version('1.0.0'), description('post and content man
         }
     }
 
-    cache redis('config/post-service/cache.yaml') {
+    cache redis {
         hash PostCache : prefix('post:'), ttl(1800) {
             UUID postId : primaryKey;
             UUID authorId;
@@ -191,7 +186,7 @@ service social.PostService : version('1.0.0'), description('post and content man
         }
     }
 
-    pubsub mq('config/post-service/pubsub.yaml') {
+    pubsub mq {
 
         topic PostEvents {
             publish PostPublished(UUID postId, UUID authorId, PostVisibility visibility);

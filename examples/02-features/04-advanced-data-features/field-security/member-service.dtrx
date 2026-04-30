@@ -3,13 +3,8 @@
 from library.common import MEMBERSHIP_NUMBER_PATTERN;
 
 // A separate service in the same namespace handles member management
-service library.MemberService : version('1.0.0'), description('member management service') {
-
-    config('config/member-service/member-service-config.yaml');
-    registration('config/member-service/registration.yaml');
+service library.MemberService('config/member-service.yaml') : version('1.0.0'), description('member management service') {
     discovery { }
-    resilience('config/member-service/resilience.yaml');
-
     // 'value()' assigns an explicit serialized value to each enum variant
     // Integer values map to database column values for compact storage
     enum MembershipType {
@@ -33,7 +28,7 @@ service library.MemberService : version('1.0.0'), description('member management
         JSON pagination;
     }
 
-    rdbms memberDb('config/member-service/datasources.yaml') {
+    rdbms memberDb {
 
         entity Member extends BaseEntity {
             String(100) firstName : trim;

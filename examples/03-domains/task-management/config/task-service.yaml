@@ -1,0 +1,141 @@
+base:
+  platform: compose
+  port: 8012
+  replicas: 3
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  healthCheck:
+    type: http
+    path: /health
+    initialDelay: 10s
+    period: 5s
+    failureThreshold: 3
+    successThreshold: 1
+  readinessCheck:
+    type: http
+    path: /ready
+    initialDelay: 5s
+    period: 5s
+  rdbms:
+    taskDb:
+      engine: postgres
+      host: localhost
+      database: task_tasks
+      poolSize: 20
+      platform: container
+  registration:
+    tags:
+    - api
+    - auth
+    - users
+    - v1
+    meta:
+      team: identity
+    healthCheck:
+      type: http
+      path: /health
+      interval: 10s
+  resilience:
+    defaults:
+      timeout: 10s
+      retry:
+        maxAttempts: 2
+        backoff:
+          type: exponential
+          initial: 100ms
+          multiplier: 2
+          max: 2s
+          jitter: 0.1
+        retryableErrors:
+        - ConnectionError
+        - TimeoutError
+        - ServiceUnavailable
+        nonRetryableErrors:
+        - ValidationError
+        - AuthenticationError
+  integrations:
+    email:
+      provider: sendgrid
+      fromEmail: noreply@ecommerce.example.com
+      fromName: E-commerce Platform
+      templates:
+        welcome: d-welcome-123
+        emailVerification: d-verify-456
+        passwordReset: d-reset-789
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - localhost:9092
+      topics:
+        TaskEvents:
+          partitions: 6
+          retention: 7d
+      platform: container
+  jobs:
+    jobs:
+      CheckOverdueTasks:
+        schedule: 0 */2 * * *
+        retry:
+          maxAttempts: 1
+          backoff: fixed
+        timeout: 5m
+production:
+  platform: ecs-fargate
+  strategy:
+    rolling:
+      maxUnavailable: 25%
+      maxSurge: 25%
+      timeout: 10m
+  rollback:
+    automatic: true
+    revisionHistory: 5
+  scaling:
+    replicas:
+      min: 2
+      max: 10
+    triggers:
+    - metric: cpu
+      target: 70%
+  rdbms:
+    taskDb:
+      engine: postgres
+      host: ${TASK_DB_HOST}
+      database: task_tasks
+      poolSize: 40
+      ssl: false
+      platform: rds
+      _replace: true
+  integrations:
+    email:
+      fromEmail: ${SENDGRID_FROM_EMAIL}
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - ${KAFKA_BROKER_1}
+      - ${KAFKA_BROKER_2}
+      - ${KAFKA_BROKER_3}
+      topics:
+        TaskEvents:
+          partitions: 12
+          retention: 30d
+      platform: managed
+      _replace: true
+  jobs:
+    jobs:
+      CheckOverdueTasks:
+        schedule: 0 */1 * * *
+        retry:
+          maxAttempts: 3
+          backoff: exponential
+        timeout: 10m

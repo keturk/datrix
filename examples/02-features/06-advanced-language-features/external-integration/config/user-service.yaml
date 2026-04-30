@@ -1,0 +1,108 @@
+base:
+  platform: compose
+  port: 8021
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  healthCheck:
+    type: http
+    path: /health
+    initialDelay: 10s
+    period: 5s
+    failureThreshold: 3
+    successThreshold: 1
+  rdbms:
+    usersDb:
+      engine: postgres
+      host: localhost
+      database: hostdemo_users
+      poolSize: 10
+      platform: container
+  registration:
+    name: user-service
+    host: localhost
+    port: 8021
+    tags:
+    - users
+    - api
+  resilience:
+    circuitBreaker:
+      enabled: true
+      failureThreshold: 5
+      successThreshold: 2
+      timeout: 30000
+    retry:
+      enabled: true
+      maxAttempts: 3
+      backoff: exponential
+      initialDelay: 1000
+      maxDelay: 10000
+  integrations:
+    email:
+      provider: smtp
+      host: localhost
+      port: 1025
+      fromEmail: noreply@hostdemo.example
+      fromName: HostDemo
+      templates:
+        welcome: templates/welcome.html
+  cache:
+    redis:
+      engine: redis
+      host: localhost
+      platform: container
+  pubsub:
+    mq:
+      engine: rabbitmq
+      brokers:
+      - localhost:5672
+      partitions: 1
+      replicationFactor: 1
+      platform: container
+production:
+  platform: ecs-fargate
+  replicas: 2
+  rdbms:
+    usersDb:
+      engine: postgres
+      platform: rds
+      host: ${POSTGRES_HOST}
+      database: hostdemo_users
+      poolSize: 15
+      ssl: true
+      _replace: true
+  resilience:
+    circuitBreaker:
+      timeout: 60000
+    retry:
+      maxAttempts: 5
+      initialDelay: 2000
+      maxDelay: 30000
+  integrations:
+    email:
+      provider: ses
+      region: us-east-1
+  cache:
+    redis:
+      engine: redis
+      platform: elasticache
+      url: ${USER_REDIS_URL}
+      _replace: true
+  pubsub:
+    mq:
+      engine: rabbitmq
+      platform: external
+      brokers:
+      - ${RABBITMQ_HOST}:5671
+      partitions: 1
+      replicationFactor: 1
+      _replace: true
+  strategy:
+    rolling:
+      maxUnavailable: 25%
+      maxSurge: 25%

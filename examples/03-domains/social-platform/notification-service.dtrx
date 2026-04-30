@@ -1,17 +1,11 @@
 
 from social.common import MAX_PAGE_SIZE, paginate;
 
-service social.NotificationService : version('1.0.0'), description('notification delivery and management service') {
-
-    config('config/notification-service/notification-service-config.yaml');
-    registration('config/notification-service/registration.yaml');
+service social.NotificationService('config/notification-service.yaml') : version('1.0.0'), description('notification delivery and management service') {
     discovery {
         UserService { loadBalance: roundRobin, healthyOnly: true }
         PostService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/notification-service/resilience.yaml');
-    integrations('config/notification-service/integrations.yaml');
-
     enum NotificationType {
         Like : value('like'),
         Comment : value('comment'),
@@ -54,7 +48,7 @@ service social.NotificationService : version('1.0.0'), description('notification
         Boolean mentionNotifications = true;
     }
 
-    rdbms notificationDb('config/notification-service/datasources.yaml') {
+    rdbms notificationDb {
 
         entity Notification extends BaseEntity {
             UUID userId : index;
@@ -100,7 +94,7 @@ service social.NotificationService : version('1.0.0'), description('notification
         }
     }
 
-    pubsub mq('config/notification-service/pubsub.yaml') {
+    pubsub mq {
 
         topic NotificationEvents {
             publish NotificationCreated(UUID notificationId, UUID userId, NotificationType type);

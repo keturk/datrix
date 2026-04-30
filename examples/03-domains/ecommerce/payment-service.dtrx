@@ -1,16 +1,10 @@
 
 from ecommerce.common import MAX_PAGE_SIZE, generateTransactionId;
 
-service ecommerce.PaymentService : version('1.0.0'), description('payment management service') {
-
-    config('config/payment-service/payment-service-config.yaml');
-    registration('config/payment-service/registration.yaml');
+service ecommerce.PaymentService('config/payment-service.yaml') : version('1.0.0'), description('payment management service') {
     discovery {
         ecommerce.OrderService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/payment-service/resilience.yaml');
-    integrations('config/payment-service/integrations.yaml');
-
     enum PaymentMethod {
         CreditCard,
         DebitCard,
@@ -57,7 +51,7 @@ service ecommerce.PaymentService : version('1.0.0'), description('payment manage
     }
 
     // ': audit' on the rdbms block enables audit logging for all entities
-    rdbms paymentDb('config/payment-service/datasources.yaml') : audit {
+    rdbms paymentDb : audit {
         alert queryDuration(p95) over(5m) > 200ms @severity(warning);
         alert transactionDuration(p99) over(1m) > 2s @severity(critical);
 
@@ -111,7 +105,7 @@ service ecommerce.PaymentService : version('1.0.0'), description('payment manage
 
     }
 
-    pubsub mq('config/payment-service/pubsub.yaml') {
+    pubsub mq {
         alert failedMessages(count) over(5m) > 5 @severity(critical);
 
         topic PaymentEvents {

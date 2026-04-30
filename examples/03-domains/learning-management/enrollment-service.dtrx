@@ -1,16 +1,11 @@
 
 from lms.common import MAX_PAGE_SIZE, MAX_SCORE, MIN_SCORE, PASSING_SCORE;
 
-service lms.EnrollmentService : version('1.0.0'), description('enrollment and academic progress tracking service') {
-
-    config('config/enrollment-service/enrollment-service-config.yaml');
-    registration('config/enrollment-service/registration.yaml');
+service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0'), description('enrollment and academic progress tracking service') {
     discovery {
         CourseService { loadBalance: roundRobin, healthyOnly: true }
         StudentService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/enrollment-service/resilience.yaml');
-
     enum EnrollmentStatus {
         Pending : value('pending'),
         Active : value('active'),
@@ -69,7 +64,7 @@ service lms.EnrollmentService : version('1.0.0'), description('enrollment and ac
         DateTime? completedAt;
     }
 
-    rdbms enrollmentDb('config/enrollment-service/datasources.yaml') {
+    rdbms enrollmentDb {
 
         entity Enrollment extends BaseEntity : audit {
             UUID studentId : index;
@@ -190,7 +185,7 @@ service lms.EnrollmentService : version('1.0.0'), description('enrollment and ac
         }
     }
 
-    pubsub mq('config/enrollment-service/pubsub.yaml') {
+    pubsub mq {
 
         topic EnrollmentEvents {
             publish StudentEnrolled(UUID enrollmentId, UUID studentId, UUID courseId);

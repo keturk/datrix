@@ -1,15 +1,10 @@
 
 from realestate.common import PropertyType, generateContractRef;
 
-service realestate.ContractService : version('1.0.0'), description('real estate contract management service') {
-
-    config('config/contract-service/contract-service-config.yaml');
-    registration('config/contract-service/registration.yaml');
+service realestate.ContractService('config/contract-service.yaml') : version('1.0.0'), description('real estate contract management service') {
     discovery {
         ListingService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/contract-service/resilience.yaml');
-
     enum ContractStatus {
         Draft : value('draft'),
         Pending : value('pending'),
@@ -55,7 +50,7 @@ service realestate.ContractService : version('1.0.0'), description('real estate 
         JSON pagination;
     }
 
-    rdbms contractDb('config/contract-service/datasources.yaml') {
+    rdbms contractDb {
         alert queryDuration(p95) over(5m) > 200ms @severity(warning);
 
         // Real estate contract entity
@@ -174,11 +169,11 @@ service realestate.ContractService : version('1.0.0'), description('real estate 
     }
 
     // File storage for contract documents
-    storage store('config/contract-service/storage.yaml') {
+    storage store {
         folder contracts : path('contracts/'), allowed(['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']), maxSize('50mb')
     }
 
-    pubsub mq('config/contract-service/pubsub.yaml') {
+    pubsub mq {
         alert consumerLag(max) over(5m) > 500 @severity(critical);
 
         topic ContractEvents {

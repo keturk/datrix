@@ -1,14 +1,9 @@
 
 
-service blog.ContentService : version('1.0.0'), description('content management service') {
-
-    config('config/content-service/content-service-config.yaml');
-    registration('config/content-service/registration.yaml');
+service blog.ContentService('config/content-service.yaml') : version('1.0.0'), description('content management service') {
     discovery {
         AuthorService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/content-service/resilience.yaml');
-
     enum ContentStatus {
         Draft,
         Published,
@@ -16,7 +11,7 @@ service blog.ContentService : version('1.0.0'), description('content management 
         Deleted
     }
 
-    rdbms contentDb('config/content-service/datasources.yaml') {
+    rdbms contentDb {
 
         entity Post extends BaseEntity {
             UUID authorId : index;
@@ -34,7 +29,7 @@ service blog.ContentService : version('1.0.0'), description('content management 
     }
 
     // Cache block - defines in-memory data structures backed by Redis
-    cache redis('config/content-service/cache.yaml') {
+    cache redis {
         // 'hash' defines a key-value cache entry with TTL (time-to-live in seconds)
         hash AuthorCache : prefix('author:'), ttl(3600) {
             UUID authorId : key;
@@ -43,7 +38,7 @@ service blog.ContentService : version('1.0.0'), description('content management 
         }
     }
 
-    pubsub mq('config/content-service/pubsub.yaml') {
+    pubsub mq {
     }
     subscribe AuthorEvents {
 
@@ -64,7 +59,7 @@ service blog.ContentService : version('1.0.0'), description('content management 
                 isActive: newStatus == "Active"
             });
 
-            // React to cross-service events: archive posts when author becomes inactive
+            // React to cross-service events('config/service.yaml') : archive posts when author becomes inactive
             if (newStatus == "Suspended" || newStatus == "Inactive") {
                 #Array<Post> publishedPosts = contentDb.Post
                     .where(authorId: authorId)

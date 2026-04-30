@@ -2,25 +2,20 @@
 // 'from ... import' brings shared definitions from a module into this service
 
 // LoanService depends on BookService and MemberService for cross-service operations
-service library.LoanService : version('1.0.0'), description('loan management service') {
-
-    config('config/loan-service/loan-service-config.yaml');
-    registration('config/loan-service/registration.yaml');
+service library.LoanService('config/loan-service.yaml') : version('1.0.0'), description('loan management service') {
     // discovery block declares dependencies on other services
     // loadBalance and healthyOnly configure client-side load balancing
     discovery {
         BookService { loadBalance: roundRobin, healthyOnly: true }
         MemberService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/loan-service/resilience.yaml');
-
     enum LoanStatus {
         Active,
         Returned,
         Overdue
     }
 
-    rdbms loanDb('config/loan-service/datasources.yaml') {
+    rdbms loanDb {
 
         entity Loan extends BaseEntity {
             // UUID fields referencing other services' entities (cross-service foreign keys)

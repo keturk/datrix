@@ -1,15 +1,10 @@
 
 from fooddelivery.common import DeliveryAddress, generateDeliveryCode;
 
-service fooddelivery.DeliveryService : version('1.0.0'), description('delivery driver and assignment management service') {
-
-    config('config/delivery-service/delivery-service-config.yaml');
-    registration('config/delivery-service/registration.yaml');
+service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('1.0.0'), description('delivery driver and assignment management service') {
     discovery {
         OrderService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/delivery-service/resilience.yaml');
-
     enum DeliveryStatus {
         Pending,
         Assigned,
@@ -55,7 +50,7 @@ service fooddelivery.DeliveryService : version('1.0.0'), description('delivery d
         Int? estimatedMinutes;
     }
 
-    rdbms deliveryDb('config/delivery-service/datasources.yaml') {
+    rdbms deliveryDb {
 
         entity DeliveryDriver extends BaseEntity {
             String(100) firstName : trim;
@@ -180,7 +175,7 @@ service fooddelivery.DeliveryService : version('1.0.0'), description('delivery d
         }
     }
 
-    cache redis('config/delivery-service/cache.yaml') {
+    cache redis {
 
         hash DriverLocationCache : prefix('driver:location:'), ttl(120) {
             UUID driverId : primaryKey;
@@ -192,7 +187,7 @@ service fooddelivery.DeliveryService : version('1.0.0'), description('delivery d
         counter ActiveDeliveryCount : prefix('delivery:active:');
     }
 
-    pubsub mq('config/delivery-service/pubsub.yaml') {
+    pubsub mq {
 
         topic DeliveryEvents {
             publish DeliveryCreated(UUID deliveryId, String deliveryCode, UUID orderId);

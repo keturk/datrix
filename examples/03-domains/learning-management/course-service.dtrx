@@ -1,16 +1,10 @@
 
 from lms.common import MAX_PAGE_SIZE;
 
-service lms.CourseService : version('1.0.0'), description('course catalog and content management service') {
-
-    config('config/course-service/course-service-config.yaml');
-    registration('config/course-service/registration.yaml');
+service lms.CourseService('config/course-service.yaml') : version('1.0.0'), description('course catalog and content management service') {
     discovery {
         StudentService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/course-service/resilience.yaml');
-    integrations('config/course-service/integrations.yaml');
-
     enum CourseStatus {
         Draft : value('draft'),
         Published : value('published'),
@@ -91,7 +85,7 @@ service lms.CourseService : version('1.0.0'), description('course catalog and co
         Int? maxEnrollment;
     }
 
-    rdbms courseDb('config/course-service/datasources.yaml') {
+    rdbms courseDb {
 
         entity Course extends BaseEntity : audit {
             String(200) title : trim;
@@ -253,13 +247,13 @@ service lms.CourseService : version('1.0.0'), description('course catalog and co
         }
     }
 
-    storage store('config/course-service/storage.yaml') {
+    storage store {
         folder materials : path('courses/materials/'), allowed(['application/pdf', 'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation']), maxSize('100mb')
         folder videos : path('courses/videos/'), allowed(['video/mp4', 'video/webm', 'video/quicktime']), maxSize('500mb')
         folder assignments : path('courses/assignments/'), allowed(['application/pdf', 'application/zip', 'text/plain']), maxSize('50mb')
     }
 
-    pubsub mq('config/course-service/pubsub.yaml') {
+    pubsub mq {
 
         topic CourseEvents {
             publish CourseCreated(UUID courseId, String title, UUID instructorId, DifficultyLevel difficulty) {

@@ -1,5 +1,5 @@
 
-// Advanced relationships feature example - self-contained service demonstrating:
+// Advanced relationships feature example - self-contained service demonstrating('config/service.yaml') :
 // - hasOne for one-to-one relationships (Author -> AuthorProfile)
 // - hasMany for one-to-many relationships (Author -> Books)
 // - belongsTo for the inverse side of relationships
@@ -7,16 +7,13 @@
 // - Composite unique index on the join entity
 
 // Define a service in the 'library' namespace with version and description
-service library.BookService : version('1.0.0'), description('Book management service') {
+service library.BookService('config/book-service.yaml') : version('1.0.0'), description('Book management service') {
 
     // Service infrastructure configuration
-    config('config/book-service/book-service-config.yaml');   // Service-specific settings
-    registration('config/book-service/registration.yaml');     // Service registry entry
     discovery { }                                              // Service discovery (auto-configured)
-    resilience('config/book-service/resilience.yaml');          // Circuit breakers, retries, timeouts
 
     // Relational database block - groups entities (tables) under a named datasource
-    rdbms bookDb('config/book-service/datasources.yaml') {
+    rdbms bookDb {
 
         // Abstract entities provide reusable field definitions; they don't generate tables
         abstract entity BaseEntity {

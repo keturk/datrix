@@ -1,20 +1,15 @@
 
 // GraphQL API feature example - demonstrates GraphQL schema with types, queries, mutations, subscriptions
 
-service library.BookService : version('1.0.0'), description('GraphQL API demonstration') {
-
-    config('config/book-service/book-service-config.yaml');
-    registration('config/book-service/registration.yaml');
+service library.BookService('config/book-service.yaml') : version('1.0.0'), description('GraphQL API demonstration') {
     discovery { }
-    resilience('config/book-service/resilience.yaml');
-
     enum BookStatus {
         Available,
         CheckedOut,
         Reserved
     }
 
-    rdbms bookDb('config/book-service/datasources.yaml') {
+    rdbms bookDb {
         abstract entity BaseEntity {
             UUID id : primaryKey, server = uuid();
             DateTime createdAt : server = now();
@@ -35,7 +30,7 @@ service library.BookService : version('1.0.0'), description('GraphQL API demonst
         }
     }
 
-    pubsub mq('config/book-service/pubsub.yaml') {
+    pubsub mq {
         topic BookEvents {
             publish BookAdded(UUID bookId, String title);
             publish BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus);

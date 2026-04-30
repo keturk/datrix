@@ -1,0 +1,98 @@
+base:
+  platform: compose
+  port: 8010
+  replicas: 3
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  healthCheck:
+    type: http
+    path: /health
+    initialDelay: 10s
+    period: 5s
+    failureThreshold: 3
+    successThreshold: 1
+  readinessCheck:
+    type: http
+    path: /ready
+    initialDelay: 5s
+    period: 5s
+  rdbms:
+    studentDb:
+      engine: postgres
+      host: localhost
+      database: lms_student
+      poolSize: 20
+      platform: container
+  registration:
+    tags:
+    - api
+    - auth
+    - users
+    - v1
+    meta:
+      team: identity
+    healthCheck:
+      type: http
+      path: /health
+      interval: 10s
+  resilience:
+    defaults:
+      timeout: 10s
+      retry:
+        maxAttempts: 2
+        backoff:
+          type: exponential
+          initial: 100ms
+          multiplier: 2
+          max: 2s
+          jitter: 0.1
+        retryableErrors:
+        - ConnectionError
+        - TimeoutError
+        - ServiceUnavailable
+        nonRetryableErrors:
+        - ValidationError
+        - AuthenticationError
+  integrations:
+    email:
+      provider: sendgrid
+      fromEmail: noreply@ecommerce.example.com
+      fromName: E-commerce Platform
+      templates:
+        welcome: d-welcome-123
+        emailVerification: d-verify-456
+        passwordReset: d-reset-789
+production:
+  platform: ecs-fargate
+  strategy:
+    rolling:
+      maxUnavailable: 25%
+      maxSurge: 25%
+      timeout: 10m
+  rollback:
+    automatic: true
+    revisionHistory: 5
+  scaling:
+    replicas:
+      min: 2
+      max: 10
+    triggers:
+    - metric: cpu
+      target: 70%
+  rdbms:
+    studentDb:
+      engine: postgres
+      host: ${STUDENT_DB_HOST}
+      database: lms_student
+      poolSize: 40
+      ssl: false
+      platform: rds
+      _replace: true
+  integrations:
+    email:
+      fromEmail: ${SENDGRID_FROM_EMAIL}

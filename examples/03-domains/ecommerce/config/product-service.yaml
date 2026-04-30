@@ -1,0 +1,186 @@
+base:
+  platform: compose
+  port: 8001
+  replicas: 3
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1152Mi
+  healthCheck:
+    type: http
+    path: /health
+    initialDelay: 10s
+    period: 5s
+    failureThreshold: 3
+    successThreshold: 1
+  readinessCheck:
+    type: http
+    path: /ready
+    initialDelay: 5s
+    period: 5s
+  rdbms:
+    productDb:
+      engine: postgres
+      host: localhost
+      database: ecommerce_products
+      poolSize: 15
+      platform: container
+  nosql:
+    docdb:
+      engine: mongodb
+      uri: mongodb://localhost:27017
+      database: ecommerce_product_reviews
+      platform: container
+  registration:
+    tags:
+    - api
+    - catalog
+    - inventory
+    - v1
+    meta:
+      team: catalog
+    healthCheck:
+      type: http
+      path: /health
+      interval: 10s
+  resilience:
+    defaults:
+      timeout: 10s
+      retry:
+        maxAttempts: 2
+        backoff:
+          type: exponential
+          initial: 100ms
+          multiplier: 2
+          max: 2s
+          jitter: 0.1
+        retryableErrors:
+        - ConnectionError
+        - TimeoutError
+        - ServiceUnavailable
+        nonRetryableErrors:
+        - ValidationError
+        - AuthenticationError
+  cache:
+    redis:
+      engine: redis
+      host: localhost
+      platform: container
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - localhost:9092
+      topics:
+        ProductEvents:
+          partitions: 3
+          retention: 7d
+      platform: container
+  storage:
+    store:
+      provider: minio
+      endpoint: http://localhost:9000
+      bucket: ecommerce-products
+      accessKey: ${MINIO_ACCESS_KEY}
+      secretKey: ${MINIO_SECRET_KEY}
+      region: us-east-1
+      platform: minio
+  jobs:
+    jobs:
+      ReleaseExpiredReservations:
+        schedule: '* * * * *'
+        retry:
+          maxAttempts: 1
+          backoff: fixed
+        timeout: 30s
+      UpdatePopularProducts:
+        schedule: 0 * * * *
+        retry:
+          maxAttempts: 1
+          backoff: fixed
+        timeout: 30s
+production:
+  platform: ecs-fargate
+  resources:
+    limits:
+      memory: 512Mi
+  rdbms:
+    productDb:
+      engine: postgres
+      host: ${PRODUCT_DB_HOST}
+      database: ecommerce_products
+      poolSize: 40
+      ssl: true
+      platform: rds
+      _replace: true
+  nosql:
+    docdb:
+      engine: mongodb
+      uri: ${PRODUCT_NOSQL_URI}
+      database: ecommerce_product_reviews
+      platform: managed
+      _replace: true
+  cache:
+    redis:
+      engine: redis
+      url: ${PRODUCT_REDIS_URL}
+      platform: elasticache
+      _replace: true
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - ${KAFKA_BROKER_1}
+      - ${KAFKA_BROKER_2}
+      - ${KAFKA_BROKER_3}
+      topics:
+        ProductEvents:
+          partitions: 12
+          retention: 30d
+      platform: managed
+      _replace: true
+  storage:
+    store:
+      provider: s3
+      bucket: ecommerce-products
+      region: ${AWS_REGION}
+      credentials: iam
+      platform: s3
+      _replace: true
+  jobs:
+    jobs:
+      ReleaseExpiredReservations:
+        retry:
+          maxAttempts: 3
+          backoff: exponential
+        timeout: 2m
+      UpdatePopularProducts:
+        retry:
+          maxAttempts: 3
+          backoff: exponential
+        timeout: 5m
+  strategy:
+    rolling:
+      maxUnavailable: 25%
+      maxSurge: 25%
+      timeout: 10m
+  rollback:
+    automatic: true
+    revisionHistory: 5
+  scaling:
+    replicas:
+      min: 2
+      max: 15
+    triggers:
+    - metric: cpu
+      target: 70%
+    - metric: custom
+      name: requests_per_second
+      target: 1000

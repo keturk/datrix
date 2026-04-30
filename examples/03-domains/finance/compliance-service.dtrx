@@ -1,16 +1,11 @@
 
 from finance.common import AuditedEntity, Currency;
 
-service finance.ComplianceService : version('1.0.0'), description('regulatory compliance and audit service') {
-
-    config('config/compliance-service/compliance-service-config.yaml');
-    registration('config/compliance-service/registration.yaml');
+service finance.ComplianceService('config/compliance-service.yaml') : version('1.0.0'), description('regulatory compliance and audit service') {
     discovery {
         AccountService { loadBalance: roundRobin, healthyOnly: true }
         TransactionService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/compliance-service/resilience.yaml');
-
     enum AlertSeverity {
         Low : value('low'),
         Medium : value('medium'),
@@ -67,7 +62,7 @@ service finance.ComplianceService : version('1.0.0'), description('regulatory co
         JSON pagination;
     }
 
-    rdbms complianceDb('config/compliance-service/datasources.yaml') {
+    rdbms complianceDb {
         alert queryDuration(p95) over(5m) > 300ms @severity(warning);
 
         // Compliance alert entity for suspicious activity tracking
@@ -202,7 +197,7 @@ service finance.ComplianceService : version('1.0.0'), description('regulatory co
         }
     }
 
-    pubsub mq('config/compliance-service/pubsub.yaml') {
+    pubsub mq {
         alert consumerLag(max) over(5m) > 500 @severity(critical);
 
         topic ComplianceEvents {
@@ -430,7 +425,7 @@ service finance.ComplianceService : version('1.0.0'), description('regulatory co
         }
     }
 
-    jobs('config/compliance-service/jobs.yaml') {
+    jobs('config/compliance-service.yaml') {
         // Check for large transactions that may have been missed by real-time processing
         job CheckLargeTransactions {
             #DateTime yesterday = now().addDays(-1);

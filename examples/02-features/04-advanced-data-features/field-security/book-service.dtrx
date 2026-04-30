@@ -3,16 +3,11 @@
 from library.common import MAX_CHECKOUT_DAYS, MAX_RENEWALS, ISBN_PATTERN, calculateLateFee, formatBookReference;
 
 // Define a service in the 'library' namespace with version and description
-service library.BookService : version('1.0.0'), description('book management service') {
+service library.BookService('config/book-service.yaml') : version('1.0.0'), description('book management service') {
 
     // Service infrastructure configuration
-    config('config/book-service/book-service-config.yaml');   // Service-specific settings
-    registration('config/book-service/registration.yaml');     // Service registry entry
     discovery { }                                              // Service discovery (auto-configured)
-    resilience('config/book-service/resilience.yaml');          // Circuit breakers, retries, timeouts
     // 'integrations' declares third-party service connectors (email, SMS, payment, etc.)
-    integrations('config/book-service/integrations.yaml');
-
     // Enums define a fixed set of allowed values for type-safe fields
     enum BookStatus {
         Available,
@@ -66,7 +61,7 @@ service library.BookService : version('1.0.0'), description('book management ser
 
     // Relational database block - groups entities (tables) under a named datasource
     // Services can have multiple rdbms blocks for separate databases
-    rdbms catalog('config/book-service/catalog-db.yaml') {
+    rdbms catalog {
 
         entity Category extends BaseEntity {
             String(100) name : unique, trim;
@@ -256,7 +251,7 @@ service library.BookService : version('1.0.0'), description('book management ser
     }
 
     // Second rdbms block - a separate database for reporting/analytics
-    rdbms reporting('config/book-service/reporting-db.yaml') {
+    rdbms reporting {
 
         abstract entity BaseReportEntity {
             UUID id : primaryKey, server = uuid();
@@ -288,7 +283,7 @@ service library.BookService : version('1.0.0'), description('book management ser
     }
 
     // Pub/sub messaging block - defines event-driven communication
-    pubsub mq('config/book-service/pubsub.yaml') {
+    pubsub mq {
         // 'topic' groups related events that can be published and subscribed to
         topic BookEvents {
             publish BookAdded(UUID bookId, String title) {
@@ -368,7 +363,7 @@ service library.BookService : version('1.0.0'), description('book management ser
     }
 
     // Cache block - defines an in-memory data store for fast reads
-    cache redis('config/book-service/cache.yaml') {
+    cache redis {
         // 'hash' with 'prefix' sets the Redis key prefix; 'ttl' sets expiration in seconds
         hash BookCache : prefix('book:'), ttl(3600) {
             UUID bookId : primaryKey;
@@ -461,7 +456,7 @@ service library.BookService : version('1.0.0'), description('book management ser
     }
 
     // 'jobs' block defines scheduled background tasks
-    jobs('config/book-service/jobs.yaml') {
+    jobs('config/book-service.yaml') {
         job CheckOverdueBooks {
             #Array<Book> checkedOut = catalog.Book.where(status: BookStatus.CheckedOut).all();
             #Int processed = 0;
@@ -530,7 +525,7 @@ service library.BookService : version('1.0.0'), description('book management ser
     }
 
     // NoSQL document database block for schema-flexible data
-    nosql docdb('config/book-service/nosql-db.yaml') {
+    nosql docdb {
 
         // 'collection' defines a document store (analogous to a table in NoSQL)
         collection ReadingActivity {
@@ -557,7 +552,7 @@ service library.BookService : version('1.0.0'), description('book management ser
     }
 
     // Storage block - defines file/object storage buckets and folders
-    storage store('config/book-service/storage.yaml') {
+    storage store {
         // 'folder' defines a storage location with allowed MIME types and size limits
         folder covers : path('covers/'), allowed(['image/jpeg', 'image/png', 'image/webp']), maxSize('5mb')
         folder ebooks : path('ebooks/'), allowed(['application/pdf', 'application/epub+zip']), maxSize('50mb')

@@ -1,0 +1,134 @@
+base:
+  platform: compose
+  port: 8001
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  healthCheck:
+    path: /health
+    initialDelay: 10s
+  rdbms:
+    alertDb:
+      engine: postgres
+      host: localhost
+      database: iot_telemetry
+      poolSize: 20
+      platform: container
+  nosql:
+    docdb:
+      engine: mongodb
+      uri: mongodb://localhost:27017
+      database: iot_telemetry_docs
+      platform: container
+  registration:
+    tags:
+    - api
+    - library
+    - v1
+    meta: {}
+    healthCheck:
+      type: http
+      path: /health
+      interval: 10s
+  resilience:
+    defaults:
+      timeout: 10s
+      retry:
+        maxAttempts: 2
+        backoff:
+          type: exponential
+          initial: 100ms
+          multiplier: 2
+  cache:
+    redis:
+      engine: redis
+      host: localhost
+      platform: container
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - localhost:9092
+      topics:
+        TelemetryEvents:
+          partitions: 12
+          retention: 14d
+      platform: container
+  jobs:
+    jobs:
+      CheckAlertRules:
+        schedule: '*/5 * * * *'
+        retry:
+          maxAttempts: 1
+          backoff: fixed
+        timeout: 60s
+      AggregateHourlyStats:
+        schedule: 0 * * * *
+        retry:
+          maxAttempts: 1
+          backoff: fixed
+        timeout: 120s
+production:
+  platform: ecs-fargate
+  strategy:
+    rolling:
+      maxUnavailable: 25%
+  replicas: 2
+  rdbms:
+    alertDb:
+      engine: postgres
+      host: ${DB_HOST}
+      database: iot_telemetry
+      poolSize: 40
+      ssl: true
+      platform: rds
+      _replace: true
+  nosql:
+    docdb:
+      engine: mongodb
+      uri: ${TELEMETRY_NOSQL_URI}
+      database: iot_telemetry_docs
+      platform: managed
+      _replace: true
+  cache:
+    redis:
+      engine: redis
+      url: ${TELEMETRY_REDIS_URL}
+      platform: elasticache
+      _replace: true
+  pubsub:
+    mq:
+      engine: kafka
+      partitions: 3
+      replicationFactor: 1
+      brokers:
+      - ${KAFKA_BROKER_1}
+      - ${KAFKA_BROKER_2}
+      - ${KAFKA_BROKER_3}
+      topics:
+        TelemetryEvents:
+          partitions: 48
+          retention: 90d
+      platform: managed
+      _replace: true
+  jobs:
+    jobs:
+      CheckAlertRules:
+        schedule: '*/2 * * * *'
+        retry:
+          maxAttempts: 3
+          backoff: exponential
+        timeout: 5m
+      AggregateHourlyStats:
+        schedule: 5 * * * *
+        retry:
+          maxAttempts: 3
+          backoff: exponential
+        timeout: 10m

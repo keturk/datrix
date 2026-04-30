@@ -1,14 +1,8 @@
 
 from social.common import ContentStatus, MAX_PAGE_SIZE, paginate;
 
-service social.UserService : version('1.0.0'), description('user management and social graph service') {
-
-    config('config/user-service/user-service-config.yaml');
-    registration('config/user-service/registration.yaml');
+service social.UserService('config/user-service.yaml') : version('1.0.0'), description('user management and social graph service') {
     discovery { }
-    resilience('config/user-service/resilience.yaml');
-    integrations('config/user-service/integrations.yaml');
-
     enum UserStatus {
         Active : value('active'),
         Suspended : value('suspended'),
@@ -35,7 +29,7 @@ service social.UserService : version('1.0.0'), description('user management and 
         Url? avatarUrl;
     }
 
-    rdbms userDb('config/user-service/datasources.yaml') {
+    rdbms userDb {
 
         entity User extends BaseEntity : audit {
             String(50) username : unique, trim;
@@ -119,7 +113,7 @@ service social.UserService : version('1.0.0'), description('user management and 
         }
     }
 
-    cache redis('config/user-service/cache.yaml') {
+    cache redis {
         hash UserProfileCache : prefix('user:profile:'), ttl(1800) {
             UUID userId : primaryKey;
             String username;
@@ -133,7 +127,7 @@ service social.UserService : version('1.0.0'), description('user management and 
         counter UserPostCount : prefix('user:posts:');
     }
 
-    pubsub mq('config/user-service/pubsub.yaml') {
+    pubsub mq {
 
         topic UserEvents {
             publish UserRegistered(UUID userId, String username, String email) {

@@ -1,0 +1,20 @@
+base:
+  cache:
+    auth_cache:
+      engine: redis
+      host: localhost
+      port: 6380
+      docker_image: redis:7-alpine
+      volume_path: /data
+      healthCheckCmd: '["CMD", "redis-cli", "ping"]'
+      platform: container
+production:
+  cache:
+    auth_cache:
+      engine: redis
+      url: ${SHARED_SESSION_REDIS_URL}
+      docker_image: redis:7-alpine
+      volume_path: /data
+      healthCheckCmd: '["CMD", "redis-cli", "ping"]'
+      platform: elasticache
+      _replace: true

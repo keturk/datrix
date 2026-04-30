@@ -1,13 +1,8 @@
 
 from finance.common import AuditedEntity, Currency, generateReference;
 
-service finance.AccountService : version('1.0.0'), description('account and customer management service') {
-
-    config('config/account-service/account-service-config.yaml');
-    registration('config/account-service/registration.yaml');
+service finance.AccountService('config/account-service.yaml') : version('1.0.0'), description('account and customer management service') {
     discovery { }
-    resilience('config/account-service/resilience.yaml');
-
     enum AccountType {
         Checking : value('checking'),
         Savings : value('savings'),
@@ -56,7 +51,7 @@ service finance.AccountService : version('1.0.0'), description('account and cust
         JSON pagination;
     }
 
-    rdbms accountDb('config/account-service/datasources.yaml') {
+    rdbms accountDb {
         alert queryDuration(p95) over(5m) > 200ms @severity(warning);
         alert connectionPool(utilization) over(1m) > 80% @severity(critical);
 
@@ -181,7 +176,7 @@ service finance.AccountService : version('1.0.0'), description('account and cust
         }
     }
 
-    pubsub mq('config/account-service/pubsub.yaml') {
+    pubsub mq {
         alert consumerLag(max) over(5m) > 1000 @severity(critical);
 
         topic AccountEvents {

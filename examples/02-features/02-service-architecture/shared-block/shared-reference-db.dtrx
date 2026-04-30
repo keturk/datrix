@@ -1,8 +1,8 @@
 
 // shared-reference-db.dtrx
 // Shared relational database for reference data read by multiple services.
-shared AviationReferenceData {
-    rdbms aviation_db('config/shared-block/shared-aviation-db.yaml') {
+shared AviationReferenceData('config/aviation-reference-data.yaml') {
+    rdbms aviation_db {
         entity Airport {
             String(4) icaoCode : primaryKey;
             String(100) name;

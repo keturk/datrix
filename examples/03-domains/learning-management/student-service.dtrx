@@ -1,13 +1,8 @@
 
 from lms.common import MAX_PAGE_SIZE;
 
-service lms.StudentService : version('1.0.0'), description('student profile and account management service') {
-
-    config('config/student-service/student-service-config.yaml');
-    registration('config/student-service/registration.yaml');
+service lms.StudentService('config/student-service.yaml') : version('1.0.0'), description('student profile and account management service') {
     discovery { }
-    resilience('config/student-service/resilience.yaml');
-
     enum StudentStatus {
         Active : value('active'),
         Graduated : value('graduated'),
@@ -35,7 +30,7 @@ service lms.StudentService : version('1.0.0'), description('student profile and 
         Phone? phone;
     }
 
-    rdbms studentDb('config/student-service/datasources.yaml') {
+    rdbms studentDb {
 
         entity Student extends BaseEntity {
             String(100) firstName : trim;

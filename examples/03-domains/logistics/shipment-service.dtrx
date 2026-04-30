@@ -1,13 +1,8 @@
 
 from logistics.common import GeoCoordinate, generateTrackingNumber;
 
-service logistics.ShipmentService : version('1.0.0'), description('shipment tracking and management service') {
-
-    config('config/shipment-service/shipment-service-config.yaml');
-    registration('config/shipment-service/registration.yaml');
+service logistics.ShipmentService('config/shipment-service.yaml') : version('1.0.0'), description('shipment tracking and management service') {
     discovery { }
-    resilience('config/shipment-service/resilience.yaml');
-
     enum ShipmentStatus {
         Created,
         PickedUp,
@@ -60,7 +55,7 @@ service logistics.ShipmentService : version('1.0.0'), description('shipment trac
         Int failed;
     }
 
-    rdbms shipmentDb('config/shipment-service/datasources.yaml') {
+    rdbms shipmentDb {
 
         entity Shipment extends BaseEntity : audit {
             String(50) trackingNumber : unique;
@@ -134,7 +129,7 @@ service logistics.ShipmentService : version('1.0.0'), description('shipment trac
         }
     }
 
-    nosql docdb('config/shipment-service/nosql-db.yaml') {
+    nosql docdb {
 
         collection ShipmentTracking {
             String(50) trackingNumber : index;
@@ -149,7 +144,7 @@ service logistics.ShipmentService : version('1.0.0'), description('shipment trac
         }
     }
 
-    cache redis('config/shipment-service/cache.yaml') {
+    cache redis {
 
         hash ShipmentStatusCache : prefix('shipment:status:'), ttl(1800) {
             UUID shipmentId : primaryKey;
@@ -160,7 +155,7 @@ service logistics.ShipmentService : version('1.0.0'), description('shipment trac
         counter ActiveShipments : prefix('shipments:active:');
     }
 
-    pubsub mq('config/shipment-service/pubsub.yaml') {
+    pubsub mq {
 
         topic ShipmentEvents {
             publish ShipmentCreated(UUID shipmentId, String trackingNumber, UUID senderId, String origin, String destination) {

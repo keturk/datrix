@@ -1,13 +1,8 @@
 
 from hr.common import AuditedEntity, Department, generateEmployeeNumber;
 
-service hr.EmployeeService : version('1.0.0'), description('employee management and directory service') {
-
-    config('config/employee-service/employee-service-config.yaml');
-    registration('config/employee-service/registration.yaml');
+service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), description('employee management and directory service') {
     discovery { }
-    resilience('config/employee-service/resilience.yaml');
-
     enum EmployeeStatus {
         Active : value('active'),
         OnLeave : value('on_leave'),
@@ -61,7 +56,7 @@ service hr.EmployeeService : version('1.0.0'), description('employee management 
         JSON pagination;
     }
 
-    rdbms employeeDb('config/employee-service/datasources.yaml') {
+    rdbms employeeDb {
         alert queryDuration(p95) over(5m) > 200ms @severity(warning);
         alert connectionPool(utilization) over(1m) > 80% @severity(critical);
 
@@ -187,7 +182,7 @@ service hr.EmployeeService : version('1.0.0'), description('employee management 
         }
     }
 
-    pubsub mq('config/employee-service/pubsub.yaml') {
+    pubsub mq {
         alert consumerLag(max) over(5m) > 500 @severity(critical);
 
         topic EmployeeEvents {

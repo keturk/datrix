@@ -1,20 +1,15 @@
 
 // Advanced queries feature example - demonstrates whereIn, orderBy, whereNull, count, limit, offset, chaining
 
-service library.BookService : version('1.0.0'), description('Advanced query operations demonstration') {
-
-    config('config/book-service/book-service-config.yaml');
-    registration('config/book-service/registration.yaml');
+service library.BookService('config/book-service.yaml') : version('1.0.0'), description('Advanced query operations demonstration') {
     discovery { }
-    resilience('config/book-service/resilience.yaml');
-
     enum BookStatus {
         Available,
         CheckedOut,
         Reserved
     }
 
-    rdbms bookDb('config/book-service/datasources.yaml') {
+    rdbms bookDb {
         abstract entity BaseEntity {
             UUID id : primaryKey, server = uuid();
             DateTime createdAt : server = now();

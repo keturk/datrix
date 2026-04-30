@@ -4,9 +4,5 @@ include 'shipment-service.dtrx';
 include 'fleet-service.dtrx';
 include 'route-service.dtrx';
 
-system logistics : version('1.0.0') {
-    config('config/system-config.yaml');
-    registry('config/registry.yaml');
-    gateway('config/gateway.yaml');
-    observability('config/observability.yaml');
+system logistics('config/system.yaml') : version('1.0.0') {
 }

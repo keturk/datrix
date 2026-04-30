@@ -1,13 +1,8 @@
 
 from iot.common import generateSerialNumber, HEARTBEAT_TIMEOUT_SECONDS;
 
-service iot.DeviceService : version('1.0.0'), description('device registration and lifecycle management service') {
-
-    config('config/device-service/device-service-config.yaml');
-    registration('config/device-service/registration.yaml');
+service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), description('device registration and lifecycle management service') {
     discovery { }
-    resilience('config/device-service/resilience.yaml');
-
     enum DeviceStatus {
         Active,
         Inactive,
@@ -53,7 +48,7 @@ service iot.DeviceService : version('1.0.0'), description('device registration a
         Int decommissioned;
     }
 
-    rdbms deviceDb('config/device-service/datasources.yaml') {
+    rdbms deviceDb {
 
         entity Device extends BaseEntity {
             String(50) serialNumber : unique;
@@ -135,7 +130,7 @@ service iot.DeviceService : version('1.0.0'), description('device registration a
         }
     }
 
-    cache redis('config/device-service/cache.yaml') {
+    cache redis {
 
         hash DeviceStatusCache : prefix('device:status:'), ttl(600) {
             UUID deviceId : primaryKey;
@@ -147,7 +142,7 @@ service iot.DeviceService : version('1.0.0'), description('device registration a
         counter OnlineDeviceCount : prefix('devices:online:');
     }
 
-    pubsub mq('config/device-service/pubsub.yaml') {
+    pubsub mq {
 
         topic DeviceEvents {
             publish DeviceRegistered(UUID deviceId, String serialNumber, String name, DeviceType type) {

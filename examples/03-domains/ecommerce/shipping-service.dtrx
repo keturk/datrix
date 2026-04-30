@@ -1,14 +1,8 @@
 
 from ecommerce.common import generateTrackingNumber;
 
-service ecommerce.ShippingService : version('1.0.0'), description('shipping management service') {
-
-    config('config/shipping-service/shipping-service-config.yaml');
-    registration('config/shipping-service/registration.yaml');
+service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0.0'), description('shipping management service') {
     discovery { }
-    resilience('config/shipping-service/resilience.yaml');
-    integrations('config/shipping-service/integrations.yaml');
-
     enum ShipmentStatus {
         Pending,
         PickedUp,
@@ -76,7 +70,7 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
         JSON payload;
     }
 
-    rdbms shippingDb('config/shipping-service/datasources.yaml') {
+    rdbms shippingDb {
 
         entity Shipment extends BaseEntity {
             UUID orderId : index;
@@ -162,7 +156,7 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
         }
     }
 
-    cache redis('config/shipping-service/cache.yaml') {
+    cache redis {
         hash ShipmentCache : prefix('shipment:'), ttl(1800) {
             String trackingNumber : key;
             ShipmentStatus status;
@@ -172,7 +166,7 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
         counter ShipmentsToday : prefix('shipments:daily:'), ttl(86400);
     }
 
-    pubsub mq('config/shipping-service/pubsub.yaml') {
+    pubsub mq {
         topic ShipmentEvents {
             publish ShipmentCreated(UUID shipmentId, UUID orderId);
             publish ShipmentDispatched(UUID shipmentId, UUID orderId, String trackingNumber) {
@@ -485,7 +479,7 @@ service ecommerce.ShippingService : version('1.0.0'), description('shipping mana
     }
 
     // Scheduled jobs for background processing
-    jobs('config/shipping-service/jobs.yaml') {
+    jobs('config/shipping-service.yaml') {
         // Periodically sync tracking info from carrier APIs
         job SyncCarrierTracking {
             #Array<Shipment> activeShipments = shippingDb.Shipment

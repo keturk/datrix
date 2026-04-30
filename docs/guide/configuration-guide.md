@@ -91,10 +91,28 @@ Tier 4: Block-Level Config (profile-based YAML)
 
 Profiles allow environment-specific configuration in a single file.
 
-### Profile Structure
+### Profile Structure with `base:` Inheritance
+
+To avoid repeating common values across profiles, use a `base:` section. Profiles without explicit sections inherit from `base:`.
 
 ```yaml
-# config/system-config.yaml
+# config/system.yaml — using base: inheritance
+base:
+  language: python
+  hosting: docker
+  defaultTimeout: 30000
+
+production:
+  hosting: aws
+  region: us-east-1
+```
+
+`test` and `development` inherit from `base` automatically (no section needed). Only `production` needs overrides.
+
+**Traditional profile structure (still supported):**
+
+```yaml
+# config/system-config.yaml — explicit profiles
 test:                           # Profile name
   language: python
   hosting: docker
@@ -134,32 +152,124 @@ datrix generate -p production -s specs/system.dtrx -o ./generated
 | `staging` | Pre-production testing |
 | `production` | Production deployment |
 
+### Multi-File Inheritance with `extends:`
+
+Share common config across services using `extends:`:
+
+```yaml
+# config/base.yaml — project-wide shared config
+base:
+  platform: compose
+  replicas: 1
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+  healthCheck: { path: /health, initialDelay: 10s }
+
+production:
+  platform: ecs-fargate
+  replicas: 2
+```
+
+```yaml
+# config/order-service.yaml
+extends: config/base.yaml
+
+base:
+  port: 8001
+  rdbms:
+    orderDb:
+      engine: postgres
+      database: ecommerce_orders
+
+production:
+  replicas: 3
+  rdbms:
+    orderDb:
+      host: ${DB_HOST}
+      platform: rds
+```
+
+Order service inherits all base config (resources, healthCheck) plus production overrides (ecs-fargate, 2 replicas → overridden to 3).
+
+### Engine Defaults
+
+Fields like `port`, `docker_image`, `asyncDriver`, `syncDriver` are auto-injected based on engine choice:
+
+```yaml
+base:
+  rdbms:
+    bookDb:
+      engine: postgres          # Enough for test/dev!
+      database: library_books
+      poolSize: 20
+      # port, docker_image, asyncDriver, etc. auto-injected from engine defaults
+
+production:
+  rdbms:
+    bookDb:
+      host: ${DB_HOST}
+      platform: rds
+      ssl: true
+```
+
+No need to specify `port: 5432`, `docker_image: postgres:17-alpine`, etc. — the loader fills them in automatically.
+
+### Convention Defaults
+
+Missing `registration` or `resilience` sections get sensible defaults:
+
+```yaml
+base:
+  port: 8000
+  rdbms:
+    bookDb:
+      engine: postgres
+      database: library
+  # registration: omitted → defaults to { tags: [api, <system-name>, v1], healthCheck: { type: http, path: /health, interval: 10s } }
+  # resilience: omitted → defaults to { timeout: 10s, retry: { maxAttempts: 2, backoff: { type: exponential, initial: 100ms } } }
+```
+
+To explicitly opt out:
+
+```yaml
+base:
+  registration: null   # No service registration
+  resilience: null     # No resilience config
+```
+
 ---
 
 ## System Configuration
 
-**File:** `config/system-config.yaml`
+**File:** `config/system.yaml` (unified format)
 
-**Referenced in:** `system` block
+**Referenced in:** `system` block (declaration-level config path)
 
 ```dtrx
-system ecommerce.System : version('1.0.0') {
-    config('config/system-config.yaml');
+system ecommerce.System('config/system.yaml') : version('1.0.0') {
 }
 ```
 
-### Complete Example
+### Complete Example (with `base:` inheritance)
 
 ```yaml
-test:
+base:
   language: python                    # Required: "python" or "typescript"
   hosting: docker                     # Required: "docker", "kubernetes", "aws", "azure"
   defaultTimeout: 30000              # Default request timeout (ms)
-
-development:
-  language: python
-  hosting: docker
-  defaultTimeout: 30000
+  secrets: { provider: env }
+  gateway:
+    port: 80
+    rateLimit: { default: { requests: 100, window: 1m, key: ip } }
+    cors:
+      origins: [http://localhost:3000]
+      methods: [GET, POST, PUT, DELETE, PATCH]
+  observability:
+    metrics: { provider: prometheus, endpoint: /metrics }
+    tracing: { provider: jaeger, samplingRate: 0.1 }
+    logging: { level: info, format: json }
+  serviceDiscovery: { type: consul, host: localhost, port: 8500 }
 
 production:
   language: python

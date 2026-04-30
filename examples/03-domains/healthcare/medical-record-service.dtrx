@@ -1,19 +1,14 @@
 
 from healthcare.common import AuditedEntity, Confidential;
 
-service healthcare.MedicalRecordService : version('1.0.0'), description('medical record management service') {
-
-    config('config/medical-record-service/medical-record-service-config.yaml');
-    registration('config/medical-record-service/registration.yaml');
+service healthcare.MedicalRecordService('config/medical-record-service.yaml') : version('1.0.0'), description('medical record management service') {
     // Depends on both PatientService and AppointmentService
     discovery {
         PatientService { loadBalance: roundRobin, healthyOnly: true }
         AppointmentService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/medical-record-service/resilience.yaml');
-
     // Storage block - defines file upload folders with constraints
-    storage store('config/medical-record-service/storage.yaml') {
+    storage store {
         // Path templates with dynamic segments for organized storage
         folder attachments : path('attachments/{patientId}/{recordId}'), allowed(['application/pdf', 'image/jpeg', 'image/png', 'image/dicom']), maxSize('50mb')
         folder images : path('images/{patientId}'), allowed(['image/jpeg', 'image/png', 'image/dicom']), maxSize('100mb')
@@ -120,7 +115,7 @@ service healthcare.MedicalRecordService : version('1.0.0'), description('medical
         String providerName;
     }
 
-    rdbms medicalRecordDb('config/medical-record-service/datasources.yaml') {
+    rdbms medicalRecordDb {
         alert queryDuration(p95) over(5m) > 200ms @severity(warning);
         alert connectionPool(utilization) over(1m) > 80% @severity(critical);
 
@@ -302,7 +297,7 @@ service healthcare.MedicalRecordService : version('1.0.0'), description('medical
         }
     }
 
-    cache redis('config/medical-record-service/cache.yaml') {
+    cache redis {
         hash RecordCache : prefix('record:'), ttl(900) {
             UUID recordId : key;
             UUID patientId;
@@ -316,7 +311,7 @@ service healthcare.MedicalRecordService : version('1.0.0'), description('medical
         }
     }
 
-    pubsub mq('config/medical-record-service/pubsub.yaml') {
+    pubsub mq {
         alert consumerLag(max) over(5m) > 500 @severity(warning);
 
         topic RecordEvents {

@@ -1,17 +1,11 @@
 
 from healthcare.common import APPOINTMENT_DURATION_DEFAULT;
 
-service healthcare.AppointmentService : version('1.0.0'), description('appointment management service') {
-
-    config('config/appointment-service/appointment-service-config.yaml');
-    registration('config/appointment-service/registration.yaml');
+service healthcare.AppointmentService('config/appointment-service.yaml') : version('1.0.0'), description('appointment management service') {
     // discovery block declares dependencies on other services
     discovery {
         PatientService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/appointment-service/resilience.yaml');
-    integrations('config/appointment-service/integrations.yaml');
-
     enum AppointmentStatus {
             Scheduled,
             Confirmed,
@@ -72,7 +66,7 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
         String? reason;
     }
 
-    rdbms appointmentDb('config/appointment-service/datasources.yaml') {
+    rdbms appointmentDb {
 
         entity Appointment extends BaseEntity {
             UUID patientId : index;
@@ -200,7 +194,7 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
 
     }
 
-    cache redis('config/appointment-service/cache.yaml') {
+    cache redis {
         hash AppointmentCache : prefix('appointment:'), ttl(1800) {
             UUID appointmentId : key;
             UUID patientId;
@@ -214,7 +208,7 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
         }
     }
 
-    pubsub mq('config/appointment-service/pubsub.yaml') {
+    pubsub mq {
         topic AppointmentEvents {
             publish AppointmentScheduled(UUID appointmentId, UUID patientId, UUID? providerId, DateTime scheduledAt, String type) {
                 ensure type.length > 0;
@@ -624,7 +618,7 @@ service healthcare.AppointmentService : version('1.0.0'), description('appointme
     }
 
     // Scheduled background jobs
-    jobs('config/appointment-service/jobs.yaml') {
+    jobs('config/appointment-service.yaml') {
         // Send reminders for tomorrow's appointments
         job SendAppointmentReminders {
             #DateTime tomorrow = now().addDays(1);

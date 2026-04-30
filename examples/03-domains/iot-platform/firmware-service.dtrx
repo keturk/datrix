@@ -1,15 +1,10 @@
 
 from iot.common import generateRolloutCode, MAX_BATCH_SIZE;
 
-service iot.FirmwareService : version('1.0.0'), description('firmware version and rollout management service') {
-
-    config('config/firmware-service/firmware-service-config.yaml');
-    registration('config/firmware-service/registration.yaml');
+service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), description('firmware version and rollout management service') {
     discovery {
         DeviceService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/firmware-service/resilience.yaml');
-
     enum RolloutStatus {
         Planned,
         InProgress,
@@ -50,7 +45,7 @@ service iot.FirmwareService : version('1.0.0'), description('firmware version an
         Decimal progressPercent;
     }
 
-    rdbms firmwareDb('config/firmware-service/datasources.yaml') {
+    rdbms firmwareDb {
 
         entity FirmwareVersion extends BaseEntity {
             String(50) version : unique;
@@ -181,11 +176,11 @@ service iot.FirmwareService : version('1.0.0'), description('firmware version an
         }
     }
 
-    storage store('config/firmware-service/storage.yaml') {
+    storage store {
         folder firmwareBinaries : path('firmware/'), allowed(['application/octet-stream', 'application/zip']), maxSize('100mb')
     }
 
-    pubsub mq('config/firmware-service/pubsub.yaml') {
+    pubsub mq {
 
         topic FirmwareEvents {
             publish FirmwareReleased(UUID firmwareId, String version, Boolean isStable) {
@@ -450,7 +445,7 @@ service iot.FirmwareService : version('1.0.0'), description('firmware version an
         }
     }
 
-    jobs('config/firmware-service/jobs.yaml') {
+    jobs('config/firmware-service.yaml') {
 
         job ProcessRolloutBatch {
             #Array<FirmwareRollout> activeRollouts = firmwareDb.FirmwareRollout

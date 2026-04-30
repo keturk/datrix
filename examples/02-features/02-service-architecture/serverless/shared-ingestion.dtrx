@@ -1,17 +1,17 @@
 
 // Shared ingestion pipeline with serverless handlers (cross-service boundary).
-shared IngestionPipeline {
-    pubsub mq('config/shared/ingestion-pubsub.yaml') {
+shared IngestionPipeline('config/ingestion-pipeline.yaml') {
+    pubsub mq {
         topic IngestionEvents {
             publish SourceIngested(UUID runId, String source, Integer recordCount);
         }
     }
 
-    storage files('config/shared/ingestion-storage.yaml') {
+    storage files {
         folder landing : path('ingestion/{runId}'), maxSize('50mb');
     }
 
-    serverless ingestionHandlers('config/shared/ingestion-handlers.yaml') {
+    serverless ingestionHandlers {
         subscribe mq.IngestionEvents {
             on SourceIngested(UUID runId, String source, Integer recordCount) {
                 Log.info(#"Ingested {recordCount} records from {source}");

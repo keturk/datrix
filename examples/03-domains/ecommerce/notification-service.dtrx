@@ -1,15 +1,9 @@
 
-service ecommerce.NotificationService : version('1.0.0'), description('order notification consumer') {
-
-    config('config/notification-service/notification-service-config.yaml');
-    registration('config/notification-service/registration.yaml');
+service ecommerce.NotificationService('config/notification-service.yaml') : version('1.0.0'), description('order notification consumer') {
     discovery {
         ecommerce.OrderService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/notification-service/resilience.yaml');
-    integrations('config/notification-service/integrations.yaml');
-
-    rdbms notificationDb('config/notification-service/datasources.yaml') {
+    rdbms notificationDb {
 
         entity NotificationAudit extends BaseEntity {
             UUID orderId : index;

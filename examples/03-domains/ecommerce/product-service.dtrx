@@ -1,13 +1,8 @@
 
 from ecommerce.common import OrderLineInput, Sluggable, Inventoried, Discountable;
 
-service ecommerce.ProductService : version('1.0.0'), description('product management service') {
-
-    config('config/product-service/product-service-config.yaml');
-    registration('config/product-service/registration.yaml');
+service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0'), description('product management service') {
     discovery { }
-    resilience('config/product-service/resilience.yaml');
-
     enum ProductStatus {
         Draft,
         Active,
@@ -74,7 +69,7 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
         Array<UUID> ids;
     }
 
-    rdbms productDb('config/product-service/datasources.yaml') {
+    rdbms productDb {
 
         entity Category extends BaseEntity {
             String(100) name : unique, trim;
@@ -148,7 +143,7 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
 
     }
 
-    cache redis('config/product-service/cache.yaml') {
+    cache redis {
         hash ProductCache : prefix('product:'), ttl(3600) {
             UUID productId : key;
             String name;
@@ -166,7 +161,7 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
         counter ProductViews : prefix('views:product:');
     }
 
-    pubsub mq('config/product-service/pubsub.yaml') {
+    pubsub mq {
         topic ProductEvents {
             publish ProductCreated(UUID productId, String name, Money price) {
                 ensure name.length > 0;
@@ -244,7 +239,7 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
     }
 
     // NoSQL document database block for unstructured data
-    nosql docdb('config/product-service/datasources.yaml') {
+    nosql docdb {
 
         // 'collection' defines a document store (like MongoDB collections)
         collection ProductReview {
@@ -273,7 +268,7 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
     }
 
     // Storage block - defines file upload folders with constraints
-    storage store('config/product-service/storage.yaml') {
+    storage store {
         // 'allowed(...)' restricts MIME types; 'maxSize(...)' limits upload size
         folder images : path('products/images/'), allowed(['image/jpeg', 'image/png', 'image/webp']), maxSize('10mb')
         folder thumbnails : path('products/thumbnails/'), allowed(['image/jpeg', 'image/png', 'image/webp']), maxSize('2mb')
@@ -519,7 +514,7 @@ service ecommerce.ProductService : version('1.0.0'), description('product manage
     }
 
     // Jobs block - defines scheduled/background tasks
-    jobs('config/product-service/jobs.yaml') {
+    jobs('config/product-service.yaml') {
         // Job to release inventory reservations that have expired
         job ReleaseExpiredReservations {
             #Array<InventoryReservation> expired = productDb.InventoryReservation

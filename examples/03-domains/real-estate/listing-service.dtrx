@@ -1,13 +1,8 @@
 
 from realestate.common import PropertyType, formatPrice, generateListingRef;
 
-service realestate.ListingService : version('1.0.0'), description('property listing management service') {
-
-    config('config/listing-service/listing-service-config.yaml');
-    registration('config/listing-service/registration.yaml');
+service realestate.ListingService('config/listing-service.yaml') : version('1.0.0'), description('property listing management service') {
     discovery { }
-    resilience('config/listing-service/resilience.yaml');
-
     enum ListingStatus {
         Draft : value('draft'),
         Active : value('active'),
@@ -70,7 +65,7 @@ service realestate.ListingService : version('1.0.0'), description('property list
         JSON pagination;
     }
 
-    rdbms listingDb('config/listing-service/datasources.yaml') {
+    rdbms listingDb {
         alert queryDuration(p95) over(5m) > 200ms @severity(warning);
         alert connectionPool(utilization) over(1m) > 80% @severity(critical);
 
@@ -210,12 +205,12 @@ service realestate.ListingService : version('1.0.0'), description('property list
     }
 
     // File storage for property photos and documents
-    storage store('config/listing-service/storage.yaml') {
+    storage store {
         folder photos : path('listings/photos/'), allowed(['image/jpeg', 'image/png', 'image/webp']), maxSize('10mb')
         folder documents : path('listings/documents/'), allowed(['application/pdf']), maxSize('25mb')
     }
 
-    pubsub mq('config/listing-service/pubsub.yaml') {
+    pubsub mq {
         alert consumerLag(max) over(5m) > 500 @severity(critical);
 
         topic ListingEvents {
