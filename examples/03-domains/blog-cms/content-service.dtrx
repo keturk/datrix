@@ -61,7 +61,7 @@ service blog.ContentService('config/content-service.yaml') : version('1.0.0'), d
 
             // React to cross-service events('config/service.yaml') : archive posts when author becomes inactive
             if (newStatus == "Suspended" || newStatus == "Inactive") {
-                #Array<Post> publishedPosts = contentDb.Post
+                let Array<Post> publishedPosts = contentDb.Post
                     .where(authorId: authorId)
                     .where(status: ContentStatus.Published)
                     .all();
@@ -85,7 +85,7 @@ service blog.ContentService('config/content-service.yaml') : version('1.0.0'), d
     subscribe CommentEvents {
 
         on CommentApproved(UUID commentId, UUID contentId) {
-            #Post? post = contentDb.Post.find(contentId);
+            let Post? post = contentDb.Post.find(contentId);
 
             if (post != null) {
                 post.approvedCommentCount = post.approvedCommentCount + 1;
@@ -100,7 +100,7 @@ service blog.ContentService('config/content-service.yaml') : version('1.0.0'), d
     }
 
     test("computed isDraft is true for Draft status") {
-        #contentDb.Post post = contentDb.Post.create({
+        let contentDb.PostNone post = contentDb.Post.create({
             authorId: uuid(),
             title: "Test Post",
             body: "Test content for spec test"
@@ -110,7 +110,7 @@ service blog.ContentService('config/content-service.yaml') : version('1.0.0'), d
     }
 
     test("spec: isDraft is true for Spec Test Post draft fixture") {
-        #contentDb.Post post = contentDb.Post.create({
+        let contentDb.PostNone post = contentDb.Post.create({
             authorId: uuid(),
             title: "Spec Test Post",
             body: "This is a test post body"

@@ -350,7 +350,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
     subscribe AppointmentEvents {
 
         on AppointmentCompleted(UUID appointmentId, UUID patientId, UUID? providerId, String providerName, String type) {
-            #MedicalRecord record = medicalRecordDb.MedicalRecord.create({
+            let MedicalRecord record = medicalRecordDb.MedicalRecord.create({
                 patientId: patientId,
                 appointmentId: appointmentId,
                 providerId: providerId,
@@ -389,7 +389,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
     }
 
     test("computed isDraft is true for Draft status") {
-        #medicalRecordDb.MedicalRecord record = medicalRecordDb.MedicalRecord.create({
+        let medicalRecordDb.MedicalRecordNone record = medicalRecordDb.MedicalRecord.create({
             patientId: uuid(),
             providerName: "Dr. Draft",
             type: RecordType.Note,
@@ -402,7 +402,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
     }
 
     test("afterCreate emits RecordCreated event") {
-        #medicalRecordDb.MedicalRecord record = medicalRecordDb.MedicalRecord.create({
+        let medicalRecordDb.MedicalRecordNone record = medicalRecordDb.MedicalRecord.create({
             patientId: uuid(),
             providerName: "Dr. Event",
             type: RecordType.Diagnosis,
@@ -419,7 +419,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
         alert errorRate(ratio) over(5m) > 5% @severity(critical);
 
         get(UUID patientId, RecordType? type, DateTime? startDate, DateTime? endDate, Int page = 1, Int perPage = 20) -> RecordSearchResult {
-            #JSON query = medicalRecordDb.MedicalRecord.where(patientId: patientId);
+            let JSON query = medicalRecordDb.MedicalRecord.where(patientId: patientId);
 
             if (type != null) {
                 query = query.where(type: type);
@@ -436,8 +436,8 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
             // 'whereNot(...)' excludes records matching the condition
             query = query.whereNot(status: RecordStatus.Voided);
 
-            #Int total = query.count();
-            #Array<MedicalRecord> records = query
+            let Int total = query.count();
+            let Array<MedicalRecord> records = query
                 .orderBy(recordDate: desc)
                 .offset((page - 1) * perPage)
                 .limit(Math.min(perPage, 50))
@@ -463,7 +463,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
 
         @path('/:id')
         get(UUID id) -> medicalRecordDb.MedicalRecord {
-            #MedicalRecord record = medicalRecordDb.MedicalRecord.findOrFail(id);
+            let MedicalRecord record = medicalRecordDb.MedicalRecord.findOrFail(id);
 
             Log.info("Record viewed", {
                 recordId: id,
@@ -477,7 +477,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
 
         post(CreateRecordRequest request) -> medicalRecordDb.MedicalRecord {
             // Cross-service validation
-            #Boolean patientValid = PatientService.PatientAPI.post('/internal/validate', { patientId: request.patientId });
+            let Boolean patientValid = PatientService.PatientAPI.post('/internal/validate', { patientId: request.patientId });
             if (!patientValid) {
                 throw ValidationException("Patient not found or inactive");
             }
@@ -485,7 +485,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
             if (request.appointmentId != null) {
                 try {
                     // Verify appointment belongs to this patient
-                    #JSON appointment = AppointmentService.AppointmentAPI.get('/internal/:id', request.appointmentId);
+                    let JSON appointment = AppointmentService.AppointmentAPI.get('/internal/:id', request.appointmentId);
                     if (appointment.patientId != request.patientId) {
                         throw ValidationException("Appointment does not belong to this patient");
                     }
@@ -494,7 +494,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
                 }
             }
 
-            #MedicalRecord record = medicalRecordDb.MedicalRecord.create({
+            let MedicalRecord record = medicalRecordDb.MedicalRecord.create({
                 patientId: request.patientId,
                 appointmentId: request.appointmentId,
                 providerId: request.providerId,
@@ -520,7 +520,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
 
         @path('/:id')
         put(UUID id, UpdateRecordRequest request) -> medicalRecordDb.MedicalRecord {
-            #MedicalRecord record = medicalRecordDb.MedicalRecord.findOrFail(id);
+            let MedicalRecord record = medicalRecordDb.MedicalRecord.findOrFail(id);
 
             if (!record.canEdit) {
                 throw ValidationException(#"Cannot edit record in status: {record.status}");
@@ -537,7 +537,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
         // Record state transition endpoints
         @path('/:id/finalize')
         put(UUID id) -> medicalRecordDb.MedicalRecord {
-            #MedicalRecord record = medicalRecordDb.MedicalRecord.findOrFail(id);
+            let MedicalRecord record = medicalRecordDb.MedicalRecord.findOrFail(id);
             record.finalize();
 
             redis.RecordCache.set(record.id, {
@@ -552,7 +552,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
 
         @path('/:id/amend')
         put(UUID id, AmendRecordRequest request) -> medicalRecordDb.MedicalRecord {
-            #MedicalRecord record = medicalRecordDb.MedicalRecord.findOrFail(id);
+            let MedicalRecord record = medicalRecordDb.MedicalRecord.findOrFail(id);
 
             if (request.updatedContent != null) {
                 record.content = request.updatedContent;
@@ -566,7 +566,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
 
         @path('/:id/void')
         put(UUID id, VoidRecordRequest request) : access(admin) -> medicalRecordDb.MedicalRecord {
-            #MedicalRecord record = medicalRecordDb.MedicalRecord.findOrFail(id);
+            let MedicalRecord record = medicalRecordDb.MedicalRecord.findOrFail(id);
             record.void(request.reason);
 
             redis.RecordCache.delete(record.id);
@@ -577,17 +577,17 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
         // File upload endpoint
         @path('/:id/attachments')
         post(UUID id, AddAttachmentRequest request) -> medicalRecordDb.Attachment {
-            #MedicalRecord record = medicalRecordDb.MedicalRecord.findOrFail(id);
+            let MedicalRecord record = medicalRecordDb.MedicalRecord.findOrFail(id);
 
             // Upload file to storage and get the path
-            #String storagePath = store.upload(request.file, {
+            let String storagePath = store.upload(request.file, {
                 folder: 'attachments',
                 patientId: record.patientId,
                 recordId: record.id,
                 filename: request.filename
             });
 
-            #Attachment attachment = medicalRecordDb.Attachment.create({
+            let Attachment attachment = medicalRecordDb.Attachment.create({
                 record: record,
                 filename: request.filename,
                 contentType: request.file.contentType,
@@ -617,7 +617,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
         // File download endpoint
         @path('/:id/attachments/:attachmentId/download')
         get(UUID id, UUID attachmentId) -> Blob {
-            #Attachment attachment = medicalRecordDb.Attachment.findOrFail(attachmentId);
+            let Attachment attachment = medicalRecordDb.Attachment.findOrFail(attachmentId);
 
             if (attachment.recordId != id) {
                 throw ValidationException("Attachment does not belong to this record");
@@ -636,7 +636,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
         // Prescription management endpoints
         @path('/prescriptions')
         get(UUID patientId, Boolean? activeOnly) -> Array<medicalRecordDb.Prescription> {
-            #JSON query = medicalRecordDb.Prescription.where(patientId: patientId);
+            let JSON query = medicalRecordDb.Prescription.where(patientId: patientId);
 
             if (activeOnly == true) {
                 query = query.where(status: PrescriptionStatus.Active);
@@ -652,12 +652,12 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
 
         @path('/prescriptions')
         post(CreatePrescriptionRequest request) -> medicalRecordDb.Prescription {
-            #Boolean patientValid = PatientService.PatientAPI.post('/internal/validate', { patientId: request.patientId });
+            let Boolean patientValid = PatientService.PatientAPI.post('/internal/validate', { patientId: request.patientId });
             if (!patientValid) {
                 throw ValidationException("Patient not found or inactive");
             }
 
-            #Prescription prescription = medicalRecordDb.Prescription.create({
+            let Prescription prescription = medicalRecordDb.Prescription.create({
                 patientId: request.patientId,
                 appointmentId: request.appointmentId,
                 providerId: request.providerId,
@@ -681,7 +681,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
 
         @path('/prescriptions/:id/refill')
         post(UUID id) -> medicalRecordDb.Prescription {
-            #Prescription prescription = medicalRecordDb.Prescription.findOrFail(id);
+            let Prescription prescription = medicalRecordDb.Prescription.findOrFail(id);
             prescription.refill();
 
             Log.info("Prescription refilled", {
@@ -695,7 +695,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
 
         @path('/prescriptions/:id/discontinue')
         put(UUID id, DiscontinuePrescriptionRequest request) -> medicalRecordDb.Prescription {
-            #Prescription prescription = medicalRecordDb.Prescription.findOrFail(id);
+            let Prescription prescription = medicalRecordDb.Prescription.findOrFail(id);
             prescription.discontinue(request.reason);
             return prescription;
         }
@@ -703,24 +703,24 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
         // Comprehensive patient history view
         @path('/patient/:patientId/history')
         get(UUID patientId) -> PatientHistory {
-            #Array<MedicalRecord> records = medicalRecordDb.MedicalRecord
+            let Array<MedicalRecord> records = medicalRecordDb.MedicalRecord
                 .where(patientId: patientId)
                 .whereNot(status: RecordStatus.Voided)
                 .orderBy(recordDate: desc)
                 .limit(50)
                 .all();
 
-            #Array<Prescription> activePrescriptions = medicalRecordDb.Prescription
+            let Array<Prescription> activePrescriptions = medicalRecordDb.Prescription
                 .where(patientId: patientId)
                 .where(status: PrescriptionStatus.Active)
                 .all();
 
-            #Int totalRecords = medicalRecordDb.MedicalRecord
+            let Int totalRecords = medicalRecordDb.MedicalRecord
                 .where(patientId: patientId)
                 .whereNot(status: RecordStatus.Voided)
                 .count();
 
-            #Int totalPrescriptions = medicalRecordDb.Prescription
+            let Int totalPrescriptions = medicalRecordDb.Prescription
                 .where(patientId: patientId)
                 .count();
 
@@ -751,7 +751,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
         @path('/internal/from-appointment')
         post(CreateRecordFromAppointmentRequest request) : internal -> medicalRecordDb.MedicalRecord {
             // Cross-service call to get appointment details
-            #JSON appointment = AppointmentService.AppointmentAPI.get('/internal/:id', request.appointmentId);
+            let JSON appointment = AppointmentService.AppointmentAPI.get('/internal/:id', request.appointmentId);
 
             return medicalRecordDb.MedicalRecord.create({
                 patientId: appointment.patientId,

@@ -211,7 +211,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
                 newVersion: newVersion
             });
 
-            #Array<RolloutLog> pendingLogs = firmwareDb.RolloutLog
+            let Array<RolloutLog> pendingLogs = firmwareDb.RolloutLog
                 .where(deviceId: deviceId)
                 .where(status: DeviceUpdateStatus.Installing)
                 .all();
@@ -219,7 +219,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
             foreach log in pendingLogs {
                 log.markCompleted();
 
-                #FirmwareRollout rollout = firmwareDb.FirmwareRollout.findOrFail(log.firmwareRolloutId);
+                let FirmwareRollout rollout = firmwareDb.FirmwareRollout.findOrFail(log.firmwareRolloutId);
                 rollout.recordSuccess();
 
                 dispatch DeviceUpdateCompleted(rollout.id, deviceId, newVersion);
@@ -289,7 +289,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
         }
 
         post(CreateFirmwareRequest request) : access(admin) -> firmwareDb.FirmwareVersion {
-            #FirmwareVersion? existing = firmwareDb.FirmwareVersion
+            let FirmwareVersion? existing = firmwareDb.FirmwareVersion
                 .where(version: request.version)
                 .first();
 
@@ -300,7 +300,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
                 });
             }
 
-            #FirmwareVersion firmware = firmwareDb.FirmwareVersion.create({
+            let FirmwareVersion firmware = firmwareDb.FirmwareVersion.create({
                 version: request.version,
                 releaseNotes: request.releaseNotes,
                 fileUrl: request.fileUrl,
@@ -320,7 +320,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
 
         @path('/rollouts')
         get(RolloutStatus? status) -> Array<firmwareDb.FirmwareRollout> {
-            #JSON query = firmwareDb.FirmwareRollout.all();
+            let JSON query = firmwareDb.FirmwareRollout.all();
 
             if (status != null) {
                 query = firmwareDb.FirmwareRollout.where(status: status);
@@ -331,9 +331,9 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
 
         @path('/rollouts/start')
         post(StartRolloutRequest request) : access(admin) -> firmwareDb.FirmwareRollout {
-            #FirmwareVersion firmware = firmwareDb.FirmwareVersion.findOrFail(request.firmwareVersionId);
+            let FirmwareVersion firmware = firmwareDb.FirmwareVersion.findOrFail(request.firmwareVersionId);
 
-            #Array<FirmwareRollout> activeRollouts = firmwareDb.FirmwareRollout
+            let Array<FirmwareRollout> activeRollouts = firmwareDb.FirmwareRollout
                 .where(firmwareVersionId: firmware.id)
                 .whereIn(status: [RolloutStatus.InProgress, RolloutStatus.Planned])
                 .all();
@@ -345,16 +345,16 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
                 });
             }
 
-            #Int deviceCount = 0;
+            let Int deviceCount = 0;
             if (request.targetDeviceGroupId != null) {
-                #Array<JSON> groupDevices = DeviceService.DeviceAPI.get('/by-group/:groupId', request.targetDeviceGroupId);
+                let Array<JSON> groupDevices = DeviceService.DeviceAPI.get('/by-group/:groupId', request.targetDeviceGroupId);
                 deviceCount = groupDevices.length();
             } else {
-                #Array<JSON> allDevices = DeviceService.DeviceAPI.get('/by-type/:type', "Sensor");
+                let Array<JSON> allDevices = DeviceService.DeviceAPI.get('/by-type/:type', "Sensor");
                 deviceCount = allDevices.length();
             }
 
-            #FirmwareRollout rollout = firmwareDb.FirmwareRollout.create({
+            let FirmwareRollout rollout = firmwareDb.FirmwareRollout.create({
                 rolloutCode: generateRolloutCode(),
                 firmwareVersionId: firmware.id,
                 targetDeviceGroupId: request.targetDeviceGroupId,
@@ -375,7 +375,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
 
         @path('/rollouts/:id/pause')
         post(UUID id) : access(admin) -> firmwareDb.FirmwareRollout {
-            #FirmwareRollout rollout = firmwareDb.FirmwareRollout.findOrFail(id);
+            let FirmwareRollout rollout = firmwareDb.FirmwareRollout.findOrFail(id);
 
             if (rollout.status != RolloutStatus.InProgress) {
                 throw ValidationException({
@@ -398,7 +398,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
 
         @path('/rollouts/:id/resume')
         post(UUID id) : access(admin) -> firmwareDb.FirmwareRollout {
-            #FirmwareRollout rollout = firmwareDb.FirmwareRollout.findOrFail(id);
+            let FirmwareRollout rollout = firmwareDb.FirmwareRollout.findOrFail(id);
 
             if (rollout.status != RolloutStatus.Paused) {
                 throw ValidationException({
@@ -419,7 +419,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
 
         @path('/rollouts/:id/status')
         get(UUID id) -> RolloutProgress {
-            #FirmwareRollout rollout = firmwareDb.FirmwareRollout.findOrFail(id);
+            let FirmwareRollout rollout = firmwareDb.FirmwareRollout.findOrFail(id);
 
             return {
                 rolloutId: rollout.id,
@@ -433,9 +433,9 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
 
         @path('/rollouts/:id/logs')
         get(UUID id, DeviceUpdateStatus? status) -> Array<firmwareDb.RolloutLog> {
-            #FirmwareRollout rollout = firmwareDb.FirmwareRollout.findOrFail(id);
+            let FirmwareRollout rollout = firmwareDb.FirmwareRollout.findOrFail(id);
 
-            #JSON query = firmwareDb.RolloutLog.where(firmwareRolloutId: rollout.id);
+            let JSON query = firmwareDb.RolloutLog.where(firmwareRolloutId: rollout.id);
 
             if (status != null) {
                 query = query.where(status: status);
@@ -448,21 +448,21 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
     jobs('config/firmware-service.yaml') {
 
         job ProcessRolloutBatch {
-            #Array<FirmwareRollout> activeRollouts = firmwareDb.FirmwareRollout
+            let Array<FirmwareRollout> activeRollouts = firmwareDb.FirmwareRollout
                 .where(status: RolloutStatus.InProgress)
                 .all();
 
             foreach rollout in activeRollouts {
-                #FirmwareVersion firmware = firmwareDb.FirmwareVersion.findOrFail(rollout.firmwareVersionId);
+                let FirmwareVersion firmware = firmwareDb.FirmwareVersion.findOrFail(rollout.firmwareVersionId);
 
-                #Array<RolloutLog> pendingLogs = firmwareDb.RolloutLog
+                let Array<RolloutLog> pendingLogs = firmwareDb.RolloutLog
                     .where(firmwareRolloutId: rollout.id)
                     .where(status: DeviceUpdateStatus.Pending)
                     .limit(MAX_BATCH_SIZE)
                     .all();
 
                 if (pendingLogs.length() == 0) {
-                    #Int remaining = firmwareDb.RolloutLog
+                    let Int remaining = firmwareDb.RolloutLog
                         .where(firmwareRolloutId: rollout.id)
                         .whereIn(status: [DeviceUpdateStatus.Downloading, DeviceUpdateStatus.Installing])
                         .count();
@@ -527,7 +527,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
     }
 
     test("computed progressPercent calculates correctly") {
-        #firmwareDb.FirmwareVersion firmware = firmwareDb.FirmwareVersion.create({
+        let firmwareDb.FirmwareVersionNone firmware = firmwareDb.FirmwareVersion.create({
             version: "1.0.0-test",
             fileUrl: "https://firmware.test/v1.0.0.bin",
             fileSize: 1024000,
@@ -535,7 +535,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
             isStable: true
         });
         firmware.save();
-        #firmwareDb.FirmwareRollout rollout = firmwareDb.FirmwareRollout.create({
+        let firmwareDb.FirmwareRolloutNone rollout = firmwareDb.FirmwareRollout.create({
             rolloutCode: "FW-TEST-001",
             firmwareVersionId: firmware.id,
             totalDevices: 100,
@@ -549,7 +549,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
     }
 
     test("computed isActive reflects InProgress status") {
-        #firmwareDb.FirmwareVersion firmware = firmwareDb.FirmwareVersion.create({
+        let firmwareDb.FirmwareVersionNone firmware = firmwareDb.FirmwareVersion.create({
             version: "1.1.0-test",
             fileUrl: "https://firmware.test/v1.1.0.bin",
             fileSize: 2048000,
@@ -557,7 +557,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
             isStable: false
         });
         firmware.save();
-        #firmwareDb.FirmwareRollout rollout = firmwareDb.FirmwareRollout.create({
+        let firmwareDb.FirmwareRolloutNone rollout = firmwareDb.FirmwareRollout.create({
             rolloutCode: "FW-TEST-002",
             firmwareVersionId: firmware.id,
             status: RolloutStatus.InProgress,
@@ -580,7 +580,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
     }
 
     test("afterCreate emits FirmwareReleased") {
-        #firmwareDb.FirmwareVersion firmware = firmwareDb.FirmwareVersion.create({
+        let firmwareDb.FirmwareVersionNone firmware = firmwareDb.FirmwareVersion.create({
             version: "2.0.0-test",
             fileUrl: "https://firmware.test/v2.0.0.bin",
             fileSize: 4096000,

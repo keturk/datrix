@@ -128,12 +128,12 @@ service fooddelivery.MenuService('config/menu-service.yaml') : version('1.0.0'),
 
         on RestaurantStatusChanged(UUID restaurantId, String name, RestaurantStatus oldStatus, RestaurantStatus newStatus) {
             if (newStatus == RestaurantStatus.Suspended || newStatus == RestaurantStatus.Closed) {
-                #Array<MenuCategory> categories = menuDb.MenuCategory
+                let Array<MenuCategory> categories = menuDb.MenuCategory
                     .where(restaurantId: restaurantId)
                     .all();
 
                 foreach category in categories {
-                    #Array<MenuItem> items = menuDb.MenuItem
+                    let Array<MenuItem> items = menuDb.MenuItem
                         .where(menuCategoryId: category.id)
                         .where(availability: ItemAvailability.Available)
                         .all();
@@ -199,7 +199,7 @@ service fooddelivery.MenuService('config/menu-service.yaml') : version('1.0.0'),
 
         @path('/items/:id/availability')
         put(UUID id, UpdateAvailabilityRequest request) : access(admin) -> menuDb.MenuItem {
-            #MenuItem item = menuDb.MenuItem.findOrFail(id);
+            let MenuItem item = menuDb.MenuItem.findOrFail(id);
             item.availability = request.availability;
             item.save();
 
@@ -249,13 +249,13 @@ service fooddelivery.MenuService('config/menu-service.yaml') : version('1.0.0'),
     }
 
     test("computed isAvailable reflects Available status") {
-        #menuDb.MenuCategory category = menuDb.MenuCategory.create({
+        let menuDb.MenuCategoryNone category = menuDb.MenuCategory.create({
             restaurantId: uuid(),
             name: "Test Category",
             orderIndex: 0
         });
         category.save();
-        #menuDb.MenuItem item = menuDb.MenuItem.create({
+        let menuDb.MenuItemNone item = menuDb.MenuItem.create({
             menuCategoryId: category.id,
             name: "Test Burger",
             price: Money.of(12.99, "USD"),
@@ -266,7 +266,7 @@ service fooddelivery.MenuService('config/menu-service.yaml') : version('1.0.0'),
     }
 
     test("validation rejects negative price") {
-        #menuDb.MenuCategory category = menuDb.MenuCategory.create({
+        let menuDb.MenuCategoryNone category = menuDb.MenuCategory.create({
             restaurantId: uuid(),
             name: "Price Test Category",
             orderIndex: 0
@@ -283,13 +283,13 @@ service fooddelivery.MenuService('config/menu-service.yaml') : version('1.0.0'),
     }
 
     test("afterCreate emits MenuItemAdded") {
-        #menuDb.MenuCategory category = menuDb.MenuCategory.create({
+        let menuDb.MenuCategoryNone category = menuDb.MenuCategory.create({
             restaurantId: uuid(),
             name: "Event Test Category",
             orderIndex: 0
         });
         category.save();
-        #menuDb.MenuItem item = menuDb.MenuItem.create({
+        let menuDb.MenuItemNone item = menuDb.MenuItem.create({
             menuCategoryId: category.id,
             name: "Event Test Pizza",
             price: Money.of(15.99, "USD")

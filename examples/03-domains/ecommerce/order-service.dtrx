@@ -94,7 +94,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
             afterCreate {
                 dispatch OrderCreated(id, orderNumber, customerId, total, inventoryReservationId);
                 dispatch ProcessPayment(id, total, total.currency.value.toLowerCase());
-                #JSON u = UserService.UserAPI.get('/internal/:id', customerId);
+                let JSON u = UserService.UserAPI.get('/internal/:id', customerId);
                 dispatch SendOrderConfirmation(id, u.email, orderNumber);
             }
 
@@ -103,8 +103,8 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
                     dispatch OrderStatusChanged(id, oldValue(status), status);
 
                     if (status == OrderStatus.Confirmed) {
-                        #Array<JSON> orderItems = items.map(i => { productId: i.productId, quantity: i.quantity });
-                        #Float estimatedWeight = items.length() * 1.0;
+                        let Array<JSON> orderItems = items.map(i => { productId: i.productId, quantity: i.quantity });
+                        let Float estimatedWeight = items.length() * 1.0;
                         dispatch OrderConfirmed(id, paymentId, inventoryReservationId, shippingAddress, orderItems, estimatedWeight);
                     } else if (status == OrderStatus.Cancelled) {
                         // '??' is the null-coalescing operator
@@ -114,7 +114,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
             }
 
             fn calculateTotals() {
-                #Money itemsTotal = Money.of(0, Currency.USD);
+                let Money itemsTotal = Money.of(0, Currency.USD);
                 foreach item in items {
                     itemsTotal = itemsTotal.add(item.total);
                 }
@@ -214,7 +214,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
             Log.info("Order status changed", { orderId: orderId, oldStatus: oldStatus, newStatus: newStatus });
 
             // Keep cache in sync with order status changes
-            #JSON? cached = redis.OrderCache.get(orderId);
+            let JSON? cached = redis.OrderCache.get(orderId);
             if (cached != null) {
                 redis.OrderCache.set(orderId, {
                     orderId: orderId,
@@ -228,7 +228,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
     subscribe PaymentEvents {
 
         on PaymentProcessed(UUID paymentId, UUID orderId, Money amount) {
-            #Order order = orderDb.Order.findOrFail(orderId);
+            let Order order = orderDb.Order.findOrFail(orderId);
 
             transaction(orderDb) {
                 order.paymentId = paymentId;
@@ -241,7 +241,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
         }
 
         on PaymentFailed(UUID paymentId, UUID orderId, String reason) {
-            #Order order = orderDb.Order.findOrFail(orderId);
+            let Order order = orderDb.Order.findOrFail(orderId);
 
             transaction(orderDb) {
                 order.status = OrderStatus.Cancelled;
@@ -256,7 +256,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
         }
 
         on PaymentRefunded(UUID paymentId, UUID orderId, Money amount) {
-            #Order order = orderDb.Order.findOrFail(orderId);
+            let Order order = orderDb.Order.findOrFail(orderId);
 
             transaction(orderDb) {
                 order.status = OrderStatus.Refunded;
@@ -273,7 +273,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
         }
 
         on ShipmentDispatched(UUID shipmentId, UUID orderId, String trackingNumber) {
-            #Order order = orderDb.Order.findOrFail(orderId);
+            let Order order = orderDb.Order.findOrFail(orderId);
 
             transaction(orderDb) {
                 order.shipmentId = shipmentId;
@@ -285,7 +285,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
         }
 
         on ShipmentDelivered(UUID shipmentId, UUID orderId, DateTime deliveredAt) {
-            #Order order = orderDb.Order.findOrFail(orderId);
+            let Order order = orderDb.Order.findOrFail(orderId);
 
             transaction(orderDb) {
                 order.status = OrderStatus.Delivered;
@@ -323,17 +323,17 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
 
         // Paginated list endpoint with optional filtering
         get(Int page = 1, Int perPage = 20, OrderStatus? status) -> PaginatedOrders {
-            #UUID customerId = Auth.user().id;
+            let UUID customerId = Auth.user().id;
 
-            #JSON query = orderDb.Order.where(customerId: customerId);
+            let JSON query = orderDb.Order.where(customerId: customerId);
 
             if (status != null) {
                 query = query.where(status: status);
             }
 
-            #Int total = query.count();
-            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
-            #Array<Order> orders = query
+            let Int total = query.count();
+            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            let Array<Order> orders = query
                 .orderBy(createdAt: desc)
                 .offset((page - 1) * cappedPerPage)
                 .limit(cappedPerPage)
@@ -354,7 +354,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
 
         @path('/:id')
         get(UUID id) -> orderDb.Order {
-            #Order order = orderDb.Order.findOrFail(id);
+            let Order order = orderDb.Order.findOrFail(id);
 
             if (order.customerId != Auth.user().id && !Auth.hasRole("admin")) {
                 throw AuthorizationException("Access denied");
@@ -365,16 +365,16 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
 
         post(CreateOrderRequest request) -> orderDb.Order {
             // Check idempotency to prevent duplicate orders on retry
-            #JSON? cached = checkIdempotency(request.idempotencyKey, "create_order");
+            let JSON? cached = checkIdempotency(request.idempotencyKey, "create_order");
             if (cached != null) {
                 return cached;
             }
 
-            #UUID customerId = Auth.user().id;
-            #UUID reservationId = uuid();
+            let UUID customerId = Auth.user().id;
+            let UUID reservationId = uuid();
 
             // Cross-service call('config/service.yaml') : check product availability via ProductService
-            #JSON availability = ProductService.ProductAPI.post('/internal/check-availability', request.items);
+            let JSON availability = ProductService.ProductAPI.post('/internal/check-availability', request.items);
 
             if (!availability.allAvailable) {
                 throw ValidationException({
@@ -385,7 +385,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
             }
 
             // Cross-service call('config/service.yaml') : reserve inventory
-            #JSON reservation = ProductService.ProductAPI.post('/internal/reserve-inventory', {
+            let JSON reservation = ProductService.ProductAPI.post('/internal/reserve-inventory', {
                 reservationId: reservationId,
                 items: request.items,
                 ttlSeconds: 600
@@ -399,7 +399,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
                 });
             }
 
-            #Order order = orderDb.Order.create({
+            let Order order = orderDb.Order.create({
                 orderNumber: generateOrderNumber(),
                 customerId: customerId,
                 shippingAddress: request.shippingAddress,
@@ -414,7 +414,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
 
             foreach item in request.items {
                 // Fetch product details from ProductService for denormalization
-                #JSON product = ProductService.ProductAPI.get('/internal/:id', item.productId);
+                let JSON product = ProductService.ProductAPI.get('/internal/:id', item.productId);
                 orderDb.OrderItem.create({
                     order: order,
                     productId: item.productId,
@@ -434,7 +434,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
 
         @path('/:id/cancel')
         put(UUID id, CancelOrderRequest request) -> orderDb.Order {
-            #Order order = orderDb.Order.findOrFail(id);
+            let Order order = orderDb.Order.findOrFail(id);
 
             if (order.customerId != Auth.user().id && !Auth.hasRole("admin")) {
                 throw AuthorizationException("Cannot cancel another user's order");
@@ -463,7 +463,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
 
         @path('/:id/confirm-payment')
         post(UUID id, ConfirmPaymentRequest request) : internal -> orderDb.Order {
-            #Order order = orderDb.Order.findOrFail(id);
+            let Order order = orderDb.Order.findOrFail(id);
             order.paymentId = request.paymentId;
             order.status = OrderStatus.Confirmed;
             order.save();
@@ -472,7 +472,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
 
         @path('/:id/update-shipment')
         post(UUID id, UpdateShipmentRequest request) : internal -> orderDb.Order {
-            #Order order = orderDb.Order.findOrFail(id);
+            let Order order = orderDb.Order.findOrFail(id);
             order.shipmentId = request.shipmentId;
             order.save();
             return order;
@@ -482,7 +482,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
         fn checkIdempotency(String? idempotencyKey, String operation) -> JSON? {
             if (idempotencyKey == null) return null;
 
-            #IdempotencyKey? existing = orderDb.IdempotencyKey
+            let IdempotencyKey? existing = orderDb.IdempotencyKey
                 .where(key: idempotencyKey)
                 .where(operation: operation)
                 // 'gt(now())' is a comparison filter: greater than current time
@@ -511,7 +511,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
     }
 
     test("computed canCancel is true for Pending status") {
-        #orderDb.Order order = orderDb.Order.create({
+        let orderDb.Order order = orderDb.Order.create({
             customerId: uuid(),
             orderNumber: "ORD-SPEC-001",
             subtotal: Money.of(100.00, Currency.USD),
@@ -530,7 +530,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
         // First order.save() only refreshes (service create already committed).
         // Second order.save() runs OrderService.update(..., OrderUpdate()) so
         // _validate(..., include_collections=True) can reject zero line items.
-        #orderDb.Order order = orderDb.Order.create({
+        let orderDb.Order order = orderDb.Order.create({
             customerId: uuid(),
             orderNumber: "ORD-SPEC-002",
             subtotal: Money.of(50.00, Currency.USD),
@@ -549,7 +549,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
     }
 
     test("afterCreate emits OrderCreated event") {
-        #orderDb.Order order = orderDb.Order.create({
+        let orderDb.Order order = orderDb.Order.create({
             customerId: uuid(),
             orderNumber: "ORD-SPEC-003",
             subtotal: Money.of(200.00, Currency.USD),
@@ -566,7 +566,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
     }
 
     test("status change to Cancelled emits OrderCancelled") {
-        #orderDb.Order order = orderDb.Order.create({
+        let orderDb.Order order = orderDb.Order.create({
             customerId: uuid(),
             orderNumber: "ORD-SPEC-004",
             subtotal: Money.of(75.00, Currency.USD),
@@ -594,12 +594,12 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
 
     jobs('config/order-service.yaml') {
         job CleanupExpiredIdempotencyKeys {
-            #DateTime threshold = now().addDays(-1);
-            #Array<IdempotencyKey> expired = orderDb.IdempotencyKey
+            let DateTime threshold = now().addDays(-1);
+            let Array<IdempotencyKey> expired = orderDb.IdempotencyKey
                 .where(expiresAt: lt(threshold))
                 .all();
 
-            #Int count = 0;
+            let Int count = 0;
             foreach key in expired {
                 key.delete();
                 count = count + 1;

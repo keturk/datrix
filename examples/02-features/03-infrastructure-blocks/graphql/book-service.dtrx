@@ -81,12 +81,12 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
         // 'query' operations - read-only data retrieval
         query getBook(UUID id) -> BookType {
-            #Book book = bookDb.Book.findOrFail(id);
+            let Book book = bookDb.Book.findOrFail(id);
             return book;
         }
 
         query listBooks() -> Array<BookType> {
-            #Array<Book> allBooks = bookDb.Book.all();
+            let Array<Book> allBooks = bookDb.Book.all();
             return allBooks;
         }
 
@@ -96,7 +96,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
         // 'mutation' operations - write operations that modify data
         mutation createBook(CreateBookInput input) -> BookType {
-            #Book book = bookDb.Book.create({
+            let Book book = bookDb.Book.create({
                 title: input.title,
                 author: input.author,
                 publicationYear: input.publicationYear,
@@ -109,11 +109,11 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         }
 
         mutation updateBook(UUID id, UpdateBookInput input) -> BookType {
-            #Book book = bookDb.Book.findOrFail(id);
+            let Book book = bookDb.Book.findOrFail(id);
             if (input.title != null) book.title = input.title;
             if (input.author != null) book.author = input.author;
             if (input.status != null) {
-                #BookStatus oldStatus = book.status;
+                let BookStatus oldStatus = book.status;
                 book.status = input.status;
                 dispatch BookStatusChanged(id, oldStatus, input.status);
             }
@@ -122,19 +122,19 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         }
 
         mutation deleteBook(UUID id) -> Boolean {
-            #Book book = bookDb.Book.findOrFail(id);
+            let Book book = bookDb.Book.findOrFail(id);
             book.delete();
             return true;
         }
 
         // 'subscription' operations - real-time updates via server-sent events
         subscription onBookAdded() -> BookType on BookAdded {
-            #Book book = bookDb.Book.findById(bookId);
+            let Book book = bookDb.Book.findById(bookId);
             return book;
         }
 
         subscription onBookStatusChanged(UUID bookId) -> BookType on BookStatusChanged {
-            #Book book = bookDb.Book.findById(bookId);
+            let Book book = bookDb.Book.findById(bookId);
             return book;
         }
 

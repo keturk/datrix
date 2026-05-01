@@ -55,7 +55,7 @@ service library.MemberService('config/member-service.yaml') : version('1.0.0'), 
         // Internal endpoint returning a struct - exposes only profile fields, not the full entity
         @path('/internal/profile/:id')
         get(UUID id) : internal -> MemberProfile {
-            #Member member = memberDb.Member.findOrFail(id);
+            let Member member = memberDb.Member.findOrFail(id);
             return { fullName: member.fullName, email: member.email, membershipType: member.membershipType };
         }
     }

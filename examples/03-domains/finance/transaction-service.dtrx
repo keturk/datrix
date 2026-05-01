@@ -245,7 +245,7 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
 
             // If account is frozen or closed, fail all pending transactions
             if (newStatus == AccountStatus.Frozen || newStatus == AccountStatus.Closed) {
-                #Array<Transaction> pendingTxs = txDb.Transaction
+                let Array<Transaction> pendingTxs = txDb.Transaction
                     .where(accountId: accountId)
                     .where(status: TransactionStatus.Pending)
                     .all();
@@ -289,7 +289,7 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
 
         // List transactions with filtering and pagination
         get(Int page = 1, Int perPage = 20, UUID? accountId, TransactionType? type, TransactionStatus? status) -> PaginatedTransactions {
-            #JSON query = txDb.Transaction.all();
+            let JSON query = txDb.Transaction.all();
 
             if (accountId != null) {
                 query = txDb.Transaction.where(accountId: accountId);
@@ -301,8 +301,8 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
                 query = query.where(status: status);
             }
 
-            #Int total = query.count();
-            #Array<Transaction> transactions = query
+            let Int total = query.count();
+            let Array<Transaction> transactions = query
                 .orderBy(createdAt: desc)
                 .offset((page - 1) * perPage)
                 .limit(perPage)
@@ -329,15 +329,15 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
         // Create a single transaction (deposit, withdrawal, payment)
         post(CreateTransactionRequest request) -> txDb.Transaction {
             // Verify account exists and is active via AccountService
-            #JSON account = AccountService.AccountAPI.get(#"/internal/{request.accountId}");
+            let JSON account = AccountService.AccountAPI.get(#"/internal/{request.accountId}");
 
             if (account.status != "active") {
                 throw ValidationException(#"Account is not active. Current status: {account.status}");
             }
 
-            #String ref = generateReference("TXN");
+            let String ref = generateReference("TXN");
 
-            #Transaction tx = txDb.Transaction.create({
+            let Transaction tx = txDb.Transaction.create({
                 accountId: request.accountId,
                 type: request.type,
                 status: TransactionStatus.Pending,
@@ -365,8 +365,8 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
         @path('/transfer')
         post(TransferRequest request) -> TransferResponse {
             // Validate both accounts exist and are active
-            #JSON sourceAccount = AccountService.AccountAPI.get(#"/internal/{request.sourceAccountId}");
-            #JSON destAccount = AccountService.AccountAPI.get(#"/internal/{request.destinationAccountId}");
+            let JSON sourceAccount = AccountService.AccountAPI.get(#"/internal/{request.sourceAccountId}");
+            let JSON destAccount = AccountService.AccountAPI.get(#"/internal/{request.destinationAccountId}");
 
             if (sourceAccount.status != "active") {
                 throw ValidationException("Source account is not active");
@@ -375,9 +375,9 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
                 throw ValidationException("Destination account is not active");
             }
 
-            #String transferRef = generateReference("TRF");
+            let String transferRef = generateReference("TRF");
 
-            #Transaction withdrawalTx = txDb.Transaction.create({
+            let Transaction withdrawalTx = txDb.Transaction.create({
                 accountId: request.sourceAccountId,
                 type: TransactionType.Transfer,
                 status: TransactionStatus.Pending,
@@ -388,7 +388,7 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
                 counterpartyAccountId: request.destinationAccountId
             });
 
-            #Transaction depositTx = txDb.Transaction.create({
+            let Transaction depositTx = txDb.Transaction.create({
                 accountId: request.destinationAccountId,
                 type: TransactionType.Transfer,
                 status: TransactionStatus.Pending,
@@ -427,14 +427,14 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
         // Submit a batch of transactions
         @path('/batch')
         post(CreateBatchRequest request) -> BatchResponse {
-            #String batchRef = generateReference("BAT");
-            #Money totalAmount = Money.of(0, Currency.USD);
+            let String batchRef = generateReference("BAT");
+            let Money totalAmount = Money.of(0, Currency.USD);
 
             foreach item in request.transactions {
                 totalAmount = totalAmount.add(item.amount);
             }
 
-            #TransactionBatch batch = txDb.TransactionBatch.create({
+            let TransactionBatch batch = txDb.TransactionBatch.create({
                 batchId: batchRef,
                 status: BatchStatus.Processing,
                 totalAmount: totalAmount,
@@ -444,12 +444,12 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
             });
             batch.save();
 
-            #Int successes = 0;
-            #Int failures = 0;
+            let Int successes = 0;
+            let Int failures = 0;
 
             foreach item in request.transactions {
-                #String ref = generateReference("TXN");
-                #Transaction tx = txDb.Transaction.create({
+                let String ref = generateReference("TXN");
+                let Transaction tx = txDb.Transaction.create({
                     accountId: item.accountId,
                     type: item.type,
                     status: TransactionStatus.Pending,
@@ -489,13 +489,13 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
         // Get transaction summary for an account
         @path('/summary/:accountId')
         get(UUID accountId) -> TransactionSummary {
-            #Array<Transaction> transactions = txDb.Transaction
+            let Array<Transaction> transactions = txDb.Transaction
                 .where(accountId: accountId)
                 .where(status: TransactionStatus.Completed)
                 .all();
 
-            #Money deposits = Money.of(0, Currency.USD);
-            #Money withdrawals = Money.of(0, Currency.USD);
+            let Money deposits = Money.of(0, Currency.USD);
+            let Money withdrawals = Money.of(0, Currency.USD);
 
             foreach tx in transactions {
                 if (tx.type == TransactionType.Deposit || (tx.type == TransactionType.Transfer && tx.counterpartyAccountId != null)) {
@@ -517,7 +517,7 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
         // Reverse a completed transaction
         @path('/:id/reverse')
         put(UUID id) : access(admin) -> txDb.Transaction {
-            #Transaction tx = txDb.Transaction.findOrFail(id);
+            let Transaction tx = txDb.Transaction.findOrFail(id);
             tx.reverse();
             return tx;
         }
@@ -536,15 +536,15 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
     jobs('config/transaction-service.yaml') {
         // Daily reconciliation job: summarize the day's transactions
         job ReconcileDailyTransactions {
-            #DateTime today = now();
-            #Array<Transaction> dayTransactions = txDb.Transaction
+            let DateTime today = now();
+            let Array<Transaction> dayTransactions = txDb.Transaction
                 .where(status: TransactionStatus.Completed)
                 .where(completedAt: gte(today.startOfDay()))
                 .where(completedAt: lt(today.endOfDay()))
                 .all();
 
-            #Money totalDebits = Money.of(0, Currency.USD);
-            #Money totalCredits = Money.of(0, Currency.USD);
+            let Money totalDebits = Money.of(0, Currency.USD);
+            let Money totalCredits = Money.of(0, Currency.USD);
 
             foreach tx in dayTransactions {
                 if (tx.type == TransactionType.Withdrawal || tx.type == TransactionType.Payment) {
@@ -554,10 +554,10 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
                 }
             }
 
-            #Money netAmount = totalCredits.add(totalDebits.multiply(-1));
-            #Boolean balanced = netAmount.amount == 0;
+            let Money netAmount = totalCredits.add(totalDebits.multiply(-1));
+            let Boolean balanced = netAmount.amount == 0;
 
-            #DailyReconciliation recon = txDb.DailyReconciliation.create({
+            let DailyReconciliation recon = txDb.DailyReconciliation.create({
                 reconciliationDate: today,
                 totalTransactions: dayTransactions.length(),
                 totalDebits: totalDebits,
@@ -600,7 +600,7 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
     }
 
     test("afterCreate emits TransactionCreated event") {
-        #txDb.Transaction tx = txDb.Transaction.create({
+        let txDb.TransactionNone tx = txDb.Transaction.create({
             accountId: uuid(),
             type: TransactionType.Deposit,
             amount: Money.of(500, Currency.USD),
@@ -613,7 +613,7 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
     }
 
     test("reverse fails for non-completed transaction") {
-        #txDb.Transaction tx = txDb.Transaction.create({
+        let txDb.TransactionNone tx = txDb.Transaction.create({
             accountId: uuid(),
             type: TransactionType.Deposit,
             amount: Money.of(200, Currency.USD),
@@ -628,7 +628,7 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
     }
 
     test("batch marks completed with correct counts") {
-        #txDb.TransactionBatch batch = txDb.TransactionBatch.create({
+        let txDb.TransactionBatchNone batch = txDb.TransactionBatch.create({
             batchId: "BAT-TEST-001",
             status: BatchStatus.Processing,
             totalAmount: Money.of(1000, Currency.USD),

@@ -25,7 +25,7 @@ service ecommerce.NotificationService('config/notification-service.yaml') : vers
             }
         });
 
-        #NotificationAudit row = notificationDb.NotificationAudit.create({
+        let NotificationAudit row = notificationDb.NotificationAudit.create({
             orderId: orderId,
             recipientEmail: customerEmail,
             orderNumber: orderNumber

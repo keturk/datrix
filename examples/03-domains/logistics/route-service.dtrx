@@ -173,7 +173,7 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
 
         on VehicleStatusChanged(UUID vehicleId, String vehicleNumber, VehicleStatus oldStatus, VehicleStatus newStatus) {
             if (newStatus == VehicleStatus.Maintenance || newStatus == VehicleStatus.Retired) {
-                #Array<Route> activeRoutes = routeDb.Route
+                let Array<Route> activeRoutes = routeDb.Route
                     .where(vehicleId: vehicleId)
                     .where(status: RouteStatus.Active)
                     .all();
@@ -244,7 +244,7 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
         resource routeDb.Route;
 
         post(CreateRouteRequest request) -> routeDb.Route {
-            #Route route = routeDb.Route.create({
+            let Route route = routeDb.Route.create({
                 routeCode: generateRouteCode(),
                 vehicleId: request.vehicleId,
                 driverId: request.driverId,
@@ -266,7 +266,7 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
 
         @path('/:id/stops')
         post(UUID id, AddStopRequest request) -> routeDb.RouteStop {
-            #Route route = routeDb.Route.findOrFail(id);
+            let Route route = routeDb.Route.findOrFail(id);
 
             if (route.status != RouteStatus.Planned) {
                 throw ValidationException({
@@ -275,7 +275,7 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
                 });
             }
 
-            #Int currentStops = routeDb.RouteStop.where(routeId: route.id).count();
+            let Int currentStops = routeDb.RouteStop.where(routeId: route.id).count();
             if (currentStops >= MAX_STOPS_PER_ROUTE) {
                 throw ValidationException({
                     code: "MAX_STOPS_REACHED",
@@ -283,7 +283,7 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
                 });
             }
 
-            #RouteStop stop = routeDb.RouteStop.create({
+            let RouteStop stop = routeDb.RouteStop.create({
                 route: route,
                 shipmentId: request.shipmentId,
                 address: request.address,
@@ -297,7 +297,7 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
 
         @path('/:id/stops')
         get(UUID id) -> Array<routeDb.RouteStop> {
-            #Route route = routeDb.Route.findOrFail(id);
+            let Route route = routeDb.Route.findOrFail(id);
             return routeDb.RouteStop
                 .where(routeId: route.id)
                 .orderBy(sequence: asc)
@@ -306,7 +306,7 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
 
         @path('/:id/start')
         post(UUID id) -> routeDb.Route {
-            #Route route = routeDb.Route.findOrFail(id);
+            let Route route = routeDb.Route.findOrFail(id);
 
             if (route.status != RouteStatus.Planned) {
                 throw ValidationException({
@@ -315,7 +315,7 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
                 });
             }
 
-            #Int stopCount = routeDb.RouteStop.where(routeId: route.id).count();
+            let Int stopCount = routeDb.RouteStop.where(routeId: route.id).count();
             if (stopCount == 0) {
                 throw ValidationException({
                     code: "NO_STOPS",
@@ -343,7 +343,7 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
 
         @path('/:id/complete')
         post(UUID id) -> routeDb.Route {
-            #Route route = routeDb.Route.findOrFail(id);
+            let Route route = routeDb.Route.findOrFail(id);
 
             if (route.status != RouteStatus.Active) {
                 throw ValidationException({
@@ -352,7 +352,7 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
                 });
             }
 
-            #Decimal distance = route.plannedDistance;
+            let Decimal distance = route.plannedDistance;
             route.complete(distance);
 
             redis.ActiveRouteCache.delete(route.id);
@@ -368,8 +368,8 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
 
         @path('/:id/stops/:stopId/complete')
         post(UUID id, UUID stopId) -> routeDb.RouteStop {
-            #Route route = routeDb.Route.findOrFail(id);
-            #RouteStop stop = routeDb.RouteStop.findOrFail(stopId);
+            let Route route = routeDb.Route.findOrFail(id);
+            let RouteStop stop = routeDb.RouteStop.findOrFail(stopId);
 
             if (route.status != RouteStatus.Active) {
                 throw ValidationException({
@@ -382,11 +382,11 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
 
             dispatch StopCompleted(route.id, stop.id, stop.shipmentId);
 
-            #Int completedStops = routeDb.RouteStop
+            let Int completedStops = routeDb.RouteStop
                 .where(routeId: route.id)
                 .where(status: StopStatus.Completed)
                 .count();
-            #Int totalStops = routeDb.RouteStop.where(routeId: route.id).count();
+            let Int totalStops = routeDb.RouteStop.where(routeId: route.id).count();
 
             redis.ActiveRouteCache.set(route.id, {
                 routeId: route.id,
@@ -407,13 +407,13 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
 
         @path('/:id/progress')
         get(UUID id) -> RouteProgress {
-            #Route route = routeDb.Route.findOrFail(id);
-            #Int completedStops = routeDb.RouteStop
+            let Route route = routeDb.Route.findOrFail(id);
+            let Int completedStops = routeDb.RouteStop
                 .where(routeId: route.id)
                 .where(status: StopStatus.Completed)
                 .count();
-            #Int totalStops = routeDb.RouteStop.where(routeId: route.id).count();
-            #Decimal progress = totalStops > 0 ? (completedStops * 100.0 / totalStops) : 0.0;
+            let Int totalStops = routeDb.RouteStop.where(routeId: route.id).count();
+            let Decimal progress = totalStops > 0 ? (completedStops * 100.0 / totalStops) : 0.0;
 
             return {
                 routeId: route.id,
@@ -426,7 +426,7 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
 
         @path('/vehicle/:vehicleId')
         get(UUID vehicleId, RouteStatus? status) -> Array<routeDb.Route> {
-            #JSON query = routeDb.Route.where(vehicleId: vehicleId);
+            let JSON query = routeDb.Route.where(vehicleId: vehicleId);
 
             if (status != null) {
                 query = query.where(status: status);
@@ -437,7 +437,7 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
 
         @path('/driver/:driverId')
         get(UUID driverId, RouteStatus? status) -> Array<routeDb.Route> {
-            #JSON query = routeDb.Route.where(driverId: driverId);
+            let JSON query = routeDb.Route.where(driverId: driverId);
 
             if (status != null) {
                 query = query.where(status: status);
@@ -448,7 +448,7 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
     }
 
     test("computed isActive reflects Active status") {
-        #routeDb.Route route = routeDb.Route.create({
+        let routeDb.RouteNone route = routeDb.Route.create({
             routeCode: "RT-TEST-001",
             vehicleId: uuid(),
             driverId: uuid(),
@@ -477,7 +477,7 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
     }
 
     test("afterCreate emits RouteCreated") {
-        #routeDb.Route route = routeDb.Route.create({
+        let routeDb.RouteNone route = routeDb.Route.create({
             routeCode: "RT-TEST-003",
             vehicleId: uuid(),
             driverId: uuid(),
@@ -490,7 +490,7 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
     }
 
     test("validation rejects stop with zero sequence") {
-        #routeDb.Route route = routeDb.Route.create({
+        let routeDb.RouteNone route = routeDb.Route.create({
             routeCode: "RT-TEST-004",
             vehicleId: uuid(),
             driverId: uuid(),

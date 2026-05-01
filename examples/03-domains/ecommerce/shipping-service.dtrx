@@ -183,10 +183,10 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
     subscribe OrderEvents {
 
         on OrderConfirmed(UUID orderId, UUID? paymentId, UUID reservationId, Address shippingAddress, Array<JSON> items, Decimal estimatedWeight) {
-            #ShippingCarrier carrier = selectCarrier(shippingAddress, estimatedWeight);
-            #DateTime estimatedDelivery = calculateEstimatedDelivery(carrier, shippingAddress);
+            let ShippingCarrier carrier = selectCarrier(shippingAddress, estimatedWeight);
+            let DateTime estimatedDelivery = calculateEstimatedDelivery(carrier, shippingAddress);
 
-            #Shipment shipment = shippingDb.Shipment.create({
+            let Shipment shipment = shippingDb.Shipment.create({
                 orderId: orderId,
                 trackingNumber: generateTrackingNumber(),
                 carrier: carrier,
@@ -237,10 +237,10 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
         // Public tracking endpoint - no authentication required
         @path('/track/:trackingNumber')
         get(String trackingNumber) : public -> ShipmentTracking {
-            #JSON? cached = redis.ShipmentCache.get(trackingNumber);
+            let JSON? cached = redis.ShipmentCache.get(trackingNumber);
 
-            #Shipment shipment = shippingDb.Shipment.where(trackingNumber: trackingNumber).firstOrFail();
-            #Array<ShipmentEvent> events = shippingDb.ShipmentEvent
+            let Shipment shipment = shippingDb.Shipment.where(trackingNumber: trackingNumber).firstOrFail();
+            let Array<ShipmentEvent> events = shippingDb.ShipmentEvent
                 .where(shipmentId: shipment.id)
                 .orderBy(timestamp: asc)
                 .all();
@@ -263,10 +263,10 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
         }
 
         post(CreateShipmentRequest request) : internal -> shippingDb.Shipment {
-            #ShippingCarrier carrier = selectCarrier(request.destination, request.weight);
-            #DateTime estimatedDelivery = calculateEstimatedDelivery(carrier, request.destination);
+            let ShippingCarrier carrier = selectCarrier(request.destination, request.weight);
+            let DateTime estimatedDelivery = calculateEstimatedDelivery(carrier, request.destination);
 
-            #Shipment shipment = shippingDb.Shipment.create({
+            let Shipment shipment = shippingDb.Shipment.create({
                 orderId: request.orderId,
                 trackingNumber: generateTrackingNumber(),
                 carrier: carrier,
@@ -308,9 +308,9 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
 
         @path('/:id/status')
         put(UUID id, UpdateShipmentStatusRequest request) : access(admin) -> shippingDb.Shipment {
-            #Shipment shipment = shippingDb.Shipment.findOrFail(id);
+            let Shipment shipment = shippingDb.Shipment.findOrFail(id);
 
-            #ShipmentStatus oldStatus = shipment.status;
+            let ShipmentStatus oldStatus = shipment.status;
             shipment.status = request.status;
 
             if (request.status == ShipmentStatus.Delivered) {
@@ -341,9 +341,9 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
 
         @path('/:id/events')
         post(UUID id, AddTrackingEventRequest request) : access(admin) -> shippingDb.ShipmentEvent {
-            #Shipment shipment = shippingDb.Shipment.findOrFail(id);
+            let Shipment shipment = shippingDb.Shipment.findOrFail(id);
 
-            #ShipmentEvent event = shippingDb.ShipmentEvent.create({
+            let ShipmentEvent event = shippingDb.ShipmentEvent.create({
                 shipment: shipment,
                 timestamp: now(),
                 status: request.status,
@@ -366,7 +366,7 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
 
         @path('/rates')
         post(GetShippingRatesRequest request) : public -> Array<ShippingRateResponse> {
-            #Array<ShippingRateResponse> rates = [];
+            let Array<ShippingRateResponse> rates = [];
 
             rates.push({
                 carrier: ShippingCarrier.FedEx,
@@ -392,18 +392,18 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
         // Webhook for external carrier status updates
         @path('/webhook/fedex')
         post(FedExWebhookRequest request) : public -> Void {
-            #String trackingNumber = request.payload.trackingNumber;
-            #String eventType = request.payload.eventType;
-            #String location = request.payload.location ?? "Unknown";
+            let String trackingNumber = request.payload.trackingNumber;
+            let String eventType = request.payload.eventType;
+            let String location = request.payload.location ?? "Unknown";
 
-            #Shipment? shipment = shippingDb.Shipment.where(trackingNumber: trackingNumber).first();
+            let Shipment? shipment = shippingDb.Shipment.where(trackingNumber: trackingNumber).first();
 
             if (shipment == null) {
                 Log.warn("Webhook received for unknown tracking number", { trackingNumber: trackingNumber });
                 return;
             }
 
-            #ShipmentStatus newStatus = mapFedExStatus(eventType);
+            let ShipmentStatus newStatus = mapFedExStatus(eventType);
 
             shippingDb.ShipmentEvent.create({
                 shipment: shipment,
@@ -425,15 +425,15 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
         }
 
         fn calculateRate(ShippingCarrier carrier, Address destination, Decimal weight) -> Decimal {
-            #Float baseRate = 5.99;
-            #Float weightRate = weight * 0.50;
+            let Float baseRate = 5.99;
+            let Float weightRate = weight * 0.50;
 
             if (destination.country != "US") {
                 baseRate = 25.99;
                 weightRate = weight * 1.50;
             }
 
-            #Float carrierMultiplier = 1.0;
+            let Float carrierMultiplier = 1.0;
             if (carrier == ShippingCarrier.FedEx) carrierMultiplier = 1.2;
             if (carrier == ShippingCarrier.UPS) carrierMultiplier = 1.1;
 
@@ -452,7 +452,7 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
     }
 
     test("computed isDelivered reflects Delivered status") {
-        #shippingDb.Shipment shipment = shippingDb.Shipment.create({
+        let shippingDb.Shipment shipment = shippingDb.Shipment.create({
             orderId: uuid(),
             trackingNumber: "SPEC-TRACK-001",
             carrier: ShippingCarrier.FedEx,
@@ -466,7 +466,7 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
     }
 
     test("computed isInProgress for InTransit status") {
-        #shippingDb.Shipment shipment = shippingDb.Shipment.create({
+        let shippingDb.Shipment shipment = shippingDb.Shipment.create({
             orderId: uuid(),
             trackingNumber: "SPEC-TRACK-002",
             carrier: ShippingCarrier.UPS,
@@ -482,7 +482,7 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
     jobs('config/shipping-service.yaml') {
         // Periodically sync tracking info from carrier APIs
         job SyncCarrierTracking {
-            #Array<Shipment> activeShipments = shippingDb.Shipment
+            let Array<Shipment> activeShipments = shippingDb.Shipment
                 .whereIn(status: [ShipmentStatus.PickedUp, ShipmentStatus.InTransit, ShipmentStatus.OutForDelivery])
                 .where(createdAt: gt(now().subtractDays(30)))
                 .all();
@@ -519,12 +519,12 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
     }
 
     fn calculateEstimatedDelivery(ShippingCarrier carrier, Address destination) -> DateTime {
-        #Int days = getEstimatedDays(carrier, destination);
+        let Int days = getEstimatedDays(carrier, destination);
         return now().addDays(days);
     }
 
     fn getEstimatedDays(ShippingCarrier carrier, Address destination) -> Int {
-        #Boolean isInternational = destination.country != "US";
+        let Boolean isInternational = destination.country != "US";
 
         if (isInternational) {
             // Ternary expression using '? :'

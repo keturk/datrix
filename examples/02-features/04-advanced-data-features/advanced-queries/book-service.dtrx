@@ -76,7 +76,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         // '.limit()' and '.offset()' enable pagination
         @path('/books/paginated')
         get(Int page, Int pageSize) : public -> Array<bookDb.Book> {
-            #Int offset = (page - 1) * pageSize;
+            let Int offset = (page - 1) * pageSize;
             return bookDb.Book
                 .where(status: BookStatus.Available)
                 .orderBy(createdAt: desc)

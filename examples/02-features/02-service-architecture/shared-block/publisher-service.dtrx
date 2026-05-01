@@ -44,7 +44,7 @@ service library.DataIngestionService('config/data-ingestion-service.yaml') : ver
     }
 
     test("afterUpdate sets completed status") {
-        #ingestionDb.IngestionRun run = ingestionDb.IngestionRun.create({
+        let ingestionDb.IngestionRun run = ingestionDb.IngestionRun.create({
             source: "TestSource",
             status: IngestionStatus.Running,
             startedAt: now(),

@@ -95,7 +95,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     // Module-level functions are defined at service scope, outside any entity or API block
     // They provide shared logic reusable across the entire service
     fn calculateLateFee(Int daysOverdue) -> Decimal {
-        #Float baseFee = 0.50;
+        let Float baseFee = 0.50;
         return baseFee * daysOverdue;
     }
 
@@ -106,14 +106,14 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
     // Compound assignment operators: -=, *=, /=, %=, ??= (in addition to +=)
     fn calculateDiscountedTotal(Decimal unitPrice, Int quantity, Decimal? discountRate) -> Decimal {
-        #Decimal total = unitPrice;
+        let Decimal total = unitPrice;
         total *= quantity;                    // *=  multiply by quantity
-        #Decimal discount = discountRate ?? 0.10;
-        #Decimal reduction = total * discount;
+        let Decimal discount = discountRate ?? 0.10;
+        let Decimal reduction = total * discount;
         total -= reduction;                   // -=  subtract discount
-        #Decimal taxBucket = total;
+        let Decimal taxBucket = total;
         taxBucket %= 100;                     // %=  remainder for tax bracket calc
-        #Decimal? surcharge = null;
+        let Decimal? surcharge = null;
         surcharge ??= 0.0;                    // ??= assign if null
         total += surcharge;                   // +=  (already demonstrated elsewhere)
         return total;
@@ -359,7 +359,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         }
 
         on BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
-            #Book book = bookDb.Book.findById(bookId);
+            let Book book = bookDb.Book.findById(bookId);
             if (book != null) {
                 Log.info(#"Book '{book.title}' status changed from {oldStatus} to {newStatus}");
             }
@@ -416,8 +416,8 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
         // 'command' defines a write operation that mutates state and may dispatch events
         command UpdateBookStatus(UUID bookId, BookStatus newStatus) -> bookDb.Book {
-            #Book? book = bookDb.Book.findById(bookId);
-            #BookStatus oldStatus = book.status;
+            let Book? book = bookDb.Book.findById(bookId);
+            let BookStatus oldStatus = book.status;
             book.status = newStatus;
             book.save();
             dispatch BookStatusChanged(bookId, oldStatus, newStatus);
@@ -438,7 +438,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         projection BookCatalogProjection {
             // When a book is added, create or update the catalog view entry
             on BookAdded(UUID bookId, String title) {
-                #Book? book = bookDb.Book.findById(bookId);
+                let Book? book = bookDb.Book.findById(bookId);
                 BookCatalogView.upsert(bookId, {
                     id: bookId,
                     title: title,
@@ -451,7 +451,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
             // When a book's status changes, update only the affected view fields
             on BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
-                #BookCatalogView? view = BookCatalogView.findById(bookId);
+                let BookCatalogView? view = BookCatalogView.findById(bookId);
                 view.status = newStatus;
                 view.lastUpdated = now();
                 view.save();
@@ -465,8 +465,8 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         // 'job' defines a named background task with inline logic
         // Jobs can query the database and dispatch events like any other block
         job CheckOverdueBooks {
-            #Array<Book> checkedOut = bookDb.Book.where(status: BookStatus.CheckedOut).all();
-            #Int processed = 0;
+            let Array<Book> checkedOut = bookDb.Book.where(status: BookStatus.CheckedOut).all();
+            let Int processed = 0;
 
             foreach book in checkedOut {
                 Log.info(#"Checking overdue status for book {book.id}");
@@ -479,7 +479,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
         // Another background job that refreshes the cache layer
         job RefreshBookCache {
-            #Array<Book> books = bookDb.Book.where(status: BookStatus.Available).all();
+            let Array<Book> books = bookDb.Book.where(status: BookStatus.Available).all();
             foreach book in books {
                 Log.info(#"Refreshing cache for book {book.id}");
             }
@@ -487,13 +487,13 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
         // Job using 'while' loop with 'continue' and 'break' for flow control
         job ProcessOverdueCheckouts {
-            #Array<Checkout> checkouts = bookDb.Checkout.where(returnDate: null).all();
-            #Int processed = 0;
-            #Int index = 0;
+            let Array<Checkout> checkouts = bookDb.Checkout.where(returnDate: null).all();
+            let Int processed = 0;
+            let Int index = 0;
 
             // 'while' loops iterate until the condition is false
             while (index < checkouts.length()) {
-                #Checkout checkout = checkouts[index];
+                let Checkout checkout = checkouts[index];
                 index += 1;
 
                 if (checkout.returnDate != null) {
@@ -518,11 +518,11 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         // Job using C-style 'for' loop for index-based batch iteration
         // Unlike 'foreach', C-style 'for' provides explicit index control
         job GenerateWeeklyReport {
-            #Array<Book> books = bookDb.Book.all();
-            #Int total = books.length();
+            let Array<Book> books = bookDb.Book.all();
+            let Int total = books.length();
 
-            for (#Int i = 0; i < total; i += 1) {
-                #Book book = books[i];
+            for (let Int i = 0; i < total; i += 1) {
+                let Book book = books[i];
                 Log.info(#"Processing report entry {i} of {total}: {book.title}");
             }
         }
@@ -579,7 +579,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
         // 'fn' inside a rest_api block defines API-level helper functions
         fn findBooksByFilter(String? titleFilter, String? authorFilter) -> Array<bookDb.Book> {
-            #Array<Book> results = bookDb.Book.all();
+            let Array<Book> results = bookDb.Book.all();
             if (titleFilter != null) {
                 results = results.filter(b => b.title == titleFilter);
             }
@@ -627,7 +627,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         // Query through the join entity to find books by tag (many-to-many traversal)
         @path('/books/by-tag/:tagId')
         get(UUID tagId) : public -> Array<bookDb.Book> {
-            #Array<BookTag> bookTags = bookDb.BookTag.where(tagId: tagId).all();
+            let Array<BookTag> bookTags = bookDb.BookTag.where(tagId: tagId).all();
             return bookTags.map(bt => bookDb.Book.findOrFail(bt.bookId));
         }
 
@@ -640,9 +640,9 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         // Return a struct constructed from entity data
         @path('/books/:id/price-range')
         get(UUID id) : public -> PriceRange {
-            #Book book = bookDb.Book.findOrFail(id);
-            #Decimal min = book.price;
-            #Decimal max = book.price;
+            let Book book = bookDb.Book.findOrFail(id);
+            let Decimal min = book.price;
+            let Decimal max = book.price;
             return PriceRange { minPrice: min, maxPrice: max };
         }
 
@@ -663,13 +663,13 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         // Endpoint returning a projected array of scalar values via .map()
         @path('/books/titles')
         get() : public -> Array<String> {
-            #Array<Book> books = bookDb.Book.where(status: BookStatus.Available).all();
+            let Array<Book> books = bookDb.Book.where(status: BookStatus.Available).all();
             return books.map(b => b.title);
         }
 
         @path('/books/by-condition')
         get(String condition) : public -> Array<bookDb.Book> {
-            #Array<Book> allBooks = bookDb.Book.all();
+            let Array<Book> allBooks = bookDb.Book.all();
             return allBooks.filter(b => b.condition == condition);
         }
 
@@ -678,7 +678,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         @path('/books/:id/checkout')
         post(UUID id) : access(member) -> bookDb.Checkout {
             try {
-                #Book book = bookDb.Book.findOrFail(id);
+                let Book book = bookDb.Book.findOrFail(id);
 
                 if (book.status != BookStatus.Available)
                     ValidationError("Book is not available for checkout");
@@ -687,7 +687,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
                 book.save();
 
                 // Uses the MAX_CHECKOUT_DAYS const for the due date calculation
-                #Checkout checkout = bookDb.Checkout.create({
+                let Checkout checkout = bookDb.Checkout.create({
                     bookId: id,
                     checkoutDate: now(),
                     dueDate: now().addDays(MAX_CHECKOUT_DAYS)
@@ -707,8 +707,8 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         // Endpoint using switch/case for conditional logic based on enum value
         @path('/books/:id/condition')
         put(UUID id, UpdateBookConditionRequest request) : access(librarian) -> bookDb.Book {
-            #Book book = bookDb.Book.findOrFail(id);
-            #BookCondition oldCondition = book.condition;
+            let Book book = bookDb.Book.findOrFail(id);
+            let BookCondition oldCondition = book.condition;
 
             switch (request.newCondition) {
                 case BookCondition.Damaged {
@@ -742,17 +742,17 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         // Internal endpoint returning a struct instead of a full entity
         @path('/books/internal/availability/:id')
         get(UUID id) : internal -> BookAvailabilityResponse {
-            #Book book = bookDb.Book.findOrFail(id);
+            let Book book = bookDb.Book.findOrFail(id);
             return { available: book.isAvailable };
         }
     }
 
     test("computed displayTitle formats title and year") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatDisplay" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatDisplay" });
         cat.save();
-        #bookDb.Branch br = bookDb.Branch.create({ name: "SpecBranchDisplay", latitude: 40.7128, longitude: -74.0060, country: "US" });
+        let bookDb.Branch br = bookDb.Branch.create({ name: "SpecBranchDisplay", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
-        #bookDb.Book book = bookDb.Book.create({
+        let bookDb.Book book = bookDb.Book.create({
             title: "Domain-Driven Design",
             isbn: "9780321125217",
             author: "Eric Evans",
@@ -768,11 +768,11 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("computed isAvailable is true when status is Available") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatAvail" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatAvail" });
         cat.save();
-        #bookDb.Branch br = bookDb.Branch.create({ name: "SpecBranchAvail", latitude: 40.7128, longitude: -74.0060, country: "US" });
+        let bookDb.Branch br = bookDb.Branch.create({ name: "SpecBranchAvail", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
-        #bookDb.Book book = bookDb.Book.create({
+        let bookDb.Book book = bookDb.Book.create({
             title: "Clean Code",
             isbn: "9780132350884",
             author: "Robert Martin",
@@ -788,11 +788,11 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("computed isOldBook is true for pre-2000 books") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatOldBook" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatOldBook" });
         cat.save();
-        #bookDb.Branch br = bookDb.Branch.create({ name: "SpecBranchOldBook", latitude: 40.7128, longitude: -74.0060, country: "US" });
+        let bookDb.Branch br = bookDb.Branch.create({ name: "SpecBranchOldBook", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
-        #bookDb.Book book = bookDb.Book.create({
+        let bookDb.Book book = bookDb.Book.create({
             title: "Design Patterns",
             isbn: "9780201633610",
             author: "Gang of Four",
@@ -808,9 +808,9 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("validation rejects empty title") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatValTitle" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatValTitle" });
         cat.save();
-        #bookDb.Branch br = bookDb.Branch.create({ name: "SpecBranchValTitle", latitude: 40.7128, longitude: -74.0060, country: "US" });
+        let bookDb.Branch br = bookDb.Branch.create({ name: "SpecBranchValTitle", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
         assert throws(
             () => bookDb.Book.create({ title: "", isbn: "1234567890", author: "Author", publicationYear: 2020, categoryId: cat.id, branchId: br.id, price: 9.99, metadata: {}, tags: [] }),
@@ -819,9 +819,9 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("validation rejects future publication year") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatValYear" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatValYear" });
         cat.save();
-        #bookDb.Branch br = bookDb.Branch.create({ name: "SpecBranchValYear", latitude: 40.7128, longitude: -74.0060, country: "US" });
+        let bookDb.Branch br = bookDb.Branch.create({ name: "SpecBranchValYear", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
         assert throws(
             () => bookDb.Book.create({ title: "Future Book", isbn: "1234567890", author: "Author", publicationYear: 20999, categoryId: cat.id, branchId: br.id, price: 9.99, metadata: {}, tags: [] }),
@@ -830,11 +830,11 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("beforeCreate generates catalogNumber") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatHook" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatHook" });
         cat.save();
-        #bookDb.Branch br = bookDb.Branch.create({ name: "SpecBranchHook", latitude: 40.7128, longitude: -74.0060, country: "US" });
+        let bookDb.Branch br = bookDb.Branch.create({ name: "SpecBranchHook", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
-        #bookDb.Book book = bookDb.Book.create({
+        let bookDb.Book book = bookDb.Book.create({
             title: "Refactoring",
             isbn: "9780201485677",
             author: "Martin Fowler",
@@ -850,11 +850,11 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("afterCreate emits BookAdded event") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatEvent" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatEvent" });
         cat.save();
-        #bookDb.Branch br = bookDb.Branch.create({ name: "SpecBranchEvent", latitude: 40.7128, longitude: -74.0060, country: "US" });
+        let bookDb.Branch br = bookDb.Branch.create({ name: "SpecBranchEvent", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
-        #bookDb.Book book = bookDb.Book.create({
+        let bookDb.Book book = bookDb.Book.create({
             title: "Clean Architecture",
             isbn: "9780134494166",
             author: "Robert Martin",
@@ -870,11 +870,11 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("status change emits BookStatusChanged on update") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatStatus" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatStatus" });
         cat.save();
-        #bookDb.Branch br = bookDb.Branch.create({ name: "SpecBranchStatus", latitude: 40.7128, longitude: -74.0060, country: "US" });
+        let bookDb.Branch br = bookDb.Branch.create({ name: "SpecBranchStatus", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
-        #bookDb.Book book = bookDb.Book.create({
+        let bookDb.Book book = bookDb.Book.create({
             title: "Patterns of Enterprise Application Architecture",
             isbn: "9780321127426",
             author: "Martin Fowler",
@@ -892,11 +892,11 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("title update does not dispatch BookStatusChanged") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatNoEvent" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatNoEvent" });
         cat.save();
-        #bookDb.Branch br = bookDb.Branch.create({ name: "SpecBranchNoEvent", latitude: 40.7128, longitude: -74.0060, country: "US" });
+        let bookDb.Branch br = bookDb.Branch.create({ name: "SpecBranchNoEvent", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
-        #bookDb.Book book = bookDb.Book.create({
+        let bookDb.Book book = bookDb.Book.create({
             title: "Working Effectively with Legacy Code",
             isbn: "9780131177055",
             author: "Michael Feathers",
@@ -914,11 +914,11 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("getStatusLabel returns On Shelf for Available status") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatFnAvail" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatFnAvail" });
         cat.save();
-        #bookDb.Branch br = bookDb.Branch.create({ name: "SpecBranchFnAvail", latitude: 40.7128, longitude: -74.0060, country: "US" });
+        let bookDb.Branch br = bookDb.Branch.create({ name: "SpecBranchFnAvail", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
-        #bookDb.Book book = bookDb.Book.create({
+        let bookDb.Book book = bookDb.Book.create({
             title: "The Pragmatic Programmer",
             isbn: "9780135957059",
             author: "David Thomas",
@@ -934,11 +934,11 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("getStatusLabel returns Checked Out for CheckedOut status") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatFnOut" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatFnOut" });
         cat.save();
-        #bookDb.Branch br = bookDb.Branch.create({ name: "SpecBranchFnOut", latitude: 40.7128, longitude: -74.0060, country: "US" });
+        let bookDb.Branch br = bookDb.Branch.create({ name: "SpecBranchFnOut", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
-        #bookDb.Book book = bookDb.Book.create({
+        let bookDb.Book book = bookDb.Book.create({
             title: "Continuous Delivery",
             isbn: "9780321601919",
             author: "Jez Humble",
@@ -956,11 +956,11 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("canRenew is true for checked out book under max renewals") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatRenewTrue" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatRenewTrue" });
         cat.save();
-        #bookDb.Branch br = bookDb.Branch.create({ name: "SpecBranchRenewTrue", latitude: 40.7128, longitude: -74.0060, country: "US" });
+        let bookDb.Branch br = bookDb.Branch.create({ name: "SpecBranchRenewTrue", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
-        #bookDb.Book book = bookDb.Book.create({
+        let bookDb.Book book = bookDb.Book.create({
             title: "Test Driven Development",
             isbn: "9780321146533",
             author: "Kent Beck",
@@ -978,11 +978,11 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("canRenew is false for available book") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatRenewFalse" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatRenewFalse" });
         cat.save();
-        #bookDb.Branch br = bookDb.Branch.create({ name: "SpecBranchRenewFalse", latitude: 40.7128, longitude: -74.0060, country: "US" });
+        let bookDb.Branch br = bookDb.Branch.create({ name: "SpecBranchRenewFalse", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
-        #bookDb.Book book = bookDb.Book.create({
+        let bookDb.Book book = bookDb.Book.create({
             title: "Extreme Programming Explained",
             isbn: "9780321278654",
             author: "Kent Beck",

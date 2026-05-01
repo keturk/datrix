@@ -91,7 +91,7 @@ service lms.StudentService('config/student-service.yaml') : version('1.0.0'), de
 
         // Create a new student
         post(CreateStudentRequest request) : access(admin) -> studentDb.Student {
-            #Student student = studentDb.Student.create({
+            let Student student = studentDb.Student.create({
                 firstName: request.firstName,
                 lastName: request.lastName,
                 email: request.email,
@@ -105,7 +105,7 @@ service lms.StudentService('config/student-service.yaml') : version('1.0.0'), de
         // Update a student profile
         @path('/:id')
         put(UUID id, UpdateStudentRequest request) -> studentDb.Student {
-            #Student student = studentDb.Student.findOrFail(id);
+            let Student student = studentDb.Student.findOrFail(id);
 
             if (request.firstName != null) {
                 student.firstName = request.firstName;
@@ -130,20 +130,20 @@ service lms.StudentService('config/student-service.yaml') : version('1.0.0'), de
         // Search students
         @path('/search')
         get(String query, Int page = 1, Int perPage = 20) : public -> PaginatedStudents {
-            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
-            #Array<Student> students = studentDb.Student
+            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            let Array<Student> students = studentDb.Student
                 .fulltext(query)
                 .where(status: StudentStatus.Active)
                 .offset((page - 1) * cappedPerPage)
                 .limit(cappedPerPage)
                 .all();
 
-            #Int total = studentDb.Student
+            let Int total = studentDb.Student
                 .fulltext(query)
                 .where(status: StudentStatus.Active)
                 .count();
 
-            #Int totalPages = Math.ceil(total / cappedPerPage);
+            let Int totalPages = Math.ceil(total / cappedPerPage);
 
             return {
                 data: students,
@@ -161,14 +161,14 @@ service lms.StudentService('config/student-service.yaml') : version('1.0.0'), de
         // Get current student profile
         @path('/me')
         get() -> studentDb.Student {
-            #UUID studentId = Auth.user().id;
+            let UUID studentId = Auth.user().id;
             return studentDb.Student.findOrFail(studentId);
         }
 
         // Suspend a student
         @path('/:id/suspend')
         put(UUID id) : access(admin) -> studentDb.Student {
-            #Student student = studentDb.Student.findOrFail(id);
+            let Student student = studentDb.Student.findOrFail(id);
             student.status = StudentStatus.Suspended;
             student.save();
             return student;
@@ -177,7 +177,7 @@ service lms.StudentService('config/student-service.yaml') : version('1.0.0'), de
         // Reactivate a student
         @path('/:id/reactivate')
         put(UUID id) : access(admin) -> studentDb.Student {
-            #Student student = studentDb.Student.findOrFail(id);
+            let Student student = studentDb.Student.findOrFail(id);
 
             if (student.status != StudentStatus.Suspended) {
                 throw ValidationException({
@@ -227,7 +227,7 @@ service lms.StudentService('config/student-service.yaml') : version('1.0.0'), de
     }
 
     test("computed fullName concatenates names") {
-        #studentDb.Student student = studentDb.Student.create({
+        let studentDb.StudentNone student = studentDb.Student.create({
             firstName: "Jane",
             lastName: "Doe",
             email: "jane.doe@example.com"
@@ -237,7 +237,7 @@ service lms.StudentService('config/student-service.yaml') : version('1.0.0'), de
     }
 
     test("computed isActive for Active status") {
-        #studentDb.Student student = studentDb.Student.create({
+        let studentDb.StudentNone student = studentDb.Student.create({
             firstName: "John",
             lastName: "Smith",
             email: "john.smith@example.com"
@@ -248,7 +248,7 @@ service lms.StudentService('config/student-service.yaml') : version('1.0.0'), de
     }
 
     test("beforeCreate generates studentNumber") {
-        #studentDb.Student student = studentDb.Student.create({
+        let studentDb.StudentNone student = studentDb.Student.create({
             firstName: "Alice",
             lastName: "Brown",
             email: "alice.brown@example.com"

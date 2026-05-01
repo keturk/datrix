@@ -138,7 +138,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         }
 
         on BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
-            #Book book = bookDb.Book.findById(bookId);
+            let Book book = bookDb.Book.findById(bookId);
             if (book != null) {
                 Log.info(#"Book '{book.title}' status changed from {oldStatus} to {newStatus}");
             }
@@ -193,7 +193,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         // Internal endpoint returning a struct instead of a full entity
         @path('/books/internal/availability/:id')
         get(UUID id) : internal -> BookAvailabilityResponse {
-            #Book book = bookDb.Book.findOrFail(id);
+            let Book book = bookDb.Book.findOrFail(id);
             return { available: book.isAvailable };
         }
 
@@ -202,9 +202,9 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("computed displayTitle formats title and year") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatDisplay" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatDisplay" });
         cat.save();
-        #bookDb.Book book = bookDb.Book.create({
+        let bookDb.Book book = bookDb.Book.create({
             title: "Domain-Driven Design",
             isbn: "9780321125217",
             author: "Eric Evans",
@@ -216,9 +216,9 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("computed isAvailable is true when status is Available") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatAvail" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatAvail" });
         cat.save();
-        #bookDb.Book book = bookDb.Book.create({
+        let bookDb.Book book = bookDb.Book.create({
             title: "Clean Code",
             isbn: "9780132350884",
             author: "Robert Martin",
@@ -230,9 +230,9 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("computed isOldBook is true for pre-2000 books") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatOldBook" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatOldBook" });
         cat.save();
-        #bookDb.Book book = bookDb.Book.create({
+        let bookDb.Book book = bookDb.Book.create({
             title: "Design Patterns",
             isbn: "9780201633610",
             author: "Gang of Four",
@@ -244,7 +244,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("validation rejects empty title") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatValTitle" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatValTitle" });
         cat.save();
         assert throws(
             () => bookDb.Book.create({ title: "", isbn: "1234567890", author: "Author", publicationYear: 2020, categoryId: cat.id }),
@@ -253,7 +253,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("validation rejects future publication year") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatValYear" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatValYear" });
         cat.save();
         assert throws(
             () => bookDb.Book.create({ title: "Future Book", isbn: "1234567890", author: "Author", publicationYear: 20999, categoryId: cat.id }),
@@ -262,9 +262,9 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("beforeCreate generates catalogNumber") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatHook" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatHook" });
         cat.save();
-        #bookDb.Book book = bookDb.Book.create({
+        let bookDb.Book book = bookDb.Book.create({
             title: "Refactoring",
             isbn: "9780201485677",
             author: "Martin Fowler",
@@ -276,9 +276,9 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("afterCreate emits BookAdded event") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatEvent" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatEvent" });
         cat.save();
-        #bookDb.Book book = bookDb.Book.create({
+        let bookDb.Book book = bookDb.Book.create({
             title: "Clean Architecture",
             isbn: "9780134494166",
             author: "Robert Martin",
@@ -290,9 +290,9 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("status change emits BookStatusChanged on update") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatStatus" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatStatus" });
         cat.save();
-        #bookDb.Book book = bookDb.Book.create({
+        let bookDb.Book book = bookDb.Book.create({
             title: "Patterns of Enterprise Application Architecture",
             isbn: "9780321127426",
             author: "Martin Fowler",
@@ -306,9 +306,9 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("title update does not dispatch BookStatusChanged") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatNoEvent" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatNoEvent" });
         cat.save();
-        #bookDb.Book book = bookDb.Book.create({
+        let bookDb.Book book = bookDb.Book.create({
             title: "Working Effectively with Legacy Code",
             isbn: "9780131177055",
             author: "Michael Feathers",

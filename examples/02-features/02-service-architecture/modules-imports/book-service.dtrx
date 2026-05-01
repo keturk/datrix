@@ -311,7 +311,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             Log.info("New book added", { bookId: bookId, title: title });
 
             // Cross-database write: event handler writes to the reporting database
-            #BookAuditLog auditLog = reporting.BookAuditLog.create({
+            let BookAuditLog auditLog = reporting.BookAuditLog.create({
                 bookId: bookId,
                 action: AuditAction.Created,
                 performedBy: "system",
@@ -322,18 +322,18 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
         on BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
             // Reference 'catalog' (not 'db') since the primary rdbms block is named 'catalog'
-            #Book book = catalog.Book.findById(bookId);
+            let Book book = catalog.Book.findById(bookId);
             if (book != null) {
                 Log.info(#"Book '{book.title}' status changed from {oldStatus} to {newStatus}");
             }
 
-            #AuditAction auditAction = AuditAction.Updated;
+            let AuditAction auditAction = AuditAction.Updated;
             if (newStatus == BookStatus.CheckedOut) {
                 auditAction = AuditAction.CheckedOut;
             }
 
             // Write audit trail to the separate reporting database
-            #BookAuditLog auditLog = reporting.BookAuditLog.create({
+            let BookAuditLog auditLog = reporting.BookAuditLog.create({
                 bookId: bookId,
                 action: auditAction,
                 changes: { oldStatus: oldStatus, newStatus: newStatus },
@@ -349,7 +349,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         on BookConditionChanged(UUID bookId, BookCondition oldCondition, BookCondition newCondition) {
             Log.info("Book condition changed", { bookId: bookId, oldCondition: oldCondition, newCondition: newCondition });
 
-            #BookAuditLog auditLog = reporting.BookAuditLog.create({
+            let BookAuditLog auditLog = reporting.BookAuditLog.create({
                 bookId: bookId,
                 action: AuditAction.ConditionChanged,
                 changes: { oldCondition: oldCondition, newCondition: newCondition },
@@ -402,8 +402,8 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         // 'command' defines a write operation that mutates state and may dispatch events
         // References 'catalog.Book' to target the correct rdbms block
         command UpdateBookStatus(UUID bookId, BookStatus newStatus) -> catalog.Book {
-            #Book? book = catalog.Book.findById(bookId);
-            #BookStatus oldStatus = book.status;
+            let Book? book = catalog.Book.findById(bookId);
+            let BookStatus oldStatus = book.status;
             book.status = newStatus;
             book.save();
             dispatch BookStatusChanged(bookId, oldStatus, newStatus);
@@ -424,7 +424,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         projection BookCatalogProjection {
             // When a book is added, create or update the catalog view entry
             on BookAdded(UUID bookId, String title) {
-                #Book? book = catalog.Book.findById(bookId);
+                let Book? book = catalog.Book.findById(bookId);
                 BookCatalogView.upsert(bookId, {
                     id: bookId,
                     title: title,
@@ -437,7 +437,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
             // When a book's status changes, update only the affected view fields
             on BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
-                #BookCatalogView? view = BookCatalogView.findById(bookId);
+                let BookCatalogView? view = BookCatalogView.findById(bookId);
                 view.status = newStatus;
                 view.lastUpdated = now();
                 view.save();
@@ -451,8 +451,8 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         // 'job' defines a named background task with inline logic
         // Jobs can query the database and dispatch events like any other block
         job CheckOverdueBooks {
-            #Array<Book> checkedOut = catalog.Book.where(status: BookStatus.CheckedOut).all();
-            #Int processed = 0;
+            let Array<Book> checkedOut = catalog.Book.where(status: BookStatus.CheckedOut).all();
+            let Int processed = 0;
 
             foreach book in checkedOut {
                 Log.info(#"Checking overdue status for book {book.id}");
@@ -465,7 +465,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
         // Another background job that refreshes the cache layer
         job RefreshBookCache {
-            #Array<Book> books = catalog.Book.where(status: BookStatus.Available).all();
+            let Array<Book> books = catalog.Book.where(status: BookStatus.Available).all();
             foreach book in books {
                 Log.info(#"Refreshing cache for book {book.id}");
             }
@@ -473,13 +473,13 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
         // Job using 'while' loop with 'continue' and 'break' for flow control
         job ProcessOverdueCheckouts {
-            #Array<Checkout> checkouts = catalog.Checkout.where(returnDate: null).all();
-            #Int processed = 0;
-            #Int index = 0;
+            let Array<Checkout> checkouts = catalog.Checkout.where(returnDate: null).all();
+            let Int processed = 0;
+            let Int index = 0;
 
             // 'while' loops iterate until the condition is false
             while (index < checkouts.length()) {
-                #Checkout checkout = checkouts[index];
+                let Checkout checkout = checkouts[index];
                 index += 1;
 
                 if (checkout.returnDate != null) {
@@ -503,12 +503,12 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
         // Cross-database job: reads from 'catalog' and writes to 'reporting'
         job AggregateDailyStats {
-            #DateTime today = now();
-            #Array<Checkout> checkouts = catalog.Checkout.where(checkoutDate: today).all();
-            #Array<Checkout> returns = catalog.Checkout.where(returnDate: today).all();
+            let DateTime today = now();
+            let Array<Checkout> checkouts = catalog.Checkout.where(checkoutDate: today).all();
+            let Array<Checkout> returns = catalog.Checkout.where(returnDate: today).all();
 
             // Write aggregated stats to the reporting database
-            #DailyBookStats stats = reporting.DailyBookStats.create({
+            let DailyBookStats stats = reporting.DailyBookStats.create({
                 reportDate: today,
                 totalCheckouts: checkouts.length(),
                 totalReturns: returns.length(),
@@ -574,7 +574,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
         // 'fn' inside a rest_api block defines API-level helper functions
         fn findBooksByFilter(String? titleFilter, String? authorFilter) -> Array<catalog.Book> {
-            #Array<Book> results = catalog.Book.all();
+            let Array<Book> results = catalog.Book.all();
             if (titleFilter != null) {
                 results = results.filter(b => b.title == titleFilter);
             }
@@ -622,7 +622,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         // Query through the join entity to find books by tag (many-to-many traversal)
         @path('/books/by-tag/:tagId')
         get(UUID tagId) : public -> Array<catalog.Book> {
-            #Array<BookTag> bookTags = catalog.BookTag.where(tagId: tagId).all();
+            let Array<BookTag> bookTags = catalog.BookTag.where(tagId: tagId).all();
             return bookTags.map(bt => catalog.Book.findOrFail(bt.bookId));
         }
 
@@ -636,9 +636,9 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         // PriceRange is imported from the common module
         @path('/books/:id/price-range')
         get(UUID id) : public -> PriceRange {
-            #Book book = catalog.Book.findOrFail(id);
-            #Decimal min = book.price;
-            #Decimal max = book.price;
+            let Book book = catalog.Book.findOrFail(id);
+            let Decimal min = book.price;
+            let Decimal max = book.price;
             return PriceRange { minPrice: min, maxPrice: max };
         }
 
@@ -659,13 +659,13 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         // Endpoint returning a projected array of scalar values via .map()
         @path('/books/titles')
         get() : public -> Array<String> {
-            #Array<Book> books = catalog.Book.where(status: BookStatus.Available).all();
+            let Array<Book> books = catalog.Book.where(status: BookStatus.Available).all();
             return books.map(b => b.title);
         }
 
         @path('/books/by-condition')
         get(String condition) : public -> Array<catalog.Book> {
-            #Array<Book> allBooks = catalog.Book.all();
+            let Array<Book> allBooks = catalog.Book.all();
             return allBooks.filter(b => b.condition == condition);
         }
 
@@ -674,7 +674,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         @path('/books/:id/checkout')
         post(UUID id) : access(member) -> catalog.Checkout {
             try {
-                #Book book = catalog.Book.findOrFail(id);
+                let Book book = catalog.Book.findOrFail(id);
 
                 if (book.status != BookStatus.Available)
                     ValidationError("Book is not available for checkout");
@@ -683,7 +683,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
                 book.save();
 
                 // Uses the imported MAX_CHECKOUT_DAYS const for the due date calculation
-                #Checkout checkout = catalog.Checkout.create({
+                let Checkout checkout = catalog.Checkout.create({
                     bookId: id,
                     checkoutDate: now(),
                     dueDate: now().addDays(MAX_CHECKOUT_DAYS)
@@ -703,8 +703,8 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         // Endpoint using switch/case for conditional logic based on enum value
         @path('/books/:id/condition')
         put(UUID id, UpdateBookConditionRequest request) : access(librarian) -> catalog.Book {
-            #Book book = catalog.Book.findOrFail(id);
-            #BookCondition oldCondition = book.condition;
+            let Book book = catalog.Book.findOrFail(id);
+            let BookCondition oldCondition = book.condition;
 
             switch (request.newCondition) {
                 case BookCondition.Damaged {
@@ -738,7 +738,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         // Internal endpoint returning a struct instead of a full entity
         @path('/books/internal/availability/:id')
         get(UUID id) : internal -> BookAvailabilityResponse {
-            #Book book = catalog.Book.findOrFail(id);
+            let Book book = catalog.Book.findOrFail(id);
             return { available: book.isAvailable };
         }
 
@@ -761,11 +761,11 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("computed displayTitle formats title and year") {
-        #catalog.Category cat = catalog.Category.create({ name: "SpecCatDisplay" });
+        let catalog.Category cat = catalog.Category.create({ name: "SpecCatDisplay" });
         cat.save();
-        #catalog.Branch br = catalog.Branch.create({ name: "SpecBranchDisplay", latitude: 40.7128, longitude: -74.0060, country: "US" });
+        let catalog.Branch br = catalog.Branch.create({ name: "SpecBranchDisplay", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
-        #catalog.Book book = catalog.Book.create({
+        let catalog.Book book = catalog.Book.create({
             title: "Domain-Driven Design",
             isbn: "9780321125217",
             author: "Eric Evans",
@@ -781,11 +781,11 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("computed isAvailable is true when status is Available") {
-        #catalog.Category cat = catalog.Category.create({ name: "SpecCatAvail" });
+        let catalog.Category cat = catalog.Category.create({ name: "SpecCatAvail" });
         cat.save();
-        #catalog.Branch br = catalog.Branch.create({ name: "SpecBranchAvail", latitude: 40.7128, longitude: -74.0060, country: "US" });
+        let catalog.Branch br = catalog.Branch.create({ name: "SpecBranchAvail", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
-        #catalog.Book book = catalog.Book.create({
+        let catalog.Book book = catalog.Book.create({
             title: "Clean Code",
             isbn: "9780132350884",
             author: "Robert Martin",
@@ -801,11 +801,11 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("computed isOldBook is true for pre-2000 books") {
-        #catalog.Category cat = catalog.Category.create({ name: "SpecCatOldBook" });
+        let catalog.Category cat = catalog.Category.create({ name: "SpecCatOldBook" });
         cat.save();
-        #catalog.Branch br = catalog.Branch.create({ name: "SpecBranchOldBook", latitude: 40.7128, longitude: -74.0060, country: "US" });
+        let catalog.Branch br = catalog.Branch.create({ name: "SpecBranchOldBook", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
-        #catalog.Book book = catalog.Book.create({
+        let catalog.Book book = catalog.Book.create({
             title: "Design Patterns",
             isbn: "9780201633610",
             author: "Gang of Four",
@@ -821,9 +821,9 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("validation rejects empty title") {
-        #catalog.Category cat = catalog.Category.create({ name: "SpecCatValTitle" });
+        let catalog.Category cat = catalog.Category.create({ name: "SpecCatValTitle" });
         cat.save();
-        #catalog.Branch br = catalog.Branch.create({ name: "SpecBranchValTitle", latitude: 40.7128, longitude: -74.0060, country: "US" });
+        let catalog.Branch br = catalog.Branch.create({ name: "SpecBranchValTitle", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
         assert throws(
             () => catalog.Book.create({ title: "", isbn: "1234567890", author: "Author", publicationYear: 2020, categoryId: cat.id, branchId: br.id, price: 9.99, metadata: {}, tags: [] }),
@@ -832,9 +832,9 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("validation rejects future publication year") {
-        #catalog.Category cat = catalog.Category.create({ name: "SpecCatValYear" });
+        let catalog.Category cat = catalog.Category.create({ name: "SpecCatValYear" });
         cat.save();
-        #catalog.Branch br = catalog.Branch.create({ name: "SpecBranchValYear", latitude: 40.7128, longitude: -74.0060, country: "US" });
+        let catalog.Branch br = catalog.Branch.create({ name: "SpecBranchValYear", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
         assert throws(
             () => catalog.Book.create({ title: "Future Book", isbn: "1234567890", author: "Author", publicationYear: 20999, categoryId: cat.id, branchId: br.id, price: 9.99, metadata: {}, tags: [] }),
@@ -843,11 +843,11 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("beforeCreate generates catalogNumber") {
-        #catalog.Category cat = catalog.Category.create({ name: "SpecCatHook" });
+        let catalog.Category cat = catalog.Category.create({ name: "SpecCatHook" });
         cat.save();
-        #catalog.Branch br = catalog.Branch.create({ name: "SpecBranchHook", latitude: 40.7128, longitude: -74.0060, country: "US" });
+        let catalog.Branch br = catalog.Branch.create({ name: "SpecBranchHook", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
-        #catalog.Book book = catalog.Book.create({
+        let catalog.Book book = catalog.Book.create({
             title: "Refactoring",
             isbn: "9780201485677",
             author: "Martin Fowler",
@@ -863,11 +863,11 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("afterCreate emits BookAdded event") {
-        #catalog.Category cat = catalog.Category.create({ name: "SpecCatEvent" });
+        let catalog.Category cat = catalog.Category.create({ name: "SpecCatEvent" });
         cat.save();
-        #catalog.Branch br = catalog.Branch.create({ name: "SpecBranchEvent", latitude: 40.7128, longitude: -74.0060, country: "US" });
+        let catalog.Branch br = catalog.Branch.create({ name: "SpecBranchEvent", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
-        #catalog.Book book = catalog.Book.create({
+        let catalog.Book book = catalog.Book.create({
             title: "Clean Architecture",
             isbn: "9780134494166",
             author: "Robert Martin",
@@ -883,11 +883,11 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("status change emits BookStatusChanged on update") {
-        #catalog.Category cat = catalog.Category.create({ name: "SpecCatStatus" });
+        let catalog.Category cat = catalog.Category.create({ name: "SpecCatStatus" });
         cat.save();
-        #catalog.Branch br = catalog.Branch.create({ name: "SpecBranchStatus", latitude: 40.7128, longitude: -74.0060, country: "US" });
+        let catalog.Branch br = catalog.Branch.create({ name: "SpecBranchStatus", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
-        #catalog.Book book = catalog.Book.create({
+        let catalog.Book book = catalog.Book.create({
             title: "Patterns of Enterprise Application Architecture",
             isbn: "9780321127426",
             author: "Martin Fowler",
@@ -905,11 +905,11 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("title update does not dispatch BookStatusChanged") {
-        #catalog.Category cat = catalog.Category.create({ name: "SpecCatNoEvent" });
+        let catalog.Category cat = catalog.Category.create({ name: "SpecCatNoEvent" });
         cat.save();
-        #catalog.Branch br = catalog.Branch.create({ name: "SpecBranchNoEvent", latitude: 40.7128, longitude: -74.0060, country: "US" });
+        let catalog.Branch br = catalog.Branch.create({ name: "SpecBranchNoEvent", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
-        #catalog.Book book = catalog.Book.create({
+        let catalog.Book book = catalog.Book.create({
             title: "Working Effectively with Legacy Code",
             isbn: "9780131177055",
             author: "Michael Feathers",
@@ -927,11 +927,11 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("getStatusLabel returns On Shelf for Available status") {
-        #catalog.Category cat = catalog.Category.create({ name: "SpecCatFnAvail" });
+        let catalog.Category cat = catalog.Category.create({ name: "SpecCatFnAvail" });
         cat.save();
-        #catalog.Branch br = catalog.Branch.create({ name: "SpecBranchFnAvail", latitude: 40.7128, longitude: -74.0060, country: "US" });
+        let catalog.Branch br = catalog.Branch.create({ name: "SpecBranchFnAvail", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
-        #catalog.Book book = catalog.Book.create({
+        let catalog.Book book = catalog.Book.create({
             title: "The Pragmatic Programmer",
             isbn: "9780135957059",
             author: "David Thomas",
@@ -947,11 +947,11 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("getStatusLabel returns Checked Out for CheckedOut status") {
-        #catalog.Category cat = catalog.Category.create({ name: "SpecCatFnOut" });
+        let catalog.Category cat = catalog.Category.create({ name: "SpecCatFnOut" });
         cat.save();
-        #catalog.Branch br = catalog.Branch.create({ name: "SpecBranchFnOut", latitude: 40.7128, longitude: -74.0060, country: "US" });
+        let catalog.Branch br = catalog.Branch.create({ name: "SpecBranchFnOut", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
-        #catalog.Book book = catalog.Book.create({
+        let catalog.Book book = catalog.Book.create({
             title: "Continuous Delivery",
             isbn: "9780321601919",
             author: "Jez Humble",
@@ -969,11 +969,11 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("canRenew is true for checked out book under max renewals") {
-        #catalog.Category cat = catalog.Category.create({ name: "SpecCatRenewTrue" });
+        let catalog.Category cat = catalog.Category.create({ name: "SpecCatRenewTrue" });
         cat.save();
-        #catalog.Branch br = catalog.Branch.create({ name: "SpecBranchRenewTrue", latitude: 40.7128, longitude: -74.0060, country: "US" });
+        let catalog.Branch br = catalog.Branch.create({ name: "SpecBranchRenewTrue", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
-        #catalog.Book book = catalog.Book.create({
+        let catalog.Book book = catalog.Book.create({
             title: "Test Driven Development",
             isbn: "9780321146533",
             author: "Kent Beck",
@@ -991,11 +991,11 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("canRenew is false for available book") {
-        #catalog.Category cat = catalog.Category.create({ name: "SpecCatRenewFalse" });
+        let catalog.Category cat = catalog.Category.create({ name: "SpecCatRenewFalse" });
         cat.save();
-        #catalog.Branch br = catalog.Branch.create({ name: "SpecBranchRenewFalse", latitude: 40.7128, longitude: -74.0060, country: "US" });
+        let catalog.Branch br = catalog.Branch.create({ name: "SpecBranchRenewFalse", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
-        #catalog.Book book = catalog.Book.create({
+        let catalog.Book book = catalog.Book.create({
             title: "Extreme Programming Explained",
             isbn: "9780321278654",
             author: "Kent Beck",

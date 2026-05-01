@@ -50,14 +50,14 @@ service library.LoanService('config/loan-service.yaml') : version('1.0.0'), desc
             try {
                 // '#Book' is a type hint for the response from a cross-service API call
                 // ServiceName.APIName.method() makes a synchronous call to another service
-                #Book bookResponse = BookService.BookServiceAPI.get('/books/internal/:id', request.bookId);
+                let Book bookResponse = BookService.BookServiceAPI.get('/books/internal/:id', request.bookId);
                 if (!bookResponse.isAvailable) {
                     throw ValidationException("Book is not available");
                 }
                 // Verify the member exists via MemberService internal endpoint
                 MemberService.MemberAPI.get('/internal/:id', request.memberId);
                 // Create a new loan with a 14-day due date
-                #Loan loan = loanDb.Loan.create({
+                let Loan loan = loanDb.Loan.create({
                     bookId: request.bookId,
                     memberId: request.memberId,
                     dueDate: now().addDays(14)

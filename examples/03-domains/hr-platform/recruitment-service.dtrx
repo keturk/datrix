@@ -292,7 +292,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
             // When a candidate is hired, mark the job posting as filled
             if (newStatus == ApplicationStatus.Hired) {
                 try {
-                    #JobPosting posting = recruitDb.JobPosting.findOrFail(jobPostingId);
+                    let JobPosting posting = recruitDb.JobPosting.findOrFail(jobPostingId);
                     posting.fill(applicationId);
                     Log.info("Job posting filled", { postingId: jobPostingId, applicationId: applicationId });
                 } catch (Exception e) {
@@ -308,7 +308,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
         // List job postings with pagination
         @path('/postings')
         get(Int page = 1, Int perPage = 20, Department? department, PostingStatus? status) : public -> PaginatedJobPostings {
-            #JSON query = recruitDb.JobPosting.all();
+            let JSON query = recruitDb.JobPosting.all();
 
             if (department != null) {
                 query = recruitDb.JobPosting.where(department: department);
@@ -319,8 +319,8 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
                 query = recruitDb.JobPosting.where(status: PostingStatus.Open);
             }
 
-            #Int total = query.count();
-            #Array<JobPosting> postings = query
+            let Int total = query.count();
+            let Array<JobPosting> postings = query
                 .orderBy(createdAt: desc)
                 .offset((page - 1) * perPage)
                 .limit(perPage)
@@ -348,7 +348,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
         // Create a new job posting
         @path('/postings')
         post(CreateJobPostingRequest request) : access(admin) -> recruitDb.JobPosting {
-            #JobPosting posting = recruitDb.JobPosting.create({
+            let JobPosting posting = recruitDb.JobPosting.create({
                 title: request.title,
                 description: request.description,
                 department: request.department,
@@ -366,7 +366,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
         // Update a job posting
         @path('/postings/:id')
         put(UUID id, UpdateJobPostingRequest request) : access(admin) -> recruitDb.JobPosting {
-            #JobPosting posting = recruitDb.JobPosting.findOrFail(id);
+            let JobPosting posting = recruitDb.JobPosting.findOrFail(id);
 
             if (request.title != null) posting.title = request.title;
             if (request.description != null) posting.description = request.description;
@@ -382,7 +382,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
         // Open a draft posting
         @path('/postings/:id/open')
         put(UUID id) : access(admin) -> recruitDb.JobPosting {
-            #JobPosting posting = recruitDb.JobPosting.findOrFail(id);
+            let JobPosting posting = recruitDb.JobPosting.findOrFail(id);
             posting.open();
             return posting;
         }
@@ -390,7 +390,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
         // Close a posting
         @path('/postings/:id/close')
         put(UUID id) : access(admin) -> recruitDb.JobPosting {
-            #JobPosting posting = recruitDb.JobPosting.findOrFail(id);
+            let JobPosting posting = recruitDb.JobPosting.findOrFail(id);
             posting.close();
             return posting;
         }
@@ -398,7 +398,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
         // Cancel a posting
         @path('/postings/:id/cancel')
         put(UUID id) : access(admin) -> recruitDb.JobPosting {
-            #JobPosting posting = recruitDb.JobPosting.findOrFail(id);
+            let JobPosting posting = recruitDb.JobPosting.findOrFail(id);
             posting.cancel();
             return posting;
         }
@@ -416,8 +416,8 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
         // Get posting statistics
         @path('/postings/:id/stats')
         get(UUID id) : access(admin) -> JobPostingStats {
-            #JobPosting posting = recruitDb.JobPosting.findOrFail(id);
-            #Array<Application> allApps = recruitDb.Application.where(jobPostingId: id).all();
+            let JobPosting posting = recruitDb.JobPosting.findOrFail(id);
+            let Array<Application> allApps = recruitDb.Application.where(jobPostingId: id).all();
 
             return {
                 jobPostingId: posting.id,
@@ -436,14 +436,14 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
         // Submit an application
         @path('/applications')
         post(CreateApplicationRequest request) : public -> recruitDb.Application {
-            #JobPosting posting = recruitDb.JobPosting.findOrFail(request.jobPostingId);
+            let JobPosting posting = recruitDb.JobPosting.findOrFail(request.jobPostingId);
 
             if (!posting.isOpen) {
                 throw ValidationException("This job posting is no longer accepting applications");
             }
 
             // Check for duplicate application
-            #Application? existing = recruitDb.Application
+            let Application? existing = recruitDb.Application
                 .where(jobPostingId: request.jobPostingId)
                 .where(candidateEmail: request.candidateEmail)
                 .first();
@@ -452,7 +452,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
                 throw ValidationException("You have already applied for this position");
             }
 
-            #Application application = recruitDb.Application.create({
+            let Application application = recruitDb.Application.create({
                 jobPostingId: request.jobPostingId,
                 candidateName: request.candidateName,
                 candidateEmail: request.candidateEmail,
@@ -468,7 +468,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
         // List applications for a posting
         @path('/postings/:id/applications')
         get(UUID id, ApplicationStatus? status) : access(admin) -> Array<recruitDb.Application> {
-            #JSON query = recruitDb.Application.where(jobPostingId: id);
+            let JSON query = recruitDb.Application.where(jobPostingId: id);
 
             if (status != null) {
                 query = query.where(status: status);
@@ -486,7 +486,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
         // Move to screening
         @path('/applications/:id/screen')
         put(UUID id) : access(admin) -> recruitDb.Application {
-            #Application app = recruitDb.Application.findOrFail(id);
+            let Application app = recruitDb.Application.findOrFail(id);
             app.moveToScreening();
             return app;
         }
@@ -494,7 +494,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
         // Move to interview
         @path('/applications/:id/interview')
         put(UUID id) : access(admin) -> recruitDb.Application {
-            #Application app = recruitDb.Application.findOrFail(id);
+            let Application app = recruitDb.Application.findOrFail(id);
             app.moveToInterview();
             return app;
         }
@@ -502,7 +502,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
         // Extend offer
         @path('/applications/:id/offer')
         put(UUID id) : access(admin) -> recruitDb.Application {
-            #Application app = recruitDb.Application.findOrFail(id);
+            let Application app = recruitDb.Application.findOrFail(id);
             app.extendOffer();
             return app;
         }
@@ -510,7 +510,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
         // Hire candidate
         @path('/applications/:id/hire')
         put(UUID id) : access(admin) -> recruitDb.Application {
-            #Application app = recruitDb.Application.findOrFail(id);
+            let Application app = recruitDb.Application.findOrFail(id);
             app.hire();
             return app;
         }
@@ -518,14 +518,14 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
         // Reject application
         @path('/applications/:id/reject')
         put(UUID id, UpdateApplicationStatusRequest request) : access(admin) -> recruitDb.Application {
-            #Application app = recruitDb.Application.findOrFail(id);
+            let Application app = recruitDb.Application.findOrFail(id);
             app.reject(request.notes ?? "Application not selected");
             return app;
         }
     }
 
     test("computed isOpen is true for Open status") {
-        #recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+        let recruitDb.JobPostingNone posting = recruitDb.JobPosting.create({
             title: "Senior Software Engineer",
             description: "We are looking for a senior engineer",
             department: Department.Engineering,
@@ -553,7 +553,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
     }
 
     test("afterCreate emits JobPostingCreated event") {
-        #recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+        let recruitDb.JobPostingNone posting = recruitDb.JobPosting.create({
             title: "Product Manager",
             description: "Lead product development initiatives",
             department: Department.Operations,
@@ -567,7 +567,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
     }
 
     test("validation rejects empty candidate name") {
-        #recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+        let recruitDb.JobPostingNone posting = recruitDb.JobPosting.create({
             title: "Data Analyst",
             description: "Analyze business data",
             department: Department.Finance,
@@ -588,7 +588,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
     }
 
     test("application status follows correct workflow") {
-        #recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+        let recruitDb.JobPostingNone posting = recruitDb.JobPosting.create({
             title: "QA Engineer",
             description: "Test software quality",
             department: Department.Engineering,
@@ -598,7 +598,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
             status: PostingStatus.Open
         });
         posting.save();
-        #recruitDb.Application app = recruitDb.Application.create({
+        let recruitDb.ApplicationNone app = recruitDb.Application.create({
             jobPostingId: posting.id,
             candidateName: "Test Candidate",
             candidateEmail: "candidate@example.com",
@@ -616,7 +616,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
     }
 
     test("open fails for non-draft posting") {
-        #recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+        let recruitDb.JobPostingNone posting = recruitDb.JobPosting.create({
             title: "Designer",
             description: "Design beautiful interfaces",
             department: Department.Marketing,

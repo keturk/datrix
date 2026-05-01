@@ -201,7 +201,7 @@ service hr.PayrollService('config/payroll-service.yaml') : version('1.0.0'), des
         // List payroll runs with pagination
         @path('/runs')
         get(Int page = 1, Int perPage = 20, PayrollStatus? status, PayPeriod? payPeriod) : access(admin) -> PaginatedPayrollRuns {
-            #JSON query = payrollDb.PayrollRun.all();
+            let JSON query = payrollDb.PayrollRun.all();
 
             if (status != null) {
                 query = payrollDb.PayrollRun.where(status: status);
@@ -210,8 +210,8 @@ service hr.PayrollService('config/payroll-service.yaml') : version('1.0.0'), des
                 query = query.where(payPeriod: payPeriod);
             }
 
-            #Int total = query.count();
-            #Array<PayrollRun> runs = query
+            let Int total = query.count();
+            let Array<PayrollRun> runs = query
                 .orderBy(periodStart: desc)
                 .offset((page - 1) * perPage)
                 .limit(perPage)
@@ -239,7 +239,7 @@ service hr.PayrollService('config/payroll-service.yaml') : version('1.0.0'), des
         // Get payroll run summary
         @path('/runs/:id/summary')
         get(UUID id) : access(admin) -> PayrollSummary {
-            #PayrollRun run = payrollDb.PayrollRun.findOrFail(id);
+            let PayrollRun run = payrollDb.PayrollRun.findOrFail(id);
             return {
                 payrollRunId: run.id,
                 payPeriod: run.payPeriod,
@@ -254,18 +254,18 @@ service hr.PayrollService('config/payroll-service.yaml') : version('1.0.0'), des
         // Create a new payroll run with entries
         @path('/runs')
         post(CreatePayrollRunRequest request) : access(admin) -> payrollDb.PayrollRun {
-            #String ref = generatePayrollRef();
-            #Money totalGross = Money.of(0, "USD");
-            #Money totalDeductions = Money.of(0, "USD");
+            let String ref = generatePayrollRef();
+            let Money totalGross = Money.of(0, "USD");
+            let Money totalDeductions = Money.of(0, "USD");
 
             foreach entry in request.entries {
                 totalGross = totalGross.add(entry.grossPay);
                 totalDeductions = totalDeductions.add(entry.deductions);
             }
 
-            #Money totalNet = totalGross.add(totalDeductions.multiply(-1));
+            let Money totalNet = totalGross.add(totalDeductions.multiply(-1));
 
-            #PayrollRun run = payrollDb.PayrollRun.create({
+            let PayrollRun run = payrollDb.PayrollRun.create({
                 payrollRef: ref,
                 payPeriod: request.payPeriod,
                 periodStart: request.periodStart,
@@ -281,11 +281,11 @@ service hr.PayrollService('config/payroll-service.yaml') : version('1.0.0'), des
             // Create individual entries
             foreach entry in request.entries {
                 // Look up employee department for reporting
-                #JSON employee = EmployeeService.EmployeeAPI.get(#"/internal/{entry.employeeId}");
+                let JSON employee = EmployeeService.EmployeeAPI.get(#"/internal/{entry.employeeId}");
 
-                #Money netPay = entry.grossPay.add(entry.deductions.multiply(-1));
+                let Money netPay = entry.grossPay.add(entry.deductions.multiply(-1));
 
-                #PayrollEntry payrollEntry = payrollDb.PayrollEntry.create({
+                let PayrollEntry payrollEntry = payrollDb.PayrollEntry.create({
                     payrollRunId: run.id,
                     employeeId: entry.employeeId,
                     grossPay: entry.grossPay,
@@ -303,20 +303,20 @@ service hr.PayrollService('config/payroll-service.yaml') : version('1.0.0'), des
         // Process a pending payroll run atomically
         @path('/runs/:id/process')
         put(UUID id) : access(admin) -> payrollDb.PayrollRun {
-            #PayrollRun run = payrollDb.PayrollRun.findOrFail(id);
+            let PayrollRun run = payrollDb.PayrollRun.findOrFail(id);
 
             run.startProcessing();
 
             try {
                 // Process all entries atomically
                 transaction(payrollDb) {
-                    #Array<PayrollEntry> entries = payrollDb.PayrollEntry
+                    let Array<PayrollEntry> entries = payrollDb.PayrollEntry
                         .where(payrollRunId: run.id)
                         .all();
 
                     foreach entry in entries {
                         // Verify employee is still active
-                        #JSON employee = EmployeeService.EmployeeAPI.get(#"/internal/{entry.employeeId}");
+                        let JSON employee = EmployeeService.EmployeeAPI.get(#"/internal/{entry.employeeId}");
 
                         if (employee.status == "terminated") {
                             Log.warn("Skipping terminated employee in payroll", { employeeId: entry.employeeId });
@@ -355,21 +355,21 @@ service hr.PayrollService('config/payroll-service.yaml') : version('1.0.0'), des
     jobs('config/payroll-service.yaml') {
         // Scheduled monthly payroll processing
         job ProcessMonthlyPayroll {
-            #DateTime today = now();
-            #Array<PayrollRun> pendingRuns = payrollDb.PayrollRun
+            let DateTime today = now();
+            let Array<PayrollRun> pendingRuns = payrollDb.PayrollRun
                 .where(status: PayrollStatus.Pending)
                 .where(payPeriod: PayPeriod.Monthly)
                 .all();
 
-            #Int processed = 0;
-            #Int failed = 0;
+            let Int processed = 0;
+            let Int failed = 0;
 
             foreach run in pendingRuns {
                 try {
                     run.startProcessing();
 
                     transaction(payrollDb) {
-                        #Array<PayrollEntry> entries = payrollDb.PayrollEntry
+                        let Array<PayrollEntry> entries = payrollDb.PayrollEntry
                             .where(payrollRunId: run.id)
                             .all();
 
@@ -393,17 +393,17 @@ service hr.PayrollService('config/payroll-service.yaml') : version('1.0.0'), des
 
         // Generate pay stubs after payroll completion
         job GeneratePayStubs {
-            #Array<PayrollRun> completedRuns = payrollDb.PayrollRun
+            let Array<PayrollRun> completedRuns = payrollDb.PayrollRun
                 .where(status: PayrollStatus.Completed)
                 .where(processedAt: gte(now().addDays(-1)))
                 .all();
 
             foreach run in completedRuns {
-                #Array<PayrollEntry> entries = payrollDb.PayrollEntry
+                let Array<PayrollEntry> entries = payrollDb.PayrollEntry
                     .where(payrollRunId: run.id)
                     .all();
 
-                #Int count = 0;
+                let Int count = 0;
                 foreach entry in entries {
                     Log.info("Generating pay stub", { payrollRef: run.payrollRef, employeeId: entry.employeeId });
                     count = count + 1;
@@ -434,7 +434,7 @@ service hr.PayrollService('config/payroll-service.yaml') : version('1.0.0'), des
     }
 
     test("validation rejects non-positive gross pay") {
-        #payrollDb.PayrollRun run = payrollDb.PayrollRun.create({
+        let payrollDb.PayrollRunNone run = payrollDb.PayrollRun.create({
             payrollRef: "PAY-TEST-002",
             payPeriod: PayPeriod.Monthly,
             periodStart: DateTime.parse("2024-01-01"),
@@ -459,7 +459,7 @@ service hr.PayrollService('config/payroll-service.yaml') : version('1.0.0'), des
     }
 
     test("startProcessing fails for non-pending run") {
-        #payrollDb.PayrollRun run = payrollDb.PayrollRun.create({
+        let payrollDb.PayrollRunNone run = payrollDb.PayrollRun.create({
             payrollRef: "PAY-TEST-003",
             payPeriod: PayPeriod.BiWeekly,
             periodStart: DateTime.parse("2024-01-01"),
@@ -478,7 +478,7 @@ service hr.PayrollService('config/payroll-service.yaml') : version('1.0.0'), des
     }
 
     test("afterUpdate emits PayrollCompleted on completion") {
-        #payrollDb.PayrollRun run = payrollDb.PayrollRun.create({
+        let payrollDb.PayrollRunNone run = payrollDb.PayrollRun.create({
             payrollRef: "PAY-TEST-004",
             payPeriod: PayPeriod.Monthly,
             periodStart: DateTime.parse("2024-03-01"),

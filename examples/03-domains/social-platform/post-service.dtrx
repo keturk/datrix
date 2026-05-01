@@ -127,7 +127,7 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
 
             afterCreate {
                 // Increment comment count on the post
-                #Post? post = postDb.Post.find(postId);
+                let Post? post = postDb.Post.find(postId);
                 if (post != null) {
                     post.commentCount = post.commentCount + 1;
                     post.save();
@@ -146,7 +146,7 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
 
             afterCreate {
                 // Increment like count on the post
-                #Post? post = postDb.Post.find(postId);
+                let Post? post = postDb.Post.find(postId);
                 if (post != null) {
                     post.likeCount = post.likeCount + 1;
                     post.save();
@@ -205,7 +205,7 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
             Log.info("Post published", { postId: postId, authorId: authorId, visibility: visibility });
 
             // Cache the newly published post
-            #Post? post = postDb.Post.find(postId);
+            let Post? post = postDb.Post.find(postId);
             if (post != null) {
                 redis.PostCache.set(postId, {
                     postId: postId,
@@ -228,9 +228,9 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
 
         on PostLiked(UUID postId, UUID userId) {
             // Update trending score when a post is liked
-            #Post? post = postDb.Post.find(postId);
+            let Post? post = postDb.Post.find(postId);
             if (post != null) {
-                #Int score = post.likeCount + post.commentCount * 2;
+                let Int score = post.likeCount + post.commentCount * 2;
                 redis.TrendingPosts.add(postId, score);
             }
         }
@@ -248,9 +248,9 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
 
         on PostUnliked(UUID postId, UUID userId) {
             // Update trending score when post is unliked
-            #Post? post = postDb.Post.find(postId);
+            let Post? post = postDb.Post.find(postId);
             if (post != null) {
-                #Int score = post.likeCount + post.commentCount * 2;
+                let Int score = post.likeCount + post.commentCount * 2;
                 redis.TrendingPosts.add(postId, score);
             }
         }
@@ -261,7 +261,7 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
 
             // If user is suspended or deactivated, archive their posts
             if (newStatus == UserStatus.Suspended || newStatus == UserStatus.Deactivated) {
-                #Array<Post> posts = postDb.Post
+                let Array<Post> posts = postDb.Post
                     .where(authorId: userId)
                     .where(status: ContentStatus.Published)
                     .all();
@@ -280,8 +280,8 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
 
         // Public feed of posts
         get(Int page = 1, Int perPage = 20) : public -> PaginatedPosts {
-            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
-            #Array<Post> posts = postDb.Post
+            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            let Array<Post> posts = postDb.Post
                 .where(visibility: PostVisibility.Public)
                 .where(status: ContentStatus.Published)
                 .orderBy(createdAt: desc)
@@ -289,7 +289,7 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
                 .limit(cappedPerPage)
                 .all();
 
-            #Int total = postDb.Post
+            let Int total = postDb.Post
                 .where(visibility: PostVisibility.Public)
                 .where(status: ContentStatus.Published)
                 .count();
@@ -303,11 +303,11 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
         // Get a single post
         @path('/:id')
         get(UUID id) : public -> postDb.Post {
-            #Post post = postDb.Post.findOrFail(id);
+            let Post post = postDb.Post.findOrFail(id);
 
             if (!post.isPublic) {
                 // Check if the viewer is the author or an admin
-                #UUID? viewerId = Auth.user()?.id;
+                let UUID? viewerId = Auth.user()?.id;
                 if (viewerId == null || (viewerId != post.authorId && !Auth.hasRole("admin"))) {
                     throw AuthorizationException("Access denied");
                 }
@@ -320,12 +320,12 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
 
         // Create a new post
         post(CreatePostRequest request) -> postDb.Post {
-            #UUID authorId = Auth.user().id;
+            let UUID authorId = Auth.user().id;
 
             // Verify user exists and is active via UserService
-            #JSON user = UserService.UserAPI.get(#"/internal/{authorId}");
+            let JSON user = UserService.UserAPI.get(#"/internal/{authorId}");
 
-            #Post post = postDb.Post.create({
+            let Post post = postDb.Post.create({
                 authorId: authorId,
                 content: request.content,
                 visibility: request.visibility,
@@ -340,8 +340,8 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
         // Update a post
         @path('/:id')
         put(UUID id, UpdatePostRequest request) -> postDb.Post {
-            #Post post = postDb.Post.findOrFail(id);
-            #UUID userId = Auth.user().id;
+            let Post post = postDb.Post.findOrFail(id);
+            let UUID userId = Auth.user().id;
 
             if (post.authorId != userId && !Auth.hasRole("admin")) {
                 throw AuthorizationException("You can only edit your own posts");
@@ -361,8 +361,8 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
         // Delete a post
         @path('/:id')
         delete(UUID id) -> Void {
-            #Post post = postDb.Post.findOrFail(id);
-            #UUID userId = Auth.user().id;
+            let Post post = postDb.Post.findOrFail(id);
+            let UUID userId = Auth.user().id;
 
             if (post.authorId != userId && !Auth.hasRole("admin")) {
                 throw AuthorizationException("You can only delete your own posts");
@@ -377,8 +377,8 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
         // Get posts by a specific author
         @path('/author/:authorId')
         get(UUID authorId, Int page = 1, Int perPage = 20) : public -> PaginatedPosts {
-            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
-            #Array<Post> posts = postDb.Post
+            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            let Array<Post> posts = postDb.Post
                 .where(authorId: authorId)
                 .where(status: ContentStatus.Published)
                 .where(visibility: PostVisibility.Public)
@@ -387,7 +387,7 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
                 .limit(cappedPerPage)
                 .all();
 
-            #Int total = postDb.Post
+            let Int total = postDb.Post
                 .where(authorId: authorId)
                 .where(status: ContentStatus.Published)
                 .where(visibility: PostVisibility.Public)
@@ -402,8 +402,8 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
         // Search posts by content
         @path('/search')
         get(String query, Int page = 1, Int perPage = 20) : public -> PaginatedPosts {
-            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
-            #Array<Post> posts = postDb.Post
+            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            let Array<Post> posts = postDb.Post
                 .fulltext(query)
                 .where(status: ContentStatus.Published)
                 .where(visibility: PostVisibility.Public)
@@ -411,7 +411,7 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
                 .limit(cappedPerPage)
                 .all();
 
-            #Int total = postDb.Post
+            let Int total = postDb.Post
                 .fulltext(query)
                 .where(status: ContentStatus.Published)
                 .where(visibility: PostVisibility.Public)
@@ -426,11 +426,11 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
         // Like a post
         @path('/:id/like')
         post(UUID id) -> LikeResponse {
-            #UUID userId = Auth.user().id;
-            #Post post = postDb.Post.findOrFail(id);
+            let UUID userId = Auth.user().id;
+            let Post post = postDb.Post.findOrFail(id);
 
             // Check if already liked
-            #Like? existing = postDb.Like
+            let Like? existing = postDb.Like
                 .where(postId: id)
                 .where(userId: userId)
                 .first();
@@ -442,7 +442,7 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
                 });
             }
 
-            #Like like = postDb.Like.create({
+            let Like like = postDb.Like.create({
                 postId: id,
                 userId: userId
             });
@@ -460,10 +460,10 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
         // Unlike a post
         @path('/:id/unlike')
         delete(UUID id) -> LikeResponse {
-            #UUID userId = Auth.user().id;
-            #Post post = postDb.Post.findOrFail(id);
+            let UUID userId = Auth.user().id;
+            let Post post = postDb.Post.findOrFail(id);
 
-            #Like like = postDb.Like
+            let Like like = postDb.Like
                 .where(postId: id)
                 .where(userId: userId)
                 .firstOrFail();
@@ -486,8 +486,8 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
         // Get comments on a post
         @path('/:id/comments')
         get(UUID id, Int page = 1, Int perPage = 20) : public -> Array<postDb.Comment> {
-            #Post _parentCheck = postDb.Post.findOrFail(id);
-            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            let Post _parentCheck = postDb.Post.findOrFail(id);
+            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             return postDb.Comment
                 .where(postId: id)
                 .orderBy(createdAt: asc)
@@ -499,8 +499,8 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
         // Add a comment to a post
         @path('/:id/comments')
         post(UUID id, CreateCommentRequest request) -> postDb.Comment {
-            #UUID authorId = Auth.user().id;
-            #Post post = postDb.Post.findOrFail(id);
+            let UUID authorId = Auth.user().id;
+            let Post post = postDb.Post.findOrFail(id);
 
             if (!post.isPublished) {
                 throw ValidationException({
@@ -509,7 +509,7 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
                 });
             }
 
-            #Comment comment = postDb.Comment.create({
+            let Comment comment = postDb.Comment.create({
                 postId: id,
                 authorId: authorId,
                 content: request.content
@@ -523,7 +523,7 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
         @path('/trending')
         @cache(ttl: 300)
         get(Int limit = 20) : public -> Array<postDb.Post> {
-            #Int cappedLimit = Math.min(limit, MAX_PAGE_SIZE);
+            let Int cappedLimit = Math.min(limit, MAX_PAGE_SIZE);
             return postDb.Post
                 .where(status: ContentStatus.Published)
                 .where(visibility: PostVisibility.Public)
@@ -552,7 +552,7 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
     }
 
     test("validation rejects empty comment content") {
-        #postDb.Post post = postDb.Post.create({
+        let postDb.PostNone post = postDb.Post.create({
             authorId: uuid(),
             content: "Test post content",
             visibility: PostVisibility.Public,
@@ -570,7 +570,7 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
     }
 
     test("computed isPopular is true with enough likes") {
-        #postDb.Post post = postDb.Post.create({
+        let postDb.PostNone post = postDb.Post.create({
             authorId: uuid(),
             content: "Popular post content",
             visibility: PostVisibility.Public,
@@ -582,7 +582,7 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
     }
 
     test("computed isPublic for published public post") {
-        #postDb.Post post = postDb.Post.create({
+        let postDb.PostNone post = postDb.Post.create({
             authorId: uuid(),
             content: "Public post content",
             visibility: PostVisibility.Public,
@@ -593,7 +593,7 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
     }
 
     test("afterCreate emits PostPublished for published post") {
-        #postDb.Post post = postDb.Post.create({
+        let postDb.PostNone post = postDb.Post.create({
             authorId: uuid(),
             content: "New published post",
             visibility: PostVisibility.Public,

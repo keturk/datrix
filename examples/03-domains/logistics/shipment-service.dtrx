@@ -198,10 +198,10 @@ service logistics.ShipmentService('config/shipment-service.yaml') : version('1.0
 
         @path('/track/:trackingNumber')
         get(String trackingNumber) : public -> TrackingResponse {
-            #JSON? cached = redis.ShipmentStatusCache.get(trackingNumber);
+            let JSON? cached = redis.ShipmentStatusCache.get(trackingNumber);
 
-            #Shipment shipment = shipmentDb.Shipment.where(trackingNumber: trackingNumber).firstOrFail();
-            #Array<ShipmentEvent> events = shipmentDb.ShipmentEvent
+            let Shipment shipment = shipmentDb.Shipment.where(trackingNumber: trackingNumber).firstOrFail();
+            let Array<ShipmentEvent> events = shipmentDb.ShipmentEvent
                 .where(shipmentId: shipment.id)
                 .orderBy(timestamp: asc)
                 .all();
@@ -218,7 +218,7 @@ service logistics.ShipmentService('config/shipment-service.yaml') : version('1.0
         }
 
         post(CreateShipmentRequest request) -> shipmentDb.Shipment {
-            #Shipment shipment = shipmentDb.Shipment.create({
+            let Shipment shipment = shipmentDb.Shipment.create({
                 trackingNumber: generateTrackingNumber(),
                 senderId: request.senderId,
                 recipientName: request.recipientName,
@@ -244,8 +244,8 @@ service logistics.ShipmentService('config/shipment-service.yaml') : version('1.0
 
         @path('/:id/status')
         put(UUID id, UpdateShipmentStatusRequest request) -> shipmentDb.Shipment {
-            #Shipment shipment = shipmentDb.Shipment.findOrFail(id);
-            #ShipmentStatus oldStatus = shipment.status;
+            let Shipment shipment = shipmentDb.Shipment.findOrFail(id);
+            let ShipmentStatus oldStatus = shipment.status;
 
             transaction(shipmentDb) {
                 shipment.status = request.status;
@@ -278,7 +278,7 @@ service logistics.ShipmentService('config/shipment-service.yaml') : version('1.0
 
         @path('/sender/:senderId')
         get(UUID senderId, ShipmentStatus? status) -> Array<shipmentDb.Shipment> {
-            #JSON query = shipmentDb.Shipment.where(senderId: senderId);
+            let JSON query = shipmentDb.Shipment.where(senderId: senderId);
 
             if (status != null) {
                 query = query.where(status: status);
@@ -289,7 +289,7 @@ service logistics.ShipmentService('config/shipment-service.yaml') : version('1.0
 
         @path('/:id/events')
         get(UUID id) -> Array<shipmentDb.ShipmentEvent> {
-            #Shipment shipment = shipmentDb.Shipment.findOrFail(id);
+            let Shipment shipment = shipmentDb.Shipment.findOrFail(id);
             return shipmentDb.ShipmentEvent
                 .where(shipmentId: shipment.id)
                 .orderBy(timestamp: asc)
@@ -298,12 +298,12 @@ service logistics.ShipmentService('config/shipment-service.yaml') : version('1.0
 
         @path('/summary')
         get() : internal -> ShipmentSummary {
-            #Int total = shipmentDb.Shipment.count();
-            #Int inTransit = shipmentDb.Shipment
+            let Int total = shipmentDb.Shipment.count();
+            let Int inTransit = shipmentDb.Shipment
                 .whereIn(status: [ShipmentStatus.InTransit, ShipmentStatus.OutForDelivery])
                 .count();
-            #Int delivered = shipmentDb.Shipment.where(status: ShipmentStatus.Delivered).count();
-            #Int failed = shipmentDb.Shipment.where(status: ShipmentStatus.Failed).count();
+            let Int delivered = shipmentDb.Shipment.where(status: ShipmentStatus.Delivered).count();
+            let Int failed = shipmentDb.Shipment.where(status: ShipmentStatus.Failed).count();
 
             return {
                 totalShipments: total,
@@ -315,7 +315,7 @@ service logistics.ShipmentService('config/shipment-service.yaml') : version('1.0
     }
 
     test("computed isDelivered reflects Delivered status") {
-        #shipmentDb.Shipment shipment = shipmentDb.Shipment.create({
+        let shipmentDb.ShipmentNone shipment = shipmentDb.Shipment.create({
             trackingNumber: "LGS-TEST-001",
             senderId: uuid(),
             recipientName: "John Doe",
@@ -348,7 +348,7 @@ service logistics.ShipmentService('config/shipment-service.yaml') : version('1.0
     }
 
     test("afterCreate emits ShipmentCreated event") {
-        #shipmentDb.Shipment shipment = shipmentDb.Shipment.create({
+        let shipmentDb.ShipmentNone shipment = shipmentDb.Shipment.create({
             trackingNumber: "LGS-TEST-003",
             senderId: uuid(),
             recipientName: "Bob Smith",
@@ -363,7 +363,7 @@ service logistics.ShipmentService('config/shipment-service.yaml') : version('1.0
     }
 
     test("status change emits ShipmentStatusChanged") {
-        #shipmentDb.Shipment shipment = shipmentDb.Shipment.create({
+        let shipmentDb.ShipmentNone shipment = shipmentDb.Shipment.create({
             trackingNumber: "LGS-TEST-004",
             senderId: uuid(),
             recipientName: "Alice Johnson",

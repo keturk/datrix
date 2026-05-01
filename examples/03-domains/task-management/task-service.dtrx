@@ -172,7 +172,7 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
 
             afterCreate {
                 // Increment comment count on the task
-                #Task? task = taskDb.Task.find(taskId);
+                let Task? task = taskDb.Task.find(taskId);
                 if (task != null) {
                     task.commentCount = task.commentCount + 1;
                     task.save();
@@ -229,7 +229,7 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
             // Update project task counts when task is completed
             if (newStatus == TaskStatus.Done) {
                 try {
-                    #JSON project = ProjectService.ProjectAPI.get(#"/internal/{projectId}");
+                    let JSON project = ProjectService.ProjectAPI.get(#"/internal/{projectId}");
                     Log.info("Task completed for project", { projectId: projectId, taskId: taskId });
                 } catch (Exception e) {
                     Log.error(#"Failed to update project counts: {e}");
@@ -267,12 +267,12 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
 
             // If project is archived, cancel all open tasks
             if (newStatus == ProjectStatus.Archived) {
-                #Array<Task> openTasks = taskDb.Task
+                let Array<Task> openTasks = taskDb.Task
                     .where(projectId: projectId)
                     .where(status: TaskStatus.Todo)
                     .all();
 
-                #Array<Task> inProgressTasks = taskDb.Task
+                let Array<Task> inProgressTasks = taskDb.Task
                     .where(projectId: projectId)
                     .where(status: TaskStatus.InProgress)
                     .all();
@@ -287,7 +287,7 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
                     task.save();
                 }
 
-                #Int cancelledCount = openTasks.length() + inProgressTasks.length();
+                let Int cancelledCount = openTasks.length() + inProgressTasks.length();
                 if (cancelledCount > 0) {
                     Log.info("Cancelled tasks for archived project", {
                         projectId: projectId,
@@ -304,17 +304,17 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
 
     jobs('config/task-service.yaml') {
         job CheckOverdueTasks {
-            #Array<Task> overdueTasks = taskDb.Task
+            let Array<Task> overdueTasks = taskDb.Task
                 .where(status: TaskStatus.Todo)
                 .where(dueDate: lt(now()))
                 .all();
 
-            #Array<Task> overdueInProgress = taskDb.Task
+            let Array<Task> overdueInProgress = taskDb.Task
                 .where(status: TaskStatus.InProgress)
                 .where(dueDate: lt(now()))
                 .all();
 
-            #Int count = 0;
+            let Int count = 0;
             foreach task in overdueTasks {
                 if (task.dueDate != null) {
                     dispatch TaskOverdue(task.id, task.projectId, task.dueDate);
@@ -339,9 +339,9 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
 
         // List tasks with filtering
         get(UUID? projectId, UUID? assigneeId, TaskStatus? status, Priority? priority, Int page = 1, Int perPage = 20) -> PaginatedTasks {
-            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
 
-            #JSON query = taskDb.Task;
+            let JSON query = taskDb.Task;
 
             if (projectId != null) {
                 query = query.where(projectId: projectId);
@@ -356,14 +356,14 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
                 query = query.where(priority: priority);
             }
 
-            #Int total = query.count();
-            #Array<Task> tasks = query
+            let Int total = query.count();
+            let Array<Task> tasks = query
                 .orderBy(createdAt: desc)
                 .offset((page - 1) * cappedPerPage)
                 .limit(cappedPerPage)
                 .all();
 
-            #Int totalPages = Math.ceil(total / cappedPerPage);
+            let Int totalPages = Math.ceil(total / cappedPerPage);
 
             return {
                 data: tasks,
@@ -386,17 +386,17 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
 
         // Create a new task
         post(CreateTaskRequest request) -> taskDb.Task {
-            #UUID reporterId = Auth.user().id;
+            let UUID reporterId = Auth.user().id;
 
             // Verify project exists
-            #JSON project = ProjectService.ProjectAPI.get(#"/internal/{request.projectId}");
+            let JSON project = ProjectService.ProjectAPI.get(#"/internal/{request.projectId}");
 
             // Verify assignee if provided
             if (request.assigneeId != null) {
-                #JSON assignee = UserService.UserAPI.get(#"/internal/{request.assigneeId}");
+                let JSON assignee = UserService.UserAPI.get(#"/internal/{request.assigneeId}");
             }
 
-            #Task task = taskDb.Task.create({
+            let Task task = taskDb.Task.create({
                 projectId: request.projectId,
                 title: request.title,
                 description: request.description,
@@ -416,7 +416,7 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
         // Update a task
         @path('/:id')
         put(UUID id, UpdateTaskRequest request) -> taskDb.Task {
-            #Task task = taskDb.Task.findOrFail(id);
+            let Task task = taskDb.Task.findOrFail(id);
 
             if (request.title != null) {
                 task.title = request.title;
@@ -447,7 +447,7 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
         // Update task status
         @path('/:id/status')
         put(UUID id, UpdateStatusRequest request) -> taskDb.Task {
-            #Task task = taskDb.Task.findOrFail(id);
+            let Task task = taskDb.Task.findOrFail(id);
 
             // Validate status transitions
             if (task.status == TaskStatus.Done || task.status == TaskStatus.Cancelled) {
@@ -468,10 +468,10 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
         // Assign a task
         @path('/:id/assign')
         put(UUID id, AssignTaskRequest request) -> taskDb.Task {
-            #Task task = taskDb.Task.findOrFail(id);
+            let Task task = taskDb.Task.findOrFail(id);
 
             // Verify assignee exists
-            #JSON assignee = UserService.UserAPI.get(#"/internal/{request.assigneeId}");
+            let JSON assignee = UserService.UserAPI.get(#"/internal/{request.assigneeId}");
 
             task.assigneeId = request.assigneeId;
             task.save();
@@ -482,7 +482,7 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
         // Unassign a task
         @path('/:id/unassign')
         put(UUID id) -> taskDb.Task {
-            #Task task = taskDb.Task.findOrFail(id);
+            let Task task = taskDb.Task.findOrFail(id);
             task.assigneeId = null;
             task.save();
 
@@ -492,7 +492,7 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
         // Get comments on a task
         @path('/:id/comments')
         get(UUID id, Int page = 1, Int perPage = 20) -> Array<taskDb.TaskComment> {
-            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             return taskDb.TaskComment
                 .where(taskId: id)
                 .orderBy(createdAt: asc)
@@ -504,10 +504,10 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
         // Add a comment to a task
         @path('/:id/comments')
         post(UUID id, CreateCommentRequest request) -> taskDb.TaskComment {
-            #UUID authorId = Auth.user().id;
-            #Task task = taskDb.Task.findOrFail(id);
+            let UUID authorId = Auth.user().id;
+            let Task task = taskDb.Task.findOrFail(id);
 
-            #TaskComment comment = taskDb.TaskComment.create({
+            let TaskComment comment = taskDb.TaskComment.create({
                 taskId: id,
                 authorId: authorId,
                 content: request.content
@@ -522,21 +522,21 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
         // Search tasks by title or description
         @path('/search')
         get(String query, UUID? projectId, Int page = 1, Int perPage = 20) -> PaginatedTasks {
-            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
 
-            #JSON taskQuery = taskDb.Task.fulltext(query);
+            let JSON taskQuery = taskDb.Task.fulltext(query);
 
             if (projectId != null) {
                 taskQuery = taskQuery.where(projectId: projectId);
             }
 
-            #Array<Task> tasks = taskQuery
+            let Array<Task> tasks = taskQuery
                 .offset((page - 1) * cappedPerPage)
                 .limit(cappedPerPage)
                 .all();
 
-            #Int total = taskQuery.count();
-            #Int totalPages = Math.ceil(total / cappedPerPage);
+            let Int total = taskQuery.count();
+            let Int totalPages = Math.ceil(total / cappedPerPage);
 
             return {
                 data: tasks,
@@ -554,13 +554,13 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
         // Get task statistics for a project
         @path('/stats')
         get(UUID projectId) -> TaskStats {
-            #Int totalTasks = taskDb.Task.where(projectId: projectId).count();
-            #Int todoCount = taskDb.Task.where(projectId: projectId).where(status: TaskStatus.Todo).count();
-            #Int inProgressCount = taskDb.Task.where(projectId: projectId).where(status: TaskStatus.InProgress).count();
-            #Int inReviewCount = taskDb.Task.where(projectId: projectId).where(status: TaskStatus.InReview).count();
-            #Int doneCount = taskDb.Task.where(projectId: projectId).where(status: TaskStatus.Done).count();
-            #Int cancelledCount = taskDb.Task.where(projectId: projectId).where(status: TaskStatus.Cancelled).count();
-            #Int overdueCount = taskDb.Task
+            let Int totalTasks = taskDb.Task.where(projectId: projectId).count();
+            let Int todoCount = taskDb.Task.where(projectId: projectId).where(status: TaskStatus.Todo).count();
+            let Int inProgressCount = taskDb.Task.where(projectId: projectId).where(status: TaskStatus.InProgress).count();
+            let Int inReviewCount = taskDb.Task.where(projectId: projectId).where(status: TaskStatus.InReview).count();
+            let Int doneCount = taskDb.Task.where(projectId: projectId).where(status: TaskStatus.Done).count();
+            let Int cancelledCount = taskDb.Task.where(projectId: projectId).where(status: TaskStatus.Cancelled).count();
+            let Int overdueCount = taskDb.Task
                 .where(projectId: projectId)
                 .where(dueDate: lt(now()))
                 .where(status: TaskStatus.Todo)
@@ -580,24 +580,24 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
         // Get my assigned tasks
         @path('/my-tasks')
         get(TaskStatus? status, Int page = 1, Int perPage = 20) -> PaginatedTasks {
-            #UUID userId = Auth.user().id;
-            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            let UUID userId = Auth.user().id;
+            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
 
-            #JSON query = taskDb.Task.where(assigneeId: userId);
+            let JSON query = taskDb.Task.where(assigneeId: userId);
 
             if (status != null) {
                 query = query.where(status: status);
             }
 
-            #Int total = query.count();
-            #Array<Task> tasks = query
+            let Int total = query.count();
+            let Array<Task> tasks = query
                 .orderBy(priority: desc)
                 .orderBy(dueDate: asc)
                 .offset((page - 1) * cappedPerPage)
                 .limit(cappedPerPage)
                 .all();
 
-            #Int totalPages = Math.ceil(total / cappedPerPage);
+            let Int totalPages = Math.ceil(total / cappedPerPage);
 
             return {
                 data: tasks,
@@ -615,7 +615,7 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
         // Delete a task
         @path('/:id')
         delete(UUID id) -> Void {
-            #Task task = taskDb.Task.findOrFail(id);
+            let Task task = taskDb.Task.findOrFail(id);
             task.status = TaskStatus.Cancelled;
             task.save();
         }
@@ -651,7 +651,7 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
     }
 
     test("validation rejects self-dependency") {
-        #taskDb.Task task = taskDb.Task.create({
+        let taskDb.TaskNone task = taskDb.Task.create({
             projectId: uuid(),
             title: "Self Dep Task",
             priority: Priority.Medium
@@ -667,7 +667,7 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
     }
 
     test("validation rejects empty comment content") {
-        #taskDb.Task task = taskDb.Task.create({
+        let taskDb.TaskNone task = taskDb.Task.create({
             projectId: uuid(),
             title: "Comment Task",
             priority: Priority.Low
@@ -684,7 +684,7 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
     }
 
     test("computed isOverdue for past due date") {
-        #taskDb.Task task = taskDb.Task.create({
+        let taskDb.TaskNone task = taskDb.Task.create({
             projectId: uuid(),
             title: "Overdue Task",
             priority: Priority.High,
@@ -696,7 +696,7 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
     }
 
     test("computed isOverdue is false for completed task") {
-        #taskDb.Task task = taskDb.Task.create({
+        let taskDb.TaskNone task = taskDb.Task.create({
             projectId: uuid(),
             title: "Done Task",
             priority: Priority.Medium,
@@ -708,8 +708,8 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
     }
 
     test("afterCreate emits TaskCreated event") {
-        #UUID projectId = uuid();
-        #taskDb.Task task = taskDb.Task.create({
+        let UUID projectId = uuid();
+        let taskDb.TaskNone task = taskDb.Task.create({
             projectId: projectId,
             title: "Event Task",
             priority: Priority.High
@@ -719,8 +719,8 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
     }
 
     test("status change emits TaskStatusChanged") {
-        #UUID projectId = uuid();
-        #taskDb.Task task = taskDb.Task.create({
+        let UUID projectId = uuid();
+        let taskDb.TaskNone task = taskDb.Task.create({
             projectId: projectId,
             title: "Status Task",
             priority: Priority.Medium
@@ -732,7 +732,7 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
     }
 
     test("beforeCreate generates taskNumber") {
-        #taskDb.Task task = taskDb.Task.create({
+        let taskDb.TaskNone task = taskDb.Task.create({
             projectId: uuid(),
             title: "Numbered Task",
             priority: Priority.Low
