@@ -509,7 +509,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
     }
 
     test("computed isOpen is true for Open status") {
-        let complianceDb.ComplianceAlertNone alert = complianceDb.ComplianceAlert.create({
+        let ComplianceAlert alert = complianceDb.ComplianceAlert.create({
             accountId: uuid(),
             type: AlertType.LargeTransaction,
             severity: AlertSeverity.High,
@@ -521,7 +521,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
     }
 
     test("computed isCritical is true for Critical severity") {
-        let complianceDb.ComplianceAlertNone alert = complianceDb.ComplianceAlert.create({
+        let ComplianceAlert alert = complianceDb.ComplianceAlert.create({
             accountId: uuid(),
             type: AlertType.SuspiciousPattern,
             severity: AlertSeverity.Critical,
@@ -545,7 +545,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
     }
 
     test("resolve changes status to Resolved") {
-        let complianceDb.ComplianceAlertNone alert = complianceDb.ComplianceAlert.create({
+        let ComplianceAlert alert = complianceDb.ComplianceAlert.create({
             accountId: uuid(),
             type: AlertType.VelocityExceeded,
             severity: AlertSeverity.Medium,
@@ -558,7 +558,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
     }
 
     test("resolve with falsePositive sets FalsePositive status") {
-        let complianceDb.ComplianceAlertNone alert = complianceDb.ComplianceAlert.create({
+        let ComplianceAlert alert = complianceDb.ComplianceAlert.create({
             accountId: uuid(),
             type: AlertType.GeographicAnomaly,
             severity: AlertSeverity.Low,

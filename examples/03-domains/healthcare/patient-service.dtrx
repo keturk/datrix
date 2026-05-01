@@ -203,7 +203,7 @@ service healthcare.PatientService('config/patient-service.yaml') : version('1.0.
     }
 
     test("computed fullName concatenates first and last name") {
-        let patientDb.PatientNone patient = patientDb.Patient.create({
+        let Patient patient = patientDb.Patient.create({
             firstName: "John",
             lastName: "Doe",
             dateOfBirth: Date.of(1985, 6, 15),
@@ -238,7 +238,7 @@ service healthcare.PatientService('config/patient-service.yaml') : version('1.0.
     }
 
     test("afterCreate emits PatientRegistered event") {
-        let patientDb.PatientNone patient = patientDb.Patient.create({
+        let Patient patient = patientDb.Patient.create({
             firstName: "Alice",
             lastName: "Smith",
             dateOfBirth: Date.of(1990, 3, 20),

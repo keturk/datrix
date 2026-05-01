@@ -600,7 +600,7 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
     }
 
     test("afterCreate emits TransactionCreated event") {
-        let txDb.TransactionNone tx = txDb.Transaction.create({
+        let Transaction tx = txDb.Transaction.create({
             accountId: uuid(),
             type: TransactionType.Deposit,
             amount: Money.of(500, Currency.USD),
@@ -613,7 +613,7 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
     }
 
     test("reverse fails for non-completed transaction") {
-        let txDb.TransactionNone tx = txDb.Transaction.create({
+        let Transaction tx = txDb.Transaction.create({
             accountId: uuid(),
             type: TransactionType.Deposit,
             amount: Money.of(200, Currency.USD),
@@ -628,7 +628,7 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
     }
 
     test("batch marks completed with correct counts") {
-        let txDb.TransactionBatchNone batch = txDb.TransactionBatch.create({
+        let TransactionBatch batch = txDb.TransactionBatch.create({
             batchId: "BAT-TEST-001",
             status: BatchStatus.Processing,
             totalAmount: Money.of(1000, Currency.USD),

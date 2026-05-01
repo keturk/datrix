@@ -306,7 +306,7 @@ service realestate.ViewingService('config/viewing-service.yaml') : version('1.0.
     }
 
     test("computed isPending is true for Scheduled status") {
-        let viewingDb.ViewingNone viewing = viewingDb.Viewing.create({
+        let Viewing viewing = viewingDb.Viewing.create({
             listingId: uuid(),
             clientName: "John Doe",
             clientEmail: "john@example.com",
@@ -342,7 +342,7 @@ service realestate.ViewingService('config/viewing-service.yaml') : version('1.0.
     }
 
     test("afterCreate emits ViewingScheduled event") {
-        let viewingDb.ViewingNone viewing = viewingDb.Viewing.create({
+        let Viewing viewing = viewingDb.Viewing.create({
             listingId: uuid(),
             clientName: "Bob Builder",
             clientEmail: "bob@example.com",
@@ -353,7 +353,7 @@ service realestate.ViewingService('config/viewing-service.yaml') : version('1.0.
     }
 
     test("cancel fails for completed viewing") {
-        let viewingDb.ViewingNone viewing = viewingDb.Viewing.create({
+        let Viewing viewing = viewingDb.Viewing.create({
             listingId: uuid(),
             clientName: "Alice Wonder",
             clientEmail: "alice@example.com",

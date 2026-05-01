@@ -641,7 +641,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
     }
 
     test("validation rejects score out of range") {
-        let enrollmentDb.EnrollmentNone enrollment = enrollmentDb.Enrollment.create({
+        let Enrollment enrollment = enrollmentDb.Enrollment.create({
             studentId: uuid(),
             courseId: uuid(),
             status: EnrollmentStatus.Active,
@@ -659,7 +659,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
     }
 
     test("computed isActive for Active enrollment") {
-        let enrollmentDb.EnrollmentNone enrollment = enrollmentDb.Enrollment.create({
+        let Enrollment enrollment = enrollmentDb.Enrollment.create({
             studentId: uuid(),
             courseId: uuid(),
             status: EnrollmentStatus.Active,
@@ -671,7 +671,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
     }
 
     test("computed isCompleted for Completed enrollment") {
-        let enrollmentDb.EnrollmentNone enrollment = enrollmentDb.Enrollment.create({
+        let Enrollment enrollment = enrollmentDb.Enrollment.create({
             studentId: uuid(),
             courseId: uuid(),
             status: EnrollmentStatus.Completed,
@@ -684,7 +684,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
     }
 
     test("computed hasPassed for passing score") {
-        let enrollmentDb.EnrollmentNone enrollment = enrollmentDb.Enrollment.create({
+        let Enrollment enrollment = enrollmentDb.Enrollment.create({
             studentId: uuid(),
             courseId: uuid(),
             status: EnrollmentStatus.Completed,
@@ -696,7 +696,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
     }
 
     test("computed hasPassed is false for failing score") {
-        let enrollmentDb.EnrollmentNone enrollment = enrollmentDb.Enrollment.create({
+        let Enrollment enrollment = enrollmentDb.Enrollment.create({
             studentId: uuid(),
             courseId: uuid(),
             status: EnrollmentStatus.Completed,
@@ -710,7 +710,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
     test("afterCreate emits StudentEnrolled event") {
         let UUID studentId = uuid();
         let UUID courseId = uuid();
-        let enrollmentDb.EnrollmentNone enrollment = enrollmentDb.Enrollment.create({
+        let Enrollment enrollment = enrollmentDb.Enrollment.create({
             studentId: studentId,
             courseId: courseId,
             status: EnrollmentStatus.Active,
@@ -721,7 +721,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
     }
 
     test("computed remainingProgress calculation") {
-        let enrollmentDb.EnrollmentNone enrollment = enrollmentDb.Enrollment.create({
+        let Enrollment enrollment = enrollmentDb.Enrollment.create({
             studentId: uuid(),
             courseId: uuid(),
             status: EnrollmentStatus.Active,

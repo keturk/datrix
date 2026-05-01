@@ -525,7 +525,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
     }
 
     test("computed isOpen is true for Open status") {
-        let recruitDb.JobPostingNone posting = recruitDb.JobPosting.create({
+        let JobPosting posting = recruitDb.JobPosting.create({
             title: "Senior Software Engineer",
             description: "We are looking for a senior engineer",
             department: Department.Engineering,
@@ -553,7 +553,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
     }
 
     test("afterCreate emits JobPostingCreated event") {
-        let recruitDb.JobPostingNone posting = recruitDb.JobPosting.create({
+        let JobPosting posting = recruitDb.JobPosting.create({
             title: "Product Manager",
             description: "Lead product development initiatives",
             department: Department.Operations,
@@ -567,7 +567,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
     }
 
     test("validation rejects empty candidate name") {
-        let recruitDb.JobPostingNone posting = recruitDb.JobPosting.create({
+        let JobPosting posting = recruitDb.JobPosting.create({
             title: "Data Analyst",
             description: "Analyze business data",
             department: Department.Finance,
@@ -588,7 +588,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
     }
 
     test("application status follows correct workflow") {
-        let recruitDb.JobPostingNone posting = recruitDb.JobPosting.create({
+        let JobPosting posting = recruitDb.JobPosting.create({
             title: "QA Engineer",
             description: "Test software quality",
             department: Department.Engineering,
@@ -598,7 +598,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
             status: PostingStatus.Open
         });
         posting.save();
-        let recruitDb.ApplicationNone app = recruitDb.Application.create({
+        let Application app = recruitDb.Application.create({
             jobPostingId: posting.id,
             candidateName: "Test Candidate",
             candidateEmail: "candidate@example.com",
@@ -616,7 +616,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
     }
 
     test("open fails for non-draft posting") {
-        let recruitDb.JobPostingNone posting = recruitDb.JobPosting.create({
+        let JobPosting posting = recruitDb.JobPosting.create({
             title: "Designer",
             description: "Design beautiful interfaces",
             department: Department.Marketing,

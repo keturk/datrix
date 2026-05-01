@@ -465,7 +465,7 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
     }
 
     test("computed isAvailable reflects Available status") {
-        let deliveryDb.DeliveryDriverNone driver = deliveryDb.DeliveryDriver.create({
+        let DeliveryDriver driver = deliveryDb.DeliveryDriver.create({
             firstName: "John",
             lastName: "Smith",
             phone: "+15551234567",
@@ -477,7 +477,7 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
     }
 
     test("computed isAssigned when driver is set") {
-        let deliveryDb.DeliveryDriverNone driver = deliveryDb.DeliveryDriver.create({
+        let DeliveryDriver driver = deliveryDb.DeliveryDriver.create({
             firstName: "Jane",
             lastName: "Doe",
             phone: "+15559876543",
@@ -485,7 +485,7 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
             status: DriverStatus.OnDelivery
         });
         driver.save();
-        let deliveryDb.DeliveryNone delivery = deliveryDb.Delivery.create({
+        let Delivery delivery = deliveryDb.Delivery.create({
             deliveryCode: "DLV-TEST-001",
             orderId: uuid(),
             driverId: driver.id,
@@ -511,7 +511,7 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
     }
 
     test("afterCreate emits DeliveryCreated") {
-        let deliveryDb.DeliveryNone delivery = deliveryDb.Delivery.create({
+        let Delivery delivery = deliveryDb.Delivery.create({
             deliveryCode: "DLV-TEST-002",
             orderId: uuid(),
             pickupAddress: "Restaurant B",
@@ -522,7 +522,7 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
     }
 
     test("status change emits DeliveryStatusChanged") {
-        let deliveryDb.DeliveryNone delivery = deliveryDb.Delivery.create({
+        let Delivery delivery = deliveryDb.Delivery.create({
             deliveryCode: "DLV-TEST-003",
             orderId: uuid(),
             pickupAddress: "Restaurant C",

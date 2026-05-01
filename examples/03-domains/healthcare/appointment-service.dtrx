@@ -293,7 +293,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
     }
 
     test("afterCreate emits AppointmentScheduled event") {
-        let appointmentDb.AppointmentNone appt = appointmentDb.Appointment.create({
+        let Appointment appt = appointmentDb.Appointment.create({
             patientId: uuid(),
             providerName: "Dr. Smith",
             scheduledAt: now().addDays(7),

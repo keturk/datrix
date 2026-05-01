@@ -527,7 +527,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
     }
 
     test("computed progressPercent calculates correctly") {
-        let firmwareDb.FirmwareVersionNone firmware = firmwareDb.FirmwareVersion.create({
+        let FirmwareVersion firmware = firmwareDb.FirmwareVersion.create({
             version: "1.0.0-test",
             fileUrl: "https://firmware.test/v1.0.0.bin",
             fileSize: 1024000,
@@ -535,7 +535,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
             isStable: true
         });
         firmware.save();
-        let firmwareDb.FirmwareRolloutNone rollout = firmwareDb.FirmwareRollout.create({
+        let FirmwareRollout rollout = firmwareDb.FirmwareRollout.create({
             rolloutCode: "FW-TEST-001",
             firmwareVersionId: firmware.id,
             totalDevices: 100,
@@ -549,7 +549,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
     }
 
     test("computed isActive reflects InProgress status") {
-        let firmwareDb.FirmwareVersionNone firmware = firmwareDb.FirmwareVersion.create({
+        let FirmwareVersion firmware = firmwareDb.FirmwareVersion.create({
             version: "1.1.0-test",
             fileUrl: "https://firmware.test/v1.1.0.bin",
             fileSize: 2048000,
@@ -557,7 +557,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
             isStable: false
         });
         firmware.save();
-        let firmwareDb.FirmwareRolloutNone rollout = firmwareDb.FirmwareRollout.create({
+        let FirmwareRollout rollout = firmwareDb.FirmwareRollout.create({
             rolloutCode: "FW-TEST-002",
             firmwareVersionId: firmware.id,
             status: RolloutStatus.InProgress,
@@ -580,7 +580,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
     }
 
     test("afterCreate emits FirmwareReleased") {
-        let firmwareDb.FirmwareVersionNone firmware = firmwareDb.FirmwareVersion.create({
+        let FirmwareVersion firmware = firmwareDb.FirmwareVersion.create({
             version: "2.0.0-test",
             fileUrl: "https://firmware.test/v2.0.0.bin",
             fileSize: 4096000,

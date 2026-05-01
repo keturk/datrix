@@ -100,7 +100,7 @@ service blog.ContentService('config/content-service.yaml') : version('1.0.0'), d
     }
 
     test("computed isDraft is true for Draft status") {
-        let contentDb.PostNone post = contentDb.Post.create({
+        let Post post = contentDb.Post.create({
             authorId: uuid(),
             title: "Test Post",
             body: "Test content for spec test"
@@ -110,7 +110,7 @@ service blog.ContentService('config/content-service.yaml') : version('1.0.0'), d
     }
 
     test("spec: isDraft is true for Spec Test Post draft fixture") {
-        let contentDb.PostNone post = contentDb.Post.create({
+        let Post post = contentDb.Post.create({
             authorId: uuid(),
             title: "Spec Test Post",
             body: "This is a test post body"

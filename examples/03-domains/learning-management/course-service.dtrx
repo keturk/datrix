@@ -688,7 +688,7 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
     }
 
     test("computed isPublished for published course") {
-        let courseDb.CourseNone course = courseDb.Course.create({
+        let Course course = courseDb.Course.create({
             title: "Published Course",
             description: "A published course",
             difficulty: DifficultyLevel.Beginner,
@@ -700,7 +700,7 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
     }
 
     test("computed canEnroll for available course") {
-        let courseDb.CourseNone course = courseDb.Course.create({
+        let Course course = courseDb.Course.create({
             title: "Open Course",
             description: "An open course",
             difficulty: DifficultyLevel.Beginner,
@@ -715,7 +715,7 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
     }
 
     test("computed isFull when enrollment reaches max") {
-        let courseDb.CourseNone course = courseDb.Course.create({
+        let Course course = courseDb.Course.create({
             title: "Full Course",
             description: "A full course",
             difficulty: DifficultyLevel.Advanced,
@@ -730,7 +730,7 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
     }
 
     test("beforeCreate generates courseCode") {
-        let courseDb.CourseNone course = courseDb.Course.create({
+        let Course course = courseDb.Course.create({
             title: "Code Course",
             description: "A course for code testing",
             difficulty: DifficultyLevel.Intermediate,
@@ -742,7 +742,7 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
 
     test("afterCreate emits CourseCreated event") {
         let UUID instructorId = uuid();
-        let courseDb.CourseNone course = courseDb.Course.create({
+        let Course course = courseDb.Course.create({
             title: "Event Course",
             description: "A course for event testing",
             difficulty: DifficultyLevel.Advanced,

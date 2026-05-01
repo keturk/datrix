@@ -315,7 +315,7 @@ service logistics.ShipmentService('config/shipment-service.yaml') : version('1.0
     }
 
     test("computed isDelivered reflects Delivered status") {
-        let shipmentDb.ShipmentNone shipment = shipmentDb.Shipment.create({
+        let Shipment shipment = shipmentDb.Shipment.create({
             trackingNumber: "LGS-TEST-001",
             senderId: uuid(),
             recipientName: "John Doe",
@@ -348,7 +348,7 @@ service logistics.ShipmentService('config/shipment-service.yaml') : version('1.0
     }
 
     test("afterCreate emits ShipmentCreated event") {
-        let shipmentDb.ShipmentNone shipment = shipmentDb.Shipment.create({
+        let Shipment shipment = shipmentDb.Shipment.create({
             trackingNumber: "LGS-TEST-003",
             senderId: uuid(),
             recipientName: "Bob Smith",
@@ -363,7 +363,7 @@ service logistics.ShipmentService('config/shipment-service.yaml') : version('1.0
     }
 
     test("status change emits ShipmentStatusChanged") {
-        let shipmentDb.ShipmentNone shipment = shipmentDb.Shipment.create({
+        let Shipment shipment = shipmentDb.Shipment.create({
             trackingNumber: "LGS-TEST-004",
             senderId: uuid(),
             recipientName: "Alice Johnson",

@@ -389,7 +389,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
     }
 
     test("computed isDraft is true for Draft status") {
-        let medicalRecordDb.MedicalRecordNone record = medicalRecordDb.MedicalRecord.create({
+        let MedicalRecord record = medicalRecordDb.MedicalRecord.create({
             patientId: uuid(),
             providerName: "Dr. Draft",
             type: RecordType.Note,
@@ -402,7 +402,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
     }
 
     test("afterCreate emits RecordCreated event") {
-        let medicalRecordDb.MedicalRecordNone record = medicalRecordDb.MedicalRecord.create({
+        let MedicalRecord record = medicalRecordDb.MedicalRecord.create({
             patientId: uuid(),
             providerName: "Dr. Event",
             type: RecordType.Diagnosis,

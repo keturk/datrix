@@ -446,7 +446,7 @@ service realestate.ListingService('config/listing-service.yaml') : version('1.0.
     }
 
     test("computed isAvailable is true for Active status") {
-        let listingDb.ListingNone listing = listingDb.Listing.create({
+        let Listing listing = listingDb.Listing.create({
             title: "Beautiful Family Home",
             description: "A spacious family home with a large backyard",
             listingRef: "LST-TEST-001",
@@ -466,7 +466,7 @@ service realestate.ListingService('config/listing-service.yaml') : version('1.0.
     }
 
     test("computed pricePerSqFt calculates correctly") {
-        let listingDb.ListingNone listing = listingDb.Listing.create({
+        let Listing listing = listingDb.Listing.create({
             title: "Downtown Condo",
             description: "Modern condo in the heart of downtown",
             listingRef: "LST-TEST-002",
@@ -526,7 +526,7 @@ service realestate.ListingService('config/listing-service.yaml') : version('1.0.
     }
 
     test("afterCreate emits ListingCreated event") {
-        let listingDb.ListingNone listing = listingDb.Listing.create({
+        let Listing listing = listingDb.Listing.create({
             title: "Charming Townhouse",
             description: "A lovely townhouse in a quiet neighborhood",
             listingRef: "LST-TEST-005",
@@ -546,7 +546,7 @@ service realestate.ListingService('config/listing-service.yaml') : version('1.0.
     }
 
     test("activate fails for non-draft listing") {
-        let listingDb.ListingNone listing = listingDb.Listing.create({
+        let Listing listing = listingDb.Listing.create({
             title: "Already Active Listing",
             description: "This listing is already active",
             listingRef: "LST-TEST-006",

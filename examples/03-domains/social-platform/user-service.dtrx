@@ -389,7 +389,7 @@ service social.UserService('config/user-service.yaml') : version('1.0.0'), descr
     }
 
     test("validation rejects self-follow") {
-        let userDb.UserNone user = userDb.User.create({
+        let User user = userDb.User.create({
             username: "testuser",
             email: "test@example.com",
             displayName: "Test User"
@@ -405,7 +405,7 @@ service social.UserService('config/user-service.yaml') : version('1.0.0'), descr
     }
 
     test("computed isActive is true for Active status") {
-        let userDb.UserNone user = userDb.User.create({
+        let User user = userDb.User.create({
             username: "activeuser",
             email: "active@example.com",
             displayName: "Active User"
@@ -415,7 +415,7 @@ service social.UserService('config/user-service.yaml') : version('1.0.0'), descr
     }
 
     test("afterCreate emits UserRegistered event") {
-        let userDb.UserNone user = userDb.User.create({
+        let User user = userDb.User.create({
             username: "eventuser",
             email: "event@example.com",
             displayName: "Event User"

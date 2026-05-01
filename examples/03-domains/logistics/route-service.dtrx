@@ -448,7 +448,7 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
     }
 
     test("computed isActive reflects Active status") {
-        let routeDb.RouteNone route = routeDb.Route.create({
+        let Route route = routeDb.Route.create({
             routeCode: "RT-TEST-001",
             vehicleId: uuid(),
             driverId: uuid(),
@@ -477,7 +477,7 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
     }
 
     test("afterCreate emits RouteCreated") {
-        let routeDb.RouteNone route = routeDb.Route.create({
+        let Route route = routeDb.Route.create({
             routeCode: "RT-TEST-003",
             vehicleId: uuid(),
             driverId: uuid(),
@@ -490,7 +490,7 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
     }
 
     test("validation rejects stop with zero sequence") {
-        let routeDb.RouteNone route = routeDb.Route.create({
+        let Route route = routeDb.Route.create({
             routeCode: "RT-TEST-004",
             vehicleId: uuid(),
             driverId: uuid(),

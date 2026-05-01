@@ -190,7 +190,7 @@ service taskapp.UserService('config/user-service.yaml') : version('1.0.0'), desc
     }
 
     test("computed isAdmin is true for Admin role") {
-        let userDb.UserNone user = userDb.User.create({
+        let User user = userDb.User.create({
             username: "adminuser",
             email: "admin@example.com",
             displayName: "Admin User",
@@ -202,7 +202,7 @@ service taskapp.UserService('config/user-service.yaml') : version('1.0.0'), desc
     }
 
     test("computed canManageProjects for Manager role") {
-        let userDb.UserNone user = userDb.User.create({
+        let User user = userDb.User.create({
             username: "manageruser",
             email: "manager@example.com",
             displayName: "Manager User",

@@ -651,7 +651,7 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
     }
 
     test("validation rejects self-dependency") {
-        let taskDb.TaskNone task = taskDb.Task.create({
+        let Task task = taskDb.Task.create({
             projectId: uuid(),
             title: "Self Dep Task",
             priority: Priority.Medium
@@ -667,7 +667,7 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
     }
 
     test("validation rejects empty comment content") {
-        let taskDb.TaskNone task = taskDb.Task.create({
+        let Task task = taskDb.Task.create({
             projectId: uuid(),
             title: "Comment Task",
             priority: Priority.Low
@@ -684,7 +684,7 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
     }
 
     test("computed isOverdue for past due date") {
-        let taskDb.TaskNone task = taskDb.Task.create({
+        let Task task = taskDb.Task.create({
             projectId: uuid(),
             title: "Overdue Task",
             priority: Priority.High,
@@ -696,7 +696,7 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
     }
 
     test("computed isOverdue is false for completed task") {
-        let taskDb.TaskNone task = taskDb.Task.create({
+        let Task task = taskDb.Task.create({
             projectId: uuid(),
             title: "Done Task",
             priority: Priority.Medium,
@@ -709,7 +709,7 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
 
     test("afterCreate emits TaskCreated event") {
         let UUID projectId = uuid();
-        let taskDb.TaskNone task = taskDb.Task.create({
+        let Task task = taskDb.Task.create({
             projectId: projectId,
             title: "Event Task",
             priority: Priority.High
@@ -720,7 +720,7 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
 
     test("status change emits TaskStatusChanged") {
         let UUID projectId = uuid();
-        let taskDb.TaskNone task = taskDb.Task.create({
+        let Task task = taskDb.Task.create({
             projectId: projectId,
             title: "Status Task",
             priority: Priority.Medium
@@ -732,7 +732,7 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
     }
 
     test("beforeCreate generates taskNumber") {
-        let taskDb.TaskNone task = taskDb.Task.create({
+        let Task task = taskDb.Task.create({
             projectId: uuid(),
             title: "Numbered Task",
             priority: Priority.Low

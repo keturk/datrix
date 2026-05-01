@@ -249,13 +249,13 @@ service fooddelivery.MenuService('config/menu-service.yaml') : version('1.0.0'),
     }
 
     test("computed isAvailable reflects Available status") {
-        let menuDb.MenuCategoryNone category = menuDb.MenuCategory.create({
+        let MenuCategory category = menuDb.MenuCategory.create({
             restaurantId: uuid(),
             name: "Test Category",
             orderIndex: 0
         });
         category.save();
-        let menuDb.MenuItemNone item = menuDb.MenuItem.create({
+        let MenuItem item = menuDb.MenuItem.create({
             menuCategoryId: category.id,
             name: "Test Burger",
             price: Money.of(12.99, "USD"),
@@ -266,7 +266,7 @@ service fooddelivery.MenuService('config/menu-service.yaml') : version('1.0.0'),
     }
 
     test("validation rejects negative price") {
-        let menuDb.MenuCategoryNone category = menuDb.MenuCategory.create({
+        let MenuCategory category = menuDb.MenuCategory.create({
             restaurantId: uuid(),
             name: "Price Test Category",
             orderIndex: 0
@@ -283,13 +283,13 @@ service fooddelivery.MenuService('config/menu-service.yaml') : version('1.0.0'),
     }
 
     test("afterCreate emits MenuItemAdded") {
-        let menuDb.MenuCategoryNone category = menuDb.MenuCategory.create({
+        let MenuCategory category = menuDb.MenuCategory.create({
             restaurantId: uuid(),
             name: "Event Test Category",
             orderIndex: 0
         });
         category.save();
-        let menuDb.MenuItemNone item = menuDb.MenuItem.create({
+        let MenuItem item = menuDb.MenuItem.create({
             menuCategoryId: category.id,
             name: "Event Test Pizza",
             price: Money.of(15.99, "USD")
