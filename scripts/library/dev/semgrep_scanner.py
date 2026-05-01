@@ -119,8 +119,15 @@ def resolve_scan_targets(
     datrix_root: Path,
     project_names: list[str],
     scan_all: bool,
+    *,
+    include_tests: bool = True,
 ) -> list[Path]:
     """Return directories to pass to semgrep.
+
+    Args:
+        include_tests: If False, only each project's ``src/`` is included (when
+            ``scan_all`` is False). When ``scan_all`` is True, the same flag
+            controls whether ``tests/`` trees are appended.
 
     Raises:
         FileNotFoundError: If a requested project does not exist.
@@ -131,7 +138,7 @@ def resolve_scan_targets(
             if d.is_dir() and d.name.startswith("datrix") and (d / "src").is_dir():
                 targets.append(d / "src")
                 tests_dir = d / "tests"
-                if tests_dir.is_dir():
+                if include_tests and tests_dir.is_dir():
                     targets.append(tests_dir)
         return targets
 
@@ -151,7 +158,7 @@ def resolve_scan_targets(
         if src_dir.is_dir():
             targets.append(src_dir)
         tests_dir = project_dir / "tests"
-        if tests_dir.is_dir():
+        if include_tests and tests_dir.is_dir():
             targets.append(tests_dir)
     return targets
 
@@ -639,7 +646,9 @@ def main() -> int:
         return 1
 
     try:
-        targets = resolve_scan_targets(datrix_root, args.projects, args.scan_all)
+        targets = resolve_scan_targets(
+            datrix_root, args.projects, args.scan_all, include_tests=True
+        )
     except FileNotFoundError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
