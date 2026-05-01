@@ -21,7 +21,7 @@ module library.common {
     // Module-level functions are defined at module scope
     // They provide shared logic reusable by any importing service
     fn calculateLateFee(Int daysOverdue) -> Decimal {
-        #Float baseFee = 0.50;
+        let Float baseFee = 0.50;
         return baseFee * daysOverdue;
     }
 

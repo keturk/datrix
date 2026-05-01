@@ -50,7 +50,7 @@ service library.AnalysisService('config/analysis-service.yaml') : version('1.0.0
     }
 
     test("subscribe handler creates AnalysisRun on supplemental event path") {
-        #analysisDb.AnalysisRun run = analysisDb.AnalysisRun.create({
+        let analysisDb.AnalysisRun run = analysisDb.AnalysisRun.create({
             source: "TestSource",
             status: AnalysisStatus.Pending,
             startedAt: now()

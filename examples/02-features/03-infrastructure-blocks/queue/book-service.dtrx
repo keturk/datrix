@@ -139,23 +139,23 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
         @path('/books/:bookId/reindex')
         post(UUID bookId) : access(admin) -> bookDb.Book {
-            #Book book = bookDb.Book.findOrFail(bookId);
+            let Book book = bookDb.Book.findOrFail(bookId);
             dispatch IndexBook(book.id, book.title, book.author);
             return book;
         }
 
         @path('/books/:bookId/notify')
         post(UUID bookId, BookNotifyRequest request) : access(admin) -> bookDb.Book {
-            #Book book = bookDb.Book.findOrFail(bookId);
+            let Book book = bookDb.Book.findOrFail(bookId);
             dispatch SendBookNotification(book.id, request.recipientEmail, request.message);
             return book;
         }
     }
 
     test("afterCreate dispatches IndexBook task") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatQueue" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatQueue" });
         cat.save();
-        #bookDb.Book book = bookDb.Book.create({
+        let bookDb.Book book = bookDb.Book.create({
             title: "Domain-Driven Design",
             isbn: "9780321125217",
             author: "Eric Evans",
@@ -167,9 +167,9 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("afterCreate dispatches GenerateBookCover task") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatCover" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatCover" });
         cat.save();
-        #bookDb.Book book = bookDb.Book.create({
+        let bookDb.Book book = bookDb.Book.create({
             title: "Clean Code",
             isbn: "9780132350884",
             author: "Robert Martin",

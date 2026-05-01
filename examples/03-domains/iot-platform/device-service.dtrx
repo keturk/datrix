@@ -197,7 +197,7 @@ service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), desc
 
         @path('/register')
         post(RegisterDeviceRequest request) -> deviceDb.Device {
-            #Device device = deviceDb.Device.create({
+            let Device device = deviceDb.Device.create({
                 serialNumber: generateSerialNumber(),
                 name: request.name,
                 type: request.type,
@@ -220,7 +220,7 @@ service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), desc
 
         @path('/:id/activate')
         post(UUID id) -> deviceDb.Device {
-            #Device device = deviceDb.Device.findOrFail(id);
+            let Device device = deviceDb.Device.findOrFail(id);
 
             if (device.status == DeviceStatus.Decommissioned) {
                 throw ValidationException({
@@ -248,7 +248,7 @@ service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), desc
 
         @path('/:id/heartbeat')
         post(UUID id, HeartbeatRequest request) -> deviceDb.Device {
-            #Device device = deviceDb.Device.findOrFail(id);
+            let Device device = deviceDb.Device.findOrFail(id);
 
             if (device.status != DeviceStatus.Active) {
                 throw ValidationException({
@@ -273,7 +273,7 @@ service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), desc
 
         @path('/:id/decommission')
         post(UUID id) : access(admin) -> deviceDb.Device {
-            #Device device = deviceDb.Device.findOrFail(id);
+            let Device device = deviceDb.Device.findOrFail(id);
             device.decommission();
 
             redis.DeviceStatusCache.delete(device.id);
@@ -297,7 +297,7 @@ service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), desc
 
         @path('/by-group/:groupId')
         get(UUID groupId) -> Array<deviceDb.Device> {
-            #Array<DeviceGroupMember> members = deviceDb.DeviceGroupMember
+            let Array<DeviceGroupMember> members = deviceDb.DeviceGroupMember
                 .where(deviceGroupId: groupId)
                 .all();
             return members.map(m => deviceDb.Device.findOrFail(m.deviceId));
@@ -305,10 +305,10 @@ service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), desc
 
         @path('/groups/:groupId/add')
         post(UUID groupId, AddToGroupRequest request) -> deviceDb.DeviceGroupMember {
-            #DeviceGroup group = deviceDb.DeviceGroup.findOrFail(groupId);
-            #Device device = deviceDb.Device.findOrFail(request.deviceId);
+            let DeviceGroup group = deviceDb.DeviceGroup.findOrFail(groupId);
+            let Device device = deviceDb.Device.findOrFail(request.deviceId);
 
-            #DeviceGroupMember? existing = deviceDb.DeviceGroupMember
+            let DeviceGroupMember? existing = deviceDb.DeviceGroupMember
                 .where(deviceGroupId: groupId)
                 .where(deviceId: request.deviceId)
                 .first();
@@ -320,7 +320,7 @@ service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), desc
                 });
             }
 
-            #DeviceGroupMember member = deviceDb.DeviceGroupMember.create({
+            let DeviceGroupMember member = deviceDb.DeviceGroupMember.create({
                 group: group,
                 device: device,
                 joinedAt: now()
@@ -337,11 +337,11 @@ service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), desc
 
         @path('/summary')
         get() : internal -> DeviceSummary {
-            #Int total = deviceDb.Device.count();
-            #Int active = deviceDb.Device.where(status: DeviceStatus.Active).count();
-            #Int inactive = deviceDb.Device.where(status: DeviceStatus.Inactive).count();
-            #Int maintenance = deviceDb.Device.where(status: DeviceStatus.Maintenance).count();
-            #Int decommissioned = deviceDb.Device.where(status: DeviceStatus.Decommissioned).count();
+            let Int total = deviceDb.Device.count();
+            let Int active = deviceDb.Device.where(status: DeviceStatus.Active).count();
+            let Int inactive = deviceDb.Device.where(status: DeviceStatus.Inactive).count();
+            let Int maintenance = deviceDb.Device.where(status: DeviceStatus.Maintenance).count();
+            let Int decommissioned = deviceDb.Device.where(status: DeviceStatus.Decommissioned).count();
 
             return {
                 totalDevices: total,
@@ -362,7 +362,7 @@ service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), desc
     }
 
     test("computed isActive reflects Active status") {
-        #deviceDb.Device device = deviceDb.Device.create({
+        let deviceDb.DeviceNone device = deviceDb.Device.create({
             serialNumber: "IOT-TEST-001",
             name: "Temperature Sensor",
             type: DeviceType.Sensor,
@@ -389,7 +389,7 @@ service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), desc
     }
 
     test("afterCreate emits DeviceRegistered") {
-        #deviceDb.Device device = deviceDb.Device.create({
+        let deviceDb.DeviceNone device = deviceDb.Device.create({
             serialNumber: "IOT-TEST-003",
             name: "Humidity Sensor",
             type: DeviceType.Sensor,
@@ -401,7 +401,7 @@ service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), desc
     }
 
     test("status change emits DeviceStatusChanged") {
-        #deviceDb.Device device = deviceDb.Device.create({
+        let deviceDb.DeviceNone device = deviceDb.Device.create({
             serialNumber: "IOT-TEST-004",
             name: "Gateway Hub",
             type: DeviceType.Gateway,

@@ -249,7 +249,7 @@ service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), d
 
         // Command to update an employee's department
         command UpdateDepartment(UUID employeeId, Department newDept) -> employeeDb.Employee {
-            #Employee employee = employeeDb.Employee.findOrFail(employeeId);
+            let Employee employee = employeeDb.Employee.findOrFail(employeeId);
             employee.department = newDept;
             employee.save();
             return employee;
@@ -271,7 +271,7 @@ service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), d
             }
 
             on EmployeeStatusChanged(UUID employeeId, String employeeNumber, EmployeeStatus oldStatus, EmployeeStatus newStatus) {
-                #EmployeeDirectoryView? view = EmployeeDirectoryView.where(employeeId: employeeId).first();
+                let EmployeeDirectoryView? view = EmployeeDirectoryView.where(employeeId: employeeId).first();
                 if (view != null) {
                     view.status = newStatus;
                     view.save();
@@ -279,7 +279,7 @@ service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), d
             }
 
             on EmployeeDepartmentChanged(UUID employeeId, String employeeNumber, Department oldDepartment, Department newDepartment) {
-                #EmployeeDirectoryView? view = EmployeeDirectoryView.where(employeeId: employeeId).first();
+                let EmployeeDirectoryView? view = EmployeeDirectoryView.where(employeeId: employeeId).first();
                 if (view != null) {
                     view.department = newDepartment;
                     view.save();
@@ -294,7 +294,7 @@ service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), d
 
         // List employees with pagination
         get(Int page = 1, Int perPage = 20, Department? department, EmployeeStatus? status) -> PaginatedEmployees {
-            #JSON query = employeeDb.Employee.all();
+            let JSON query = employeeDb.Employee.all();
 
             if (department != null) {
                 query = employeeDb.Employee.where(department: department);
@@ -303,8 +303,8 @@ service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), d
                 query = query.where(status: status);
             }
 
-            #Int total = query.count();
-            #Array<Employee> employees = query
+            let Int total = query.count();
+            let Array<Employee> employees = query
                 .orderBy(lastName: asc)
                 .offset((page - 1) * perPage)
                 .limit(perPage)
@@ -332,12 +332,12 @@ service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), d
         // Create a new employee
         post(CreateEmployeeRequest request) : access(admin) -> employeeDb.Employee {
             // Check for duplicate email
-            #Employee? existing = employeeDb.Employee.where(email: request.email).first();
+            let Employee? existing = employeeDb.Employee.where(email: request.email).first();
             if (existing != null) {
                 throw ValidationException(#"Employee with email {request.email} already exists");
             }
 
-            #Employee employee = employeeDb.Employee.create({
+            let Employee employee = employeeDb.Employee.create({
                 firstName: request.firstName,
                 lastName: request.lastName,
                 employeeNumber: generateEmployeeNumber(),
@@ -360,7 +360,7 @@ service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), d
         // Update employee details
         @path('/:id')
         put(UUID id, UpdateEmployeeRequest request) : access(admin) -> employeeDb.Employee {
-            #Employee employee = employeeDb.Employee.findOrFail(id);
+            let Employee employee = employeeDb.Employee.findOrFail(id);
 
             if (request.firstName != null) employee.firstName = request.firstName;
             if (request.lastName != null) employee.lastName = request.lastName;
@@ -376,7 +376,7 @@ service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), d
         // Update employee status
         @path('/:id/status')
         put(UUID id, UpdateStatusRequest request) : access(admin) -> employeeDb.Employee {
-            #Employee employee = employeeDb.Employee.findOrFail(id);
+            let Employee employee = employeeDb.Employee.findOrFail(id);
 
             switch (request.status) {
                 case EmployeeStatus.Terminated {
@@ -402,9 +402,9 @@ service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), d
         // Add an emergency contact
         @path('/:id/emergency-contacts')
         post(UUID id, AddEmergencyContactRequest request) -> employeeDb.EmergencyContact {
-            #Employee employee = employeeDb.Employee.findOrFail(id);
+            let Employee employee = employeeDb.Employee.findOrFail(id);
 
-            #EmergencyContact contact = employeeDb.EmergencyContact.create({
+            let EmergencyContact contact = employeeDb.EmergencyContact.create({
                 employeeId: employee.id,
                 name: request.name,
                 relationship: request.relationship,
@@ -465,7 +465,7 @@ service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), d
     }
 
     test("computed fullName concatenates first and last name") {
-        #employeeDb.Employee emp = employeeDb.Employee.create({
+        let employeeDb.EmployeeNone emp = employeeDb.Employee.create({
             firstName: "John",
             lastName: "Doe",
             employeeNumber: "EMP-TEST-001",
@@ -484,7 +484,7 @@ service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), d
     }
 
     test("computed isActive is true for Active status") {
-        #employeeDb.Employee emp = employeeDb.Employee.create({
+        let employeeDb.EmployeeNone emp = employeeDb.Employee.create({
             firstName: "Jane",
             lastName: "Smith",
             employeeNumber: "EMP-TEST-002",
@@ -522,7 +522,7 @@ service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), d
     }
 
     test("afterCreate emits EmployeeHired event") {
-        #employeeDb.Employee emp = employeeDb.Employee.create({
+        let employeeDb.EmployeeNone emp = employeeDb.Employee.create({
             firstName: "Bob",
             lastName: "Builder",
             employeeNumber: "EMP-TEST-004",
@@ -541,7 +541,7 @@ service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), d
     }
 
     test("terminate sets status and terminationDate") {
-        #employeeDb.Employee emp = employeeDb.Employee.create({
+        let employeeDb.EmployeeNone emp = employeeDb.Employee.create({
             firstName: "Charlie",
             lastName: "Day",
             employeeNumber: "EMP-TEST-005",
@@ -562,7 +562,7 @@ service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), d
     }
 
     test("suspend fails for non-active employee") {
-        #employeeDb.Employee emp = employeeDb.Employee.create({
+        let employeeDb.EmployeeNone emp = employeeDb.Employee.create({
             firstName: "Diana",
             lastName: "Prince",
             employeeNumber: "EMP-TEST-006",

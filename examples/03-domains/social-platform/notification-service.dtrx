@@ -115,18 +115,18 @@ service social.NotificationService('config/notification-service.yaml') : version
             Log.info("Creating notification for new comment", { commentId: commentId, postId: postId });
 
             // Look up the post to notify the post author
-            #JSON post = PostService.PostAPI.get(#"/internal/{postId}");
-            #UUID postAuthorId = post.authorId;
+            let JSON post = PostService.PostAPI.get(#"/internal/{postId}");
+            let UUID postAuthorId = post.authorId;
 
             // Don't notify yourself
             if (postAuthorId != authorId) {
                 // Check preferences
-                #NotificationPreference? prefs = notificationDb.NotificationPreference
+                let NotificationPreference? prefs = notificationDb.NotificationPreference
                     .where(userId: postAuthorId)
                     .first();
 
                 if (prefs == null || prefs.commentNotifications) {
-                    #Notification notification = notificationDb.Notification.create({
+                    let Notification notification = notificationDb.Notification.create({
                         userId: postAuthorId,
                         type: NotificationType.Comment,
                         title: "New comment on your post",
@@ -145,17 +145,17 @@ service social.NotificationService('config/notification-service.yaml') : version
         on PostLiked(UUID postId, UUID userId) {
             Log.info("Creating notification for post like", { postId: postId, userId: userId });
 
-            #JSON post = PostService.PostAPI.get(#"/internal/{postId}");
-            #UUID postAuthorId = post.authorId;
+            let JSON post = PostService.PostAPI.get(#"/internal/{postId}");
+            let UUID postAuthorId = post.authorId;
 
             // Don't notify yourself
             if (postAuthorId != userId) {
-                #NotificationPreference? prefs = notificationDb.NotificationPreference
+                let NotificationPreference? prefs = notificationDb.NotificationPreference
                     .where(userId: postAuthorId)
                     .first();
 
                 if (prefs == null || prefs.likeNotifications) {
-                    #Notification notification = notificationDb.Notification.create({
+                    let Notification notification = notificationDb.Notification.create({
                         userId: postAuthorId,
                         type: NotificationType.Like,
                         title: "Someone liked your post",
@@ -176,13 +176,13 @@ service social.NotificationService('config/notification-service.yaml') : version
             Log.info("Creating welcome notification", { userId: userId, username: username });
 
             // Create default notification preferences
-            #NotificationPreference prefs = notificationDb.NotificationPreference.create({
+            let NotificationPreference prefs = notificationDb.NotificationPreference.create({
                 userId: userId
             });
             prefs.save();
 
             // Send welcome notification
-            #Notification notification = notificationDb.Notification.create({
+            let Notification notification = notificationDb.Notification.create({
                 userId: userId,
                 type: NotificationType.System,
                 title: "Welcome to the platform!",
@@ -197,15 +197,15 @@ service social.NotificationService('config/notification-service.yaml') : version
         on UserFollowed(UUID followerId, UUID followeeId) {
             Log.info("Creating follow notification", { followerId: followerId, followeeId: followeeId });
 
-            #NotificationPreference? prefs = notificationDb.NotificationPreference
+            let NotificationPreference? prefs = notificationDb.NotificationPreference
                 .where(userId: followeeId)
                 .first();
 
             if (prefs == null || prefs.followNotifications) {
                 // Get the follower's info
-                #JSON follower = UserService.UserAPI.get(#"/internal/{followerId}");
+                let JSON follower = UserService.UserAPI.get(#"/internal/{followerId}");
 
-                #Notification notification = notificationDb.Notification.create({
+                let Notification notification = notificationDb.Notification.create({
                     userId: followeeId,
                     type: NotificationType.Follow,
                     title: "New follower",
@@ -224,7 +224,7 @@ service social.NotificationService('config/notification-service.yaml') : version
             Log.info("User status changed", { userId: userId, oldStatus: oldStatus, newStatus: newStatus });
 
             if (newStatus == UserStatus.Suspended) {
-                #Notification notification = notificationDb.Notification.create({
+                let Notification notification = notificationDb.Notification.create({
                     userId: userId,
                     type: NotificationType.System,
                     title: "Account suspended",
@@ -239,7 +239,7 @@ service social.NotificationService('config/notification-service.yaml') : version
         on NotificationCreated(UUID notificationId, UUID userId, NotificationType type) {
             Log.info("Processing notification delivery", { notificationId: notificationId, userId: userId, type: type });
 
-            #NotificationPreference? prefs = notificationDb.NotificationPreference
+            let NotificationPreference? prefs = notificationDb.NotificationPreference
                 .where(userId: userId)
                 .first();
 
@@ -264,22 +264,22 @@ service social.NotificationService('config/notification-service.yaml') : version
 
         // Get notifications for the authenticated user
         get(Int page = 1, Int perPage = 20, Boolean? unreadOnly) -> PaginatedNotifications {
-            #UUID userId = Auth.user().id;
-            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            let UUID userId = Auth.user().id;
+            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
 
-            #JSON query = notificationDb.Notification.where(userId: userId);
+            let JSON query = notificationDb.Notification.where(userId: userId);
 
             if (unreadOnly == true) {
                 query = query.where(read: false);
             }
 
-            #Int total = query.count();
-            #Int unreadCount = notificationDb.Notification
+            let Int total = query.count();
+            let Int unreadCount = notificationDb.Notification
                 .where(userId: userId)
                 .where(read: false)
                 .count();
 
-            #Array<Notification> notifications = query
+            let Array<Notification> notifications = query
                 .orderBy(createdAt: desc)
                 .offset((page - 1) * cappedPerPage)
                 .limit(cappedPerPage)
@@ -295,8 +295,8 @@ service social.NotificationService('config/notification-service.yaml') : version
         // Get a single notification
         @path('/:id')
         get(UUID id) -> notificationDb.Notification {
-            #Notification notification = notificationDb.Notification.findOrFail(id);
-            #UUID userId = Auth.user().id;
+            let Notification notification = notificationDb.Notification.findOrFail(id);
+            let UUID userId = Auth.user().id;
 
             if (notification.userId != userId) {
                 throw AuthorizationException("Access denied");
@@ -308,8 +308,8 @@ service social.NotificationService('config/notification-service.yaml') : version
         // Mark a single notification as read
         @path('/:id/read')
         put(UUID id) -> notificationDb.Notification {
-            #UUID userId = Auth.user().id;
-            #Notification notification = notificationDb.Notification.findOrFail(id);
+            let UUID userId = Auth.user().id;
+            let Notification notification = notificationDb.Notification.findOrFail(id);
 
             if (notification.userId != userId) {
                 throw AuthorizationException("Access denied");
@@ -325,11 +325,11 @@ service social.NotificationService('config/notification-service.yaml') : version
         // Mark multiple notifications as read
         @path('/mark-read')
         put(MarkReadRequest request) -> MarkReadResponse {
-            #UUID userId = Auth.user().id;
-            #Int updatedCount = 0;
+            let UUID userId = Auth.user().id;
+            let Int updatedCount = 0;
 
             foreach notificationId in request.notificationIds {
-                #Notification? notification = notificationDb.Notification.find(notificationId);
+                let Notification? notification = notificationDb.Notification.find(notificationId);
                 if (notification != null && notification.userId == userId && !notification.read) {
                     notification.markAsRead();
                     updatedCount = updatedCount + 1;
@@ -346,13 +346,13 @@ service social.NotificationService('config/notification-service.yaml') : version
         // Mark all notifications as read (optionally filtered by type)
         @path('/mark-all-read')
         post(MarkAllReadRequest request) -> MarkReadResponse {
-            #UUID userId = Auth.user().id;
-            #Array<Notification> unread = notificationDb.Notification
+            let UUID userId = Auth.user().id;
+            let Array<Notification> unread = notificationDb.Notification
                 .where(userId: userId)
                 .where(read: false)
                 .all();
 
-            #Int updatedCount = 0;
+            let Int updatedCount = 0;
             foreach notification in unread {
                 notification.markAsRead();
                 updatedCount = updatedCount + 1;
@@ -368,7 +368,7 @@ service social.NotificationService('config/notification-service.yaml') : version
         // Get unread count
         @path('/unread-count')
         get() -> Int {
-            #UUID userId = Auth.user().id;
+            let UUID userId = Auth.user().id;
             return notificationDb.Notification
                 .where(userId: userId)
                 .where(read: false)
@@ -378,8 +378,8 @@ service social.NotificationService('config/notification-service.yaml') : version
         // Get notification preferences
         @path('/preferences')
         get() -> notificationDb.NotificationPreference {
-            #UUID userId = Auth.user().id;
-            #NotificationPreference? prefs = notificationDb.NotificationPreference
+            let UUID userId = Auth.user().id;
+            let NotificationPreference? prefs = notificationDb.NotificationPreference
                 .where(userId: userId)
                 .first();
 
@@ -396,8 +396,8 @@ service social.NotificationService('config/notification-service.yaml') : version
         // Update notification preferences
         @path('/preferences')
         put(NotificationPreferences request) -> notificationDb.NotificationPreference {
-            #UUID userId = Auth.user().id;
-            #NotificationPreference? prefs = notificationDb.NotificationPreference
+            let UUID userId = Auth.user().id;
+            let NotificationPreference? prefs = notificationDb.NotificationPreference
                 .where(userId: userId)
                 .first();
 
@@ -421,8 +421,8 @@ service social.NotificationService('config/notification-service.yaml') : version
         // Delete a notification
         @path('/:id')
         delete(UUID id) -> Void {
-            #UUID userId = Auth.user().id;
-            #Notification notification = notificationDb.Notification.findOrFail(id);
+            let UUID userId = Auth.user().id;
+            let Notification notification = notificationDb.Notification.findOrFail(id);
 
             if (notification.userId != userId) {
                 throw AuthorizationException("Access denied");
@@ -444,7 +444,7 @@ service social.NotificationService('config/notification-service.yaml') : version
     }
 
     test("markAsRead sets read flag and readAt timestamp") {
-        #notificationDb.Notification notification = notificationDb.Notification.create({
+        let notificationDb.NotificationNone notification = notificationDb.Notification.create({
             userId: uuid(),
             type: NotificationType.System,
             title: "Test notification"
@@ -458,14 +458,14 @@ service social.NotificationService('config/notification-service.yaml') : version
     }
 
     test("markAsRead is idempotent") {
-        #notificationDb.Notification notification = notificationDb.Notification.create({
+        let notificationDb.NotificationNone notification = notificationDb.Notification.create({
             userId: uuid(),
             type: NotificationType.Like,
             title: "Someone liked your post"
         });
         notification.save();
         notification.markAsRead();
-        #DateTime firstReadAt = notification.readAt;
+        let DateTime firstReadAt = notification.readAt;
         notification.markAsRead();
         assert notification.readAt == firstReadAt;
     }

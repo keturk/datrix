@@ -13,7 +13,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     // They provide shared business logic reusable across the entire service
 
     fn calculateLateFee(Int daysOverdue) -> Decimal {
-        #Float baseFee = 0.50;
+        let Float baseFee = 0.50;
         return baseFee * daysOverdue;
     }
 
@@ -52,7 +52,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         @path('/books/:bookId/late-fee')
         get(UUID bookId, DateTime dueDate) -> Decimal {
             // Call service-level function to get days overdue
-            #Int days = daysSinceDue(dueDate);
+            let Int days = daysSinceDue(dueDate);
             // Call another service-level function to calculate the fee
             return calculateLateFee(days);
         }

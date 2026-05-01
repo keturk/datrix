@@ -67,12 +67,12 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
         // 'query' defines a read-only GraphQL resolver
         query books() -> Array<BookType> {
-            #Array<Book> allBooks = bookDb.Book.all();
+            let Array<Book> allBooks = bookDb.Book.all();
             return allBooks;
         }
 
         query book(UUID id) -> BookType {
-            #Book foundBook = bookDb.Book.findOrFail(id);
+            let Book foundBook = bookDb.Book.findOrFail(id);
             return foundBook;
         }
     }

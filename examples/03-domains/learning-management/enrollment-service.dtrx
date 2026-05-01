@@ -131,13 +131,13 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
             }
 
             fn recalculateAverageScore() {
-                #Array<GradeRecord> allGrades = enrollmentDb.GradeRecord
+                let Array<GradeRecord> allGrades = enrollmentDb.GradeRecord
                     .where(enrollmentId: id)
                     .where(status: GradeStatus.Graded)
                     .all();
 
                 if (allGrades.length() > 0) {
-                    #Decimal totalScore = 0;
+                    let Decimal totalScore = 0;
                     foreach grade in allGrades {
                         totalScore = totalScore + grade.score;
                     }
@@ -167,7 +167,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
 
             afterCreate {
                 // Recalculate average score on the enrollment
-                #Enrollment? enrollment = enrollmentDb.Enrollment.find(enrollmentId);
+                let Enrollment? enrollment = enrollmentDb.Enrollment.find(enrollmentId);
                 if (enrollment != null) {
                     enrollment.recalculateAverageScore();
                     enrollment.save();
@@ -222,7 +222,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
             }
 
             // Track enrollment activity
-            #EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
+            let EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
                 enrollmentId: enrollmentId,
                 activityType: "enrolled"
             });
@@ -237,7 +237,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
                 averageScore: averageScore
             });
 
-            #EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
+            let EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
                 enrollmentId: enrollmentId,
                 activityType: "completed",
                 metadata: { averageScore: averageScore }
@@ -270,7 +270,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
                 newStatus: newStatus
             });
 
-            #EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
+            let EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
                 enrollmentId: enrollmentId,
                 activityType: "status_changed",
                 metadata: { oldStatus: oldStatus, newStatus: newStatus }
@@ -287,7 +287,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
                 newProgress: newProgress
             });
 
-            #EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
+            let EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
                 enrollmentId: enrollmentId,
                 activityType: "progress_updated",
                 metadata: { oldProgress: oldProgress, newProgress: newProgress }
@@ -302,7 +302,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
                 score: score
             });
 
-            #EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
+            let EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
                 enrollmentId: enrollmentId,
                 activityType: "grade_submitted",
                 metadata: { moduleId: moduleId, score: score }
@@ -314,7 +314,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
         on CourseArchived(UUID courseId) {
             Log.info("Course archived, expiring active enrollments", { courseId: courseId });
 
-            #Array<Enrollment> activeEnrollments = enrollmentDb.Enrollment
+            let Array<Enrollment> activeEnrollments = enrollmentDb.Enrollment
                 .where(courseId: courseId)
                 .where(status: EnrollmentStatus.Active)
                 .all();
@@ -324,7 +324,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
                 enrollment.save();
             }
 
-            #Array<Enrollment> pendingEnrollments = enrollmentDb.Enrollment
+            let Array<Enrollment> pendingEnrollments = enrollmentDb.Enrollment
                 .where(courseId: courseId)
                 .where(status: EnrollmentStatus.Pending)
                 .all();
@@ -334,7 +334,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
                 enrollment.save();
             }
 
-            #Int expiredCount = activeEnrollments.length() + pendingEnrollments.length();
+            let Int expiredCount = activeEnrollments.length() + pendingEnrollments.length();
             if (expiredCount > 0) {
                 Log.info("Expired enrollments for archived course", {
                     courseId: courseId,
@@ -352,13 +352,13 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
 
         // Enroll in a course
         post(EnrollRequest request) -> enrollmentDb.Enrollment {
-            #UUID studentId = Auth.user().id;
+            let UUID studentId = Auth.user().id;
 
             // Verify student exists and is active
-            #JSON student = StudentService.StudentAPI.get(#"/internal/{studentId}");
+            let JSON student = StudentService.StudentAPI.get(#"/internal/{studentId}");
 
             // Verify course can accept enrollments
-            #Boolean canEnroll = CourseService.CourseAPI.get(#"/internal/{request.courseId}/can-enroll");
+            let Boolean canEnroll = CourseService.CourseAPI.get(#"/internal/{request.courseId}/can-enroll");
 
             if (!canEnroll) {
                 throw ValidationException({
@@ -368,7 +368,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
             }
 
             // Check for existing enrollment
-            #Enrollment? existing = enrollmentDb.Enrollment
+            let Enrollment? existing = enrollmentDb.Enrollment
                 .where(studentId: studentId)
                 .where(courseId: request.courseId)
                 .first();
@@ -380,7 +380,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
                 });
             }
 
-            #Enrollment enrollment = enrollmentDb.Enrollment.create({
+            let Enrollment enrollment = enrollmentDb.Enrollment.create({
                 studentId: studentId,
                 courseId: request.courseId,
                 status: EnrollmentStatus.Active,
@@ -393,23 +393,23 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
 
         // Get current user's enrollments
         get(EnrollmentStatus? status, Int page = 1, Int perPage = 20) -> PaginatedEnrollments {
-            #UUID studentId = Auth.user().id;
-            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            let UUID studentId = Auth.user().id;
+            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
 
-            #JSON query = enrollmentDb.Enrollment.where(studentId: studentId);
+            let JSON query = enrollmentDb.Enrollment.where(studentId: studentId);
 
             if (status != null) {
                 query = query.where(status: status);
             }
 
-            #Int total = query.count();
-            #Array<Enrollment> enrollments = query
+            let Int total = query.count();
+            let Array<Enrollment> enrollments = query
                 .orderBy(enrolledAt: desc)
                 .offset((page - 1) * cappedPerPage)
                 .limit(cappedPerPage)
                 .all();
 
-            #Int totalPages = Math.ceil(total / cappedPerPage);
+            let Int totalPages = Math.ceil(total / cappedPerPage);
 
             return {
                 data: enrollments,
@@ -427,8 +427,8 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
         // Get a single enrollment
         @path('/:id')
         get(UUID id) -> enrollmentDb.Enrollment {
-            #Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
-            #UUID userId = Auth.user().id;
+            let Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
+            let UUID userId = Auth.user().id;
 
             if (enrollment.studentId != userId && !Auth.hasRole("admin")) {
                 throw AuthorizationException("Access denied");
@@ -440,8 +440,8 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
         // Drop an enrollment
         @path('/:id/drop')
         put(UUID id, DropRequest request) -> enrollmentDb.Enrollment {
-            #UUID userId = Auth.user().id;
-            #Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
+            let UUID userId = Auth.user().id;
+            let Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
 
             if (enrollment.studentId != userId && !Auth.hasRole("admin")) {
                 throw AuthorizationException("You can only drop your own enrollments");
@@ -466,8 +466,8 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
         // Update progress
         @path('/:id/progress')
         put(UUID id, UpdateProgressRequest request) -> enrollmentDb.Enrollment {
-            #UUID userId = Auth.user().id;
-            #Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
+            let UUID userId = Auth.user().id;
+            let Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
 
             if (enrollment.studentId != userId && !Auth.hasRole("admin")) {
                 throw AuthorizationException("Access denied");
@@ -490,7 +490,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
         // Submit a grade for a module
         @path('/:id/grades')
         post(UUID id, SubmitGradeRequest request) -> enrollmentDb.GradeRecord {
-            #Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
+            let Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
 
             if (!enrollment.canSubmitGrades) {
                 throw ValidationException({
@@ -500,7 +500,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
             }
 
             // Check if grade already exists for this module
-            #GradeRecord? existing = enrollmentDb.GradeRecord
+            let GradeRecord? existing = enrollmentDb.GradeRecord
                 .where(enrollmentId: id)
                 .where(moduleId: request.moduleId)
                 .first();
@@ -512,7 +512,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
                 });
             }
 
-            #GradeRecord grade = enrollmentDb.GradeRecord.create({
+            let GradeRecord grade = enrollmentDb.GradeRecord.create({
                 enrollmentId: id,
                 moduleId: request.moduleId,
                 score: request.score,
@@ -532,8 +532,8 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
         // Get grades for an enrollment
         @path('/:id/grades')
         get(UUID id) -> Array<enrollmentDb.GradeRecord> {
-            #Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
-            #UUID userId = Auth.user().id;
+            let Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
+            let UUID userId = Auth.user().id;
 
             if (enrollment.studentId != userId && !Auth.hasRole("admin")) {
                 throw AuthorizationException("Access denied");
@@ -548,7 +548,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
         // Get student transcript
         @path('/transcript/:studentId')
         get(UUID studentId) -> Array<enrollmentDb.Enrollment> {
-            #UUID userId = Auth.user().id;
+            let UUID userId = Auth.user().id;
 
             if (studentId != userId && !Auth.hasRole("admin")) {
                 throw AuthorizationException("Access denied");
@@ -563,22 +563,22 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
         // Get enrollments for a specific course (admin)
         @path('/course/:courseId')
         get(UUID courseId, EnrollmentStatus? status, Int page = 1, Int perPage = 20) : access(admin) -> PaginatedEnrollments {
-            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
 
-            #JSON query = enrollmentDb.Enrollment.where(courseId: courseId);
+            let JSON query = enrollmentDb.Enrollment.where(courseId: courseId);
 
             if (status != null) {
                 query = query.where(status: status);
             }
 
-            #Int total = query.count();
-            #Array<Enrollment> enrollments = query
+            let Int total = query.count();
+            let Array<Enrollment> enrollments = query
                 .orderBy(enrolledAt: desc)
                 .offset((page - 1) * cappedPerPage)
                 .limit(cappedPerPage)
                 .all();
 
-            #Int totalPages = Math.ceil(total / cappedPerPage);
+            let Int totalPages = Math.ceil(total / cappedPerPage);
 
             return {
                 data: enrollments,
@@ -596,8 +596,8 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
         // Get enrollment activity log
         @path('/:id/activity')
         get(UUID id) -> Array<enrollmentDb.EnrollmentActivity> {
-            #Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
-            #UUID userId = Auth.user().id;
+            let Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
+            let UUID userId = Auth.user().id;
 
             if (enrollment.studentId != userId && !Auth.hasRole("admin")) {
                 throw AuthorizationException("Access denied");
@@ -641,7 +641,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
     }
 
     test("validation rejects score out of range") {
-        #enrollmentDb.Enrollment enrollment = enrollmentDb.Enrollment.create({
+        let enrollmentDb.EnrollmentNone enrollment = enrollmentDb.Enrollment.create({
             studentId: uuid(),
             courseId: uuid(),
             status: EnrollmentStatus.Active,
@@ -659,7 +659,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
     }
 
     test("computed isActive for Active enrollment") {
-        #enrollmentDb.Enrollment enrollment = enrollmentDb.Enrollment.create({
+        let enrollmentDb.EnrollmentNone enrollment = enrollmentDb.Enrollment.create({
             studentId: uuid(),
             courseId: uuid(),
             status: EnrollmentStatus.Active,
@@ -671,7 +671,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
     }
 
     test("computed isCompleted for Completed enrollment") {
-        #enrollmentDb.Enrollment enrollment = enrollmentDb.Enrollment.create({
+        let enrollmentDb.EnrollmentNone enrollment = enrollmentDb.Enrollment.create({
             studentId: uuid(),
             courseId: uuid(),
             status: EnrollmentStatus.Completed,
@@ -684,7 +684,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
     }
 
     test("computed hasPassed for passing score") {
-        #enrollmentDb.Enrollment enrollment = enrollmentDb.Enrollment.create({
+        let enrollmentDb.EnrollmentNone enrollment = enrollmentDb.Enrollment.create({
             studentId: uuid(),
             courseId: uuid(),
             status: EnrollmentStatus.Completed,
@@ -696,7 +696,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
     }
 
     test("computed hasPassed is false for failing score") {
-        #enrollmentDb.Enrollment enrollment = enrollmentDb.Enrollment.create({
+        let enrollmentDb.EnrollmentNone enrollment = enrollmentDb.Enrollment.create({
             studentId: uuid(),
             courseId: uuid(),
             status: EnrollmentStatus.Completed,
@@ -708,9 +708,9 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
     }
 
     test("afterCreate emits StudentEnrolled event") {
-        #UUID studentId = uuid();
-        #UUID courseId = uuid();
-        #enrollmentDb.Enrollment enrollment = enrollmentDb.Enrollment.create({
+        let UUID studentId = uuid();
+        let UUID courseId = uuid();
+        let enrollmentDb.EnrollmentNone enrollment = enrollmentDb.Enrollment.create({
             studentId: studentId,
             courseId: courseId,
             status: EnrollmentStatus.Active,
@@ -721,7 +721,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
     }
 
     test("computed remainingProgress calculation") {
-        #enrollmentDb.Enrollment enrollment = enrollmentDb.Enrollment.create({
+        let enrollmentDb.EnrollmentNone enrollment = enrollmentDb.Enrollment.create({
             studentId: uuid(),
             courseId: uuid(),
             status: EnrollmentStatus.Active,

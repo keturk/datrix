@@ -22,7 +22,7 @@ module social.common {
 
     // Pagination helper (JSON shape for social feeds; distinct from stdlib PaginationResult)
     fn paginate(Int total, Int page, Int perPage) -> JSON {
-        #Int totalPages = Math.ceil(total / perPage);
+        let Int totalPages = Math.ceil(total / perPage);
         return {
             currentPage: page,
             perPage: perPage,

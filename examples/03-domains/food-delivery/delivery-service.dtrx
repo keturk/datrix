@@ -208,9 +208,9 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
                 restaurantId: restaurantId
             });
 
-            #JSON restaurant = OrderService.OrderAPI.get('/internal/:id', orderId);
+            let JSON restaurant = OrderService.OrderAPI.get('/internal/:id', orderId);
 
-            #Delivery delivery = deliveryDb.Delivery.create({
+            let Delivery delivery = deliveryDb.Delivery.create({
                 deliveryCode: generateDeliveryCode(),
                 orderId: orderId,
                 pickupAddress: #"Restaurant {restaurantId}",
@@ -229,14 +229,14 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
         }
 
         on OrderCancelled(UUID orderId, String orderNumber, UUID customerId) {
-            #Delivery? delivery = deliveryDb.Delivery
+            let Delivery? delivery = deliveryDb.Delivery
                 .where(orderId: orderId)
                 .whereIn(status: [DeliveryStatus.Pending, DeliveryStatus.Assigned])
                 .first();
 
             if (delivery != null) {
                 if (delivery.driverId != null) {
-                    #DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(delivery.driverId);
+                    let DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(delivery.driverId);
                     driver.completeDelivery();
                 }
 
@@ -254,7 +254,7 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
         }
 
         on OrderReady(UUID orderId, String orderNumber, UUID restaurantId) {
-            #Delivery? delivery = deliveryDb.Delivery
+            let Delivery? delivery = deliveryDb.Delivery
                 .where(orderId: orderId)
                 .where(status: DeliveryStatus.Assigned)
                 .first();
@@ -301,8 +301,8 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
 
         @path('/:id/assign')
         post(UUID id, AssignDriverRequest request) -> deliveryDb.Delivery {
-            #Delivery delivery = deliveryDb.Delivery.findOrFail(id);
-            #DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(request.driverId);
+            let Delivery delivery = deliveryDb.Delivery.findOrFail(id);
+            let DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(request.driverId);
 
             if (!delivery.isPending) {
                 throw ValidationException({
@@ -335,7 +335,7 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
 
         @path('/drivers/:id/location')
         put(UUID id, UpdateLocationRequest request) -> deliveryDb.DeliveryDriver {
-            #DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(id);
+            let DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(id);
 
             driver.currentLatitude = request.latitude;
             driver.currentLongitude = request.longitude;
@@ -353,7 +353,7 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
 
         @path('/:id/complete')
         post(UUID id) -> deliveryDb.Delivery {
-            #Delivery delivery = deliveryDb.Delivery.findOrFail(id);
+            let Delivery delivery = deliveryDb.Delivery.findOrFail(id);
 
             if (delivery.status != DeliveryStatus.Delivering) {
                 throw ValidationException({
@@ -369,7 +369,7 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
                 });
             }
 
-            #DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(delivery.driverId);
+            let DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(delivery.driverId);
 
             transaction(deliveryDb) {
                 delivery.markDelivered();
@@ -390,17 +390,17 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
 
         @path('/:id/track')
         get(UUID id) : public -> DeliveryTrackingInfo {
-            #Delivery delivery = deliveryDb.Delivery.findOrFail(id);
+            let Delivery delivery = deliveryDb.Delivery.findOrFail(id);
 
-            #String? driverName = null;
-            #Decimal? driverLat = null;
-            #Decimal? driverLng = null;
+            let String? driverName = null;
+            let Decimal? driverLat = null;
+            let Decimal? driverLng = null;
 
             if (delivery.driverId != null) {
-                #DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(delivery.driverId);
+                let DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(delivery.driverId);
                 driverName = driver.fullName;
 
-                #JSON? location = redis.DriverLocationCache.get(driver.id);
+                let JSON? location = redis.DriverLocationCache.get(driver.id);
                 if (location != null) {
                     driverLat = location.latitude;
                     driverLng = location.longitude;
@@ -421,7 +421,7 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
 
         @path('/drivers/available')
         get() -> DriverAvailabilityResponse {
-            #Array<DeliveryDriver> drivers = deliveryDb.DeliveryDriver
+            let Array<DeliveryDriver> drivers = deliveryDb.DeliveryDriver
                 .where(status: DriverStatus.Available)
                 .orderBy(rating: desc)
                 .all();
@@ -434,7 +434,7 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
 
         @path('/drivers/:id/online')
         post(UUID id) -> deliveryDb.DeliveryDriver {
-            #DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(id);
+            let DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(id);
             driver.goOnline();
 
             Log.info("Driver went online", {
@@ -447,7 +447,7 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
 
         @path('/drivers/:id/offline')
         post(UUID id) -> deliveryDb.DeliveryDriver {
-            #DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(id);
+            let DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(id);
             driver.goOffline();
 
             Log.info("Driver went offline", {
@@ -465,7 +465,7 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
     }
 
     test("computed isAvailable reflects Available status") {
-        #deliveryDb.DeliveryDriver driver = deliveryDb.DeliveryDriver.create({
+        let deliveryDb.DeliveryDriverNone driver = deliveryDb.DeliveryDriver.create({
             firstName: "John",
             lastName: "Smith",
             phone: "+15551234567",
@@ -477,7 +477,7 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
     }
 
     test("computed isAssigned when driver is set") {
-        #deliveryDb.DeliveryDriver driver = deliveryDb.DeliveryDriver.create({
+        let deliveryDb.DeliveryDriverNone driver = deliveryDb.DeliveryDriver.create({
             firstName: "Jane",
             lastName: "Doe",
             phone: "+15559876543",
@@ -485,7 +485,7 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
             status: DriverStatus.OnDelivery
         });
         driver.save();
-        #deliveryDb.Delivery delivery = deliveryDb.Delivery.create({
+        let deliveryDb.DeliveryNone delivery = deliveryDb.Delivery.create({
             deliveryCode: "DLV-TEST-001",
             orderId: uuid(),
             driverId: driver.id,
@@ -511,7 +511,7 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
     }
 
     test("afterCreate emits DeliveryCreated") {
-        #deliveryDb.Delivery delivery = deliveryDb.Delivery.create({
+        let deliveryDb.DeliveryNone delivery = deliveryDb.Delivery.create({
             deliveryCode: "DLV-TEST-002",
             orderId: uuid(),
             pickupAddress: "Restaurant B",
@@ -522,7 +522,7 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
     }
 
     test("status change emits DeliveryStatusChanged") {
-        #deliveryDb.Delivery delivery = deliveryDb.Delivery.create({
+        let deliveryDb.DeliveryNone delivery = deliveryDb.Delivery.create({
             deliveryCode: "DLV-TEST-003",
             orderId: uuid(),
             pickupAddress: "Restaurant C",

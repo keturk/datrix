@@ -222,7 +222,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
 
             // Check for large transactions exceeding threshold
             if (amount.amount >= LARGE_TRANSACTION_THRESHOLD) {
-                #ComplianceAlert alert = complianceDb.ComplianceAlert.create({
+                let ComplianceAlert alert = complianceDb.ComplianceAlert.create({
                     accountId: accountId,
                     type: AlertType.LargeTransaction,
                     severity: AlertSeverity.High,
@@ -236,7 +236,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
             }
 
             // Record in audit trail
-            #AuditTrail audit = complianceDb.AuditTrail.create({
+            let AuditTrail audit = complianceDb.AuditTrail.create({
                 entityType: "Transaction",
                 entityId: txId,
                 action: "created",
@@ -248,7 +248,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
         }
 
         on TransactionStatusChanged(UUID txId, UUID accountId, TransactionStatus oldStatus, TransactionStatus newStatus, Money amount) {
-            #AuditTrail audit = complianceDb.AuditTrail.create({
+            let AuditTrail audit = complianceDb.AuditTrail.create({
                 entityType: "Transaction",
                 entityId: txId,
                 action: "status_changed",
@@ -261,7 +261,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
     }
     subscribe AccountEvents {
         on AccountOpened(UUID accountId, String accountNumber, UUID customerId, AccountType type, Currency currency) {
-            #AuditTrail audit = complianceDb.AuditTrail.create({
+            let AuditTrail audit = complianceDb.AuditTrail.create({
                 entityType: "Account",
                 entityId: accountId,
                 action: "opened",
@@ -275,7 +275,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
         }
 
         on AccountStatusChanged(UUID accountId, String accountNumber, AccountStatus oldStatus, AccountStatus newStatus) {
-            #AuditTrail audit = complianceDb.AuditTrail.create({
+            let AuditTrail audit = complianceDb.AuditTrail.create({
                 entityType: "Account",
                 entityId: accountId,
                 action: "status_changed",
@@ -320,7 +320,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
         // List alerts with filtering and pagination
         @path('/alerts')
         get(Int page = 1, Int perPage = 20, AlertSeverity? severity, AlertStatus? status, UUID? accountId) : access(admin) -> PaginatedAlerts {
-            #JSON query = complianceDb.ComplianceAlert.all();
+            let JSON query = complianceDb.ComplianceAlert.all();
 
             if (severity != null) {
                 query = complianceDb.ComplianceAlert.where(severity: severity);
@@ -332,8 +332,8 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
                 query = query.where(accountId: accountId);
             }
 
-            #Int total = query.count();
-            #Array<ComplianceAlert> alerts = query
+            let Int total = query.count();
+            let Array<ComplianceAlert> alerts = query
                 .orderBy(detectedAt: desc)
                 .offset((page - 1) * perPage)
                 .limit(perPage)
@@ -361,7 +361,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
         // Start reviewing an alert
         @path('/alerts/:id/review')
         put(UUID id, ReviewAlertRequest request) : access(admin) -> complianceDb.ComplianceAlert {
-            #ComplianceAlert alert = complianceDb.ComplianceAlert.findOrFail(id);
+            let ComplianceAlert alert = complianceDb.ComplianceAlert.findOrFail(id);
             alert.startReview();
             alert.auditNote = request.notes;
             alert.save();
@@ -371,7 +371,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
         // Resolve an alert
         @path('/alerts/:id/resolve')
         put(UUID id, ResolveAlertRequest request) : access(admin) -> complianceDb.ComplianceAlert {
-            #ComplianceAlert alert = complianceDb.ComplianceAlert.findOrFail(id);
+            let ComplianceAlert alert = complianceDb.ComplianceAlert.findOrFail(id);
             alert.resolve(request.resolution, request.isFalsePositive, Auth.user().id);
             return alert;
         }
@@ -379,7 +379,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
         // Escalate an alert
         @path('/alerts/:id/escalate')
         put(UUID id, EscalateAlertRequest request) : access(admin) -> complianceDb.ComplianceAlert {
-            #ComplianceAlert alert = complianceDb.ComplianceAlert.findOrFail(id);
+            let ComplianceAlert alert = complianceDb.ComplianceAlert.findOrFail(id);
             alert.escalate(request.reason, request.escalatedTo);
             return alert;
         }
@@ -397,13 +397,13 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
         // Get compliance report summary
         @path('/reports/summary')
         get(DateTime? fromDate, DateTime? toDate) : access(admin) -> ComplianceReportSummary {
-            #Array<ComplianceAlert> allAlerts = complianceDb.ComplianceAlert.all();
+            let Array<ComplianceAlert> allAlerts = complianceDb.ComplianceAlert.all();
 
-            #Int total = allAlerts.length();
-            #Int open = allAlerts.filter(a => a.status == AlertStatus.Open || a.status == AlertStatus.UnderReview).length();
-            #Int resolved = allAlerts.filter(a => a.status == AlertStatus.Resolved || a.status == AlertStatus.FalsePositive).length();
-            #Int escalated = allAlerts.filter(a => a.status == AlertStatus.Escalated).length();
-            #Int critical = allAlerts.filter(a => a.severity == AlertSeverity.Critical).length();
+            let Int total = allAlerts.length();
+            let Int open = allAlerts.filter(a => a.status == AlertStatus.Open || a.status == AlertStatus.UnderReview).length();
+            let Int resolved = allAlerts.filter(a => a.status == AlertStatus.Resolved || a.status == AlertStatus.FalsePositive).length();
+            let Int escalated = allAlerts.filter(a => a.status == AlertStatus.Escalated).length();
+            let Int critical = allAlerts.filter(a => a.severity == AlertSeverity.Critical).length();
 
             return {
                 reportDate: now(),
@@ -428,25 +428,25 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
     jobs('config/compliance-service.yaml') {
         // Check for large transactions that may have been missed by real-time processing
         job CheckLargeTransactions {
-            #DateTime yesterday = now().addDays(-1);
-            #Array<AuditTrail> recentTxAudits = complianceDb.AuditTrail
+            let DateTime yesterday = now().addDays(-1);
+            let Array<AuditTrail> recentTxAudits = complianceDb.AuditTrail
                 .where(entityType: "Transaction")
                 .where(action: "created")
                 .where(performedAt: gte(yesterday))
                 .all();
 
-            #Int flagged = 0;
+            let Int flagged = 0;
             foreach audit in recentTxAudits {
-                #Money txAmount = audit.changes.amount;
+                let Money txAmount = audit.changes.amount;
                 if (txAmount.amount >= LARGE_TRANSACTION_THRESHOLD) {
                     // Check if alert already exists for this transaction
-                    #ComplianceAlert? existing = complianceDb.ComplianceAlert
+                    let ComplianceAlert? existing = complianceDb.ComplianceAlert
                         .where(transactionId: audit.entityId)
                         .where(type: AlertType.LargeTransaction)
                         .first();
 
                     if (existing == null) {
-                        #ComplianceAlert alert = complianceDb.ComplianceAlert.create({
+                        let ComplianceAlert alert = complianceDb.ComplianceAlert.create({
                             accountId: audit.performedBy,
                             type: AlertType.LargeTransaction,
                             severity: AlertSeverity.High,
@@ -468,17 +468,17 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
 
         // Generate periodic compliance reports
         job GenerateComplianceReport {
-            #DateTime today = now();
+            let DateTime today = now();
 
-            #Array<ComplianceAlert> allAlerts = complianceDb.ComplianceAlert.all();
-            #Array<ComplianceAlert> criticalAlerts = allAlerts.filter(a => a.severity == AlertSeverity.Critical);
-            #Array<AuditTrail> largeTxAudits = complianceDb.AuditTrail
+            let Array<ComplianceAlert> allAlerts = complianceDb.ComplianceAlert.all();
+            let Array<ComplianceAlert> criticalAlerts = allAlerts.filter(a => a.severity == AlertSeverity.Critical);
+            let Array<AuditTrail> largeTxAudits = complianceDb.AuditTrail
                 .where(entityType: "Transaction")
                 .where(action: "created")
                 .all();
 
-            #Money largeTxTotal = Money.of(0, Currency.USD);
-            #Int largeTxCount = 0;
+            let Money largeTxTotal = Money.of(0, Currency.USD);
+            let Int largeTxCount = 0;
             foreach audit in largeTxAudits {
                 if (audit.changes.amount.amount >= LARGE_TRANSACTION_THRESHOLD) {
                     largeTxTotal = largeTxTotal.add(audit.changes.amount);
@@ -486,7 +486,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
                 }
             }
 
-            #ComplianceReport report = complianceDb.ComplianceReport.create({
+            let ComplianceReport report = complianceDb.ComplianceReport.create({
                 reportDate: today,
                 reportType: "daily_compliance",
                 totalAlerts: allAlerts.length(),
@@ -509,7 +509,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
     }
 
     test("computed isOpen is true for Open status") {
-        #complianceDb.ComplianceAlert alert = complianceDb.ComplianceAlert.create({
+        let complianceDb.ComplianceAlertNone alert = complianceDb.ComplianceAlert.create({
             accountId: uuid(),
             type: AlertType.LargeTransaction,
             severity: AlertSeverity.High,
@@ -521,7 +521,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
     }
 
     test("computed isCritical is true for Critical severity") {
-        #complianceDb.ComplianceAlert alert = complianceDb.ComplianceAlert.create({
+        let complianceDb.ComplianceAlertNone alert = complianceDb.ComplianceAlert.create({
             accountId: uuid(),
             type: AlertType.SuspiciousPattern,
             severity: AlertSeverity.Critical,
@@ -545,7 +545,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
     }
 
     test("resolve changes status to Resolved") {
-        #complianceDb.ComplianceAlert alert = complianceDb.ComplianceAlert.create({
+        let complianceDb.ComplianceAlertNone alert = complianceDb.ComplianceAlert.create({
             accountId: uuid(),
             type: AlertType.VelocityExceeded,
             severity: AlertSeverity.Medium,
@@ -558,7 +558,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
     }
 
     test("resolve with falsePositive sets FalsePositive status") {
-        #complianceDb.ComplianceAlert alert = complianceDb.ComplianceAlert.create({
+        let complianceDb.ComplianceAlertNone alert = complianceDb.ComplianceAlert.create({
             accountId: uuid(),
             type: AlertType.GeographicAnomaly,
             severity: AlertSeverity.Low,

@@ -199,7 +199,7 @@ service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0
     subscribe OrderEvents {
 
         on OrderConfirmed(UUID orderId, UUID? paymentId, UUID reservationId, Address shippingAddress, Array<JSON> items, Decimal estimatedWeight) {
-            #Array<InventoryReservation> reservations = productDb.InventoryReservation
+            let Array<InventoryReservation> reservations = productDb.InventoryReservation
                 .where(reservationId: reservationId)
                 .where(status: ReservationStatus.Reserved)
                 .all();
@@ -213,7 +213,7 @@ service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0
         }
 
         on OrderCancelled(UUID orderId, String reason, UUID reservationId) {
-            #Array<InventoryReservation> reservations = productDb.InventoryReservation
+            let Array<InventoryReservation> reservations = productDb.InventoryReservation
                 .where(reservationId: reservationId)
                 .where(status: ReservationStatus.Reserved)
                 .all();
@@ -221,7 +221,7 @@ service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0
             // 'transaction(productDb)' wraps operations in a database transaction
             transaction(productDb) {
                 foreach reservation in reservations {
-                    #Product? product = productDb.Product.find(reservation.productId);
+                    let Product? product = productDb.Product.find(reservation.productId);
 
                     if (product != null) {
                         product.inventory = product.inventory + reservation.quantity;
@@ -282,10 +282,10 @@ service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0
 
         @path('/slug/:slug')
         get(String slug) : public -> productDb.Product {
-            #JSON? cached = redis.ProductCache.get(#"slug:{slug}");
+            let JSON? cached = redis.ProductCache.get(#"slug:{slug}");
             if (cached != null) return cached;
 
-            #Product product = productDb.Product.where(slug: slug).firstOrFail();
+            let Product product = productDb.Product.where(slug: slug).firstOrFail();
             redis.ProductCache.set(product.id, product);
             return product;
         }
@@ -312,7 +312,7 @@ service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0
         }
 
         post(CreateProductRequest request) : access(admin) -> productDb.Product {
-            #Product product = productDb.Product.create({
+            let Product product = productDb.Product.create({
                 name: request.name,
                 description: request.description,
                 price: request.price,
@@ -333,8 +333,8 @@ service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0
 
         @path('/:id/inventory')
         put(UUID id, UpdateInventoryRequest request) : access(admin) -> productDb.Product {
-            #Product product = productDb.Product.findOrFail(id);
-            #Int oldInventory = product.inventory;
+            let Product product = productDb.Product.findOrFail(id);
+            let Int oldInventory = product.inventory;
             product.inventory = request.inventory;
             product.save();
 
@@ -345,7 +345,7 @@ service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0
 
         @path('/:id/publish')
         put(UUID id) : access(admin) -> productDb.Product {
-            #Product product = productDb.Product.findOrFail(id);
+            let Product product = productDb.Product.findOrFail(id);
             product.publish();
             return product;
         }
@@ -353,11 +353,11 @@ service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0
         // Internal endpoints for cross-service communication
         @path('/internal/check-availability')
         post(CheckAvailabilityRequest request) : internal -> AvailabilityResponse {
-            #Array<AvailabilityItem> availability = [];
-            #Boolean allAvailable = true;
+            let Array<AvailabilityItem> availability = [];
+            let Boolean allAvailable = true;
 
             foreach item in request.items {
-                #Product? product = productDb.Product.find(item.productId);
+                let Product? product = productDb.Product.find(item.productId);
                 if (product == null || product.inventory < item.quantity) {
                     allAvailable = false;
                     availability.push({
@@ -381,7 +381,7 @@ service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0
         post(ReserveInventoryRequest request) : internal -> ReservationResponse {
             transaction(productDb) {
                 foreach item in request.items {
-                    #Product product = productDb.Product.findOrFail(item.productId);
+                    let Product product = productDb.Product.findOrFail(item.productId);
 
                     if (product.inventory < item.quantity) {
                         throw ValidationException({
@@ -406,7 +406,7 @@ service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0
             }
 
             // Lambda expression: '.map(i => i.productId)'
-            #Array<UUID> productIds = request.items.map(i => i.productId);
+            let Array<UUID> productIds = request.items.map(i => i.productId);
             dispatch InventoryReserved(request.reservationId, productIds);
 
             return { success: true, reservationId: request.reservationId };
@@ -414,7 +414,7 @@ service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0
 
         @path('/internal/confirm-reservation')
         post(ConfirmReservationRequest request) : internal -> Void {
-            #Array<InventoryReservation> reservations = productDb.InventoryReservation
+            let Array<InventoryReservation> reservations = productDb.InventoryReservation
                 .where(reservationId: request.reservationId)
                 .where(status: ReservationStatus.Reserved)
                 .all();
@@ -429,14 +429,14 @@ service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0
 
         @path('/internal/release-reservation')
         post(ReleaseReservationRequest request) : internal -> Void {
-            #Array<InventoryReservation> reservations = productDb.InventoryReservation
+            let Array<InventoryReservation> reservations = productDb.InventoryReservation
                 .where(reservationId: request.reservationId)
                 .where(status: ReservationStatus.Reserved)
                 .all();
 
             transaction(productDb) {
                 foreach reservation in reservations {
-                    #Product? product = productDb.Product.find(reservation.productId);
+                    let Product? product = productDb.Product.find(reservation.productId);
 
                     if (product != null) {
                         product.inventory = product.inventory + reservation.quantity;
@@ -465,12 +465,12 @@ service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0
     }
 
     test("validation rejects non-positive reservation quantity") {
-        #productDb.Category category = productDb.Category.create({
+        let productDb.Category category = productDb.Category.create({
             name: "Test Category",
             slug: "test-category"
         });
         category.save();
-        #productDb.Product product = productDb.Product.create({
+        let productDb.Product product = productDb.Product.create({
             name: "SpecTestProduct",
             description: "Test product for spec",
             price: Money.of(29.99, Currency.USD),
@@ -492,12 +492,12 @@ service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0
     }
 
     test("afterUpdate emits InventoryUpdated on inventory change") {
-        #productDb.Category category = productDb.Category.create({
+        let productDb.Category category = productDb.Category.create({
             name: "Inventory Test Category",
             slug: "inventory-test-category"
         });
         category.save();
-        #productDb.Product product = productDb.Product.create({
+        let productDb.Product product = productDb.Product.create({
             name: "SpecInventoryProduct",
             description: "Test product for inventory spec",
             price: Money.of(19.99, Currency.USD),
@@ -517,27 +517,27 @@ service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0
     jobs('config/product-service.yaml') {
         // Job to release inventory reservations that have expired
         job ReleaseExpiredReservations {
-            #Array<InventoryReservation> expired = productDb.InventoryReservation
+            let Array<InventoryReservation> expired = productDb.InventoryReservation
                 .where(status: ReservationStatus.Reserved)
                 .where(expiresAt: lt(now()))
                 .all();
 
-            #JSON reservationGroups = {};
+            let JSON reservationGroups = {};
             foreach reservation in expired {
-                #String key = reservation.reservationId.toString();
+                let String key = reservation.reservationId.toString();
                 if (reservationGroups[key] == null) {
                     reservationGroups[key] = [];
                 }
                 reservationGroups[key].push(reservation);
             }
 
-            #Int count = 0;
+            let Int count = 0;
             foreach reservationId in JSON.keys(reservationGroups) {
-                #JSON batch = reservationGroups[reservationId];
+                let JSON batch = reservationGroups[reservationId];
 
                 transaction(productDb) {
                     foreach item in batch {
-                        #Product? product = productDb.Product.find(item.productId);
+                        let Product? product = productDb.Product.find(item.productId);
 
                         if (product != null) {
                             product.inventory = product.inventory + item.quantity;
@@ -561,11 +561,11 @@ service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0
         }
 
         job UpdatePopularProducts {
-            #Array<Product> products = productDb.Product.where(status: ProductStatus.Active).all();
+            let Array<Product> products = productDb.Product.where(status: ProductStatus.Active).all();
 
             foreach product in products {
-                #Int views = redis.ProductViews.get(product.id.toString()) ?? 0;
-                #Int score = views;
+                let Int views = redis.ProductViews.get(product.id.toString()) ?? 0;
+                let Int score = views;
                 redis.PopularProducts.add(product.id, score);
             }
 

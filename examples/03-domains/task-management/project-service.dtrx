@@ -148,7 +148,7 @@ service taskapp.ProjectService('config/project-service.yaml') : version('1.0.0')
             Log.info("Project created", { projectId: projectId, name: name, ownerId: ownerId });
 
             // Automatically add the owner as a project member with Owner role
-            #ProjectMember member = projectDb.ProjectMember.create({
+            let ProjectMember member = projectDb.ProjectMember.create({
                 projectId: projectId,
                 userId: ownerId,
                 role: MemberRole.Owner
@@ -188,30 +188,30 @@ service taskapp.ProjectService('config/project-service.yaml') : version('1.0.0')
 
         // List projects for the current user
         get(Int page = 1, Int perPage = 20, ProjectStatus? status) -> PaginatedProjects {
-            #UUID userId = Auth.user().id;
-            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            let UUID userId = Auth.user().id;
+            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
 
             // Find projects where the user is a member
-            #Array<ProjectMember> memberships = projectDb.ProjectMember
+            let Array<ProjectMember> memberships = projectDb.ProjectMember
                 .where(userId: userId)
                 .all();
 
-            #Array<UUID> projectIds = memberships.map(m => m.projectId);
+            let Array<UUID> projectIds = memberships.map(m => m.projectId);
 
-            #JSON query = projectDb.Project.whereIn(id: projectIds);
+            let JSON query = projectDb.Project.whereIn(id: projectIds);
 
             if (status != null) {
                 query = query.where(status: status);
             }
 
-            #Int total = query.count();
-            #Array<Project> projects = query
+            let Int total = query.count();
+            let Array<Project> projects = query
                 .orderBy(updatedAt: desc)
                 .offset((page - 1) * cappedPerPage)
                 .limit(cappedPerPage)
                 .all();
 
-            #Int totalPages = Math.ceil(total / cappedPerPage);
+            let Int totalPages = Math.ceil(total / cappedPerPage);
 
             return {
                 data: projects,
@@ -234,9 +234,9 @@ service taskapp.ProjectService('config/project-service.yaml') : version('1.0.0')
 
         // Create a new project
         post(CreateProjectRequest request) -> projectDb.Project {
-            #UUID ownerId = Auth.user().id;
+            let UUID ownerId = Auth.user().id;
 
-            #Project project = projectDb.Project.create({
+            let Project project = projectDb.Project.create({
                 name: request.name,
                 description: request.description,
                 ownerId: ownerId,
@@ -250,7 +250,7 @@ service taskapp.ProjectService('config/project-service.yaml') : version('1.0.0')
         // Update a project
         @path('/:id')
         put(UUID id, UpdateProjectRequest request) -> projectDb.Project {
-            #Project project = projectDb.Project.findOrFail(id);
+            let Project project = projectDb.Project.findOrFail(id);
 
             if (request.name != null) {
                 project.name = request.name;
@@ -269,8 +269,8 @@ service taskapp.ProjectService('config/project-service.yaml') : version('1.0.0')
         // Delete (archive) a project
         @path('/:id')
         delete(UUID id) -> Void {
-            #Project project = projectDb.Project.findOrFail(id);
-            #UUID userId = Auth.user().id;
+            let Project project = projectDb.Project.findOrFail(id);
+            let UUID userId = Auth.user().id;
 
             if (project.ownerId != userId && !Auth.hasRole("admin")) {
                 throw AuthorizationException("Only the project owner or admin can archive a project");
@@ -285,13 +285,13 @@ service taskapp.ProjectService('config/project-service.yaml') : version('1.0.0')
         // Add a member to a project
         @path('/:id/members')
         post(UUID id, AddMemberRequest request) -> projectDb.ProjectMember {
-            #Project project = projectDb.Project.findOrFail(id);
+            let Project project = projectDb.Project.findOrFail(id);
 
             // Verify the user exists
-            #JSON user = UserService.UserAPI.get(#"/internal/{request.userId}");
+            let JSON user = UserService.UserAPI.get(#"/internal/{request.userId}");
 
             // Check if already a member
-            #ProjectMember? existing = projectDb.ProjectMember
+            let ProjectMember? existing = projectDb.ProjectMember
                 .where(projectId: id)
                 .where(userId: request.userId)
                 .first();
@@ -303,7 +303,7 @@ service taskapp.ProjectService('config/project-service.yaml') : version('1.0.0')
                 });
             }
 
-            #ProjectMember member = projectDb.ProjectMember.create({
+            let ProjectMember member = projectDb.ProjectMember.create({
                 projectId: id,
                 userId: request.userId,
                 role: request.role
@@ -316,7 +316,7 @@ service taskapp.ProjectService('config/project-service.yaml') : version('1.0.0')
         // Update a member's role
         @path('/:id/members/:userId')
         put(UUID id, UUID userId, UpdateMemberRoleRequest request) -> projectDb.ProjectMember {
-            #ProjectMember member = projectDb.ProjectMember
+            let ProjectMember member = projectDb.ProjectMember
                 .where(projectId: id)
                 .where(userId: userId)
                 .firstOrFail();
@@ -330,7 +330,7 @@ service taskapp.ProjectService('config/project-service.yaml') : version('1.0.0')
         // Remove a member from a project
         @path('/:id/members/:userId')
         delete(UUID id, UUID userId) -> Void {
-            #ProjectMember member = projectDb.ProjectMember
+            let ProjectMember member = projectDb.ProjectMember
                 .where(projectId: id)
                 .where(userId: userId)
                 .firstOrFail();
@@ -357,15 +357,15 @@ service taskapp.ProjectService('config/project-service.yaml') : version('1.0.0')
         // Search projects
         @path('/search')
         get(String query, Int page = 1, Int perPage = 20) -> PaginatedProjects {
-            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
-            #Array<Project> projects = projectDb.Project
+            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            let Array<Project> projects = projectDb.Project
                 .fulltext(query)
                 .offset((page - 1) * cappedPerPage)
                 .limit(cappedPerPage)
                 .all();
 
-            #Int total = projectDb.Project.fulltext(query).count();
-            #Int totalPages = Math.ceil(total / cappedPerPage);
+            let Int total = projectDb.Project.fulltext(query).count();
+            let Int totalPages = Math.ceil(total / cappedPerPage);
 
             return {
                 data: projects,
@@ -398,7 +398,7 @@ service taskapp.ProjectService('config/project-service.yaml') : version('1.0.0')
     }
 
     test("computed isActive for Active status") {
-        #projectDb.Project project = projectDb.Project.create({
+        let projectDb.ProjectNone project = projectDb.Project.create({
             name: "Test Project",
             ownerId: uuid(),
             status: ProjectStatus.Active
@@ -409,7 +409,7 @@ service taskapp.ProjectService('config/project-service.yaml') : version('1.0.0')
     }
 
     test("computed canAddTasks for Planning status") {
-        #projectDb.Project project = projectDb.Project.create({
+        let projectDb.ProjectNone project = projectDb.Project.create({
             name: "Planning Project",
             ownerId: uuid(),
             status: ProjectStatus.Planning
@@ -419,7 +419,7 @@ service taskapp.ProjectService('config/project-service.yaml') : version('1.0.0')
     }
 
     test("beforeCreate generates projectKey") {
-        #projectDb.Project project = projectDb.Project.create({
+        let projectDb.ProjectNone project = projectDb.Project.create({
             name: "Key Project",
             ownerId: uuid()
         });
@@ -428,8 +428,8 @@ service taskapp.ProjectService('config/project-service.yaml') : version('1.0.0')
     }
 
     test("afterCreate emits ProjectCreated event") {
-        #UUID ownerId = uuid();
-        #projectDb.Project project = projectDb.Project.create({
+        let UUID ownerId = uuid();
+        let projectDb.ProjectNone project = projectDb.Project.create({
             name: "Event Project",
             ownerId: ownerId
         });

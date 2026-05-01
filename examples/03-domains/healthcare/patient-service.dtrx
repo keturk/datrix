@@ -203,7 +203,7 @@ service healthcare.PatientService('config/patient-service.yaml') : version('1.0.
     }
 
     test("computed fullName concatenates first and last name") {
-        #patientDb.Patient patient = patientDb.Patient.create({
+        let patientDb.PatientNone patient = patientDb.Patient.create({
             firstName: "John",
             lastName: "Doe",
             dateOfBirth: Date.of(1985, 6, 15),
@@ -238,7 +238,7 @@ service healthcare.PatientService('config/patient-service.yaml') : version('1.0.
     }
 
     test("afterCreate emits PatientRegistered event") {
-        #patientDb.Patient patient = patientDb.Patient.create({
+        let patientDb.PatientNone patient = patientDb.Patient.create({
             firstName: "Alice",
             lastName: "Smith",
             dateOfBirth: Date.of(1990, 3, 20),
@@ -255,7 +255,7 @@ service healthcare.PatientService('config/patient-service.yaml') : version('1.0.
 
         // List endpoint with search and filtering
         get(String? search, PatientStatus? status, Int page = 1, Int perPage = 20) -> PatientSearchResult {
-            #JSON query = patientDb.Patient.query();
+            let JSON query = patientDb.Patient.query();
 
             if (search != null && !search.isEmpty()) {
                 // Full-text search on indexed fields
@@ -269,8 +269,8 @@ service healthcare.PatientService('config/patient-service.yaml') : version('1.0.
             // Exclude soft-deleted records
             query = query.whereNull(deletedAt);
 
-            #Int total = query.count();
-            #Array<Patient> patients = query
+            let Int total = query.count();
+            let Array<Patient> patients = query
                 .orderBy(lastName: asc)
                 .orderBy(firstName: asc)
                 .offset((page - 1) * perPage)
@@ -296,7 +296,7 @@ service healthcare.PatientService('config/patient-service.yaml') : version('1.0.
 
         @path('/:id')
         get(UUID id) -> patientDb.Patient {
-            #Patient patient = patientDb.Patient.findOrFail(id);
+            let Patient patient = patientDb.Patient.findOrFail(id);
 
             Log.info("Patient viewed", {
                 patientId: id,
@@ -312,13 +312,13 @@ service healthcare.PatientService('config/patient-service.yaml') : version('1.0.
         @path('/mrn/:mrn')
         get(String mrn) -> patientDb.Patient {
             // Check cache first for fast lookup
-            #JSON? cached = redis.PatientByMRN.get(mrn);
+            let JSON? cached = redis.PatientByMRN.get(mrn);
             if (cached != null) {
-                #Patient patient = patientDb.Patient.findOrFail(cached.patientId);
+                let Patient patient = patientDb.Patient.findOrFail(cached.patientId);
                 return patient;
             }
 
-            #Patient patient = patientDb.Patient.where(mrn: mrn).firstOrFail();
+            let Patient patient = patientDb.Patient.where(mrn: mrn).firstOrFail();
 
             redis.PatientByMRN.set(mrn, { mrn: mrn, patientId: patient.id });
 
@@ -333,7 +333,7 @@ service healthcare.PatientService('config/patient-service.yaml') : version('1.0.
         }
 
         post(CreatePatientRequest request) -> patientDb.Patient {
-            #Patient patient = patientDb.Patient.create({
+            let Patient patient = patientDb.Patient.create({
                 firstName: request.firstName,
                 lastName: request.lastName,
                 middleName: request.middleName,
@@ -360,10 +360,10 @@ service healthcare.PatientService('config/patient-service.yaml') : version('1.0.
 
         @path('/:id')
         put(UUID id, UpdatePatientRequest request) -> patientDb.Patient {
-            #Patient patient = patientDb.Patient.findOrFail(id);
+            let Patient patient = patientDb.Patient.findOrFail(id);
 
             // Track which fields changed for the update event
-            #Array<String> changedFields = [];
+            let Array<String> changedFields = [];
 
             if (request.firstName != null) { patient.firstName = request.firstName; changedFields.push("firstName"); }
             if (request.lastName != null) { patient.lastName = request.lastName; changedFields.push("lastName"); }
@@ -392,7 +392,7 @@ service healthcare.PatientService('config/patient-service.yaml') : version('1.0.
 
         @path('/:id/status')
         put(UUID id, UpdatePatientStatusRequest request) : access(admin) -> patientDb.Patient {
-            #Patient patient = patientDb.Patient.findOrFail(id);
+            let Patient patient = patientDb.Patient.findOrFail(id);
             patient.status = request.status;
             patient.save();
 
@@ -419,7 +419,7 @@ service healthcare.PatientService('config/patient-service.yaml') : version('1.0.
 
         @path('/internal/validate')
         post(ValidatePatientRequest request) : internal -> Boolean {
-            #Patient? patient = patientDb.Patient.find(request.patientId);
+            let Patient? patient = patientDb.Patient.find(request.patientId);
             return patient != null && patient.status == PatientStatus.Active;
         }
 

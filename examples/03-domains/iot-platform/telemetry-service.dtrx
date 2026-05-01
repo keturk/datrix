@@ -224,7 +224,7 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
 
         on DeviceStatusChanged(UUID deviceId, String serialNumber, DeviceStatus oldStatus, DeviceStatus newStatus) {
             if (newStatus == DeviceStatus.Decommissioned) {
-                #Array<Alert> activeAlerts = alertDb.Alert
+                let Array<Alert> activeAlerts = alertDb.Alert
                     .where(deviceId: deviceId)
                     .where(status: AlertStatus.Active)
                     .all();
@@ -327,7 +327,7 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
 
         @path('/device/:deviceId/latest')
         get(UUID deviceId) -> LatestReadings {
-            #JSON? cached = redis.LatestTelemetryCache.get(deviceId);
+            let JSON? cached = redis.LatestTelemetryCache.get(deviceId);
 
             if (cached != null) {
                 return {
@@ -341,7 +341,7 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
                 };
             }
 
-            #JSON? latest = docdb.TelemetryData
+            let JSON? latest = docdb.TelemetryData
                 .where(deviceId: deviceId)
                 .orderBy(timestamp: desc)
                 .first();
@@ -366,7 +366,7 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
 
         @path('/device/:deviceId/history')
         get(UUID deviceId, DateTime? from, DateTime? to, Int? limit) -> Array<JSON> {
-            #JSON query = docdb.TelemetryData.where(deviceId: deviceId);
+            let JSON query = docdb.TelemetryData.where(deviceId: deviceId);
 
             if (from != null) {
                 query = query.where(timestamp: gte(from));
@@ -383,7 +383,7 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
 
         @path('/alerts')
         get(AlertStatus? status, AlertSeverity? severity) -> Array<alertDb.Alert> {
-            #JSON query = alertDb.Alert.all();
+            let JSON query = alertDb.Alert.all();
 
             if (status != null) {
                 query = alertDb.Alert.where(status: status);
@@ -402,7 +402,7 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
 
         @path('/alerts/:id/acknowledge')
         post(UUID id, AcknowledgeAlertRequest request) -> alertDb.Alert {
-            #Alert alert = alertDb.Alert.findOrFail(id);
+            let Alert alert = alertDb.Alert.findOrFail(id);
 
             if (!alert.isActive) {
                 throw ValidationException({
@@ -424,7 +424,7 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
 
         @path('/alerts/:id/resolve')
         post(UUID id) -> alertDb.Alert {
-            #Alert alert = alertDb.Alert.findOrFail(id);
+            let Alert alert = alertDb.Alert.findOrFail(id);
             alert.resolve();
 
             Log.info("Alert resolved", {
@@ -437,7 +437,7 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
 
         @path('/alerts/device/:deviceId')
         get(UUID deviceId, AlertStatus? status) -> Array<alertDb.Alert> {
-            #JSON query = alertDb.Alert.where(deviceId: deviceId);
+            let JSON query = alertDb.Alert.where(deviceId: deviceId);
 
             if (status != null) {
                 query = query.where(status: status);
@@ -453,7 +453,7 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
 
         @path('/alert-rules')
         post(CreateAlertRuleRequest request) -> alertDb.AlertRule {
-            #AlertRule rule = alertDb.AlertRule.create({
+            let AlertRule rule = alertDb.AlertRule.create({
                 deviceId: request.deviceId,
                 deviceGroupId: request.deviceGroupId,
                 metricName: request.metricName,
@@ -487,23 +487,23 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
     jobs('config/telemetry-service.yaml') {
 
         job CheckAlertRules {
-            #Array<AlertRule> rules = alertDb.AlertRule
+            let Array<AlertRule> rules = alertDb.AlertRule
                 .where(isEnabled: true)
                 .all();
 
-            #Int alertsTriggered = 0;
+            let Int alertsTriggered = 0;
 
             foreach rule in rules {
                 if (rule.isInCooldown()) {
                     continue;
                 }
 
-                #Array<UUID> targetDeviceIds = [];
+                let Array<UUID> targetDeviceIds = [];
 
                 if (rule.deviceId != null) {
                     targetDeviceIds.push(rule.deviceId);
                 } else if (rule.deviceGroupId != null) {
-                    #Array<JSON> members = DeviceService.DeviceAPI.get('/by-group/:groupId', rule.deviceGroupId);
+                    let Array<JSON> members = DeviceService.DeviceAPI.get('/by-group/:groupId', rule.deviceGroupId);
                     foreach member in members {
                         targetDeviceIds.push(member.id);
                     }
@@ -511,16 +511,16 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
 
                 foreach targetDeviceId in targetDeviceIds {
                     try {
-                        #JSON? cached = redis.LatestTelemetryCache.get(targetDeviceId);
+                        let JSON? cached = redis.LatestTelemetryCache.get(targetDeviceId);
                         if (cached == null) continue;
 
-                        #Decimal? metricValue = null;
+                        let Decimal? metricValue = null;
                         if (rule.metricName == "temperature") metricValue = cached.temperature;
                         if (rule.metricName == "humidity") metricValue = cached.humidity;
                         if (rule.metricName == "batteryLevel") metricValue = cached.batteryLevel;
 
                         if (metricValue != null && rule.shouldTrigger(metricValue)) {
-                            #Alert alert = alertDb.Alert.create({
+                            let Alert alert = alertDb.Alert.create({
                                 deviceId: targetDeviceId,
                                 severity: rule.severity,
                                 condition: #"{rule.metricName} {rule.operator} {rule.threshold}",
@@ -548,14 +548,14 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
         }
 
         job AggregateHourlyStats {
-            #DateTime oneHourAgo = now().subtractHours(1);
+            let DateTime oneHourAgo = now().subtractHours(1);
 
-            #Array<JSON> recentData = docdb.TelemetryData
+            let Array<JSON> recentData = docdb.TelemetryData
                 .where(timestamp: gte(oneHourAgo))
                 .all();
 
-            #Int totalReadings = recentData.length();
-            #Int uniqueDevices = 0;
+            let Int totalReadings = recentData.length();
+            let Int uniqueDevices = 0;
 
             Log.info("Hourly telemetry aggregation completed", {
                 totalReadings: totalReadings,
@@ -567,7 +567,7 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
     }
 
     test("computed isActive reflects Active alert status") {
-        #alertDb.Alert alert = alertDb.Alert.create({
+        let alertDb.AlertNone alert = alertDb.Alert.create({
             deviceId: uuid(),
             severity: AlertSeverity.Warning,
             status: AlertStatus.Active,
@@ -579,7 +579,7 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
     }
 
     test("computed isCritical reflects Critical severity") {
-        #alertDb.Alert alert = alertDb.Alert.create({
+        let alertDb.AlertNone alert = alertDb.Alert.create({
             deviceId: uuid(),
             severity: AlertSeverity.Critical,
             status: AlertStatus.Active,
@@ -603,7 +603,7 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
     }
 
     test("afterCreate emits AlertTriggered") {
-        #alertDb.Alert alert = alertDb.Alert.create({
+        let alertDb.AlertNone alert = alertDb.Alert.create({
             deviceId: uuid(),
             severity: AlertSeverity.Error,
             condition: "humidity > 90",

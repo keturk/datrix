@@ -246,7 +246,7 @@ service realestate.ListingService('config/listing-service.yaml') : version('1.0.
 
         // List all listings with pagination
         get(Int page = 1, Int perPage = 20, ListingStatus? status, PropertyType? propertyType) : public -> PaginatedListings {
-            #JSON query = listingDb.Listing.all();
+            let JSON query = listingDb.Listing.all();
 
             if (status != null) {
                 query = listingDb.Listing.where(status: status);
@@ -257,8 +257,8 @@ service realestate.ListingService('config/listing-service.yaml') : version('1.0.
                 query = query.where(propertyType: propertyType);
             }
 
-            #Int total = query.count();
-            #Array<Listing> listings = query
+            let Int total = query.count();
+            let Array<Listing> listings = query
                 .orderBy(createdAt: desc)
                 .offset((page - 1) * perPage)
                 .limit(perPage)
@@ -285,7 +285,7 @@ service realestate.ListingService('config/listing-service.yaml') : version('1.0.
 
         // Create a new listing
         post(CreateListingRequest request) -> listingDb.Listing {
-            #Listing listing = listingDb.Listing.create({
+            let Listing listing = listingDb.Listing.create({
                 title: request.title,
                 description: request.description,
                 listingRef: generateListingRef(),
@@ -312,7 +312,7 @@ service realestate.ListingService('config/listing-service.yaml') : version('1.0.
         // Update a listing
         @path('/:id')
         put(UUID id, UpdateListingRequest request) -> listingDb.Listing {
-            #Listing listing = listingDb.Listing.findOrFail(id);
+            let Listing listing = listingDb.Listing.findOrFail(id);
 
             if (request.title != null) listing.title = request.title;
             if (request.description != null) listing.description = request.description;
@@ -326,7 +326,7 @@ service realestate.ListingService('config/listing-service.yaml') : version('1.0.
         // Activate a draft listing
         @path('/:id/activate')
         put(UUID id) -> listingDb.Listing {
-            #Listing listing = listingDb.Listing.findOrFail(id);
+            let Listing listing = listingDb.Listing.findOrFail(id);
             listing.activate();
             return listing;
         }
@@ -334,7 +334,7 @@ service realestate.ListingService('config/listing-service.yaml') : version('1.0.
         // Withdraw a listing
         @path('/:id/withdraw')
         put(UUID id) -> listingDb.Listing {
-            #Listing listing = listingDb.Listing.findOrFail(id);
+            let Listing listing = listingDb.Listing.findOrFail(id);
             listing.withdraw();
             return listing;
         }
@@ -376,9 +376,9 @@ service realestate.ListingService('config/listing-service.yaml') : version('1.0.
         // Add an image to a listing
         @path('/:id/images')
         post(UUID id, AddImageRequest request) -> listingDb.ListingImage {
-            #Listing listing = listingDb.Listing.findOrFail(id);
+            let Listing listing = listingDb.Listing.findOrFail(id);
 
-            #ListingImage image = listingDb.ListingImage.create({
+            let ListingImage image = listingDb.ListingImage.create({
                 listingId: listing.id,
                 url: request.url,
                 caption: request.caption,
@@ -393,9 +393,9 @@ service realestate.ListingService('config/listing-service.yaml') : version('1.0.
         // Add a feature to a listing
         @path('/:id/features')
         post(UUID id, AddFeatureRequest request) -> listingDb.ListingFeature {
-            #Listing listing = listingDb.Listing.findOrFail(id);
+            let Listing listing = listingDb.Listing.findOrFail(id);
 
-            #ListingFeature feature = listingDb.ListingFeature.create({
+            let ListingFeature feature = listingDb.ListingFeature.create({
                 listingId: listing.id,
                 featureName: request.featureName,
                 featureValue: request.featureValue
@@ -431,7 +431,7 @@ service realestate.ListingService('config/listing-service.yaml') : version('1.0.
         // Internal: mark listing as under contract
         @path('/internal/:id/under-contract')
         put(UUID id) : internal -> listingDb.Listing {
-            #Listing listing = listingDb.Listing.findOrFail(id);
+            let Listing listing = listingDb.Listing.findOrFail(id);
             listing.markUnderContract();
             return listing;
         }
@@ -439,14 +439,14 @@ service realestate.ListingService('config/listing-service.yaml') : version('1.0.
         // Internal: mark listing as sold
         @path('/internal/:id/sold')
         put(UUID id) : internal -> listingDb.Listing {
-            #Listing listing = listingDb.Listing.findOrFail(id);
+            let Listing listing = listingDb.Listing.findOrFail(id);
             listing.markSold();
             return listing;
         }
     }
 
     test("computed isAvailable is true for Active status") {
-        #listingDb.Listing listing = listingDb.Listing.create({
+        let listingDb.ListingNone listing = listingDb.Listing.create({
             title: "Beautiful Family Home",
             description: "A spacious family home with a large backyard",
             listingRef: "LST-TEST-001",
@@ -466,7 +466,7 @@ service realestate.ListingService('config/listing-service.yaml') : version('1.0.
     }
 
     test("computed pricePerSqFt calculates correctly") {
-        #listingDb.Listing listing = listingDb.Listing.create({
+        let listingDb.ListingNone listing = listingDb.Listing.create({
             title: "Downtown Condo",
             description: "Modern condo in the heart of downtown",
             listingRef: "LST-TEST-002",
@@ -526,7 +526,7 @@ service realestate.ListingService('config/listing-service.yaml') : version('1.0.
     }
 
     test("afterCreate emits ListingCreated event") {
-        #listingDb.Listing listing = listingDb.Listing.create({
+        let listingDb.ListingNone listing = listingDb.Listing.create({
             title: "Charming Townhouse",
             description: "A lovely townhouse in a quiet neighborhood",
             listingRef: "LST-TEST-005",
@@ -546,7 +546,7 @@ service realestate.ListingService('config/listing-service.yaml') : version('1.0.
     }
 
     test("activate fails for non-draft listing") {
-        #listingDb.Listing listing = listingDb.Listing.create({
+        let listingDb.ListingNone listing = listingDb.Listing.create({
             title: "Already Active Listing",
             description: "This listing is already active",
             listingRef: "LST-TEST-006",

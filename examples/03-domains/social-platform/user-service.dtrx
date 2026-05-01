@@ -95,8 +95,8 @@ service social.UserService('config/user-service.yaml') : version('1.0.0'), descr
 
             afterCreate {
                 // Update follower/following counts
-                #User? follower = userDb.User.find(followerId);
-                #User? followee = userDb.User.find(followeeId);
+                let User? follower = userDb.User.find(followerId);
+                let User? followee = userDb.User.find(followeeId);
 
                 if (follower != null) {
                     follower.followingCount = follower.followingCount + 1;
@@ -190,15 +190,15 @@ service social.UserService('config/user-service.yaml') : version('1.0.0'), descr
         // Get current user profile
         @path('/me')
         get() -> userDb.User {
-            #UUID userId = Auth.user().id;
+            let UUID userId = Auth.user().id;
             return userDb.User.findOrFail(userId);
         }
 
         // Update current user profile
         @path('/me')
         put(UpdateProfileRequest request) -> userDb.User {
-            #UUID userId = Auth.user().id;
-            #User user = userDb.User.findOrFail(userId);
+            let UUID userId = Auth.user().id;
+            let User user = userDb.User.findOrFail(userId);
 
             if (request.displayName != null) {
                 user.displayName = request.displayName;
@@ -231,15 +231,15 @@ service social.UserService('config/user-service.yaml') : version('1.0.0'), descr
         // Search users by username or display name
         @path('/search')
         get(String query, Int page = 1, Int perPage = 20) : public -> PaginatedUsers {
-            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
-            #Array<User> users = userDb.User
+            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            let Array<User> users = userDb.User
                 .fulltext(query)
                 .where(status: UserStatus.Active)
                 .offset((page - 1) * cappedPerPage)
                 .limit(cappedPerPage)
                 .all();
 
-            #Int total = userDb.User
+            let Int total = userDb.User
                 .fulltext(query)
                 .where(status: UserStatus.Active)
                 .count();
@@ -253,7 +253,7 @@ service social.UserService('config/user-service.yaml') : version('1.0.0'), descr
         // Follow a user
         @path('/:id/follow')
         post(UUID id) -> userDb.Follow {
-            #UUID followerId = Auth.user().id;
+            let UUID followerId = Auth.user().id;
 
             if (followerId == id) {
                 throw ValidationException({
@@ -263,7 +263,7 @@ service social.UserService('config/user-service.yaml') : version('1.0.0'), descr
             }
 
             // Verify target user exists and is active
-            #User followee = userDb.User.findOrFail(id);
+            let User followee = userDb.User.findOrFail(id);
             if (!followee.isActive) {
                 throw ValidationException({
                     code: "USER_NOT_ACTIVE",
@@ -272,7 +272,7 @@ service social.UserService('config/user-service.yaml') : version('1.0.0'), descr
             }
 
             // Check if already following
-            #Follow? existing = userDb.Follow
+            let Follow? existing = userDb.Follow
                 .where(followerId: followerId)
                 .where(followeeId: id)
                 .first();
@@ -284,7 +284,7 @@ service social.UserService('config/user-service.yaml') : version('1.0.0'), descr
                 });
             }
 
-            #Follow follow = userDb.Follow.create({
+            let Follow follow = userDb.Follow.create({
                 followerId: followerId,
                 followeeId: id
             });
@@ -296,17 +296,17 @@ service social.UserService('config/user-service.yaml') : version('1.0.0'), descr
         // Unfollow a user
         @path('/:id/unfollow')
         delete(UUID id) -> Void {
-            #UUID followerId = Auth.user().id;
+            let UUID followerId = Auth.user().id;
 
-            #Follow follow = userDb.Follow
+            let Follow follow = userDb.Follow
                 .where(followerId: followerId)
                 .where(followeeId: id)
                 .firstOrFail();
 
             transaction(userDb) {
                 // Decrement counts
-                #User? follower = userDb.User.find(followerId);
-                #User? followee = userDb.User.find(id);
+                let User? follower = userDb.User.find(followerId);
+                let User? followee = userDb.User.find(id);
 
                 if (follower != null && follower.followingCount > 0) {
                     follower.followingCount = follower.followingCount - 1;
@@ -327,16 +327,16 @@ service social.UserService('config/user-service.yaml') : version('1.0.0'), descr
         // Get followers of a user
         @path('/:id/followers')
         get(UUID id, Int page = 1, Int perPage = 20) : public -> PaginatedUsers {
-            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
-            #Array<Follow> follows = userDb.Follow
+            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            let Array<Follow> follows = userDb.Follow
                 .where(followeeId: id)
                 .orderBy(followedAt: desc)
                 .offset((page - 1) * cappedPerPage)
                 .limit(cappedPerPage)
                 .all();
 
-            #Array<User> users = follows.map(f => userDb.User.findOrFail(f.followerId));
-            #Int total = userDb.Follow.where(followeeId: id).count();
+            let Array<User> users = follows.map(f => userDb.User.findOrFail(f.followerId));
+            let Int total = userDb.Follow.where(followeeId: id).count();
 
             return {
                 data: users,
@@ -347,16 +347,16 @@ service social.UserService('config/user-service.yaml') : version('1.0.0'), descr
         // Get users that a user is following
         @path('/:id/following')
         get(UUID id, Int page = 1, Int perPage = 20) : public -> PaginatedUsers {
-            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
-            #Array<Follow> follows = userDb.Follow
+            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            let Array<Follow> follows = userDb.Follow
                 .where(followerId: id)
                 .orderBy(followedAt: desc)
                 .offset((page - 1) * cappedPerPage)
                 .limit(cappedPerPage)
                 .all();
 
-            #Array<User> users = follows.map(f => userDb.User.findOrFail(f.followeeId));
-            #Int total = userDb.Follow.where(followerId: id).count();
+            let Array<User> users = follows.map(f => userDb.User.findOrFail(f.followeeId));
+            let Int total = userDb.Follow.where(followerId: id).count();
 
             return {
                 data: users,
@@ -389,7 +389,7 @@ service social.UserService('config/user-service.yaml') : version('1.0.0'), descr
     }
 
     test("validation rejects self-follow") {
-        #userDb.User user = userDb.User.create({
+        let userDb.UserNone user = userDb.User.create({
             username: "testuser",
             email: "test@example.com",
             displayName: "Test User"
@@ -405,7 +405,7 @@ service social.UserService('config/user-service.yaml') : version('1.0.0'), descr
     }
 
     test("computed isActive is true for Active status") {
-        #userDb.User user = userDb.User.create({
+        let userDb.UserNone user = userDb.User.create({
             username: "activeuser",
             email: "active@example.com",
             displayName: "Active User"
@@ -415,7 +415,7 @@ service social.UserService('config/user-service.yaml') : version('1.0.0'), descr
     }
 
     test("afterCreate emits UserRegistered event") {
-        #userDb.User user = userDb.User.create({
+        let userDb.UserNone user = userDb.User.create({
             username: "eventuser",
             email: "event@example.com",
             displayName: "Event User"

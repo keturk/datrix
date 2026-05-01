@@ -163,12 +163,12 @@ service realestate.ViewingService('config/viewing-service.yaml') : version('1.0.
 
             // Cancel all pending viewings if listing is withdrawn or sold
             if (newStatus == ListingStatus.Withdrawn || newStatus == ListingStatus.Sold) {
-                #Array<Viewing> pendingViewings = viewingDb.Viewing
+                let Array<Viewing> pendingViewings = viewingDb.Viewing
                     .where(listingId: listingId)
                     .where(status: ViewingStatus.Scheduled)
                     .all();
 
-                #Array<Viewing> confirmedViewings = viewingDb.Viewing
+                let Array<Viewing> confirmedViewings = viewingDb.Viewing
                     .where(listingId: listingId)
                     .where(status: ViewingStatus.Confirmed)
                     .all();
@@ -181,7 +181,7 @@ service realestate.ViewingService('config/viewing-service.yaml') : version('1.0.
                     viewing.cancel(#"Listing {listingRef} is no longer available ({newStatus})");
                 }
 
-                #Int cancelledCount = pendingViewings.length() + confirmedViewings.length();
+                let Int cancelledCount = pendingViewings.length() + confirmedViewings.length();
                 if (cancelledCount > 0) {
                     Log.info("Cancelled viewings for unavailable listing", { listingId: listingId, count: cancelledCount });
                 }
@@ -194,7 +194,7 @@ service realestate.ViewingService('config/viewing-service.yaml') : version('1.0.
 
         // List viewings with pagination
         get(Int page = 1, Int perPage = 20, UUID? listingId, ViewingStatus? status) -> PaginatedViewings {
-            #JSON query = viewingDb.Viewing.all();
+            let JSON query = viewingDb.Viewing.all();
 
             if (listingId != null) {
                 query = viewingDb.Viewing.where(listingId: listingId);
@@ -203,8 +203,8 @@ service realestate.ViewingService('config/viewing-service.yaml') : version('1.0.
                 query = query.where(status: status);
             }
 
-            #Int total = query.count();
-            #Array<Viewing> viewings = query
+            let Int total = query.count();
+            let Array<Viewing> viewings = query
                 .orderBy(scheduledAt: asc)
                 .offset((page - 1) * perPage)
                 .limit(perPage)
@@ -232,13 +232,13 @@ service realestate.ViewingService('config/viewing-service.yaml') : version('1.0.
         // Schedule a new viewing
         post(ScheduleViewingRequest request) -> viewingDb.Viewing {
             // Verify the listing exists and is active
-            #JSON listing = ListingService.ListingAPI.get(#"/internal/{request.listingId}");
+            let JSON listing = ListingService.ListingAPI.get(#"/internal/{request.listingId}");
 
             if (listing.status != "active") {
                 throw ValidationException("Cannot schedule a viewing for a non-active listing");
             }
 
-            #Viewing viewing = viewingDb.Viewing.create({
+            let Viewing viewing = viewingDb.Viewing.create({
                 listingId: request.listingId,
                 agentId: request.agentId ?? Auth.user().id,
                 clientName: request.clientName,
@@ -255,7 +255,7 @@ service realestate.ViewingService('config/viewing-service.yaml') : version('1.0.
         // Confirm a viewing
         @path('/:id/confirm')
         put(UUID id) -> viewingDb.Viewing {
-            #Viewing viewing = viewingDb.Viewing.findOrFail(id);
+            let Viewing viewing = viewingDb.Viewing.findOrFail(id);
             viewing.confirm();
             return viewing;
         }
@@ -263,7 +263,7 @@ service realestate.ViewingService('config/viewing-service.yaml') : version('1.0.
         // Complete a viewing with optional feedback
         @path('/:id/complete')
         put(UUID id, CompleteViewingRequest request) -> viewingDb.Viewing {
-            #Viewing viewing = viewingDb.Viewing.findOrFail(id);
+            let Viewing viewing = viewingDb.Viewing.findOrFail(id);
             viewing.complete(request.feedback, request.rating);
             return viewing;
         }
@@ -271,7 +271,7 @@ service realestate.ViewingService('config/viewing-service.yaml') : version('1.0.
         // Cancel a viewing
         @path('/:id/cancel')
         put(UUID id, CancelViewingRequest request) -> viewingDb.Viewing {
-            #Viewing viewing = viewingDb.Viewing.findOrFail(id);
+            let Viewing viewing = viewingDb.Viewing.findOrFail(id);
             viewing.cancel(request.reason);
             return viewing;
         }
@@ -279,7 +279,7 @@ service realestate.ViewingService('config/viewing-service.yaml') : version('1.0.
         // Mark a viewing as no-show
         @path('/:id/no-show')
         put(UUID id) -> viewingDb.Viewing {
-            #Viewing viewing = viewingDb.Viewing.findOrFail(id);
+            let Viewing viewing = viewingDb.Viewing.findOrFail(id);
             viewing.markNoShow();
             return viewing;
         }
@@ -306,7 +306,7 @@ service realestate.ViewingService('config/viewing-service.yaml') : version('1.0.
     }
 
     test("computed isPending is true for Scheduled status") {
-        #viewingDb.Viewing viewing = viewingDb.Viewing.create({
+        let viewingDb.ViewingNone viewing = viewingDb.Viewing.create({
             listingId: uuid(),
             clientName: "John Doe",
             clientEmail: "john@example.com",
@@ -342,7 +342,7 @@ service realestate.ViewingService('config/viewing-service.yaml') : version('1.0.
     }
 
     test("afterCreate emits ViewingScheduled event") {
-        #viewingDb.Viewing viewing = viewingDb.Viewing.create({
+        let viewingDb.ViewingNone viewing = viewingDb.Viewing.create({
             listingId: uuid(),
             clientName: "Bob Builder",
             clientEmail: "bob@example.com",
@@ -353,7 +353,7 @@ service realestate.ViewingService('config/viewing-service.yaml') : version('1.0.
     }
 
     test("cancel fails for completed viewing") {
-        #viewingDb.Viewing viewing = viewingDb.Viewing.create({
+        let viewingDb.ViewingNone viewing = viewingDb.Viewing.create({
             listingId: uuid(),
             clientName: "Alice Wonder",
             clientEmail: "alice@example.com",

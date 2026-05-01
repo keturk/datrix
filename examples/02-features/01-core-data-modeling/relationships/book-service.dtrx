@@ -75,9 +75,9 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("computed displayTitle formats title and year") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatDisplay" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatDisplay" });
         cat.save();
-        #bookDb.Book book = bookDb.Book.create({
+        let bookDb.Book book = bookDb.Book.create({
             title: "Domain-Driven Design",
             isbn: "9780321125217",
             author: "Eric Evans",
@@ -89,9 +89,9 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("computed isAvailable is true when status is Available") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatAvail" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatAvail" });
         cat.save();
-        #bookDb.Book book = bookDb.Book.create({
+        let bookDb.Book book = bookDb.Book.create({
             title: "Clean Code",
             isbn: "9780132350884",
             author: "Robert Martin",
@@ -103,9 +103,9 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     test("computed isOldBook is true for pre-2000 books") {
-        #bookDb.Category cat = bookDb.Category.create({ name: "SpecCatOldBook" });
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatOldBook" });
         cat.save();
-        #bookDb.Book book = bookDb.Book.create({
+        let bookDb.Book book = bookDb.Book.create({
             title: "Design Patterns",
             isbn: "9780201633610",
             author: "Gang of Four",

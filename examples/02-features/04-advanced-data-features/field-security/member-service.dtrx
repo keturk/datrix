@@ -60,7 +60,7 @@ service library.MemberService('config/member-service.yaml') : version('1.0.0'), 
         @path('/search')
         get(String? search, MembershipType? type, Int page = 1, Int perPage = 20) -> MemberSearchResult {
             // '.query()' starts a chainable query builder
-            #JSON query = memberDb.Member.query();
+            let JSON query = memberDb.Member.query();
 
             if (search != null && !search.isEmpty()) {
                 // '.fulltext(term)' performs natural-language search on fulltext-indexed fields
@@ -72,9 +72,9 @@ service library.MemberService('config/member-service.yaml') : version('1.0.0'), 
             }
 
             // '.count()' returns the number of matching records
-            #Int total = query.count();
+            let Int total = query.count();
             // Chained query: .orderBy() sorts, .offset() skips, .limit() restricts result count
-            #Array<Member> members = query
+            let Array<Member> members = query
                 .orderBy(lastName: asc)
                 .orderBy(firstName: asc)
                 .offset((page - 1) * perPage)
@@ -107,7 +107,7 @@ service library.MemberService('config/member-service.yaml') : version('1.0.0'), 
         // Internal endpoint returning a struct - exposes only profile fields, not the full entity
         @path('/internal/profile/:id')
         get(UUID id) : internal -> MemberProfile {
-            #Member member = memberDb.Member.findOrFail(id);
+            let Member member = memberDb.Member.findOrFail(id);
             return { fullName: member.fullName, email: member.email, membershipType: member.membershipType };
         }
     }

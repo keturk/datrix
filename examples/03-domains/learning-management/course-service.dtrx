@@ -228,13 +228,13 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
 
             afterCreate {
                 // Update average rating on the course
-                #Course? course = courseDb.Course.find(courseId);
+                let Course? course = courseDb.Course.find(courseId);
                 if (course != null) {
-                    #Array<CourseRating> ratings = courseDb.CourseRating
+                    let Array<CourseRating> ratings = courseDb.CourseRating
                         .where(courseId: courseId)
                         .all();
 
-                    #Decimal totalRating = 0;
+                    let Decimal totalRating = 0;
                     foreach r in ratings {
                         totalRating = totalRating + r.rating;
                     }
@@ -295,7 +295,7 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
             });
 
             if (newStatus == CourseStatus.Published) {
-                #Course? course = courseDb.Course.find(courseId);
+                let Course? course = courseDb.Course.find(courseId);
                 if (course != null) {
                     dispatch CoursePublished(courseId, course.title);
                 }
@@ -347,22 +347,22 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
 
         // List published courses
         get(DifficultyLevel? difficulty, Int page = 1, Int perPage = 20) : public -> PaginatedCourses {
-            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
 
-            #JSON query = courseDb.Course.where(status: CourseStatus.Published);
+            let JSON query = courseDb.Course.where(status: CourseStatus.Published);
 
             if (difficulty != null) {
                 query = query.where(difficulty: difficulty);
             }
 
-            #Int total = query.count();
-            #Array<Course> courses = query
+            let Int total = query.count();
+            let Array<Course> courses = query
                 .orderBy(createdAt: desc)
                 .offset((page - 1) * cappedPerPage)
                 .limit(cappedPerPage)
                 .all();
 
-            #Int totalPages = Math.ceil(total / cappedPerPage);
+            let Int totalPages = Math.ceil(total / cappedPerPage);
 
             return {
                 data: courses,
@@ -385,9 +385,9 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
 
         // Create a new course
         post(CreateCourseRequest request) : access(admin) -> courseDb.Course {
-            #UUID instructorId = Auth.user().id;
+            let UUID instructorId = Auth.user().id;
 
-            #Course course = courseDb.Course.create({
+            let Course course = courseDb.Course.create({
                 title: request.title,
                 description: request.description,
                 difficulty: request.difficulty,
@@ -405,7 +405,7 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
         // Update a course
         @path('/:id')
         put(UUID id, UpdateCourseRequest request) : access(admin) -> courseDb.Course {
-            #Course course = courseDb.Course.findOrFail(id);
+            let Course course = courseDb.Course.findOrFail(id);
 
             if (request.title != null) {
                 course.title = request.title;
@@ -433,7 +433,7 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
         // Publish a course
         @path('/:id/publish')
         put(UUID id) : access(admin) -> courseDb.Course {
-            #Course course = courseDb.Course.findOrFail(id);
+            let Course course = courseDb.Course.findOrFail(id);
 
             if (course.status != CourseStatus.Draft) {
                 throw ValidationException({
@@ -449,7 +449,7 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
         // Archive a course
         @path('/:id/archive')
         put(UUID id) : access(admin) -> courseDb.Course {
-            #Course course = courseDb.Course.findOrFail(id);
+            let Course course = courseDb.Course.findOrFail(id);
             course.archive();
             return course;
         }
@@ -457,9 +457,9 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
         // Search courses
         @path('/search')
         get(String query, DifficultyLevel? difficulty, Int page = 1, Int perPage = 20) : public -> PaginatedCourses {
-            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
 
-            #JSON courseQuery = courseDb.Course
+            let JSON courseQuery = courseDb.Course
                 .fulltext(query)
                 .where(status: CourseStatus.Published);
 
@@ -467,13 +467,13 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
                 courseQuery = courseQuery.where(difficulty: difficulty);
             }
 
-            #Array<Course> courses = courseQuery
+            let Array<Course> courses = courseQuery
                 .offset((page - 1) * cappedPerPage)
                 .limit(cappedPerPage)
                 .all();
 
-            #Int total = courseQuery.count();
-            #Int totalPages = Math.ceil(total / cappedPerPage);
+            let Int total = courseQuery.count();
+            let Int totalPages = Math.ceil(total / cappedPerPage);
 
             return {
                 data: courses,
@@ -491,9 +491,9 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
         // Add a module to a course
         @path('/:id/modules')
         post(UUID id, CreateModuleRequest request) : access(admin) -> courseDb.CourseModule {
-            #Course course = courseDb.Course.findOrFail(id);
+            let Course course = courseDb.Course.findOrFail(id);
 
-            #CourseModule module = courseDb.CourseModule.create({
+            let CourseModule module = courseDb.CourseModule.create({
                 courseId: id,
                 title: request.title,
                 description: request.description,
@@ -518,9 +518,9 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
         // Add a lesson to a module
         @path('/modules/:moduleId/lessons')
         post(UUID moduleId, CreateLessonRequest request) : access(admin) -> courseDb.Lesson {
-            #CourseModule module = courseDb.CourseModule.findOrFail(moduleId);
+            let CourseModule module = courseDb.CourseModule.findOrFail(moduleId);
 
-            #Lesson lesson = courseDb.Lesson.create({
+            let Lesson lesson = courseDb.Lesson.create({
                 courseModuleId: moduleId,
                 title: request.title,
                 content: request.content,
@@ -547,7 +547,7 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
         // Update a lesson
         @path('/lessons/:lessonId')
         put(UUID lessonId, UpdateLessonRequest request) : access(admin) -> courseDb.Lesson {
-            #Lesson lesson = courseDb.Lesson.findOrFail(lessonId);
+            let Lesson lesson = courseDb.Lesson.findOrFail(lessonId);
 
             if (request.title != null) {
                 lesson.title = request.title;
@@ -566,11 +566,11 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
         // Rate a course
         @path('/:id/rate')
         post(UUID id, RateCourseRequest request) -> courseDb.CourseRating {
-            #UUID studentId = Auth.user().id;
-            #Course course = courseDb.Course.findOrFail(id);
+            let UUID studentId = Auth.user().id;
+            let Course course = courseDb.Course.findOrFail(id);
 
             // Check if already rated
-            #CourseRating? existing = courseDb.CourseRating
+            let CourseRating? existing = courseDb.CourseRating
                 .where(courseId: id)
                 .where(studentId: studentId)
                 .first();
@@ -582,7 +582,7 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
                 });
             }
 
-            #CourseRating courseRating = courseDb.CourseRating.create({
+            let CourseRating courseRating = courseDb.CourseRating.create({
                 courseId: id,
                 studentId: studentId,
                 rating: request.rating,
@@ -596,7 +596,7 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
         // Get course ratings
         @path('/:id/ratings')
         get(UUID id, Int page = 1, Int perPage = 20) : public -> Array<courseDb.CourseRating> {
-            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             return courseDb.CourseRating
                 .where(courseId: id)
                 .orderBy(createdAt: desc)
@@ -614,14 +614,14 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
         // Internal endpoint to check enrollment availability
         @path('/internal/:id/can-enroll')
         get(UUID id) : internal -> Boolean {
-            #Course course = courseDb.Course.findOrFail(id);
+            let Course course = courseDb.Course.findOrFail(id);
             return course.canEnroll;
         }
 
         // Internal endpoint to increment enrollment count
         @path('/internal/:id/increment-enrollment')
         post(UUID id) : internal -> courseDb.Course {
-            #Course course = courseDb.Course.findOrFail(id);
+            let Course course = courseDb.Course.findOrFail(id);
             course.currentEnrollment = course.currentEnrollment + 1;
             course.save();
             return course;
@@ -630,7 +630,7 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
         // Internal endpoint to decrement enrollment count
         @path('/internal/:id/decrement-enrollment')
         post(UUID id) : internal -> courseDb.Course {
-            #Course course = courseDb.Course.findOrFail(id);
+            let Course course = courseDb.Course.findOrFail(id);
             if (course.currentEnrollment > 0) {
                 course.currentEnrollment = course.currentEnrollment - 1;
                 course.save();
@@ -688,7 +688,7 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
     }
 
     test("computed isPublished for published course") {
-        #courseDb.Course course = courseDb.Course.create({
+        let courseDb.CourseNone course = courseDb.Course.create({
             title: "Published Course",
             description: "A published course",
             difficulty: DifficultyLevel.Beginner,
@@ -700,7 +700,7 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
     }
 
     test("computed canEnroll for available course") {
-        #courseDb.Course course = courseDb.Course.create({
+        let courseDb.CourseNone course = courseDb.Course.create({
             title: "Open Course",
             description: "An open course",
             difficulty: DifficultyLevel.Beginner,
@@ -715,7 +715,7 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
     }
 
     test("computed isFull when enrollment reaches max") {
-        #courseDb.Course course = courseDb.Course.create({
+        let courseDb.CourseNone course = courseDb.Course.create({
             title: "Full Course",
             description: "A full course",
             difficulty: DifficultyLevel.Advanced,
@@ -730,7 +730,7 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
     }
 
     test("beforeCreate generates courseCode") {
-        #courseDb.Course course = courseDb.Course.create({
+        let courseDb.CourseNone course = courseDb.Course.create({
             title: "Code Course",
             description: "A course for code testing",
             difficulty: DifficultyLevel.Intermediate,
@@ -741,8 +741,8 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
     }
 
     test("afterCreate emits CourseCreated event") {
-        #UUID instructorId = uuid();
-        #courseDb.Course course = courseDb.Course.create({
+        let UUID instructorId = uuid();
+        let courseDb.CourseNone course = courseDb.Course.create({
             title: "Event Course",
             description: "A course for event testing",
             difficulty: DifficultyLevel.Advanced,

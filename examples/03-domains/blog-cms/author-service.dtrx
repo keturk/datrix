@@ -123,10 +123,10 @@ service blog.AuthorService('config/author-service.yaml') : version('1.0.0'), des
         // 'public' makes this endpoint accessible without authentication
         post(RegisterAuthorRequest request) : public -> authorDb.Author {
             // '#Type' is a type hint for local variables
-            #Author? existingAuthor = authorDb.Author.where(email: request.email).first();
+            let Author? existingAuthor = authorDb.Author.where(email: request.email).first();
             if (existingAuthor != null)
                 throw ValidationException("Email already registered");
-            #Author author = authorDb.Author.create({
+            let Author author = authorDb.Author.create({
                 email: request.email,
                 passwordHash: Auth.hashPassword(request.password),
                 firstName: request.firstName,
@@ -140,7 +140,7 @@ service blog.AuthorService('config/author-service.yaml') : version('1.0.0'), des
     }
 
     test("computed fullName concatenates first and last name") {
-        #authorDb.Author author = authorDb.Author.create({
+        let authorDb.AuthorNone author = authorDb.Author.create({
             email: "jane@example.com",
             passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
             firstName: "Jane",
@@ -151,7 +151,7 @@ service blog.AuthorService('config/author-service.yaml') : version('1.0.0'), des
     }
 
     test("computed isActive is true for Active status") {
-        #authorDb.Author author = authorDb.Author.create({
+        let authorDb.AuthorNone author = authorDb.Author.create({
             email: "active@example.com",
             passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
             firstName: "Active",
@@ -164,7 +164,7 @@ service blog.AuthorService('config/author-service.yaml') : version('1.0.0'), des
     }
 
     test("computed canLogin requires active and verified") {
-        #authorDb.Author author = authorDb.Author.create({
+        let authorDb.AuthorNone author = authorDb.Author.create({
             email: "login@example.com",
             passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
             firstName: "Login",
@@ -190,7 +190,7 @@ service blog.AuthorService('config/author-service.yaml') : version('1.0.0'), des
     }
 
     test("afterCreate emits AuthorRegistered event") {
-        #authorDb.Author author = authorDb.Author.create({
+        let authorDb.AuthorNone author = authorDb.Author.create({
             email: "event@example.com",
             passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
             firstName: "Event",
@@ -201,7 +201,7 @@ service blog.AuthorService('config/author-service.yaml') : version('1.0.0'), des
     }
 
     test("spec: fullName returns Jane Austen for literary author fixture") {
-        #authorDb.Author author = authorDb.Author.create({
+        let authorDb.AuthorNone author = authorDb.Author.create({
             email: "spec.display@example.com",
             passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
             firstName: "Jane",
@@ -212,7 +212,7 @@ service blog.AuthorService('config/author-service.yaml') : version('1.0.0'), des
     }
 
     test("spec: isActive is true for verified Active author Mark Twain") {
-        #authorDb.Author author = authorDb.Author.create({
+        let authorDb.AuthorNone author = authorDb.Author.create({
             email: "spec.active@example.com",
             passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
             firstName: "Mark",
@@ -225,7 +225,7 @@ service blog.AuthorService('config/author-service.yaml') : version('1.0.0'), des
     }
 
     test("spec: canLogin is true for active verified Ernest Hemingway") {
-        #authorDb.Author author = authorDb.Author.create({
+        let authorDb.AuthorNone author = authorDb.Author.create({
             email: "spec.login@example.com",
             passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
             firstName: "Ernest",
@@ -251,7 +251,7 @@ service blog.AuthorService('config/author-service.yaml') : version('1.0.0'), des
     }
 
     test("spec: afterCreate emits AuthorRegistered for Virginia Woolf fixture") {
-        #authorDb.Author author = authorDb.Author.create({
+        let authorDb.AuthorNone author = authorDb.Author.create({
             email: "spec.event@example.com",
             passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
             firstName: "Virginia",

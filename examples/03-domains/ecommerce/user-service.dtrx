@@ -242,12 +242,12 @@ service ecommerce.UserService('config/user-service.yaml') : version('1.0.0'), de
                 throw ValidationException("Password must be at least 8 characters");
             if (!Validator.hasLowercase(request.password) || !Validator.hasUppercase(request.password) || !Validator.hasNumbers(request.password))
                 throw ValidationException("Password must contain lowercase, uppercase, and numbers");
-            #User? existing = userDb.User.where(email: request.email).first();
+            let User? existing = userDb.User.where(email: request.email).first();
             if (existing != null) {
                 throw ValidationException("Email already registered");
             }
 
-            #User user = userDb.User.create({
+            let User user = userDb.User.create({
                 email: request.email,
                 passwordHash: hashPassword(request.password),
                 firstName: request.firstName,
@@ -263,7 +263,7 @@ service ecommerce.UserService('config/user-service.yaml') : version('1.0.0'), de
         @path('/login')
         post(LoginRequest request) : public -> LoginResponse {
             // 'firstOrFail()' throws NotFoundException if no match
-            #User user = userDb.User.where(email: request.email).firstOrFail();
+            let User user = userDb.User.where(email: request.email).firstOrFail();
 
             if (!verifyPassword(request.password, user.passwordHash)) {
                 throw AuthenticationException("Invalid credentials");
@@ -273,8 +273,8 @@ service ecommerce.UserService('config/user-service.yaml') : version('1.0.0'), de
                 throw AuthenticationException("Account is not active or verified");
             }
 
-            #String token = generateSessionToken();
-            #UserSession session = userDb.UserSession.create({
+            let String token = generateSessionToken();
+            let UserSession session = userDb.UserSession.create({
                 user: user,
                 token: token,
                 deviceName: Request.device(),
@@ -305,8 +305,8 @@ service ecommerce.UserService('config/user-service.yaml') : version('1.0.0'), de
 
         @path('/logout')
         post(LogoutRequest request) -> Void {
-            #String token = Auth.token();
-            #UserSession? session = userDb.UserSession.where(token: token).first();
+            let String token = Auth.token();
+            let UserSession? session = userDb.UserSession.where(token: token).first();
             if (session != null) {
                 session.delete();
             }
@@ -320,7 +320,7 @@ service ecommerce.UserService('config/user-service.yaml') : version('1.0.0'), de
 
         @path('/me')
         put(UpdateProfileRequest request) -> userDb.User {
-            #User user = Auth.user();
+            let User user = Auth.user();
 
             if (request.firstName != null) user.firstName = request.firstName;
             if (request.lastName != null) user.lastName = request.lastName;
@@ -334,7 +334,7 @@ service ecommerce.UserService('config/user-service.yaml') : version('1.0.0'), de
 
         @path('/me/password')
         put(ChangePasswordRequest request) -> Void {
-            #User user = Auth.user();
+            let User user = Auth.user();
 
             if (!verifyPassword(request.currentPassword, user.passwordHash)) {
                 throw ValidationException("Current password is incorrect");
@@ -346,7 +346,7 @@ service ecommerce.UserService('config/user-service.yaml') : version('1.0.0'), de
 
         @path('/verify-email')
         post(VerifyEmailRequest request) : public -> userDb.User {
-            #User user = userDb.User.where(emailVerificationToken: request.token).firstOrFail();
+            let User user = userDb.User.where(emailVerificationToken: request.token).firstOrFail();
 
             user.emailVerifiedAt = now();
             user.emailVerificationToken = null;
@@ -358,7 +358,7 @@ service ecommerce.UserService('config/user-service.yaml') : version('1.0.0'), de
 
         @path('/forgot-password')
         post(ForgotPasswordRequest request) : public -> Void {
-            #User? user = userDb.User.where(email: request.email).first();
+            let User? user = userDb.User.where(email: request.email).first();
 
             if (user != null) {
                 user.passwordResetToken = generateToken();
@@ -371,7 +371,7 @@ service ecommerce.UserService('config/user-service.yaml') : version('1.0.0'), de
 
         @path('/reset-password')
         post(ResetPasswordRequest request) : public -> userDb.User {
-            #User user = userDb.User.where(passwordResetToken: request.token).firstOrFail();
+            let User user = userDb.User.where(passwordResetToken: request.token).firstOrFail();
 
             if (user.passwordResetExpiry == null || now() > user.passwordResetExpiry) {
                 throw ValidationException("Password reset token has expired");
@@ -387,7 +387,7 @@ service ecommerce.UserService('config/user-service.yaml') : version('1.0.0'), de
 
         @path('/:id/status')
         put(UUID id, UpdateUserStatusRequest request) : access(admin) -> userDb.User {
-            #User user = userDb.User.findOrFail(id);
+            let User user = userDb.User.findOrFail(id);
             user.status = request.status;
             user.save();
             return user;
@@ -401,7 +401,7 @@ service ecommerce.UserService('config/user-service.yaml') : version('1.0.0'), de
 
         @path('/internal/validate-session')
         post(ValidateSessionRequest request) : internal -> SessionValidationResponse {
-            #UserSession? session = userDb.UserSession.where(token: request.token).first();
+            let UserSession? session = userDb.UserSession.where(token: request.token).first();
 
             if (session == null || session.isExpired) {
                 return { valid: false, user: null };
@@ -420,7 +420,7 @@ service ecommerce.UserService('config/user-service.yaml') : version('1.0.0'), de
     }
 
     test("computed fullName concatenates first and last name") {
-        #userDb.User user = userDb.User.create({
+        let userDb.User user = userDb.User.create({
             email: "spec.name@example.com",
             passwordHash: hashPassword("Str0ng#TestP@ss9"),
             firstName: "John",
@@ -431,7 +431,7 @@ service ecommerce.UserService('config/user-service.yaml') : version('1.0.0'), de
     }
 
     test("computed canLogin requires active and verified") {
-        #userDb.User user = userDb.User.create({
+        let userDb.User user = userDb.User.create({
             email: "spec.login@example.com",
             passwordHash: hashPassword("Str0ng#TestP@ss9"),
             firstName: "Jane",
@@ -457,7 +457,7 @@ service ecommerce.UserService('config/user-service.yaml') : version('1.0.0'), de
     }
 
     test("afterCreate emits UserRegistered event") {
-        #userDb.User user = userDb.User.create({
+        let userDb.User user = userDb.User.create({
             email: "spec.event@example.com",
             passwordHash: hashPassword("Str0ng#TestP@ss9"),
             firstName: "Alice",

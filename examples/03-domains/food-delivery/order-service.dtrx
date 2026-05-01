@@ -108,7 +108,7 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
             }
 
             fn calculateTotals() {
-                #Money itemsTotal = Money.of(0, "USD");
+                let Money itemsTotal = Money.of(0, "USD");
                 foreach item in items {
                     itemsTotal = itemsTotal.add(item.subtotal);
                 }
@@ -116,7 +116,7 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
                 tax = subtotal.multiply(0.08);
                 deliveryFee = Money.of(DEFAULT_DELIVERY_FEE, "USD");
 
-                #Money tipAmount = tip ?? Money.of(0, "USD");
+                let Money tipAmount = tip ?? Money.of(0, "USD");
                 total = subtotal.add(tax).add(deliveryFee).add(tipAmount);
             }
         }
@@ -179,7 +179,7 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
                 newStatus: newStatus
             });
 
-            #JSON? cached = redis.OrderStatusCache.get(orderId);
+            let JSON? cached = redis.OrderStatusCache.get(orderId);
             if (cached != null) {
                 redis.OrderStatusCache.set(orderId, {
                     orderId: orderId,
@@ -198,7 +198,7 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
 
         on RestaurantStatusChanged(UUID restaurantId, String name, RestaurantStatus oldStatus, RestaurantStatus newStatus) {
             if (newStatus == RestaurantStatus.Closed || newStatus == RestaurantStatus.Suspended) {
-                #Array<Order> activeOrders = orderDb.Order
+                let Array<Order> activeOrders = orderDb.Order
                     .where(restaurantId: restaurantId)
                     .whereIn(status: [OrderStatus.Placed, OrderStatus.Confirmed])
                     .all();
@@ -218,7 +218,7 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
 
         on DeliveryStatusChanged(UUID deliveryId, UUID orderId, DeliveryStatus oldStatus, DeliveryStatus newStatus) {
             if (newStatus == DeliveryStatus.Delivered) {
-                #Order order = orderDb.Order.findOrFail(orderId);
+                let Order order = orderDb.Order.findOrFail(orderId);
 
                 transaction(orderDb) {
                     order.status = OrderStatus.Delivered;
@@ -237,15 +237,15 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
     rest_api OrderAPI : basePath('/api/v1/orders') {
 
         get(Int page = 1, Int perPage = 20, OrderStatus? status) -> PaginatedOrders {
-            #UUID customerId = Auth.user().id;
-            #JSON query = orderDb.Order.where(customerId: customerId);
+            let UUID customerId = Auth.user().id;
+            let JSON query = orderDb.Order.where(customerId: customerId);
 
             if (status != null) {
                 query = query.where(status: status);
             }
 
-            #Int total = query.count();
-            #Array<Order> orders = query
+            let Int total = query.count();
+            let Array<Order> orders = query
                 .orderBy(createdAt: desc)
                 .offset((page - 1) * perPage)
                 .limit(perPage)
@@ -266,7 +266,7 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
 
         @path('/:id')
         get(UUID id) -> orderDb.Order {
-            #Order order = orderDb.Order.findOrFail(id);
+            let Order order = orderDb.Order.findOrFail(id);
 
             if (order.customerId != Auth.user().id && !Auth.hasRole("admin")) {
                 throw AuthorizationException("Access denied");
@@ -277,7 +277,7 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
 
         @path('/place')
         post(PlaceOrderRequest request) -> orderDb.Order {
-            #JSON restaurant = RestaurantService.RestaurantAPI.get('/internal/:id', request.restaurantId);
+            let JSON restaurant = RestaurantService.RestaurantAPI.get('/internal/:id', request.restaurantId);
 
             if (!restaurant.isOpen) {
                 throw ValidationException({
@@ -293,10 +293,10 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
                 });
             }
 
-            #Array<UUID> itemIds = request.items.map(i => i.menuItemId);
-            #Array<JSON> menuItems = MenuService.MenuAPI.post('/internal/items', itemIds);
+            let Array<UUID> itemIds = request.items.map(i => i.menuItemId);
+            let Array<JSON> menuItems = MenuService.MenuAPI.post('/internal/items', itemIds);
 
-            #Order order = orderDb.Order.create({
+            let Order order = orderDb.Order.create({
                 orderNumber: generateOrderNumber(),
                 customerId: request.customerId,
                 restaurantId: request.restaurantId,
@@ -313,9 +313,9 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
             });
 
             foreach item in request.items {
-                #JSON? menuItem = menuItems.find(m => m.id == item.menuItemId);
+                let JSON? menuItem = menuItems.find(m => m.id == item.menuItemId);
                 if (menuItem != null) {
-                    #Money itemSubtotal = menuItem.price.multiply(item.quantity);
+                    let Money itemSubtotal = menuItem.price.multiply(item.quantity);
 
                     orderDb.OrderItem.create({
                         order: order,
@@ -353,7 +353,7 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
 
         @path('/:id/cancel')
         put(UUID id, CancelOrderRequest request) -> orderDb.Order {
-            #Order order = orderDb.Order.findOrFail(id);
+            let Order order = orderDb.Order.findOrFail(id);
 
             if (order.customerId != Auth.user().id && !Auth.hasRole("admin")) {
                 throw AuthorizationException("Cannot cancel another customer's order");
@@ -382,7 +382,7 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
 
         @path('/:id/status')
         put(UUID id, UpdateOrderStatusRequest request) : access(admin) -> orderDb.Order {
-            #Order order = orderDb.Order.findOrFail(id);
+            let Order order = orderDb.Order.findOrFail(id);
             order.status = request.status;
             order.save();
 
@@ -397,7 +397,7 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
 
         @path('/restaurant/:restaurantId')
         get(UUID restaurantId, OrderStatus? status) : access(admin) -> Array<orderDb.Order> {
-            #JSON query = orderDb.Order.where(restaurantId: restaurantId);
+            let JSON query = orderDb.Order.where(restaurantId: restaurantId);
 
             if (status != null) {
                 query = query.where(status: status);
@@ -413,7 +413,7 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
     }
 
     test("computed canCancel is true for Placed status") {
-        #orderDb.Order order = orderDb.Order.create({
+        let orderDb.OrderNone order = orderDb.Order.create({
             customerId: uuid(),
             restaurantId: uuid(),
             orderNumber: "FD-TEST-001",
@@ -428,7 +428,7 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
     }
 
     test("computed canCancel is false for Preparing status") {
-        #orderDb.Order order = orderDb.Order.create({
+        let orderDb.OrderNone order = orderDb.Order.create({
             customerId: uuid(),
             restaurantId: uuid(),
             orderNumber: "FD-TEST-002",
@@ -444,7 +444,7 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
     }
 
     test("afterCreate emits OrderPlaced event") {
-        #orderDb.Order order = orderDb.Order.create({
+        let orderDb.OrderNone order = orderDb.Order.create({
             customerId: uuid(),
             restaurantId: uuid(),
             orderNumber: "FD-TEST-003",

@@ -207,14 +207,14 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
 
         // List accounts with pagination
         get(Int page = 1, Int perPage = 20, AccountStatus? status) -> PaginatedAccounts {
-            #JSON query = accountDb.Account.all();
+            let JSON query = accountDb.Account.all();
 
             if (status != null) {
                 query = accountDb.Account.where(status: status);
             }
 
-            #Int total = query.count();
-            #Array<Account> accounts = query
+            let Int total = query.count();
+            let Array<Account> accounts = query
                 .orderBy(createdAt: desc)
                 .offset((page - 1) * perPage)
                 .limit(perPage)
@@ -240,13 +240,13 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
 
         // Create a new account for a customer
         post(CreateAccountRequest request) -> accountDb.Account {
-            #Customer customer = accountDb.Customer.findOrFail(request.customerId);
+            let Customer customer = accountDb.Customer.findOrFail(request.customerId);
 
             if (customer.kycStatus != KycStatus.Verified) {
                 throw ValidationException("Customer KYC must be verified before opening an account");
             }
 
-            #Account account = accountDb.Account.create({
+            let Account account = accountDb.Account.create({
                 accountNumber: generateReference("ACC"),
                 customerId: request.customerId,
                 type: request.type,
@@ -263,7 +263,7 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
         // Get account balance
         @path('/:id/balance')
         get(UUID id) -> AccountBalanceResponse {
-            #Account account = accountDb.Account.findOrFail(id);
+            let Account account = accountDb.Account.findOrFail(id);
             return {
                 accountId: account.id,
                 accountNumber: account.accountNumber,
@@ -276,7 +276,7 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
         // Activate a pending account
         @path('/:id/activate')
         put(UUID id) : access(admin) -> accountDb.Account {
-            #Account account = accountDb.Account.findOrFail(id);
+            let Account account = accountDb.Account.findOrFail(id);
             account.activate();
             return account;
         }
@@ -284,7 +284,7 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
         // Freeze an account
         @path('/:id/freeze')
         put(UUID id, FreezeAccountRequest request) : access(admin) -> accountDb.Account {
-            #Account account = accountDb.Account.findOrFail(id);
+            let Account account = accountDb.Account.findOrFail(id);
             account.freeze(request.reason);
             return account;
         }
@@ -292,7 +292,7 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
         // Unfreeze a frozen account
         @path('/:id/unfreeze')
         put(UUID id) : access(admin) -> accountDb.Account {
-            #Account account = accountDb.Account.findOrFail(id);
+            let Account account = accountDb.Account.findOrFail(id);
             account.unfreeze();
             return account;
         }
@@ -300,7 +300,7 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
         // Close an account
         @path('/:id/close')
         put(UUID id, FreezeAccountRequest request) : access(admin) -> accountDb.Account {
-            #Account account = accountDb.Account.findOrFail(id);
+            let Account account = accountDb.Account.findOrFail(id);
             account.close(request.reason);
             return account;
         }
@@ -308,7 +308,7 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
         // Update customer KYC status
         @path('/customers/:id/kyc')
         put(UUID id, UpdateKycRequest request) : access(admin) -> accountDb.Customer {
-            #Customer customer = accountDb.Customer.findOrFail(id);
+            let Customer customer = accountDb.Customer.findOrFail(id);
             customer.kycStatus = request.kycStatus;
             customer.save();
             return customer;
@@ -336,7 +336,7 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
     }
 
     test("computed isActive is true for Active status") {
-        #accountDb.Customer cust = accountDb.Customer.create({
+        let accountDb.CustomerNone cust = accountDb.Customer.create({
             firstName: "John",
             lastName: "Doe",
             email: "john.doe@test.com",
@@ -345,7 +345,7 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
             kycStatus: KycStatus.Verified
         });
         cust.save();
-        #accountDb.Account acct = accountDb.Account.create({
+        let accountDb.AccountNone acct = accountDb.Account.create({
             accountNumber: "ACC-TEST-001",
             customerId: cust.id,
             type: AccountType.Checking,
@@ -358,7 +358,7 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
     }
 
     test("validation rejects negative savings balance") {
-        #accountDb.Customer cust = accountDb.Customer.create({
+        let accountDb.CustomerNone cust = accountDb.Customer.create({
             firstName: "Jane",
             lastName: "Doe",
             email: "jane.doe@test.com",
@@ -381,7 +381,7 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
     }
 
     test("afterCreate emits AccountOpened event") {
-        #accountDb.Customer cust = accountDb.Customer.create({
+        let accountDb.CustomerNone cust = accountDb.Customer.create({
             firstName: "Bob",
             lastName: "Smith",
             email: "bob.smith@test.com",
@@ -390,7 +390,7 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
             kycStatus: KycStatus.Verified
         });
         cust.save();
-        #accountDb.Account acct = accountDb.Account.create({
+        let accountDb.AccountNone acct = accountDb.Account.create({
             accountNumber: "ACC-TEST-003",
             customerId: cust.id,
             type: AccountType.Checking,
@@ -403,7 +403,7 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
     }
 
     test("status change emits AccountStatusChanged") {
-        #accountDb.Customer cust = accountDb.Customer.create({
+        let accountDb.CustomerNone cust = accountDb.Customer.create({
             firstName: "Alice",
             lastName: "Johnson",
             email: "alice.j@test.com",
@@ -412,7 +412,7 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
             kycStatus: KycStatus.Verified
         });
         cust.save();
-        #accountDb.Account acct = accountDb.Account.create({
+        let accountDb.AccountNone acct = accountDb.Account.create({
             accountNumber: "ACC-TEST-004",
             customerId: cust.id,
             type: AccountType.Savings,

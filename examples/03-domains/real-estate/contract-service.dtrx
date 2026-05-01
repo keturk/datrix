@@ -200,12 +200,12 @@ service realestate.ContractService('config/contract-service.yaml') : version('1.
 
             // If listing is withdrawn, terminate any draft or pending contracts
             if (newStatus == ListingStatus.Withdrawn) {
-                #Array<Contract> draftContracts = contractDb.Contract
+                let Array<Contract> draftContracts = contractDb.Contract
                     .where(listingId: listingId)
                     .where(status: ContractStatus.Draft)
                     .all();
 
-                #Array<Contract> pendingContracts = contractDb.Contract
+                let Array<Contract> pendingContracts = contractDb.Contract
                     .where(listingId: listingId)
                     .where(status: ContractStatus.Pending)
                     .all();
@@ -218,7 +218,7 @@ service realestate.ContractService('config/contract-service.yaml') : version('1.
                     contract.terminate(#"Listing {listingRef} was withdrawn");
                 }
 
-                #Int terminatedCount = draftContracts.length() + pendingContracts.length();
+                let Int terminatedCount = draftContracts.length() + pendingContracts.length();
                 if (terminatedCount > 0) {
                     Log.info("Terminated contracts for withdrawn listing", { listingId: listingId, count: terminatedCount });
                 }
@@ -246,7 +246,7 @@ service realestate.ContractService('config/contract-service.yaml') : version('1.
 
         // List contracts with pagination
         get(Int page = 1, Int perPage = 20, ContractStatus? status, ContractType? contractType) -> PaginatedContracts {
-            #JSON query = contractDb.Contract.all();
+            let JSON query = contractDb.Contract.all();
 
             if (status != null) {
                 query = contractDb.Contract.where(status: status);
@@ -255,8 +255,8 @@ service realestate.ContractService('config/contract-service.yaml') : version('1.
                 query = query.where(contractType: contractType);
             }
 
-            #Int total = query.count();
-            #Array<Contract> contracts = query
+            let Int total = query.count();
+            let Array<Contract> contracts = query
                 .orderBy(createdAt: desc)
                 .offset((page - 1) * perPage)
                 .limit(perPage)
@@ -284,13 +284,13 @@ service realestate.ContractService('config/contract-service.yaml') : version('1.
         // Create a new contract
         post(CreateContractRequest request) -> contractDb.Contract {
             // Verify listing exists and is available
-            #JSON listing = ListingService.ListingAPI.get(#"/internal/{request.listingId}");
+            let JSON listing = ListingService.ListingAPI.get(#"/internal/{request.listingId}");
 
             if (listing.status != "active") {
                 throw ValidationException("Cannot create a contract for a non-active listing");
             }
 
-            #Contract contract = contractDb.Contract.create({
+            let Contract contract = contractDb.Contract.create({
                 contractRef: generateContractRef(),
                 listingId: request.listingId,
                 buyerId: request.buyerId,
@@ -310,7 +310,7 @@ service realestate.ContractService('config/contract-service.yaml') : version('1.
         // Submit a draft contract for review
         @path('/:id/submit')
         put(UUID id) -> contractDb.Contract {
-            #Contract contract = contractDb.Contract.findOrFail(id);
+            let Contract contract = contractDb.Contract.findOrFail(id);
             contract.submit();
             return contract;
         }
@@ -318,7 +318,7 @@ service realestate.ContractService('config/contract-service.yaml') : version('1.
         // Sign a pending contract
         @path('/:id/sign')
         put(UUID id) -> contractDb.Contract {
-            #Contract contract = contractDb.Contract.findOrFail(id);
+            let Contract contract = contractDb.Contract.findOrFail(id);
             contract.sign();
             return contract;
         }
@@ -326,7 +326,7 @@ service realestate.ContractService('config/contract-service.yaml') : version('1.
         // Activate a signed contract
         @path('/:id/activate')
         put(UUID id) -> contractDb.Contract {
-            #Contract contract = contractDb.Contract.findOrFail(id);
+            let Contract contract = contractDb.Contract.findOrFail(id);
             contract.activate();
             return contract;
         }
@@ -334,7 +334,7 @@ service realestate.ContractService('config/contract-service.yaml') : version('1.
         // Terminate a contract
         @path('/:id/terminate')
         put(UUID id, TerminateContractRequest request) -> contractDb.Contract {
-            #Contract contract = contractDb.Contract.findOrFail(id);
+            let Contract contract = contractDb.Contract.findOrFail(id);
             contract.terminate(request.reason);
             return contract;
         }
@@ -342,9 +342,9 @@ service realestate.ContractService('config/contract-service.yaml') : version('1.
         // Add a document to a contract
         @path('/:id/documents')
         post(UUID id, AddDocumentRequest request) -> contractDb.ContractDocument {
-            #Contract contract = contractDb.Contract.findOrFail(id);
+            let Contract contract = contractDb.Contract.findOrFail(id);
 
-            #ContractDocument doc = contractDb.ContractDocument.create({
+            let ContractDocument doc = contractDb.ContractDocument.create({
                 contractId: contract.id,
                 documentName: request.documentName,
                 documentUrl: request.documentUrl
@@ -392,7 +392,7 @@ service realestate.ContractService('config/contract-service.yaml') : version('1.
     }
 
     test("computed isDraft is true for Draft status") {
-        #contractDb.Contract contract = contractDb.Contract.create({
+        let contractDb.ContractNone contract = contractDb.Contract.create({
             contractRef: "CTR-TEST-001",
             listingId: uuid(),
             buyerId: uuid(),
@@ -435,7 +435,7 @@ service realestate.ContractService('config/contract-service.yaml') : version('1.
     }
 
     test("afterCreate emits ContractCreated event") {
-        #contractDb.Contract contract = contractDb.Contract.create({
+        let contractDb.ContractNone contract = contractDb.Contract.create({
             contractRef: "CTR-TEST-004",
             listingId: uuid(),
             buyerId: uuid(),
@@ -449,7 +449,7 @@ service realestate.ContractService('config/contract-service.yaml') : version('1.
     }
 
     test("sign fails for non-pending contract") {
-        #contractDb.Contract contract = contractDb.Contract.create({
+        let contractDb.ContractNone contract = contractDb.Contract.create({
             contractRef: "CTR-TEST-005",
             listingId: uuid(),
             buyerId: uuid(),
@@ -466,7 +466,7 @@ service realestate.ContractService('config/contract-service.yaml') : version('1.
     }
 
     test("status change emits ContractStatusChanged") {
-        #contractDb.Contract contract = contractDb.Contract.create({
+        let contractDb.ContractNone contract = contractDb.Contract.create({
             contractRef: "CTR-TEST-006",
             listingId: uuid(),
             buyerId: uuid(),

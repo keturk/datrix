@@ -247,7 +247,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
         // Auto-cancel appointments when patient becomes inactive
         on PatientStatusChanged(UUID patientId, String mrn, String oldStatus, String newStatus) {
             if (newStatus == "Inactive" || newStatus == "Deceased") {
-                #Array<Appointment> pendingAppointments = appointmentDb.Appointment
+                let Array<Appointment> pendingAppointments = appointmentDb.Appointment
                     .where(patientId: patientId)
                     .whereIn(status: [AppointmentStatus.Scheduled, AppointmentStatus.Confirmed])
                     .all();
@@ -293,7 +293,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
     }
 
     test("afterCreate emits AppointmentScheduled event") {
-        #appointmentDb.Appointment appt = appointmentDb.Appointment.create({
+        let appointmentDb.AppointmentNone appt = appointmentDb.Appointment.create({
             patientId: uuid(),
             providerName: "Dr. Smith",
             scheduledAt: now().addDays(7),
@@ -307,7 +307,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
 
         // List with multiple optional filters
         get(UUID? patientId, UUID? providerId, AppointmentStatus? status, DateTime? startDate, DateTime? endDate, Int page = 1, Int perPage = 20) -> AppointmentSearchResult {
-            #JSON query = appointmentDb.Appointment.query();
+            let JSON query = appointmentDb.Appointment.query();
 
             if (patientId != null) {
                 query = query.where(patientId: patientId);
@@ -331,8 +331,8 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
                 query = query.where(scheduledAt: lte(endDate));
             }
 
-            #Int total = query.count();
-            #Array<Appointment> appointments = query
+            let Int total = query.count();
+            let Array<Appointment> appointments = query
                 .orderBy(scheduledAt: asc)
                 .offset((page - 1) * perPage)
                 .limit(Math.min(perPage, 50))
@@ -356,15 +356,15 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
 
         post(ScheduleAppointmentRequest request) -> appointmentDb.Appointment {
             // Cross-service call to validate the patient exists and is active
-            #Boolean patientValid = PatientService.PatientAPI.post('/internal/validate', { patientId: request.patientId });
+            let Boolean patientValid = PatientService.PatientAPI.post('/internal/validate', { patientId: request.patientId });
             if (!patientValid) {
                 throw ValidationException("Patient not found or inactive");
             }
 
             // '??' null-coalescing operator provides a default value
-            #Int duration = request.durationMinutes ?? APPOINTMENT_DURATION_DEFAULT;
+            let Int duration = request.durationMinutes ?? APPOINTMENT_DURATION_DEFAULT;
             // Check for scheduling conflicts
-            #Appointment? conflict = appointmentDb.Appointment
+            let Appointment? conflict = appointmentDb.Appointment
                 .where(patientId: request.patientId)
                 .where(scheduledAt: gte(request.scheduledAt))
                 .where(scheduledAt: lt(request.scheduledAt.addMinutes(duration)))
@@ -375,7 +375,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
                 throw ValidationException("Patient has a conflicting appointment at this time");
             }
 
-            #Appointment appointment = appointmentDb.Appointment.create({
+            let Appointment appointment = appointmentDb.Appointment.create({
                 patientId: request.patientId,
                 providerId: request.providerId,
                 providerName: request.providerName,
@@ -402,7 +402,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
 
         @path('/:id')
         put(UUID id, UpdateAppointmentRequest request) -> appointmentDb.Appointment {
-            #Appointment appointment = appointmentDb.Appointment.findOrFail(id);
+            let Appointment appointment = appointmentDb.Appointment.findOrFail(id);
 
             if (!appointment.canCancel) {
                 throw ValidationException(#"Cannot modify appointment in status: {appointment.status}");
@@ -429,7 +429,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
         // State transition endpoints
         @path('/:id/confirm')
         put(UUID id) -> appointmentDb.Appointment {
-            #Appointment appointment = appointmentDb.Appointment.findOrFail(id);
+            let Appointment appointment = appointmentDb.Appointment.findOrFail(id);
 
             if (appointment.status != AppointmentStatus.Scheduled) {
                 throw ValidationException("Can only confirm scheduled appointments");
@@ -443,28 +443,28 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
 
         @path('/:id/check-in')
         put(UUID id) -> appointmentDb.Appointment {
-            #Appointment appointment = appointmentDb.Appointment.findOrFail(id);
+            let Appointment appointment = appointmentDb.Appointment.findOrFail(id);
             appointment.checkIn();
             return appointment;
         }
 
         @path('/:id/start')
         put(UUID id) -> appointmentDb.Appointment {
-            #Appointment appointment = appointmentDb.Appointment.findOrFail(id);
+            let Appointment appointment = appointmentDb.Appointment.findOrFail(id);
             appointment.start();
             return appointment;
         }
 
         @path('/:id/complete')
         put(UUID id, CompleteAppointmentRequest request) -> appointmentDb.Appointment {
-            #Appointment appointment = appointmentDb.Appointment.findOrFail(id);
+            let Appointment appointment = appointmentDb.Appointment.findOrFail(id);
             appointment.complete(request.notes);
             return appointment;
         }
 
         @path('/:id/cancel')
         put(UUID id, CancelAppointmentRequest request) -> appointmentDb.Appointment {
-            #Appointment appointment = appointmentDb.Appointment.findOrFail(id);
+            let Appointment appointment = appointmentDb.Appointment.findOrFail(id);
             appointment.cancel(request.reason ?? "Cancelled by user");
 
             sendCancellationNotification(appointment);
@@ -475,7 +475,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
         // 'access(staff)' restricts to users with the staff role
         @path('/:id/no-show')
         put(UUID id) : access(staff) -> appointmentDb.Appointment {
-            #Appointment appointment = appointmentDb.Appointment.findOrFail(id);
+            let Appointment appointment = appointmentDb.Appointment.findOrFail(id);
             appointment.markNoShow();
             return appointment;
         }
@@ -504,10 +504,10 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
         // Availability slot calculation endpoint
         @path('/slots')
         get(UUID? providerId, Date date, Int durationMinutes = 30) -> Array<AppointmentSlot> {
-            #DateTime startOfDay = DateTime.parse(#"{date.format('YYYY-MM-DD')}T08:00:00");
-            #DateTime endOfDay = DateTime.parse(#"{date.format('YYYY-MM-DD')}T17:00:00");
+            let DateTime startOfDay = DateTime.parse(#"{date.format('YYYY-MM-DD')}T08:00:00");
+            let DateTime endOfDay = DateTime.parse(#"{date.format('YYYY-MM-DD')}T17:00:00");
 
-            #JSON existing = appointmentDb.Appointment
+            let JSON existing = appointmentDb.Appointment
                 .where(scheduledAt: gte(startOfDay))
                 .where(scheduledAt: lt(endOfDay))
                 .whereIn(status: [AppointmentStatus.Scheduled, AppointmentStatus.Confirmed]);
@@ -518,12 +518,12 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
 
             existing = existing.all();
 
-            #Array<AppointmentSlot> slots = [];
-            #DateTime current = startOfDay;
+            let Array<AppointmentSlot> slots = [];
+            let DateTime current = startOfDay;
 
             // 'while' loop to generate time slots
             while (current.addMinutes(durationMinutes) <= endOfDay) {
-                #Boolean available = true;
+                let Boolean available = true;
 
                 foreach appt in existing {
                     if (current >= appt.scheduledAt && current < appt.scheduledEndAt) {
@@ -567,7 +567,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
         // Cross-service call in a helper function
         fn sendAppointmentConfirmation(appointmentDb.Appointment appointment) {
             try {
-                #JSON patient = PatientService.PatientAPI.get('/internal/:id', appointment.patientId);
+                let JSON patient = PatientService.PatientAPI.get('/internal/:id', appointment.patientId);
 
                 if (patient.email != null) {
                     Email.send({
@@ -593,7 +593,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
 
         fn sendCancellationNotification(appointmentDb.Appointment appointment) {
             try {
-                #JSON patient = PatientService.PatientAPI.get('/internal/:id', appointment.patientId);
+                let JSON patient = PatientService.PatientAPI.get('/internal/:id', appointment.patientId);
 
                 if (patient.email != null) {
                     Email.send({
@@ -621,21 +621,21 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
     jobs('config/appointment-service.yaml') {
         // Send reminders for tomorrow's appointments
         job SendAppointmentReminders {
-            #DateTime tomorrow = now().addDays(1);
-            #DateTime tomorrowStart = DateTime.parse(#"{tomorrow.format('YYYY-MM-DD')}T00:00:00");
-            #DateTime tomorrowEnd = DateTime.parse(#"{tomorrow.format('YYYY-MM-DD')}T23:59:59");
+            let DateTime tomorrow = now().addDays(1);
+            let DateTime tomorrowStart = DateTime.parse(#"{tomorrow.format('YYYY-MM-DD')}T00:00:00");
+            let DateTime tomorrowEnd = DateTime.parse(#"{tomorrow.format('YYYY-MM-DD')}T23:59:59");
 
-            #Array<Appointment> upcomingAppointments = appointmentDb.Appointment
+            let Array<Appointment> upcomingAppointments = appointmentDb.Appointment
                 .where(scheduledAt: gte(tomorrowStart))
                 .where(scheduledAt: lte(tomorrowEnd))
                 .whereIn(status: [AppointmentStatus.Scheduled, AppointmentStatus.Confirmed])
                 .where(reminderSent: false)
                 .all();
 
-            #Int sentCount = 0;
+            let Int sentCount = 0;
             foreach appointment in upcomingAppointments {
                 try {
-                    #JSON patient = PatientService.PatientAPI.get('/internal/:id', appointment.patientId);
+                    let JSON patient = PatientService.PatientAPI.get('/internal/:id', appointment.patientId);
 
                     if (patient.email != null) {
                         Email.send({
@@ -668,9 +668,9 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
 
         // Mark overdue appointments as no-shows
         job MarkNoShows {
-            #DateTime threshold = now().subtractMinutes(30);
+            let DateTime threshold = now().subtractMinutes(30);
 
-            #Array<Appointment> missedAppointments = appointmentDb.Appointment
+            let Array<Appointment> missedAppointments = appointmentDb.Appointment
                 .where(scheduledAt: lt(threshold))
                 .whereIn(status: [AppointmentStatus.Scheduled, AppointmentStatus.Confirmed])
                 .all();

@@ -234,8 +234,8 @@ service logistics.FleetService('config/fleet-service.yaml') : version('1.0.0'), 
 
         @path('/vehicles/:id/assign-driver')
         post(UUID id, AssignDriverRequest request) -> fleetDb.Vehicle {
-            #Vehicle vehicle = fleetDb.Vehicle.findOrFail(id);
-            #Driver driver = fleetDb.Driver.findOrFail(request.driverId);
+            let Vehicle vehicle = fleetDb.Vehicle.findOrFail(id);
+            let Driver driver = fleetDb.Driver.findOrFail(request.driverId);
 
             if (!vehicle.isAvailable) {
                 throw ValidationException({
@@ -274,7 +274,7 @@ service logistics.FleetService('config/fleet-service.yaml') : version('1.0.0'), 
 
         @path('/vehicles/:id/release')
         post(UUID id) -> fleetDb.Vehicle {
-            #Vehicle vehicle = fleetDb.Vehicle.findOrFail(id);
+            let Vehicle vehicle = fleetDb.Vehicle.findOrFail(id);
 
             if (vehicle.currentDriverId == null) {
                 throw ValidationException({
@@ -283,7 +283,7 @@ service logistics.FleetService('config/fleet-service.yaml') : version('1.0.0'), 
                 });
             }
 
-            #Driver driver = fleetDb.Driver.findOrFail(vehicle.currentDriverId);
+            let Driver driver = fleetDb.Driver.findOrFail(vehicle.currentDriverId);
 
             transaction(fleetDb) {
                 vehicle.currentDriverId = null;
@@ -307,7 +307,7 @@ service logistics.FleetService('config/fleet-service.yaml') : version('1.0.0'), 
 
         @path('/vehicles/:id/status')
         put(UUID id, UpdateVehicleStatusRequest request) : access(admin) -> fleetDb.Vehicle {
-            #Vehicle vehicle = fleetDb.Vehicle.findOrFail(id);
+            let Vehicle vehicle = fleetDb.Vehicle.findOrFail(id);
             vehicle.status = request.status;
             vehicle.save();
 
@@ -321,7 +321,7 @@ service logistics.FleetService('config/fleet-service.yaml') : version('1.0.0'), 
 
         @path('/vehicles/available')
         get(VehicleType? type) -> Array<fleetDb.Vehicle> {
-            #JSON query = fleetDb.Vehicle.where(status: VehicleStatus.Available);
+            let JSON query = fleetDb.Vehicle.where(status: VehicleStatus.Available);
 
             if (type != null) {
                 query = query.where(type: type);
@@ -340,10 +340,10 @@ service logistics.FleetService('config/fleet-service.yaml') : version('1.0.0'), 
 
         @path('/metrics')
         get() : internal -> VehicleMetrics {
-            #Int total = fleetDb.Vehicle.count();
-            #Int available = fleetDb.Vehicle.where(status: VehicleStatus.Available).count();
-            #Int inUse = fleetDb.Vehicle.where(status: VehicleStatus.InUse).count();
-            #Int inMaintenance = fleetDb.Vehicle.where(status: VehicleStatus.Maintenance).count();
+            let Int total = fleetDb.Vehicle.count();
+            let Int available = fleetDb.Vehicle.where(status: VehicleStatus.Available).count();
+            let Int inUse = fleetDb.Vehicle.where(status: VehicleStatus.InUse).count();
+            let Int inMaintenance = fleetDb.Vehicle.where(status: VehicleStatus.Maintenance).count();
 
             return {
                 totalVehicles: total,
@@ -357,14 +357,14 @@ service logistics.FleetService('config/fleet-service.yaml') : version('1.0.0'), 
     jobs('config/fleet-service.yaml') {
 
         job CheckMaintenanceSchedule {
-            #Array<Vehicle> vehicles = fleetDb.Vehicle
+            let Array<Vehicle> vehicles = fleetDb.Vehicle
                 .where(status: VehicleStatus.Available)
                 .all();
 
-            #Int scheduled = 0;
+            let Int scheduled = 0;
             foreach vehicle in vehicles {
                 if (vehicle.needsMaintenance) {
-                    #MaintenanceRecord record = fleetDb.MaintenanceRecord.create({
+                    let MaintenanceRecord record = fleetDb.MaintenanceRecord.create({
                         vehicleId: vehicle.id,
                         description: #"Scheduled maintenance at {vehicle.mileage} miles",
                         cost: 0,
@@ -388,9 +388,9 @@ service logistics.FleetService('config/fleet-service.yaml') : version('1.0.0'), 
         }
 
         job UpdateFleetMetrics {
-            #Int totalAvailable = fleetDb.Vehicle.where(status: VehicleStatus.Available).count();
-            #Int totalInUse = fleetDb.Vehicle.where(status: VehicleStatus.InUse).count();
-            #Int totalMaintenance = fleetDb.Vehicle.where(status: VehicleStatus.Maintenance).count();
+            let Int totalAvailable = fleetDb.Vehicle.where(status: VehicleStatus.Available).count();
+            let Int totalInUse = fleetDb.Vehicle.where(status: VehicleStatus.InUse).count();
+            let Int totalMaintenance = fleetDb.Vehicle.where(status: VehicleStatus.Maintenance).count();
 
             redis.AvailableVehicleCount.set("total", totalAvailable);
 
@@ -403,7 +403,7 @@ service logistics.FleetService('config/fleet-service.yaml') : version('1.0.0'), 
     }
 
     test("computed needsMaintenance when mileage exceeds threshold") {
-        #fleetDb.Vehicle vehicle = fleetDb.Vehicle.create({
+        let fleetDb.VehicleNone vehicle = fleetDb.Vehicle.create({
             vehicleNumber: "VH-TEST-001",
             type: VehicleType.Truck,
             capacity: 5000.00,
@@ -414,7 +414,7 @@ service logistics.FleetService('config/fleet-service.yaml') : version('1.0.0'), 
     }
 
     test("computed isAvailable for Available status") {
-        #fleetDb.Vehicle vehicle = fleetDb.Vehicle.create({
+        let fleetDb.VehicleNone vehicle = fleetDb.Vehicle.create({
             vehicleNumber: "VH-TEST-002",
             type: VehicleType.Van,
             capacity: 2000.00,
@@ -437,7 +437,7 @@ service logistics.FleetService('config/fleet-service.yaml') : version('1.0.0'), 
     }
 
     test("afterCreate emits VehicleRegistered") {
-        #fleetDb.Vehicle vehicle = fleetDb.Vehicle.create({
+        let fleetDb.VehicleNone vehicle = fleetDb.Vehicle.create({
             vehicleNumber: "VH-TEST-004",
             type: VehicleType.Drone,
             capacity: 10.00,

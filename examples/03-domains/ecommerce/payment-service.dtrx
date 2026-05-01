@@ -133,10 +133,10 @@ service ecommerce.PaymentService('config/payment-service.yaml') : version('1.0.0
     }
 
     enqueue ecommerce.OrderService.ProcessPayment(UUID orderId, Money amount, String currency) {
-        #JSON order = ecommerce.OrderService.OrderAPI.get('/internal/:id', orderId);
-        #UUID customerId = order.customerId;
+        let JSON order = ecommerce.OrderService.OrderAPI.get('/internal/:id', orderId);
+        let UUID customerId = order.customerId;
 
-        #Payment payment = paymentDb.Payment.create({
+        let Payment payment = paymentDb.Payment.create({
             orderId: orderId,
             customerId: customerId,
             amount: amount,
@@ -150,7 +150,7 @@ service ecommerce.PaymentService('config/payment-service.yaml') : version('1.0.0
     }
 
     enqueue ecommerce.OrderService.SettlePayment(UUID paymentId, String merchantId, Decimal amount) {
-        #Payment payment = paymentDb.Payment.findOrFail(paymentId);
+        let Payment payment = paymentDb.Payment.findOrFail(paymentId);
 
         if (payment.status != PaymentStatus.Completed) {
             Log.warn("SettlePayment skipped: payment not completed", { paymentId: paymentId, status: payment.status });
@@ -178,8 +178,8 @@ service ecommerce.PaymentService('config/payment-service.yaml') : version('1.0.0
 
         @path('/my-payments')
         get(Int page = 1, Int perPage = 20) -> Array<paymentDb.Payment> {
-            #UUID customerId = Auth.user().id;
-            #Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
+            let UUID customerId = Auth.user().id;
+            let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             return paymentDb.Payment
                 .where(customerId: customerId)
                 .orderBy(createdAt: desc)
@@ -190,9 +190,9 @@ service ecommerce.PaymentService('config/payment-service.yaml') : version('1.0.0
 
         @path('/process')
         post(ProcessPaymentRequest request) -> paymentDb.Payment {
-            #UUID customerId = Auth.user().id;
+            let UUID customerId = Auth.user().id;
 
-            #Payment payment = paymentDb.Payment.create({
+            let Payment payment = paymentDb.Payment.create({
                 orderId: request.orderId,
                 customerId: customerId,
                 amount: request.amount,
@@ -209,14 +209,14 @@ service ecommerce.PaymentService('config/payment-service.yaml') : version('1.0.0
 
         @path('/:id/refund')
         post(UUID id, RefundPaymentRequest request) : access(admin) -> paymentDb.Refund {
-            #Payment payment = paymentDb.Payment.findOrFail(id);
+            let Payment payment = paymentDb.Payment.findOrFail(id);
 
             if (!payment.canRefund) {
                 throw ValidationException(#"Cannot refund payment in status: {payment.status}");
             }
 
             // Calculate total already refunded to prevent over-refunding
-            #Money totalRefunded = Money.of(0, payment.amount.currency);
+            let Money totalRefunded = Money.of(0, payment.amount.currency);
             foreach refund in payment.refunds {
                 if (refund.isSuccessful) {
                     totalRefunded = totalRefunded.add(refund.amount);
@@ -227,21 +227,21 @@ service ecommerce.PaymentService('config/payment-service.yaml') : version('1.0.0
                 throw ValidationException("Refund amount exceeds original payment");
             }
 
-            #Refund refund = paymentDb.Refund.create({
+            let Refund refund = paymentDb.Refund.create({
                 payment: payment,
                 amount: request.amount,
                 reason: request.reason,
                 status: PaymentStatus.Pending
             });
 
-            #Boolean success = processRefundViaGateway(payment, refund);
+            let Boolean success = processRefundViaGateway(payment, refund);
 
             if (success) {
                 refund.status = PaymentStatus.Completed;
                 refund.processedAt = now();
                 refund.save();
 
-                #Money newTotalRefunded = totalRefunded.add(request.amount);
+                let Money newTotalRefunded = totalRefunded.add(request.amount);
                 if (newTotalRefunded.amount >= payment.amount.amount) {
                     payment.status = PaymentStatus.Refunded;
                     payment.save();
@@ -258,12 +258,12 @@ service ecommerce.PaymentService('config/payment-service.yaml') : version('1.0.0
         @path('/webhook/stripe')
         post(StripeWebhookRequest request) : public -> Void {
 
-            #String eventType = request.payload.type;
-            #JSON data = request.payload.data.object;
+            let String eventType = request.payload.type;
+            let JSON data = request.payload.data.object;
 
             if (eventType == "payment_intent.succeeded") {
-                #String transactionId = data.metadata.transactionId;
-                #Payment? payment = paymentDb.Payment.where(transactionId: transactionId).first();
+                let String transactionId = data.metadata.transactionId;
+                let Payment? payment = paymentDb.Payment.where(transactionId: transactionId).first();
 
                 if (payment != null && payment.status == PaymentStatus.Processing) {
                     payment.status = PaymentStatus.Completed;
@@ -272,8 +272,8 @@ service ecommerce.PaymentService('config/payment-service.yaml') : version('1.0.0
                     payment.save();
                 }
             } else if (eventType == "payment_intent.payment_failed") {
-                #String transactionId = data.metadata.transactionId;
-                #Payment? payment = paymentDb.Payment.where(transactionId: transactionId).first();
+                let String transactionId = data.metadata.transactionId;
+                let Payment? payment = paymentDb.Payment.where(transactionId: transactionId).first();
 
                 if (payment != null && payment.status == PaymentStatus.Processing) {
                     payment.status = PaymentStatus.Failed;
@@ -285,13 +285,13 @@ service ecommerce.PaymentService('config/payment-service.yaml') : version('1.0.0
         }
 
         fn processRefundViaGateway(paymentDb.Payment payment, paymentDb.Refund refund) -> Boolean {
-            #Boolean success = false;
-            #String? transactionId = null;
+            let Boolean success = false;
+            let String? transactionId = null;
 
             // 'try/catch' for error handling with external gateway calls
             try {
                 if (payment.method == PaymentMethod.CreditCard || payment.method == PaymentMethod.DebitCard) {
-                    #JSON result = StripeGateway.refund({
+                    let JSON result = StripeGateway.refund({
                         transactionId: payment.transactionId,
                         amount: refund.amount.amount * 100
                     });
@@ -302,7 +302,7 @@ service ecommerce.PaymentService('config/payment-service.yaml') : version('1.0.0
                         refund.errorMessage = result.error ?? "Stripe refund failed";
                     }
                 } else if (payment.method == PaymentMethod.PayPal) {
-                    #JSON result = PayPalGateway.refund({
+                    let JSON result = PayPalGateway.refund({
                         transactionId: payment.transactionId,
                         amount: refund.amount
                     });
@@ -339,7 +339,7 @@ service ecommerce.PaymentService('config/payment-service.yaml') : version('1.0.0
     }
 
     test("computed isSuccessful reflects Completed status") {
-        #paymentDb.Payment payment = paymentDb.Payment.create({
+        let paymentDb.Payment payment = paymentDb.Payment.create({
             orderId: uuid(),
             customerId: uuid(),
             amount: Money.of(99.99, Currency.USD),
@@ -352,7 +352,7 @@ service ecommerce.PaymentService('config/payment-service.yaml') : version('1.0.0
     }
 
     test("computed canRefund requires Completed status") {
-        #paymentDb.Payment payment = paymentDb.Payment.create({
+        let paymentDb.Payment payment = paymentDb.Payment.create({
             orderId: uuid(),
             customerId: uuid(),
             amount: Money.of(49.99, Currency.USD),
@@ -369,14 +369,14 @@ service ecommerce.PaymentService('config/payment-service.yaml') : version('1.0.0
         payment.status = PaymentStatus.Processing;
         payment.save();
 
-        #Boolean success = false;
-        #String? error = null;
-        #String? gatewayResponse = null;
+        let Boolean success = false;
+        let String? error = null;
+        let String? gatewayResponse = null;
 
         try {
             if (payment.method == PaymentMethod.CreditCard || payment.method == PaymentMethod.DebitCard) {
                 // External gateway integration call
-                #JSON result = StripeGateway.charge({
+                let JSON result = StripeGateway.charge({
                     amount: payment.amount.amount * 100,
                     currency: payment.amount.currency.value.toLowerCase(),
                     source: cardToken,
@@ -394,7 +394,7 @@ service ecommerce.PaymentService('config/payment-service.yaml') : version('1.0.0
                     error = result.error ?? "Stripe charge failed";
                 }
             } else if (payment.method == PaymentMethod.PayPal) {
-                #JSON result = PayPalGateway.charge({
+                let JSON result = PayPalGateway.charge({
                     amount: payment.amount,
                     transactionId: payment.transactionId,
                     customerId: payment.customerId

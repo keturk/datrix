@@ -78,14 +78,14 @@ service fooddelivery.RestaurantService('config/restaurant-service.yaml') : versi
             }
 
             fn updateRating() {
-                #Array<RestaurantReview> allReviews = restaurantDb.RestaurantReview
+                let Array<RestaurantReview> allReviews = restaurantDb.RestaurantReview
                     .where(restaurantId: id)
                     .all();
 
                 if (allReviews.length() == 0) {
                     rating = 0.00;
                 } else {
-                    #Int totalRating = 0;
+                    let Int totalRating = 0;
                     foreach review in allReviews {
                         totalRating = totalRating + review.rating;
                     }
@@ -110,7 +110,7 @@ service fooddelivery.RestaurantService('config/restaurant-service.yaml') : versi
             }
 
             afterCreate {
-                #Restaurant restaurant = restaurantDb.Restaurant.findOrFail(restaurantId);
+                let Restaurant restaurant = restaurantDb.Restaurant.findOrFail(restaurantId);
                 restaurant.updateRating();
             }
         }
@@ -165,7 +165,7 @@ service fooddelivery.RestaurantService('config/restaurant-service.yaml') : versi
                 newStatus: newStatus
             });
 
-            #JSON? cached = redis.RestaurantCache.get(restaurantId);
+            let JSON? cached = redis.RestaurantCache.get(restaurantId);
             if (cached != null) {
                 redis.RestaurantCache.set(restaurantId, {
                     restaurantId: restaurantId,
@@ -179,7 +179,7 @@ service fooddelivery.RestaurantService('config/restaurant-service.yaml') : versi
         on RestaurantRatingUpdated(UUID restaurantId, String name, Decimal rating) {
             Log.info("Restaurant rating updated", { restaurantId: restaurantId, name: name, rating: rating });
 
-            #JSON? cached = redis.RestaurantCache.get(restaurantId);
+            let JSON? cached = redis.RestaurantCache.get(restaurantId);
             if (cached != null) {
                 redis.RestaurantCache.set(restaurantId, {
                     restaurantId: restaurantId,
@@ -217,7 +217,7 @@ service fooddelivery.RestaurantService('config/restaurant-service.yaml') : versi
 
         @path('/:id/reviews')
         get(UUID id) : public -> Array<restaurantDb.RestaurantReview> {
-            #Restaurant restaurant = restaurantDb.Restaurant.findOrFail(id);
+            let Restaurant restaurant = restaurantDb.Restaurant.findOrFail(id);
             return restaurantDb.RestaurantReview
                 .where(restaurantId: restaurant.id)
                 .orderBy(createdAt: desc)
@@ -227,7 +227,7 @@ service fooddelivery.RestaurantService('config/restaurant-service.yaml') : versi
 
         @path('/:id/reviews')
         post(UUID id, SubmitReviewRequest request) -> restaurantDb.RestaurantReview {
-            #Restaurant restaurant = restaurantDb.Restaurant.findOrFail(id);
+            let Restaurant restaurant = restaurantDb.Restaurant.findOrFail(id);
 
             if (!restaurant.isApproved) {
                 throw ValidationException({
@@ -236,7 +236,7 @@ service fooddelivery.RestaurantService('config/restaurant-service.yaml') : versi
                 });
             }
 
-            #RestaurantReview review = restaurantDb.RestaurantReview.create({
+            let RestaurantReview review = restaurantDb.RestaurantReview.create({
                 restaurantId: restaurant.id,
                 customerId: request.customerId,
                 rating: request.rating,
@@ -259,7 +259,7 @@ service fooddelivery.RestaurantService('config/restaurant-service.yaml') : versi
     }
 
     test("computed isOpen reflects Active status") {
-        #restaurantDb.Restaurant restaurant = restaurantDb.Restaurant.create({
+        let restaurantDb.RestaurantNone restaurant = restaurantDb.Restaurant.create({
             name: "Test Bistro",
             cuisineType: "Italian",
             address: "123 Main St",
@@ -272,7 +272,7 @@ service fooddelivery.RestaurantService('config/restaurant-service.yaml') : versi
     }
 
     test("validation rejects rating outside 1-5 range") {
-        #restaurantDb.Restaurant restaurant = restaurantDb.Restaurant.create({
+        let restaurantDb.RestaurantNone restaurant = restaurantDb.Restaurant.create({
             name: "Rating Test Cafe",
             cuisineType: "French",
             address: "456 Oak Ave",
@@ -292,7 +292,7 @@ service fooddelivery.RestaurantService('config/restaurant-service.yaml') : versi
     }
 
     test("afterCreate emits RestaurantRegistered") {
-        #restaurantDb.Restaurant restaurant = restaurantDb.Restaurant.create({
+        let restaurantDb.RestaurantNone restaurant = restaurantDb.Restaurant.create({
             name: "Event Test Grill",
             cuisineType: "American",
             address: "789 Elm St",
