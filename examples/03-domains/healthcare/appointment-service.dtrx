@@ -504,8 +504,8 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
         // Availability slot calculation endpoint
         @path('/slots')
         get(UUID? providerId, Date date, Int durationMinutes = 30) -> Array<AppointmentSlot> {
-            #DateTime startOfDay = DateTime.parse(#"{date.toString()}T08:00:00");
-            #DateTime endOfDay = DateTime.parse(#"{date.toString()}T17:00:00");
+            #DateTime startOfDay = DateTime.parse(#"{date.format('YYYY-MM-DD')}T08:00:00");
+            #DateTime endOfDay = DateTime.parse(#"{date.format('YYYY-MM-DD')}T17:00:00");
 
             #JSON existing = appointmentDb.Appointment
                 .where(scheduledAt: gte(startOfDay))
