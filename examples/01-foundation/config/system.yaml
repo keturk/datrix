@@ -36,27 +36,25 @@ base:
       headers:
       - Content-Type
       - Authorization
+  # Platform-managed stack for local Docker: omit metrics.server and component
+  # endpoints so generators emit Prometheus, Jaeger, Loki, Grafana, Alertmanager
+  # in docker-compose. Point profiles at external URLs when using a shared stack.
   observability:
     metrics:
       provider: prometheus
       endpoint: /metrics
       includeDefault: true
-      server: http://10.94.143.92:9090
     tracing:
       provider: jaeger
       samplingRate: 0.1
-      endpoint: http://10.94.143.92:4317
     logging:
       level: info
       format: json
       provider: loki
-      endpoint: http://10.94.143.92:3100
     visualization:
       provider: grafana
-      endpoint: http://10.94.143.92:3000
     alerting:
       provider: alertmanager
-      endpoint: http://10.94.143.92:9093
   serviceDiscovery:
     type: consul
     host: localhost

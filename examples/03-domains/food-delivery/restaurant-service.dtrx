@@ -259,7 +259,7 @@ service fooddelivery.RestaurantService('config/restaurant-service.yaml') : versi
     }
 
     test("computed isOpen reflects Active status") {
-        let restaurantDb.RestaurantNone restaurant = restaurantDb.Restaurant.create({
+        let Restaurant restaurant = restaurantDb.Restaurant.create({
             name: "Test Bistro",
             cuisineType: "Italian",
             address: "123 Main St",
@@ -272,7 +272,7 @@ service fooddelivery.RestaurantService('config/restaurant-service.yaml') : versi
     }
 
     test("validation rejects rating outside 1-5 range") {
-        let restaurantDb.RestaurantNone restaurant = restaurantDb.Restaurant.create({
+        let Restaurant restaurant = restaurantDb.Restaurant.create({
             name: "Rating Test Cafe",
             cuisineType: "French",
             address: "456 Oak Ave",
@@ -292,7 +292,7 @@ service fooddelivery.RestaurantService('config/restaurant-service.yaml') : versi
     }
 
     test("afterCreate emits RestaurantRegistered") {
-        let restaurantDb.RestaurantNone restaurant = restaurantDb.Restaurant.create({
+        let Restaurant restaurant = restaurantDb.Restaurant.create({
             name: "Event Test Grill",
             cuisineType: "American",
             address: "789 Elm St",

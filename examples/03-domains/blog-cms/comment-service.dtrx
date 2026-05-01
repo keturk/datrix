@@ -60,7 +60,7 @@ service blog.CommentService('config/comment-service.yaml') : version('1.0.0'), d
     }
 
     test("computed isApproved reflects Approved status") {
-        let commentDb.CommentNone comment = commentDb.Comment.create({
+        let Comment comment = commentDb.Comment.create({
             contentId: uuid(),
             authorName: "Test Author",
             authorEmail: "test@example.com",
@@ -72,7 +72,7 @@ service blog.CommentService('config/comment-service.yaml') : version('1.0.0'), d
     }
 
     test("computed isVisible requires approved and not deleted") {
-        let commentDb.CommentNone comment = commentDb.Comment.create({
+        let Comment comment = commentDb.Comment.create({
             contentId: uuid(),
             authorName: "Visible Author",
             authorEmail: "visible@example.com",
@@ -84,7 +84,7 @@ service blog.CommentService('config/comment-service.yaml') : version('1.0.0'), d
     }
 
     test("spec: isApproved is true for approved comment with SpecAuthor") {
-        let commentDb.CommentNone comment = commentDb.Comment.create({
+        let Comment comment = commentDb.Comment.create({
             contentId: uuid(),
             authorName: "SpecAuthor",
             authorEmail: "spec@example.com",
@@ -96,7 +96,7 @@ service blog.CommentService('config/comment-service.yaml') : version('1.0.0'), d
     }
 
     test("spec: isVisible is true for approved non-deleted SpecAuthorVisible comment") {
-        let commentDb.CommentNone comment = commentDb.Comment.create({
+        let Comment comment = commentDb.Comment.create({
             contentId: uuid(),
             authorName: "SpecAuthorVisible",
             authorEmail: "spec.visible@example.com",

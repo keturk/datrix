@@ -465,7 +465,7 @@ service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), d
     }
 
     test("computed fullName concatenates first and last name") {
-        let employeeDb.EmployeeNone emp = employeeDb.Employee.create({
+        let Employee emp = employeeDb.Employee.create({
             firstName: "John",
             lastName: "Doe",
             employeeNumber: "EMP-TEST-001",
@@ -484,7 +484,7 @@ service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), d
     }
 
     test("computed isActive is true for Active status") {
-        let employeeDb.EmployeeNone emp = employeeDb.Employee.create({
+        let Employee emp = employeeDb.Employee.create({
             firstName: "Jane",
             lastName: "Smith",
             employeeNumber: "EMP-TEST-002",
@@ -522,7 +522,7 @@ service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), d
     }
 
     test("afterCreate emits EmployeeHired event") {
-        let employeeDb.EmployeeNone emp = employeeDb.Employee.create({
+        let Employee emp = employeeDb.Employee.create({
             firstName: "Bob",
             lastName: "Builder",
             employeeNumber: "EMP-TEST-004",
@@ -541,7 +541,7 @@ service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), d
     }
 
     test("terminate sets status and terminationDate") {
-        let employeeDb.EmployeeNone emp = employeeDb.Employee.create({
+        let Employee emp = employeeDb.Employee.create({
             firstName: "Charlie",
             lastName: "Day",
             employeeNumber: "EMP-TEST-005",
@@ -562,7 +562,7 @@ service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), d
     }
 
     test("suspend fails for non-active employee") {
-        let employeeDb.EmployeeNone emp = employeeDb.Employee.create({
+        let Employee emp = employeeDb.Employee.create({
             firstName: "Diana",
             lastName: "Prince",
             employeeNumber: "EMP-TEST-006",

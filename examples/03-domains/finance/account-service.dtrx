@@ -336,7 +336,7 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
     }
 
     test("computed isActive is true for Active status") {
-        let accountDb.CustomerNone cust = accountDb.Customer.create({
+        let Customer cust = accountDb.Customer.create({
             firstName: "John",
             lastName: "Doe",
             email: "john.doe@test.com",
@@ -345,7 +345,7 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
             kycStatus: KycStatus.Verified
         });
         cust.save();
-        let accountDb.AccountNone acct = accountDb.Account.create({
+        let Account acct = accountDb.Account.create({
             accountNumber: "ACC-TEST-001",
             customerId: cust.id,
             type: AccountType.Checking,
@@ -358,7 +358,7 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
     }
 
     test("validation rejects negative savings balance") {
-        let accountDb.CustomerNone cust = accountDb.Customer.create({
+        let Customer cust = accountDb.Customer.create({
             firstName: "Jane",
             lastName: "Doe",
             email: "jane.doe@test.com",
@@ -381,7 +381,7 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
     }
 
     test("afterCreate emits AccountOpened event") {
-        let accountDb.CustomerNone cust = accountDb.Customer.create({
+        let Customer cust = accountDb.Customer.create({
             firstName: "Bob",
             lastName: "Smith",
             email: "bob.smith@test.com",
@@ -390,7 +390,7 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
             kycStatus: KycStatus.Verified
         });
         cust.save();
-        let accountDb.AccountNone acct = accountDb.Account.create({
+        let Account acct = accountDb.Account.create({
             accountNumber: "ACC-TEST-003",
             customerId: cust.id,
             type: AccountType.Checking,
@@ -403,7 +403,7 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
     }
 
     test("status change emits AccountStatusChanged") {
-        let accountDb.CustomerNone cust = accountDb.Customer.create({
+        let Customer cust = accountDb.Customer.create({
             firstName: "Alice",
             lastName: "Johnson",
             email: "alice.j@test.com",
@@ -412,7 +412,7 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
             kycStatus: KycStatus.Verified
         });
         cust.save();
-        let accountDb.AccountNone acct = accountDb.Account.create({
+        let Account acct = accountDb.Account.create({
             accountNumber: "ACC-TEST-004",
             customerId: cust.id,
             type: AccountType.Savings,

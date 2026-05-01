@@ -567,7 +567,7 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
     }
 
     test("computed isActive reflects Active alert status") {
-        let alertDb.AlertNone alert = alertDb.Alert.create({
+        let Alert alert = alertDb.Alert.create({
             deviceId: uuid(),
             severity: AlertSeverity.Warning,
             status: AlertStatus.Active,
@@ -579,7 +579,7 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
     }
 
     test("computed isCritical reflects Critical severity") {
-        let alertDb.AlertNone alert = alertDb.Alert.create({
+        let Alert alert = alertDb.Alert.create({
             deviceId: uuid(),
             severity: AlertSeverity.Critical,
             status: AlertStatus.Active,
@@ -603,7 +603,7 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
     }
 
     test("afterCreate emits AlertTriggered") {
-        let alertDb.AlertNone alert = alertDb.Alert.create({
+        let Alert alert = alertDb.Alert.create({
             deviceId: uuid(),
             severity: AlertSeverity.Error,
             condition: "humidity > 90",

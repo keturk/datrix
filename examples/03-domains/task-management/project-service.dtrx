@@ -398,7 +398,7 @@ service taskapp.ProjectService('config/project-service.yaml') : version('1.0.0')
     }
 
     test("computed isActive for Active status") {
-        let projectDb.ProjectNone project = projectDb.Project.create({
+        let Project project = projectDb.Project.create({
             name: "Test Project",
             ownerId: uuid(),
             status: ProjectStatus.Active
@@ -409,7 +409,7 @@ service taskapp.ProjectService('config/project-service.yaml') : version('1.0.0')
     }
 
     test("computed canAddTasks for Planning status") {
-        let projectDb.ProjectNone project = projectDb.Project.create({
+        let Project project = projectDb.Project.create({
             name: "Planning Project",
             ownerId: uuid(),
             status: ProjectStatus.Planning
@@ -419,7 +419,7 @@ service taskapp.ProjectService('config/project-service.yaml') : version('1.0.0')
     }
 
     test("beforeCreate generates projectKey") {
-        let projectDb.ProjectNone project = projectDb.Project.create({
+        let Project project = projectDb.Project.create({
             name: "Key Project",
             ownerId: uuid()
         });
@@ -429,7 +429,7 @@ service taskapp.ProjectService('config/project-service.yaml') : version('1.0.0')
 
     test("afterCreate emits ProjectCreated event") {
         let UUID ownerId = uuid();
-        let projectDb.ProjectNone project = projectDb.Project.create({
+        let Project project = projectDb.Project.create({
             name: "Event Project",
             ownerId: ownerId
         });

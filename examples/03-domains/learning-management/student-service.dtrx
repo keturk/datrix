@@ -227,7 +227,7 @@ service lms.StudentService('config/student-service.yaml') : version('1.0.0'), de
     }
 
     test("computed fullName concatenates names") {
-        let studentDb.StudentNone student = studentDb.Student.create({
+        let Student student = studentDb.Student.create({
             firstName: "Jane",
             lastName: "Doe",
             email: "jane.doe@example.com"
@@ -237,7 +237,7 @@ service lms.StudentService('config/student-service.yaml') : version('1.0.0'), de
     }
 
     test("computed isActive for Active status") {
-        let studentDb.StudentNone student = studentDb.Student.create({
+        let Student student = studentDb.Student.create({
             firstName: "John",
             lastName: "Smith",
             email: "john.smith@example.com"
@@ -248,7 +248,7 @@ service lms.StudentService('config/student-service.yaml') : version('1.0.0'), de
     }
 
     test("beforeCreate generates studentNumber") {
-        let studentDb.StudentNone student = studentDb.Student.create({
+        let Student student = studentDb.Student.create({
             firstName: "Alice",
             lastName: "Brown",
             email: "alice.brown@example.com"

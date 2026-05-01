@@ -434,7 +434,7 @@ service hr.PayrollService('config/payroll-service.yaml') : version('1.0.0'), des
     }
 
     test("validation rejects non-positive gross pay") {
-        let payrollDb.PayrollRunNone run = payrollDb.PayrollRun.create({
+        let PayrollRun run = payrollDb.PayrollRun.create({
             payrollRef: "PAY-TEST-002",
             payPeriod: PayPeriod.Monthly,
             periodStart: DateTime.parse("2024-01-01"),
@@ -459,7 +459,7 @@ service hr.PayrollService('config/payroll-service.yaml') : version('1.0.0'), des
     }
 
     test("startProcessing fails for non-pending run") {
-        let payrollDb.PayrollRunNone run = payrollDb.PayrollRun.create({
+        let PayrollRun run = payrollDb.PayrollRun.create({
             payrollRef: "PAY-TEST-003",
             payPeriod: PayPeriod.BiWeekly,
             periodStart: DateTime.parse("2024-01-01"),
@@ -478,7 +478,7 @@ service hr.PayrollService('config/payroll-service.yaml') : version('1.0.0'), des
     }
 
     test("afterUpdate emits PayrollCompleted on completion") {
-        let payrollDb.PayrollRunNone run = payrollDb.PayrollRun.create({
+        let PayrollRun run = payrollDb.PayrollRun.create({
             payrollRef: "PAY-TEST-004",
             payPeriod: PayPeriod.Monthly,
             periodStart: DateTime.parse("2024-03-01"),

@@ -362,7 +362,7 @@ service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), desc
     }
 
     test("computed isActive reflects Active status") {
-        let deviceDb.DeviceNone device = deviceDb.Device.create({
+        let Device device = deviceDb.Device.create({
             serialNumber: "IOT-TEST-001",
             name: "Temperature Sensor",
             type: DeviceType.Sensor,
@@ -389,7 +389,7 @@ service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), desc
     }
 
     test("afterCreate emits DeviceRegistered") {
-        let deviceDb.DeviceNone device = deviceDb.Device.create({
+        let Device device = deviceDb.Device.create({
             serialNumber: "IOT-TEST-003",
             name: "Humidity Sensor",
             type: DeviceType.Sensor,
@@ -401,7 +401,7 @@ service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), desc
     }
 
     test("status change emits DeviceStatusChanged") {
-        let deviceDb.DeviceNone device = deviceDb.Device.create({
+        let Device device = deviceDb.Device.create({
             serialNumber: "IOT-TEST-004",
             name: "Gateway Hub",
             type: DeviceType.Gateway,

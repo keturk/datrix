@@ -403,7 +403,7 @@ service logistics.FleetService('config/fleet-service.yaml') : version('1.0.0'), 
     }
 
     test("computed needsMaintenance when mileage exceeds threshold") {
-        let fleetDb.VehicleNone vehicle = fleetDb.Vehicle.create({
+        let Vehicle vehicle = fleetDb.Vehicle.create({
             vehicleNumber: "VH-TEST-001",
             type: VehicleType.Truck,
             capacity: 5000.00,
@@ -414,7 +414,7 @@ service logistics.FleetService('config/fleet-service.yaml') : version('1.0.0'), 
     }
 
     test("computed isAvailable for Available status") {
-        let fleetDb.VehicleNone vehicle = fleetDb.Vehicle.create({
+        let Vehicle vehicle = fleetDb.Vehicle.create({
             vehicleNumber: "VH-TEST-002",
             type: VehicleType.Van,
             capacity: 2000.00,
@@ -437,7 +437,7 @@ service logistics.FleetService('config/fleet-service.yaml') : version('1.0.0'), 
     }
 
     test("afterCreate emits VehicleRegistered") {
-        let fleetDb.VehicleNone vehicle = fleetDb.Vehicle.create({
+        let Vehicle vehicle = fleetDb.Vehicle.create({
             vehicleNumber: "VH-TEST-004",
             type: VehicleType.Drone,
             capacity: 10.00,

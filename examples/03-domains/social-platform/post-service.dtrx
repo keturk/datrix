@@ -552,7 +552,7 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
     }
 
     test("validation rejects empty comment content") {
-        let postDb.PostNone post = postDb.Post.create({
+        let Post post = postDb.Post.create({
             authorId: uuid(),
             content: "Test post content",
             visibility: PostVisibility.Public,
@@ -570,7 +570,7 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
     }
 
     test("computed isPopular is true with enough likes") {
-        let postDb.PostNone post = postDb.Post.create({
+        let Post post = postDb.Post.create({
             authorId: uuid(),
             content: "Popular post content",
             visibility: PostVisibility.Public,
@@ -582,7 +582,7 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
     }
 
     test("computed isPublic for published public post") {
-        let postDb.PostNone post = postDb.Post.create({
+        let Post post = postDb.Post.create({
             authorId: uuid(),
             content: "Public post content",
             visibility: PostVisibility.Public,
@@ -593,7 +593,7 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
     }
 
     test("afterCreate emits PostPublished for published post") {
-        let postDb.PostNone post = postDb.Post.create({
+        let Post post = postDb.Post.create({
             authorId: uuid(),
             content: "New published post",
             visibility: PostVisibility.Public,

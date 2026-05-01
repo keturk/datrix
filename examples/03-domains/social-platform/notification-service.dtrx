@@ -444,7 +444,7 @@ service social.NotificationService('config/notification-service.yaml') : version
     }
 
     test("markAsRead sets read flag and readAt timestamp") {
-        let notificationDb.NotificationNone notification = notificationDb.Notification.create({
+        let Notification notification = notificationDb.Notification.create({
             userId: uuid(),
             type: NotificationType.System,
             title: "Test notification"
@@ -458,7 +458,7 @@ service social.NotificationService('config/notification-service.yaml') : version
     }
 
     test("markAsRead is idempotent") {
-        let notificationDb.NotificationNone notification = notificationDb.Notification.create({
+        let Notification notification = notificationDb.Notification.create({
             userId: uuid(),
             type: NotificationType.Like,
             title: "Someone liked your post"

@@ -413,7 +413,7 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
     }
 
     test("computed canCancel is true for Placed status") {
-        let orderDb.OrderNone order = orderDb.Order.create({
+        let Order order = orderDb.Order.create({
             customerId: uuid(),
             restaurantId: uuid(),
             orderNumber: "FD-TEST-001",
@@ -428,7 +428,7 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
     }
 
     test("computed canCancel is false for Preparing status") {
-        let orderDb.OrderNone order = orderDb.Order.create({
+        let Order order = orderDb.Order.create({
             customerId: uuid(),
             restaurantId: uuid(),
             orderNumber: "FD-TEST-002",
@@ -444,7 +444,7 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
     }
 
     test("afterCreate emits OrderPlaced event") {
-        let orderDb.OrderNone order = orderDb.Order.create({
+        let Order order = orderDb.Order.create({
             customerId: uuid(),
             restaurantId: uuid(),
             orderNumber: "FD-TEST-003",
