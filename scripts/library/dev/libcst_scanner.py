@@ -385,8 +385,17 @@ def resolve_scan_paths(
     datrix_root: Path,
     project_names: list[str],
     scan_all: bool,
+    *,
+    include_tests: bool = True,
 ) -> list[tuple[str, Path]]:
     """Return (project_name, directory) pairs to scan.
+
+    Args:
+        datrix_root: Monorepo root.
+        project_names: Package directory names (``datrix-common``, …).
+        scan_all: If True, scan all ``datrix*`` projects with a ``src/`` tree.
+        include_tests: If True, also append each project's ``tests/`` directory
+            when it exists. If False, only ``src/`` (and scan_all semantics unchanged).
 
     Raises:
         FileNotFoundError: If a requested project does not exist.
@@ -397,7 +406,7 @@ def resolve_scan_paths(
             if d.is_dir() and d.name.startswith("datrix") and (d / "src").is_dir():
                 pairs.append((d.name, d / "src"))
                 tests_dir = d / "tests"
-                if tests_dir.is_dir():
+                if include_tests and tests_dir.is_dir():
                     pairs.append((d.name, tests_dir))
         return pairs
 
@@ -417,7 +426,7 @@ def resolve_scan_paths(
         if src_dir.is_dir():
             pairs.append((clean, src_dir))
         tests_dir = project_dir / "tests"
-        if tests_dir.is_dir():
+        if include_tests and tests_dir.is_dir():
             pairs.append((clean, tests_dir))
     return pairs
 
@@ -460,7 +469,9 @@ def main() -> int:
         return 1
 
     try:
-        scan_pairs = resolve_scan_paths(datrix_root, args.projects, args.scan_all)
+        scan_pairs = resolve_scan_paths(
+            datrix_root, args.projects, args.scan_all, include_tests=True
+        )
     except FileNotFoundError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
