@@ -1,0 +1,26 @@
+# .gitattributes itself should use LF
+.gitattributes text eol=lf
+# Common file types - enforce LF line endings for cross-platform consistency
+*.py text eol=lf
+*.js text eol=lf
+*.ts text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.sh text eol=lf
+
+# Template files
+*.j2 text eol=lf
+
+# Datrix DSL files
+*.dtrx text eol=lf
+
+# Binary files
+*.dll binary
+*.so binary
+*.dylib binary
+*.exe binary
+*.whl binary
