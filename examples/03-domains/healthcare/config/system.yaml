@@ -96,12 +96,10 @@ base:
         environment: development
         region: us-east-1
         compliance: hipaa
-      server: http://10.94.143.92:9090
     tracing:
       provider: jaeger
       samplingRate: 1.0
       propagation: w3c
-      endpoint: http://10.94.143.92:4317
     logging:
       level: info
       format: json
@@ -110,7 +108,6 @@ base:
         application: healthcare-platform
         compliance: hipaa
       provider: loki
-      endpoint: http://10.94.143.92:3100
     audit:
       enabled: true
       storage:
@@ -133,10 +130,8 @@ base:
       - auth.failed
     visualization:
       provider: grafana
-      endpoint: http://10.94.143.92:3000
     alerting:
       provider: alertmanager
-      endpoint: http://10.94.143.92:9093
   serviceDiscovery:
     type: consul
     host: localhost

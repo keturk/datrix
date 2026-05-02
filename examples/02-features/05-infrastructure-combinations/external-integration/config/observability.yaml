@@ -3,22 +3,22 @@ test:
     provider: prometheus
     endpoint: /metrics
     includeDefault: true
-    server: http://10.94.143.92:9090
+    server: ${PROMETHEUS_URL}
   tracing:
     provider: jaeger
     samplingRate: 0.1
-    endpoint: http://10.94.143.92:4317
+    endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT}
   logging:
     level: info
     format: json
     provider: loki
-    endpoint: http://10.94.143.92:3100
+    endpoint: ${LOKI_URL}
   visualization:
     provider: grafana
-    endpoint: http://10.94.143.92:3000
+    endpoint: ${GRAFANA_URL}
   alerting:
     provider: alertmanager
-    endpoint: http://10.94.143.92:9093
+    endpoint: ${ALERTMANAGER_URL}
 development:
   metrics:
     provider: prometheus
