@@ -16,7 +16,7 @@ base:
     memberDb:
       engine: postgres
       host: localhost
-      database: library_books
+      database: library_members
       poolSize: 20
       platform: container
   registration:
@@ -45,7 +45,7 @@ production:
     memberDb:
       engine: postgres
       host: ${DB_HOST}
-      database: library_books
+      database: library_members
       poolSize: 40
       platform: rds
       ssl: true
