@@ -22,11 +22,11 @@ base:
         requests: 10
         window: 1m
         key: ip
-      OrderAPI:
+      TaskAPI:
         requests: 50
         window: 1m
         key: user
-      PaymentAPI:
+      ProjectAPI:
         requests: 20
         window: 1m
         key: user
