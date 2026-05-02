@@ -302,16 +302,14 @@ service ecommerce.PaymentService('config/payment-service.yaml') : version('1.0.0
                         refund.errorMessage = result.error ?? "Stripe refund failed";
                     }
                 } else if (payment.method == PaymentMethod.PayPal) {
-                    let JSON result = PayPalGateway.refund({
-                        transactionId: payment.transactionId,
-                        amount: refund.amount
+                    // PayPal gateway requires integrations.payment.provider: paypal in YAML.
+                    // This example profile configures Stripe only; refunds are not executed here.
+                    Log.info("PayPal refund skipped: configure PayPal as payment provider to enable gateway refunds", {
+                        paymentId: payment.id,
+                        refundId: refund.id
                     });
-                    success = result.success;
-                    transactionId = result.refundTransactionId;
-
-                    if (!success) {
-                        refund.errorMessage = result.error ?? "PayPal refund failed";
-                    }
+                    refund.errorMessage = "PayPal refunds require PayPal payment integration in integrations.yaml";
+                    return false;
                 } else if (payment.method == PaymentMethod.BankTransfer) {
                     Log.info("Bank transfer refund requires manual processing", {
                         paymentId: payment.id,
@@ -394,18 +392,14 @@ service ecommerce.PaymentService('config/payment-service.yaml') : version('1.0.0
                     error = result.error ?? "Stripe charge failed";
                 }
             } else if (payment.method == PaymentMethod.PayPal) {
-                let JSON result = PayPalGateway.charge({
-                    amount: payment.amount,
-                    transactionId: payment.transactionId,
-                    customerId: payment.customerId
+                // PayPal gateway requires integrations.payment.provider: paypal in YAML.
+                // This example profile configures Stripe only; charges are not executed here.
+                Log.info("PayPal charge skipped: configure PayPal as payment provider to enable gateway charges", {
+                    paymentId: payment.id,
+                    transactionId: payment.transactionId
                 });
-
-                success = result.success;
-                gatewayResponse = JSON.stringify(result);
-
-                if (!success) {
-                    error = result.error ?? "PayPal charge failed";
-                }
+                error = "PayPal charges require PayPal payment integration in integrations.yaml";
+                success = false;
             } else if (payment.method == PaymentMethod.BankTransfer) {
                 payment.gatewayResponse = "Bank transfer initiated - awaiting confirmation";
                 payment.save();
