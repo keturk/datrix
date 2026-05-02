@@ -9,6 +9,7 @@ into spec, integration-project, and integration-service categories.
 """
 
 import argparse
+import json
 import re
 import sys
 import xml.etree.ElementTree as ET
@@ -215,6 +216,138 @@ def parse_xml_results(deploy_test_folder: Path) -> List[XmlSuiteResult]:
 
 
 # ---------------------------------------------------------------------------
+# Jest JSON parsing (TypeScript tests)
+# ---------------------------------------------------------------------------
+
+def _classify_jest_test_file(file_path: str) -> Optional[tuple[str, str]]:
+    """Classify a Jest test file path into (category, service_name).
+
+    TypeScript test files:
+    - tests/deploy.test.ts -> ('integration-project', '')
+    - tests/{service}.deploy.test.ts -> ('integration-service', '{service}')
+    - tests/spec/*.spec.ts -> ('spec', '{service}')
+    - {service}/test/*.spec.ts -> ('spec', '{service}')
+    """
+    # Normalize path separators
+    normalized = file_path.replace('\\', '/')
+    parts = normalized.split('/')
+
+    # Find the 'tests' or 'test' directory index
+    try:
+        tests_idx = parts.index('tests')
+    except ValueError:
+        try:
+            tests_idx = parts.index('test')
+        except ValueError:
+            return None
+
+    # Get the filename
+    if tests_idx >= len(parts) - 1:
+        return None
+
+    filename = parts[-1]
+
+    # Check if it's in tests/ directory (project-level deployment tests)
+    if parts[tests_idx] == 'tests':
+        if filename == 'deploy.test.ts':
+            # Basic health check tests
+            return ('integration-project', '')
+        elif filename.endswith('.deploy.test.ts'):
+            # Service-specific deployment tests
+            service_name = filename.replace('.deploy.test.ts', '').replace('-', '_')
+            return ('integration-service', service_name)
+        elif filename.endswith('.spec.ts') and len(parts) > tests_idx + 1:
+            # Spec tests under tests/spec/
+            if parts[tests_idx + 1] == 'spec':
+                service_name = filename.replace('.spec.ts', '').replace('-', '_')
+                return ('spec', service_name)
+
+    # Check if it's in {service}/test/ directory (unit tests)
+    elif parts[tests_idx] == 'test' and filename.endswith('.spec.ts'):
+        # Unit/spec tests - try to extract service name from path
+        if tests_idx > 0:
+            service_name = parts[tests_idx - 1]
+            return ('spec', service_name)
+
+    return None
+
+
+def _parse_jest_json(json_path: Path) -> List[XmlSuiteResult]:
+    """Parse a Jest JSON results file and return categorized suite results."""
+    try:
+        with open(json_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, FileNotFoundError):
+        return []
+
+    # Group test results by category and service
+    results_map: dict[tuple[str, str], dict[str, int]] = {}
+
+    for test_result in data.get('testResults', []):
+        file_path = test_result.get('name', '')
+        classified = _classify_jest_test_file(file_path)
+
+        if classified is None:
+            continue
+
+        category, service = classified
+        key = (category, service)
+
+        if key not in results_map:
+            results_map[key] = {
+                'tests': 0,
+                'passed': 0,
+                'failures': 0,
+                'errors': 0,
+                'skipped': 0,
+            }
+
+        # Count assertions from this file
+        assertions = test_result.get('assertionResults', [])
+        for assertion in assertions:
+            status = assertion.get('status', '')
+            results_map[key]['tests'] += 1
+
+            if status == 'passed':
+                results_map[key]['passed'] += 1
+            elif status == 'failed':
+                results_map[key]['failures'] += 1
+            elif status == 'pending':
+                results_map[key]['skipped'] += 1
+
+    # Convert to XmlSuiteResult objects
+    suite_results: List[XmlSuiteResult] = []
+    for (category, service), counts in results_map.items():
+        suite_results.append(XmlSuiteResult(
+            category=category,
+            service=service,
+            tests=counts['tests'],
+            passed=counts['passed'],
+            failures=counts['failures'],
+            errors=counts['errors'],
+            skipped=counts['skipped'],
+            time_seconds=0.0,  # Jest JSON doesn't provide total time per category
+        ))
+
+    return suite_results
+
+
+def parse_jest_and_xml_results(deploy_test_folder: Path) -> List[XmlSuiteResult]:
+    """Parse both JUnit XML and Jest JSON files in a deploy-test folder."""
+    results: List[XmlSuiteResult] = []
+
+    # First try to parse Jest JSON (TypeScript tests)
+    jest_json = deploy_test_folder / 'jest-deploy-results.json'
+    if jest_json.exists():
+        results.extend(_parse_jest_json(jest_json))
+
+    # Also parse XML files (Python tests or XML output from Jest)
+    results.extend(parse_xml_results(deploy_test_folder))
+
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Summary log parsing
 # ---------------------------------------------------------------------------
 
@@ -365,14 +498,14 @@ def find_all_test_results(root_dir: Path, *, detail: bool = False) -> List[TestR
                 result = parse_summary_log(summary_log)
                 result.project_path = project_path
                 if detail:
-                    result.xml_suites = parse_xml_results(latest_folder)
+                    result.xml_suites = parse_jest_and_xml_results(latest_folder)
                 results.append(result)
             else:
                 # No summary log — the deploy test is either still
                 # running or crashed before writing results.  Report as
                 # UNKNOWN so the project is not silently omitted but
                 # also not falsely marked as FAILED.
-                xml_suites = parse_xml_results(latest_folder) if detail else []
+                xml_suites = parse_jest_and_xml_results(latest_folder) if detail else []
                 total_passed = sum(s.passed for s in xml_suites)
                 total_failed = sum(s.failures for s in xml_suites)
                 total_errors = sum(s.errors for s in xml_suites)
