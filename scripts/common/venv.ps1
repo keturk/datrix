@@ -492,6 +492,7 @@ function Install-DatrixPackage {
  "datrix-common" = "datrix_common"
  "datrix-language" = "datrix_language"
  "datrix-codegen-component" = "datrix_codegen_component"
+ "datrix-codegen-common" = "datrix_codegen_common"
  "datrix-cli" = "datrix_cli"
  "datrix-codegen-python" = "datrix_codegen_python"
  "datrix-codegen-typescript" = "datrix_codegen_typescript"
@@ -606,6 +607,7 @@ function Test-DatrixWorkspacePresent {
  "datrix-cli",
  "datrix-common",
  "datrix-codegen-component",
+ "datrix-codegen-common",
  "datrix-codegen-python",
  "datrix-codegen-sql",
  "datrix-codegen-typescript",
@@ -722,6 +724,7 @@ function Get-DatrixPackages {
  "datrix-common",
  "datrix-language",
  "datrix-codegen-component",
+ "datrix-codegen-common",
  "datrix-cli",
  "datrix-codegen-python",
  "datrix-codegen-typescript",
@@ -798,6 +801,7 @@ function Test-PackageNeedsReinstall {
  "datrix-common" = "datrix_common"
  "datrix-language" = "datrix_language"
  "datrix-codegen-component" = "datrix_codegen_component"
+ "datrix-codegen-common" = "datrix_codegen_common"
  "datrix-cli" = "datrix_cli"
  "datrix-codegen-python" = "datrix_codegen_python"
  "datrix-codegen-typescript" = "datrix_codegen_typescript"

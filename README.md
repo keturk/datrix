@@ -64,7 +64,7 @@ service taskmgmt.TaskService : version('1.0.0') {
 
 That's it. Datrix generates the FastAPI app, SQLAlchemy models, Alembic migrations, Pydantic schemas, CRUD endpoints, Docker setup, tests, and monitoring — all production-ready.
 
-Browse the full example: [task-management/](examples/02-domains/task-management/) | [generated output](examples/02-domains/task-management/generated/python-docker/)
+Browse the full example: [task-management/](examples/03-domains/task-management/) | [generated output](examples/03-domains/task-management/generated/python-docker/)
 
 ## The E-Commerce Example
 
@@ -78,7 +78,7 @@ For something more ambitious: **5 microservices, ~2,500 lines of `.dtrx`** gener
 
 Infrastructure included: PostgreSQL (per service), MongoDB, Redis, Kafka, MinIO, Nginx reverse proxy, Prometheus, Grafana, Jaeger tracing — all wired together in `docker-compose.yml`.
 
-Browse the full example: [ecommerce/](examples/02-domains/ecommerce/) | [generated output](examples/02-domains/ecommerce/generated/python-docker/)
+Browse the full example: [ecommerce/](examples/03-domains/ecommerce/) | [generated output](examples/03-domains/ecommerce/generated/python-docker/)
 
 ---
 
@@ -139,31 +139,43 @@ Browse the full example: [ecommerce/](examples/02-domains/ecommerce/) | [generat
 |----------------|-------------------|
 | Python (FastAPI) | Docker + Compose |
 | TypeScript (NestJS) | Kubernetes |
-| SQL (PostgreSQL, MySQL) | AWS (CDK + CloudFormation) |
+| SQL (PostgreSQL, MySQL, MariaDB) | AWS (CDK + CloudFormation) |
 | Component (configs, schemas, docs) | Azure (Bicep + ARM) |
 
 ---
 
 ## Examples
 
-### Tutorials (41 progressive lessons)
+### Foundation
 
-Start from a single entity and build up to a full microservices system with API gateways, CQRS, event-driven architecture, and more.
+Start with the basics — a single service, entities, and generated output.
 
-[Browse tutorials &rarr;](examples/01-tutorial/)
+[Browse foundation &rarr;](examples/01-foundation/)
+
+### Feature Examples (37 progressive examples)
+
+Organized across 6 categories covering core data modeling, service architecture, infrastructure blocks, advanced data features, infrastructure combinations, and advanced language features.
+
+[Browse features &rarr;](examples/02-features/)
 
 ### Domain Examples
 
 Complete, real-world implementations:
 
-| Domain | Services | Description |
-|--------|----------|-------------|
-| [E-Commerce](examples/02-domains/ecommerce/) | 5 | Orders, payments, shipping, inventory, users |
-| [Healthcare](examples/02-domains/healthcare/) | 3 | Patients, appointments, medical records |
-| [Blog CMS](examples/02-domains/blog-cms/) | 3 | Authors, articles, comments |
-| [Social Platform](examples/02-domains/social-platform/) | 4 | Profiles, posts, messaging, notifications |
-| [Learning Management](examples/02-domains/learning-management/) | 3 | Courses, enrollment, assessments |
-| [Task Management](examples/02-domains/task-management/) | 3 | Projects, tasks, team collaboration |
+| Domain | Description |
+|--------|-------------|
+| [E-Commerce](examples/03-domains/ecommerce/) | Orders, payments, shipping, inventory, users |
+| [Healthcare](examples/03-domains/healthcare/) | Patients, appointments, medical records |
+| [Blog CMS](examples/03-domains/blog-cms/) | Authors, articles, comments |
+| [Social Platform](examples/03-domains/social-platform/) | Profiles, posts, messaging, notifications |
+| [Learning Management](examples/03-domains/learning-management/) | Courses, enrollment, assessments |
+| [Task Management](examples/03-domains/task-management/) | Projects, tasks, team collaboration |
+| [Finance](examples/03-domains/finance/) | Financial services and transactions |
+| [Food Delivery](examples/03-domains/food-delivery/) | Restaurants, orders, delivery tracking |
+| [HR Platform](examples/03-domains/hr-platform/) | Employees, departments, payroll |
+| [IoT Platform](examples/03-domains/iot-platform/) | Devices, telemetry, alerts |
+| [Logistics](examples/03-domains/logistics/) | Warehouses, shipments, routing |
+| [Real Estate](examples/03-domains/real-estate/) | Properties, listings, agents |
 
 ---
 

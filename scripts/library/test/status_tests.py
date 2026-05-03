@@ -57,7 +57,7 @@ class TestResult:
  """Test result information for a project."""
  project_path: str
  project_name: str
- status: str # 'PASSED', 'FAILED', or 'UNKNOWN'
+ status: str # 'PASSED', 'FAILED', 'UNKNOWN', or 'NO_LOG' (no .test_results log yet)
  total_passed: int
  total_failed: int
  total_errors: int
@@ -91,6 +91,23 @@ def get_datrix_projects(datrix_root: Path) -> List[str]:
    if (item / "tests").exists():
     projects.append(item.name)
  return sorted(projects)
+
+
+def _no_log_result(project_dir: Path) -> TestResult:
+ """Build a placeholder row when .test_results is missing or has no test-results-*.log."""
+ return TestResult(
+  project_path=str(project_dir.resolve()),
+  project_name=project_dir.name,
+  status="NO_LOG",
+  total_passed=0,
+  total_failed=0,
+  total_errors=0,
+  total_skipped=0,
+  total_warnings=0,
+  timestamp="(no log)",
+  log_file="",
+  phases={},
+ )
 
 
 def parse_timestamp_from_log_file(log_file_name: str) -> Optional[datetime]:
@@ -357,27 +374,32 @@ def parse_pytest_summary(log_file: Path) -> TestResult:
 
 def find_all_test_results(root_dir: Path) -> List[TestResult]:
  """
- Find test results for all specified datrix projects.
+ Find test results for all datrix-* projects that have a tests/ directory.
+
+ Every such project appears in the report. Projects without a .test_results log
+ get status NO_LOG so they are visible (e.g. datrix-codegen-common before first run).
 
  Args:
  root_dir: Root directory to start searching from (workspace root)
 
  Returns:
- List of TestResult objects
+ List of TestResult objects (one per testable project)
  """
- results = []
+ results: List[TestResult] = []
  projects = get_datrix_projects(root_dir)
 
  for project_name in projects:
   project_dir = root_dir / project_name
-  test_results_dir = project_dir / '.test_results'
+  test_results_dir = project_dir / ".test_results"
 
-  if test_results_dir.exists() and test_results_dir.is_dir():
+  if test_results_dir.is_dir():
    latest_log = find_latest_log_file(test_results_dir)
-
-   if latest_log:
-    result = parse_pytest_summary(latest_log)
-    results.append(result)
+   if latest_log is not None:
+    results.append(parse_pytest_summary(latest_log))
+   else:
+    results.append(_no_log_result(project_dir))
+  else:
+   results.append(_no_log_result(project_dir))
 
  return results
 
@@ -407,8 +429,10 @@ def _phase_cell(phase: Optional[PhaseResult], width: int, use_colors: bool) -> s
 
 def _status_symbol(status: str, use_colors: bool) -> str:
  """Return a colored status symbol."""
- symbols = {'PASSED': ('OK', Colors.GREEN), 'FAILED': ('!!', Colors.RED)}
- sym, color = symbols.get(status, ('??', Colors.YELLOW))
+ if status == "NO_LOG":
+  return _colorize("--", Colors.GRAY, use_colors)
+ symbols = {"PASSED": ("OK", Colors.GREEN), "FAILED": ("!!", Colors.RED)}
+ sym, color = symbols.get(status, ("??", Colors.YELLOW))
  return _colorize(sym, Colors.BOLD + color, use_colors)
 
 
@@ -447,8 +471,17 @@ def _format_result_row(result: TestResult, name_width: int, use_colors: bool) ->
 def _format_summary_line(project_statuses: dict, use_colors: bool) -> str:
  """Format the project status summary line."""
  c = lambda text, color: _colorize(text, color, use_colors)
- mapping = [('PASSED', 'passed', Colors.GREEN), ('FAILED', 'failed', Colors.RED), ('UNKNOWN', 'unknown', Colors.YELLOW)]
- parts = [c(f"{project_statuses[key]} {label}", color) for key, label, color in mapping if project_statuses.get(key, 0) > 0]
+ mapping = [
+  ("PASSED", "passed", Colors.GREEN),
+  ("FAILED", "failed", Colors.RED),
+  ("UNKNOWN", "unknown", Colors.YELLOW),
+  ("NO_LOG", "no log", Colors.GRAY),
+ ]
+ parts = [
+  c(f"{project_statuses[key]} {label}", color)
+  for key, label, color in mapping
+  if project_statuses.get(key, 0) > 0
+ ]
  return ", ".join(parts)
 
 
@@ -487,7 +520,7 @@ def print_results(results: List[TestResult]):
  print("-" * line_width)
 
  # Data rows
- project_statuses = {'PASSED': 0, 'FAILED': 0, 'UNKNOWN': 0}
+ project_statuses: dict[str, int] = {"PASSED": 0, "FAILED": 0, "UNKNOWN": 0, "NO_LOG": 0}
  grand = {'passed': 0, 'failed': 0, 'errors': 0, 'skipped': 0, 'warnings': 0}
 
  for result in results:

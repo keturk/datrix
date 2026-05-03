@@ -7,7 +7,7 @@
 
  Project list semantics (see datrix/scripts/README.md):
  - Get-DatrixPackageNamesGlob: metrics -All; filesystem directories under the workspace matching datrix-*.
- - Get-DatrixTestablePackageNames: test runner; canonical repos (DatrixPaths) that exist and contain a tests/ folder.
+ - Get-DatrixTestablePackageNames: test runner; workspace datrix-* dirs with a tests/ folder (excludes retired); matches status_tests.py discovery.
  - Get-DatrixMonoProjectNames: full-monorepo scans (e.g. duplicate -Mono); canonical repo names in order where the directory exists.
 #>
 
@@ -119,7 +119,13 @@ function Get-DatrixPackageNamesGlobWithPyProject {
 function Get-DatrixTestablePackageNames {
  <#
  .SYNOPSIS
- Lists canonical package names that exist under the workspace and contain a tests/ directory (test.ps1 -All behavior).
+ Lists datrix-* package directory names under the workspace that contain a tests/ directory (test.ps1 -All behavior).
+
+ .DESCRIPTION
+ Discovers packages by scanning the workspace root (same idea as status_tests.py get_datrix_projects), not only
+ the hardcoded Get-DatrixDirectories list, so packages like datrix-codegen-common are included.
+
+ Retired names merged into datrix-common are excluded: datrix-core, datrix-codegen.
 
  .PARAMETER WorkspaceRoot
  Monorepo workspace root. Defaults to Get-DatrixWorkspaceRoot.
@@ -134,11 +140,16 @@ function Get-DatrixTestablePackageNames {
   $WorkspaceRoot = Get-DatrixWorkspaceRoot
  }
 
+ $retired = @("datrix-core", "datrix-codegen")
  $projects = @()
- foreach ($dirPath in (Get-DatrixDirectoryPaths -WorkspaceRoot $WorkspaceRoot)) {
-  if (Test-Path (Join-Path $dirPath "tests")) {
-   $projects += (Split-Path -Leaf $dirPath)
-  }
+ if (Test-Path $WorkspaceRoot) {
+  Get-ChildItem -Path $WorkspaceRoot -Directory |
+   Where-Object {
+    $_.Name -like "datrix-*" -and
+    $retired -notcontains $_.Name -and
+    (Test-Path (Join-Path $_.FullName "tests"))
+   } |
+   ForEach-Object { $projects += $_.Name }
  }
  return $projects | Sort-Object
 }
