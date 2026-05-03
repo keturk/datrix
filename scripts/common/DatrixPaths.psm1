@@ -70,6 +70,7 @@ function Get-DatrixDirectories {
  "datrix",
  "datrix-cli",
  "datrix-common",
+ "datrix-codegen-common",
  "datrix-codegen-component",
  "datrix-codegen-python",
  "datrix-codegen-sql",
