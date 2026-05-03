@@ -10,7 +10,7 @@ _library_dir = Path(__file__).resolve().parent.parent
 if str(_library_dir) not in sys.path:
     sys.path.insert(0, str(_library_dir))
 
-from test.status_tests import _extract_counts_from_summary_line
+from test.status_tests import _extract_counts_from_summary_line, find_all_test_results
 
 
 def test_extract_counts_from_summary_line_real_summary_returns_counts() -> None:
@@ -45,6 +45,20 @@ def test_extract_counts_from_summary_line_log_line_with_error_rejected() -> None
     )
     result = _extract_counts_from_summary_line(line)
     assert result is None
+
+
+def test_find_all_test_results_includes_project_without_test_results_log(
+ tmp_path: Path,
+) -> None:
+ """Projects with tests/ but no .test_results log appear as NO_LOG (not omitted)."""
+ root = tmp_path
+ pkg = root / "datrix-codegen-common"
+ (pkg / "tests").mkdir(parents=True)
+ results = find_all_test_results(root)
+ assert len(results) == 1
+ assert results[0].project_name == "datrix-codegen-common"
+ assert results[0].status == "NO_LOG"
+ assert results[0].total_passed == 0
 
 
 def test_extract_counts_from_summary_line_no_leading_equals_rejected() -> None:
