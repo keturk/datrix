@@ -31,7 +31,8 @@ Shared utilities used across multiple scripts.
 |------|-------------|
 | `test_runner.py` | Test execution framework |
 | `test_projects.py` | Project discovery from test-projects.json |
-| `logging_utils.py` | Logging configuration |
+| `logging_utils.py` | Logging and tee-style output (console + file) |
+| `structured_log_writer.py` | Post-processes JUnit XML into structured test result directories |
 | `venv.py` | Virtual environment utilities (Python side) |
 
 ## metrics/

@@ -1,7 +1,8 @@
 """
-Unit tests for status_tests.py (pytest summary line parsing).
+Unit tests for status_tests.py (pytest summary line parsing and result discovery).
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -66,3 +67,44 @@ def test_extract_counts_from_summary_line_no_leading_equals_rejected() -> None:
     line = "Found 1 error error=Expecting value: line 1 column 1 (char 0)"
     result = _extract_counts_from_summary_line(line)
     assert result is None
+
+
+def test_find_all_test_results_directory_format(tmp_path: Path) -> None:
+    """Projects with directory-format test results are parsed via index.json."""
+    root = tmp_path
+    pkg = root / "datrix-example"
+    (pkg / "tests").mkdir(parents=True)
+    run_dir = pkg / ".test_results" / "test-results-20260503-191002"
+    run_dir.mkdir(parents=True)
+    (run_dir / "full.log").write_text("", encoding="utf-8")
+    (run_dir / "index.json").write_text(json.dumps({
+        "schema_version": 1,
+        "result": "PASSED",
+        "counts": {"passed": 25, "failed": 0, "errors": 0, "skipped": 1, "warnings": 0},
+    }), encoding="utf-8")
+
+    results = find_all_test_results(root)
+
+    assert len(results) == 1
+    assert results[0].project_name == "datrix-example"
+    assert results[0].status == "PASSED"
+    assert results[0].total_passed == 25
+    assert results[0].total_skipped == 1
+
+
+def test_find_all_test_results_legacy_flat_file_still_works(tmp_path: Path) -> None:
+    """Legacy flat .log files are still discovered and parsed."""
+    root = tmp_path
+    pkg = root / "datrix-example"
+    (pkg / "tests").mkdir(parents=True)
+    test_results_dir = pkg / ".test_results"
+    test_results_dir.mkdir(parents=True)
+    legacy_log = test_results_dir / "test-results-20260503-191002.log"
+    legacy_log.write_text("====== 12 passed in 1.0s ======\n", encoding="utf-8")
+
+    results = find_all_test_results(root)
+
+    assert len(results) == 1
+    assert results[0].project_name == "datrix-example"
+    assert results[0].status == "PASSED"
+    assert results[0].total_passed == 12

@@ -35,6 +35,10 @@
 .PARAMETER Test
  Run pytest after fix to verify correctness; revert if tests fail. Use with -Fix.
 
+.PARAMETER MaxRetries
+ Maximum number of Ollama retry attempts per violation (default: 3). Use with -Fix.
+ On each retry, the LLM receives feedback about why the previous attempt failed.
+
 .PARAMETER StopOnError
  Stop on first project failure instead of continuing.
 
@@ -77,6 +81,7 @@ param(
  [int]$Max = 15,
  [switch]$Fix,
  [switch]$Test,
+ [int]$MaxRetries = 3,
  [switch]$StopOnError,
  [switch]$VerboseOutput,
  [switch]$Dbg
@@ -156,6 +161,7 @@ try {
  Write-Host " -Max Max cyclomatic and cognitive complexity for mode=check (default: 15)" -ForegroundColor Gray
  Write-Host " -Fix Fix worst violation via Ollama (mode=check only)" -ForegroundColor Gray
  Write-Host " -Test Run pytest after fix; revert if tests fail (use with -Fix)" -ForegroundColor Gray
+ Write-Host " -MaxRetries Max Ollama retry attempts per violation (default: 3, use with -Fix)" -ForegroundColor Gray
  Write-Host " -All Run for all datrix-* projects" -ForegroundColor Gray
  Write-Host " -StopOnError Stop on first project failure" -ForegroundColor Gray
  Write-Host " -VerboseOutput Verbose output from the check script" -ForegroundColor Gray
@@ -236,7 +242,10 @@ try {
  }
  if ($VerboseOutput) { $projectArgs += "--verbose" }
  if ($Dbg) { $projectArgs += "--debug" }
- if ($Fix) { $projectArgs += "--fix" }
+ if ($Fix) {
+   $projectArgs += "--fix"
+   if ($MaxRetries -ne 3) { $projectArgs += "--max-retries", $MaxRetries }
+ }
  if ($Test) { $projectArgs += "--test" }
 
  & python @projectArgs

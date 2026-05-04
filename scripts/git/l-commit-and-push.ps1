@@ -33,10 +33,10 @@ Ollama option num_predict (max tokens). Lower values discourage long tutorial-st
 If set, after writing commit-messages.json runs commit-and-push.ps1 with that file.
 
 .EXAMPLE
-PS D:\datrix> .\datrix\scripts\git\l_commit_and_push.ps1
+PS D:\datrix> .\datrix\scripts\git\l-commit-and-push.ps1
 
 .EXAMPLE
-PS D:\datrix> .\datrix\scripts\git\l_commit_and_push.ps1 -CommitAndPush
+PS D:\datrix> .\datrix\scripts\git\l-commit-and-push.ps1 -CommitAndPush
 #>
 [CmdletBinding()]
 param(

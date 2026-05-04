@@ -141,6 +141,7 @@ class TestRunner:
   test_path: str = None,
   keyword_expr: str = None,
   ignore_paths: Optional[list[str]] = None,
+  junit_xml_path: Optional[Path] = None,
  ) -> list[str]:
   """Build pytest command arguments."""
   # Use test_path if provided, otherwise use default test_dir
@@ -214,6 +215,10 @@ class TestRunner:
     "--cov-report=term-missing",
     "--cov-report=html",
    ])
+
+  # JUnit XML output for structured log writer
+  if junit_xml_path:
+   args.extend(["--junit-xml", str(junit_xml_path)])
 
   return args
 
@@ -330,6 +335,12 @@ class TestRunner:
 
    phase_results = {} # {phase_name: returncode}
 
+   # Get run directory for JUnit XML output (available when save_log=True)
+   run_dir = logger.get_run_dir()
+   junit_parallel_path = run_dir / "junit-parallel.xml" if run_dir else None
+   junit_serial_path = run_dir / "junit-serial.xml" if run_dir else None
+   junit_path = run_dir / "junit.xml" if run_dir else None
+
    if self.has_xdist and not coverage:
     # ── Phase 1: Parallel tests (excluding serial) ─────────────────
     phase_num = 1
@@ -340,6 +351,7 @@ class TestRunner:
     test_args_parallel = self._build_pytest_args(
      python_exe, coverage, verbose, marker_expr, test_path,
      keyword_expr, ignore_paths=None,
+     junit_xml_path=junit_parallel_path,
     )
 
     try:
@@ -377,6 +389,7 @@ class TestRunner:
     test_args_serial = self._build_pytest_args(
      python_exe, coverage, verbose, None, test_path,
      keyword_expr, ignore_paths=None,
+     junit_xml_path=junit_serial_path,
     )
     self.has_xdist = original_has_xdist
     self.config.exclude_markers = original_exclude_markers
@@ -447,6 +460,7 @@ class TestRunner:
     test_args = self._build_pytest_args(
      python_exe, coverage, verbose, marker_expr, test_path,
      keyword_expr, ignore_paths=None,
+     junit_xml_path=junit_path,
     )
 
     try:
@@ -468,6 +482,35 @@ class TestRunner:
     if rc_remaining == 5:
      rc_remaining = 0
     phase_results["Tests"] = rc_remaining
+
+   # ── Post-process JUnit XML into structured output ────────────────
+   if run_dir and save_log:
+    try:
+     from shared.structured_log_writer import StructuredLogWriter
+
+     xml_paths: list[Path] = []
+     if self.has_xdist and not coverage:
+      if junit_parallel_path:
+       xml_paths.append(junit_parallel_path)
+      if junit_serial_path:
+       xml_paths.append(junit_serial_path)
+     else:
+      if junit_path:
+       xml_paths.append(junit_path)
+
+     writer = StructuredLogWriter(
+      project_name=self.config.project_name,
+      run_dir=run_dir,
+     )
+     from datetime import datetime
+     writer.write(
+      xml_paths=xml_paths,
+      timestamp=datetime.now(),
+      phase_results=phase_results,
+     )
+     logger.write(f"Structured test results: {run_dir / 'index.json'}")
+    except Exception as e:
+     logger.write_warning(f"Warning: Failed to generate structured test results: {e}")
 
    # ── Combined summary ─────────────────────────────────────────────
    if len(phase_results) > 1:
