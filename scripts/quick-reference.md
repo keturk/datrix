@@ -254,6 +254,23 @@ Reports test results from latest test logs for all datrix projects.
 
 **Parameters:** `-Dbg`
 
+### `test\test-single.ps1`
+
+Lightweight single-test runner for checkpoint-based debugging. Runs exactly what you specify with minimal overhead.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Single file** | `.\test\test-single.ps1 "D:\datrix\datrix-codegen-python\tests\test_entity.py"` | Run all tests in file |
+| **Node ID** | `.\test\test-single.ps1 "tests/test_entity.py::TestEntity::test_basic" -Project datrix-codegen-python` | One test method |
+| **Keyword** | `.\test\test-single.ps1 -Project datrix-common -Keyword "test_poly_string"` | Match by keyword |
+| **Fail fast** | `.\test\test-single.ps1 "tests/test_enum.py" -Project datrix-codegen-typescript -FailFast` | Stop on first failure |
+| **Verbose** | `.\test\test-single.ps1 "tests/test_foo.py" -Project datrix-common -Verbose` | Full pytest output |
+| **Skip install** | `.\test\test-single.ps1 "tests/test_foo.py" -Project datrix-common -SkipInstall` | Skip pip install |
+
+**Parameters:** `-TestPath` (positional 0), `-Project`, `-Keyword`, `-Marker`, `-Verbose`, `-FailFast`, `-SkipInstall`, `-Dbg`
+
+**Note:** Auto-detects project from full test path. Use `-Project` when providing relative paths or keyword-only searches.
+
 ### `test\status-deploy-tests.ps1`
 
 Reports deployment test results from `.generated/` tree.
@@ -600,6 +617,36 @@ Runs Semgrep with Datrix-specific rules from `scripts/config/semgrep-rules/`.
 | **Show raw output** | `.\dev\semgrep.ps1 -All -ShowRaw` | Show raw semgrep output |
 
 **Parameters:** `-Projects` (positional, variadic), `-All`, `-Rule <name>` (repeatable), `-ListRules`, `-Report <path>`, `-ShowRaw`
+
+### `dev\check-debug-artifacts.ps1`
+
+Detects leftover debug/logging artifacts in source code (print, breakpoint, console.log, debugger, temp comments). Use as a pre-commit check to catch debug scatter.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **One project** | `.\dev\check-debug-artifacts.ps1 datrix-codegen-python` | Scan one project |
+| **All projects** | `.\dev\check-debug-artifacts.ps1 -All` | Scan entire monorepo |
+| **Strict mode** | `.\dev\check-debug-artifacts.ps1 -All -Strict` | Also flag logger.debug/info with f-strings |
+| **With details** | `.\dev\check-debug-artifacts.ps1 datrix-common -Dbg` | Show matching line content |
+
+**Parameters:** `-ProjectDir` (positional, variadic), `-All`, `-Strict`, `-IncludeGenerated`, `-Dbg`
+
+**Exit codes:** 0 = clean, 1 = artifacts found, 2 = usage error
+
+### `dev\triage-failures.ps1`
+
+Parses test/generation logs and groups failures by likely root cause. Produces a triage report suitable for feeding into `/fix-tests` or `/checkpoint-debug`.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Parse log** | `.\dev\triage-failures.ps1 "path/to/results.log"` | Auto-detect format, output to stdout |
+| **Force format** | `.\dev\triage-failures.ps1 "path/to/output.log" -Format pytest` | Force pytest parser |
+| **Save report** | `.\dev\triage-failures.ps1 "path/to/results.log" -OutputFile "triage.md"` | Write Markdown report |
+| **Debug** | `.\dev\triage-failures.ps1 "path/to/results.log" -Dbg` | Show auto-detect reasoning |
+
+**Parameters:** `-LogPath` (positional 0, mandatory), `-Format` (pytest\|generate\|deploy), `-OutputFile <path>`, `-Dbg`
+
+**Supported formats:** pytest output, generation result logs, deploy test logs. Auto-detected from file content.
 
 ### `dev\ruff-checker.ps1`
 
