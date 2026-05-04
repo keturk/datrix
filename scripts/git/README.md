@@ -10,6 +10,7 @@ Git operations across all Datrix repositories.
 |--------|-------------|
 | `status.ps1` | Show git status for all repositories |
 | `pull.ps1` | Pull latest changes for all repositories |
+| `l-commit-and-push.ps1` | Build `commit-messages.json` via local Ollama; optional `-CommitAndPush` runs `commit-and-push.ps1` |
 | `commit-and-push.ps1` | Batch commit and push using a JSON message file |
 
 ## status.ps1
@@ -44,6 +45,20 @@ Pulls latest changes from remote for all repositories.
 ```powershell
 .\pull.ps1
 ```
+
+## l-commit-and-push.ps1
+
+Generates `commit-messages.json` at the workspace root using a local Ollama model (one generate call per repo with changes). Prints each message to the console. Git commit and push is opt-in.
+
+```powershell
+# Write commit-messages.json only (from repo root)
+.\l-commit-and-push.ps1
+
+# Same, then run commit-and-push.ps1 with that file
+.\l-commit-and-push.ps1 -CommitAndPush
+```
+
+See script comment-based help for `-OllamaBaseUrl`, `-OllamaModel`, `-MessagesPath`, and other parameters.
 
 ## commit-and-push.ps1
 

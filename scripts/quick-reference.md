@@ -19,6 +19,7 @@ AI agents run in a **bash** shell, not PowerShell. All examples below use PowerS
 | `.\metrics\complexity.ps1 datrix-common` | `powershell -File "d:/datrix/datrix/scripts/metrics/complexity.ps1" datrix-common` |
 | `.\metrics\code-analyzer.ps1 datrix-common` | `powershell -File "d:/datrix/datrix/scripts/metrics/code-analyzer.ps1" datrix-common` |
 | `.\git\status.ps1 -Detailed` | `powershell -File "d:/datrix/datrix/scripts/git/status.ps1" -Detailed` |
+| `.\git\l-commit-and-push.ps1` | `powershell -File "d:/datrix/datrix/scripts/git/l-commit-and-push.ps1"` |
 | `.\tasks\todo.ps1` | `powershell -File "d:/datrix/datrix/scripts/tasks/todo.ps1"` |
 
 **Base path:** `d:/datrix/datrix/scripts/`
@@ -245,7 +246,7 @@ Runs generation against both Python and TypeScript for the same test set and com
 
 ### `test\status-tests.ps1`
 
-Reports test results from latest test logs for all datrix projects.
+Reports test results from latest test logs for all datrix projects. Reads structured `index.json` when available (new directory format), falls back to regex-parsing flat log files.
 
 | Mode | Command |
 |------|---------|
@@ -295,15 +296,16 @@ Reports run test results from `.generated/` tree.
 
 ### `test\cleanup.ps1`
 
-Lists/deletes `.test_results` folders under each datrix project and `.generated/`.
+Lists/deletes `.test_results` folders (containing timestamped test result directories) under each datrix project and `.generated/`.
 
 | Mode | Command | Description |
 |------|---------|-------------|
 | **List (dry run)** | `.\test\cleanup.ps1` | Show what would be deleted |
 | **Delete** | `.\test\cleanup.ps1 -Force` | Delete after confirmation |
+| **Trim old results** | `.\test\cleanup.ps1 -Force -Trim` | Keep 10 newest, delete older |
 | **Custom base dir** | `.\test\cleanup.ps1 -BaseDir D:\other` | Different workspace |
 
-**Parameters:** `-BaseDir`, `-Force`, `-Dbg`
+**Parameters:** `-BaseDir`, `-Force`, `-Trim`, `-Dbg`
 
 ---
 
@@ -329,6 +331,17 @@ Pulls all git repositories under the workspace root.
 | **Pull all** | `.\git\pull.ps1` |
 
 **Parameters:** `-Dbg`
+
+### `git\l-commit-and-push.ps1`
+
+Builds `commit-messages.json` using a local Ollama model for each repo with uncommitted changes (plain-text messages; printed to console). Optional `-CommitAndPush` runs `commit-and-push.ps1` after writing the JSON.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Generate JSON only** | `.\git\l-commit-and-push.ps1` | Default output: `commit-messages.json` under workspace root |
+| **Generate then commit/push** | `.\git\l-commit-and-push.ps1 -CommitAndPush` | Writes JSON, then `commit-and-push.ps1` |
+
+**Parameters:** `-OllamaBaseUrl`, `-OllamaModel`, `-OllamaTimeoutMs`, `-MessagesPath`, `-MaxDiffCharsPerRepo`, `-OllamaNumPredict`, `-CommitAndPush`
 
 ### `git\commit-and-push.ps1`
 
@@ -903,7 +916,7 @@ Most scripts support:
 |------|-------|
 | Virtual environment | `D:\datrix\.venv` |
 | Generation logs | `.generated/.results/` |
-| Test logs | `<project>/.test_results/` |
+| Test results | `<project>/.test_results/test-results-YYYYMMDD-HHMMSS/` (directory with `index.json`, `full.log`, `failures/`) |
 | Ruff check logs | `<project>/.ruff_check/` |
 | Test config | `scripts/config/test-projects.json` |
 | Semgrep rules | `scripts/config/semgrep-rules/` |

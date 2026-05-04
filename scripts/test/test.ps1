@@ -476,31 +476,70 @@ try {
 
  # Extract project log file path from output (look for "Log file: <path>" or "Test output will be saved to: <path>")
  $projectLogPath = $null
+ $projectIndexPath = $null
  if ($outputString) {
  # Look for "Log file: <path>" pattern
  if ($outputString -match 'Log file:\s+([^\r\n]+)') {
  $projectLogPath = $matches[1].Trim()
+ # Check if this is inside a run directory with index.json
+ $logDir = Split-Path $projectLogPath -Parent
+ $possibleIndex = Join-Path $logDir "index.json"
+ if (Test-Path $possibleIndex) {
+ $projectIndexPath = $possibleIndex
+ }
  }
  # Also check for "Test output will be saved to: <path>" and construct log file path
  elseif ($outputString -match 'Test output will be saved to:\s+([^\r\n]+)') {
  $testOutputDir = $matches[1].Trim()
- # The actual log file is typically in the project's .test_results directory
- # Look for the actual log file path in the output
- if ($outputString -match 'test-results-\d{8}-\d{6}\.log') {
- $logFileName = $matches[0]
+ # Look for the run directory (new format: test-results-YYYYMMDD-HHMMSS/)
+ if ($outputString -match 'test-results-\d{8}-\d{6}') {
+ $runName = $matches[0]
  $projectRoot = Get-Item (Join-Path $datrixRoot $project) | Select-Object -ExpandProperty FullName
- $projectLogPath = Join-Path $projectRoot ".test_results" $logFileName
+ $runDir = Join-Path $projectRoot ".test_results" $runName
+ if (Test-Path $runDir -PathType Container) {
+  $indexJsonPath = Join-Path $runDir "index.json"
+  $fullLogPath = Join-Path $runDir "full.log"
+  if (Test-Path $indexJsonPath) {
+  $projectLogPath = $fullLogPath
+  $projectIndexPath = $indexJsonPath
+  } elseif (Test-Path $fullLogPath) {
+  $projectLogPath = $fullLogPath
+  }
+ } else {
+  # Legacy flat file format
+  $legacyLogPath = Join-Path $projectRoot ".test_results" "$runName.log"
+  if (Test-Path $legacyLogPath) {
+  $projectLogPath = $legacyLogPath
+  }
  }
  }
- # Fallback: try to find the most recent log file in project's .test_results directory
+ }
+ # Fallback: try to find the most recent result in project's .test_results directory
  if (-not $projectLogPath -or -not (Test-Path $projectLogPath)) {
  $projectTestResultsDir = Join-Path $datrixRoot $project ".test_results"
  if (Test-Path $projectTestResultsDir) {
- $latestLog = Get-ChildItem -Path $projectTestResultsDir -Filter "test-results-*.log" | 
- Sort-Object LastWriteTime -Descending | 
- Select-Object -First 1
- if ($latestLog) {
- $projectLogPath = $latestLog.FullName
+ # Try new directory format first
+ $latestDir = Get-ChildItem -Path $projectTestResultsDir -Directory -Filter "test-results-*" |
+  Sort-Object LastWriteTime -Descending |
+  Select-Object -First 1
+ if ($latestDir) {
+  $indexJsonPath = Join-Path $latestDir.FullName "index.json"
+  $fullLogPath = Join-Path $latestDir.FullName "full.log"
+  if (Test-Path $indexJsonPath) {
+  $projectLogPath = $fullLogPath
+  $projectIndexPath = $indexJsonPath
+  } elseif (Test-Path $fullLogPath) {
+  $projectLogPath = $fullLogPath
+  }
+ }
+ # Fall back to legacy flat log files
+ if (-not $projectLogPath) {
+  $latestLog = Get-ChildItem -Path $projectTestResultsDir -Filter "test-results-*.log" |
+  Sort-Object LastWriteTime -Descending |
+  Select-Object -First 1
+  if ($latestLog) {
+  $projectLogPath = $latestLog.FullName
+  }
  }
  }
  }
@@ -534,16 +573,25 @@ try {
  $promptParts += "$($testCounts.warnings) warning"
  }
  
- $absoluteProjectLogPath = [System.IO.Path]::GetFullPath($projectLogPath)
- 
+ if ($projectIndexPath -and (Test-Path $projectIndexPath)) {
+ $absoluteIndexPath = [System.IO.Path]::GetFullPath($projectIndexPath)
  $prompt = @"
 
 <--->
-Peruse $absoluteProjectLogPath and fix $($promptParts -join ', '). 
+Read $absoluteIndexPath and fix failures by cluster. $($promptParts -join ', ') found.
 <--->
 "@
- 
- # Append to project log file
+ } else {
+ $absoluteProjectLogPath = [System.IO.Path]::GetFullPath($projectLogPath)
+ $prompt = @"
+
+<--->
+Peruse $absoluteProjectLogPath and fix $($promptParts -join ', ').
+<--->
+"@
+ }
+
+ # Append to project log file (always append to the log, not index.json)
  $utf8Encoding = New-Object System.Text.UTF8Encoding($false)
  [System.IO.File]::AppendAllText($projectLogPath, $prompt, $utf8Encoding)
  } catch {

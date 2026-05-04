@@ -105,12 +105,40 @@ Main test runner for one or more Datrix projects.
 
 ### Output
 
-Test results are saved to `<project>/.test_results/test-results-TIMESTAMP.log`.
+Test results are saved to structured directories under `<project>/.test_results/`:
 
-The summary shows:
+```
+.test_results/
+  test-results-20260503-191002/          # Timestamped directory per run
+    index.json                           # Machine-readable index (agents read this first)
+    summary.txt                          # Human-readable summary (< 50 lines)
+    full.log                             # Complete pytest output
+    junit-parallel.xml                   # JUnit XML from parallel phase
+    junit-serial.xml                     # JUnit XML from serial phase (if applicable)
+    failures/                            # One file per test failure
+      001-test_module-TestClass-test_func.txt
+      ...
+    errors/                              # Collection/import/fixture errors
+      001-import-error-test_foo.txt
+      ...
+```
+
+**`index.json`** is the primary entry point for AI agents. It contains:
+- Test counts (passed, failed, error, skipped)
+- Per-failure details with error type, message, and source location
+- Failure clusters grouped by root cause (normalized error + source location)
+- Error clusters for import/fixture/collection errors
+
+**`summary.txt`** provides a human-readable overview with cluster summaries.
+
+**`full.log`** contains the complete pytest output (same content as the legacy flat log file).
+
+Individual failure files in `failures/` contain the full traceback, captured stdout/stderr, and cluster assignment for a single test failure.
+
+The test summary shows:
 - Pass/fail status per project
 - Test counts (passed, failed, skipped, etc.)
-- AI prompt for fixing failures (appended to log)
+- AI prompt referencing `index.json` for fixing failures by cluster
 
 ## run-complete.ps1
 
@@ -130,8 +158,15 @@ Shows a summary of test status across projects.
 
 ## cleanup.ps1
 
-Cleans up test artifacts (.test_results, __pycache__, .pytest_cache).
+Cleans up test result directories under `.test_results/`. Supports full deletion (`-Force`) and trimming to keep the N most recent runs (`-Force -Trim`).
 
 ```powershell
+# List what would be deleted (dry run)
 .\cleanup.ps1
+
+# Delete all test results
+.\cleanup.ps1 -Force
+
+# Keep 10 newest runs, delete older
+.\cleanup.ps1 -Force -Trim
 ```
