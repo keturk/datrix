@@ -389,6 +389,8 @@ function Convert-GitOutputToString {
     Coerce git stdout (and 2>&1 merged streams) to a single string.
     Multi-line git output becomes string[] in PowerShell; empty output can be $null.
     Calling .TrimEnd() on those causes "cannot call a method on a null-valued expression".
+    ErrorRecord items whose message starts with "warning:" are silently dropped so
+    that git CRLF/LF hints do not pollute the captured text or print red noise.
     #>
     param([object]$Output)
     if ($null -eq $Output) {
@@ -399,6 +401,8 @@ function Convert-GitOutputToString {
     }
     $lines = @($Output | ForEach-Object {
         if ($_ -is [System.Management.Automation.ErrorRecord]) {
+            # Drop harmless git warnings (CRLF hints, etc.); keep real errors.
+            if ($_.Exception.Message -match '^warning:') { return }
             return $_.Exception.Message
         }
         return "$_"
@@ -441,24 +445,35 @@ foreach ($repoPath in $repoPaths) {
     Write-Host "${repoName}: collecting changes" -ForegroundColor Yellow
     $branch = Convert-GitOutputToString -Output (git -C $repoPath branch --show-current 2>&1)
     if ($LASTEXITCODE -ne 0) { $branch = '(unknown branch)' }
-    # -c core.autocrlf=false for this process only: avoids Windows "LF will be replaced by CRLF" stderr noise in prompts.
-    $diffStat = Convert-GitOutputToString -Output (git -C $repoPath -c core.autocrlf=false diff HEAD --stat 2>&1)
-    if ($LASTEXITCODE -ne 0) {
+    # Temporarily silence error-stream display so git's CRLF/LF stderr warnings
+    # don't print red noise.  Errors are still captured via 2>&1 and checked via $LASTEXITCODE.
+    $prevEA = $ErrorActionPreference
+    $ErrorActionPreference = 'SilentlyContinue'
+    try {
+        $diffStat = Convert-GitOutputToString -Output (git -C $repoPath -c core.autocrlf=false diff HEAD --stat 2>&1)
+        $diffStatExit = $LASTEXITCODE
+        $diffText = Convert-GitOutputToString -Output (git -C $repoPath -c core.autocrlf=false diff HEAD 2>&1)
+        $diffTextExit = $LASTEXITCODE
+        $untrackedList = @(git -C $repoPath ls-files --others --exclude-standard 2>&1)
+        $untrackedListExit = $LASTEXITCODE
+        $nameStatus = Convert-GitOutputToString -Output (git -C $repoPath -c core.autocrlf=false diff HEAD --name-status 2>&1)
+        $nameStatusExit = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $prevEA
+    }
+    if ($diffStatExit -ne 0) {
         throw "git diff HEAD --stat failed in ${repoName}: $diffStat"
     }
-    $diffText = Convert-GitOutputToString -Output (git -C $repoPath -c core.autocrlf=false diff HEAD 2>&1)
-    if ($LASTEXITCODE -ne 0) {
+    if ($diffTextExit -ne 0) {
         throw "git diff HEAD failed in ${repoName}: $diffText"
     }
-    $untrackedList = @(git -C $repoPath ls-files --others --exclude-standard 2>&1)
-    if ($LASTEXITCODE -ne 0) {
+    if ($untrackedListExit -ne 0) {
         throw "git ls-files untracked failed in ${repoName}"
     }
     $untrackedNote = if ($untrackedList.Count -gt 0) {
         "`n-- untracked paths (names only) --`n" + ($untrackedList -join "`n")
     } else { '' }
-    $nameStatus = Convert-GitOutputToString -Output (git -C $repoPath -c core.autocrlf=false diff HEAD --name-status 2>&1)
-    if ($LASTEXITCODE -ne 0) {
+    if ($nameStatusExit -ne 0) {
         throw "git diff HEAD --name-status failed in ${repoName}: $nameStatus"
     }
     $diffLimited = Get-TruncatedDiff -DiffText $diffText -MaxChars $MaxDiffCharsPerRepo
