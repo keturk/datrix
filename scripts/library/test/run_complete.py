@@ -43,6 +43,8 @@ if library_dir.exists() and str(library_dir) not in sys.path:
 from shared.venv import get_datrix_root, get_venv_python
 from shared.logging_utils import LogConfig, TeeLogger, ColorCodes, colorize
 from shared.test_projects import get_test_projects, get_default_output_path
+from shared.generated_test_log_writer import GeneratedTestLogWriter
+from shared.aggregate_test_writer import AggregateTestWriter
 
 # Global set to track all active subprocesses
 _active_processes = set()
@@ -1269,6 +1271,100 @@ def _write_ts_unit_unit_tests_summary_log(
     summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _produce_structured_output(
+    project: Path,
+    generated_base: Path,
+    language: str,
+    platform: str,
+    results_dir: Path,
+    duration_seconds: float,
+) -> Optional[Path]:
+    """Produce structured test output (index.json, summary.txt, error files).
+
+    Scans the results directory for JUnit XML (Python) or Jest JSON
+    (TypeScript) files and writes structured output via GeneratedTestLogWriter.
+
+    Returns the path to index.json on success, None if no structured data
+    sources were found.
+    """
+    try:
+        project_name = str(project.relative_to(generated_base))
+    except ValueError:
+        project_name = project.name
+
+    # Derive .dtrx source from the project path
+    # Pattern: .generated/{language}/{platform}/{category}/{example}
+    # -> datrix/examples/{category}/{example}/system.dtrx
+    parts = project_name.replace("\\", "/").split("/")
+    # Remove language/platform prefix if present
+    if len(parts) >= 3:
+        example_parts = parts[2:]  # skip language/platform
+    else:
+        example_parts = parts
+    example = "/".join(example_parts)
+    dtrx_source = f"datrix/examples/{example}/system.dtrx"
+
+    writer = GeneratedTestLogWriter(
+        project_path=project_name,
+        language=language,
+        platform=platform,
+        example=example,
+        run_dir=results_dir,
+        dtrx_source=dtrx_source,
+    )
+
+    found_structured_data = False
+
+    # Look for JUnit XML files in services/{name}/junit.xml
+    services_dir = results_dir / "services"
+    if services_dir.is_dir():
+        for svc_dir in sorted(services_dir.iterdir()):
+            if not svc_dir.is_dir():
+                continue
+            junit_xml = svc_dir / "junit.xml"
+            service_log = svc_dir / "service.log"
+            jest_json = svc_dir / "jest-results.json"
+
+            if junit_xml.is_file():
+                try:
+                    writer.add_service_junit_xml(svc_dir.name, junit_xml, service_log)
+                    found_structured_data = True
+                except Exception as exc:
+                    print_warning(f"  Structured output: failed to parse JUnit XML for {svc_dir.name}: {exc}")
+            elif jest_json.is_file():
+                try:
+                    writer.add_service_jest_json(svc_dir.name, jest_json, service_log)
+                    found_structured_data = True
+                except Exception as exc:
+                    print_warning(f"  Structured output: failed to parse Jest JSON for {svc_dir.name}: {exc}")
+
+    # Also look for per-service log files at the top level (legacy layout)
+    # and jest-results.json in service subdirs at top level
+    if not found_structured_data:
+        for item in sorted(results_dir.iterdir()):
+            if item.is_dir() and item.name != "services":
+                jest_json = item / "jest-results.json"
+                if jest_json.is_file():
+                    log_path = results_dir / f"{item.name}-unit-tests.log"
+                    if not log_path.exists():
+                        log_path = results_dir / f"{item.name}-tests.log"
+                    try:
+                        writer.add_service_jest_json(item.name, jest_json, log_path)
+                        found_structured_data = True
+                    except Exception as exc:
+                        print_warning(f"  Structured output: failed to parse Jest JSON for {item.name}: {exc}")
+
+    if not found_structured_data:
+        return None
+
+    try:
+        index_path = writer.write(duration_seconds)
+        return index_path
+    except Exception as exc:
+        print_warning(f"  Structured output: failed to write for {project_name}: {exc}")
+        return None
+
+
 def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel: bool = False, test_type: str = "unit") -> dict:
     """
     Helper function to run tests for a single project.
@@ -1299,7 +1395,24 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
             capture_output=True,
         )
         stats = parse_test_statistics(output) if output else empty_stats
-        return {
+
+        # Produce structured output from JUnit XML (if available)
+        index_path: Optional[Path] = None
+        test_results_base = project / ".test_results"
+        if test_results_base.is_dir():
+            # Find the latest unit-tests-* directory
+            candidates = sorted(
+                [d for d in test_results_base.iterdir() if d.is_dir() and d.name.startswith("unit-tests-")],
+                key=lambda d: d.name,
+                reverse=True,
+            )
+            if candidates:
+                latest_results_dir = candidates[0]
+                index_path = _produce_structured_output(
+                    project, generated_base, "python", "docker", latest_results_dir, 0.0,
+                )
+
+        result_dict: dict[str, Any] = {
             "name": str(project_name),
             "success": success,
             "passed": stats["passed"],
@@ -1308,6 +1421,9 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
             "skipped": stats["skipped"],
             "output": output if parallel else None,
         }
+        if index_path is not None:
+            result_dict["index_json_path"] = str(index_path)
+        return result_dict
 
     # --- TypeScript project: prefer generated tests/unit-tests.js ---
     ts_unit_tests_js = project / "tests" / "unit-tests.js"
@@ -1442,7 +1558,12 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
         if not parallel:
             print_info(f" Results saved to: {results_dir.relative_to(project)}")
 
-        return {
+        # Produce structured output from Jest JSON
+        index_path = _produce_structured_output(
+            project, generated_base, "typescript", "docker", results_dir, 0.0,
+        )
+
+        result_dict_ts: dict[str, Any] = {
             "name": str(project_name),
             "success": all_success,
             "passed": total_passed,
@@ -1451,6 +1572,9 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
             "skipped": total_skipped,
             "output": "\n".join(combined_output) if parallel else None,
         }
+        if index_path is not None:
+            result_dict_ts["index_json_path"] = str(index_path)
+        return result_dict_ts
 
     # --- No test runner found ---
     return {
@@ -1565,12 +1689,35 @@ def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path
 
         project_results.sort(key=lambda x: x["name"])
 
+        # Produce aggregate structured output across all projects
+        index_paths = [
+            Path(r["index_json_path"])
+            for r in project_results
+            if r.get("index_json_path")
+        ]
+        if index_paths:
+            try:
+                generated_base_agg = paths["datrix_root"] / ".generated"
+                aggregate_dir = generated_base_agg / ".test_results" / f"unit-tests-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+                aggregate_dir.mkdir(parents=True, exist_ok=True)
+                agg_writer = AggregateTestWriter(
+                    language=language,
+                    platform=platform,
+                    output_dir=aggregate_dir,
+                )
+                for ip in index_paths:
+                    agg_writer.add_project_results(ip)
+                agg_path = agg_writer.write()
+                print_info(f"Aggregate structured output: {agg_path}")
+            except Exception as exc:
+                print_warning(f"Aggregate structured output failed: {exc}")
+
         # Calculate overall statistics
         total_passed_tests = sum(r["passed"] for r in project_results)
         total_failed_tests = sum(r["failed"] for r in project_results)
         total_error_tests = sum(r["errors"] for r in project_results)
         total_skipped_tests = sum(r["skipped"] for r in project_results)
- 
+
         # Save summary to log file
         log_path = save_test_summary_log(
         step_num=3,
