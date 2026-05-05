@@ -431,6 +431,23 @@ Radon metrics: cyclomatic complexity, cognitive complexity, raw, Halstead, maint
 
 **Parameters:** `-Projects` (positional, variadic), `-All`, `-Mode` (check\|cc\|raw\|halstead\|mi, default: check), `-Max` (default: 15), `-Fix`, `-Test` (with -Fix), `-StopOnError`, `-VerboseOutput`, `-Dbg`
 
+### `metrics\error-messages.ps1`
+
+Error message quality checker: detects substandard error messages (missing context, suggestions, valid options) via AST-based scoring, with optional Ollama-powered auto-fix.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Check one project** | `.\metrics\error-messages.ps1 datrix-common` | Enforce min score (default mode=check, min-score=2) |
+| **Check all** | `.\metrics\error-messages.ps1 -All` | All projects |
+| **Stricter threshold** | `.\metrics\error-messages.ps1 -All -MinScore 3` | Higher minimum score |
+| **Report (audit)** | `.\metrics\error-messages.ps1 datrix-common -Mode report` | List all error sites with scores |
+| **Fix with Ollama** | `.\metrics\error-messages.ps1 datrix-common -Fix` | Fix worst violation |
+| **Fix all** | `.\metrics\error-messages.ps1 datrix-common -FixAll -Test` | Fix all violations with test verification |
+| **Stop on first fail** | `.\metrics\error-messages.ps1 -All -StopOnError` | Stop on first failure |
+| **Verbose** | `.\metrics\error-messages.ps1 datrix-common -VerboseOutput` | Verbose output |
+
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mode` (check\|report, default: check), `-MinScore` (default: 2), `-Fix`, `-FixAll`, `-Test` (with -Fix/-FixAll), `-MaxRetries` (default: 3), `-StopOnError`, `-VerboseOutput`, `-Dbg`
+
 ### `metrics\vulture.ps1`
 
 Dead-code detection using Vulture. Runs a combined scan across selected projects' `src/` trees (cross-project reference detection).
