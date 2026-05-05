@@ -28,6 +28,7 @@ import json
 import re
 import subprocess
 import sys
+import textwrap
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -200,7 +201,7 @@ OLLAMA_TIMEOUT_SECONDS = 300
 OLLAMA_DEFAULT_NUM_PREDICT = 32768
 OLLAMA_MAX_FIX_RETRIES = 3
 
-_CONTEXT_MAX_IMPORT_LINES = 40
+_CONTEXT_MAX_IMPORT_LINES = 80
 _CONTEXT_MAX_INIT_LINES = 15
 _CONTEXT_MAX_CONSTANT_LINES = 20
 _CONTEXT_MAX_METHODS = 30
@@ -602,12 +603,17 @@ def _measure_all_complexities(
 ) -> tuple[bool, list[tuple[str, int]]]:
     """Measure complexity of all functions in a source block.
 
+    The source may be an indented fragment (e.g. a method extracted from a
+    class body). We dedent before parsing so ``ast.parse`` succeeds regardless
+    of leading indentation.
+
     Returns (all_pass, [(func_name, complexity), ...]).
     """
+    dedented = textwrap.dedent(source)
     results: list[tuple[str, int]] = []
     if complexity_type == "cyclomatic":
         try:
-            blocks = cc_visit(source)
+            blocks = cc_visit(dedented)
         except Exception:
             return False, []
         for block in blocks:
@@ -619,7 +625,7 @@ def _measure_all_complexities(
         if get_cognitive_complexity is None:
             return False, []
         try:
-            tree = ast.parse(source)
+            tree = ast.parse(dedented)
         except SyntaxError:
             return False, []
         for node in ast.walk(tree):
@@ -677,6 +683,23 @@ def _build_retry_feedback(
         "replace conditionals with dispatch dicts, or flatten nesting further."
     )
     return "\n".join(parts)
+
+
+def _build_disk_error_feedback(disk_error: str) -> str:
+    """Build feedback for the LLM when ruff or tests fail after disk write."""
+    if disk_error == "test_failure":
+        return (
+            "Your previous attempt caused test failures. "
+            "Ensure the refactored code preserves exact behavior — "
+            "do not change logic, only restructure for lower complexity."
+        )
+    # Ruff undefined-name errors (F821)
+    return (
+        f"Your previous attempt introduced undefined names:\n{disk_error}\n\n"
+        "IMPORTANT: Only use names that are already imported or defined in the file. "
+        "Do NOT invent new type names. If you extract a helper function, its parameter "
+        "types must use only types visible in the file's import section shown in the context."
+    )
 
 
 def call_ollama(
@@ -752,8 +775,12 @@ def call_ollama(
     return parse_ollama_response(content)
 
 
-def _run_ruff_check(file_path: Path, verbose: bool) -> bool:
-    """Run ruff check for undefined names on the file. Return True if clean."""
+def _run_ruff_check(file_path: Path, verbose: bool) -> tuple[bool, str]:
+    """Run ruff check for undefined names on the file.
+
+    Returns (passed, error_details). error_details is empty on success or
+    contains the ruff output on failure (for retry feedback).
+    """
     try:
         result = subprocess.run(
             ["ruff", "check", "--select", "F821", str(file_path)],
@@ -767,27 +794,35 @@ def _run_ruff_check(file_path: Path, verbose: bool) -> bool:
                 "Warning: ruff not found, skipping undefined name check",
                 file=sys.stderr,
             )
-        return True
+        return True, ""
     except subprocess.TimeoutExpired:
         print("Warning: ruff check timed out", file=sys.stderr)
-        return True
+        return True, ""
     if result.returncode != 0:
+        details = result.stdout.strip()
         print("Ruff found undefined names:", file=sys.stderr)
-        for line in result.stdout.strip().splitlines():
+        for line in details.splitlines():
             print(f"  {line}", file=sys.stderr)
-        return False
-    return True
+        return False, details
+    return True, ""
 
 
 PYTEST_TIMEOUT_SECONDS = 600
 
 
 def _run_pytest(project_root: Path, verbose: bool) -> bool:
-    """Run pytest with fail-fast on the project. Return True if all pass."""
-    print("Running tests (pytest -x -q --tb=short)...", file=sys.stderr)
+    """Run pytest with fail-fast on the project. Return True if all pass.
+
+    Coverage is disabled (--no-cov, --override-ini=addopts=) to avoid false
+    failures from coverage thresholds when refactoring adds extracted helpers.
+    """
+    print("Running tests (pytest -x -q --tb=short --no-cov)...", file=sys.stderr)
     try:
         result = subprocess.run(
-            ["python", "-m", "pytest", "tests/", "-x", "-q", "--tb=short"],
+            [
+                "python", "-m", "pytest", "tests/", "-x", "-q", "--tb=short",
+                "--no-cov", "--override-ini=addopts=",
+            ],
             cwd=str(project_root),
             capture_output=True,
             text=True,
@@ -927,10 +962,17 @@ def _attempt_fix_violation(
             return False
 
         # In-memory checks passed — verify file not modified, then disk checks
-        if not _apply_and_verify_on_disk(
+        disk_ok, disk_error = _apply_and_verify_on_disk(
             file_path, source, new_content, original_hash,
             verbose, unit_tests, project_root,
-        ):
+        )
+        if not disk_ok:
+            if disk_error == "file_modified":
+                return False
+            if attempt < max_retries:
+                retry_feedback = _build_disk_error_feedback(disk_error)
+                continue
+            print(f"  All {max_retries} attempt(s) failed.", file=sys.stderr)
             return False
 
         print(f"Fixed: {file_path}:{start} {func_name}", file=sys.stderr)
@@ -964,8 +1006,12 @@ def _apply_and_verify_on_disk(
     verbose: bool,
     unit_tests: bool,
     project_root: Path,
-) -> bool:
-    """Write fixed file, run ruff/pytest. Revert on failure. Return success."""
+) -> tuple[bool, str]:
+    """Write fixed file, run ruff/pytest. Revert on failure.
+
+    Returns (success, error_details). error_details is non-empty when ruff
+    or tests fail, suitable for inclusion in retry feedback.
+    """
     current_content = file_path.read_text(encoding="utf-8")
     current_hash = hashlib.sha256(current_content.encode("utf-8")).hexdigest()
     if current_hash != original_hash:
@@ -973,21 +1019,22 @@ def _apply_and_verify_on_disk(
             f"  File {file_path} was modified during processing, skipping.",
             file=sys.stderr,
         )
-        return False
+        return False, "file_modified"
 
     file_path.write_text(new_content, encoding="utf-8")
 
-    if not _run_ruff_check(file_path, verbose):
+    ruff_ok, ruff_details = _run_ruff_check(file_path, verbose)
+    if not ruff_ok:
         print("  Reverting due to ruff errors.", file=sys.stderr)
         file_path.write_text(original_source, encoding="utf-8")
-        return False
+        return False, ruff_details
 
     if unit_tests and not _run_pytest(project_root, verbose):
         print("  Reverting due to test failures.", file=sys.stderr)
         file_path.write_text(original_source, encoding="utf-8")
-        return False
+        return False, "test_failure"
 
-    return True
+    return True, ""
 
 
 def _collect_violations(
@@ -1039,13 +1086,19 @@ def run_fix(
     model: str,
     unit_tests: bool = False,
     max_retries: int = OLLAMA_MAX_FIX_RETRIES,
+    fix_all: bool = False,
 ) -> int:
-    """Fix the worst complexity violation using Ollama. Return exit code.
+    """Fix complexity violations using Ollama. Return exit code.
 
     Tries violations from worst to least complex, with up to max_retries
     Ollama attempts per violation. On any failure (Ollama error, syntax error,
     complexity still too high, ruff check, or test failure), reverts the file
-    and moves to the next violation. Exits after the first successful fix.
+    and moves to the next violation.
+
+    With fix_all=False (default), exits after the first successful fix.
+    With fix_all=True, continues fixing all violations. After a file is
+    modified, subsequent violations in that file are re-collected to account
+    for shifted line numbers.
     """
     unique = _collect_violations(
         project_root, max_complexity, ignore_dirs, verbose, ignore_path_contains_all,
@@ -1054,7 +1107,14 @@ def run_fix(
         print("No complexity violations found. Nothing to fix.", file=sys.stderr)
         return 0
 
+    fixed_count = 0
+    failed_count = 0
+    modified_files: set[str] = set()
+
     for file_path_str, func_name, lineno, complexity, comp_type in unique:
+        if file_path_str in modified_files:
+            # Line numbers have shifted; skip — will be re-collected in next pass
+            continue
         file_path = Path(file_path_str)
         try:
             source = file_path.read_text(encoding="utf-8")
@@ -1067,8 +1127,42 @@ def run_fix(
             max_complexity, ollama_url, model, verbose, unit_tests,
             project_root, max_retries,
         ):
-            print("Re-run the script to fix more violations.", file=sys.stderr)
-            return 0
+            fixed_count += 1
+            modified_files.add(file_path_str)
+            if not fix_all:
+                print("Re-run the script to fix more violations.", file=sys.stderr)
+                return 0
+        else:
+            failed_count += 1
+
+    if fix_all and modified_files:
+        # Re-collect to handle violations in modified files (shifted line numbers)
+        remaining = _collect_violations(
+            project_root, max_complexity, ignore_dirs, verbose,
+            ignore_path_contains_all,
+        )
+        for file_path_str, func_name, lineno, complexity, comp_type in remaining:
+            file_path = Path(file_path_str)
+            try:
+                source = file_path.read_text(encoding="utf-8")
+            except OSError as e:
+                print(f"Warning: could not read {file_path}: {e}", file=sys.stderr)
+                continue
+            if _attempt_fix_violation(
+                file_path, source, func_name, lineno, complexity, comp_type,
+                max_complexity, ollama_url, model, verbose, unit_tests,
+                project_root, max_retries,
+            ):
+                fixed_count += 1
+            else:
+                failed_count += 1
+
+    if fix_all:
+        print(
+            f"\nFix-all complete: {fixed_count} fixed, {failed_count} failed.",
+            file=sys.stderr,
+        )
+        return 0 if fixed_count > 0 or failed_count == 0 else 1
 
     print("No violations could be fixed.", file=sys.stderr)
     return 1
@@ -1248,6 +1342,11 @@ def main() -> int:
     help="Fix the worst complexity violation using local Ollama (mode=check only).",
     )
     parser.add_argument(
+    "--fix-all",
+    action="store_true",
+    help="Fix ALL violations (not just the first). Implies --fix.",
+    )
+    parser.add_argument(
     "--ollama-url",
     type=str,
     default=OLLAMA_DEFAULT_URL,
@@ -1289,10 +1388,10 @@ def main() -> int:
         )
     verbose = args.verbose or args.debug
 
-    if args.fix:
+    if args.fix or args.fix_all:
         if args.mode != "check":
             print(
-                "Error: --fix can only be used with --mode check.",
+                "Error: --fix/--fix-all can only be used with --mode check.",
                 file=sys.stderr,
             )
             return 1
@@ -1306,6 +1405,7 @@ def main() -> int:
             model=args.model,
             unit_tests=args.test,
             max_retries=args.max_retries,
+            fix_all=args.fix_all,
         )
 
     if args.mode == "check":
