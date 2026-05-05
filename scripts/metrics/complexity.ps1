@@ -32,8 +32,13 @@
  and overwrites the function if the file is unchanged. Exits after first successful fix.
  If a fix fails (syntax error, undefined names, test failure), reverts and tries the next.
 
+.PARAMETER FixAll
+ Fix ALL complexity violations (not just the first). Implies -Fix.
+ Processes violations from worst to least complex, continuing after each success.
+ Use with -Test to verify each fix before moving to the next.
+
 .PARAMETER Test
- Run pytest after fix to verify correctness; revert if tests fail. Use with -Fix.
+ Run pytest after fix to verify correctness; revert if tests fail. Use with -Fix/-FixAll.
 
 .PARAMETER MaxRetries
  Maximum number of Ollama retry attempts per violation (default: 3). Use with -Fix.
@@ -67,6 +72,10 @@
 .EXAMPLE
  .\complexity.ps1 datrix-common -Fix -Test
  Fix with auto-revert if tests fail.
+
+.EXAMPLE
+ .\complexity.ps1 datrix-common -FixAll -Test
+ Fix all violations, testing after each fix.
 #>
 
 [CmdletBinding()]
@@ -80,6 +89,7 @@ param(
  [Parameter()]
  [int]$Max = 15,
  [switch]$Fix,
+ [switch]$FixAll,
  [switch]$Test,
  [int]$MaxRetries = 3,
  [switch]$StopOnError,
@@ -113,12 +123,13 @@ if (-not (Test-Path $complexityScript)) {
 function Invoke-Cleanup { Disable-DatrixVenv }
 Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
 
+if ($FixAll) { $Fix = $true }
 if ($Fix -and $Mode -ne "check") {
- Write-Host "ERROR: -Fix can only be used with -Mode check (the default)." -ForegroundColor Red
+ Write-Host "ERROR: -Fix/-FixAll can only be used with -Mode check (the default)." -ForegroundColor Red
  exit 1
 }
 if ($Test -and -not $Fix) {
- Write-Host "ERROR: -Test can only be used with -Fix." -ForegroundColor Red
+ Write-Host "ERROR: -Test can only be used with -Fix/-FixAll." -ForegroundColor Red
  exit 1
 }
 
@@ -160,7 +171,8 @@ try {
  Write-Host " -Mode check | cc | raw | halstead | mi (default: check)" -ForegroundColor Gray
  Write-Host " -Max Max cyclomatic and cognitive complexity for mode=check (default: 15)" -ForegroundColor Gray
  Write-Host " -Fix Fix worst violation via Ollama (mode=check only)" -ForegroundColor Gray
- Write-Host " -Test Run pytest after fix; revert if tests fail (use with -Fix)" -ForegroundColor Gray
+ Write-Host " -FixAll Fix ALL violations (implies -Fix), continue after each success" -ForegroundColor Gray
+ Write-Host " -Test Run pytest after fix; revert if tests fail (use with -Fix/-FixAll)" -ForegroundColor Gray
  Write-Host " -MaxRetries Max Ollama retry attempts per violation (default: 3, use with -Fix)" -ForegroundColor Gray
  Write-Host " -All Run for all datrix-* projects" -ForegroundColor Gray
  Write-Host " -StopOnError Stop on first project failure" -ForegroundColor Gray
@@ -244,6 +256,7 @@ try {
  if ($Dbg) { $projectArgs += "--debug" }
  if ($Fix) {
    $projectArgs += "--fix"
+   if ($FixAll) { $projectArgs += "--fix-all" }
    if ($MaxRetries -ne 3) { $projectArgs += "--max-retries", $MaxRetries }
  }
  if ($Test) { $projectArgs += "--test" }
