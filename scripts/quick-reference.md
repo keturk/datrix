@@ -15,7 +15,7 @@ AI agents run in a **bash** shell, not PowerShell. All examples below use PowerS
 | PowerShell (in docs) | Bash (what you run) |
 |---|---|
 | `.\test\test.ps1 datrix-common` | `powershell -File "d:/datrix/datrix/scripts/test/test.ps1" datrix-common` |
-| `.\dev\generate.ps1 -All` | `powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" -All` |
+| `.\dev\generate.ps1 -All -L python` | `powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" -All -L python` |
 | `.\metrics\complexity.ps1 datrix-common` | `powershell -File "d:/datrix/datrix/scripts/metrics/complexity.ps1" datrix-common` |
 | `.\metrics\code-analyzer.ps1 datrix-common` | `powershell -File "d:/datrix/datrix/scripts/metrics/code-analyzer.ps1" datrix-common` |
 | `.\git\status.ps1 -Detailed` | `powershell -File "d:/datrix/datrix/scripts/git/status.ps1" -Detailed` |
@@ -37,25 +37,25 @@ AI agents run in a **bash** shell, not PowerShell. All examples below use PowerS
 
 ### `dev\generate.ps1`
 
-Generates Datrix projects from `.dtrx` source files. Language and platform default to config values (`system-config.yaml` and service configs). `-Language`/`-L` and `-Platform`/`-P` control output-path derivation. Use `-Hosting`/`-H` to pass `--hosting` and `-ServicePlatform` to pass `--platform` (service flavor: compose, ecs-fargate, etc.).
+Generates Datrix projects from `.dtrx` source files. `-Language`/`-L` is **mandatory** — you must always specify the target language. `-Platform`/`-P` controls output-path derivation (default: docker). Use `-Hosting`/`-H` to pass `--hosting` and `-ServicePlatform` to pass `--platform` (service flavor: compose, ecs-fargate, etc.).
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Single project (auto output)** | `.\dev\generate.ps1 <source.dtrx>` | Output path derived from test-projects.json |
-| **Single project (explicit output)** | `.\dev\generate.ps1 <source.dtrx> <output-dir>` | Explicit output directory |
+| **Single project (auto output)** | `.\dev\generate.ps1 <source.dtrx> -L python` | Output path derived from test-projects.json |
+| **Single project (explicit output)** | `.\dev\generate.ps1 <source.dtrx> <output-dir> -L python` | Explicit output directory |
 | **Single + language/platform** | `.\dev\generate.ps1 <source.dtrx> <output-dir> -L typescript -P kubernetes` | Override language and platform |
-| **Single + hosting/flavor** | `.\dev\generate.ps1 <source.dtrx> <out> -H kubernetes -ServicePlatform kubernetes` | Override hosting and service platform |
-| **All examples** | `.\dev\generate.ps1 -All` | Generate all (test set all) |
-| **All + language** | `.\dev\generate.ps1 -All -L typescript` | All examples for TypeScript |
-| **All + custom output base** | `.\dev\generate.ps1 -All -OutputBase .generated2` | Custom output root |
-| **Foundation only (legacy alias)** | `.\dev\generate.ps1 -Tutorial` | examples/01-foundation (test set tutorial-all alias) |
-| **Non-foundation only** | `.\dev\generate.ps1 -NonTutorial` | Everything except foundation examples |
-| **Domains only** | `.\dev\generate.ps1 -Domains` | examples/03-domains |
-| **Custom test set** | `.\dev\generate.ps1 -TestSet features-core` | Any named test set |
+| **Single + hosting/flavor** | `.\dev\generate.ps1 <source.dtrx> <out> -L python -H kubernetes -ServicePlatform kubernetes` | Override hosting and service platform |
+| **All examples** | `.\dev\generate.ps1 -All -L python` | Generate all (test set all) |
+| **All + TypeScript** | `.\dev\generate.ps1 -All -L typescript` | All examples for TypeScript |
+| **All + custom output base** | `.\dev\generate.ps1 -All -L python -OutputBase .generated2` | Custom output root |
+| **Foundation only (legacy alias)** | `.\dev\generate.ps1 -Tutorial -L python` | examples/01-foundation (test set tutorial-all alias) |
+| **Non-foundation only** | `.\dev\generate.ps1 -NonTutorial -L python` | Everything except foundation examples |
+| **Domains only** | `.\dev\generate.ps1 -Domains -L python` | examples/03-domains |
+| **Custom test set** | `.\dev\generate.ps1 -TestSet features-core -L python` | Any named test set |
 | **TypeScript validation subset** | `.\dev\generate.ps1 -TestSet typescript-validation -L typescript` | Quick TS validation |
-| **Debug logging** | `.\dev\generate.ps1 -All -Dbg` | Enable DEBUG level logging |
+| **Debug logging** | `.\dev\generate.ps1 -All -L python -Dbg` | Enable DEBUG level logging |
 
-**Parameters:** `-Source` (positional 0), `-Output` (positional 1), `-All`, `-Tutorial`, `-NonTutorial`, `-Domains`, `-Language`/`-L` (python\|typescript, default: python), `-Platform`/`-P` (docker\|kubernetes\|k8s, default: docker), `-Hosting`/`-H`, `-ServicePlatform`, `-OutputBase` (default: .generated), `-TestSet` (default: all), `-Dbg`
+**Parameters:** `-Source` (positional 0), `-Output` (positional 1), `-All`, `-Tutorial`, `-NonTutorial`, `-Domains`, `-Language`/`-L` (python\|typescript, **mandatory**), `-Platform`/`-P` (docker\|kubernetes\|k8s, default: docker), `-Hosting`/`-H`, `-ServicePlatform`, `-OutputBase` (default: .generated), `-TestSet` (default: all), `-Dbg`
 
 ### `dev\syntax-checker.ps1`
 
@@ -206,28 +206,28 @@ Runs tests for one or more Datrix projects.
 
 ### `test\run-complete.ps1`
 
-Complete workflow: syntax check, code generation, unit tests, deployment tests.
+Complete workflow: syntax check, code generation, unit tests, deployment tests. `-Language`/`-L` is **mandatory**.
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Single (auto output)** | `.\test\run-complete.ps1 "examples/.../system.dtrx"` | Output derived from test-projects.json |
-| **Single (explicit output)** | `.\test\run-complete.ps1 "examples/.../system.dtrx" ".generated/python/docker/..."` | Explicit output path |
-| **Single + lang/platform** | `.\test\run-complete.ps1 "examples/.../system.dtrx" -L python -P docker` | Override language/platform |
-| **All examples** | `.\test\run-complete.ps1 -All` | Full workflow for all |
-| **Foundation only (legacy alias)** | `.\test\run-complete.ps1 -Tutorial` | Foundation examples only |
-| **Non-foundation** | `.\test\run-complete.ps1 -NonTutorial` | Everything except foundation examples |
-| **Domains only** | `.\test\run-complete.ps1 -Domains` | Domain examples only |
-| **Custom test set** | `.\test\run-complete.ps1 -TestSet features-core` | Named test set |
-| **Skip syntax check** | `.\test\run-complete.ps1 -All -Skip1` | Skip Step 1 (syntax checker) |
-| **Skip generation** | `.\test\run-complete.ps1 -All -Skip2` | Skip Step 2 (code generation) |
-| **Skip unit tests** | `.\test\run-complete.ps1 -All -Skip4` | Skip Step 4 (generated unit tests) |
-| **Skip deploy tests** | `.\test\run-complete.ps1 -All -Skip5` | Skip Step 5 (deploy/integration tests) |
-| **Fresh build mode** | `.\test\run-complete.ps1 -Tutorial -FreshBuild` | Force --no-cache for deploy tests (maximum validation) |
-| **Generate only (skip tests)** | `.\test\run-complete.ps1 -All -Skip4 -Skip5` | Steps 1-2 only |
-| **Skip venv** | `.\test\run-complete.ps1 -All -SkipVenv` | Use system Python |
-| **Debug** | `.\test\run-complete.ps1 -All -Dbg` | Debug logging |
+| **Single (auto output)** | `.\test\run-complete.ps1 "examples/.../system.dtrx" -L python` | Output derived from test-projects.json |
+| **Single (explicit output)** | `.\test\run-complete.ps1 "examples/.../system.dtrx" ".generated/python/docker/..." -L python` | Explicit output path |
+| **Single + lang/platform** | `.\test\run-complete.ps1 "examples/.../system.dtrx" -L python -P docker` | Explicit language/platform |
+| **All examples** | `.\test\run-complete.ps1 -All -L python` | Full workflow for all |
+| **Foundation only (legacy alias)** | `.\test\run-complete.ps1 -Tutorial -L python` | Foundation examples only |
+| **Non-foundation** | `.\test\run-complete.ps1 -NonTutorial -L python` | Everything except foundation examples |
+| **Domains only** | `.\test\run-complete.ps1 -Domains -L typescript` | Domain examples only |
+| **Custom test set** | `.\test\run-complete.ps1 -TestSet features-core -L python` | Named test set |
+| **Skip syntax check** | `.\test\run-complete.ps1 -All -L python -Skip1` | Skip Step 1 (syntax checker) |
+| **Skip generation** | `.\test\run-complete.ps1 -All -L python -Skip2` | Skip Step 2 (code generation) |
+| **Skip unit tests** | `.\test\run-complete.ps1 -All -L python -Skip4` | Skip Step 4 (generated unit tests) |
+| **Skip deploy tests** | `.\test\run-complete.ps1 -All -L python -Skip5` | Skip Step 5 (deploy/integration tests) |
+| **Fresh build mode** | `.\test\run-complete.ps1 -Tutorial -L python -FreshBuild` | Force --no-cache for deploy tests (maximum validation) |
+| **Generate only (skip tests)** | `.\test\run-complete.ps1 -All -L python -Skip4 -Skip5` | Steps 1-2 only |
+| **Skip venv** | `.\test\run-complete.ps1 -All -L python -SkipVenv` | Use system Python |
+| **Debug** | `.\test\run-complete.ps1 -All -L python -Dbg` | Debug logging |
 
-**Parameters:** `-ExamplePath` (positional 0), `-OutputPath` (positional 1), `-All`, `-Tutorial`, `-NonTutorial`, `-Domains`, `-Language`/`-L` (python\|typescript), `-Platform`/`-P` (docker\|kubernetes\|k8s), `-Hosting`/`-H`, `-TestSet` (default: all), `-SkipVenv`, `-Skip1`, `-Skip2`, `-Skip4`, `-Skip5`, `-FreshBuild`, `-Dbg`/`-DebugLogging`
+**Parameters:** `-ExamplePath` (positional 0), `-OutputPath` (positional 1), `-All`, `-Tutorial`, `-NonTutorial`, `-Domains`, `-Language`/`-L` (python\|typescript, **mandatory**), `-Platform`/`-P` (docker\|kubernetes\|k8s, default: docker), `-Hosting`/`-H`, `-TestSet` (default: all), `-SkipVenv`, `-Skip1`, `-Skip2`, `-Skip4`, `-Skip5`, `-FreshBuild`, `-Dbg`/`-DebugLogging`
 
 **Note:** Deploy tests (Step 5) use Docker cache by default for faster builds and better network resilience. Use `-FreshBuild` to force `--no-cache` for maximum validation confidence.
 
@@ -939,18 +939,18 @@ Most scripts support:
 
 ### Generate and Test
 ```powershell
-.\dev\generate.ps1 -Tutorial
+.\dev\generate.ps1 -Tutorial -L python
 .\test\test.ps1 datrix-codegen-python
 ```
 
 ### Single Example End-to-End
 ```powershell
-.\test\run-complete.ps1 "examples/01-foundation/system.dtrx"
+.\test\run-complete.ps1 "examples/01-foundation/system.dtrx" -L python
 ```
 
 ### Generate Single + Validate
 ```powershell
-.\dev\generate.ps1 examples/02-features/01-core-data-modeling/rest-api/system.dtrx
+.\dev\generate.ps1 examples/02-features/01-core-data-modeling/rest-api/system.dtrx -L python
 .\dev\compile-any-path.ps1 .\.generated\python\docker\02-features\01-core-data-modeling\rest-api\library_book_service\src
 ```
 

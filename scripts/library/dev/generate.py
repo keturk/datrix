@@ -479,9 +479,9 @@ def main():
     )
  
     # Batch mode
-    parser.add_argument("--language", type=str, default="python", choices=["python", "typescript"], help="Target language")
-    parser.add_argument("--platform", type=str, default="docker", choices=["docker", "kubernetes", "k8s"], help="Output path segment; also forwarded as datrix --hosting when not docker")
-    parser.add_argument("--hosting", type=str, default=None, choices=["docker", "kubernetes", "aws", "azure"], help="Explicit hosting platform override (takes priority over --platform derivation)")
+    parser.add_argument("--language", type=str.lower, default="python", choices=["python", "typescript"], help="Target language")
+    parser.add_argument("--platform", type=str.lower, default="docker", choices=["docker", "kubernetes", "k8s"], help="Output path segment; also forwarded as datrix --hosting when not docker")
+    parser.add_argument("--hosting", type=str.lower, default=None, choices=["docker", "kubernetes", "aws", "azure"], help="Explicit hosting platform override (takes priority over --platform derivation)")
     parser.add_argument(
         "--service-platform",
         type=str,
@@ -549,12 +549,17 @@ def main():
                             platform=args.platform,
                         )
                     )
-                except (ValueError, FileNotFoundError) as e:
-                    error_msg = str(e)
+                except (ValueError, FileNotFoundError):
+                    error_msg = (
+                        f"Cannot derive output path for: {source_path}\n"
+                        f"  Output path auto-derivation only works for projects under examples/.\n"
+                        f"  For external projects, provide --output explicitly.\n"
+                        f"  Example: generate.ps1 <source> <output-dir> -L {args.language}"
+                    )
                     if logger:
                         logger.write_error(error_msg)
                     else:
-                        print(f"ERROR: {error_msg}", file=sys.stderr)
+                        print(f"ERROR: {error_msg}")
                     return 1
             output_path = Path(args.output).resolve()
             if not source_path.exists():

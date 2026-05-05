@@ -397,9 +397,9 @@ def parse_ollama_response(text: str) -> str:
     """Extract Python code from Ollama response, stripping think tags and code fences."""
     cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
     code_match = re.search(r"```(?:python)?\s*\n(.*?)```", cleaned, flags=re.DOTALL)
-    if code_match:
-        return code_match.group(1)
-    return cleaned
+    code = code_match.group(1) if code_match else cleaned
+    # Normalize to LF — Ollama may return CRLF depending on model training data.
+    return code.replace("\r\n", "\n")
 
 
 def _build_system_prompt(complexity_type: str) -> str:
@@ -1021,17 +1021,17 @@ def _apply_and_verify_on_disk(
         )
         return False, "file_modified"
 
-    file_path.write_text(new_content, encoding="utf-8")
+    file_path.write_text(new_content, encoding="utf-8", newline="\n")
 
     ruff_ok, ruff_details = _run_ruff_check(file_path, verbose)
     if not ruff_ok:
         print("  Reverting due to ruff errors.", file=sys.stderr)
-        file_path.write_text(original_source, encoding="utf-8")
+        file_path.write_text(original_source, encoding="utf-8", newline="\n")
         return False, ruff_details
 
     if unit_tests and not _run_pytest(project_root, verbose):
         print("  Reverting due to test failures.", file=sys.stderr)
-        file_path.write_text(original_source, encoding="utf-8")
+        file_path.write_text(original_source, encoding="utf-8", newline="\n")
         return False, "test_failure"
 
     return True, ""

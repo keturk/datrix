@@ -26,7 +26,7 @@
  Run complete workflow for domain examples only (examples/02-domains). Implies -All with test set domains.
 
 .PARAMETER Language
- Target language for output path derivation (default: python). Options: python, typescript.
+ Target language for output path derivation (required). Options: python, typescript.
  The actual language used for generation is read from config/system-config.yaml.
  Can be abbreviated as -L.
 
@@ -71,51 +71,51 @@
  Alias for -DebugLogging. Enable debug logging (DEBUG level instead of INFO).
 
 .EXAMPLE
- .\run-complete.ps1 "examples/01-tutorial/01-basic-entity/system.dtrx"
+ .\run-complete.ps1 "examples/01-tutorial/01-basic-entity/system.dtrx" -L python
  Runs the complete workflow; output path is derived by run_complete.py from test-projects.json (e.g. .generated/python/docker/01-tutorial/01-basic-entity).
 
 .EXAMPLE
- .\run-complete.ps1 "examples/01-tutorial/01-basic-entity/system.dtrx" ".generated/python/docker/01-tutorial/01-basic-entity"
+ .\run-complete.ps1 "examples/01-tutorial/01-basic-entity/system.dtrx" ".generated/python/docker/01-tutorial/01-basic-entity" -L python
  Runs the complete workflow with explicit output path.
 
 .EXAMPLE
  .\run-complete.ps1 "examples/01-tutorial/01-basic-entity/system.dtrx" ".generated/python/docker/01-tutorial/01-basic-entity" -Language python -Platform docker
- Runs with custom language and platform.
+ Runs with explicit language and platform.
 
 .EXAMPLE
- .\run-complete.ps1 -All
- Runs the complete workflow for all examples.
+ .\run-complete.ps1 -All -L python
+ Runs the complete workflow for all examples (Python).
 
 .EXAMPLE
- .\run-complete.ps1 -Tutorial
- Runs the complete workflow for tutorial examples only (01-tutorial folder).
+ .\run-complete.ps1 -Tutorial -L python
+ Runs the complete workflow for tutorial examples only (01-tutorial folder, Python).
 
 .EXAMPLE
- .\run-complete.ps1 -NonTutorial
- Runs the complete workflow for everything except tutorial (all examples minus 01-tutorial).
+ .\run-complete.ps1 -NonTutorial -L typescript
+ Runs the complete workflow for everything except tutorial (TypeScript).
 
 .EXAMPLE
- .\run-complete.ps1 -Domains
- Runs the complete workflow for domain examples only (02-domains folder).
+ .\run-complete.ps1 -Domains -L python
+ Runs the complete workflow for domain examples only (02-domains folder, Python).
 
 .EXAMPLE
- .\run-complete.ps1 -TestSet tutorial01-10
- Runs the complete workflow for the tutorial01-10 test set (tutorials 01-10).
+ .\run-complete.ps1 -TestSet tutorial01-10 -L python
+ Runs the complete workflow for the tutorial01-10 test set (tutorials 01-10, Python).
 
 .EXAMPLE
- .\run-complete.ps1 -Skip1
+ .\run-complete.ps1 -L python -Skip1
  Skips Step 1 (syntax checker).
 
 .EXAMPLE
- .\run-complete.ps1 -Skip3 -Skip4 -Skip5
+ .\run-complete.ps1 -L python -Skip3 -Skip4 -Skip5
  Runs only Steps 1-2, skipping unit, spec, and deployment tests for generated projects.
 
 .EXAMPLE
- .\run-complete.ps1 -Tutorial -FreshBuild
+ .\run-complete.ps1 -Tutorial -L python -FreshBuild
  Runs tutorial examples with fresh Docker builds (--no-cache, no layer cache) for maximum validation confidence.
 
 .EXAMPLE
- $env:DATRIX_OFFLINE = "1"; .\run-complete.ps1 -Tutorial
+ $env:DATRIX_OFFLINE = "1"; .\run-complete.ps1 -Tutorial -L python
  Offline: no pip during the workflow (requires a ready .venv). Or use -SkipInstall (sets DATRIX_OFFLINE for the Python driver).
 #>
 
@@ -138,7 +138,7 @@ param(
  [Parameter()]
  [Alias("L")]
  [ValidateSet("python", "typescript")]
- [string]$Language = "python",
+ [string]$Language,
 
  [Parameter()]
  [Alias("P")]
@@ -185,6 +185,14 @@ function Write-ErrorMsg {
  Write-Host $Message -ForegroundColor Red
 }
 
+# Validate mandatory -Language parameter (not using [Parameter(Mandatory)] to avoid interactive prompt)
+if ([string]::IsNullOrWhiteSpace($Language)) {
+ Write-ErrorMsg "Error: -Language (-L) parameter is required. Options: python, typescript."
+ Write-ErrorMsg "Usage: .\run-complete.ps1 <ExamplePath> [OutputPath] -Language <lang> [-Platform <platform>]"
+ Write-ErrorMsg "   Or: .\run-complete.ps1 -All | -Tutorial | -NonTutorial | -Domains | -TestSet <set> -Language <lang>"
+ exit 1
+}
+
 # Script setup
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -212,8 +220,8 @@ $batchMode = $All -or $Tutorial -or $NonTutorial -or $Domains -or ($TestSet -ne 
 if (-not $batchMode) {
  if ([string]::IsNullOrWhiteSpace($ExamplePath)) {
   Write-ErrorMsg "Error: ExamplePath is required when no batch switch (-All, -Tutorial, -NonTutorial, -Domains, -TestSet) is specified."
-  Write-ErrorMsg "Usage: .\run-complete.ps1 <ExamplePath> [OutputPath] [-Language <lang>] [-Platform <platform>]"
-  Write-ErrorMsg " Or: .\run-complete.ps1 -All | -Tutorial | -NonTutorial | -Domains | -TestSet <set>"
+  Write-ErrorMsg "Usage: .\run-complete.ps1 <ExamplePath> [OutputPath] -Language <lang> [-Platform <platform>]"
+  Write-ErrorMsg " Or: .\run-complete.ps1 -All | -Tutorial | -NonTutorial | -Domains | -TestSet <set> -Language <lang>"
   exit 1
  }
  # When OutputPath is omitted, run_complete.py derives it from test-projects.json (defaultLanguage, defaultPlatform)
@@ -278,10 +286,8 @@ if ($batchMode) {
  $pythonArgs += "--test-set"
  $pythonArgs += $testSetName
  }
- if ($Language) {
  $pythonArgs += "-Language"
  $pythonArgs += $Language
- }
  if ($Platform) {
  $pythonArgs += "-Platform"
  $pythonArgs += $Platform
@@ -317,11 +323,9 @@ if ($batchMode) {
   $resolvedOutputPath = $resolvedOutputPath.TrimEnd('\', '/')
   $pythonArgs += $resolvedOutputPath
  }
- # Add optional parameters
- if ($Language) {
+ # Add parameters
  $pythonArgs += "-Language"
  $pythonArgs += $Language
- }
  if ($Platform) {
  $pythonArgs += "-Platform"
  $pythonArgs += $Platform

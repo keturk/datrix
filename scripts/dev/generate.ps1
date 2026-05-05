@@ -35,7 +35,7 @@
  Generate only domain examples (examples/02-domains). Uses test set domains.
 
 .PARAMETER Language
- Target language for output path derivation (default: python, options: python, typescript).
+ Target language for output path derivation (required, options: python, typescript).
  The actual language used for generation is read from config/system-config.yaml.
  Can be abbreviated as -L.
 
@@ -57,11 +57,11 @@
  Skip pip installs; verify venv only (same as setting DATRIX_OFFLINE=1). Use when offline.
 
 .EXAMPLE
- .\generate.ps1 examples/01-tutorial/01-basic-entity/system.dtrx
+ .\generate.ps1 examples/01-tutorial/01-basic-entity/system.dtrx -L python
  Generate a single project; output path derived from test-projects.json (e.g. .generated/python/docker/01-tutorial/01-basic-entity).
 
 .EXAMPLE
- .\generate.ps1 examples/01-tutorial/01-basic-entity/system.dtrx .generated/python/docker/my-project
+ .\generate.ps1 examples/01-tutorial/01-basic-entity/system.dtrx .generated/python/docker/my-project -L python
  Generate a single project with explicit output path (python, docker).
 
 .EXAMPLE
@@ -69,24 +69,24 @@
  Generate a single project with custom language and platform.
 
 .EXAMPLE
- .\generate.ps1 -All
- Generate all projects with default settings.
+ .\generate.ps1 -All -L python
+ Generate all projects for Python.
 
 .EXAMPLE
  .\generate.ps1 -All -Language typescript -Platform kubernetes
  Generate all projects for TypeScript and Kubernetes platform.
 
 .EXAMPLE
- .\generate.ps1 -Tutorial
- Generate only tutorial examples (01-tutorial folder).
+ .\generate.ps1 -Tutorial -L python
+ Generate only tutorial examples (01-tutorial folder) for Python.
 
 .EXAMPLE
- .\generate.ps1 -NonTutorial
- Generate all examples except tutorial (02-domains).
+ .\generate.ps1 -NonTutorial -L python
+ Generate all examples except tutorial (02-domains) for Python.
 
 .EXAMPLE
- .\generate.ps1 -Domains
- Generate only domain examples (02-domains folder).
+ .\generate.ps1 -Domains -L typescript
+ Generate only domain examples (02-domains folder) for TypeScript.
 
 #>
 
@@ -113,7 +113,7 @@ param(
  [Parameter()]
  [Alias("L")]
  [ValidateSet("python", "typescript")]
- [string]$Language = "python",
+ [string]$Language,
 
  [Parameter()]
  [Alias("P")]
@@ -183,24 +183,31 @@ function Show-HelpMessage {
  Write-Host ""
  Write-Host "Usage:" -ForegroundColor Yellow
  Write-Host " Generate single project:" -ForegroundColor Cyan
- Write-Host " .\generate.ps1 <Source> [Output] [-Language <lang>] [-Platform <platform>] [-Dbg]" -ForegroundColor White
+ Write-Host " .\generate.ps1 <Source> [Output] -Language <lang> [-Platform <platform>] [-Dbg]" -ForegroundColor White
  Write-Host "   (Output optional; derived from test-projects.json when omitted)" -ForegroundColor Gray
  Write-Host ""
  Write-Host " Generate all projects:" -ForegroundColor Cyan
- Write-Host " .\generate.ps1 -All [-Language <lang>] [-Platform <platform>] [-OutputBase <dir>] [-TestSet <set>] [-Dbg]" -ForegroundColor White
+ Write-Host " .\generate.ps1 -All -Language <lang> [-Platform <platform>] [-OutputBase <dir>] [-TestSet <set>] [-Dbg]" -ForegroundColor White
  Write-Host " Generate by example folder:" -ForegroundColor Cyan
- Write-Host " .\generate.ps1 -Tutorial | -NonTutorial | -Domains [-Language <lang>] [-Platform <platform>] [-Dbg]" -ForegroundColor White
+ Write-Host " .\generate.ps1 -Tutorial | -NonTutorial | -Domains -Language <lang> [-Platform <platform>] [-Dbg]" -ForegroundColor White
  Write-Host ""
  Write-Host "Examples:" -ForegroundColor Yellow
- Write-Host " .\generate.ps1 examples/01-tutorial/system.dtrx .generated/python/docker/my-project" -ForegroundColor Gray
- Write-Host " .\generate.ps1 -All" -ForegroundColor Gray
- Write-Host " .\generate.ps1 -Tutorial" -ForegroundColor Gray
- Write-Host " .\generate.ps1 -NonTutorial" -ForegroundColor Gray
- Write-Host " .\generate.ps1 -Domains" -ForegroundColor Gray
+ Write-Host " .\generate.ps1 examples/01-tutorial/system.dtrx .generated/python/docker/my-project -L python" -ForegroundColor Gray
+ Write-Host " .\generate.ps1 -All -L python" -ForegroundColor Gray
+ Write-Host " .\generate.ps1 -Tutorial -L python" -ForegroundColor Gray
+ Write-Host " .\generate.ps1 -NonTutorial -L typescript" -ForegroundColor Gray
+ Write-Host " .\generate.ps1 -Domains -L python" -ForegroundColor Gray
  Write-Host " .\generate.ps1 -All -Language typescript -Platform kubernetes -Dbg" -ForegroundColor Gray
  Write-Host ""
  Write-Host "Use Get-Help .\generate.ps1 -Full for detailed help." -ForegroundColor Yellow
  Write-Host ""
+}
+
+# Validate mandatory -Language parameter (not using [Parameter(Mandatory)] to avoid interactive prompt)
+if ([string]::IsNullOrWhiteSpace($Language)) {
+ Write-Host "Error: -Language (-L) parameter is required. Options: python, typescript." -ForegroundColor Red
+ Show-HelpMessage
+ exit 1
 }
 
 # Function to write to both console and log file
@@ -524,10 +531,8 @@ $("=" * 80)
  elseif ($NonTutorial) { "non-tutorial" }
  elseif ($Domains) { "domains" }
  else { $TestSet }
- if ($Language -ne "python") {
  $pythonArgs += "--language"
  $pythonArgs += $Language
- }
  if ($Platform -ne "docker") {
  $pythonArgs += "--platform"
  $pythonArgs += $Platform
@@ -584,10 +589,8 @@ $("=" * 80)
  $pythonArgs += $Output
  }
  
- if ($Language -ne "python") {
  $pythonArgs += "--language"
  $pythonArgs += $Language
- }
  if ($Platform -ne "docker") {
  $pythonArgs += "--platform"
  $pythonArgs += $Platform
@@ -608,7 +611,7 @@ $("=" * 80)
  # Note: The Python script will print the generation details, so we don't duplicate them here
  } else {
  # Neither mode specified - show help
- Write-Host "Error: Either -All, -Tutorial, -NonTutorial, -Domains, -TestSet <set>, or both Source and Output parameters must be provided." -ForegroundColor Red
+ Write-Host "Error: Either -All, -Tutorial, -NonTutorial, -Domains, -TestSet <set>, or Source parameter must be provided." -ForegroundColor Red
  Show-HelpMessage
  exit 1
  }
