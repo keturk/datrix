@@ -1,5 +1,9 @@
+# Auto-detect text files and normalize line endings
+* text=auto eol=lf
+
 # .gitattributes itself should use LF
 .gitattributes text eol=lf
+
 # Common file types - enforce LF line endings for cross-platform consistency
 *.py text eol=lf
 *.js text eol=lf
@@ -11,12 +15,19 @@
 *.md text eol=lf
 *.txt text eol=lf
 *.sh text eol=lf
+*.cfg text eol=lf
+*.ini text eol=lf
 
 # Template files
 *.j2 text eol=lf
 
 # Datrix DSL files
 *.dtrx text eol=lf
+
+# Windows scripts - keep CRLF
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
 
 # Binary files
 *.dll binary
