@@ -45,6 +45,8 @@ from shared.logging_utils import LogConfig, TeeLogger, ColorCodes, colorize
 from shared.test_projects import get_test_projects, get_default_output_path
 from shared.generated_test_log_writer import GeneratedTestLogWriter
 from shared.aggregate_test_writer import AggregateTestWriter
+from shared.deploy_test_log_writer import DeployTestLogWriter
+from shared.deploy_test_aggregate_writer import DeployTestAggregateWriter
 
 # Global set to track all active subprocesses
 _active_processes = set()
@@ -2042,6 +2044,29 @@ def step4_run_deployment_tests(all_examples: bool, paths: dict[str, Path], outpu
         print_info("=" * 60)
         print_info(f"Summary log saved to: {log_path.relative_to(paths['datrix_root'])}")
 
+        # Write deploy test aggregate structured output
+        project_index_paths = [
+            r["_index_path"] for r in project_results
+            if r.get("_index_path") is not None
+        ]
+        if project_index_paths:
+            try:
+                aggregate_dir = generated_base / ".test_results" / f"deploy-tests-{timestamp}"
+                aggregate_dir.mkdir(parents=True, exist_ok=True)
+                agg_writer = DeployTestAggregateWriter(
+                    aggregate_dir=aggregate_dir,
+                    language=language,
+                    platform=platform,
+                )
+                agg_path = agg_writer.write(
+                    project_index_paths=project_index_paths,
+                    timestamp=datetime.strptime(timestamp, "%Y%m%d-%H%M%S"),
+                    full_log_path=log_path,
+                )
+                print_info(f"Deploy test aggregate output: {agg_path}")
+            except Exception:
+                logger.exception("deploy_aggregate_output_failed")
+
         return fail_count == 0
     else:
         if not output_path:
@@ -2082,6 +2107,53 @@ def step4_run_deployment_tests(all_examples: bool, paths: dict[str, Path], outpu
         else:
             print_error(f"Deployment tests failed for {project_name}")
             return False
+
+
+def _write_deploy_structured_output(
+    project: Path,
+    project_name: str,
+    deploy_test_dir: Path,
+    paths: dict[str, Path],
+    timestamp: str,
+    language: str,
+) -> Optional[Path]:
+    """Write structured deploy test output for a project (advisory — never fails the pipeline).
+
+    Returns:
+        Path to the index.json file, or None if writing failed.
+    """
+    try:
+        generated_base = paths["datrix_root"] / ".generated"
+        # Derive example path from project relative to generated_base/language/platform
+        try:
+            rel_parts = project.relative_to(generated_base).parts
+            # Skip language/platform prefix (e.g. "python/docker/")
+            example = "/".join(rel_parts[2:]) if len(rel_parts) > 2 else str(project.name)
+        except ValueError:
+            example = str(project.name)
+
+        # Resolve .dtrx source from example path
+        datrix_root = paths["datrix_root"]
+        dtrx_source = f"datrix/examples/{example}/system.dtrx"
+
+        writer = DeployTestLogWriter(
+            project_name=project_name,
+            run_dir=deploy_test_dir,
+            project_path=project,
+            language=language,
+            platform="docker",
+            example=example,
+            dtrx_source=dtrx_source,
+        )
+        ts = datetime.strptime(timestamp, "%Y%m%d-%H%M%S")
+        index_path = writer.write(timestamp=ts)
+        return index_path
+    except Exception:
+        logger.exception(
+            "deploy_structured_output_failed project=%s",
+            project_name,
+        )
+        return None
 
 
 def _run_single_project_deploy_tests(
@@ -2136,6 +2208,9 @@ def _run_single_project_deploy_tests(
             total_error_tests=stats["errors"],
             total_skipped_tests=stats["skipped"],
             step5_output_dir=deploy_test_dir,
+        )
+        result["_index_path"] = _write_deploy_structured_output(
+            project, project_name, deploy_test_dir, paths, timestamp, "python",
         )
         return result
 
@@ -2195,6 +2270,9 @@ def _run_single_project_deploy_tests(
             total_skipped_tests=stats["skipped"],
             step5_output_dir=deploy_test_dir,
         )
+        result["_index_path"] = _write_deploy_structured_output(
+            project, project_name, deploy_test_dir, paths, timestamp, "typescript",
+        )
         return result
 
     # --- TypeScript project: tests/jest-deploy.config.ts (fallback for projects without deploy_test.py) ---
@@ -2238,6 +2316,9 @@ def _run_single_project_deploy_tests(
                 total_error_tests=0,
                 total_skipped_tests=0,
                 step5_output_dir=deploy_test_dir,
+            )
+            result["_index_path"] = _write_deploy_structured_output(
+                project, project_name, deploy_test_dir, paths, timestamp, "typescript",
             )
             return result
 
@@ -2302,6 +2383,9 @@ def _run_single_project_deploy_tests(
                         total_skipped_tests=0,
                         step5_output_dir=deploy_test_dir,
                     )
+                    result["_index_path"] = _write_deploy_structured_output(
+                        project, project_name, deploy_test_dir, paths, timestamp, "typescript",
+                    )
                     return result
 
                 # Start services
@@ -2334,6 +2418,9 @@ def _run_single_project_deploy_tests(
                     total_error_tests=0,
                     total_skipped_tests=0,
                     step5_output_dir=deploy_test_dir,
+                )
+                result["_index_path"] = _write_deploy_structured_output(
+                    project, project_name, deploy_test_dir, paths, timestamp, "typescript",
                 )
                 return result
 
@@ -2405,6 +2492,9 @@ def _run_single_project_deploy_tests(
             total_error_tests=stats["errors"],
             total_skipped_tests=stats["skipped"],
             step5_output_dir=deploy_test_dir,
+        )
+        result["_index_path"] = _write_deploy_structured_output(
+            project, project_name, deploy_test_dir, paths, timestamp, "typescript",
         )
         return result
 
@@ -2532,6 +2622,28 @@ def step5_run_deployment_tests(all_examples: bool, paths: dict[str, Path], outpu
                     print_info(f"   Tests: {', '.join(test_info)}")
 
         print_info("=" * 60)
+
+        # Write deploy test aggregate structured output
+        project_index_paths = [
+            r["_index_path"] for r in project_results
+            if r.get("_index_path") is not None
+        ]
+        if project_index_paths:
+            try:
+                aggregate_dir = generated_base / ".test_results" / f"deploy-tests-{timestamp}"
+                aggregate_dir.mkdir(parents=True, exist_ok=True)
+                agg_writer = DeployTestAggregateWriter(
+                    aggregate_dir=aggregate_dir,
+                    language=language,
+                    platform=platform,
+                )
+                agg_path = agg_writer.write(
+                    project_index_paths=project_index_paths,
+                    timestamp=datetime.strptime(timestamp, "%Y%m%d-%H%M%S"),
+                )
+                print_info(f"Deploy test aggregate output: {agg_path}")
+            except Exception:
+                logger.exception("deploy_aggregate_output_failed")
 
         return fail_count == 0
     else:
