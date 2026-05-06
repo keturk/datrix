@@ -93,7 +93,113 @@ Some domains also ship **pre-generated** trees under `generated/` for inspection
 
 ---
 
-## 5. Patterns illustrated in examples
+## 5. Extern service integration
+
+A complete example showing an `extern service` declaration alongside a consuming Datrix service.
+
+### Spec (`specs/system.dtrx`)
+
+```dtrx
+system ecommerce('config/system-config.yaml') {}
+```
+
+### Spec (`specs/pricing-engine.dtrx`)
+
+```dtrx
+extern service pricing.PricingEngine('config/pricing-engine.yaml')
+    : version('1.0.0'), description('External pricing engine') {
+
+    struct PricingRequest {
+        String productId;
+        Int quantity;
+    }
+
+    struct PricingResponse {
+        Decimal totalPrice;
+        String currency;
+    }
+
+    rest_api PricingAPI : basePath('/api/v1') {
+        post calculatePrice(PricingRequest req) -> PricingResponse {
+            ensure req.quantity > 0;
+            ensure req.productId != null;
+        }
+    }
+
+    errors {
+        PricingNotFound(String message);
+    }
+
+    auth : apiKey(header: 'X-API-Key');
+    health : path('/health');
+}
+```
+
+### Spec (`specs/order-service.dtrx`)
+
+```dtrx
+service ecommerce.OrderService('config/order-service.yaml') {
+    uses PricingEngine;
+
+    rdbms db('config/order-service/datasources.yaml') {
+        entity Order extends BaseEntity {
+            UUID customerId;
+            Money total;
+        }
+    }
+
+    rest_api OrderAPI : basePath('/api/v1/orders') {
+        post createOrder(UUID customerId, String productId, Int quantity) -> Order {
+            // PricingRequest and PricingResponse types are available here
+            // Generated PricingEngineClient is used for the HTTP call
+        }
+    }
+}
+```
+
+### Config (`config/pricing-engine.yaml`)
+
+```yaml
+development:
+  deployment: container
+  image: myregistry/pricing-engine:dev
+  port: 8080
+  auth:
+    type: apiKey
+    header: X-API-Key
+    secret: PRICING_API_KEY
+
+production:
+  deployment: external
+  url: https://pricing.prod.internal/api
+  auth:
+    type: bearer
+    secret: PRICING_BEARER_TOKEN
+```
+
+### What you build
+
+The extern service implementation (the `pricing-engine` container) is built and deployed by **you** — Datrix does not generate its code. Your implementation must:
+
+- Serve `POST /api/v1/calculatePrice` accepting `PricingRequest` JSON and returning `PricingResponse` JSON
+- Expose a health endpoint at `/health`
+- Accept an API key via the `X-API-Key` header
+
+### What Datrix generates
+
+For `OrderService`, Datrix generates:
+
+| Artifact | Description |
+|----------|-------------|
+| `clients/pricing_engine.py` (or `.ts`) | Async HTTP client with `calculate_price()` method |
+| `clients/pricing_engine_models.py` (or `.models.ts`) | `PricingRequest`, `PricingResponse` data models |
+| `clients/pricing_engine_errors.py` (or `.errors.ts`) | `PricingNotFoundError` exception class |
+| `clients/pricing_engine_contracts.py` (or `.contracts.ts`) | `validate_calculate_price_contract()` function |
+| Docker Compose entry | `pricing-engine` service (dev profile) with health check |
+
+---
+
+## 6. Patterns illustrated in examples
 
 Cross-cutting patterns are documented in [`examples/README.md`](../../examples/README.md): named `rdbms` / `cache` / `pubsub` blocks, `discovery`, internal REST routes, `resource` + `access`, computed fields, lifecycle hooks, and imports between services/modules.
 

@@ -29,8 +29,8 @@ Optional **datrix-extensions** (domain packs, `datrix.extensions` entry points) 
 | datrix-codegen-sql | SQL DDL (PostgreSQL, MySQL) |
 | datrix-codegen-docker | Docker/Compose generation. YAML builders |
 | datrix-codegen-k8s | Kubernetes manifests |
-| datrix-codegen-aws | AWS infrastructure (CDK/CloudFormation) |
-| datrix-codegen-azure | Azure infrastructure (Bicep/ARM) |
+| datrix-codegen-aws | AWS infrastructure (CDK/CloudFormation): VPC, ECS, RDS, ElastiCache, SNS/SQS, MSK (Kafka), DynamoDB, S3 |
+| datrix-codegen-azure | Azure infrastructure (Bicep/ARM): Container Apps, Flexible Server, Cosmos DB, Service Bus, Event Hubs (Kafka), Redis, Blob |
 | datrix-cli | CLI. Discovers generator plugins dynamically via entry points |
 | datrix-extensions | Optional domain extension packs (`datrix.extensions`). Depends on datrix-common |
 
@@ -79,6 +79,19 @@ Orchestration: `StagePipeline` in **datrix-common** runs Stages 1–2 and config
 
 Full guide: [extensions-guide.md](../../../datrix-extensions/docs/extensions-guide.md) · Core protocol: [datrix-common extensions](../../../datrix-common/docs/extensions.md).
 
+## Extern Services
+
+Contract-only declarations for external libraries/tools that Datrix does not generate. Consumed via `uses` (same as shared blocks and inter-service dependencies).
+
+- **Container kinds:** `system`, `module`, `service`, `shared`, **`extern service`**
+- **Extern service = contract only** — user builds and deploys the implementation
+- **Allowed members:** `struct`, `enum`, `rest_api` (signature-only), `errors`, `auth`, `health`
+- **No infrastructure blocks** (`rdbms`, `cache`, `pubsub`, etc.)
+- **Config:** `deployment: container` (image + port, compose/K8s entries generated) or `deployment: external` (remote URL, no deployment artifacts)
+- **Generated artifacts:** typed HTTP client, request/response models, error classes, contract validation (per consuming service)
+- **AST:** `ExternService` in `datrix_common.datrix_model.extern_service`, registered on `Application.extern_services`
+- **`uses` resolution order:** shared block → extern service → regular service
+
 ## Key Capabilities
 
 - Background jobs (APScheduler), Alembic migrations, seed data
@@ -93,7 +106,7 @@ High-level constructs the parser and transformers understand today. Full detail:
 
 | Layer | Constructs |
 |-------|------------|
-| File structure | `include`, `from X import Y`, `system`, `module`, `service` |
+| File structure | `include`, `from X import Y`, `system`, `module`, `service`, `extern service` |
 | Declarations | `entity`, `abstract entity`, `trait`, `enum`, `struct`, `const`, `fn` |
 | Field features | Types, optional (`?`), sized (`String(200)`), collections (`Array<T>`, `Map<K,V>`, `Set<T>`), modifiers (`: unique, indexed, immutable, server, …`), defaults (`= expr`). **Server-managed fields** use the **`server`** modifier (e.g. `UUID id : primaryKey, server = uuid();`) — there is **no** `@` prefix on field types. |
 | Catalog types | Module- or service-level **`scalar Name : BaseType { constraints… }`** for constrained aliases on existing types |

@@ -172,7 +172,7 @@ def _collect_data(
     cross_arrows: list[_CrossArrow] = []
     seen_incoming: set[str] = set()
 
-    for service, _block, subscription in all_subscriptions_with_context(app):
+    for service, subscription in all_subscriptions_with_context(app):
         subscriber_name = _simple_name(str(service.name))
 
         for handler in subscription.handlers:

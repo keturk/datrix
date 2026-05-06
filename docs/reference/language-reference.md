@@ -26,6 +26,7 @@ system ecommerce : version('1.0.0') {
 | `system` | Exactly one per application | Global infrastructure: gateway, observability, service registry |
 | `module` | Multiple | Shared code: traits, abstract entities, enums, structs, constants, `exceptions`, `scalar` |
 | `service` | Multiple | Business logic + owned infrastructure (`rdbms`, `pubsub`, **`queues`**, APIs, `enqueue`, …) |
+| `extern service` | Multiple | Contract for an external library/tool — generates typed clients, no implementation code |
 
 Multiple files can contribute to the same service — the compiler merges them automatically.
 
@@ -470,6 +471,188 @@ module aviation.common {
 ```
 
 These differ from **extension-pack** scalars (declared via `use extension` and `DatrixExtension`): packs add wholly new types with per-language maps; custom scalars are aliases with constraints. Valid constraint names: `min(value)`, `max(value)`, `range(min, max)`, `pattern(regex)`. Custom scalars are globally visible (no import needed) and compose with collections (`Array<Altitude>`, etc.). See the [extensions guide](../../../datrix-extensions/docs/extensions-guide.md) for extension-pack scalars.
+
+---
+
+## Extern Services
+
+Extern services declare a **contract** for an external library or tool that Datrix does not generate code for. You build and deploy the implementation yourself; Datrix generates a **typed client** in consuming services and wires deployment entries (Docker Compose, Kubernetes) automatically.
+
+### Purpose
+
+Use `extern service` when you need functionality that Datrix doesn't cover natively — domain-specific computation engines (QuantLib, NumPy), third-party API wrappers (Stripe, Salesforce), or data processing tools (PDF generation, image manipulation). The extern service declaration tells Datrix what the external service's API looks like so it can generate type-safe clients for your Datrix services.
+
+### Declaration Syntax
+
+```dtrx
+extern service <qualified.Name>('<config-path>') : <attributes> {
+    <members>
+}
+```
+
+All parts except `extern service <qualified.Name> { }` are optional:
+
+| Part | Required | Example |
+|------|----------|---------|
+| Qualified name | Yes | `pricing.PricingEngine` |
+| Config path | No | `'config/pricing-engine.yaml'` |
+| Attributes | No | `version('1.0.0'), description('Pricing service')` |
+| Members | No | structs, enums, rest_api, errors, auth, health |
+
+### Allowed Members
+
+Extern services support exactly six member types:
+
+| Member | Purpose |
+|--------|---------|
+| `struct` | Value types used in API parameters and responses |
+| `enum` | Enumeration types |
+| `rest_api` | REST endpoint signatures (no implementation bodies) |
+| `errors` | Typed error declarations |
+| `auth` | Authentication configuration |
+| `health` | Health check endpoint |
+
+Infrastructure blocks (`rdbms`, `cache`, `pubsub`, `nosql`, `queues`, etc.) are **not** allowed — extern services are contract declarations only.
+
+### REST API Endpoints
+
+Extern service endpoints are **signature-only** — they declare the HTTP method, parameters, and return type, but no implementation body:
+
+```dtrx
+rest_api PricingAPI : basePath('/api/v1') {
+    post calculatePrice(PricingRequest req) -> PricingResponse;
+    get getPrice(String productId) -> PricingResponse;
+    delete clearCache();
+}
+```
+
+Supported HTTP methods: `get`, `post`, `put`, `delete`, `patch`, `head`, `options`.
+
+### Ensure Clauses
+
+Extern endpoints can declare **precondition contracts** using `ensure` clauses:
+
+```dtrx
+rest_api PricingAPI : basePath('/api/v1') {
+    post calculatePrice(PricingRequest req) -> PricingResponse {
+        ensure req.quantity > 0;
+        ensure req.productId != null;
+    }
+    get getPrice(String productId) -> PricingResponse {
+        ensure productId != null;
+    }
+}
+```
+
+Ensure clauses generate **client-side validation** functions that run before making the HTTP request. They fail fast with a `ContractViolationError` if a precondition is not met.
+
+### Authentication
+
+```dtrx
+auth : apiKey(header: 'X-API-Key');     // API key in header
+auth : bearer();                         // Bearer token
+auth : serviceJwt();                     // Service-to-service JWT
+auth : none;                             // No authentication
+```
+
+### Health Check
+
+```dtrx
+health : path('/health');
+```
+
+### Error Declarations
+
+```dtrx
+errors {
+    PricingNotFound(String message);
+    InvalidQuantity(String message, Int quantity);
+    InternalError();
+}
+```
+
+Errors generate typed exception classes in the consuming service's client code.
+
+### Consuming Extern Services
+
+A Datrix service consumes an extern service with `uses`:
+
+```dtrx
+service ecommerce.OrderService : version('1.0.0') {
+    uses PricingEngine;
+    // ...
+}
+```
+
+Once declared, the service can reference extern service struct and enum types, and the generated code includes a typed HTTP client for calling the extern service's endpoints.
+
+### Type Visibility
+
+Structs and enums declared inside an extern service are importable by consuming services. When a service declares `uses ExternServiceName`, the extern service's types become available in that service's scope.
+
+### Complete Example
+
+```dtrx
+extern service pricing.PricingEngine('config/pricing-engine.yaml')
+    : version('1.0.0'), description('External pricing service') {
+
+    struct PricingRequest {
+        String productId;
+        Int quantity;
+    }
+
+    struct PricingResponse {
+        Decimal totalPrice;
+        String currency;
+    }
+
+    enum PricingTier {
+        STANDARD,
+        PREMIUM,
+        ENTERPRISE
+    }
+
+    rest_api PricingAPI : basePath('/api/v1') {
+        post calculatePrice(PricingRequest req) -> PricingResponse;
+        get getPrice(String productId) -> PricingResponse {
+            ensure productId != null;
+        }
+    }
+
+    errors {
+        PricingNotFound(String message);
+        InvalidQuantity(String message, Int quantity);
+    }
+
+    auth : apiKey(header: 'X-API-Key');
+    health : path('/health');
+}
+
+// Consuming service
+service ecommerce.OrderService : version('1.0.0') {
+    uses PricingEngine;
+
+    rest_api OrderAPI : basePath('/api/v1/orders') {
+        // Can use PricingRequest, PricingResponse types here
+    }
+}
+```
+
+### What Gets Generated
+
+For each extern service that a Datrix service consumes via `uses`:
+
+| Artifact | When Generated |
+|----------|----------------|
+| Typed HTTP client class | Always |
+| Request/response models (Pydantic / TS interfaces) | When structs or enums exist |
+| Typed error classes | When `errors` block exists |
+| Contract validation functions | When `ensure` clauses exist |
+| Docker Compose service entry | When config has `deployment: container` |
+| Kubernetes Deployment + Service + Secret | When config has `deployment: container` |
+| Environment variable injection in consuming services | Always |
+
+See [Configuration Guide — Extern Service Configuration](../guide/configuration-guide.md#extern-service-configuration) for deployment configuration.
 
 ---
 

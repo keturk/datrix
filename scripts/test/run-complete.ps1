@@ -40,6 +40,12 @@
  E.g. tutorial01-10, tutorial11-20, tutorial21-30, tutorial31-43.
  See scripts/config/test-projects.json for available test sets. Implies batch mode when not "all".
 
+.PARAMETER Rerun
+ Re-run only projects whose previous test results had errors/failures, or projects that have never been tested.
+ Scans .test_results in each project's output directory and includes the project if the latest result is not PASSED.
+ When a project needs re-running, regeneration (Step 2) also happens unless -Skip2 is specified.
+ Combines with -TestSet, -Tutorial, -NonTutorial, -Domains to control which project set is checked.
+
 .PARAMETER SkipVenv
  Skip virtual environment activation (use current Python environment).
 
@@ -115,6 +121,18 @@
  Runs tutorial examples with fresh Docker builds (--no-cache, no layer cache) for maximum validation confidence.
 
 .EXAMPLE
+ .\run-complete.ps1 -Rerun -L python
+ Re-runs only projects that previously failed or have never been tested (all test set).
+
+.EXAMPLE
+ .\run-complete.ps1 -Rerun -Domains -L python
+ Re-runs only failed/untested domain projects.
+
+.EXAMPLE
+ .\run-complete.ps1 -Rerun -L python -Skip2
+ Re-runs failed/untested projects without regenerating code (tests only).
+
+.EXAMPLE
  $env:DATRIX_OFFLINE = "1"; .\run-complete.ps1 -Tutorial -L python
  Offline: no pip during the workflow (requires a ready .venv). Or use -SkipInstall (sets DATRIX_OFFLINE for the Python driver).
 #>
@@ -151,6 +169,8 @@ param(
 
  [Parameter()]
  [string]$TestSet = "all",
+
+ [switch]$Rerun,
 
  [switch]$SkipVenv,
  [switch]$Skip1,
@@ -216,12 +236,12 @@ if (-not (Test-Path $runCompleteScript)) {
 }
 
 # Validate parameters
-$batchMode = $All -or $Tutorial -or $NonTutorial -or $Domains -or ($TestSet -ne "all")
+$batchMode = $All -or $Tutorial -or $NonTutorial -or $Domains -or ($TestSet -ne "all") -or $Rerun
 if (-not $batchMode) {
  if ([string]::IsNullOrWhiteSpace($ExamplePath)) {
-  Write-ErrorMsg "Error: ExamplePath is required when no batch switch (-All, -Tutorial, -NonTutorial, -Domains, -TestSet) is specified."
+  Write-ErrorMsg "Error: ExamplePath is required when no batch switch (-All, -Tutorial, -NonTutorial, -Domains, -TestSet, -Rerun) is specified."
   Write-ErrorMsg "Usage: .\run-complete.ps1 <ExamplePath> [OutputPath] -Language <lang> [-Platform <platform>]"
-  Write-ErrorMsg " Or: .\run-complete.ps1 -All | -Tutorial | -NonTutorial | -Domains | -TestSet <set> -Language <lang>"
+  Write-ErrorMsg " Or: .\run-complete.ps1 -All | -Tutorial | -NonTutorial | -Domains | -TestSet <set> | -Rerun -Language <lang>"
   exit 1
  }
  # When OutputPath is omitted, run_complete.py derives it from test-projects.json (defaultLanguage, defaultPlatform)
@@ -273,6 +293,231 @@ Write-Info "Python executable: $pythonExe"
 $pythonVersion = & $pythonExe --version 2>&1
 Write-Info "Python version: $pythonVersion"
 Write-Info ""
+
+# --- Rerun mode: scan .test_results, filter to failed/missing, run each project individually ---
+if ($Rerun) {
+ try {
+ # Determine which test set to scan
+ $testSetName = if ($Tutorial) { "tutorial-all" }
+ elseif ($NonTutorial) { "non-tutorial" }
+ elseif ($Domains) { "domains" }
+ elseif ($TestSet -ne "all") { $TestSet }
+ else { "all" }
+
+ # Load test-projects.json
+ $configPath = Join-Path $datrixRoot "datrix\scripts\config\test-projects.json"
+ $config = Get-Content $configPath -Raw | ConvertFrom-Json
+
+ # Build flat lookup of all projects by name
+ $allProjectsDict = @{}
+ foreach ($category in $config.projects.PSObject.Properties) {
+  foreach ($proj in $category.Value) {
+   $allProjectsDict[$proj.name] = $proj
+  }
+ }
+
+ # Resolve project names from test set
+ $projectNames = @()
+ if ($config.testSets.PSObject.Properties[$testSetName]) {
+  $projectNames = @($config.testSets.$testSetName)
+ } elseif ($testSetName -eq "tutorial-all") {
+  # Legacy: foundation projects
+  foreach ($category in $config.projects.PSObject.Properties) {
+   foreach ($proj in $category.Value) {
+    $normalizedPath = $proj.path -replace '\\', '/'
+    if ($normalizedPath.StartsWith("examples/01-foundation/")) {
+     $projectNames += $proj.name
+    }
+   }
+  }
+ } elseif ($testSetName -eq "non-tutorial") {
+  $allNames = @($config.testSets.all)
+  $foundationNames = @()
+  foreach ($category in $config.projects.PSObject.Properties) {
+   foreach ($proj in $category.Value) {
+    $normalizedPath = $proj.path -replace '\\', '/'
+    if ($normalizedPath.StartsWith("examples/01-foundation/")) {
+     $foundationNames += $proj.name
+    }
+   }
+  }
+  $projectNames = $allNames | Where-Object { $_ -notin $foundationNames }
+ } else {
+  Write-ErrorMsg "Error: Test set '$testSetName' not found in test-projects.json."
+  Write-ErrorMsg "Available: $($config.testSets.PSObject.Properties.Name -join ', ')"
+  Invoke-Cleanup
+  exit 1
+ }
+
+ # For each project, compute output path and check .test_results
+ $generatedBase = Join-Path $datrixRoot ".generated"
+ $projectsToRerun = @()
+
+ foreach ($projName in $projectNames) {
+  if (-not $allProjectsDict.ContainsKey($projName)) { continue }
+  $proj = $allProjectsDict[$projName]
+
+  # Build output path: remove "examples/" prefix, remove "/system.dtrx" suffix, prepend language/platform
+  $sourcePath = ($proj.path -replace '\\', '/')
+  $relative = $sourcePath -replace '^examples/', ''
+  if ($relative -match '/system\.dtrx$') {
+   $base = $relative -replace '/system\.dtrx$', ''
+  } elseif ($relative -match '\.dtrx$') {
+   $base = $relative -replace '\.dtrx$', ''
+  } else {
+   $base = $relative
+  }
+  $outputRelative = "$Language/$Platform/$base"
+  $projectOutputDir = Join-Path $generatedBase $outputRelative
+
+  # Check .test_results for latest result of each test type (unit-tests, deploy-test)
+  # A project needs re-run if ANY test type is missing or not PASSED.
+  $needsRerun = $false
+  $testResultsDir = Join-Path $projectOutputDir ".test_results"
+
+  if (-not (Test-Path $testResultsDir)) {
+   # No test results at all — needs rerun
+   $needsRerun = $true
+  } else {
+   # Check unit-tests: use index.json (reliable for unit tests)
+   $unitDirs = @(Get-ChildItem -Path $testResultsDir -Directory -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -like "unit-tests-*" })
+   if ($unitDirs.Count -eq 0) {
+    $needsRerun = $true
+   } else {
+    $unitIndexFiles = @()
+    foreach ($dir in $unitDirs) {
+     $idx = Join-Path $dir.FullName "index.json"
+     if (Test-Path $idx) { $unitIndexFiles += Get-Item $idx }
+    }
+    if ($unitIndexFiles.Count -eq 0) {
+     $needsRerun = $true
+    } else {
+     $latestUnitIndex = $unitIndexFiles | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+     $unitResult = Get-Content $latestUnitIndex.FullName -Raw | ConvertFrom-Json
+     if ($unitResult.result -ne "PASSED") { $needsRerun = $true }
+    }
+   }
+
+   # Check deploy-test: use failures.json (index.json is unreliable for deploy tests)
+   if (-not $needsRerun) {
+    $deployDirs = @(Get-ChildItem -Path $testResultsDir -Directory -ErrorAction SilentlyContinue |
+     Where-Object { $_.Name -like "deploy-test-*" })
+    if ($deployDirs.Count -eq 0) {
+     $needsRerun = $true
+    } else {
+     # Find the most recent deploy-test dir by timestamp in name (YYYYMMDD-HHMMSS)
+     $latestDeployDir = $deployDirs | Sort-Object Name -Descending | Select-Object -First 1
+     $failuresFile = Join-Path $latestDeployDir.FullName "failures.json"
+     if (-not (Test-Path $failuresFile)) {
+      # No failures.json means test didn't complete — needs rerun
+      $needsRerun = $true
+     } else {
+      $failures = Get-Content $failuresFile -Raw | ConvertFrom-Json
+      if ($failures.summary.total -gt 0) { $needsRerun = $true }
+     }
+    }
+   }
+  }
+
+  if ($needsRerun) {
+   $projectsToRerun += @{
+    Name = $projName
+    ExamplePath = (Join-Path (Join-Path $datrixRoot "datrix") $sourcePath)
+    OutputPath = $projectOutputDir
+   }
+  }
+ }
+
+ if ($projectsToRerun.Count -eq 0) {
+  Write-Success "All projects in test set '$testSetName' have passing results. Nothing to re-run."
+  Invoke-Cleanup
+  exit 0
+ }
+
+ Write-Info "Rerun mode: $($projectsToRerun.Count) of $($projectNames.Count) projects need re-running:"
+ foreach ($p in $projectsToRerun) {
+  Write-Info "  - $($p.Name)"
+ }
+ Write-Info ""
+
+ # Set environment variable for fresh build mode
+ if ($FreshBuild) {
+  $env:DEPLOY_TEST_FRESH_BUILD = "true"
+  Write-Info "Fresh build mode enabled (deploy tests will use --no-cache)"
+ }
+
+ # Run each project individually via run_complete.py in single-example mode
+ $rerunSuccess = 0
+ $rerunFail = 0
+ $rerunExitCode = 0
+
+ for ($i = 0; $i -lt $projectsToRerun.Count; $i++) {
+  $p = $projectsToRerun[$i]
+  Write-Info ""
+  Write-Info "=========================================="
+  Write-Info "[$($i+1)/$($projectsToRerun.Count)] Re-running: $($p.Name)"
+  Write-Info "=========================================="
+
+  $singleArgs = @($runCompleteScript)
+  $singleArgs += $p.ExamplePath
+  $singleArgs += $p.OutputPath
+  $singleArgs += "-Language"
+  $singleArgs += $Language
+  $singleArgs += "-Platform"
+  $singleArgs += $Platform
+  if ($Skip1) { $singleArgs += "-Skip1" }
+  if ($Skip2) { $singleArgs += "-Skip2" }
+  if ($Skip3) { $singleArgs += "-Skip3" }
+  if ($Skip4) { $singleArgs += "-Skip4" }
+  if ($Skip5) { $singleArgs += "-Skip5" }
+  if (-not [string]::IsNullOrWhiteSpace($Hosting)) {
+   $singleArgs += "-Hosting"
+   $singleArgs += $Hosting
+  }
+  if ($DebugLogging) { $singleArgs += "--debug" }
+  if ($SkipInstall) { $singleArgs += "--skip-install" }
+
+  Write-Info "Running: $pythonExe -u $($singleArgs -join ' ')"
+  Write-Info ""
+
+  & $pythonExe -u @singleArgs
+  $projectExitCode = $LASTEXITCODE
+
+  if ($projectExitCode -eq 130) {
+   Write-Warning "Interrupted by user during: $($p.Name)"
+   $rerunExitCode = 130
+   break
+  } elseif ($projectExitCode -eq 0) {
+   Write-Success " [OK] $($p.Name)"
+   $rerunSuccess++
+  } else {
+   Write-ErrorMsg " [FAILED] $($p.Name) (exit code: $projectExitCode)"
+   $rerunFail++
+   $rerunExitCode = 1
+  }
+ }
+
+ # Final summary
+ Write-Info ""
+ Write-Info "=========================================="
+ Write-Info "Rerun Summary"
+ Write-Info "=========================================="
+ Write-Info "Projects re-run: $($rerunSuccess + $rerunFail) / $($projectsToRerun.Count)"
+ if ($rerunSuccess -gt 0) { Write-Success "  Passed: $rerunSuccess" }
+ if ($rerunFail -gt 0) { Write-ErrorMsg "  Failed: $rerunFail" }
+ Write-Info "=========================================="
+
+ Invoke-Cleanup
+ exit $rerunExitCode
+
+ } catch {
+  Write-ErrorMsg "Error in rerun mode: $($_.Exception.Message)"
+  Write-ErrorMsg "At: $($_.InvocationInfo.ScriptLineNumber): $($_.InvocationInfo.Line.Trim())"
+  Invoke-Cleanup
+  exit 1
+ }
+}
 
 # Build arguments for run_complete.py
 $pythonArgs = @($runCompleteScript)

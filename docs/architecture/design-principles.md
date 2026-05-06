@@ -274,7 +274,7 @@ entity User extends BaseEntity {
 **Principle:** Each service owns its infrastructure and business logic. The DSL makes service boundaries explicit.
 
 **Application:**
-- Each service declares its own data stores via named blocks: `rdbms db('path')`, `cache redis('path')`, `nosql docdb('path')`, `storage store('path')`, `pubsub mq('path')`
+- Each service declares its own data stores via named blocks: `rdbms db('path')`, `cache redis('path')`, `nosql docdb('path')`, `storage store('path')`, `pubsub mq('path')`, `search es('path')`
 - Config is externalized and profile-based (YAML/JSON). Top-level keys are profile names (`development`, `production`); the generator selects the key from the system profile
 - One statement per concern: registration, resilience, and each integration type are separate config statements; deployment-related settings (replicas, resources, healthCheck) live in service-config YAML, not in the DSL
 
@@ -291,6 +291,7 @@ nosql docdb('config/nosql.yaml') { ... }
 cache redis('config/cache.yaml') { ... }
 storage store('config/storage.yaml') { ... }
 pubsub mq('config/pubsub.yaml') { ... }
+search es('config/search.yaml') { ... }
 ```
 
 **Access Rules:**
@@ -362,6 +363,7 @@ entity User extends BaseEntity {
 | Entity lifecycle hooks, validation rules | CORS origins, JWT secrets |
 | Service topology (`discovery { }`) | Job schedules, retry/timeout defaults |
 | Computed fields | Provider credentials |
+| Extern service contract (`extern service { rest_api ... }`) | Extern service deployment mode, image, URL, auth secrets |
 
 **Enforcement:** The parser rejects environmental data in the DSL at parse time. `SERVICE_ATTR_IDENTIFIERS` in `contextual_keywords.py` restricts service attributes to `version` and `description` — writing `port(8000)` in a `.dtrx` file produces an error listing the allowed attributes.
 

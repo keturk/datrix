@@ -19,6 +19,7 @@ Datrix is a code generation system that transforms `.dtrx` domain specifications
 ✅ **Modular Architecture** - 13 installable packages (core toolchain + optional **datrix-extensions**) plus showcase and projects repos
 ✅ **Specification-Level Testing** - DSL `test` blocks transpile to pytest under `tests/spec/` (Python) and Jest under `test/spec/` (TypeScript); see tutorial `41-file-operations`
 ✅ **Event contracts** - `ensure` clauses on `publish` events enforce publisher-side validation before `dispatch`
+✅ **External library interfacing** - `extern service` declarations generate typed HTTP clients and deployment wiring for user-built services
 
 ---
 
@@ -140,7 +141,7 @@ Details and generator APIs: [code-generation.md](../../../datrix-common/docs/arc
 
 - **Seed data** — Optional `config/seed-data.yaml` in the generated service tree is read by `SeedGenerator` (`datrix_codegen_python.generators.persistence.seed_generator`), which emits `seed.py` and packaged `seed_data.yaml` with PostgreSQL idempotent inserts (`ON CONFLICT … DO NOTHING`).
 
-- **Elasticsearch** — When `IntegrationsProfileConfig.search` targets Elasticsearch and the service has `:searchable` fields, `IntegrationGenerator` (`datrix_codegen_python.generators.cross_cutting.integration_generator`) emits search client code, index mapping, and sync helpers. `datrix-codegen-docker` adds Elasticsearch infrastructure services, wires `ELASTICSEARCH_HOST` / `ELASTICSEARCH_PORT`, and optional `*-search-index-init` containers (see `datrix_codegen_docker.generators.compose._compose_wiring`).
+- **Elasticsearch (config-driven)** — When `IntegrationsProfileConfig.search` targets Elasticsearch and the service has `:searchable` fields, `IntegrationGenerator` (`datrix_codegen_python.generators.cross_cutting.integration_generator`) emits search client code, index mapping, and sync helpers. `datrix-codegen-docker` adds Elasticsearch infrastructure services, wires `ELASTICSEARCH_HOST` / `ELASTICSEARCH_PORT`, and optional `*-search-index-init` containers (see `datrix_codegen_docker.generators.compose._compose_wiring`). This is the **config-driven** search integration path (no DSL `search` block required). See also [Search engine integration](#search-engine-integration) for the DSL-level `search` block.
 
 ### Phase 02 capabilities (Python, Docker, docs)
 
@@ -173,6 +174,47 @@ Cross-cutting behavior described here matches the **current** generators; see [c
 - **Prometheus application metrics** — Before sub-generators run, `PythonGenerator` sets the Jinja global `has_prometheus_metrics` from the resolved observability profile. When true, generated **RDBMS** `connection.py` modules expose `sqlalchemy_pool_*` gauges (pool listeners), **Redis cache** access increments `redis_cache_hits_total` / `redis_cache_misses_total`, and **jobs** `runner.py` records `job_runs_total`, `job_failures_total`, and `job_duration_seconds` (see `metrics_middleware.py.j2` for HTTP counters/histograms as before).
 
 - **Docker monitoring stack** — With `observability.metrics` (Prometheus) and `observability.visualization` (Grafana), `datrix-codegen-docker` adds **cAdvisor** next to Prometheus, scrapes it from `prometheus.yml.j2`, writes **per-compose-service Grafana dashboards** plus a **multi-service overview** (`datrix-system-overview.json`) via `DashboardBuilder` / `generate_dashboards` in `datrix_codegen_docker.generators.infra.dashboard_builder`, and emits **per-service alert files** under `config/prometheus/` (standard rules: `HighErrorRate`, `HighLatency`, optional pool/cache/job rules from service features, plus a **DSL** group when blocks declare alerts). Grafana dashboards require metrics; missing metrics with visualization enabled raises `GenerationError` at generation time.
+
+### Search engine integration
+
+Datrix supports full-text search through two paths: **config-driven** (existing, via `IntegrationsProfileConfig.search`) and **DSL-level** (via `search` blocks in services and shared containers).
+
+**DSL-level `search` block** — Declares search indexes with field mappings, analyzers, boost weights, facet/sortable flags, and entity sync rules directly in `.dtrx` files:
+
+```datrix
+service CatalogService {
+    rdbms db('config/rdbms.yaml') {
+        entity Product { ... }
+    }
+    search es('config/search.yaml') {
+        index ProductSearch syncs Product {
+            field name : text, boost(3.0), analyzer("standard")
+            field description : text, boost(1.0), analyzer("english")
+            field category : keyword, facet
+            field price : float, sortable
+        }
+        analyzer autocomplete {
+            tokenizer: edge_ngram(minGram: 2, maxGram: 20)
+            filter: [lowercase]
+        }
+    }
+}
+```
+
+**Multi-platform code generation:**
+
+| Platform | Search Service | Client Library |
+|----------|---------------|----------------|
+| Docker Compose | Elasticsearch container + init container | `elasticsearch` / `@elastic/elasticsearch` |
+| Kubernetes | Elasticsearch StatefulSet + headless Service + init Job | `elasticsearch` / `@elastic/elasticsearch` |
+| AWS | Amazon OpenSearch Service domain (CDK) | `elasticsearch` / `@elastic/elasticsearch` (wire-compatible) |
+| Azure | Azure AI Search (Bicep) | `azure-search-documents` / `@azure/search-documents` |
+
+**Platform-variant code generation:** Docker, K8s, and AWS targets are Elasticsearch-compatible and share the same generated client code. Azure AI Search has a different API surface, so the language code generators produce platform-variant search integration code: separate templates for index init, search client, and sync handlers. The variant is selected based on the target platform in `CodegenContext`.
+
+**Azure AI Search type mapping:** Elasticsearch field types, analyzers, and boost weights are translated to Azure AI Search equivalents. `boost` values become scoring profiles (an index-level construct). Language-specific analyzers map to `.lucene` variants (e.g., `"english"` → `"en.lucene"`). The mapping is exhaustive and fails fast on unsupported types.
+
+**`fulltext()` entity modifier** remains for database-native full-text indexes (PostgreSQL GIN / MySQL FULLTEXT). The `search` block targets external search engines with relevance scoring, faceted search, autocomplete, and multi-entity indexes — a different performance tier.
 
 ---
 
@@ -270,13 +312,13 @@ Generate infrastructure and deployment configurations.
 Generates Dockerfiles and docker-compose.yml, including optional **job worker** services for Python services with jobs and **Elasticsearch** infrastructure plus index-init containers when search integration and searchable fields are present
 
 #### 9. datrix-codegen-k8s
-Generates Kubernetes manifests (Deployment, Service, etc.)
+Generates Kubernetes manifests (Deployment, Service, etc.) including Elasticsearch StatefulSets, headless Services, and search index init Jobs when `search` blocks are present
 
 #### 10. datrix-codegen-aws
-Generates AWS infrastructure (CDK, CloudFormation)
+Generates AWS infrastructure (CDK, CloudFormation) including VPC, ECS Fargate, RDS, ElastiCache, SNS/SQS, MSK (Kafka), DynamoDB, S3, ALB, and Amazon OpenSearch Service domains
 
 #### 11. datrix-codegen-azure
-Generates Azure infrastructure (Bicep, ARM templates)
+Generates Azure infrastructure (Bicep, ARM templates) including Container Apps, Flexible Server, Cosmos DB, Service Bus, Event Hubs (Kafka), Azure Cache for Redis, Blob Storage, and Azure AI Search services
 
 **Dependencies:**
 - `datrix-common` (AST model, configuration, generation framework, YAML/JSON builders)
@@ -374,16 +416,70 @@ use extension geo;
 
 ### Application containers
 
-A `.dtrx` application is built from **four** top-level container kinds (plus `include` / `import`):
+A `.dtrx` application is built from **five** top-level container kinds (plus `include` / `import`):
 
 | Container | Purpose | Typical members |
 |-----------|---------|-----------------|
 | **`system { }`** | Application metadata | `config`, `discovery`, `use extension` |
 | **`module { }`** | Shared types and functions | `entity`, `enum`, `trait`, `struct`, `scalar`, `const`, `fn`, `exceptions`, `import` |
-| **`service { }`** | Deployable microservice | Everything in **module** scope **plus** infrastructure (`rdbms`, `nosql`, `cache`, `pubsub`, `storage`, `queues`), APIs, jobs, CQRS, **`subscribe`** (service-level), **`uses`**, `enqueue`, `test`, service `config` / `discovery` |
-| **`shared { }`** | **Cross-service infrastructure** | `rdbms`, `nosql`, `cache`, `pubsub`, `storage`, `queues` only — **no** APIs, jobs, CQRS, or `subscribe` |
+| **`service { }`** | Deployable microservice | Everything in **module** scope **plus** infrastructure (`rdbms`, `nosql`, `cache`, `pubsub`, `storage`, `queues`, `search`), APIs, jobs, CQRS, **`subscribe`** (service-level), **`uses`**, `enqueue`, `test`, service `config` / `discovery` |
+| **`shared { }`** | **Cross-service infrastructure** | `rdbms`, `nosql`, `cache`, `pubsub`, `storage`, `queues`, `search` only — **no** APIs, jobs, CQRS, or `subscribe` |
+| **`extern service { }`** | **External library/tool contract** | `struct`, `enum`, `rest_api` (signature-only endpoints), `errors`, `auth`, `health` — **no** infrastructure blocks, no implementation bodies |
 
 **Messaging:** Topics and **`publish`** events live under **`pubsub`** blocks (whether owned by a service or a **`shared`** block). **`subscribe { … }`** is always a **direct child of `service { }`**, not nested inside `pubsub`. Services declare which other containers they depend on with **`uses SharedOrServiceName : modifiers;`**. Infrastructure blocks navigate to their owner via **`block.container()`** (`Service` or `Shared`). See [datrix-language — Service blocks reference](../../../datrix-language/docs/reference/datrix-service-blocks.md) and [design/shared-block.md](../../../design/shared-block.md).
+
+### Extern services (external library interfacing)
+
+An `extern service` declares a **contract** for an external HTTP service that Datrix does not generate code for. The user builds and deploys the external service independently (in any language); Datrix generates a **typed HTTP client** in consuming services and wires **deployment infrastructure** (Docker Compose entry, K8s manifests, health checks, environment variables).
+
+**Why HTTP services instead of in-process dependencies:**
+- No language lock-in — user writes external service in any language
+- Completely isolated dependency graph — no conflicts with Datrix-managed packages
+- No user code inside the generated project — re-generation is always safe
+- Clean deployment separation — one container per concern, independent scaling
+
+**DSL syntax:**
+
+```dtrx
+extern service pricing.PricingEngine('config/pricing-engine.yaml') : version('1.0.0') {
+    struct PricingRequest { String productId; Integer quantity; String currency; }
+    struct PricingResponse { Decimal price; Decimal tax; String currency; }
+    errors { NotFound(String message); ValidationError(String field, String reason); }
+    auth : apiKey(header: 'X-API-Key');
+    health : path('/health');
+    rest_api PricingAPI : basePath('/api/v1') {
+        post calculatePrice(PricingRequest request) -> PricingResponse {
+            ensure request.quantity > 0;
+            ensure request.currency.length == 3;
+        }
+    }
+}
+```
+
+**Constraints:** An `extern service` may only contain `struct`, `enum`, `rest_api` (signature-only), `errors`, `auth`, and `health` declarations. Infrastructure blocks (`rdbms`, `cache`, `pubsub`, etc.), entity definitions, implementation bodies, and `discovery` blocks are not allowed.
+
+**Consumption:** A generated service uses an extern service via the same `uses` declaration used for inter-service dependencies:
+
+```dtrx
+service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0') {
+    uses PricingEngine;
+    // Generated code receives a typed HTTP client for PricingEngine
+}
+```
+
+**What Datrix generates:**
+- **Typed HTTP client** — client class with methods matching each endpoint, auth header injection, error mapping to typed exceptions
+- **Contract validation** — `ensure` clauses run before HTTP dispatch (raises `ContractViolationError`)
+- **Client DTOs** — request/response models from the extern service's struct definitions
+- **Docker Compose entry** — container with user-provided image (no build context), health check, `depends_on` wiring
+- **K8s manifests** — Deployment, Service, Secret for colocated extern services
+- **Environment wiring** — `{SERVICE}_SERVICE_URL` injected into consuming services
+
+**Config profiles:** Extern services support two deployment modes via config YAML:
+- `deployment: container` — colocated container (development, docker-compose). Requires `image` and `port`.
+- `deployment: external` — remote URL, no container managed by Datrix (production). Requires `url`.
+
+**Network:** Extern services are internal-only — not routed through the nginx gateway by default. They serve other Datrix-generated services, not end users.
 
 ### Pipeline integration
 
