@@ -28,9 +28,10 @@ This guide teaches you how to write complete, production-ready Datrix applicatio
 18. [Validation and Computed Fields](#validation-and-computed-fields)
 19. [Lifecycle Hooks](#lifecycle-hooks)
 20. [Service Discovery and Resilience](#service-discovery-and-resilience)
-21. [Multi-Tenancy](#multi-tenancy)
-22. [Best Practices](#best-practices)
-23. [Common Patterns](#common-patterns)
+21. [Extern Services](#extern-services)
+22. [Multi-Tenancy](#multi-tenancy)
+23. [Best Practices](#best-practices)
+24. [Common Patterns](#common-patterns)
 
 ---
 
@@ -1530,6 +1531,164 @@ test:
 ```
 
 > **📖 Reference:** See [Configuration Guide § Resilience](./configuration-guide.md#resilience-configuration) for complete resilience config options.
+
+---
+
+## Extern Services
+
+**Extern services** let you integrate external libraries, custom tools, or third-party services that live outside the Datrix-generated codebase. You declare the external service's API contract in `.dtrx`, and Datrix generates a **typed HTTP client** in every consuming service — complete with authentication, error types, and contract validation.
+
+### When to Use Extern Services
+
+Extern services are the right choice when:
+
+- You need a **domain-specific tool** that Datrix doesn't generate (pricing engines, ML models, PDF generators)
+- You want to wrap a **third-party API** (payment gateways, shipping providers) behind a typed contract
+- You have a **legacy service** with a REST API that Datrix services need to call
+
+Extern services are **not** for communication between Datrix-generated services — use `discovery` and `uses` with regular services for that.
+
+### Declaring an Extern Service
+
+An extern service is a top-level `.dtrx` block that describes the external service's API:
+
+```dtrx
+extern service pricing.PricingEngine('config/pricing-engine.yaml')
+    : version('1.0.0'), description('External pricing engine') {
+
+    // Data types used in API calls
+    struct PricingRequest {
+        String productId;
+        Int quantity;
+    }
+
+    struct PricingResponse {
+        Decimal totalPrice;
+        String currency;
+    }
+
+    enum PricingTier {
+        STANDARD,
+        PREMIUM,
+        ENTERPRISE
+    }
+
+    // REST API contract (signature-only — no implementation body)
+    rest_api PricingAPI : basePath('/api/v1') {
+        post calculatePrice(PricingRequest req) -> PricingResponse;
+        get getPrice(String productId) -> PricingResponse {
+            ensure productId != null;
+        }
+        delete clearCache();
+    }
+
+    // Typed errors the extern service can return
+    errors {
+        PricingNotFound(String message);
+        InvalidQuantity(String message, Int quantity);
+    }
+
+    // Authentication method
+    auth : apiKey(header: 'X-API-Key');
+
+    // Health check endpoint
+    health : path('/health');
+}
+```
+
+Key differences from a regular `service`:
+- Endpoints are **signature-only** (no implementation body, just `;` or `{ ensure ... }`)
+- No infrastructure blocks (`rdbms`, `cache`, `pubsub`, `queues`, etc.)
+- You provide and deploy the actual implementation yourself
+
+### Consuming an Extern Service
+
+A Datrix service consumes an extern service with `uses`, just like `shared` blocks:
+
+```dtrx
+service ecommerce.OrderService('config/order-service.yaml') {
+    uses PricingEngine;
+
+    rest_api OrderAPI : basePath('/api/v1/orders') {
+        post createOrder(CreateOrderRequest req) -> OrderResponse {
+            // PricingRequest/PricingResponse types are available
+            // Generated client handles the HTTP call + auth
+        }
+    }
+}
+```
+
+### Deployment Modes
+
+The extern service's YAML config file specifies how it is deployed:
+
+**Container mode** — Datrix manages the container alongside your services:
+
+```yaml
+deployment: container
+image: myregistry/pricing-engine:1.2.0
+port: 8080
+```
+
+This generates Docker Compose entries and Kubernetes manifests for the extern service, including health checks and environment variables.
+
+**External mode** — The service runs somewhere else (cloud, on-premises):
+
+```yaml
+deployment: external
+url: https://pricing.example.com/api
+```
+
+No deployment artifacts are generated. Consuming services receive the URL as an environment variable.
+
+### Generated Code
+
+For each extern service consumed via `uses`, Datrix generates:
+
+| File | Contents |
+|------|----------|
+| `clients/{name}.py` / `.ts` | Async HTTP client class with one method per endpoint |
+| `clients/{name}_models.py` / `.models.ts` | Pydantic models or TypeScript interfaces for structs/enums |
+| `clients/{name}_errors.py` / `.errors.ts` | Typed exception classes (if `errors` block exists) |
+| `clients/{name}_contracts.py` / `.contracts.ts` | Contract validation functions (if `ensure` clauses exist) |
+
+**Python client usage (generated):**
+
+```python
+from clients.pricing_engine import PricingEngineClient
+from clients.pricing_engine_models import PricingRequest
+
+client = PricingEngineClient()  # URL from PRICING_ENGINE_SERVICE_URL env var
+response = await client.calculate_price(
+    PricingRequest(product_id="SKU-123", quantity=5)
+)
+```
+
+**TypeScript client usage (generated):**
+
+```typescript
+import { PricingEngineClient } from './clients/pricing-engine';
+import { PricingRequest } from './clients/pricing-engine.models';
+
+const client = new PricingEngineClient();
+const response = await client.calculatePrice({
+    productId: 'SKU-123',
+    quantity: 5,
+});
+```
+
+### Environment Variables
+
+Datrix automatically injects these environment variables into consuming services:
+
+| Variable | Source | Example |
+|----------|--------|---------|
+| `{SERVICE}_SERVICE_URL` | Container: `http://{name}:{port}` / External: config `url` | `PRICING_ENGINE_SERVICE_URL` |
+| `{SERVICE}_API_KEY` | From auth config secret | `PRICING_ENGINE_API_KEY` |
+
+In Docker Compose, container-mode extern services also get a `depends_on` with `condition: service_healthy`.
+
+> **📖 Reference:** See [Configuration Guide § Extern Service Configuration](./configuration-guide.md#extern-service-configuration) for the complete YAML schema. See [Language Reference § Extern Services](../reference/language-reference.md#extern-services) for the full syntax.
 
 ---
 

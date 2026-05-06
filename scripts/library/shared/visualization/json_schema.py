@@ -125,14 +125,22 @@ def map_entity_to_json_schema(entity: Entity) -> dict[str, object]:
 def _exception_index_for_service(service: "Service") -> dict[str, ExceptionDeclaration]:
     """Map simple exception name -> ExceptionDeclaration for OpenAPI.
 
-    Module exceptions from any ``source_module`` referenced by resolved imports are
-    registered first; service-level declarations override on name collision.
+    Resolution order (later wins on name collision):
+    1. Builtin exceptions (fallback layer)
+    2. Module exceptions from resolved imports
+    3. Service-level declarations (highest priority)
     """
     from datrix_common.datrix_model.containers import Module
+    from datrix_language.builtins.loader import get_builtin_exceptions
 
     index: dict[str, ExceptionDeclaration] = {}
-    seen_module_ids: set[int] = set()
 
+    # 1. Builtin exceptions as fallback
+    for name, exc in get_builtin_exceptions().items():
+        index[name] = exc
+
+    # 2. Module exceptions from imports (override builtins)
+    seen_module_ids: set[int] = set()
     for resolved in service.imports:
         mod_ref = resolved.source_module
         if not mod_ref.is_resolved:
@@ -146,9 +154,9 @@ def _exception_index_for_service(service: "Service") -> dict[str, ExceptionDecla
         seen_module_ids.add(mid)
         for exc in mod.exceptions:
             key = str(exc.name)
-            if key not in index:
-                index[key] = exc
+            index[key] = exc
 
+    # 3. Service-level declarations (highest priority)
     for exc in service.exceptions:
         index[str(exc.name)] = exc
 
@@ -500,8 +508,8 @@ def build_asyncapi_spec(
             "messages": messages,
         }
 
-    # Subscription operations
-    for subscription in pubsub_block.subscriptions:
+    # Subscription operations (subscriptions belong on Service, not PubsubBlock)
+    for subscription in service.iter_subscriptions_including_serverless():
         sub_name = str(subscription.name)
         for handler in subscription.handlers:
             event_name = handler.event_name()

@@ -116,21 +116,21 @@ def serialize_service(service: Service) -> dict[str, object]:
             ]
             topics.append({"name": str(topic.name), "events": events})
 
-        subscriptions: list[dict[str, object]] = []
-        for sub in pubsub_block.subscriptions.values():
-            handlers = [
-                {"name": str(h.name), "event": h.event_name()}
-                for h in sub.handlers
-            ]
-            subscriptions.append({
-                "name": str(sub.name),
-                "handlers": handlers,
-            })
-
         pubsub_blocks.append({
             "name": str(block_name),
             "topics": topics,
-            "subscriptions": subscriptions,
+        })
+
+    # Subscriptions (belong on Service, not PubsubBlock)
+    subscriptions: list[dict[str, object]] = []
+    for sub in service.subscriptions:
+        handlers = [
+            {"name": str(h.name), "event": h.event_name()}
+            for h in sub.handlers
+        ]
+        subscriptions.append({
+            "name": str(sub.name),
+            "handlers": handlers,
         })
 
     # CQRS block
@@ -161,6 +161,7 @@ def serialize_service(service: Service) -> dict[str, object]:
         "rdbms_blocks": rdbms_blocks,
         "rest_apis": rest_apis,
         "pubsub_blocks": pubsub_blocks,
+        "subscriptions": subscriptions,
         "has_cache": service.cache_block is not None,
         "has_nosql": bool(service.nosql_blocks),
         "has_storage": bool(service.storage_blocks),

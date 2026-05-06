@@ -11,15 +11,16 @@ This guide covers common patterns, best practices, and anti-patterns based on re
 1. [Entity Design Patterns](#entity-design-patterns)
 2. [API Design Patterns](#api-design-patterns)
 3. [Event-Driven Patterns](#event-driven-patterns)
-4. [Queue Patterns](#queue-patterns)
-5. [Multi-Tenancy Patterns](#multi-tenancy-patterns)
-6. [Caching Strategies](#caching-strategies)
-7. [Error Handling](#error-handling)
-8. [Data Validation](#data-validation)
-9. [Testing Strategies](#testing-strategies)
-10. [Performance Optimization](#performance-optimization)
-11. [Deployment Considerations](#deployment-considerations)
-12. [Anti-Patterns to Avoid](#anti-patterns-to-avoid)
+4. [Extern Service Patterns](#extern-service-patterns)
+5. [Queue Patterns](#queue-patterns)
+6. [Multi-Tenancy Patterns](#multi-tenancy-patterns)
+7. [Caching Strategies](#caching-strategies)
+8. [Error Handling](#error-handling)
+9. [Data Validation](#data-validation)
+10. [Testing Strategies](#testing-strategies)
+11. [Performance Optimization](#performance-optimization)
+12. [Deployment Considerations](#deployment-considerations)
+13. [Anti-Patterns to Avoid](#anti-patterns-to-avoid)
 
 ---
 
@@ -718,6 +719,118 @@ service OrderService {
 - ❌ Handlers needing persistent WebSocket connections
 
 See [Writing Datrix Applications — Serverless blocks](./writing-datrix-applications.md#serverless-blocks) for complete examples.
+
+---
+
+## Extern Service Patterns
+
+### Pattern: Wrapping a Domain-Specific Tool
+
+**Problem:** Your application needs a computation engine (pricing, risk assessment, ML inference) that Datrix doesn't generate.
+
+**Solution:** Declare an `extern service` with the tool's API contract. Datrix generates typed clients in every consuming service.
+
+```dtrx
+extern service pricing.PricingEngine('config/pricing-engine.yaml')
+    : version('1.0.0') {
+
+    struct PricingRequest {
+        String productId;
+        Int quantity;
+    }
+
+    struct PricingResponse {
+        Decimal totalPrice;
+        String currency;
+    }
+
+    rest_api PricingAPI : basePath('/api/v1') {
+        post calculatePrice(PricingRequest req) -> PricingResponse {
+            ensure req.quantity > 0;
+        }
+    }
+
+    errors {
+        PricingNotFound(String message);
+    }
+
+    auth : apiKey(header: 'X-API-Key');
+    health : path('/health');
+}
+
+service ecommerce.OrderService {
+    uses PricingEngine;
+    // Generated client is available in OrderService's code
+}
+```
+
+**Benefits:**
+- Type-safe API calls — no manual HTTP client code
+- Contract validation at call site via `ensure` clauses
+- Auth headers injected automatically
+- Deployment wired into Docker Compose / Kubernetes
+
+### Pattern: Profile-Based Deployment Modes
+
+**Problem:** You want to run the extern service locally during development but point to a managed instance in production.
+
+**Solution:** Use profile-keyed config with `container` for dev and `external` for prod:
+
+```yaml
+# config/pricing-engine.yaml
+development:
+  deployment: container
+  image: pricing-engine:dev
+  port: 8080
+  auth:
+    type: apiKey
+    header: X-API-Key
+    secret: PRICING_API_KEY
+
+production:
+  deployment: external
+  url: https://pricing.prod.internal/api
+  auth:
+    type: bearer
+    secret: PRICING_BEARER_TOKEN
+  timeout: 60s
+```
+
+**Benefits:**
+- One spec, different deployment per environment
+- Dev gets a local container with health checks
+- Prod points to the managed service with no extra infrastructure
+
+### Anti-pattern: Using Extern Services for Datrix-to-Datrix Communication
+
+**Problem:** Two Datrix-generated services need to call each other.
+
+**Wrong:** Declare one as an `extern service`.
+
+**Right:** Use `discovery` and `uses` with regular services. Datrix already generates inter-service clients, health checks, and deployment wiring for regular services. Extern services are for code Datrix does **not** generate.
+
+### Anti-pattern: Missing Ensure Clauses on Critical Endpoints
+
+**Problem:** An extern service call fails deep in the external system because of invalid input.
+
+**Wrong:**
+
+```dtrx
+rest_api PricingAPI : basePath('/api/v1') {
+    post calculatePrice(PricingRequest req) -> PricingResponse;
+}
+```
+
+**Right:** Add `ensure` clauses so invalid input is caught at the call site before the HTTP request:
+
+```dtrx
+rest_api PricingAPI : basePath('/api/v1') {
+    post calculatePrice(PricingRequest req) -> PricingResponse {
+        ensure req.quantity > 0;
+        ensure req.productId != null;
+    }
+}
+```
 
 ---
 

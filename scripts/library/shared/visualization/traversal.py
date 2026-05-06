@@ -79,12 +79,14 @@ def all_events_with_context(
 
 def all_subscriptions_with_context(
     app: Application,
-) -> Iterator[tuple[Service, PubsubBlock, Subscription]]:
-    """Yield (service, pubsub_block, subscription) across all services."""
+) -> Iterator[tuple[Service, Subscription]]:
+    """Yield (service, subscription) across all services.
+
+    Subscriptions belong on Service (or ServerlessBlock), not PubsubBlock.
+    """
     for service in app.services.values():
-        for pubsub_block in service.pubsub_blocks.values():
-            for subscription in pubsub_block.subscriptions:
-                yield service, pubsub_block, subscription
+        for subscription in service.iter_subscriptions_including_serverless():
+            yield service, subscription
 
 
 def all_cqrs_with_service(

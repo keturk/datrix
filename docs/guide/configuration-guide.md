@@ -24,9 +24,10 @@ This guide covers all configuration files in Datrix, their structure, options, a
 14. [Jobs Configuration](#jobs-configuration)
 15. [Queue Configuration](#queue-configuration)
 16. [Integrations Configuration](#integrations-configuration)
-17. [Platform-Specific Configuration](#platform-specific-configuration)
-18. [Environment Variables](#environment-variables)
-19. [Secrets Management](#secrets-management)
+17. [Extern Service Configuration](#extern-service-configuration)
+18. [Platform-Specific Configuration](#platform-specific-configuration)
+19. [Environment Variables](#environment-variables)
+20. [Secrets Management](#secrets-management)
 
 ---
 
@@ -1296,6 +1297,151 @@ production:
     provider: stripe
     apiKey: ${STRIPE_API_KEY}
     webhookSecret: ${STRIPE_WEBHOOK_SECRET}
+```
+
+---
+
+## Extern Service Configuration
+
+**File:** Path specified in the `extern service` declaration (e.g., `'config/pricing-engine.yaml'`)
+
+**Referenced in:** Extern service block
+
+```dtrx
+extern service pricing.PricingEngine('config/pricing-engine.yaml') {
+    // ...
+}
+```
+
+### Deployment Modes
+
+Each extern service config must declare a `deployment` mode:
+
+| Mode | Description | Required Fields |
+|------|-------------|-----------------|
+| `container` | Datrix manages the container (Docker Compose / K8s) | `image`, `port` |
+| `external` | Remote URL, not managed by Datrix | `url` |
+
+### Flat Format (Single Profile)
+
+Applied to all build profiles:
+
+```yaml
+deployment: container
+image: myregistry/pricing-engine:1.2.0
+port: 8080
+health:
+  path: /health
+  interval: 10s
+  timeout: 5s
+  startPeriod: 40s
+  retries: 3
+auth:
+  type: apiKey
+  header: X-API-Key
+  secret: PRICING_API_KEY
+timeout: 30s
+retry:
+  maxAttempts: 3
+  backoff: exponential
+resources:
+  memory: 512m
+  cpu: "0.5"
+environment:
+  EXTRA_VAR: value
+```
+
+### Profile-Keyed Format
+
+Different config per profile:
+
+```yaml
+development:
+  deployment: container
+  image: pricing-engine:dev
+  port: 8080
+  auth:
+    type: apiKey
+    header: X-API-Key
+    secret: PRICING_API_KEY_DEV
+
+production:
+  deployment: external
+  url: https://pricing.example.com/api
+  auth:
+    type: bearer
+    secret: PRICING_BEARER_TOKEN
+  timeout: 60s
+
+test:
+  deployment: container
+  image: pricing-engine:test
+  port: 8080
+```
+
+**Detection:** Flat format is detected when the root object has a `deployment` key. Otherwise, it is treated as profile-keyed.
+
+### Field Reference
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `deployment` | `container` or `external` | (required) | Deployment mode |
+| `image` | string | — | Docker image. **Required** for `container` |
+| `port` | integer | — | Container port. **Required** for `container` |
+| `url` | string | — | Remote endpoint. **Required** for `external` |
+| `timeout` | duration string | `30s` | Request timeout |
+| `health.path` | string | `/health` | Health check endpoint path |
+| `health.interval` | duration string | `10s` | Health check interval |
+| `health.timeout` | duration string | `5s` | Health check response timeout |
+| `health.startPeriod` | duration string | `40s` | Grace period before first check |
+| `health.retries` | integer | `3` | Failures before unhealthy |
+| `auth.type` | string | `none` | `apiKey`, `bearer`, `serviceJwt`, `none` |
+| `auth.header` | string | — | Header name for `apiKey` auth |
+| `auth.secret` | string | — | Environment variable name holding the credential |
+| `retry.maxAttempts` | integer | `3` | Maximum retry attempts |
+| `retry.backoff` | string | `exponential` | `exponential`, `linear`, `fixed` |
+| `resources.memory` | string | — | Memory limit (e.g., `512m`, `1g`) |
+| `resources.cpu` | string | — | CPU limit (e.g., `0.5`, `1`) |
+| `environment` | map | `{}` | Extra environment variables passed to the container |
+
+### What Gets Generated from Config
+
+**`deployment: container`:**
+- Docker Compose service entry with image, ports, health check, environment variables, `restart: unless-stopped`
+- Kubernetes Deployment + Service + Secret manifests (under `k8s/base/extern-{name}/`)
+- Consuming services get `{SERVICE}_SERVICE_URL=http://{name}:{port}` and `depends_on` with `condition: service_healthy`
+
+**`deployment: external`:**
+- No deployment artifacts (service not managed by Datrix)
+- Consuming services get `{SERVICE}_SERVICE_URL={url}` as an environment variable
+
+### Example: Container + External by Profile
+
+A common pattern is to run a local container in development and point to a managed service in production:
+
+```yaml
+development:
+  deployment: container
+  image: myregistry/pricing-engine:dev
+  port: 8080
+  auth:
+    type: apiKey
+    header: X-API-Key
+    secret: PRICING_API_KEY
+  resources:
+    memory: 256m
+    cpu: "0.25"
+
+production:
+  deployment: external
+  url: https://pricing.prod.internal/api
+  auth:
+    type: bearer
+    secret: PRICING_BEARER_TOKEN
+  timeout: 60s
+  retry:
+    maxAttempts: 5
+    backoff: exponential
 ```
 
 ---
