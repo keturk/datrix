@@ -49,7 +49,7 @@ def esc(text: str) -> str:
 def simple_name(service_name: str) -> str:
     """Extract short service name from a qualified name.
 
-    Example: ``"curvaero.AviationDataService"`` → ``"AviationDataService"``
+    Example: ``"ecommerce.OrderService"`` → ``"OrderService"``
     """
     return ServicePaths(service_name).simple_name
 
