@@ -24,14 +24,30 @@ from __future__ import annotations
 import argparse
 import ast
 import hashlib
-import json
-import re
-import subprocess
 import sys
 import textwrap
-import urllib.error
-import urllib.request
 from pathlib import Path
+
+# Add library root to sys.path for shared imports
+_LIBRARY_DIR = Path(__file__).resolve().parent.parent
+if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
+    sys.path.insert(0, str(_LIBRARY_DIR))
+
+from shared.ollama_utils import (  # noqa: E402
+    OLLAMA_DEFAULT_MODEL,
+    OLLAMA_DEFAULT_NUM_PREDICT,
+    OLLAMA_DEFAULT_URL,
+    OLLAMA_MAX_FIX_RETRIES,
+    OLLAMA_TIMEOUT_SECONDS,
+    apply_and_verify_on_disk as _apply_and_verify_on_disk_shared,
+    call_ollama as _call_ollama_raw,
+    detect_indent as _detect_indent,
+    extract_file_context as _extract_file_context,
+    normalize_indentation,
+    parse_ollama_response,
+    run_ruff_check as _run_ruff_check_shared,
+    run_pytest as _run_pytest_shared,
+)
 
 try:
     from radon.complexity import cc_visit
@@ -195,16 +211,6 @@ EXCLUDED_CYCLOMATIC_BLOCKS: list[tuple[str, str]] = [
     ("datrix_common/plugin/registry.py", "PluginRegistry"),
 ]
 
-OLLAMA_DEFAULT_URL = "http://10.94.0.100:11434"
-OLLAMA_DEFAULT_MODEL = "qwen3-coder:30b"
-OLLAMA_TIMEOUT_SECONDS = 300
-OLLAMA_DEFAULT_NUM_PREDICT = 32768
-OLLAMA_MAX_FIX_RETRIES = 3
-
-_CONTEXT_MAX_IMPORT_LINES = 80
-_CONTEXT_MAX_INIT_LINES = 15
-_CONTEXT_MAX_CONSTANT_LINES = 20
-_CONTEXT_MAX_METHODS = 30
 
 
 def get_block_complexity(block: object) -> int | None:
@@ -368,38 +374,6 @@ def get_function_line_range(
     return start, node.end_lineno
 
 
-def normalize_indentation(source: str, target_indent: str) -> str:
-    """Re-indent source so its base indentation matches target_indent."""
-    lines = source.splitlines(keepends=True)
-    if not lines:
-        return source
-    # Detect current base indentation from first non-empty line
-    current_indent = ""
-    for line in lines:
-        stripped = line.lstrip()
-        if stripped:
-            current_indent = line[: len(line) - len(stripped)]
-            break
-    if current_indent == target_indent:
-        return source
-    result: list[str] = []
-    for line in lines:
-        if not line.strip():
-            result.append(line)
-        elif line.startswith(current_indent):
-            result.append(target_indent + line[len(current_indent) :])
-        else:
-            result.append(line)
-    return "".join(result)
-
-
-def parse_ollama_response(text: str) -> str:
-    """Extract Python code from Ollama response, stripping think tags and code fences."""
-    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
-    code_match = re.search(r"```(?:python)?\s*\n(.*?)```", cleaned, flags=re.DOTALL)
-    code = code_match.group(1) if code_match else cleaned
-    # Normalize to LF — Ollama may return CRLF depending on model training data.
-    return code.replace("\r\n", "\n")
 
 
 def _build_system_prompt(complexity_type: str) -> str:
@@ -439,161 +413,6 @@ def _build_system_prompt(complexity_type: str) -> str:
     )
 
 
-def _detect_indent(source: str) -> str:
-    """Return the leading whitespace of the first non-empty line."""
-    for line in source.splitlines():
-        stripped = line.lstrip()
-        if stripped:
-            return line[: len(line) - len(stripped)]
-    return ""
-
-
-def _extract_imports(tree: ast.Module, lines: list[str]) -> str:
-    """Extract import lines from AST, capped at _CONTEXT_MAX_IMPORT_LINES."""
-    import_lines: list[str] = []
-    for node in tree.body:
-        if not isinstance(node, (ast.Import, ast.ImportFrom)):
-            continue
-        start = node.lineno - 1
-        end = node.end_lineno if node.end_lineno is not None else node.lineno
-        for i in range(start, min(end, len(lines))):
-            import_lines.append(lines[i].rstrip())
-        if len(import_lines) >= _CONTEXT_MAX_IMPORT_LINES:
-            break
-    return "\n".join(import_lines[:_CONTEXT_MAX_IMPORT_LINES])
-
-
-def _extract_class_context(
-    tree: ast.Module,
-    lines: list[str],
-    func_name: str,
-    func_lineno: int,
-) -> str | None:
-    """Extract class context if the target function is a method.
-
-    Returns class declaration, __init__ attributes, and sibling method
-    signatures.  Returns None if the function is not inside a class.
-    """
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ClassDef):
-            continue
-        method_match = any(
-            isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and item.name == func_name
-            and item.lineno == func_lineno
-            for item in node.body
-        )
-        if not method_match:
-            continue
-        # Class header line
-        header_line = lines[node.lineno - 1].rstrip()
-        parts: list[str] = [f"## Class context\n{header_line}"]
-        # __init__ attributes
-        init_lines = _extract_init_lines(node, lines)
-        if init_lines:
-            parts.append(f"### __init__ attributes\n{init_lines}")
-        # Sibling method signatures
-        sigs = _extract_method_signatures(node, lines, func_name, func_lineno)
-        if sigs:
-            parts.append(f"### Other methods in the class\n{sigs}")
-        return "\n\n".join(parts)
-    return None
-
-
-def _extract_init_lines(class_node: ast.ClassDef, lines: list[str]) -> str:
-    """Extract __init__ method signature and self.x assignments."""
-    for item in class_node.body:
-        if not isinstance(item, ast.FunctionDef) or item.name != "__init__":
-            continue
-        result: list[str] = [lines[item.lineno - 1].rstrip()]
-        count = 1
-        for stmt in ast.walk(item):
-            if count >= _CONTEXT_MAX_INIT_LINES:
-                break
-            if not isinstance(stmt, ast.Assign):
-                continue
-            for target in stmt.targets:
-                if isinstance(target, ast.Attribute) and isinstance(
-                    target.value, ast.Name
-                ) and target.value.id == "self":
-                    line_idx = stmt.lineno - 1
-                    if 0 <= line_idx < len(lines):
-                        result.append(lines[line_idx].rstrip())
-                        count += 1
-                    break
-        return "\n".join(result)
-    return ""
-
-
-def _extract_method_signatures(
-    class_node: ast.ClassDef,
-    lines: list[str],
-    skip_name: str,
-    skip_lineno: int,
-) -> str:
-    """Extract method signatures (def line only) for sibling methods."""
-    sigs: list[str] = []
-    for item in class_node.body:
-        if not isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        if item.name == skip_name and item.lineno == skip_lineno:
-            continue
-        if len(sigs) >= _CONTEXT_MAX_METHODS:
-            break
-        sig_line = lines[item.lineno - 1].rstrip()
-        # Show decorator if present
-        if item.decorator_list:
-            dec_line = lines[item.decorator_list[0].lineno - 1].rstrip()
-            sigs.append(dec_line)
-        sigs.append(f"{sig_line} ...")
-    return "\n".join(sigs)
-
-
-def _extract_module_constants(
-    tree: ast.Module,
-    lines: list[str],
-    max_lines: int,
-) -> str:
-    """Extract top-level constant assignments (Assign/AnnAssign)."""
-    result: list[str] = []
-    for node in tree.body:
-        if len(result) >= max_lines:
-            break
-        if isinstance(node, (ast.Assign, ast.AnnAssign)):
-            start = node.lineno - 1
-            end = node.end_lineno if node.end_lineno is not None else node.lineno
-            for i in range(start, min(end, len(lines))):
-                result.append(lines[i].rstrip())
-                if len(result) >= max_lines:
-                    break
-    return "\n".join(result)
-
-
-def _extract_file_context(
-    source: str,
-    func_name: str,
-    func_lineno: int,
-) -> str:
-    """Build a context block with imports, class info, and module constants."""
-    try:
-        tree = ast.parse(source)
-    except SyntaxError:
-        return ""
-    lines = source.splitlines()
-    sections: list[str] = []
-    sections.append(
-        "# File context (for reference only — do not reproduce in your output):"
-    )
-    imports = _extract_imports(tree, lines)
-    if imports:
-        sections.append(f"## Imports\n```python\n{imports}\n```")
-    class_ctx = _extract_class_context(tree, lines, func_name, func_lineno)
-    if class_ctx:
-        sections.append(class_ctx)
-    constants = _extract_module_constants(tree, lines, _CONTEXT_MAX_CONSTANT_LINES)
-    if constants:
-        sections.append(f"## Module constants\n```python\n{constants}\n```")
-    return "\n\n".join(sections)
 
 
 def _measure_all_complexities(
@@ -739,117 +558,20 @@ def call_ollama(
     parts.append(f"\nFunction to refactor:\n```python\n{function_source}```")
     user_prompt = "\n".join(parts)
 
-    payload = json.dumps(
-        {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "stream": False,
-            "options": {
-                "temperature": 0.3,
-                "num_predict": OLLAMA_DEFAULT_NUM_PREDICT,
-            },
-        }
-    ).encode("utf-8")
-
-    req = urllib.request.Request(
-        f"{ollama_url}/api/chat",
-        data=payload,
-        headers={"Content-Type": "application/json"},
+    response = _call_ollama_raw(
+        system_prompt, user_prompt, ollama_url, model,
     )
-    try:
-        with urllib.request.urlopen(req, timeout=OLLAMA_TIMEOUT_SECONDS) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.URLError as e:
+    if response is None:
         raise RuntimeError(
-            f"Failed to connect to Ollama at {ollama_url}: {e}"
-        ) from e
-    except TimeoutError as exc:
-        raise RuntimeError(
-            f"Ollama request timed out after {OLLAMA_TIMEOUT_SECONDS}s"
-        ) from exc
-
-    content = data["message"]["content"]
-    return parse_ollama_response(content)
-
-
-def _run_ruff_check(file_path: Path, verbose: bool) -> tuple[bool, str]:
-    """Run ruff check for undefined names on the file.
-
-    Returns (passed, error_details). error_details is empty on success or
-    contains the ruff output on failure (for retry feedback).
-    """
-    try:
-        result = subprocess.run(
-            ["ruff", "check", "--select", "F821", str(file_path)],
-            capture_output=True,
-            text=True,
-            timeout=30,
+            f"Failed to get response from Ollama at {ollama_url}"
         )
-    except FileNotFoundError:
-        if verbose:
-            print(
-                "Warning: ruff not found, skipping undefined name check",
-                file=sys.stderr,
-            )
-        return True, ""
-    except subprocess.TimeoutExpired:
-        print("Warning: ruff check timed out", file=sys.stderr)
-        return True, ""
-    if result.returncode != 0:
-        details = result.stdout.strip()
-        print("Ruff found undefined names:", file=sys.stderr)
-        for line in details.splitlines():
-            print(f"  {line}", file=sys.stderr)
-        return False, details
-    return True, ""
+
+    result = parse_ollama_response(response)
+    if result is None:
+        raise RuntimeError("Could not parse code from Ollama response")
+    return result
 
 
-PYTEST_TIMEOUT_SECONDS = 600
-
-
-def _run_pytest(project_root: Path, verbose: bool) -> bool:
-    """Run pytest with fail-fast on the project. Return True if all pass.
-
-    Coverage is disabled (--no-cov, --override-ini=addopts=) to avoid false
-    failures from coverage thresholds when refactoring adds extracted helpers.
-    """
-    print("Running tests (pytest -x -q --tb=short --no-cov)...", file=sys.stderr)
-    try:
-        result = subprocess.run(
-            [
-                "python", "-m", "pytest", "tests/", "-x", "-q", "--tb=short",
-                "--no-cov", "--override-ini=addopts=",
-            ],
-            cwd=str(project_root),
-            capture_output=True,
-            text=True,
-            timeout=PYTEST_TIMEOUT_SECONDS,
-        )
-    except FileNotFoundError:
-        print("Warning: pytest not found, skipping tests", file=sys.stderr)
-        return True
-    except subprocess.TimeoutExpired:
-        print(
-            f"Warning: tests timed out after {PYTEST_TIMEOUT_SECONDS}s",
-            file=sys.stderr,
-        )
-        return False
-    if result.returncode != 0:
-        print("Tests failed:", file=sys.stderr)
-        output_lines = result.stdout.strip().splitlines()
-        tail = output_lines[-20:] if len(output_lines) > 20 else output_lines
-        for line in tail:
-            print(f"  {line}", file=sys.stderr)
-        return False
-    passed_line = [
-        line for line in result.stdout.strip().splitlines() if "passed" in line
-    ]
-    if passed_line:
-        print(f"  {passed_line[-1]}", file=sys.stderr)
-    return True
 
 
 def _attempt_single_ollama_fix(
@@ -1012,29 +734,29 @@ def _apply_and_verify_on_disk(
     Returns (success, error_details). error_details is non-empty when ruff
     or tests fail, suitable for inclusion in retry feedback.
     """
-    current_content = file_path.read_text(encoding="utf-8")
-    current_hash = hashlib.sha256(current_content.encode("utf-8")).hexdigest()
-    if current_hash != original_hash:
-        print(
-            f"  File {file_path} was modified during processing, skipping.",
-            file=sys.stderr,
-        )
-        return False, "file_modified"
+    if verbose:
+        print(f"  Verifying fix on disk for {file_path}...", file=sys.stderr)
 
-    file_path.write_text(new_content, encoding="utf-8", newline="\n")
+    success, error_details = _apply_and_verify_on_disk_shared(
+        file_path, original_source, new_content, original_hash,
+        project_root, run_tests=unit_tests,
+    )
 
-    ruff_ok, ruff_details = _run_ruff_check(file_path, verbose)
-    if not ruff_ok:
-        print("  Reverting due to ruff errors.", file=sys.stderr)
-        file_path.write_text(original_source, encoding="utf-8", newline="\n")
-        return False, ruff_details
+    if not success:
+        if error_details == "file_modified":
+            print(
+                f"  File {file_path} was modified during processing, skipping.",
+                file=sys.stderr,
+            )
+        elif error_details == "test_failure":
+            print("  Reverting due to test failures.", file=sys.stderr)
+        elif error_details:
+            print("  Reverting due to ruff errors.", file=sys.stderr)
+            if verbose:
+                for line in error_details.splitlines():
+                    print(f"    {line}", file=sys.stderr)
 
-    if unit_tests and not _run_pytest(project_root, verbose):
-        print("  Reverting due to test failures.", file=sys.stderr)
-        file_path.write_text(original_source, encoding="utf-8", newline="\n")
-        return False, "test_failure"
-
-    return True, ""
+    return success, error_details
 
 
 def _collect_violations(

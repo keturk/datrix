@@ -5,7 +5,7 @@
 
 [CmdletBinding()]
 param(
- # Relative to workspace root, or an absolute path. Example: .projects\curvaero\python\.results
+ # Relative to workspace root, or an absolute path. Example: .projects\ecommerce\python\.results
  [string]$ResultsDir = ""
 )
 

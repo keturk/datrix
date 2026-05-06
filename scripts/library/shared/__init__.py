@@ -28,6 +28,22 @@ from .test_projects import (
  build_output_path,
  get_default_output_path,
 )
+from .ollama_utils import (
+ OLLAMA_DEFAULT_MODEL,
+ OLLAMA_DEFAULT_URL,
+ OLLAMA_MAX_FIX_RETRIES,
+ OLLAMA_TIMEOUT_SECONDS,
+ OLLAMA_DEFAULT_NUM_PREDICT,
+ call_ollama,
+ parse_ollama_response,
+ extract_file_context,
+ normalize_indentation,
+ detect_indent,
+ apply_and_verify_on_disk,
+ run_ruff_check,
+ run_pytest,
+ build_retry_feedback,
+)
 
 __all__ = [
  "get_datrix_root",
@@ -50,4 +66,18 @@ __all__ = [
  "list_projects",
  "build_output_path",
  "get_default_output_path",
+ "OLLAMA_DEFAULT_MODEL",
+ "OLLAMA_DEFAULT_URL",
+ "OLLAMA_MAX_FIX_RETRIES",
+ "OLLAMA_TIMEOUT_SECONDS",
+ "OLLAMA_DEFAULT_NUM_PREDICT",
+ "call_ollama",
+ "parse_ollama_response",
+ "extract_file_context",
+ "normalize_indentation",
+ "detect_indent",
+ "apply_and_verify_on_disk",
+ "run_ruff_check",
+ "run_pytest",
+ "build_retry_feedback",
 ]

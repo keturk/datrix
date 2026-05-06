@@ -34,7 +34,7 @@ Datrix is built on proven software engineering principles that ensure:
 
 **Example (Grafana without metrics):** `generate_dashboards` in `datrix_codegen_docker.generators.infra.dashboard_builder` raises `GenerationError` when visualization is enabled but Prometheus metrics are not — dashboards have no scrape targets to plot.
 
-**Example (rate limit preconditions):** `middleware_rate_limit.py.j2` raises `HTTPException` **503** when `app.state.redis` is missing (rate limiting cannot run), and **429** when the sliding window is exceeded — no silent bypass.
+**Example (rate limit preconditions):** Both rate limiting templates (`middleware_rate_limit.py.j2` for per-route and `rate_limit_dependency.py.j2` for plan-based) raise `HTTPException` **503** when `app.state.redis` is missing and rate limiting is not disabled, and **429** when the limit is exceeded. Both respect `DISABLE_RATE_LIMIT` env var for testing — the only intentional bypass path.
 
 **Benefits:**
 - ✅ Cannot continue with invalid state
