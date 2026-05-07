@@ -208,6 +208,8 @@ Runs tests for one or more Datrix projects.
 
 Complete workflow: syntax check, code generation, unit tests, deployment tests. `-Language`/`-L` is **mandatory**.
 
+**Steps:** Step 1 (syntax checker) → Step 2 (code generation) → Step 3 (unit tests) → Step 4 (deployment tests: spec + integration). Step 5 is deprecated (merged into Step 4).
+
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Single (auto output)** | `.\test\run-complete.ps1 "examples/.../system.dtrx" -L python` | Output derived from test-projects.json |
@@ -220,16 +222,20 @@ Complete workflow: syntax check, code generation, unit tests, deployment tests. 
 | **Custom test set** | `.\test\run-complete.ps1 -TestSet features-core -L python` | Named test set |
 | **Skip syntax check** | `.\test\run-complete.ps1 -All -L python -Skip1` | Skip Step 1 (syntax checker) |
 | **Skip generation** | `.\test\run-complete.ps1 -All -L python -Skip2` | Skip Step 2 (code generation) |
-| **Skip unit tests** | `.\test\run-complete.ps1 -All -L python -Skip4` | Skip Step 4 (generated unit tests) |
-| **Skip deploy tests** | `.\test\run-complete.ps1 -All -L python -Skip5` | Skip Step 5 (deploy/integration tests) |
+| **Skip unit tests** | `.\test\run-complete.ps1 -All -L python -Skip3` | Skip Step 3 (unit tests for generated projects) |
+| **Skip deploy tests** | `.\test\run-complete.ps1 -All -L python -Skip4` | Skip Step 4 (deployment tests: spec + integration) |
 | **Fresh build mode** | `.\test\run-complete.ps1 -TestSet foundation -L python -FreshBuild` | Force --no-cache for deploy tests (maximum validation) |
-| **Generate only (skip tests)** | `.\test\run-complete.ps1 -All -L python -Skip4 -Skip5` | Steps 1-2 only |
+| **Generate only (skip tests)** | `.\test\run-complete.ps1 -All -L python -Skip3 -Skip4` | Steps 1-2 only |
+| **Rerun failed** | `.\test\run-complete.ps1 -Rerun -L python` | Re-run only projects that previously failed or have never been tested |
+| **Rerun domains** | `.\test\run-complete.ps1 -Rerun -Domains -L python` | Re-run only failed/untested domain projects |
+| **Rerun tests only** | `.\test\run-complete.ps1 -Rerun -L python -Skip2` | Re-run failed/untested projects without regenerating |
+| **Skip installs** | `.\test\run-complete.ps1 -All -L python -SkipInstall` | Skip pip/network installs (requires populated .venv) |
 | **Skip venv** | `.\test\run-complete.ps1 -All -L python -SkipVenv` | Use system Python |
 | **Debug** | `.\test\run-complete.ps1 -All -L python -Dbg` | Debug logging |
 
-**Parameters:** `-ExamplePath` (positional 0), `-OutputPath` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (python\|typescript, **mandatory**), `-Platform`/`-P` (docker\|kubernetes\|k8s, default: docker), `-Hosting`/`-H`, `-TestSet` (default: all), `-SkipVenv`, `-Skip1`, `-Skip2`, `-Skip4`, `-Skip5`, `-FreshBuild`, `-Dbg`/`-DebugLogging`
+**Parameters:** `-ExamplePath` (positional 0), `-OutputPath` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (python\|typescript, **mandatory**), `-Platform`/`-P` (docker\|kubernetes\|k8s, default: docker), `-Hosting`/`-H`, `-TestSet` (default: all), `-Rerun`, `-SkipVenv`, `-Skip1`, `-Skip2`, `-Skip3`, `-Skip4`, `-Skip5` (deprecated), `-FreshBuild`, `-SkipInstall`, `-Dbg`/`-DebugLogging`
 
-**Note:** Deploy tests (Step 5) use Docker cache by default for faster builds and better network resilience. Use `-FreshBuild` to force `--no-cache` for maximum validation confidence.
+**Note:** Deploy tests (Step 4) use Docker cache by default for faster builds and better network resilience. Use `-FreshBuild` to force `--no-cache` for maximum validation confidence. `-Skip5` is accepted but deprecated (Step 5 merged into Step 4).
 
 ### `test\dual-target.ps1`
 
@@ -239,7 +245,7 @@ Runs generation against both Python and TypeScript for the same test set and com
 |------|---------|-------------|
 | **Default** | `.\test\dual-target.ps1` | typescript-validation set, both languages |
 | **All examples** | `.\test\dual-target.ps1 -TestSet all` | Full parity check |
-| **Skip tests** | `.\test\dual-target.ps1 -Skip4 -Skip5` | Uses `run-complete.ps1` (steps 1-2 only; syntax + generation) |
+| **Skip deploy tests** | `.\test\dual-target.ps1 -Skip4 -Skip5` | Uses `run-complete.ps1` (steps 1-3: syntax + generation + unit tests, skips deployment) |
 | **Fresh build** | `.\test\dual-target.ps1 -Skip4 -Skip5 -FreshBuild` | Use --no-cache for deploy tests (when run-complete.ps1 used) |
 
 **Parameters:** `-TestSet` (default: typescript-validation), `-Platform` (docker\|kubernetes\|k8s, default: docker), `-Skip4`, `-Skip5` (both required to use `run-complete.ps1` instead of `generate.ps1`), `-FreshBuild`, `-Dbg`
