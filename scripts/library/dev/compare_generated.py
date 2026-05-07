@@ -78,7 +78,7 @@ FEATURE_REGISTRY: list[dict[str, Any]] = [
 def _normalize_project_key_saved_layout(relative_path: str, root: Path) -> str | None:
     """Normalize path under .generated_saved: first two segments, strip _docker/_k8s from second.
 
-    Saved layout example: 01-tutorial/01-basic-entity_docker/... -> 01-tutorial/01-basic-entity
+    Saved layout example: 01-foundation/01-basic-entity_docker/... -> 01-foundation/01-basic-entity
     """
     parts = Path(relative_path).parts
     if len(parts) < 2:
@@ -92,7 +92,7 @@ def _normalize_project_key_saved_layout(relative_path: str, root: Path) -> str |
 def _normalize_project_key_current_layout(relative_path: str, root: Path) -> str | None:
     """Normalize path under .generated: path under python/docker/ -> first two segments.
 
-    Current layout example: python/docker/01-tutorial/01-basic-entity/... -> 01-tutorial/01-basic-entity
+    Current layout example: python/docker/01-foundation/01-basic-entity/... -> 01-foundation/01-basic-entity
     """
     normalized = relative_path.replace("\\", "/")
     if normalized.startswith("python/docker/"):

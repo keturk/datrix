@@ -18,9 +18,6 @@
 .PARAMETER All
     Process all projects from test-projects.json.
 
-.PARAMETER Tutorial
-    Tutorial examples only.
-
 .PARAMETER Domains
     Domain examples only.
 
@@ -38,10 +35,6 @@
     Run all reports for the ecommerce example.
 
 .EXAMPLE
-    .\all-reports.ps1 -Tutorial
-    Run all reports for tutorial examples.
-
-.EXAMPLE
     .\all-reports.ps1 -All -Dbg
     Run all reports for every project with debug logging.
 #>
@@ -51,7 +44,6 @@ param(
     [string]$Source,
 
     [switch]$All,
-    [switch]$Tutorial,
     [switch]$Domains,
     [string]$TestSet = "all",
     [string]$Profile = "test",
@@ -63,11 +55,10 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # Validate that at least one mode is specified
-if (-not $Source -and -not $All -and -not $Tutorial -and -not $Domains) {
+if (-not $Source -and -not $All -and -not $Domains) {
     Write-Host "Usage:" -ForegroundColor Yellow
     Write-Host "  .\all-reports.ps1 <source.dtrx>               Single project" -ForegroundColor White
     Write-Host "  .\all-reports.ps1 -All                         All projects" -ForegroundColor White
-    Write-Host "  .\all-reports.ps1 -Tutorial                    Tutorial examples" -ForegroundColor White
     Write-Host "  .\all-reports.ps1 -Domains                     Domain examples" -ForegroundColor White
     Write-Host ""
     Write-Host "Use Get-Help .\all-reports.ps1 -Full for detailed help." -ForegroundColor Yellow
@@ -78,7 +69,6 @@ if (-not $Source -and -not $All -and -not $Tutorial -and -not $Domains) {
 $commonArgs = @{}
 if ($Source)   { $commonArgs.Source = $Source }
 if ($All)      { $commonArgs.All = $true }
-if ($Tutorial) { $commonArgs.Tutorial = $true }
 if ($Domains)  { $commonArgs.Domains = $true }
 if ($TestSet -ne "all") { $commonArgs.TestSet = $TestSet }
 if ($Profile -ne "test") { $commonArgs.Profile = $Profile }

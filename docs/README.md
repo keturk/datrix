@@ -31,7 +31,7 @@ See [`examples/README.md`](../examples/README.md) for structure, CLI usage, and 
 
 ## Getting Started
 
-- [First Project](getting-started/first-project.md) — Build your first Datrix project (aligned with tutorial examples)
+- [First Project](getting-started/first-project.md) — Build your first Datrix project (aligned with the foundation example)
 
 ## Developer Guide
 

@@ -34,7 +34,7 @@ Defines example projects organized by category for batch testing and generation.
 
 | Category | Path | Description |
 |----------|------|-------------|
-| `foundation` | `examples/01-foundation/` | Foundation examples (retains `-Tutorial` compatibility alias) |
+| `foundation` | `examples/01-foundation/` | Foundation examples |
 | `features` | `examples/02-features/` | Feature-focused examples by capability |
 | `domains` | `examples/03-domains/` | Domain-specific examples (blog, ecommerce, healthcare) |
 ### Project Entry Format
@@ -50,7 +50,7 @@ Defines example projects organized by category for batch testing and generation.
 ### Usage
 
 Used by:
-- `dev/generate.ps1` with `-All`, `-Tutorial`, `-Domains`, etc. flags
+- `dev/generate.ps1` with `-All`, `-Domains`, etc. flags
 - `test/run-complete.ps1` for batch testing
 - Python scripts via `library/shared/test_projects.py`
 

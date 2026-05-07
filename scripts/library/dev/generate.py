@@ -490,7 +490,7 @@ def main():
         help="Forwarded to datrix generate --platform (service flavor); optional",
     )
     parser.add_argument("--output-base", type=str, default=".generated", help="Output base directory")
-    parser.add_argument("--test-set", type=str, default="all", help="Test set to use (e.g. all, tutorial-all, non-tutorial, domains, features)")
+    parser.add_argument("--test-set", type=str, default="all", help="Test set to use (e.g. all, foundation, non-foundation, features, domains)")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
  
     args = parser.parse_args()

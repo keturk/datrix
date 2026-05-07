@@ -16,12 +16,6 @@
 .PARAMETER All
  Run all examples instead of a single example.
 
-.PARAMETER Tutorial
- Run complete workflow for tutorial examples only (examples/01-tutorial). Implies -All with test set tutorial-all.
-
-.PARAMETER NonTutorial
- Run complete workflow for everything except foundation (all examples in all minus foundation). Implies -All with test set non-tutorial.
-
 .PARAMETER Domains
  Run complete workflow for domain examples only (examples/02-domains). Implies -All with test set domains.
 
@@ -37,14 +31,13 @@
 
 .PARAMETER TestSet
  Run complete workflow for a specific test set by name (default: all).
- E.g. tutorial01-10, tutorial11-20, tutorial21-30, tutorial31-43.
  See scripts/config/test-projects.json for available test sets. Implies batch mode when not "all".
 
 .PARAMETER Rerun
  Re-run only projects whose previous test results had errors/failures, or projects that have never been tested.
  Scans .test_results in each project's output directory and includes the project if the latest result is not PASSED.
  When a project needs re-running, regeneration (Step 2) also happens unless -Skip2 is specified.
- Combines with -TestSet, -Tutorial, -NonTutorial, -Domains to control which project set is checked.
+ Combines with -TestSet, -Domains to control which project set is checked.
 
 .PARAMETER SkipVenv
  Skip virtual environment activation (use current Python environment).
@@ -77,36 +70,24 @@
  Alias for -DebugLogging. Enable debug logging (DEBUG level instead of INFO).
 
 .EXAMPLE
- .\run-complete.ps1 "examples/01-tutorial/01-basic-entity/system.dtrx" -L python
- Runs the complete workflow; output path is derived by run_complete.py from test-projects.json (e.g. .generated/python/docker/01-tutorial/01-basic-entity).
+ .\run-complete.ps1 "examples/02-features/01-core-data-modeling/entities/system.dtrx" -L python
+ Runs the complete workflow; output path is derived by run_complete.py from test-projects.json.
 
 .EXAMPLE
- .\run-complete.ps1 "examples/01-tutorial/01-basic-entity/system.dtrx" ".generated/python/docker/01-tutorial/01-basic-entity" -L python
+ .\run-complete.ps1 "examples/02-features/01-core-data-modeling/entities/system.dtrx" ".generated/python/docker/02-features/01-core-data-modeling/entities" -L python
  Runs the complete workflow with explicit output path.
-
-.EXAMPLE
- .\run-complete.ps1 "examples/01-tutorial/01-basic-entity/system.dtrx" ".generated/python/docker/01-tutorial/01-basic-entity" -Language python -Platform docker
- Runs with explicit language and platform.
 
 .EXAMPLE
  .\run-complete.ps1 -All -L python
  Runs the complete workflow for all examples (Python).
 
 .EXAMPLE
- .\run-complete.ps1 -Tutorial -L python
- Runs the complete workflow for tutorial examples only (01-tutorial folder, Python).
-
-.EXAMPLE
- .\run-complete.ps1 -NonTutorial -L typescript
- Runs the complete workflow for everything except tutorial (TypeScript).
-
-.EXAMPLE
  .\run-complete.ps1 -Domains -L python
  Runs the complete workflow for domain examples only (02-domains folder, Python).
 
 .EXAMPLE
- .\run-complete.ps1 -TestSet tutorial01-10 -L python
- Runs the complete workflow for the tutorial01-10 test set (tutorials 01-10, Python).
+ .\run-complete.ps1 -TestSet foundation -L python
+ Runs the complete workflow for the foundation test set (Python).
 
 .EXAMPLE
  .\run-complete.ps1 -L python -Skip1
@@ -117,8 +98,8 @@
  Runs only Steps 1-2, skipping unit, spec, and deployment tests for generated projects.
 
 .EXAMPLE
- .\run-complete.ps1 -Tutorial -L python -FreshBuild
- Runs tutorial examples with fresh Docker builds (--no-cache, no layer cache) for maximum validation confidence.
+ .\run-complete.ps1 -TestSet foundation -L python -FreshBuild
+ Runs foundation examples with fresh Docker builds (--no-cache, no layer cache) for maximum validation confidence.
 
 .EXAMPLE
  .\run-complete.ps1 -Rerun -L python
@@ -133,7 +114,7 @@
  Re-runs failed/untested projects without regenerating code (tests only).
 
 .EXAMPLE
- $env:DATRIX_OFFLINE = "1"; .\run-complete.ps1 -Tutorial -L python
+ $env:DATRIX_OFFLINE = "1"; .\run-complete.ps1 -TestSet foundation -L python
  Offline: no pip during the workflow (requires a ready .venv). Or use -SkipInstall (sets DATRIX_OFFLINE for the Python driver).
 #>
 
@@ -146,10 +127,6 @@ param(
  [string]$OutputPath,
 
  [switch]$All,
-
- [switch]$Tutorial,
-
- [switch]$NonTutorial,
 
  [switch]$Domains,
 
@@ -209,7 +186,7 @@ function Write-ErrorMsg {
 if ([string]::IsNullOrWhiteSpace($Language)) {
  Write-ErrorMsg "Error: -Language (-L) parameter is required. Options: python, typescript."
  Write-ErrorMsg "Usage: .\run-complete.ps1 <ExamplePath> [OutputPath] -Language <lang> [-Platform <platform>]"
- Write-ErrorMsg "   Or: .\run-complete.ps1 -All | -Tutorial | -NonTutorial | -Domains | -TestSet <set> -Language <lang>"
+ Write-ErrorMsg "   Or: .\run-complete.ps1 -All | -Domains | -TestSet <set> -Language <lang>"
  exit 1
 }
 
@@ -236,12 +213,12 @@ if (-not (Test-Path $runCompleteScript)) {
 }
 
 # Validate parameters
-$batchMode = $All -or $Tutorial -or $NonTutorial -or $Domains -or ($TestSet -ne "all") -or $Rerun
+$batchMode = $All -or $Domains -or ($TestSet -ne "all") -or $Rerun
 if (-not $batchMode) {
  if ([string]::IsNullOrWhiteSpace($ExamplePath)) {
-  Write-ErrorMsg "Error: ExamplePath is required when no batch switch (-All, -Tutorial, -NonTutorial, -Domains, -TestSet, -Rerun) is specified."
+  Write-ErrorMsg "Error: ExamplePath is required when no batch switch (-All, -Domains, -TestSet, -Rerun) is specified."
   Write-ErrorMsg "Usage: .\run-complete.ps1 <ExamplePath> [OutputPath] -Language <lang> [-Platform <platform>]"
-  Write-ErrorMsg " Or: .\run-complete.ps1 -All | -Tutorial | -NonTutorial | -Domains | -TestSet <set> | -Rerun -Language <lang>"
+  Write-ErrorMsg " Or: .\run-complete.ps1 -All | -Domains | -TestSet <set> | -Rerun -Language <lang>"
   exit 1
  }
  # When OutputPath is omitted, run_complete.py derives it from test-projects.json (defaultLanguage, defaultPlatform)
@@ -298,9 +275,7 @@ Write-Info ""
 if ($Rerun) {
  try {
  # Determine which test set to scan
- $testSetName = if ($Tutorial) { "tutorial-all" }
- elseif ($NonTutorial) { "non-tutorial" }
- elseif ($Domains) { "domains" }
+ $testSetName = if ($Domains) { "domains" }
  elseif ($TestSet -ne "all") { $TestSet }
  else { "all" }
 
@@ -320,28 +295,6 @@ if ($Rerun) {
  $projectNames = @()
  if ($config.testSets.PSObject.Properties[$testSetName]) {
   $projectNames = @($config.testSets.$testSetName)
- } elseif ($testSetName -eq "tutorial-all") {
-  # Legacy: foundation projects
-  foreach ($category in $config.projects.PSObject.Properties) {
-   foreach ($proj in $category.Value) {
-    $normalizedPath = $proj.path -replace '\\', '/'
-    if ($normalizedPath.StartsWith("examples/01-foundation/")) {
-     $projectNames += $proj.name
-    }
-   }
-  }
- } elseif ($testSetName -eq "non-tutorial") {
-  $allNames = @($config.testSets.all)
-  $foundationNames = @()
-  foreach ($category in $config.projects.PSObject.Properties) {
-   foreach ($proj in $category.Value) {
-    $normalizedPath = $proj.path -replace '\\', '/'
-    if ($normalizedPath.StartsWith("examples/01-foundation/")) {
-     $foundationNames += $proj.name
-    }
-   }
-  }
-  $projectNames = $allNames | Where-Object { $_ -notin $foundationNames }
  } else {
   Write-ErrorMsg "Error: Test set '$testSetName' not found in test-projects.json."
   Write-ErrorMsg "Available: $($config.testSets.PSObject.Properties.Name -join ', ')"
@@ -523,9 +476,7 @@ if ($Rerun) {
 $pythonArgs = @($runCompleteScript)
 if ($batchMode) {
  $pythonArgs += "-All"
- $testSetName = if ($Tutorial) { "tutorial-all" }
- elseif ($NonTutorial) { "non-tutorial" }
- elseif ($Domains) { "domains" }
+ $testSetName = if ($Domains) { "domains" }
  else { $TestSet }
  if ($testSetName -ne "all") {
  $pythonArgs += "--test-set"

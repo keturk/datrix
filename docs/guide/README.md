@@ -29,8 +29,8 @@ Complete reference for all configuration files:
 - Platform-specific settings (Docker, Kubernetes, AWS, Azure)
 
 ### 💡 [Complete Examples](./complete-examples.md)
-Index of **repository** examples under [`examples/`](../../examples/) (tutorials + domain apps), plus short pattern notes:
-- Tutorial series (library system): entities → APIs → events → CQRS, GraphQL, jobs, and more
+Index of **repository** examples under [`examples/`](../../examples/) (feature examples + domain apps), plus short pattern notes:
+- Feature series (library system): entities → APIs → events → CQRS, GraphQL, jobs, and more
 - Domain folders: blog-cms, ecommerce, healthcare, learning-management, social-platform, task-management
 
 ### 📋 [Event Contracts](./event-contracts.md)
@@ -57,7 +57,7 @@ Proven patterns for common scenarios:
 ## Quick Navigation
 
 **New to Datrix?**
-1. Start with [Getting Started Tutorial](../getting-started/first-project.md) (15 min)
+1. Start with [Getting Started](../getting-started/first-project.md) (15 min)
 2. Read [Writing Datrix Applications](./writing-datrix-applications.md) (comprehensive)
 3. Review [Complete Examples](./complete-examples.md) for patterns
 4. Reference [Configuration Guide](./configuration-guide.md) as needed

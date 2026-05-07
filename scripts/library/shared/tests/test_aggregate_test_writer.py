@@ -132,8 +132,8 @@ class TestCrossProjectCorrelation:
         pattern = "ImportError: cannot import name * from *"
         idx1 = _make_index_json(
             tmp_path,
-            project="python/docker/01-tutorial/proj-a",
-            example="01-tutorial/proj-a",
+            project="python/docker/02-features/proj-a",
+            example="02-features/proj-a",
             result="FAILED",
             counts=_failing_counts(errors=3),
             error_clusters=[{
@@ -152,8 +152,8 @@ class TestCrossProjectCorrelation:
         )
         idx2 = _make_index_json(
             tmp_path,
-            project="python/docker/01-tutorial/proj-b",
-            example="01-tutorial/proj-b",
+            project="python/docker/02-features/proj-b",
+            example="02-features/proj-b",
             result="FAILED",
             counts=_failing_counts(errors=2),
             error_clusters=[{
@@ -181,8 +181,8 @@ class TestCrossProjectCorrelation:
         cluster = agg["cross_project_clusters"][0]
         assert cluster["pattern"] == pattern
         assert sorted(cluster["projects_affected"]) == [
-            "01-tutorial/proj-a",
-            "01-tutorial/proj-b",
+            "02-features/proj-a",
+            "02-features/proj-b",
         ]
         assert cluster["total_errors"] == 5
 

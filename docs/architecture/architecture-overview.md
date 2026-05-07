@@ -17,7 +17,7 @@ Datrix is a code generation system that transforms `.dtrx` domain specifications
 ✅ **Multi-Platform Support** - Docker, Kubernetes, AWS, Azure
 ✅ **Type-Safe** - Exhaustive type mappings with validation
 ✅ **Modular Architecture** - 13 installable packages (core toolchain + optional **datrix-extensions**) plus showcase and projects repos
-✅ **Specification-Level Testing** - DSL `test` blocks transpile to pytest under `tests/spec/` (Python) and Jest under `test/spec/` (TypeScript); see tutorial `41-file-operations`
+✅ **Specification-Level Testing** - DSL `test` blocks transpile to pytest under `tests/spec/` (Python) and Jest under `test/spec/` (TypeScript); see the [spec testing documentation](../guide/spec-testing.md)
 ✅ **Event contracts** - `ensure` clauses on `publish` events enforce publisher-side validation before `dispatch`
 ✅ **External library interfacing** - `extern service` declarations generate typed HTTP clients and deployment wiring for user-built services
 
@@ -359,7 +359,7 @@ Optional package of **domain extension** entry points registered under the `datr
 ### Showcase (1)
 
 #### 14. datrix
-Public repository with documentation, examples, scripts, and tutorials.
+Public repository with documentation, examples, and scripts.
 
 ---
 

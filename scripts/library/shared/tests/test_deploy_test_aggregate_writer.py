@@ -129,12 +129,12 @@ def sample_project_index_passing() -> dict[str, object]:
     """Sample index.json for a passing project."""
     return {
         "schema_version": 1,
-        "project": "python/docker/01-tutorial/01-basic-entity",
+        "project": "python/docker/02-features/01-core-data-modeling/entities",
         "project_path": "D:/datrix/.generated/python/docker/"
-        "01-tutorial/01-basic-entity",
+        "02-features/01-core-data-modeling/entities",
         "language": "python",
         "platform": "docker",
-        "example": "01-tutorial/01-basic-entity",
+        "example": "02-features/01-core-data-modeling/entities",
         "result": "PASSED",
         "failed_phase": None,
         "phases": {

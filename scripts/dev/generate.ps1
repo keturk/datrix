@@ -7,9 +7,7 @@
  Generates Datrix projects from source files. Supports single-project or batch modes:
  1. Single project: source file (output folder optional; derived from test-projects.json when omitted)
  2. -All: all projects (test set all)
- 3. -Tutorial: examples/01-tutorial (tutorial-all)
- 4. -NonTutorial: all examples except foundation (all minus tutorial-all alias)
- 5. -Domains: examples/02-domains
+ 3. -Domains: examples/02-domains
 
  Batch modes use the same unified generation pipeline for consistent behavior.
  Activates the datrix virtual environment and runs the generation command.
@@ -24,12 +22,6 @@
 
 .PARAMETER All
  Generate all projects from the specified test set (switch parameter).
-
-.PARAMETER Tutorial
- Generate only tutorial examples (examples/01-tutorial). Uses test set tutorial-all.
-
-.PARAMETER NonTutorial
- Generate all examples except tutorial (02-domains). Uses test set non-tutorial.
 
 .PARAMETER Domains
  Generate only domain examples (examples/02-domains). Uses test set domains.
@@ -57,16 +49,12 @@
  Skip pip installs; verify venv only (same as setting DATRIX_OFFLINE=1). Use when offline.
 
 .EXAMPLE
- .\generate.ps1 examples/01-tutorial/01-basic-entity/system.dtrx -L python
- Generate a single project; output path derived from test-projects.json (e.g. .generated/python/docker/01-tutorial/01-basic-entity).
+ .\generate.ps1 examples/02-features/01-core-data-modeling/entities/system.dtrx -L python
+ Generate a single project; output path derived from test-projects.json.
 
 .EXAMPLE
- .\generate.ps1 examples/01-tutorial/01-basic-entity/system.dtrx .generated/python/docker/my-project -L python
+ .\generate.ps1 examples/02-features/01-core-data-modeling/entities/system.dtrx .generated/python/docker/my-project -L python
  Generate a single project with explicit output path (python, docker).
-
-.EXAMPLE
- .\generate.ps1 examples/01-tutorial/system.dtrx .generated/typescript/kubernetes/my-project -L typescript -P kubernetes
- Generate a single project with custom language and platform.
 
 .EXAMPLE
  .\generate.ps1 -All -L python
@@ -75,14 +63,6 @@
 .EXAMPLE
  .\generate.ps1 -All -Language typescript -Platform kubernetes
  Generate all projects for TypeScript and Kubernetes platform.
-
-.EXAMPLE
- .\generate.ps1 -Tutorial -L python
- Generate only tutorial examples (01-tutorial folder) for Python.
-
-.EXAMPLE
- .\generate.ps1 -NonTutorial -L python
- Generate all examples except tutorial (02-domains) for Python.
 
 .EXAMPLE
  .\generate.ps1 -Domains -L typescript
@@ -100,12 +80,6 @@ param(
 
  [Parameter()]
  [switch]$All,
-
- [Parameter()]
- [switch]$Tutorial,
-
- [Parameter()]
- [switch]$NonTutorial,
 
  [Parameter()]
  [switch]$Domains,
@@ -189,13 +163,11 @@ function Show-HelpMessage {
  Write-Host " Generate all projects:" -ForegroundColor Cyan
  Write-Host " .\generate.ps1 -All -Language <lang> [-Platform <platform>] [-OutputBase <dir>] [-TestSet <set>] [-Dbg]" -ForegroundColor White
  Write-Host " Generate by example folder:" -ForegroundColor Cyan
- Write-Host " .\generate.ps1 -Tutorial | -NonTutorial | -Domains -Language <lang> [-Platform <platform>] [-Dbg]" -ForegroundColor White
+ Write-Host " .\generate.ps1 -Domains -Language <lang> [-Platform <platform>] [-Dbg]" -ForegroundColor White
  Write-Host ""
  Write-Host "Examples:" -ForegroundColor Yellow
- Write-Host " .\generate.ps1 examples/01-tutorial/system.dtrx .generated/python/docker/my-project -L python" -ForegroundColor Gray
+ Write-Host " .\generate.ps1 examples/02-features/01-core-data-modeling/entities/system.dtrx -L python" -ForegroundColor Gray
  Write-Host " .\generate.ps1 -All -L python" -ForegroundColor Gray
- Write-Host " .\generate.ps1 -Tutorial -L python" -ForegroundColor Gray
- Write-Host " .\generate.ps1 -NonTutorial -L typescript" -ForegroundColor Gray
  Write-Host " .\generate.ps1 -Domains -L python" -ForegroundColor Gray
  Write-Host " .\generate.ps1 -All -Language typescript -Platform kubernetes -Dbg" -ForegroundColor Gray
  Write-Host ""
@@ -446,7 +418,7 @@ function Write-GenerationSummaryToLog {
 $logFilePath = $null
 try {
  # generate-results-*.log always under <workspace>/.generated/.results (not -OutputBase or project output)
- $batchMode = $All -or $Tutorial -or $NonTutorial -or $Domains -or ($TestSet -ne "all")
+ $batchMode = $All -or $Domains -or ($TestSet -ne "all")
  $logResultsDir = Join-Path (Join-Path $datrixWorkspaceRoot ".generated") ".results"
 
  # Set up logging
@@ -527,9 +499,7 @@ $("=" * 80)
 
  if ($batchMode) {
  # Batch mode: folder switches take precedence over -All for test set
- $effectiveTestSet = if ($Tutorial) { "tutorial-all" }
- elseif ($NonTutorial) { "non-tutorial" }
- elseif ($Domains) { "domains" }
+ $effectiveTestSet = if ($Domains) { "domains" }
  else { $TestSet }
  $pythonArgs += "--language"
  $pythonArgs += $Language
@@ -558,9 +528,7 @@ $("=" * 80)
  }
 
  # Run the Python script
- $batchLabel = if ($Tutorial) { "tutorial" }
- elseif ($NonTutorial) { "non-tutorial" }
- elseif ($Domains) { "domains" }
+ $batchLabel = if ($Domains) { "domains" }
  else { "all" }
  Write-TeeHost "Running generate $batchLabel..." -ForegroundColor Cyan -LogFilePath $logFilePath
  Write-TeeHost "" -LogFilePath $logFilePath
@@ -611,7 +579,7 @@ $("=" * 80)
  # Note: The Python script will print the generation details, so we don't duplicate them here
  } else {
  # Neither mode specified - show help
- Write-Host "Error: Either -All, -Tutorial, -NonTutorial, -Domains, -TestSet <set>, or Source parameter must be provided." -ForegroundColor Red
+ Write-Host "Error: Either -All, -Domains, -TestSet <set>, or Source parameter must be provided." -ForegroundColor Red
  Show-HelpMessage
  exit 1
  }

@@ -223,6 +223,6 @@ The `TestValidator` (Phase 6) enforces correctness of test block contents:
 
 ---
 
-## Tutorial example
+## Walkthrough example
 
 See `examples/02-features/06-advanced-language-features/advanced-flow-control/` for a complete example with lifecycle hooks, computed fields, validation rules, and `test` blocks exercising all trigger types.

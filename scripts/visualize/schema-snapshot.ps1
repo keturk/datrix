@@ -13,9 +13,6 @@
 .PARAMETER All
     Snapshot all projects from test-projects.json.
 
-.PARAMETER Tutorial
-    Tutorial examples only.
-
 .PARAMETER Domains
     Domain examples only.
 
@@ -36,9 +33,6 @@
     .\schema-snapshot.ps1 -All
     Create snapshots for all projects.
 
-.EXAMPLE
-    .\schema-snapshot.ps1 -Tutorial -OutputBase .snapshots-tutorial
-    Snapshot tutorial examples to a custom directory.
 #>
 [CmdletBinding()]
 param(
@@ -46,7 +40,6 @@ param(
     [string]$Source,
 
     [switch]$All,
-    [switch]$Tutorial,
     [switch]$Domains,
     [string]$TestSet = "all",
 
@@ -95,7 +88,6 @@ try {
         $pyArgs += $Source
     }
     if ($All) { $pyArgs += "--all" }
-    if ($Tutorial) { $pyArgs += "--tutorial" }
     if ($Domains) { $pyArgs += "--domains" }
     if ($TestSet -ne "all") {
         $pyArgs += "--test-set"
