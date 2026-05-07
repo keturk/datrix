@@ -1,6 +1,6 @@
 # Cleanup Test Results Folders
-# Lists .test_results under each datrix-* project and under .generated (pruned walk), and lists files
-# and subfolders inside each .test_results directory (same as legacy output).
+# Lists .test_results under each datrix-* project, under .projects (recursive), and under .generated
+# (pruned walk), and lists files and subfolders inside each .test_results directory (same as legacy output).
 # If -Force is provided, asks for confirmation before deletion.
 # If -Force -Trim is provided, keeps the 10 newest top-level items (by LastWriteTime) in each
 # .test_results folder and deletes the rest. Applies to datrix and generated .test_results alike.
@@ -172,6 +172,20 @@ if (Test-Path $generatedFolder) {
   $parentRelative = if ($parentFull -eq $generatedFolderNorm) { "." } else { $parentFull.Substring($generatedFolderNorm.Length).TrimStart('\', '/') }
   $parentName = if ($parentRelative -eq ".") { ".generated" } else { ".generated\$parentRelative" }
   Add-TestResultsFolder -TestResultsPath $fullPath -ParentName $parentName
+ }
+}
+
+$dotProjectsFolder = Join-Path $BaseDir ".projects"
+if (Test-Path -LiteralPath $dotProjectsFolder) {
+ $dotProjectsNorm = [System.IO.Path]::GetFullPath($dotProjectsFolder).TrimEnd('\', '/')
+ foreach ($dir in @(Get-ChildItem -LiteralPath $dotProjectsFolder -Recurse -Directory -Force -ErrorAction SilentlyContinue)) {
+  if ($dir.Name -ne '.test_results') {
+   continue
+  }
+  $parentFull = [System.IO.Path]::GetFullPath([System.IO.Path]::GetDirectoryName($dir.FullName)).TrimEnd('\', '/')
+  $parentRelative = $parentFull.Substring($dotProjectsNorm.Length).TrimStart('\', '/')
+  $parentName = if ([string]::IsNullOrEmpty($parentRelative)) { '.projects' } else { ".projects\$parentRelative" }
+  Add-TestResultsFolder -TestResultsPath $dir.FullName -ParentName $parentName
  }
 }
 
