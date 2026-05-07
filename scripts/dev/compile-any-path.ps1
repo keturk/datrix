@@ -19,7 +19,7 @@
  Enable debug logging.
 
 .EXAMPLE
- .\compile-any-path.ps1 .\.generated\python\docker\01-tutorial\03-basic-api\library_book_service\src\library_book_service\routes
+ .\compile-any-path.ps1 .\.generated\python\docker\02-features\01-core-data-modeling\rest-api\library_book_service\src\library_book_service\routes
  Check the routes folder; import check runs for the containing library_book_service package.
 
 .EXAMPLE

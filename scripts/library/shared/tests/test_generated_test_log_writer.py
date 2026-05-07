@@ -191,12 +191,12 @@ def _create_writer(tmp_path: Path) -> GeneratedTestLogWriter:
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     return GeneratedTestLogWriter(
-        project_path="python/docker/01-tutorial/test-project",
+        project_path="python/docker/02-features/test-project",
         language="python",
         platform="docker",
-        example="01-tutorial/test-project",
+        example="02-features/test-project",
         run_dir=run_dir,
-        dtrx_source="datrix/examples/01-tutorial/test-project/system.dtrx",
+        dtrx_source="datrix/examples/02-features/test-project/system.dtrx",
     )
 
 
@@ -314,12 +314,12 @@ class TestJestJsonParsing:
         run_dir = tmp_path / "run"
         run_dir.mkdir()
         writer = GeneratedTestLogWriter(
-            project_path="typescript/docker/01-tutorial/test-project",
+            project_path="typescript/docker/02-features/test-project",
             language="typescript",
             platform="docker",
-            example="01-tutorial/test-project",
+            example="02-features/test-project",
             run_dir=run_dir,
-            dtrx_source="datrix/examples/01-tutorial/test-project/system.dtrx",
+            dtrx_source="datrix/examples/02-features/test-project/system.dtrx",
         )
         json_path = _write_json(tmp_path, SAMPLE_JEST_JSON_PASSING)
         log_path = _write_log(tmp_path)
@@ -338,12 +338,12 @@ class TestJestJsonParsing:
         run_dir = tmp_path / "run"
         run_dir.mkdir()
         writer = GeneratedTestLogWriter(
-            project_path="typescript/docker/01-tutorial/test-project",
+            project_path="typescript/docker/02-features/test-project",
             language="typescript",
             platform="docker",
-            example="01-tutorial/test-project",
+            example="02-features/test-project",
             run_dir=run_dir,
-            dtrx_source="datrix/examples/01-tutorial/test-project/system.dtrx",
+            dtrx_source="datrix/examples/02-features/test-project/system.dtrx",
         )
         json_path = _write_json(tmp_path, SAMPLE_JEST_JSON_WITH_FAILURES)
         log_path = _write_log(tmp_path)
@@ -362,12 +362,12 @@ class TestJestJsonParsing:
         run_dir = tmp_path / "run"
         run_dir.mkdir()
         writer = GeneratedTestLogWriter(
-            project_path="typescript/docker/01-tutorial/test-project",
+            project_path="typescript/docker/02-features/test-project",
             language="typescript",
             platform="docker",
-            example="01-tutorial/test-project",
+            example="02-features/test-project",
             run_dir=run_dir,
-            dtrx_source="datrix/examples/01-tutorial/test-project/system.dtrx",
+            dtrx_source="datrix/examples/02-features/test-project/system.dtrx",
         )
         json_path = _write_json(tmp_path, SAMPLE_JEST_JSON_WITH_SUITE_FAILURE)
         log_path = _write_log(tmp_path)

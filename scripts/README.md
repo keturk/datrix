@@ -82,8 +82,8 @@ See [quick-reference.md](quick-reference.md) for the full conversion table.
 # Generate all examples
 .\dev\generate.ps1 -All
 
-# Generate foundation examples only (legacy alias)
-.\dev\generate.ps1 -Tutorial
+# Generate foundation examples only
+.\dev\generate.ps1 -TestSet foundation -L python
 ```
 
 ### Check Git Status

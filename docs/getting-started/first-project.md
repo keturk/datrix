@@ -22,7 +22,7 @@ You will:
 
 ## Step 1: Project layout
 
-Tutorial-style projects keep `.dtrx` files at the **project root** next to `config/` (see [`examples/README.md`](../../examples/README.md)). Create:
+Example projects keep `.dtrx` files at the **project root** next to `config/` (see [`examples/README.md`](../../examples/README.md)). Create:
 
 ```text
 my-library/
@@ -61,7 +61,7 @@ system library.System : version('1.0.0') {
 
 ## Step 3: Service (`book-service.dtrx`)
 
-This matches the reference tutorial (comments optional in your own tree):
+This matches the reference example (comments optional in your own tree):
 
 ```datrix
 service library.BookService : version('1.0.0'), description('Book management service') {

@@ -19,8 +19,6 @@ if _datrix_common_src.exists() and str(_datrix_common_src) not in sys.path:
 from datrix_common import DATRIX_FILE_EXTENSION
 
 FOUNDATION_EXAMPLES_PREFIX = "examples/01-foundation/"
-LEGACY_TUTORIAL_TEST_SET = "tutorial-all"
-NON_TUTORIAL_TEST_SET = "non-tutorial"
 ALL_TEST_SET = "all"
 
 
@@ -43,8 +41,8 @@ def build_output_path(source_path: str, language: str, platform: str) -> str:
 
  Supports two input patterns:
  1. **Directory-based**: Project in subdirectory with system.dtrx
-    - Input: "examples/01-tutorial/01-basic-entity/system.dtrx"
-    - Output: "python/docker/01-tutorial/01-basic-entity"
+    - Input: "examples/02-features/01-core-data-modeling/entities/system.dtrx"
+    - Output: "python/docker/02-features/01-core-data-modeling/entities"
 
  2. **File-based**: Standalone .dtrx file
     - Input: "examples/02-domains/ecommerce/system.dtrx"
@@ -102,44 +100,6 @@ def load_config() -> dict:
 
  with open(config_path, encoding="utf-8") as f:
   return json.load(f)
-
-
-def _get_foundation_project_names(config: dict) -> list[str]:
- """Return project names in examples/01-foundation.
-
- Falls back to an empty list when no matching projects exist.
- """
- names: list[str] = []
- categories = config.get("projects", {})
- for category_projects in categories.values():
-  for project in category_projects:
-   path = normalize_path(project.get("path", ""))
-   if path.startswith(FOUNDATION_EXAMPLES_PREFIX):
-    name = project.get("name")
-    if isinstance(name, str) and name:
-     names.append(name)
- return names
-
-
-def _resolve_legacy_test_set(test_set_name: str, config: dict) -> list[str] | None:
- """Resolve compatibility test-set names to project lists.
-
- Supports retained CLI flags (-Tutorial/-NonTutorial) after tutorial examples
- were retired and replaced by examples/01-foundation.
- """
- test_sets: dict[str, list[str]] = config.get("testSets", {})
-
- if test_set_name == LEGACY_TUTORIAL_TEST_SET:
-  if LEGACY_TUTORIAL_TEST_SET in test_sets:
-   return test_sets[LEGACY_TUTORIAL_TEST_SET]
-  return _get_foundation_project_names(config)
-
- if test_set_name == NON_TUTORIAL_TEST_SET:
-  all_ordered = test_sets.get(ALL_TEST_SET, [])
-  tutorial_like_names = set(_resolve_legacy_test_set(LEGACY_TUTORIAL_TEST_SET, config) or [])
-  return [name for name in all_ordered if name not in tutorial_like_names]
-
- return None
 
 
 def get_default_output_path(
@@ -222,14 +182,10 @@ def get_test_projects(
 
  # Get project names from the test set
  test_sets = config.get("testSets", {})
- legacy_projects = _resolve_legacy_test_set(test_set_name, config)
- if legacy_projects is not None:
-  project_names = legacy_projects
- elif test_set_name not in test_sets:
+ if test_set_name not in test_sets:
   available = list_test_sets()
   raise ValueError(f"Test set '{test_set_name}' not found in configuration. Available: {available}")
- else:
-  project_names = test_sets[test_set_name]
+ project_names = test_sets[test_set_name]
 
  # Build flat list of all projects
  all_projects_dict = {}
@@ -253,7 +209,7 @@ def get_test_projects(
   # Normalize path for current platform
   project_path = normalize_path(project["path"])
   # Examples are in datrix/examples, paths in JSON are relative to examples/
-  # So examples/01-tutorial/... becomes datrix/examples/01-tutorial/...
+  # So examples/02-features/... becomes datrix/examples/02-features/...
   full_path = datrix_root / "datrix" / project_path
 
   # Build output path - handle both system.dtrx and standalone .dtrx files
@@ -301,16 +257,10 @@ def list_test_sets() -> List[str]:
  Get a list of all available test set names.
 
  Returns:
- List of test set names (includes derived sets like "non-tutorial")
+ List of test set names
  """
  config = load_config()
- keys = list(config.get("testSets", {}).keys())
- if LEGACY_TUTORIAL_TEST_SET not in keys:
-  keys.append(LEGACY_TUTORIAL_TEST_SET)
- if NON_TUTORIAL_TEST_SET not in keys:
-  keys.append(NON_TUTORIAL_TEST_SET)
-  keys.sort()
- return keys
+ return list(config.get("testSets", {}).keys())
 
 
 def list_projects() -> List[str]:

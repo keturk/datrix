@@ -133,17 +133,16 @@ def main() -> int:
     )
     parser.add_argument("--source", type=str, default=None, help="Path to .dtrx file or directory")
     parser.add_argument("--all", action="store_true", dest="batch_all", help="All projects from test-projects.json")
-    parser.add_argument("--tutorial", action="store_true", help="Tutorial examples only")
     parser.add_argument("--domains", action="store_true", help="Domain examples only")
     parser.add_argument("--test-set", type=str, default="all", help="Named test set")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
 
     args = parser.parse_args()
 
-    batch_mode = args.batch_all or args.tutorial or args.domains
+    batch_mode = args.batch_all or args.domains
 
     if not batch_mode and not args.source:
-        parser.error("Either --source or a batch flag (--all, --tutorial, --domains) is required.")
+        parser.error("Either --source or a batch flag (--all, --domains) is required.")
 
     if args.source:
         # Single project mode — scan the source project directory
@@ -157,9 +156,7 @@ def main() -> int:
 
     # Batch mode
     test_set = "all"
-    if args.tutorial:
-        test_set = "tutorial-all"
-    elif args.domains:
+    if args.domains:
         test_set = "domains"
     elif args.test_set != "all":
         test_set = args.test_set

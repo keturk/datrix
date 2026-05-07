@@ -13,9 +13,6 @@
 .PARAMETER All
     Check all projects from test-projects.json.
 
-.PARAMETER Tutorial
-    Tutorial examples only.
-
 .PARAMETER Domains
     Domain examples only.
 
@@ -33,9 +30,6 @@
     .\status-docs.ps1 -All
     Report docs status for all projects.
 
-.EXAMPLE
-    .\status-docs.ps1 -Tutorial
-    Report docs status for tutorial examples.
 #>
 [CmdletBinding()]
 param(
@@ -43,7 +37,6 @@ param(
     [string]$Source,
 
     [switch]$All,
-    [switch]$Tutorial,
     [switch]$Domains,
     [string]$TestSet = "all",
     [switch]$Dbg
@@ -90,7 +83,6 @@ try {
         $pyArgs += $Source
     }
     if ($All) { $pyArgs += "--all" }
-    if ($Tutorial) { $pyArgs += "--tutorial" }
     if ($Domains) { $pyArgs += "--domains" }
     if ($TestSet -ne "all") {
         $pyArgs += "--test-set"

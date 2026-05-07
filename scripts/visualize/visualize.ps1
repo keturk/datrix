@@ -13,9 +13,6 @@
 .PARAMETER All
     Generate for all projects from test-projects.json.
 
-.PARAMETER Tutorial
-    Tutorial examples only.
-
 .PARAMETER Domains
     Domain examples only.
 
@@ -46,9 +43,6 @@
     .\visualize.ps1 -All -Type erd
     Generate ERD diagrams for all projects.
 
-.EXAMPLE
-    .\visualize.ps1 -Tutorial -Type service-map -Format mmd
-    Generate service map diagrams in raw Mermaid format for tutorials.
 #>
 [CmdletBinding()]
 param(
@@ -56,7 +50,6 @@ param(
     [string]$Source,
 
     [switch]$All,
-    [switch]$Tutorial,
     [switch]$Domains,
     [string]$TestSet = "all",
 
@@ -114,7 +107,6 @@ try {
         $pyArgs += $Source
     }
     if ($All) { $pyArgs += "--all" }
-    if ($Tutorial) { $pyArgs += "--tutorial" }
     if ($Domains) { $pyArgs += "--domains" }
     if ($TestSet -ne "all") {
         $pyArgs += "--test-set"

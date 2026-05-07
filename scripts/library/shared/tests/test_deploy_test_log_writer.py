@@ -242,7 +242,7 @@ class TestPhaseDetection:
             all_passing_dir,
             tmp_path,
             project_name="basic",
-            example="01-tutorial/01-basic-entity",
+            example="02-features/01-core-data-modeling/entities",
         )
         index_path = writer.write(timestamp=datetime(2026, 5, 3, 21, 9, 3))
 
@@ -585,7 +585,7 @@ class TestOutputFormat:
             all_passing_dir,
             tmp_path,
             project_name="basic",
-            example="01-tutorial/01-basic-entity",
+            example="02-features/01-core-data-modeling/entities",
         )
         index_path = writer.write(timestamp=datetime(2026, 5, 3, 21, 9, 3))
 

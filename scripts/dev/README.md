@@ -48,7 +48,7 @@ Main code generation script. Generates Python/TypeScript code from .dtrx source 
 .\generate.ps1 -All
 
 # Generate specific category
-.\generate.ps1 -Tutorial # examples/01-foundation (legacy alias name)
+.\generate.ps1 -TestSet foundation -L python  # examples/01-foundation
 .\generate.ps1 -Domains # examples/03-domains
 # With options
 .\generate.ps1 -All -Language typescript -Platform kubernetes
@@ -61,12 +61,11 @@ Main code generation script. Generates Python/TypeScript code from .dtrx source 
 | `-Source` | | | Path to .dtrx file (single mode) |
 | `-Output` | | | Output directory (single mode) |
 | `-All` | | | Generate all projects |
-| `-Tutorial` | | | Generate foundation examples only (legacy alias) |
+| `-TestSet` | | `all` | Test set name (batch mode) |
 | `-Domains` | | | Generate domain examples only |
 | `-Language` | `-L` | `python` | Target language (python, typescript) |
 | `-Platform` | `-P` | `docker` | Target platform (docker, kubernetes) |
 | `-OutputBase` | | `.generated` | Output base directory (batch mode) |
-| `-TestSet` | | `all` | Test set name (batch mode) |
 | `-Dbg` | | | Enable debug logging |
 
 ### Logs

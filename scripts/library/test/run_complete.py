@@ -6,7 +6,7 @@ Executes all validation, generation, and testing steps in sequence
 Usage:
     python scripts/library/test/run_complete.py <example_path> [output_path]  # output_path optional (from test-projects.json)
     python scripts/library/test/run_complete.py -All # Run all examples
-    python scripts/library/test/run_complete.py -All --test-set tutorial-all # Run tutorial examples only
+    python scripts/library/test/run_complete.py -All --test-set foundation # Run foundation examples only
 """
 
 import argparse
@@ -2697,7 +2697,7 @@ def main() -> int:
 Examples:
     python scripts/library/test/run_complete.py <example_path> [output_path]  # output_path optional (from test-projects.json)
     python scripts/library/test/run_complete.py -All # Run all examples
-    python scripts/library/test/run_complete.py -All --test-set tutorial-all # Run tutorial examples only
+    python scripts/library/test/run_complete.py -All --test-set foundation # Run foundation examples only
     python scripts/library/test/run_complete.py -Skip1 # Skip Step 1 (syntax checker)
     python scripts/library/test/run_complete.py -Skip3 -Skip4 -Skip5 # Skip Steps 3, 4, and 5
     python scripts/library/test/run_complete.py --skip-install -All  # Offline: no pip (set DATRIX_OFFLINE for subprocesses)
@@ -2725,7 +2725,7 @@ Examples:
     dest="test_set",
     type=str,
     default="all",
-    help="Test set name (e.g. all, tutorial-all). Only used with -All."
+    help="Test set name (e.g. all, foundation, features, domains). Only used with -All."
     )
     parser.add_argument(
     "-Language",
@@ -2811,7 +2811,8 @@ Examples:
     print_info(f"Started at: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
     if args.All:
         _mode_labels = {
-            "tutorial-all": "TUTORIAL EXAMPLES",
+            "foundation": "FOUNDATION EXAMPLES",
+            "non-foundation": "NON-FOUNDATION EXAMPLES",
             "domains": "DOMAINS EXAMPLES",
             "patterns": "PATTERNS EXAMPLES",
             "builtins": "BUILTINS EXAMPLES",

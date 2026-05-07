@@ -6,48 +6,58 @@ This directory contains complete, production-ready microservices examples writte
 
 ```
 examples/
-├── 01-tutorial/              # Step-by-step learning examples (41 progressive tutorials)
-└── 02-domains/               # Complete domain implementations (6 real-world examples)
+├── 01-foundation/            # Minimal library service (single entity + REST API)
+├── 02-features/              # Focused feature examples organized by category
+└── 03-domains/               # Complete domain implementations (real-world examples)
 ```
 
 ## Quick Start
 
-**New to Datrix?** Start with the [tutorial examples](01-tutorial/) - they guide you through concepts step-by-step.
+**New to Datrix?** Start with [01-foundation/](01-foundation/) — a minimal library service with one entity and a REST API.
 
-**Building a specific domain?** Check [domain examples](02-domains/) for complete implementations.
+**Learning a specific feature?** Browse [02-features/](02-features/) for focused examples organized by category (core data modeling, service architecture, infrastructure blocks, and more).
 
-Built-in function usage (String, Array, Math, Validator, etc.) is demonstrated in the [tutorial](01-tutorial/) (e.g. 06-validation, 07-lifecycle-hooks, 40-advanced-validation).
-
----
-
-## 01-tutorial
-
-Step-by-step learning examples that progressively introduce Datrix concepts through a Library Management System. Each version builds on the previous one, from basic entities to advanced patterns like API gateways.
-
-**41 Progressive Tutorials:**
-- Entity fundamentals (basic entity, enums, computed fields, relationships, validation, lifecycle hooks)
-- API design (REST endpoints, authentication, events)
-- Service architecture (multiple services, dependencies, internal endpoints)
-- Advanced patterns (structs, integrations, cache, CQRS, background jobs, resilience, API gateway)
-
-See [01-tutorial/README.md](01-tutorial/README.md) for the complete tutorial guide with learning paths.
+**Building a specific domain?** Check [03-domains/](03-domains/) for complete implementations.
 
 ---
 
-## 02-domains
+## 01-foundation
+
+A minimal library service demonstrating the core Datrix pattern: one entity, one REST API, and basic configuration. This is the starting point for understanding the `.dtrx` format.
+
+---
+
+## 02-features
+
+Focused feature examples organized into categories, each demonstrating a specific Datrix capability through a library system:
+
+- **01-core-data-modeling** — Entities, enums, computed fields, relationships, REST APIs
+- **02-service-architecture** — Multiple services, dependencies, internal endpoints
+- **03-infrastructure-blocks** — Events/pubsub, cache, CQRS, background jobs, storage
+- **04-advanced-data-features** — Advanced cache, queries, transactions, batch operations
+- **05-infrastructure-combinations** — Multi-database, multi-infrastructure setups
+- **06-advanced-language-features** — Structs, integrations, advanced flow control, external integration
+
+---
+
+## 03-domains
 
 Complete domain implementations demonstrating real-world microservices architectures.
 
 | Domain | Description |
 |--------|-------------|
-| [blog-cms](02-domains/blog-cms/) | Content management platform with authors, articles, and comments |
-| [ecommerce](02-domains/ecommerce/) | E-commerce platform with orders, payments, and shipping |
-| [healthcare](02-domains/healthcare/) | Healthcare system for patients, appointments, and medical records |
-| [learning-management](02-domains/learning-management/) | Educational platform for courses and student enrollment |
-| [social-platform](02-domains/social-platform/) | Social networking with user profiles, posts, and notifications |
-| [task-management](02-domains/task-management/) | Project management with tasks, projects, and team collaboration |
-
-See [02-domains/README.md](02-domains/README.md) for domain details and common patterns.
+| [blog-cms](03-domains/blog-cms/) | Content management platform with authors, articles, and comments |
+| [ecommerce](03-domains/ecommerce/) | E-commerce platform with orders, payments, and shipping |
+| [finance](03-domains/finance/) | Financial services platform |
+| [food-delivery](03-domains/food-delivery/) | Food delivery service |
+| [healthcare](03-domains/healthcare/) | Healthcare system for patients, appointments, and medical records |
+| [hr-platform](03-domains/hr-platform/) | Human resources platform |
+| [iot-platform](03-domains/iot-platform/) | IoT device management platform |
+| [learning-management](03-domains/learning-management/) | Educational platform for courses and student enrollment |
+| [logistics](03-domains/logistics/) | Logistics and supply chain management |
+| [real-estate](03-domains/real-estate/) | Real estate listings and management |
+| [social-platform](03-domains/social-platform/) | Social networking with user profiles, posts, and notifications |
+| [task-management](03-domains/task-management/) | Project management with tasks, projects, and team collaboration |
 
 ---
 
@@ -211,10 +221,10 @@ system ecommerce : version('1.0.0') {
 To generate code from an example:
 ```bash
 # Generate Python service from the system.dtrx entry point
-datrix generate examples/02-domains/ecommerce/system.dtrx -l python -p docker
+datrix generate examples/03-domains/ecommerce/system.dtrx -l python -p docker
 
 # Or generate TypeScript service
-datrix generate examples/02-domains/ecommerce/system.dtrx -l typescript -p docker
+datrix generate examples/03-domains/ecommerce/system.dtrx -l typescript -p docker
 ```
 
 The parser will:

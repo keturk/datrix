@@ -12,9 +12,6 @@
 .PARAMETER All
     Generate for all projects from test-projects.json.
 
-.PARAMETER Tutorial
-    Tutorial examples only.
-
 .PARAMETER Domains
     Domain examples only.
 
@@ -45,7 +42,6 @@ param(
     [string]$Source,
 
     [switch]$All,
-    [switch]$Tutorial,
     [switch]$Domains,
     [string]$TestSet = "all",
 
@@ -96,7 +92,6 @@ try {
         $pyArgs += $Source
     }
     if ($All) { $pyArgs += "--all" }
-    if ($Tutorial) { $pyArgs += "--tutorial" }
     if ($Domains) { $pyArgs += "--domains" }
     if ($TestSet -ne "all") {
         $pyArgs += "--test-set"
