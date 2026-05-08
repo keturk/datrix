@@ -43,6 +43,21 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         }
     }
 
+    test("calculateLateFee computes fee based on days overdue") {
+        let Decimal fee = calculateLateFee(5);
+        assert fee == 2.50;
+    }
+
+    test("calculateLateFee returns zero for zero days") {
+        let Decimal fee = calculateLateFee(0);
+        assert fee == 0;
+    }
+
+    test("formatBookReference formats author year and title") {
+        let String ref = formatBookReference("Clean Code", "Robert Martin", 2008);
+        assert ref == "Robert Martin (2008). Clean Code";
+    }
+
     // REST API block with API-level functions
     rest_api BookServiceAPI : basePath("/api/v1") {
         resource bookDb.Book;

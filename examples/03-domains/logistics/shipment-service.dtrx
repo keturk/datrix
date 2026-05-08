@@ -378,4 +378,170 @@ service logistics.ShipmentService('config/shipment-service.yaml') : version('1.0
         shipment.save();
         assert emitted(ShipmentStatusChanged(shipment.id, shipment.trackingNumber, ShipmentStatus.Created, ShipmentStatus.InTransit));
     }
+
+    test("computed isDelivered is false for InTransit status") {
+        let Shipment shipment = shipmentDb.Shipment.create({
+            trackingNumber: "LGS-TEST-005",
+            senderId: uuid(),
+            recipientName: "Charlie Brown",
+            recipientAddress: "555 Cedar Ln",
+            origin: "Depot X",
+            destination: "Store Y",
+            status: ShipmentStatus.InTransit,
+            packageSize: PackageSize.Large,
+            weight: 20.00
+        });
+        shipment.save();
+        assert shipment.isDelivered == false;
+    }
+
+    test("computed isActive for InTransit shipment") {
+        let Shipment shipment = shipmentDb.Shipment.create({
+            trackingNumber: "LGS-TEST-006",
+            senderId: uuid(),
+            recipientName: "Diana Prince",
+            recipientAddress: "777 Hero Ave",
+            origin: "Central Hub",
+            destination: "Regional Center",
+            status: ShipmentStatus.InTransit,
+            packageSize: PackageSize.Medium,
+            weight: 8.50
+        });
+        shipment.save();
+        assert shipment.isActive == true;
+    }
+
+    test("computed isActive for OutForDelivery shipment") {
+        let Shipment shipment = shipmentDb.Shipment.create({
+            trackingNumber: "LGS-TEST-007",
+            senderId: uuid(),
+            recipientName: "Edward Stone",
+            recipientAddress: "888 Rock Blvd",
+            origin: "Local Hub",
+            destination: "Home Address",
+            status: ShipmentStatus.OutForDelivery,
+            packageSize: PackageSize.Small,
+            weight: 1.25
+        });
+        shipment.save();
+        assert shipment.isActive == true;
+    }
+
+    test("computed isActive is false for Delivered shipment") {
+        let Shipment shipment = shipmentDb.Shipment.create({
+            trackingNumber: "LGS-TEST-008",
+            senderId: uuid(),
+            recipientName: "Fiona Green",
+            recipientAddress: "999 Vine St",
+            origin: "Warehouse D",
+            destination: "Apartment Complex",
+            status: ShipmentStatus.Delivered,
+            packageSize: PackageSize.ExtraLarge,
+            weight: 45.00,
+            actualDelivery: now()
+        });
+        shipment.save();
+        assert shipment.isActive == false;
+    }
+
+    test("validation rejects empty recipient name") {
+        assert throws(
+            () => shipmentDb.Shipment.create({
+                trackingNumber: "LGS-TEST-009",
+                senderId: uuid(),
+                recipientName: "",
+                recipientAddress: "123 Street",
+                origin: "Origin A",
+                destination: "Destination B",
+                packageSize: PackageSize.Small,
+                weight: 1.00
+            }),
+            ValidationError("Recipient name cannot be empty")
+        );
+    }
+
+    test("validation rejects empty origin") {
+        assert throws(
+            () => shipmentDb.Shipment.create({
+                trackingNumber: "LGS-TEST-010",
+                senderId: uuid(),
+                recipientName: "George Hill",
+                recipientAddress: "456 Road",
+                origin: "",
+                destination: "Destination C",
+                packageSize: PackageSize.Medium,
+                weight: 3.00
+            }),
+            ValidationError("Origin cannot be empty")
+        );
+    }
+
+    test("validation rejects empty destination") {
+        assert throws(
+            () => shipmentDb.Shipment.create({
+                trackingNumber: "LGS-TEST-011",
+                senderId: uuid(),
+                recipientName: "Helen Troy",
+                recipientAddress: "789 Path",
+                origin: "Origin D",
+                destination: "",
+                packageSize: PackageSize.Large,
+                weight: 12.00
+            }),
+            ValidationError("Destination cannot be empty")
+        );
+    }
+
+    test("markDelivered sets status and actualDelivery") {
+        let Shipment shipment = shipmentDb.Shipment.create({
+            trackingNumber: "LGS-TEST-012",
+            senderId: uuid(),
+            recipientName: "Ivan Cook",
+            recipientAddress: "101 Way",
+            origin: "Hub E",
+            destination: "Residence F",
+            status: ShipmentStatus.OutForDelivery,
+            packageSize: PackageSize.Small,
+            weight: 0.75
+        });
+        shipment.save();
+        shipment.markDelivered();
+        assert shipment.status == ShipmentStatus.Delivered;
+        assert shipment.actualDelivery != null;
+    }
+
+    test("markFailed sets status to Failed") {
+        let Shipment shipment = shipmentDb.Shipment.create({
+            trackingNumber: "LGS-TEST-013",
+            senderId: uuid(),
+            recipientName: "Julia Reed",
+            recipientAddress: "202 Lane",
+            origin: "Depot G",
+            destination: "Office H",
+            status: ShipmentStatus.InTransit,
+            packageSize: PackageSize.Medium,
+            weight: 5.00
+        });
+        shipment.save();
+        shipment.markFailed("Address not found");
+        assert shipment.status == ShipmentStatus.Failed;
+    }
+
+    test("computed isLate when actualDelivery exceeds estimatedDelivery") {
+        let Shipment shipment = shipmentDb.Shipment.create({
+            trackingNumber: "LGS-TEST-014",
+            senderId: uuid(),
+            recipientName: "Karen White",
+            recipientAddress: "303 Circle",
+            origin: "Warehouse I",
+            destination: "Storefront J",
+            status: ShipmentStatus.Delivered,
+            packageSize: PackageSize.Small,
+            weight: 2.50,
+            estimatedDelivery: now().addDays(-2),
+            actualDelivery: now()
+        });
+        shipment.save();
+        assert shipment.isLate == true;
+    }
 }

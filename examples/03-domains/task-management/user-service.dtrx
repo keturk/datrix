@@ -212,4 +212,58 @@ service taskapp.UserService('config/user-service.yaml') : version('1.0.0'), desc
         assert user.canManageProjects == true;
         assert user.isAdmin == false;
     }
+
+    test("computed isActive for Active status") {
+        let User user = userDb.User.create({
+            username: "activecheck",
+            email: "activecheck@example.com",
+            displayName: "Active Check User"
+        });
+        user.save();
+        assert user.isActive == true;
+    }
+
+    test("computed isActive is false for Inactive status") {
+        let User user = userDb.User.create({
+            username: "inactivecheck",
+            email: "inactivecheck@example.com",
+            displayName: "Inactive Check User",
+            status: UserStatus.Inactive
+        });
+        user.save();
+        assert user.isActive == false;
+    }
+
+    test("computed canManageProjects is false for Member role") {
+        let User user = userDb.User.create({
+            username: "memberonly",
+            email: "memberonly@example.com",
+            displayName: "Member Only User",
+            role: UserRole.Member
+        });
+        user.save();
+        assert user.canManageProjects == false;
+    }
+
+    test("computed canManageProjects is false for Viewer role") {
+        let User user = userDb.User.create({
+            username: "vieweronly",
+            email: "vieweronly@example.com",
+            displayName: "Viewer Only User",
+            role: UserRole.Viewer
+        });
+        user.save();
+        assert user.canManageProjects == false;
+    }
+
+    test("validation rejects empty display name") {
+        assert throws(
+            () => userDb.User.create({
+                username: "validuser",
+                email: "valid@example.com",
+                displayName: ""
+            }),
+            ValidationError("Display name cannot be empty")
+        );
+    }
 }

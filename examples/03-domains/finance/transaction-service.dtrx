@@ -642,4 +642,94 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
         assert batch.successCount == 4;
         assert batch.failedCount == 1;
     }
+
+    test("computed isPending is true for Pending status") {
+        let Transaction tx = txDb.Transaction.create({
+            accountId: uuid(),
+            type: TransactionType.Deposit,
+            status: TransactionStatus.Pending,
+            amount: Money.of(750, Currency.USD),
+            currency: Currency.USD,
+            reference: "TXN-TEST-005",
+            description: "Test pending deposit"
+        });
+        tx.save();
+        assert tx.isPending == true;
+    }
+
+    test("complete sets status and completedAt") {
+        let Transaction tx = txDb.Transaction.create({
+            accountId: uuid(),
+            type: TransactionType.Payment,
+            status: TransactionStatus.Pending,
+            amount: Money.of(300, Currency.USD),
+            currency: Currency.USD,
+            reference: "TXN-TEST-006",
+            description: "Test payment completion"
+        });
+        tx.save();
+        tx.complete();
+        assert tx.status == TransactionStatus.Completed;
+        assert tx.completedAt != null;
+    }
+
+    test("fail sets status and failureReason") {
+        let Transaction tx = txDb.Transaction.create({
+            accountId: uuid(),
+            type: TransactionType.Withdrawal,
+            status: TransactionStatus.Pending,
+            amount: Money.of(150, Currency.USD),
+            currency: Currency.USD,
+            reference: "TXN-TEST-007",
+            description: "Test withdrawal failure"
+        });
+        tx.save();
+        tx.fail("Insufficient funds in source account");
+        assert tx.status == TransactionStatus.Failed;
+        assert tx.failureReason == "Insufficient funds in source account";
+    }
+
+    test("reverse only works from Completed status") {
+        let Transaction tx = txDb.Transaction.create({
+            accountId: uuid(),
+            type: TransactionType.Deposit,
+            status: TransactionStatus.Pending,
+            amount: Money.of(1200, Currency.USD),
+            currency: Currency.USD,
+            reference: "TXN-TEST-008",
+            description: "Test deposit reversal"
+        });
+        tx.save();
+        tx.complete();
+        tx.reverse();
+        assert tx.status == TransactionStatus.Reversed;
+    }
+
+    test("validation rejects empty reference") {
+        assert throws(
+            () => txDb.Transaction.create({
+                accountId: uuid(),
+                type: TransactionType.Deposit,
+                amount: Money.of(100, Currency.USD),
+                currency: Currency.USD,
+                reference: ""
+            }),
+            ValidationError("Transaction reference cannot be empty")
+        );
+    }
+
+    test("afterUpdate emits TransactionStatusChanged on status change") {
+        let Transaction tx = txDb.Transaction.create({
+            accountId: uuid(),
+            type: TransactionType.Deposit,
+            status: TransactionStatus.Pending,
+            amount: Money.of(900, Currency.USD),
+            currency: Currency.USD,
+            reference: "TXN-TEST-009",
+            description: "Test status change event"
+        });
+        tx.save();
+        tx.complete();
+        assert emitted(TransactionStatusChanged(tx.id, tx.accountId, TransactionStatus.Pending, TransactionStatus.Completed, tx.amount));
+    }
 }

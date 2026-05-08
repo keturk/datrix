@@ -789,7 +789,7 @@ Use a **top-level** `shared QualifiedName { … }` block when **several services
 
 **Authoring checklist**
 
-1. Pick a **descriptive** block name (`IngestionEvents`, `AviationReferenceData`).
+1. Pick a **descriptive** block name (`IngestionEvents`, `ProductCatalogData`).
 2. Place `shared` blocks in the same **`specs/`** tree as services (or `include` them from `system.dtrx`).
 3. Point each infrastructure member at the same style of YAML as services (`pubsub mq('config/shared/…yaml')`, etc.).
 4. In every service that publishes or subscribes across the boundary, add **`uses SharedName : publish | subscribe | readonly | readwrite;`** and operational rows in **`dependencies.yaml`** (see [Configuration guide](./configuration-guide.md)).

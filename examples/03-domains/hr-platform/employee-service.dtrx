@@ -582,4 +582,164 @@ service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), d
             ValidationException("Only active employees can be suspended")
         );
     }
+
+    test("terminate sets status to Terminated") {
+        let employeeDb.Employee emp = employeeDb.Employee.create({
+            firstName: "Victor",
+            lastName: "Stone",
+            employeeNumber: "EMP-TEST-007",
+            email: "victor.stone@test.com",
+            phone: "+15555550007",
+            ssn: "70707070701",
+            dateOfBirth: DateTime.parse("1991-06-10"),
+            status: EmployeeStatus.Active,
+            employmentType: EmploymentType.FullTime,
+            department: Department.Engineering,
+            hireDate: DateTime.parse("2021-02-15"),
+            salary: Money.of(92000, "USD")
+        });
+        emp.save();
+        emp.terminate("Position eliminated");
+        assert emp.status == EmployeeStatus.Terminated;
+    }
+
+    test("suspend sets status to Suspended") {
+        let employeeDb.Employee emp = employeeDb.Employee.create({
+            firstName: "Arthur",
+            lastName: "Curry",
+            employeeNumber: "EMP-TEST-008",
+            email: "arthur.curry@test.com",
+            phone: "+15555550008",
+            ssn: "80808080801",
+            dateOfBirth: DateTime.parse("1986-01-29"),
+            status: EmployeeStatus.Active,
+            employmentType: EmploymentType.FullTime,
+            department: Department.Operations,
+            hireDate: DateTime.parse("2020-08-01"),
+            salary: Money.of(88000, "USD")
+        });
+        emp.save();
+        emp.suspend("Pending investigation");
+        assert emp.status == EmployeeStatus.Suspended;
+    }
+
+    test("reinstate restores to Active from Suspended") {
+        let employeeDb.Employee emp = employeeDb.Employee.create({
+            firstName: "Barry",
+            lastName: "Allen",
+            employeeNumber: "EMP-TEST-009",
+            email: "barry.allen@test.com",
+            phone: "+15555550009",
+            ssn: "90909090901",
+            dateOfBirth: DateTime.parse("1994-03-14"),
+            status: EmployeeStatus.Suspended,
+            employmentType: EmploymentType.FullTime,
+            department: Department.Engineering,
+            hireDate: DateTime.parse("2022-04-01"),
+            salary: Money.of(78000, "USD")
+        });
+        emp.save();
+        emp.reinstate();
+        assert emp.status == EmployeeStatus.Active;
+    }
+
+    test("startLeave sets status to OnLeave") {
+        let employeeDb.Employee emp = employeeDb.Employee.create({
+            firstName: "Hal",
+            lastName: "Jordan",
+            employeeNumber: "EMP-TEST-010",
+            email: "hal.jordan@test.com",
+            phone: "+15555550010",
+            ssn: "10101010101",
+            dateOfBirth: DateTime.parse("1987-02-20"),
+            status: EmployeeStatus.Active,
+            employmentType: EmploymentType.FullTime,
+            department: Department.Sales,
+            hireDate: DateTime.parse("2019-11-15"),
+            salary: Money.of(82000, "USD")
+        });
+        emp.save();
+        emp.startLeave();
+        assert emp.status == EmployeeStatus.OnLeave;
+    }
+
+    test("afterUpdate emits EmployeeDepartmentChanged when department changes") {
+        let employeeDb.Employee emp = employeeDb.Employee.create({
+            firstName: "Oliver",
+            lastName: "Queen",
+            employeeNumber: "EMP-TEST-011",
+            email: "oliver.queen@test.com",
+            phone: "+15555550011",
+            ssn: "11111100001",
+            dateOfBirth: DateTime.parse("1985-05-16"),
+            status: EmployeeStatus.Active,
+            employmentType: EmploymentType.FullTime,
+            department: Department.Marketing,
+            hireDate: DateTime.parse("2018-07-01"),
+            salary: Money.of(105000, "USD")
+        });
+        emp.save();
+        emp.department = Department.Sales;
+        emp.save();
+        assert emitted(EmployeeDepartmentChanged(emp.id, emp.employeeNumber, Department.Marketing, Department.Sales));
+    }
+
+    test("afterUpdate emits EmployeeSalaryChanged when salary changes") {
+        let employeeDb.Employee emp = employeeDb.Employee.create({
+            firstName: "Dinah",
+            lastName: "Lance",
+            employeeNumber: "EMP-TEST-012",
+            email: "dinah.lance@test.com",
+            phone: "+15555550012",
+            ssn: "12121212121",
+            dateOfBirth: DateTime.parse("1989-11-05"),
+            status: EmployeeStatus.Active,
+            employmentType: EmploymentType.FullTime,
+            department: Department.HR,
+            hireDate: DateTime.parse("2020-03-15"),
+            salary: Money.of(75000, "USD")
+        });
+        emp.save();
+        emp.salary = Money.of(82000, "USD");
+        emp.save();
+        assert emitted(EmployeeSalaryChanged(emp.id, emp.employeeNumber, Money.of(75000, "USD"), Money.of(82000, "USD")));
+    }
+
+    test("validation rejects empty first name") {
+        assert throws(
+            () => employeeDb.Employee.create({
+                firstName: "",
+                lastName: "Wayne",
+                employeeNumber: "EMP-TEST-013",
+                email: "empty.first@test.com",
+                phone: "+15555550013",
+                ssn: "13131313131",
+                dateOfBirth: DateTime.parse("1993-04-01"),
+                employmentType: EmploymentType.FullTime,
+                department: Department.Finance,
+                hireDate: DateTime.parse("2023-01-10"),
+                salary: Money.of(65000, "USD")
+            }),
+            ValidationError("First name cannot be empty")
+        );
+    }
+
+    test("validation rejects future hire date") {
+        assert throws(
+            () => employeeDb.Employee.create({
+                firstName: "Kara",
+                lastName: "Danvers",
+                employeeNumber: "EMP-TEST-014",
+                email: "kara.danvers@test.com",
+                phone: "+15555550014",
+                ssn: "14141414141",
+                dateOfBirth: DateTime.parse("1995-09-22"),
+                employmentType: EmploymentType.PartTime,
+                department: Department.Marketing,
+                hireDate: DateTime.parse("2099-12-31"),
+                salary: Money.of(55000, "USD")
+            }),
+            ValidationError("Hire date cannot be in the future")
+        );
+    }
 }

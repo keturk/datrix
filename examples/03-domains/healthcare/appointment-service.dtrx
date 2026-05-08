@@ -303,6 +303,147 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
         assert emitted(AppointmentScheduled(appt.id, appt.patientId, appt.providerId, appt.scheduledAt, appt.type));
     }
 
+    test("computed isUpcoming for future scheduled appointment") {
+        let Appointment appt = appointmentDb.Appointment.create({
+            patientId: uuid(),
+            providerName: "Dr. Nguyen",
+            scheduledAt: now().addDays(14),
+            durationMinutes: 45,
+            status: AppointmentStatus.Scheduled
+        });
+        appt.save();
+        assert appt.isUpcoming == true;
+    }
+
+    test("computed canCancel for Scheduled appointment") {
+        let Appointment appt = appointmentDb.Appointment.create({
+            patientId: uuid(),
+            providerName: "Dr. Patel",
+            scheduledAt: now().addDays(5),
+            durationMinutes: 30,
+            status: AppointmentStatus.Scheduled
+        });
+        appt.save();
+        assert appt.canCancel == true;
+    }
+
+    test("computed canStart for Confirmed appointment") {
+        let Appointment appt = appointmentDb.Appointment.create({
+            patientId: uuid(),
+            providerName: "Dr. Olsen",
+            scheduledAt: now().addDays(3),
+            durationMinutes: 30,
+            status: AppointmentStatus.Confirmed
+        });
+        appt.save();
+        assert appt.canStart == true;
+    }
+
+    test("checkIn transitions to CheckedIn status") {
+        let Appointment appt = appointmentDb.Appointment.create({
+            patientId: uuid(),
+            providerName: "Dr. Kimura",
+            scheduledAt: now().addDays(1),
+            durationMinutes: 30,
+            status: AppointmentStatus.Confirmed
+        });
+        appt.save();
+        appt.checkIn();
+        assert appt.status == AppointmentStatus.CheckedIn;
+    }
+
+    test("start transitions to InProgress") {
+        let Appointment appt = appointmentDb.Appointment.create({
+            patientId: uuid(),
+            providerName: "Dr. Fernandez",
+            scheduledAt: now().addDays(2),
+            durationMinutes: 30,
+            status: AppointmentStatus.CheckedIn
+        });
+        appt.save();
+        appt.start();
+        assert appt.status == AppointmentStatus.InProgress;
+    }
+
+    test("complete sets status and completionNotes") {
+        let Appointment appt = appointmentDb.Appointment.create({
+            patientId: uuid(),
+            providerName: "Dr. Whitfield",
+            scheduledAt: now().addDays(1),
+            durationMinutes: 30,
+            status: AppointmentStatus.InProgress
+        });
+        appt.save();
+        appt.complete("Patient responded well to treatment");
+        assert appt.status == AppointmentStatus.Completed;
+        assert appt.notes == "Patient responded well to treatment";
+    }
+
+    test("cancel sets status and cancellationReason") {
+        let Appointment appt = appointmentDb.Appointment.create({
+            patientId: uuid(),
+            providerName: "Dr. Chang",
+            scheduledAt: now().addDays(10),
+            durationMinutes: 30,
+            status: AppointmentStatus.Scheduled
+        });
+        appt.save();
+        appt.cancel("Patient requested reschedule");
+        assert appt.status == AppointmentStatus.Cancelled;
+        assert appt.cancellationReason == "Patient requested reschedule";
+    }
+
+    test("markNoShow sets NoShow status") {
+        let Appointment appt = appointmentDb.Appointment.create({
+            patientId: uuid(),
+            providerName: "Dr. Alvarez",
+            scheduledAt: now().addDays(1),
+            durationMinutes: 30,
+            status: AppointmentStatus.Scheduled
+        });
+        appt.save();
+        appt.markNoShow();
+        assert appt.status == AppointmentStatus.NoShow;
+    }
+
+    test("afterCreate emits AppointmentScheduled with all fields") {
+        let Appointment appt = appointmentDb.Appointment.create({
+            patientId: uuid(),
+            providerName: "Dr. Bergstrom",
+            scheduledAt: now().addDays(21),
+            durationMinutes: 60,
+            type: AppointmentType.FollowUp
+        });
+        appt.save();
+        assert emitted(AppointmentScheduled(appt.id, appt.patientId, appt.providerId, appt.scheduledAt, appt.type));
+    }
+
+    test("afterUpdate emits AppointmentCompleted when Completed") {
+        let Appointment appt = appointmentDb.Appointment.create({
+            patientId: uuid(),
+            providerName: "Dr. Rossi",
+            scheduledAt: now().addDays(1),
+            durationMinutes: 30,
+            status: AppointmentStatus.InProgress
+        });
+        appt.save();
+        appt.complete("Examination completed successfully");
+        assert emitted(AppointmentCompleted(appt.id, appt.patientId, appt.providerId, appt.providerName, appt.type));
+    }
+
+    test("afterUpdate emits AppointmentCancelled when Cancelled") {
+        let Appointment appt = appointmentDb.Appointment.create({
+            patientId: uuid(),
+            providerName: "Dr. Hartley",
+            scheduledAt: now().addDays(8),
+            durationMinutes: 30,
+            status: AppointmentStatus.Scheduled
+        });
+        appt.save();
+        appt.cancel("Provider unavailable");
+        assert emitted(AppointmentCancelled(appt.id, appt.patientId, appt.cancellationReason));
+    }
+
     rest_api AppointmentAPI : basePath('/api/v1/appointments') {
 
         // List with multiple optional filters

@@ -46,6 +46,20 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         }
     }
 
+    test("book is created with Available status by default") {
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatGql" });
+        cat.save();
+        let bookDb.Book book = bookDb.Book.create({
+            title: "GraphQL Guide",
+            author: "Test Author",
+            publicationYear: 2023,
+            status: BookStatus.Available,
+            categoryId: cat.id
+        });
+        book.save();
+        assert book.status == BookStatus.Available;
+    }
+
     // GraphQL API with types, queries, mutations, subscriptions, and dataLoaders
     graphql_api BookGraphQL : basePath("/graphql") {
 

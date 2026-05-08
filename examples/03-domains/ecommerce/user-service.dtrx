@@ -467,6 +467,47 @@ service ecommerce.UserService('config/user-service.yaml') : version('1.0.0'), de
         assert emitted(UserRegistered(user.id, user.email, user.fullName));
     }
 
+    test("computed isActive reflects Active status") {
+        let userDb.User user = userDb.User.create({
+            email: "spec.active@example.com",
+            passwordHash: hashPassword("Str0ng#TestP@ss9"),
+            firstName: "Marcus",
+            lastName: "Green",
+            status: UserStatus.Active,
+            emailVerifiedAt: now()
+        });
+        user.save();
+        assert user.isActive == true;
+    }
+
+    test("computed isVerified when emailVerifiedAt is set") {
+        let userDb.User user = userDb.User.create({
+            email: "spec.verified@example.com",
+            passwordHash: hashPassword("Str0ng#TestP@ss9"),
+            firstName: "Elena",
+            lastName: "Martinez",
+            status: UserStatus.Active,
+            emailVerifiedAt: now()
+        });
+        user.save();
+        assert user.isVerified == true;
+    }
+
+    test("afterUpdate emits UserStatusChanged on status change") {
+        let userDb.User user = userDb.User.create({
+            email: "spec.statuschange@example.com",
+            passwordHash: hashPassword("Str0ng#TestP@ss9"),
+            firstName: "Robert",
+            lastName: "Chen",
+            status: UserStatus.Pending
+        });
+        user.save();
+        user.status = UserStatus.Active;
+        user.emailVerifiedAt = now();
+        user.save();
+        assert emitted(UserStatusChanged(user.id, UserStatus.Pending, UserStatus.Active));
+    }
+
     // Service-level function
     fn sendPasswordResetEmail(userDb.User user) {
         Email.send({

@@ -730,4 +730,68 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
         enrollment.save();
         assert enrollment.remainingProgress == 35;
     }
+
+    test("computed isActive is false for Dropped enrollment") {
+        let Enrollment enrollment = enrollmentDb.Enrollment.create({
+            studentId: uuid(),
+            courseId: uuid(),
+            status: EnrollmentStatus.Dropped,
+            progress: 40
+        });
+        enrollment.save();
+        assert enrollment.isActive == false;
+        assert enrollment.canSubmitGrades == false;
+    }
+
+    test("computed canSubmitGrades is false for Completed enrollment") {
+        let Enrollment enrollment = enrollmentDb.Enrollment.create({
+            studentId: uuid(),
+            courseId: uuid(),
+            status: EnrollmentStatus.Completed,
+            progress: 100,
+            completedAt: now()
+        });
+        enrollment.save();
+        assert enrollment.canSubmitGrades == false;
+    }
+
+    test("computed remainingProgress is 100 for zero progress") {
+        let Enrollment enrollment = enrollmentDb.Enrollment.create({
+            studentId: uuid(),
+            courseId: uuid(),
+            status: EnrollmentStatus.Active,
+            progress: 0
+        });
+        enrollment.save();
+        assert enrollment.remainingProgress == 100;
+    }
+
+    test("validation rejects negative score on grade") {
+        let Enrollment enrollment = enrollmentDb.Enrollment.create({
+            studentId: uuid(),
+            courseId: uuid(),
+            status: EnrollmentStatus.Active,
+            progress: 50
+        });
+        enrollment.save();
+        assert throws(
+            () => enrollmentDb.GradeRecord.create({
+                enrollmentId: enrollment.id,
+                moduleId: uuid(),
+                score: -10.0
+            }),
+            ValidationError(#"Score must be between {MIN_SCORE} and {MAX_SCORE}")
+        );
+    }
+
+    test("computed isCompleted is false for Active enrollment") {
+        let Enrollment enrollment = enrollmentDb.Enrollment.create({
+            studentId: uuid(),
+            courseId: uuid(),
+            status: EnrollmentStatus.Active,
+            progress: 80
+        });
+        enrollment.save();
+        assert enrollment.isCompleted == false;
+    }
 }

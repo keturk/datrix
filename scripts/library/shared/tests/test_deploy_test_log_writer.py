@@ -261,6 +261,62 @@ class TestPhaseDetection:
             "integration-tests",
         ]
 
+    def test_structured_log_docker_up_failure_detected(
+        self,
+        tmp_deploy_dir: Path,
+        tmp_path: Path,
+    ) -> None:
+        """Docker-up failure detected from structured log markers.
+
+        Regression test: deploy_test.py emits structured markers like
+        'docker_build_started' and 'docker_up_failed exit_code=1' rather
+        than human-readable headers like '=== Docker Build ==='.
+        The phase markers must match both formats.
+        """
+        (tmp_deploy_dir / "deploy-test-output.log").write_text(
+            "docker_build_started\n"
+            "docker_build_completed\n"
+            "docker_up output:\n"
+            "docker_up_failed exit_code=1\n",
+            encoding="utf-8",
+        )
+
+        writer = _make_writer(tmp_deploy_dir, tmp_path)
+        index_path = writer.write(timestamp=datetime(2026, 5, 7, 13, 41, 39))
+
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+        assert index["result"] == "FAILED"
+        assert index["failed_phase"] == "docker-up"
+        assert index["phases"]["docker-build"]["result"] == "PASSED"
+        assert index["phases"]["docker-up"]["result"] == "FAILED"
+        assert index["phases"]["health-check"]["result"] == "SKIPPED"
+
+    def test_structured_log_docker_build_failure_detected(
+        self,
+        tmp_deploy_dir: Path,
+        tmp_path: Path,
+    ) -> None:
+        """Docker-build failure detected from structured log markers.
+
+        Regression test: when Docker Desktop is not running, the log
+        contains 'docker_build_started' then 'docker_build_failed
+        exit_code=1'. index.json must report FAILED, not PASSED.
+        """
+        (tmp_deploy_dir / "deploy-test-output.log").write_text(
+            "docker_build_started\n"
+            "docker_build_failed exit_code=1\n",
+            encoding="utf-8",
+        )
+
+        writer = _make_writer(tmp_deploy_dir, tmp_path)
+        index_path = writer.write(timestamp=datetime(2026, 5, 7, 13, 0, 50))
+
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+        assert index["result"] == "FAILED"
+        assert index["failed_phase"] == "docker-build"
+        assert index["phases"]["docker-build"]["result"] == "FAILED"
+        assert index["phases"]["docker-up"]["result"] == "SKIPPED"
+
 
 # ---------------------------------------------------------------------------
 # Docker Log Excerpting Tests

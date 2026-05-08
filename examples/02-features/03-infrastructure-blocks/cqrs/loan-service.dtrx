@@ -41,6 +41,28 @@ service library.LoanService('config/loan-service.yaml') : version('1.0.0'), desc
         UUID memberId;
     }
 
+    test("computed isOverdue is true when status is Overdue") {
+        let loanDb.Loan loan = loanDb.Loan.create({
+            bookId: uuid(),
+            memberId: uuid(),
+            status: LoanStatus.Overdue,
+            dueDate: now().addDays(7)
+        });
+        loan.save();
+        assert loan.isOverdue == true;
+    }
+
+    test("computed isOverdue is false when status is Returned") {
+        let loanDb.Loan loan = loanDb.Loan.create({
+            bookId: uuid(),
+            memberId: uuid(),
+            status: LoanStatus.Returned,
+            dueDate: now().subtractDays(7)
+        });
+        loan.save();
+        assert loan.isOverdue == false;
+    }
+
     rest_api LoanAPI : basePath("/api/v1/loans") {
         // Custom endpoint using a struct as input and returning an entity
         post(CreateLoanRequest request) -> loanDb.Loan {

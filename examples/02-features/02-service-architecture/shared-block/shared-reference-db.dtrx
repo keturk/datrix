@@ -1,22 +1,22 @@
 
 // shared-reference-db.dtrx
 // Shared relational database for reference data read by multiple services.
-shared AviationReferenceData('config/aviation-reference-data.yaml') {
-    rdbms aviation_db {
-        entity Airport {
-            String(4) icaoCode : primaryKey;
+shared ProductCatalogData('config/product-catalog-data.yaml') {
+    rdbms catalog_db {
+        entity Product {
+            String(12) sku : primaryKey;
             String(100) name;
-            Float latitude;
-            Float longitude;
-            String(2)? stateCode : index;
+            Float price;
+            Int stockQty;
+            String(50)? category : index;
         }
 
-        entity Runway {
+        entity Variant {
             UUID id : primaryKey = uuid();
-            belongsTo Airport;
-            String(10) designation;
-            Int lengthFt;
-            Int? widthFt;
+            belongsTo Product;
+            String(50) name;
+            Float weight;
+            Int? stockQty;
         }
     }
 }

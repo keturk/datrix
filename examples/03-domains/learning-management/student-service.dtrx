@@ -256,4 +256,51 @@ service lms.StudentService('config/student-service.yaml') : version('1.0.0'), de
         student.save();
         assert student.studentNumber != null;
     }
+
+    test("computed isActive is false for Suspended status") {
+        let Student student = studentDb.Student.create({
+            firstName: "Mark",
+            lastName: "Taylor",
+            email: "mark.taylor@example.com",
+            status: StudentStatus.Suspended
+        });
+        student.save();
+        assert student.isActive == false;
+        assert student.isEligibleToEnroll == false;
+    }
+
+    test("computed isEligibleToEnroll is false for Graduated status") {
+        let Student student = studentDb.Student.create({
+            firstName: "Emily",
+            lastName: "Clark",
+            email: "emily.clark@example.com",
+            status: StudentStatus.Graduated
+        });
+        student.save();
+        assert student.isEligibleToEnroll == false;
+    }
+
+    test("computed completionRate calculates correctly") {
+        let Student student = studentDb.Student.create({
+            firstName: "David",
+            lastName: "Wilson",
+            email: "david.wilson@example.com",
+            courseCount: 10,
+            completedCourseCount: 7
+        });
+        student.save();
+        assert student.completionRate == 70.0;
+    }
+
+    test("computed completionRate is zero when no courses") {
+        let Student student = studentDb.Student.create({
+            firstName: "Sarah",
+            lastName: "Lee",
+            email: "sarah.lee@example.com",
+            courseCount: 0,
+            completedCourseCount: 0
+        });
+        student.save();
+        assert student.completionRate == 0.0;
+    }
 }

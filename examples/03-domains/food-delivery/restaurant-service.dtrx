@@ -302,4 +302,70 @@ service fooddelivery.RestaurantService('config/restaurant-service.yaml') : versi
         restaurant.save();
         assert emitted(RestaurantRegistered(restaurant.id, restaurant.name, restaurant.cuisineType));
     }
+
+    test("computed isApproved for non-PendingApproval status") {
+        let restaurantDb.Restaurant restaurant = restaurantDb.Restaurant.create({
+            name: "Approved Sushi Bar",
+            cuisineType: "Japanese",
+            address: "101 Cherry Ln",
+            phone: "+15553334444",
+            email: "approved@sushibar.com",
+            status: RestaurantStatus.Active
+        });
+        restaurant.save();
+        assert restaurant.isApproved == true;
+    }
+
+    test("computed displayInfo formats name and cuisine") {
+        let restaurantDb.Restaurant restaurant = restaurantDb.Restaurant.create({
+            name: "Golden Dragon",
+            cuisineType: "Chinese",
+            address: "202 Bamboo Ave",
+            phone: "+15554445555",
+            email: "info@goldendragon.com",
+            status: RestaurantStatus.Active
+        });
+        restaurant.save();
+        assert restaurant.displayInfo == "Golden Dragon - Chinese";
+    }
+
+    test("validation rejects empty restaurant name") {
+        assert throws(
+            () => restaurantDb.Restaurant.create({
+                name: "",
+                cuisineType: "Mexican",
+                address: "303 Agave St",
+                phone: "+15555556666",
+                email: "empty@nametest.com"
+            }),
+            ValidationError("Restaurant name cannot be empty")
+        );
+    }
+
+    test("afterCreate emits RestaurantRegistered with correct fields") {
+        let restaurantDb.Restaurant restaurant = restaurantDb.Restaurant.create({
+            name: "Bella Napoli",
+            cuisineType: "Italian",
+            address: "404 Pasta Rd",
+            phone: "+15556667777",
+            email: "info@bellanapoli.com"
+        });
+        restaurant.save();
+        assert emitted(RestaurantRegistered(restaurant.id, "Bella Napoli", "Italian"));
+    }
+
+    test("afterUpdate emits RestaurantStatusChanged") {
+        let restaurantDb.Restaurant restaurant = restaurantDb.Restaurant.create({
+            name: "Status Change Diner",
+            cuisineType: "American",
+            address: "505 Maple Dr",
+            phone: "+15557778888",
+            email: "status@changediner.com",
+            status: RestaurantStatus.PendingApproval
+        });
+        restaurant.save();
+        restaurant.status = RestaurantStatus.Active;
+        restaurant.save();
+        assert emitted(RestaurantStatusChanged(restaurant.id, "Status Change Diner", RestaurantStatus.PendingApproval, RestaurantStatus.Active));
+    }
 }

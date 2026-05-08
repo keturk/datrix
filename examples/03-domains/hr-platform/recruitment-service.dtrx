@@ -631,4 +631,439 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
             ValidationException("Only draft postings can be opened")
         );
     }
+
+    test("computed isClosed is true for Closed status") {
+        let recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "DevOps Engineer",
+            description: "Manage infrastructure and deployments",
+            department: Department.Engineering,
+            requirements: "Kubernetes, Terraform experience",
+            salaryRange: "$110k - $140k",
+            isRemote: true,
+            status: PostingStatus.Closed
+        });
+        posting.save();
+        assert posting.isClosed == true;
+    }
+
+    test("computed isClosed is true for Filled status") {
+        let recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "Security Analyst",
+            description: "Monitor and respond to security threats",
+            department: Department.Engineering,
+            requirements: "Security certifications preferred",
+            salaryRange: "$100k - $130k",
+            isRemote: false,
+            status: PostingStatus.Filled
+        });
+        posting.save();
+        assert posting.isClosed == true;
+    }
+
+    test("computed isClosed is true for Cancelled status") {
+        let recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "Technical Writer",
+            description: "Create technical documentation",
+            department: Department.Engineering,
+            requirements: "Strong writing skills",
+            salaryRange: "$75k - $95k",
+            isRemote: true,
+            status: PostingStatus.Cancelled
+        });
+        posting.save();
+        assert posting.isClosed == true;
+    }
+
+    test("computed isActive is true for Received application") {
+        let recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "Frontend Developer",
+            description: "Build user interfaces with React",
+            department: Department.Engineering,
+            requirements: "React, TypeScript experience",
+            salaryRange: "$90k - $120k",
+            isRemote: true,
+            status: PostingStatus.Open
+        });
+        posting.save();
+        let recruitDb.Application app = recruitDb.Application.create({
+            jobPostingId: posting.id,
+            candidateName: "Alex Turner",
+            candidateEmail: "alex.turner@test.com",
+            status: ApplicationStatus.Received
+        });
+        app.save();
+        assert app.isActive == true;
+    }
+
+    test("computed isActive is false for Rejected application") {
+        let recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "Backend Developer",
+            description: "Build server-side APIs",
+            department: Department.Engineering,
+            requirements: "Node.js, PostgreSQL experience",
+            salaryRange: "$95k - $125k",
+            isRemote: false,
+            status: PostingStatus.Open
+        });
+        posting.save();
+        let recruitDb.Application app = recruitDb.Application.create({
+            jobPostingId: posting.id,
+            candidateName: "Morgan Blake",
+            candidateEmail: "morgan.blake@test.com",
+            status: ApplicationStatus.Rejected
+        });
+        app.save();
+        assert app.isActive == false;
+    }
+
+    test("computed isActive is false for Withdrawn application") {
+        let recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "Mobile Developer",
+            description: "Develop iOS and Android applications",
+            department: Department.Engineering,
+            requirements: "Swift, Kotlin experience",
+            salaryRange: "$100k - $130k",
+            isRemote: true,
+            status: PostingStatus.Open
+        });
+        posting.save();
+        let recruitDb.Application app = recruitDb.Application.create({
+            jobPostingId: posting.id,
+            candidateName: "Jordan Reed",
+            candidateEmail: "jordan.reed@test.com",
+            status: ApplicationStatus.Withdrawn
+        });
+        app.save();
+        assert app.isActive == false;
+    }
+
+    test("close transitions Open to Closed") {
+        let recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "Scrum Master",
+            description: "Facilitate agile ceremonies",
+            department: Department.Operations,
+            requirements: "CSM certification",
+            salaryRange: "$85k - $110k",
+            isRemote: false,
+            status: PostingStatus.Open
+        });
+        posting.save();
+        posting.close();
+        assert posting.status == PostingStatus.Closed;
+    }
+
+    test("fill transitions Open to Filled") {
+        let recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "Data Scientist",
+            description: "Build predictive models",
+            department: Department.Engineering,
+            requirements: "ML, Python, statistics",
+            salaryRange: "$120k - $150k",
+            isRemote: true,
+            status: PostingStatus.Open
+        });
+        posting.save();
+        let recruitDb.Application app = recruitDb.Application.create({
+            jobPostingId: posting.id,
+            candidateName: "Sam Parker",
+            candidateEmail: "sam.parker@test.com",
+            status: ApplicationStatus.Offer
+        });
+        app.save();
+        posting.fill(app.id);
+        assert posting.status == PostingStatus.Filled;
+        assert posting.filledByApplicationId == app.id;
+    }
+
+    test("cancel transitions Draft to Cancelled") {
+        let recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "Recruiter",
+            description: "Source and recruit top talent",
+            department: Department.HR,
+            requirements: "Recruiting experience",
+            salaryRange: "$65k - $85k",
+            isRemote: false,
+            status: PostingStatus.Draft
+        });
+        posting.save();
+        posting.cancel();
+        assert posting.status == PostingStatus.Cancelled;
+    }
+
+    test("close fails for non-open posting") {
+        let recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "Office Manager",
+            description: "Manage office operations",
+            department: Department.Operations,
+            requirements: "Office management experience",
+            salaryRange: "$55k - $70k",
+            isRemote: false,
+            status: PostingStatus.Draft
+        });
+        posting.save();
+        assert throws(
+            () => posting.close(),
+            ValidationException("Only open postings can be closed")
+        );
+    }
+
+    test("fill fails for draft posting") {
+        let recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "Content Strategist",
+            description: "Develop content strategy",
+            department: Department.Marketing,
+            requirements: "Content marketing experience",
+            salaryRange: "$70k - $90k",
+            isRemote: true,
+            status: PostingStatus.Draft
+        });
+        posting.save();
+        assert throws(
+            () => posting.fill(uuid()),
+            ValidationException("Only open or closed postings can be filled")
+        );
+    }
+
+    test("cancel fails for filled posting") {
+        let recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "Support Engineer",
+            description: "Provide technical support",
+            department: Department.Engineering,
+            requirements: "Customer support experience",
+            salaryRange: "$60k - $80k",
+            isRemote: false,
+            status: PostingStatus.Filled
+        });
+        posting.save();
+        assert throws(
+            () => posting.cancel(),
+            ValidationException("Filled postings cannot be cancelled")
+        );
+    }
+
+    test("afterUpdate emits JobPostingStatusChanged when status changes") {
+        let recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "Platform Engineer",
+            description: "Build internal developer platform",
+            department: Department.Engineering,
+            requirements: "Platform engineering experience",
+            salaryRange: "$130k - $160k",
+            isRemote: true,
+            status: PostingStatus.Draft
+        });
+        posting.save();
+        posting.open();
+        assert emitted(JobPostingStatusChanged(posting.id, "Platform Engineer", PostingStatus.Draft, PostingStatus.Open));
+    }
+
+    test("reject sets application status to Rejected") {
+        let recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "Business Analyst",
+            description: "Analyze business requirements",
+            department: Department.Finance,
+            requirements: "BA certification preferred",
+            salaryRange: "$75k - $95k",
+            isRemote: false,
+            status: PostingStatus.Open
+        });
+        posting.save();
+        let recruitDb.Application app = recruitDb.Application.create({
+            jobPostingId: posting.id,
+            candidateName: "Casey Marsh",
+            candidateEmail: "casey.marsh@test.com",
+            status: ApplicationStatus.Screening
+        });
+        app.save();
+        app.reject("Insufficient experience");
+        assert app.status == ApplicationStatus.Rejected;
+        assert app.notes == "Insufficient experience";
+    }
+
+    test("withdraw sets application status to Withdrawn") {
+        let recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "Project Manager",
+            description: "Lead cross-functional projects",
+            department: Department.Operations,
+            requirements: "PMP certification, 5+ years experience",
+            salaryRange: "$95k - $120k",
+            isRemote: false,
+            status: PostingStatus.Open
+        });
+        posting.save();
+        let recruitDb.Application app = recruitDb.Application.create({
+            jobPostingId: posting.id,
+            candidateName: "Riley Cooper",
+            candidateEmail: "riley.cooper@test.com",
+            status: ApplicationStatus.Interview
+        });
+        app.save();
+        app.withdraw();
+        assert app.status == ApplicationStatus.Withdrawn;
+    }
+
+    test("moveToScreening fails for non-received application") {
+        let recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "Marketing Coordinator",
+            description: "Coordinate marketing campaigns",
+            department: Department.Marketing,
+            requirements: "Marketing degree",
+            salaryRange: "$50k - $65k",
+            isRemote: false,
+            status: PostingStatus.Open
+        });
+        posting.save();
+        let recruitDb.Application app = recruitDb.Application.create({
+            jobPostingId: posting.id,
+            candidateName: "Taylor Chen",
+            candidateEmail: "taylor.chen@test.com",
+            status: ApplicationStatus.Interview
+        });
+        app.save();
+        assert throws(
+            () => app.moveToScreening(),
+            ValidationException("Only received applications can be moved to screening")
+        );
+    }
+
+    test("moveToInterview fails for non-screening application") {
+        let recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "Sales Representative",
+            description: "Drive new business revenue",
+            department: Department.Sales,
+            requirements: "B2B sales experience",
+            salaryRange: "$55k - $75k",
+            isRemote: false,
+            status: PostingStatus.Open
+        });
+        posting.save();
+        let recruitDb.Application app = recruitDb.Application.create({
+            jobPostingId: posting.id,
+            candidateName: "Avery Kim",
+            candidateEmail: "avery.kim@test.com",
+            status: ApplicationStatus.Received
+        });
+        app.save();
+        assert throws(
+            () => app.moveToInterview(),
+            ValidationException("Only screened applications can be moved to interview")
+        );
+    }
+
+    test("extendOffer fails for non-interview application") {
+        let recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "HR Specialist",
+            description: "Handle employee relations",
+            department: Department.HR,
+            requirements: "HR certification",
+            salaryRange: "$60k - $80k",
+            isRemote: false,
+            status: PostingStatus.Open
+        });
+        posting.save();
+        let recruitDb.Application app = recruitDb.Application.create({
+            jobPostingId: posting.id,
+            candidateName: "Jamie Walsh",
+            candidateEmail: "jamie.walsh@test.com",
+            status: ApplicationStatus.Screening
+        });
+        app.save();
+        assert throws(
+            () => app.extendOffer(),
+            ValidationException("Only interviewed candidates can receive an offer")
+        );
+    }
+
+    test("hire fails for non-offer application") {
+        let recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "Finance Manager",
+            description: "Oversee financial operations",
+            department: Department.Finance,
+            requirements: "CPA, 7+ years experience",
+            salaryRange: "$110k - $140k",
+            isRemote: false,
+            status: PostingStatus.Open
+        });
+        posting.save();
+        let recruitDb.Application app = recruitDb.Application.create({
+            jobPostingId: posting.id,
+            candidateName: "Quinn Ellis",
+            candidateEmail: "quinn.ellis@test.com",
+            status: ApplicationStatus.Interview
+        });
+        app.save();
+        assert throws(
+            () => app.hire(),
+            ValidationException("Only candidates with an offer can be hired")
+        );
+    }
+
+    test("reject fails for hired application") {
+        let recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "Operations Lead",
+            description: "Lead daily operations",
+            department: Department.Operations,
+            requirements: "Operations management experience",
+            salaryRange: "$85k - $105k",
+            isRemote: false,
+            status: PostingStatus.Open
+        });
+        posting.save();
+        let recruitDb.Application app = recruitDb.Application.create({
+            jobPostingId: posting.id,
+            candidateName: "Drew Santos",
+            candidateEmail: "drew.santos@test.com",
+            status: ApplicationStatus.Hired
+        });
+        app.save();
+        assert throws(
+            () => app.reject("Changed mind"),
+            ValidationException("Cannot reject a hired or withdrawn application")
+        );
+    }
+
+    test("withdraw fails for rejected application") {
+        let recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "Training Specialist",
+            description: "Develop employee training programs",
+            department: Department.HR,
+            requirements: "Training and development experience",
+            salaryRange: "$60k - $75k",
+            isRemote: true,
+            status: PostingStatus.Open
+        });
+        posting.save();
+        let recruitDb.Application app = recruitDb.Application.create({
+            jobPostingId: posting.id,
+            candidateName: "Sage Mitchell",
+            candidateEmail: "sage.mitchell@test.com",
+            status: ApplicationStatus.Rejected
+        });
+        app.save();
+        assert throws(
+            () => app.withdraw(),
+            ValidationException("Cannot withdraw a hired or rejected application")
+        );
+    }
+
+    test("afterUpdate emits ApplicationStatusChanged when status changes") {
+        let recruitDb.JobPosting posting = recruitDb.JobPosting.create({
+            title: "Solutions Architect",
+            description: "Design enterprise solutions",
+            department: Department.Engineering,
+            requirements: "Architecture experience, cloud certifications",
+            salaryRange: "$140k - $170k",
+            isRemote: true,
+            status: PostingStatus.Open
+        });
+        posting.save();
+        let recruitDb.Application app = recruitDb.Application.create({
+            jobPostingId: posting.id,
+            candidateName: "Reese Novak",
+            candidateEmail: "reese.novak@test.com",
+            status: ApplicationStatus.Received
+        });
+        app.save();
+        app.moveToScreening();
+        assert emitted(ApplicationStatusChanged(app.id, posting.id, "Reese Novak", ApplicationStatus.Received, ApplicationStatus.Screening));
+    }
 }

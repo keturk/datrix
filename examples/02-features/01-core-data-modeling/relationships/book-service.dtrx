@@ -115,4 +115,33 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         book.save();
         assert book.isOldBook == true;
     }
+
+    test("computed isAvailable is false for CheckedOut status") {
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatNotAvail" });
+        cat.save();
+        let bookDb.Book book = bookDb.Book.create({
+            title: "The Pragmatic Programmer",
+            isbn: "9780135957059",
+            author: "Dave Thomas",
+            publicationYear: 2019,
+            status: BookStatus.CheckedOut,
+            categoryId: cat.id
+        });
+        book.save();
+        assert book.isAvailable == false;
+    }
+
+    test("computed isOldBook is false for post-2000 books") {
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatNewBook" });
+        cat.save();
+        let bookDb.Book book = bookDb.Book.create({
+            title: "Clean Code",
+            isbn: "9780132350884",
+            author: "Robert Martin",
+            publicationYear: 2008,
+            categoryId: cat.id
+        });
+        book.save();
+        assert book.isOldBook == false;
+    }
 }

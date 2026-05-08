@@ -773,4 +773,154 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
             ValidationError("Lesson title cannot be empty")
         );
     }
+
+    test("computed isPublished is false for Draft status") {
+        let Course course = courseDb.Course.create({
+            title: "Draft Course",
+            description: "A draft course for testing",
+            difficulty: DifficultyLevel.Beginner,
+            instructorId: uuid(),
+            status: CourseStatus.Draft
+        });
+        course.save();
+        assert course.isPublished == false;
+    }
+
+    test("computed canEnroll is false for Draft course") {
+        let Course course = courseDb.Course.create({
+            title: "Unpublished Course",
+            description: "Cannot enroll in a draft",
+            difficulty: DifficultyLevel.Intermediate,
+            instructorId: uuid(),
+            status: CourseStatus.Draft
+        });
+        course.save();
+        assert course.canEnroll == false;
+    }
+
+    test("computed enrollmentRate calculates correctly") {
+        let Course course = courseDb.Course.create({
+            title: "Enrollment Rate Course",
+            description: "Testing enrollment rate",
+            difficulty: DifficultyLevel.Beginner,
+            instructorId: uuid(),
+            status: CourseStatus.Published,
+            maxEnrollment: 50,
+            currentEnrollment: 25
+        });
+        course.save();
+        assert course.enrollmentRate == 50.0;
+    }
+
+    test("computed enrollmentRate is zero when maxEnrollment is null") {
+        let Course course = courseDb.Course.create({
+            title: "Unlimited Course",
+            description: "No enrollment cap",
+            difficulty: DifficultyLevel.Beginner,
+            instructorId: uuid(),
+            status: CourseStatus.Published,
+            currentEnrollment: 100
+        });
+        course.save();
+        assert course.enrollmentRate == 0.0;
+    }
+
+    test("validation rejects non-positive durationHours") {
+        assert throws(
+            () => courseDb.Course.create({
+                title: "Duration Course",
+                description: "Testing duration validation",
+                difficulty: DifficultyLevel.Advanced,
+                instructorId: uuid(),
+                durationHours: -5.0
+            }),
+            ValidationError("Duration must be a positive number")
+        );
+    }
+
+    test("publish fn transitions Draft to Published") {
+        let Course course = courseDb.Course.create({
+            title: "Publishable Course",
+            description: "Ready to be published",
+            difficulty: DifficultyLevel.Intermediate,
+            instructorId: uuid(),
+            status: CourseStatus.Draft
+        });
+        course.save();
+        course.publish();
+        assert course.status == CourseStatus.Published;
+        assert course.publishedAt != null;
+    }
+
+    test("archive fn sets status to Archived") {
+        let Course course = courseDb.Course.create({
+            title: "Archivable Course",
+            description: "Ready to be archived",
+            difficulty: DifficultyLevel.Beginner,
+            instructorId: uuid(),
+            status: CourseStatus.Published
+        });
+        course.save();
+        course.archive();
+        assert course.status == CourseStatus.Archived;
+    }
+
+    test("status change emits CourseStatusChanged event") {
+        let Course course = courseDb.Course.create({
+            title: "Status Change Course",
+            description: "Testing status change event",
+            difficulty: DifficultyLevel.Advanced,
+            instructorId: uuid(),
+            status: CourseStatus.Draft
+        });
+        course.save();
+        course.status = CourseStatus.Published;
+        course.save();
+        assert emitted(CourseStatusChanged(course.id, CourseStatus.Draft, CourseStatus.Published));
+    }
+
+    test("validation rejects negative module orderIndex") {
+        assert throws(
+            () => courseDb.CourseModule.create({
+                courseId: uuid(),
+                title: "Negative Order Module",
+                orderIndex: -1
+            }),
+            ValidationError("Order index cannot be negative")
+        );
+    }
+
+    test("validation rejects negative lesson orderIndex") {
+        assert throws(
+            () => courseDb.Lesson.create({
+                courseModuleId: uuid(),
+                title: "Negative Order Lesson",
+                orderIndex: -1
+            }),
+            ValidationError("Order index cannot be negative")
+        );
+    }
+
+    test("validation rejects negative lesson duration") {
+        assert throws(
+            () => courseDb.Lesson.create({
+                courseModuleId: uuid(),
+                title: "Negative Duration Lesson",
+                orderIndex: 1,
+                durationMinutes: -10
+            }),
+            ValidationError("Duration cannot be negative")
+        );
+    }
+
+    test("validation rejects rating below 1") {
+        assert throws(
+            () => courseDb.CourseRating.create({
+                courseId: uuid(),
+                studentId: uuid(),
+                rating: 0
+            }),
+            ValidationError("Rating must be between 1 and 5")
+        );
+    }
 }

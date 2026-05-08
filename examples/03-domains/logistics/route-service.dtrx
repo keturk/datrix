@@ -284,7 +284,7 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
             }
 
             let RouteStop stop = routeDb.RouteStop.create({
-                route: route,
+                routeId: route.id,
                 shipmentId: request.shipmentId,
                 address: request.address,
                 sequence: request.sequence,
@@ -501,12 +501,193 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
         route.save();
         assert throws(
             () => routeDb.RouteStop.create({
-                route: route,
+                routeId: route.id,
                 shipmentId: uuid(),
                 address: "123 Main St",
                 sequence: 0
             }),
             ValidationError("Stop sequence must be at least 1")
         );
+    }
+
+    test("computed isCompleted for Completed status") {
+        let Route route = routeDb.Route.create({
+            routeCode: "RT-TEST-005",
+            vehicleId: uuid(),
+            driverId: uuid(),
+            startLocation: "Depot C",
+            endLocation: "Depot D",
+            plannedDistance: 200.00,
+            status: RouteStatus.Completed,
+            startedAt: now().addHours(-3),
+            completedAt: now(),
+            actualDistance: 195.50
+        });
+        route.save();
+        assert route.isCompleted == true;
+        assert route.isActive == false;
+    }
+
+    test("computed isActive is false for Planned status") {
+        let Route route = routeDb.Route.create({
+            routeCode: "RT-TEST-006",
+            vehicleId: uuid(),
+            driverId: uuid(),
+            startLocation: "Terminal E",
+            endLocation: "Terminal F",
+            plannedDistance: 80.00,
+            status: RouteStatus.Planned
+        });
+        route.save();
+        assert route.isActive == false;
+    }
+
+    test("start fn sets status to Active and startedAt") {
+        let Route route = routeDb.Route.create({
+            routeCode: "RT-TEST-007",
+            vehicleId: uuid(),
+            driverId: uuid(),
+            startLocation: "Base G",
+            endLocation: "Base H",
+            plannedDistance: 150.00,
+            status: RouteStatus.Planned
+        });
+        route.save();
+        route.start();
+        assert route.status == RouteStatus.Active;
+        assert route.startedAt != null;
+    }
+
+    test("complete fn sets status, completedAt, and actualDistance") {
+        let Route route = routeDb.Route.create({
+            routeCode: "RT-TEST-008",
+            vehicleId: uuid(),
+            driverId: uuid(),
+            startLocation: "Center I",
+            endLocation: "Center J",
+            plannedDistance: 100.00,
+            status: RouteStatus.Active,
+            startedAt: now()
+        });
+        route.save();
+        route.complete(105.25);
+        assert route.status == RouteStatus.Completed;
+        assert route.completedAt != null;
+        assert route.actualDistance == 105.25;
+    }
+
+    test("status change emits RouteStatusChanged") {
+        let Route route = routeDb.Route.create({
+            routeCode: "RT-TEST-009",
+            vehicleId: uuid(),
+            driverId: uuid(),
+            startLocation: "Point K",
+            endLocation: "Point L",
+            plannedDistance: 60.00,
+            status: RouteStatus.Planned
+        });
+        route.save();
+        route.status = RouteStatus.Active;
+        route.save();
+        assert emitted(RouteStatusChanged(route.id, route.routeCode, RouteStatus.Planned, RouteStatus.Active));
+    }
+
+    test("validation rejects empty start location") {
+        assert throws(
+            () => routeDb.Route.create({
+                routeCode: "RT-TEST-010",
+                vehicleId: uuid(),
+                driverId: uuid(),
+                startLocation: "",
+                endLocation: "Valid End",
+                plannedDistance: 50.00
+            }),
+            ValidationError("Start location cannot be empty")
+        );
+    }
+
+    test("validation rejects empty end location") {
+        assert throws(
+            () => routeDb.Route.create({
+                routeCode: "RT-TEST-011",
+                vehicleId: uuid(),
+                driverId: uuid(),
+                startLocation: "Valid Start",
+                endLocation: "",
+                plannedDistance: 50.00
+            }),
+            ValidationError("End location cannot be empty")
+        );
+    }
+
+    test("validation rejects empty stop address") {
+        let Route route = routeDb.Route.create({
+            routeCode: "RT-TEST-012",
+            vehicleId: uuid(),
+            driverId: uuid(),
+            startLocation: "Start M",
+            endLocation: "End N",
+            plannedDistance: 40.00
+        });
+        route.save();
+        assert throws(
+            () => routeDb.RouteStop.create({
+                routeId: route.id,
+                shipmentId: uuid(),
+                address: "",
+                sequence: 1
+            }),
+            ValidationError("Stop address cannot be empty")
+        );
+    }
+
+    test("markArrived sets stop status and actualArrival") {
+        let Route route = routeDb.Route.create({
+            routeCode: "RT-TEST-013",
+            vehicleId: uuid(),
+            driverId: uuid(),
+            startLocation: "Hub O",
+            endLocation: "Hub P",
+            plannedDistance: 90.00,
+            status: RouteStatus.Active,
+            startedAt: now()
+        });
+        route.save();
+        let RouteStop stop = routeDb.RouteStop.create({
+            routeId: route.id,
+            shipmentId: uuid(),
+            address: "456 Delivery Ave",
+            sequence: 1,
+            status: StopStatus.Pending
+        });
+        stop.save();
+        stop.markArrived();
+        assert stop.status == StopStatus.Arrived;
+        assert stop.actualArrival != null;
+    }
+
+    test("markCompleted sets stop status to Completed") {
+        let Route route = routeDb.Route.create({
+            routeCode: "RT-TEST-014",
+            vehicleId: uuid(),
+            driverId: uuid(),
+            startLocation: "Hub Q",
+            endLocation: "Hub R",
+            plannedDistance: 70.00,
+            status: RouteStatus.Active,
+            startedAt: now()
+        });
+        route.save();
+        let RouteStop stop = routeDb.RouteStop.create({
+            routeId: route.id,
+            shipmentId: uuid(),
+            address: "789 Pickup Blvd",
+            sequence: 1,
+            status: StopStatus.Arrived,
+            actualArrival: now()
+        });
+        stop.save();
+        stop.markCompleted();
+        assert stop.status == StopStatus.Completed;
     }
 }

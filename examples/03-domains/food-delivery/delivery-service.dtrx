@@ -533,4 +533,165 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
         delivery.save();
         assert emitted(DeliveryStatusChanged(delivery.id, delivery.orderId, DeliveryStatus.Pending, DeliveryStatus.Assigned));
     }
+
+    test("computed isAvailable for Available driver") {
+        let deliveryDb.DeliveryDriver driver = deliveryDb.DeliveryDriver.create({
+            firstName: "Carlos",
+            lastName: "Rivera",
+            phone: "+15552223333",
+            vehicleType: "Scooter",
+            status: DriverStatus.Available
+        });
+        driver.save();
+        assert driver.isAvailable == true;
+    }
+
+    test("computed fullName concatenates driver names") {
+        let deliveryDb.DeliveryDriver driver = deliveryDb.DeliveryDriver.create({
+            firstName: "Maria",
+            lastName: "Santos",
+            phone: "+15553334444",
+            vehicleType: "Car",
+            status: DriverStatus.Offline
+        });
+        driver.save();
+        assert driver.fullName == "Maria Santos";
+    }
+
+    test("goOnline sets driver status to Available") {
+        let deliveryDb.DeliveryDriver driver = deliveryDb.DeliveryDriver.create({
+            firstName: "Alex",
+            lastName: "Kim",
+            phone: "+15554445555",
+            vehicleType: "Bicycle",
+            status: DriverStatus.Offline
+        });
+        driver.save();
+        driver.goOnline();
+        assert driver.status == DriverStatus.Available;
+    }
+
+    test("goOffline sets driver to Offline") {
+        let deliveryDb.DeliveryDriver driver = deliveryDb.DeliveryDriver.create({
+            firstName: "Priya",
+            lastName: "Patel",
+            phone: "+15555556666",
+            vehicleType: "Car",
+            status: DriverStatus.Available
+        });
+        driver.save();
+        driver.goOffline();
+        assert driver.status == DriverStatus.Offline;
+    }
+
+    test("startDelivery sets driver to OnDelivery") {
+        let deliveryDb.DeliveryDriver driver = deliveryDb.DeliveryDriver.create({
+            firstName: "Tomasz",
+            lastName: "Nowak",
+            phone: "+15556667777",
+            vehicleType: "Motorcycle",
+            status: DriverStatus.Available
+        });
+        driver.save();
+        driver.startDelivery();
+        assert driver.status == DriverStatus.OnDelivery;
+    }
+
+    test("completeDelivery increments total and sets Available") {
+        let deliveryDb.DeliveryDriver driver = deliveryDb.DeliveryDriver.create({
+            firstName: "Fatima",
+            lastName: "Al-Hassan",
+            phone: "+15557778888",
+            vehicleType: "Car",
+            status: DriverStatus.OnDelivery,
+            totalDeliveries: 5
+        });
+        driver.save();
+        driver.completeDelivery();
+        assert driver.status == DriverStatus.Available;
+        assert driver.totalDeliveries == 6;
+    }
+
+    test("assignDriver sets driverId on delivery") {
+        let deliveryDb.DeliveryDriver driver = deliveryDb.DeliveryDriver.create({
+            firstName: "Liam",
+            lastName: "O'Brien",
+            phone: "+15558889999",
+            vehicleType: "Van",
+            status: DriverStatus.Available
+        });
+        driver.save();
+        let deliveryDb.Delivery delivery = deliveryDb.Delivery.create({
+            deliveryCode: "DLV-TEST-004",
+            orderId: uuid(),
+            pickupAddress: "Restaurant D",
+            deliveryAddress: { street: "200 River Rd", city: "Springfield", state: "IL", zipCode: "62711" }
+        });
+        delivery.save();
+        delivery.assignDriver(driver.id);
+        assert delivery.driverId == driver.id;
+        assert delivery.status == DeliveryStatus.Assigned;
+    }
+
+    test("markPickedUp sets PickingUp status") {
+        let deliveryDb.Delivery delivery = deliveryDb.Delivery.create({
+            deliveryCode: "DLV-TEST-005",
+            orderId: uuid(),
+            pickupAddress: "Restaurant E",
+            deliveryAddress: { street: "300 Lake Dr", city: "Springfield", state: "IL", zipCode: "62712" },
+            status: DeliveryStatus.Assigned
+        });
+        delivery.save();
+        delivery.markPickedUp();
+        assert delivery.status == DeliveryStatus.PickingUp;
+    }
+
+    test("markDelivered sets Delivered status") {
+        let deliveryDb.Delivery delivery = deliveryDb.Delivery.create({
+            deliveryCode: "DLV-TEST-006",
+            orderId: uuid(),
+            pickupAddress: "Restaurant F",
+            deliveryAddress: { street: "400 Hill Ave", city: "Springfield", state: "IL", zipCode: "62713" },
+            status: DeliveryStatus.Delivering
+        });
+        delivery.save();
+        delivery.markDelivered();
+        assert delivery.status == DeliveryStatus.Delivered;
+    }
+
+    test("validation rejects empty pickup address") {
+        assert throws(
+            () => deliveryDb.Delivery.create({
+                deliveryCode: "DLV-TEST-007",
+                orderId: uuid(),
+                pickupAddress: "",
+                deliveryAddress: { street: "500 Valley Rd", city: "Springfield", state: "IL", zipCode: "62714" }
+            }),
+            ValidationError("Pickup address cannot be empty")
+        );
+    }
+
+    test("afterCreate emits DeliveryCreated with correct fields") {
+        let deliveryDb.Delivery delivery = deliveryDb.Delivery.create({
+            deliveryCode: "DLV-TEST-008",
+            orderId: uuid(),
+            pickupAddress: "Restaurant G",
+            deliveryAddress: { street: "600 Summit St", city: "Springfield", state: "IL", zipCode: "62715" }
+        });
+        delivery.save();
+        assert emitted(DeliveryCreated(delivery.id, "DLV-TEST-008", delivery.orderId));
+    }
+
+    test("afterUpdate emits DeliveryStatusChanged on status transition") {
+        let deliveryDb.Delivery delivery = deliveryDb.Delivery.create({
+            deliveryCode: "DLV-TEST-009",
+            orderId: uuid(),
+            pickupAddress: "Restaurant H",
+            deliveryAddress: { street: "700 Creek Ln", city: "Springfield", state: "IL", zipCode: "62716" }
+        });
+        delivery.save();
+        delivery.status = DeliveryStatus.Delivering;
+        delivery.save();
+        assert emitted(DeliveryStatusChanged(delivery.id, delivery.orderId, DeliveryStatus.Pending, DeliveryStatus.Delivering));
+    }
 }

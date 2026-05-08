@@ -425,4 +425,148 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
         acct.save();
         assert emitted(AccountStatusChanged(acct.id, acct.accountNumber, AccountStatus.Active, AccountStatus.Frozen));
     }
+
+    test("computed isFrozen is true when status is Frozen") {
+        let Customer cust = accountDb.Customer.create({
+            firstName: "Carlos",
+            lastName: "Rivera",
+            email: "carlos.rivera@test.com",
+            ssn: "33344455566",
+            dateOfBirth: DateTime.parse("1988-07-20"),
+            kycStatus: KycStatus.Verified
+        });
+        cust.save();
+        let Account acct = accountDb.Account.create({
+            accountNumber: "ACC-TEST-005",
+            customerId: cust.id,
+            type: AccountType.Checking,
+            status: AccountStatus.Frozen,
+            balance: Money.of(2500, Currency.USD),
+            currency: Currency.USD
+        });
+        acct.save();
+        assert acct.isFrozen == true;
+    }
+
+    test("activate transitions from PendingApproval to Active") {
+        let Customer cust = accountDb.Customer.create({
+            firstName: "Diana",
+            lastName: "Park",
+            email: "diana.park@test.com",
+            ssn: "44455566677",
+            dateOfBirth: DateTime.parse("1995-11-03"),
+            kycStatus: KycStatus.Verified
+        });
+        cust.save();
+        let Account acct = accountDb.Account.create({
+            accountNumber: "ACC-TEST-006",
+            customerId: cust.id,
+            type: AccountType.Checking,
+            status: AccountStatus.PendingApproval,
+            balance: Money.of(0, Currency.USD),
+            currency: Currency.USD
+        });
+        acct.save();
+        acct.activate();
+        assert acct.status == AccountStatus.Active;
+    }
+
+    test("freeze sets status to Frozen") {
+        let Customer cust = accountDb.Customer.create({
+            firstName: "Erik",
+            lastName: "Larsen",
+            email: "erik.larsen@test.com",
+            ssn: "55566677700",
+            dateOfBirth: DateTime.parse("1982-04-18"),
+            kycStatus: KycStatus.Verified
+        });
+        cust.save();
+        let Account acct = accountDb.Account.create({
+            accountNumber: "ACC-TEST-007",
+            customerId: cust.id,
+            type: AccountType.Savings,
+            status: AccountStatus.Active,
+            balance: Money.of(3000, Currency.USD),
+            currency: Currency.USD
+        });
+        acct.save();
+        acct.freeze("Suspicious activity detected");
+        assert acct.status == AccountStatus.Frozen;
+    }
+
+    test("unfreeze restores Frozen account to Active") {
+        let Customer cust = accountDb.Customer.create({
+            firstName: "Fatima",
+            lastName: "Hassan",
+            email: "fatima.hassan@test.com",
+            ssn: "66677788811",
+            dateOfBirth: DateTime.parse("1991-08-25"),
+            kycStatus: KycStatus.Verified
+        });
+        cust.save();
+        let Account acct = accountDb.Account.create({
+            accountNumber: "ACC-TEST-008",
+            customerId: cust.id,
+            type: AccountType.Checking,
+            status: AccountStatus.Frozen,
+            balance: Money.of(1500, Currency.USD),
+            currency: Currency.USD
+        });
+        acct.save();
+        acct.unfreeze();
+        assert acct.status == AccountStatus.Active;
+    }
+
+    test("close requires zero balance") {
+        let Customer cust = accountDb.Customer.create({
+            firstName: "George",
+            lastName: "Chen",
+            email: "george.chen@test.com",
+            ssn: "77788899922",
+            dateOfBirth: DateTime.parse("1979-12-30"),
+            kycStatus: KycStatus.Verified
+        });
+        cust.save();
+        let Account acct = accountDb.Account.create({
+            accountNumber: "ACC-TEST-009",
+            customerId: cust.id,
+            type: AccountType.Checking,
+            status: AccountStatus.Active,
+            balance: Money.of(500, Currency.USD),
+            currency: Currency.USD
+        });
+        acct.save();
+        assert throws(
+            () => acct.close("Customer requested closure"),
+            ValidationException("Cannot close account with non-zero balance: 500")
+        );
+    }
+
+    test("validation rejects empty first name") {
+        assert throws(
+            () => accountDb.Customer.create({
+                firstName: "",
+                lastName: "Williams",
+                email: "empty.first@test.com",
+                ssn: "88899900033",
+                dateOfBirth: DateTime.parse("1993-06-14"),
+                kycStatus: KycStatus.Pending
+            }),
+            ValidationError("First name cannot be empty")
+        );
+    }
+
+    test("validation rejects empty last name") {
+        assert throws(
+            () => accountDb.Customer.create({
+                firstName: "Hannah",
+                lastName: "",
+                email: "empty.last@test.com",
+                ssn: "99900011144",
+                dateOfBirth: DateTime.parse("1987-02-08"),
+                kycStatus: KycStatus.Pending
+            }),
+            ValidationError("Last name cannot be empty")
+        );
+    }
 }

@@ -414,6 +414,211 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
         assert emitted(RecordCreated(record.id, record.patientId, record.type, record.providerId));
     }
 
+    test("computed isDraft for Draft status") {
+        let MedicalRecord record = medicalRecordDb.MedicalRecord.create({
+            patientId: uuid(),
+            providerName: "Dr. Ivanova",
+            type: RecordType.Consultation,
+            title: "Initial Consultation Draft",
+            content: "Patient presents with recurring symptoms",
+            recordDate: now(),
+            status: RecordStatus.Draft
+        });
+        record.save();
+        assert record.isDraft == true;
+    }
+
+    test("computed isFinal for Final status") {
+        let MedicalRecord record = medicalRecordDb.MedicalRecord.create({
+            patientId: uuid(),
+            providerName: "Dr. Kowalski",
+            type: RecordType.Diagnosis,
+            title: "Finalized Diagnosis",
+            content: "Confirmed diagnosis after lab results",
+            recordDate: now(),
+            status: RecordStatus.Final
+        });
+        record.save();
+        assert record.isFinal == true;
+    }
+
+    test("computed canEdit for Draft status") {
+        let MedicalRecord record = medicalRecordDb.MedicalRecord.create({
+            patientId: uuid(),
+            providerName: "Dr. Nakamura",
+            type: RecordType.Note,
+            title: "Editable Draft Note",
+            content: "Work in progress note",
+            recordDate: now(),
+            status: RecordStatus.Draft
+        });
+        record.save();
+        assert record.canEdit == true;
+    }
+
+    test("finalize transitions Draft to Final") {
+        let MedicalRecord record = medicalRecordDb.MedicalRecord.create({
+            patientId: uuid(),
+            providerName: "Dr. Mbeki",
+            type: RecordType.LabResult,
+            title: "Blood Panel Results",
+            content: "All markers within normal range",
+            recordDate: now(),
+            status: RecordStatus.Draft
+        });
+        record.save();
+        record.finalize();
+        assert record.status == RecordStatus.Final;
+    }
+
+    test("amend transitions Final to Amended") {
+        let MedicalRecord record = medicalRecordDb.MedicalRecord.create({
+            patientId: uuid(),
+            providerName: "Dr. Johansson",
+            type: RecordType.Diagnosis,
+            title: "Amended Diagnosis Record",
+            content: "Original diagnosis content",
+            recordDate: now(),
+            status: RecordStatus.Final
+        });
+        record.save();
+        record.amend("Updated after additional test results");
+        assert record.status == RecordStatus.Amended;
+    }
+
+    test("void transitions to Voided") {
+        let MedicalRecord record = medicalRecordDb.MedicalRecord.create({
+            patientId: uuid(),
+            providerName: "Dr. Reeves",
+            type: RecordType.Note,
+            title: "Record To Be Voided",
+            content: "This record was entered in error",
+            recordDate: now(),
+            status: RecordStatus.Draft
+        });
+        record.save();
+        record.void("Entered on wrong patient chart");
+        assert record.status == RecordStatus.Voided;
+    }
+
+    test("afterCreate emits RecordCreated") {
+        let MedicalRecord record = medicalRecordDb.MedicalRecord.create({
+            patientId: uuid(),
+            providerName: "Dr. Larsson",
+            type: RecordType.Procedure,
+            title: "Procedure Note",
+            content: "Minor procedure completed without complications",
+            recordDate: now()
+        });
+        record.save();
+        assert emitted(RecordCreated(record.id, record.patientId, record.type, record.providerId));
+    }
+
+    test("afterUpdate emits RecordFinalized when Final") {
+        let MedicalRecord record = medicalRecordDb.MedicalRecord.create({
+            patientId: uuid(),
+            providerName: "Dr. Santos",
+            type: RecordType.Imaging,
+            title: "MRI Report",
+            content: "No abnormalities detected in scan",
+            recordDate: now(),
+            status: RecordStatus.Draft
+        });
+        record.save();
+        record.finalize();
+        assert emitted(RecordFinalized(record.id, record.patientId, record.type));
+    }
+
+    test("prescription computed isActive for active non-expired prescription") {
+        let Prescription rx = medicalRecordDb.Prescription.create({
+            patientId: uuid(),
+            prescribingDoctor: "Dr. Eriksson",
+            medicationName: "Amoxicillin 500mg",
+            quantity: 30,
+            startDate: now(),
+            endDate: now().addDays(90),
+            refillsAllowed: 3,
+            status: PrescriptionStatus.Active
+        });
+        rx.save();
+        assert rx.isActive == true;
+    }
+
+    test("prescription computed hasRefillsRemaining when refillsUsed less than refillsAllowed") {
+        let Prescription rx = medicalRecordDb.Prescription.create({
+            patientId: uuid(),
+            prescribingDoctor: "Dr. Moreau",
+            medicationName: "Lisinopril 10mg",
+            quantity: 60,
+            startDate: now(),
+            refillsAllowed: 5,
+            refillsUsed: 2,
+            status: PrescriptionStatus.Active
+        });
+        rx.save();
+        assert rx.hasRefillsRemaining == true;
+    }
+
+    test("prescription computed refillsRemaining calculates correctly") {
+        let Prescription rx = medicalRecordDb.Prescription.create({
+            patientId: uuid(),
+            prescribingDoctor: "Dr. Okonkwo",
+            medicationName: "Metformin 850mg",
+            quantity: 90,
+            startDate: now(),
+            refillsAllowed: 6,
+            refillsUsed: 2,
+            status: PrescriptionStatus.Active
+        });
+        rx.save();
+        assert rx.refillsRemaining == 4;
+    }
+
+    test("prescription refill increments refillsUsed") {
+        let Prescription rx = medicalRecordDb.Prescription.create({
+            patientId: uuid(),
+            prescribingDoctor: "Dr. Brennan",
+            medicationName: "Atorvastatin 20mg",
+            quantity: 30,
+            startDate: now(),
+            refillsAllowed: 3,
+            refillsUsed: 0,
+            status: PrescriptionStatus.Active
+        });
+        rx.save();
+        rx.refill();
+        assert rx.refillsUsed == 1;
+    }
+
+    test("prescription discontinue sets Discontinued status") {
+        let Prescription rx = medicalRecordDb.Prescription.create({
+            patientId: uuid(),
+            prescribingDoctor: "Dr. Vasquez",
+            medicationName: "Omeprazole 40mg",
+            quantity: 30,
+            startDate: now(),
+            refillsAllowed: 2,
+            status: PrescriptionStatus.Active
+        });
+        rx.save();
+        rx.discontinue("Adverse reaction reported");
+        assert rx.status == PrescriptionStatus.Cancelled;
+    }
+
+    test("afterCreate emits PrescriptionCreated for new prescription") {
+        let Prescription rx = medicalRecordDb.Prescription.create({
+            patientId: uuid(),
+            prescribingDoctor: "Dr. Lindqvist",
+            medicationName: "Amlodipine 5mg",
+            quantity: 60,
+            startDate: now(),
+            refillsAllowed: 4,
+            status: PrescriptionStatus.Active
+        });
+        rx.save();
+        assert emitted(PrescriptionCreated(rx.id, rx.patientId, rx.medicationName, rx.prescribingDoctor));
+    }
+
     rest_api MedicalRecordAPI : basePath('/api/v1/records') {
         alert responseTime(p95) over(5m) > 500ms @severity(warning);
         alert errorRate(ratio) over(5m) > 5% @severity(critical);

@@ -3,7 +3,7 @@
 // Read-only `uses` on a shared rdbms block (qualified access is type-checked;
 // runtime queries against shared schemas are wired like local blocks once deployed).
 service library.ReportService('config/report-service.yaml') : version('1.0.0'), description('Reports from shared reference data') {
-    uses AviationReferenceData.aviation_db : readonly;
+    uses ProductCatalogData.catalog_db : readonly;
 
     rdbms reportMeta {
         entity ReportWatermark {

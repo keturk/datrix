@@ -61,6 +61,39 @@ service library.LoanService('config/loan-service.yaml') : version('1.0.0'), desc
         }
     }
 
+    test("computed isOverdue is true when status is Overdue") {
+        let loanDb.Loan loan = loanDb.Loan.create({
+            bookId: uuid(),
+            memberId: uuid(),
+            status: LoanStatus.Overdue,
+            dueDate: now().addDays(7)
+        });
+        loan.save();
+        assert loan.isOverdue == true;
+    }
+
+    test("computed isOverdue is false when status is Returned") {
+        let loanDb.Loan loan = loanDb.Loan.create({
+            bookId: uuid(),
+            memberId: uuid(),
+            status: LoanStatus.Returned,
+            dueDate: now().subtractDays(7)
+        });
+        loan.save();
+        assert loan.isOverdue == false;
+    }
+
+    test("validation rejects empty idempotency key") {
+        assert throws(
+            () => loanDb.IdempotencyKey.create({
+                key: "",
+                operation: "create_loan",
+                expiresAt: now().addHours(24)
+            }),
+            ValidationError("Idempotency key cannot be empty")
+        );
+    }
+
     rest_api LoanAPI : basePath("/api/v1/loans") {
         // @retry automatically retries failed requests up to maxAttempts
         // @timeout sets a maximum response time for the endpoint

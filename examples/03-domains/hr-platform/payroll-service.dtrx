@@ -493,4 +493,104 @@ service hr.PayrollService('config/payroll-service.yaml') : version('1.0.0'), des
         run.complete();
         assert emitted(PayrollCompleted(run.id, run.payrollRef, PayPeriod.Monthly, run.totalGross, run.totalNet, 15));
     }
+
+    test("computed netPayroll calculates gross minus deductions") {
+        let payrollDb.PayrollRun run = payrollDb.PayrollRun.create({
+            payrollRef: "PAY-TEST-005",
+            payPeriod: PayPeriod.BiWeekly,
+            periodStart: DateTime.parse("2024-04-01"),
+            periodEnd: DateTime.parse("2024-04-14"),
+            status: PayrollStatus.Pending,
+            totalGross: Money.of(30000, "USD"),
+            totalDeductions: Money.of(7500, "USD"),
+            totalNet: Money.of(22500, "USD"),
+            entryCount: 8
+        });
+        run.save();
+        assert run.netPayroll == Money.of(22500, "USD");
+    }
+
+    test("startProcessing transitions Pending to Processing") {
+        let payrollDb.PayrollRun run = payrollDb.PayrollRun.create({
+            payrollRef: "PAY-TEST-006",
+            payPeriod: PayPeriod.Weekly,
+            periodStart: DateTime.parse("2024-05-01"),
+            periodEnd: DateTime.parse("2024-05-07"),
+            status: PayrollStatus.Pending,
+            totalGross: Money.of(12000, "USD"),
+            totalDeductions: Money.of(3000, "USD"),
+            totalNet: Money.of(9000, "USD"),
+            entryCount: 3
+        });
+        run.save();
+        run.startProcessing();
+        assert run.status == PayrollStatus.Processing;
+    }
+
+    test("complete transitions Processing to Completed") {
+        let payrollDb.PayrollRun run = payrollDb.PayrollRun.create({
+            payrollRef: "PAY-TEST-007",
+            payPeriod: PayPeriod.Monthly,
+            periodStart: DateTime.parse("2024-06-01"),
+            periodEnd: DateTime.parse("2024-06-30"),
+            status: PayrollStatus.Processing,
+            totalGross: Money.of(45000, "USD"),
+            totalDeductions: Money.of(11000, "USD"),
+            totalNet: Money.of(34000, "USD"),
+            entryCount: 12
+        });
+        run.save();
+        run.complete();
+        assert run.status == PayrollStatus.Completed;
+    }
+
+    test("fail sets status to Failed") {
+        let payrollDb.PayrollRun run = payrollDb.PayrollRun.create({
+            payrollRef: "PAY-TEST-008",
+            payPeriod: PayPeriod.BiWeekly,
+            periodStart: DateTime.parse("2024-07-01"),
+            periodEnd: DateTime.parse("2024-07-14"),
+            status: PayrollStatus.Processing,
+            totalGross: Money.of(20000, "USD"),
+            totalDeductions: Money.of(5000, "USD"),
+            totalNet: Money.of(15000, "USD"),
+            entryCount: 6
+        });
+        run.save();
+        run.fail("Bank transfer system unavailable");
+        assert run.status == PayrollStatus.Failed;
+    }
+
+    test("afterUpdate emits PayrollCompleted when status changes to Completed") {
+        let payrollDb.PayrollRun run = payrollDb.PayrollRun.create({
+            payrollRef: "PAY-TEST-009",
+            payPeriod: PayPeriod.Weekly,
+            periodStart: DateTime.parse("2024-08-01"),
+            periodEnd: DateTime.parse("2024-08-07"),
+            status: PayrollStatus.Processing,
+            totalGross: Money.of(18000, "USD"),
+            totalDeductions: Money.of(4500, "USD"),
+            totalNet: Money.of(13500, "USD"),
+            entryCount: 4
+        });
+        run.save();
+        run.complete();
+        assert emitted(PayrollCompleted(run.id, "PAY-TEST-009", PayPeriod.Weekly, Money.of(18000, "USD"), Money.of(13500, "USD"), 4));
+    }
+
+    test("validation rejects negative entry count") {
+        assert throws(
+            () => payrollDb.PayrollRun.create({
+                payrollRef: "PAY-TEST-010",
+                payPeriod: PayPeriod.Monthly,
+                periodStart: DateTime.parse("2024-09-01"),
+                periodEnd: DateTime.parse("2024-09-30"),
+                totalGross: Money.of(50000, "USD"),
+                totalDeductions: Money.of(10000, "USD"),
+                totalNet: Money.of(40000, "USD"),
+                entryCount: -1
+            }),
+            ValidationError("Entry count cannot be negative")
+        );
+    }
 }

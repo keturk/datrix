@@ -106,4 +106,42 @@ service blog.CommentService('config/comment-service.yaml') : version('1.0.0'), d
         comment.save();
         assert comment.isVisible == true;
     }
+
+    test("computed isApproved is false for Pending status") {
+        let Comment comment = commentDb.Comment.create({
+            contentId: uuid(),
+            authorName: "PendingAuthor",
+            authorEmail: "pending.spec@example.com",
+            body: "Pending comment",
+            status: CommentStatus.Pending
+        });
+        comment.save();
+        assert comment.isApproved == false;
+    }
+
+    test("computed isVisible is false for Rejected status") {
+        let Comment comment = commentDb.Comment.create({
+            contentId: uuid(),
+            authorName: "RejectedAuthor",
+            authorEmail: "rejected.spec@example.com",
+            body: "Rejected comment",
+            status: CommentStatus.Rejected
+        });
+        comment.save();
+        assert comment.isVisible == false;
+    }
+
+    test("afterUpdate emits CommentApproved when status changes to Approved") {
+        let Comment comment = commentDb.Comment.create({
+            contentId: uuid(),
+            authorName: "ApprovalAuthor",
+            authorEmail: "approval.spec@example.com",
+            body: "Comment awaiting approval",
+            status: CommentStatus.Pending
+        });
+        comment.save();
+        comment.status = CommentStatus.Approved;
+        comment.save();
+        assert emitted(CommentApproved(comment.id, comment.contentId));
+    }
 }

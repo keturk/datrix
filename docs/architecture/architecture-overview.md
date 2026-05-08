@@ -137,7 +137,7 @@ Details and generator APIs: [code-generation.md](../../../datrix-common/docs/arc
 
 - **Background jobs** — DSL `jobs` blocks plus resolved `JobsConfig` drive `JobsGenerator` (`datrix_codegen_python.generators.messaging.jobs_generator`): APScheduler wiring (`jobs/scheduler.py`, `jobs/runner.py`, `jobs/config.py`), transpiled job bodies via `PythonTranspiler`, timeout/retry/DLQ from config. For Python on Docker, `ComposeBuilder` (`datrix_codegen_docker.generators.compose.compose_builder`) adds a `<compose-service>-worker` that runs `python -m <package>.jobs.scheduler` (no HTTP port, shared env/infra deps).
 
-- **Alembic initial schema** — `MigrationGenerator` (`datrix_codegen_python.generators.persistence.migration_generator`) emits per-RDBMS-block Alembic trees and `0001_initial_schema.py` with explicit `op.create_table()` / column DDL from `OrmTypeResolver` and `build_initial_migration_context` (`_migration_schema.py`); table creation order is topologically sorted from foreign keys.
+- **Alembic initial schema** — `MigrationGenerator` (`datrix_codegen_python.generators.persistence.migration_generator`) emits per-RDBMS-block Alembic trees and `0001_initial_schema.py` with explicit `op.create_table()` / column DDL from `OrmTypeResolver` and `build_initial_migration_context` (`_migration_schema.py`); table creation order is topologically sorted from foreign keys. When `schema` is configured on the RDBMS block, migrations include `CREATE SCHEMA IF NOT EXISTS`, pass `schema=` to all DDL operations, and scope the Alembic version table to the service schema.
 
 - **Seed data** — Optional `config/seed-data.yaml` in the generated service tree is read by `SeedGenerator` (`datrix_codegen_python.generators.persistence.seed_generator`), which emits `seed.py` and packaged `seed_data.yaml` with PostgreSQL idempotent inserts (`ON CONFLICT … DO NOTHING`).
 
@@ -215,6 +215,107 @@ service CatalogService {
 **Azure AI Search type mapping:** Elasticsearch field types, analyzers, and boost weights are translated to Azure AI Search equivalents. `boost` values become scoring profiles (an index-level construct). Language-specific analyzers map to `.lucene` variants (e.g., `"english"` → `"en.lucene"`). The mapping is exhaustive and fails fast on unsupported types.
 
 **`fulltext()` entity modifier** remains for database-native full-text indexes (PostgreSQL GIN / MySQL FULLTEXT). The `search` block targets external search engines with relevance scoring, faceted search, autocomplete, and multi-entity indexes — a different performance tier.
+
+### CDN / Content Delivery
+
+Datrix supports CDN configuration through `cdn` blocks in services and shared containers. A `cdn` block declares a CDN distribution with named origins, cache behaviors, and optional custom domains.
+
+**DSL syntax:**
+
+```datrix
+service frontend.WebService : version('1.0.0') {
+    storage mediaStore('config/storage.yaml') {
+        bucket StaticAssets { ... }
+        bucket UserUploads { ... }
+    }
+    rest_api WebAPI : basePath('/api/v1') { ... }
+
+    cdn WebCDN('config/cdn.yaml') {
+        origin StaticAssets {
+            source: mediaStore.StaticAssets
+            cacheTtl: 86400
+            pathPattern: '/static/*'
+        }
+        origin UserMedia {
+            source: mediaStore.UserUploads
+            cacheTtl: 3600
+            pathPattern: '/media/*'
+        }
+        origin API {
+            source: WebAPI
+            cacheTtl: 60
+            pathPattern: '/api/*'
+            forwardHeaders: ['Authorization']
+            forwardQueryStrings: true
+        }
+        defaultOrigin: API
+        customDomain: 'cdn.example.com'
+    }
+}
+```
+
+**Multi-platform code generation:**
+
+| Platform | CDN Service | Generated Artifacts |
+|----------|-------------|---------------------|
+| Docker Compose | Varnish cache proxy (simulates edge caching) | Varnish container + VCL configuration |
+| Kubernetes | Ingress annotations (origin-compatible headers) | CDN-origin Ingress with CORS and cache-control annotations |
+| AWS | CloudFront distribution with OAC | CDK/CloudFormation: distribution, behaviors, OAC, optional ACM certificate |
+| Azure | Azure Front Door profile | Bicep: profile, endpoints, origin groups, routes, cache configuration |
+
+**Cache invalidation utilities:** When CDN is configured on AWS or Azure, language code generators (Python, TypeScript) emit platform-specific cache invalidation helper modules.
+
+**Origin types:** CDN origins can reference `storage` bucket sources (S3, Blob Storage) or `rest_api` endpoints (ALB, Container Apps). Each origin specifies its own cache TTL, path pattern, and header forwarding rules.
+
+**Custom domains and SSL:** When `customDomain` is set in CDN config, the platform generators provision SSL certificates automatically — ACM certificates in `us-east-1` for CloudFront (with DNS validation), or Front Door managed certificates for Azure.
+
+### Managed API Gateway
+
+Datrix supports managed API gateway infrastructure through a `gateway` block at the application level and a unified `gateway.yaml` configuration. When `type: managed` (or `type: kong` / `type: traefik`), platform generators emit cloud-managed or self-hosted API gateway resources with throttling, API keys, usage plans, request validation, response caching, WAF integration, and custom domain/TLS management.
+
+**DSL syntax (application-level `gateway` block):**
+
+```datrix
+application ecommerce.Ecommerce {
+    gateway : type('managed') {
+        throttle(1000, 2000);       // 1000 steady-state, 2000 burst per second
+
+        apiKeys {
+            plan BasicPlan : rateLimit(100, 'hour'), quota(1000, 'day');
+            plan ProPlan : rateLimit(1000, 'hour'), quota(50000, 'day');
+            plan EnterprisePlan : rateLimit(10000, 'hour'), quota(unlimited);
+        }
+
+        cache(ttl: 300);            // 300 seconds default TTL
+        waf : enabled;
+        domain('api.ecommerce-app.com');
+    }
+
+    service ecommerce.UserService { ... }
+    service ecommerce.OrderService { ... }
+}
+```
+
+Gateway configuration can also be specified entirely in `gateway.yaml` (profile-based, as with other config files) for users who prefer YAML over DSL-level gateway config. The `type` field in `GatewayProfileConfig` determines the gateway infrastructure: `nginx` (default, existing NGINX reverse proxy), `managed` (cloud-native: AWS API Gateway / Azure APIM), `kong` (Kong Gateway for Docker/K8s), or `traefik` (Traefik for K8s).
+
+**Multi-platform code generation:**
+
+| Platform | Gateway Service | Generated Artifacts |
+|----------|----------------|---------------------|
+| Docker Compose | Kong Gateway (declarative mode) when `type: managed`/`kong`; NGINX when `type: nginx` | Kong container + `kong.yml` declarative config with rate-limiting, key-auth, and proxy-cache plugins |
+| Kubernetes | Kong Ingress Controller CRDs or Traefik IngressRoute | KongPlugin CRDs (rate-limiting, key-auth) + annotated Ingress resources |
+| AWS | API Gateway REST API (full-featured) or HTTP API (throttling-only) | CDK/CloudFormation: REST API with usage plans, API keys, caching, VPC Link + NLB for ECS integration |
+| Azure | Azure API Management (APIM) | Bicep: APIM service, per-service APIs, products (usage plans), XML rate-limiting/quota policies |
+
+**AWS auto-selection:** The AWS generator uses REST API when any advanced feature is enabled (`apiKeys`, `cache`, `waf`) and HTTP API otherwise. REST API supports usage plans, API keys, request validation, response caching, and WAF association. HTTP API provides lower latency and cost for simple throttling and routing.
+
+**VPC Link for private integration:** On AWS, API Gateway communicates with ECS services through a VPC Link connected to a Network Load Balancer (NLB). The generator creates an NLB when API Gateway is used: API Gateway → VPC Link → NLB → ECS Target Groups.
+
+**WAF integration:** When `waf.enabled: true`, the AWS generator provisions a WAF Web ACL with `AWSManagedRulesCommonRuleSet` (general protection) and `AWSManagedRulesSQLiRuleSet` (SQL injection) managed rule groups, and associates it with the API Gateway stage.
+
+**Application-level awareness:** When behind a managed gateway, language generators (Python, TypeScript) emit trusted-proxy middleware so services correctly handle `X-Forwarded-For` and API key headers injected by the gateway. Application-level API key validation is omitted when gateway-level API key enforcement is enabled.
+
+**Backward compatibility with NGINX:** When `type: nginx` (or no gateway type specified), the existing NGINX generation path in `datrix-codegen-docker` runs unchanged. The managed gateway is opt-in.
 
 ---
 
@@ -309,16 +410,16 @@ Generates SQL DDL (PostgreSQL, MySQL)
 Generate infrastructure and deployment configurations.
 
 #### 8. datrix-codegen-docker
-Generates Dockerfiles and docker-compose.yml, including optional **job worker** services for Python services with jobs and **Elasticsearch** infrastructure plus index-init containers when search integration and searchable fields are present
+Generates Dockerfiles and docker-compose.yml, including optional **job worker** services for Python services with jobs, **Elasticsearch** infrastructure plus index-init containers when search integration and searchable fields are present, **Varnish** cache proxy containers when `cdn` blocks are configured (simulates edge caching for local development), **PgBouncer** containers when `connectionPooler.enabled: true` on RDBMS blocks (one PgBouncer container per consolidated database, with health check and dependency wiring), and **Kong Gateway** containers with declarative config when `gateway.type` is `managed` or `kong` (rate-limiting, key-auth, and proxy-cache plugins)
 
 #### 9. datrix-codegen-k8s
-Generates Kubernetes manifests (Deployment, Service, etc.) including Elasticsearch StatefulSets, headless Services, and search index init Jobs when `search` blocks are present
+Generates Kubernetes manifests (Deployment, Service, etc.) including Elasticsearch StatefulSets, headless Services, and search index init Jobs when `search` blocks are present, PgBouncer Deployment + ClusterIP Service + ConfigMap when `connectionPooler.enabled: true` on RDBMS blocks, and Kong Ingress Controller CRDs (KongPlugin resources for rate-limiting, key-auth) with annotated Ingress when `gateway.type` is `managed` or `kong`
 
 #### 10. datrix-codegen-aws
-Generates AWS infrastructure (CDK, CloudFormation) including VPC, ECS Fargate, RDS, ElastiCache, SNS/SQS, MSK (Kafka), DynamoDB, S3, ALB, and Amazon OpenSearch Service domains
+Generates AWS infrastructure (CDK, CloudFormation) including VPC, ECS Fargate, RDS, ElastiCache, SNS/SQS, MSK (Kafka), Amazon MQ (RabbitMQ), DynamoDB, Amazon DocumentDB (MongoDB), S3, ALB, Amazon OpenSearch Service domains, CloudFront CDN distributions (with OAC for S3 origins, custom domains, and SSL certificates), RDS Proxy resources when `connectionPooler.enabled: true` on RDBMS blocks, API Gateway (REST API or HTTP API) with usage plans, API keys, response caching, WAF Web ACL, VPC Link + NLB, and custom domains when `gateway.type` is `managed`, and AWS Cloud Map service discovery (private DNS namespace + ECS service registration for internal service-to-service communication)
 
 #### 11. datrix-codegen-azure
-Generates Azure infrastructure (Bicep, ARM templates) including Container Apps, Flexible Server, Cosmos DB, Service Bus, Event Hubs (Kafka), Azure Cache for Redis, Blob Storage, and Azure AI Search services
+Generates Azure infrastructure (Bicep, ARM templates) including Container Apps, Flexible Server, Cosmos DB, Service Bus, Event Hubs (Kafka), Azure Cache for Redis, Blob Storage, Azure AI Search services, Azure Front Door CDN profiles (with origin groups, routes, and cache configuration), built-in PgBouncer server parameters on Flexible Server when `connectionPooler.enabled: true` on RDBMS blocks, Azure API Management (APIM) with per-service APIs, products (usage plans), and XML rate-limiting/quota policies when `gateway.type` is `managed`, and Container Apps internal service discovery (peer traffic encryption, internal/external ingress, and peer service URL env vars)
 
 **Dependencies:**
 - `datrix-common` (AST model, configuration, generation framework, YAML/JSON builders)
@@ -422,8 +523,8 @@ A `.dtrx` application is built from **five** top-level container kinds (plus `in
 |-----------|---------|-----------------|
 | **`system { }`** | Application metadata | `config`, `discovery`, `use extension` |
 | **`module { }`** | Shared types and functions | `entity`, `enum`, `trait`, `struct`, `scalar`, `const`, `fn`, `exceptions`, `import` |
-| **`service { }`** | Deployable microservice | Everything in **module** scope **plus** infrastructure (`rdbms`, `nosql`, `cache`, `pubsub`, `storage`, `queues`, `search`), APIs, jobs, CQRS, **`subscribe`** (service-level), **`uses`**, `enqueue`, `test`, service `config` / `discovery` |
-| **`shared { }`** | **Cross-service infrastructure** | `rdbms`, `nosql`, `cache`, `pubsub`, `storage`, `queues`, `search` only — **no** APIs, jobs, CQRS, or `subscribe` |
+| **`service { }`** | Deployable microservice | Everything in **module** scope **plus** infrastructure (`rdbms`, `nosql`, `cache`, `pubsub`, `storage`, `queues`, `search`, `cdn`), APIs, jobs, CQRS, **`subscribe`** (service-level), **`uses`**, `enqueue`, `test`, service `config` / `discovery` |
+| **`shared { }`** | **Cross-service infrastructure** | `rdbms`, `nosql`, `cache`, `pubsub`, `storage`, `queues`, `search`, `cdn` only — **no** APIs, jobs, CQRS, or `subscribe` |
 | **`extern service { }`** | **External library/tool contract** | `struct`, `enum`, `rest_api` (signature-only endpoints), `errors`, `auth`, `health` — **no** infrastructure blocks, no implementation bodies |
 
 **Messaging:** Topics and **`publish`** events live under **`pubsub`** blocks (whether owned by a service or a **`shared`** block). **`subscribe { … }`** is always a **direct child of `service { }`**, not nested inside `pubsub`. Services declare which other containers they depend on with **`uses SharedOrServiceName : modifiers;`**. Infrastructure blocks navigate to their owner via **`block.container()`** (`Service` or `Shared`). See [datrix-language — Service blocks reference](../../../datrix-language/docs/reference/datrix-service-blocks.md) and [design/shared-block.md](../../../design/shared-block.md).

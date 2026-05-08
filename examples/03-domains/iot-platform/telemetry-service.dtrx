@@ -624,4 +624,150 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
             ValidationError("Alert rule must target either a device or a device group")
         );
     }
+
+    test("computed isActive is false for Acknowledged alert") {
+        let Alert alert = alertDb.Alert.create({
+            deviceId: uuid(),
+            severity: AlertSeverity.Info,
+            status: AlertStatus.Acknowledged,
+            condition: "signalStrength < 20",
+            message: "Weak signal detected"
+        });
+        alert.save();
+        assert alert.isActive == false;
+    }
+
+    test("computed isCritical is false for Warning severity") {
+        let Alert alert = alertDb.Alert.create({
+            deviceId: uuid(),
+            severity: AlertSeverity.Warning,
+            status: AlertStatus.Active,
+            condition: "temperature > 40",
+            message: "Temperature above normal"
+        });
+        alert.save();
+        assert alert.isCritical == false;
+    }
+
+    test("validation rejects empty alert message") {
+        assert throws(
+            () => alertDb.Alert.create({
+                deviceId: uuid(),
+                severity: AlertSeverity.Error,
+                condition: "humidity > 95",
+                message: ""
+            }),
+            ValidationError("Alert message cannot be empty")
+        );
+    }
+
+    test("acknowledge sets status and acknowledgedAt") {
+        let Alert alert = alertDb.Alert.create({
+            deviceId: uuid(),
+            severity: AlertSeverity.Warning,
+            status: AlertStatus.Active,
+            condition: "pressure < 900",
+            message: "Low pressure warning"
+        });
+        alert.save();
+        alert.acknowledge("Investigating the issue");
+        assert alert.status == AlertStatus.Acknowledged;
+        assert alert.acknowledgedAt != null;
+        assert alert.notes == "Investigating the issue";
+    }
+
+    test("resolve sets status to Resolved and resolvedAt") {
+        let Alert alert = alertDb.Alert.create({
+            deviceId: uuid(),
+            severity: AlertSeverity.Error,
+            status: AlertStatus.Active,
+            condition: "batteryLevel < 10",
+            message: "Battery low"
+        });
+        alert.save();
+        alert.resolve();
+        assert alert.status == AlertStatus.Resolved;
+        assert alert.resolvedAt != null;
+    }
+
+    test("status change emits AlertStatusChanged") {
+        let Alert alert = alertDb.Alert.create({
+            deviceId: uuid(),
+            severity: AlertSeverity.Warning,
+            status: AlertStatus.Active,
+            condition: "humidity > 80",
+            message: "High humidity alert"
+        });
+        alert.save();
+        alert.status = AlertStatus.Resolved;
+        alert.save();
+        assert emitted(AlertStatusChanged(alert.id, alert.deviceId, AlertStatus.Active, AlertStatus.Resolved));
+    }
+
+    test("computed isDeviceRule when deviceId is set") {
+        let AlertRule rule = alertDb.AlertRule.create({
+            deviceId: uuid(),
+            metricName: "temperature",
+            operator: ComparisonOperator.GreaterThan,
+            threshold: 45.0,
+            severity: AlertSeverity.Warning
+        });
+        rule.save();
+        assert rule.isDeviceRule == true;
+        assert rule.isGroupRule == false;
+    }
+
+    test("computed isGroupRule when deviceGroupId is set") {
+        let AlertRule rule = alertDb.AlertRule.create({
+            deviceGroupId: uuid(),
+            metricName: "humidity",
+            operator: ComparisonOperator.LessThan,
+            threshold: 20.0,
+            severity: AlertSeverity.Info
+        });
+        rule.save();
+        assert rule.isGroupRule == true;
+        assert rule.isDeviceRule == false;
+    }
+
+    test("shouldTrigger returns true when value exceeds GreaterThan threshold") {
+        let AlertRule rule = alertDb.AlertRule.create({
+            deviceId: uuid(),
+            metricName: "temperature",
+            operator: ComparisonOperator.GreaterThan,
+            threshold: 50.0,
+            severity: AlertSeverity.Critical,
+            isEnabled: true
+        });
+        rule.save();
+        assert rule.shouldTrigger(55.0) == true;
+        assert rule.shouldTrigger(50.0) == false;
+        assert rule.shouldTrigger(45.0) == false;
+    }
+
+    test("shouldTrigger returns false when rule is disabled") {
+        let AlertRule rule = alertDb.AlertRule.create({
+            deviceId: uuid(),
+            metricName: "batteryLevel",
+            operator: ComparisonOperator.LessThan,
+            threshold: 10.0,
+            severity: AlertSeverity.Warning,
+            isEnabled: false
+        });
+        rule.save();
+        assert rule.shouldTrigger(5.0) == false;
+    }
+
+    test("validation rejects empty metric name on rule") {
+        assert throws(
+            () => alertDb.AlertRule.create({
+                deviceId: uuid(),
+                metricName: "",
+                operator: ComparisonOperator.GreaterThan,
+                threshold: 100.0,
+                severity: AlertSeverity.Warning
+            }),
+            ValidationError("Metric name cannot be empty")
+        );
+    }
 }

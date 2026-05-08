@@ -41,7 +41,7 @@ base:
   dependencies:
     services: {}
     shared:
-      AviationReferenceData: {}
+      ProductCatalogData: {}
 production:
   platform: ecs-fargate
   replicas: 2

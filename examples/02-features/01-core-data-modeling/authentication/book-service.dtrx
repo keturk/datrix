@@ -224,4 +224,43 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         book.save();
         assert book.catalogNumber != null;
     }
+
+    test("computed titleLower returns lowercase title") {
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatLower" });
+        cat.save();
+        let bookDb.Book book = bookDb.Book.create({
+            title: "Clean Architecture",
+            isbn: "9780134494166",
+            author: "Robert Martin",
+            publicationYear: 2017,
+            categoryId: cat.id
+        });
+        book.save();
+        assert book.titleLower == "clean architecture";
+    }
+
+    test("computed keywordCount reflects array length") {
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatKwCnt" });
+        cat.save();
+        let bookDb.Book book = bookDb.Book.create({
+            title: "TDD By Example",
+            isbn: "9780321146533",
+            author: "Kent Beck",
+            publicationYear: 2002,
+            keywords: ["testing", "tdd", "xp"],
+            categoryId: cat.id
+        });
+        book.save();
+        assert book.keywordCount == 3;
+    }
+
+    test("user beforeCreate hashes password") {
+        let bookDb.User user = bookDb.User.create({
+            email: "spec.user@example.com",
+            passwordHash: Auth.hashPassword("plaintext123"),
+            role: UserRole.Member
+        });
+        user.save();
+        assert user.passwordHash != "plaintext123";
+    }
 }

@@ -583,7 +583,7 @@ service ecommerce.InventoryService : version('1.0.0') {
 
 ### Pattern: Shared infrastructure (`shared { }`)
 
-**When to use:** Put **pubsub**, **rdbms**, **cache**, **storage**, **queues**, or **nosql** under a top-level **`shared Name { … }`** when **multiple services** must publish, subscribe, or query the **same** broker, schema, bucket, or queue contract. Examples: one **`topic`** for ingestion events shared by many writers; reference **RDBMS** entities (airport tables) read-only from several services; a **cache** used for rate limits across an edge tier.
+**When to use:** Put **pubsub**, **rdbms**, **cache**, **storage**, **queues**, or **nosql** under a top-level **`shared Name { … }`** when **multiple services** must publish, subscribe, or query the **same** broker, schema, bucket, or queue contract. Examples: one **`topic`** for ingestion events shared by many writers; reference **RDBMS** entities (product tables) read-only from several services; a **cache** used for rate limits across an edge tier.
 
 **When not to use:** If only **one** service touches a resource, keep the block **inside that service** — shared blocks add cross-service coupling and require explicit **`uses`** on every consumer/producer.
 

@@ -366,4 +366,181 @@ service realestate.ViewingService('config/viewing-service.yaml') : version('1.0.
             ValidationException("Cannot cancel a completed or already cancelled viewing")
         );
     }
+
+    test("computed isPending is true for Confirmed status") {
+        let Viewing viewing = viewingDb.Viewing.create({
+            listingId: uuid(),
+            clientName: "Carlos Rivera",
+            clientEmail: "carlos@example.com",
+            scheduledAt: now().addDays(4),
+            status: ViewingStatus.Confirmed
+        });
+        viewing.save();
+        assert viewing.isPending == true;
+    }
+
+    test("computed isPending is false for Completed status") {
+        let Viewing viewing = viewingDb.Viewing.create({
+            listingId: uuid(),
+            clientName: "Diana Ross",
+            clientEmail: "diana@example.com",
+            scheduledAt: now().addDays(1),
+            status: ViewingStatus.Completed
+        });
+        viewing.save();
+        assert viewing.isPending == false;
+    }
+
+    test("computed isCompleted for Completed status") {
+        let Viewing viewing = viewingDb.Viewing.create({
+            listingId: uuid(),
+            clientName: "Edward Norton",
+            clientEmail: "edward@example.com",
+            scheduledAt: now().addDays(2),
+            status: ViewingStatus.Completed,
+            completedAt: now()
+        });
+        viewing.save();
+        assert viewing.isCompleted == true;
+    }
+
+    test("computed isCompleted is false for Scheduled status") {
+        let Viewing viewing = viewingDb.Viewing.create({
+            listingId: uuid(),
+            clientName: "Fiona Apple",
+            clientEmail: "fiona@example.com",
+            scheduledAt: now().addDays(6),
+            status: ViewingStatus.Scheduled
+        });
+        viewing.save();
+        assert viewing.isCompleted == false;
+    }
+
+    test("confirm fn transitions Scheduled to Confirmed") {
+        let Viewing viewing = viewingDb.Viewing.create({
+            listingId: uuid(),
+            clientName: "George Martin",
+            clientEmail: "george@example.com",
+            scheduledAt: now().addDays(3),
+            status: ViewingStatus.Scheduled
+        });
+        viewing.save();
+        viewing.confirm();
+        assert viewing.status == ViewingStatus.Confirmed;
+    }
+
+    test("confirm fails for non-scheduled viewing") {
+        let Viewing viewing = viewingDb.Viewing.create({
+            listingId: uuid(),
+            clientName: "Hannah Lee",
+            clientEmail: "hannah@example.com",
+            scheduledAt: now().addDays(2),
+            status: ViewingStatus.Confirmed
+        });
+        viewing.save();
+        assert throws(
+            () => viewing.confirm(),
+            ValidationException("Only scheduled viewings can be confirmed")
+        );
+    }
+
+    test("complete fn sets status, completedAt, feedback, and rating") {
+        let Viewing viewing = viewingDb.Viewing.create({
+            listingId: uuid(),
+            clientName: "Isaac Newton",
+            clientEmail: "isaac@example.com",
+            scheduledAt: now().addDays(1),
+            status: ViewingStatus.Confirmed
+        });
+        viewing.save();
+        viewing.complete("Great property, loved the yard", 5);
+        assert viewing.status == ViewingStatus.Completed;
+        assert viewing.completedAt != null;
+        assert viewing.feedback == "Great property, loved the yard";
+        assert viewing.rating == 5;
+    }
+
+    test("complete fails for cancelled viewing") {
+        let Viewing viewing = viewingDb.Viewing.create({
+            listingId: uuid(),
+            clientName: "Julia Roberts",
+            clientEmail: "julia@example.com",
+            scheduledAt: now().addDays(5),
+            status: ViewingStatus.Cancelled
+        });
+        viewing.save();
+        assert throws(
+            () => viewing.complete("Test feedback", 3),
+            ValidationException("Only scheduled or confirmed viewings can be completed")
+        );
+    }
+
+    test("cancel sets status and cancellation reason") {
+        let Viewing viewing = viewingDb.Viewing.create({
+            listingId: uuid(),
+            clientName: "Kevin Hart",
+            clientEmail: "kevin@example.com",
+            scheduledAt: now().addDays(4),
+            status: ViewingStatus.Scheduled
+        });
+        viewing.save();
+        viewing.cancel("Schedule conflict");
+        assert viewing.status == ViewingStatus.Cancelled;
+        assert viewing.cancellationReason == "Schedule conflict";
+    }
+
+    test("markNoShow sets status to NoShow") {
+        let Viewing viewing = viewingDb.Viewing.create({
+            listingId: uuid(),
+            clientName: "Linda Carter",
+            clientEmail: "linda@example.com",
+            scheduledAt: now().addDays(1),
+            status: ViewingStatus.Confirmed
+        });
+        viewing.save();
+        viewing.markNoShow();
+        assert viewing.status == ViewingStatus.NoShow;
+    }
+
+    test("markNoShow fails for cancelled viewing") {
+        let Viewing viewing = viewingDb.Viewing.create({
+            listingId: uuid(),
+            clientName: "Michael Scott",
+            clientEmail: "michael@example.com",
+            scheduledAt: now().addDays(3),
+            status: ViewingStatus.Cancelled
+        });
+        viewing.save();
+        assert throws(
+            () => viewing.markNoShow(),
+            ValidationException("Only scheduled or confirmed viewings can be marked as no-show")
+        );
+    }
+
+    test("status change emits ViewingStatusChanged") {
+        let Viewing viewing = viewingDb.Viewing.create({
+            listingId: uuid(),
+            clientName: "Nancy Drew",
+            clientEmail: "nancy@example.com",
+            scheduledAt: now().addDays(7),
+            status: ViewingStatus.Scheduled
+        });
+        viewing.save();
+        viewing.status = ViewingStatus.Confirmed;
+        viewing.save();
+        assert emitted(ViewingStatusChanged(viewing.id, viewing.listingId, ViewingStatus.Scheduled, ViewingStatus.Confirmed));
+    }
+
+    test("validation rejects invalid rating above 5") {
+        assert throws(
+            () => viewingDb.Viewing.create({
+                listingId: uuid(),
+                clientName: "Oscar Wilde",
+                clientEmail: "oscar@example.com",
+                scheduledAt: now().addDays(2),
+                rating: 6
+            }),
+            ValidationError("Rating must be between 1 and 5")
+        );
+    }
 }

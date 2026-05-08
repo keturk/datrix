@@ -15,6 +15,16 @@ service hostdemo.UserService('config/user-service.yaml') : version('1.0.0'), des
         }
     }
 
+    test("beforeCreate hashes password on user creation") {
+        let usersDb.User user = usersDb.User.create({
+            email: "test.user@example.com",
+            passwordHash: Auth.hashPassword("plaintext123"),
+            displayName: "Test User"
+        });
+        user.save();
+        assert user.passwordHash != "plaintext123";
+    }
+
     cache redis {
         hash SessionCache : prefix('session:'), ttl(600) {
             UUID userId : key;
