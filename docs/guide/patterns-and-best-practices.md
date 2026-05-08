@@ -57,7 +57,7 @@ entity User extends BaseEntity {
 
 **Problem:** Need to delete records without losing data for auditing.
 
-**Solution:** Use the **builtin** `SoftDeletable` trait (opt-in with `with SoftDeletable`—do not redefine the trait). It supplies `deletedAt`, `deletedBy`, and a computed `isDeleted`. See [Architecture Overview — Builtin traits](../architecture/architecture-overview.md#builtin-traits-and-enums).
+**Solution:** Use the **builtin** `SoftDeletable` trait (opt-in with `with SoftDeletable`—do not redefine the trait). It supplies `deletedAt`, `deletedBy`, and a computed `isDeleted`. See [Architecture Overview — Builtin traits](../architecture/architecture/builtin-traits-enums.md#builtin-traits-and-enums).
 
 ```dtrx
 entity Order extends BaseEntity with SoftDeletable {

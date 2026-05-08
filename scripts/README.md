@@ -58,7 +58,7 @@ All examples in this documentation use **PowerShell-native** syntax (e.g., `.\te
 powershell -File "d:/datrix/datrix/scripts/test/test.ps1" datrix-common -Fast
 ```
 
-See [quick-reference.md](quick-reference.md) for the full conversion table.
+See [quick-reference.md](quick-reference.md) for the full conversion table and links to category-specific references.
 
 ## Quick Start
 
@@ -178,5 +178,11 @@ All scripts use a shared virtual environment at `D:\datrix\.venv`. The `common/v
 
 ## See Also
 
-- [quick-reference.md](quick-reference.md) - AI agent quick reference
+- [quick-reference.md](quick-reference.md) - AI agent quick reference (index with links to category files)
+- [test/quick-reference.md](test/quick-reference.md) - Testing scripts
+- [dev/quick-reference.md](dev/quick-reference.md) - Development, code generation, anti-pattern scanners, cleanup
+- [git/quick-reference.md](git/quick-reference.md) - Git operations
+- [metrics/quick-reference.md](metrics/quick-reference.md) - Code quality and metrics
+- [visualize/quick-reference.md](visualize/quick-reference.md) - Visualization and documentation
+- [tasks/quick-reference.md](tasks/quick-reference.md) - Task management
 - Individual folder READMEs for detailed documentation
