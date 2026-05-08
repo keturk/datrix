@@ -297,4 +297,109 @@ service fooddelivery.MenuService('config/menu-service.yaml') : version('1.0.0'),
         item.save();
         assert emitted(MenuItemAdded(item.id, item.name, item.price, item.menuCategoryId));
     }
+
+    test("computed isAvailable when availability is Available") {
+        let menuDb.MenuCategory category = menuDb.MenuCategory.create({
+            restaurantId: uuid(),
+            name: "Availability Check Category",
+            orderIndex: 1
+        });
+        category.save();
+        let menuDb.MenuItem item = menuDb.MenuItem.create({
+            menuCategoryId: category.id,
+            name: "Fresh Garden Salad",
+            price: Money.of(9.50, "USD"),
+            availability: ItemAvailability.Available
+        });
+        item.save();
+        assert item.isAvailable == true;
+    }
+
+    test("validation rejects empty menu item name") {
+        let menuDb.MenuCategory category = menuDb.MenuCategory.create({
+            restaurantId: uuid(),
+            name: "Empty Name Test Category",
+            orderIndex: 2
+        });
+        category.save();
+        assert throws(
+            () => menuDb.MenuItem.create({
+                menuCategoryId: category.id,
+                name: "",
+                price: Money.of(8.00, "USD")
+            }),
+            ValidationError("Item name cannot be empty")
+        );
+    }
+
+    test("validation rejects non-positive price") {
+        let menuDb.MenuCategory category = menuDb.MenuCategory.create({
+            restaurantId: uuid(),
+            name: "Zero Price Test Category",
+            orderIndex: 3
+        });
+        category.save();
+        assert throws(
+            () => menuDb.MenuItem.create({
+                menuCategoryId: category.id,
+                name: "Zero Price Soup",
+                price: Money.of(0, "USD")
+            }),
+            ValidationError("Price must be positive")
+        );
+    }
+
+    test("afterCreate emits MenuItemAdded with correct fields") {
+        let menuDb.MenuCategory category = menuDb.MenuCategory.create({
+            restaurantId: uuid(),
+            name: "Emit Fields Category",
+            orderIndex: 4
+        });
+        category.save();
+        let menuDb.MenuItem item = menuDb.MenuItem.create({
+            menuCategoryId: category.id,
+            name: "Truffle Fries",
+            price: Money.of(11.75, "USD")
+        });
+        item.save();
+        assert emitted(MenuItemAdded(item.id, "Truffle Fries", Money.of(11.75, "USD"), category.id));
+    }
+
+    test("afterUpdate emits MenuItemAvailabilityChanged when availability changes") {
+        let menuDb.MenuCategory category = menuDb.MenuCategory.create({
+            restaurantId: uuid(),
+            name: "Availability Change Category",
+            orderIndex: 5
+        });
+        category.save();
+        let menuDb.MenuItem item = menuDb.MenuItem.create({
+            menuCategoryId: category.id,
+            name: "Seasonal Risotto",
+            price: Money.of(18.00, "USD"),
+            availability: ItemAvailability.Available
+        });
+        item.save();
+        item.availability = ItemAvailability.SoldOut;
+        item.save();
+        assert emitted(MenuItemAvailabilityChanged(item.id, "Seasonal Risotto", ItemAvailability.Available, ItemAvailability.SoldOut));
+    }
+
+    test("afterUpdate emits MenuItemPriceChanged when price changes") {
+        let menuDb.MenuCategory category = menuDb.MenuCategory.create({
+            restaurantId: uuid(),
+            name: "Price Change Category",
+            orderIndex: 6
+        });
+        category.save();
+        let menuDb.MenuItem item = menuDb.MenuItem.create({
+            menuCategoryId: category.id,
+            name: "Classic Margherita",
+            price: Money.of(14.00, "USD")
+        });
+        item.save();
+        let Money oldPrice = item.price;
+        item.price = Money.of(16.50, "USD");
+        item.save();
+        assert emitted(MenuItemPriceChanged(item.id, "Classic Margherita", Money.of(14.00, "USD"), Money.of(16.50, "USD")));
+    }
 }

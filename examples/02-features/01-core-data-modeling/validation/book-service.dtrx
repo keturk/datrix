@@ -43,4 +43,43 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             }
         }
     }
+
+    test("validation rejects empty title") {
+        assert throws(
+            () => bookDb.Book.create({
+                title: "",
+                isbn: "1234567890",
+                publicationYear: 2020,
+                pageCount: 100,
+                price: 19.99
+            }),
+            ValidationError("Title cannot be empty")
+        );
+    }
+
+    test("validation rejects future publication year") {
+        assert throws(
+            () => bookDb.Book.create({
+                title: "Future Book",
+                isbn: "1234567891",
+                publicationYear: 2099,
+                pageCount: 100,
+                price: 19.99
+            }),
+            ValidationError("Publication year cannot be in the future")
+        );
+    }
+
+    test("validation rejects pre-printing-press publication year") {
+        assert throws(
+            () => bookDb.Book.create({
+                title: "Ancient Text",
+                isbn: "1234567892",
+                publicationYear: 1400,
+                pageCount: 50,
+                price: 9.99
+            }),
+            ValidationError("Publication year cannot be before printing press invention")
+        );
+    }
 }

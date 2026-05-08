@@ -423,4 +423,80 @@ service social.UserService('config/user-service.yaml') : version('1.0.0'), descr
         user.save();
         assert emitted(UserRegistered(user.id, user.username, "event@example.com"));
     }
+
+    test("validation rejects short username") {
+        assert throws(
+            () => userDb.User.create({
+                username: "ab",
+                email: "short@example.com",
+                displayName: "Short User"
+            }),
+            ValidationError("Username must be at least 3 characters")
+        );
+    }
+
+    test("computed isActive is false for Suspended status") {
+        let User user = userDb.User.create({
+            username: "suspendeduser",
+            email: "suspended@example.com",
+            displayName: "Suspended User",
+            status: UserStatus.Suspended
+        });
+        user.save();
+        assert user.isActive == false;
+    }
+
+    test("computed isActive is false for Deactivated status") {
+        let User user = userDb.User.create({
+            username: "deactivateduser",
+            email: "deactivated@example.com",
+            displayName: "Deactivated User",
+            status: UserStatus.Deactivated
+        });
+        user.save();
+        assert user.isActive == false;
+    }
+
+    test("computed profileUrl includes username") {
+        let User user = userDb.User.create({
+            username: "profiletester",
+            email: "profile@example.com",
+            displayName: "Profile Tester"
+        });
+        user.save();
+        assert user.profileUrl == "/users/profiletester";
+    }
+
+    test("status change emits UserStatusChanged") {
+        let User user = userDb.User.create({
+            username: "statuschangeuser",
+            email: "statuschange@example.com",
+            displayName: "Status Change User"
+        });
+        user.save();
+        user.status = UserStatus.Suspended;
+        user.save();
+        assert emitted(UserStatusChanged(user.id, UserStatus.Active, UserStatus.Suspended));
+    }
+
+    test("afterCreate on Follow emits UserFollowed") {
+        let User follower = userDb.User.create({
+            username: "followertest",
+            email: "follower@example.com",
+            displayName: "Follower Test"
+        });
+        follower.save();
+        let User followee = userDb.User.create({
+            username: "followeetest",
+            email: "followee@example.com",
+            displayName: "Followee Test"
+        });
+        followee.save();
+        let Follow follow = userDb.Follow.create({
+            followerId: follower.id,
+            followeeId: followee.id
+        });
+        follow.save();
+        assert emitted(UserFollowed(follower.id, followee.id));
+    }
 }

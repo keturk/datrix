@@ -602,4 +602,137 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
         post.save();
         assert emitted(PostPublished(post.id, post.authorId, PostVisibility.Public));
     }
+
+    test("computed isPopular is false with few likes") {
+        let Post post = postDb.Post.create({
+            authorId: uuid(),
+            content: "Unpopular post content",
+            visibility: PostVisibility.Public,
+            status: ContentStatus.Published,
+            likeCount: 3,
+            commentCount: 1
+        });
+        post.save();
+        assert post.isPopular == false;
+    }
+
+    test("computed isPopular is true with enough comments") {
+        let Post post = postDb.Post.create({
+            authorId: uuid(),
+            content: "Comment-popular post content",
+            visibility: PostVisibility.Public,
+            status: ContentStatus.Published,
+            likeCount: 2,
+            commentCount: 5
+        });
+        post.save();
+        assert post.isPopular == true;
+    }
+
+    test("computed isPublished is false for Archived post") {
+        let Post post = postDb.Post.create({
+            authorId: uuid(),
+            content: "Archived post content",
+            visibility: PostVisibility.Public,
+            status: ContentStatus.Archived
+        });
+        post.save();
+        assert post.isPublished == false;
+    }
+
+    test("computed isPublic is false for Private post") {
+        let Post post = postDb.Post.create({
+            authorId: uuid(),
+            content: "Private post content",
+            visibility: PostVisibility.Private,
+            status: ContentStatus.Published
+        });
+        post.save();
+        assert post.isPublic == false;
+    }
+
+    test("computed isPublic is false for FollowersOnly post") {
+        let Post post = postDb.Post.create({
+            authorId: uuid(),
+            content: "Followers only post content",
+            visibility: PostVisibility.FollowersOnly,
+            status: ContentStatus.Published
+        });
+        post.save();
+        assert post.isPublic == false;
+    }
+
+    test("beforeCreate sets publishedAt for published status") {
+        let Post post = postDb.Post.create({
+            authorId: uuid(),
+            content: "Auto-published post",
+            visibility: PostVisibility.Public,
+            status: ContentStatus.Published
+        });
+        post.save();
+        assert post.publishedAt != null;
+    }
+
+    test("status change emits PostStatusChanged") {
+        let Post post = postDb.Post.create({
+            authorId: uuid(),
+            content: "Status changing post",
+            visibility: PostVisibility.Public,
+            status: ContentStatus.Published
+        });
+        post.save();
+        post.status = ContentStatus.Archived;
+        post.save();
+        assert emitted(PostStatusChanged(post.id, post.authorId, ContentStatus.Published, ContentStatus.Archived));
+    }
+
+    test("content change emits PostUpdated") {
+        let Post post = postDb.Post.create({
+            authorId: uuid(),
+            content: "Original post content",
+            visibility: PostVisibility.Public,
+            status: ContentStatus.Published
+        });
+        post.save();
+        post.content = "Updated post content";
+        post.save();
+        assert emitted(PostUpdated(post.id, post.authorId));
+    }
+
+    test("afterCreate on Comment emits CommentAdded") {
+        let Post post = postDb.Post.create({
+            authorId: uuid(),
+            content: "Post for comment test",
+            visibility: PostVisibility.Public,
+            status: ContentStatus.Published
+        });
+        post.save();
+        let UUID commentAuthorId = uuid();
+        let Comment comment = postDb.Comment.create({
+            postId: post.id,
+            authorId: commentAuthorId,
+            content: "This is a test comment"
+        });
+        comment.save();
+        assert emitted(CommentAdded(comment.id, post.id, commentAuthorId));
+    }
+
+    test("validation rejects comment exceeding 2000 characters") {
+        let Post post = postDb.Post.create({
+            authorId: uuid(),
+            content: "Post for long comment test",
+            visibility: PostVisibility.Public,
+            status: ContentStatus.Published
+        });
+        post.save();
+        let String longContent = "A".repeat(2001);
+        assert throws(
+            () => postDb.Comment.create({
+                postId: post.id,
+                authorId: uuid(),
+                content: longContent
+            }),
+            ValidationError("Comment cannot exceed 2000 characters")
+        );
+    }
 }

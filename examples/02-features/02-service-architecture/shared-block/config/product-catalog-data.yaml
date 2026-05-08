@@ -1,10 +1,10 @@
 base:
   rdbms:
-    aviation_db:
+    catalog_db:
       engine: postgres
       host: localhost
       port: 5432
-      database: shared_aviation_ref
+      database: shared_product_catalog
       poolSize: 10
       docker_image: postgres:17-alpine
       volume_path: /var/lib/postgresql/data
@@ -15,11 +15,11 @@ base:
       platform: container
 production:
   rdbms:
-    aviation_db:
+    catalog_db:
       engine: postgres
       host: ${DB_HOST}
       port: 5432
-      database: shared_aviation_ref
+      database: shared_product_catalog
       poolSize: 20
       docker_image: postgres:17-alpine
       volume_path: /var/lib/postgresql/data

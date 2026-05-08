@@ -413,4 +413,108 @@ service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), desc
         device.save();
         assert emitted(DeviceStatusChanged(device.id, device.serialNumber, DeviceStatus.Inactive, DeviceStatus.Active));
     }
+
+    test("computed isActive is false for Inactive status") {
+        let Device device = deviceDb.Device.create({
+            serialNumber: "IOT-TEST-005",
+            name: "Pressure Sensor",
+            type: DeviceType.Sensor,
+            status: DeviceStatus.Inactive,
+            firmwareVersion: "1.2.0",
+            metadata: {}
+        });
+        device.save();
+        assert device.isActive == false;
+    }
+
+    test("computed displayName formats name and serial") {
+        let Device device = deviceDb.Device.create({
+            serialNumber: "IOT-TEST-006",
+            name: "Motion Detector",
+            type: DeviceType.Sensor,
+            firmwareVersion: "1.0.0",
+            metadata: {}
+        });
+        device.save();
+        assert device.displayName == "Motion Detector (IOT-TEST-006)";
+    }
+
+    test("validation rejects empty firmware version") {
+        assert throws(
+            () => deviceDb.Device.create({
+                serialNumber: "IOT-TEST-007",
+                name: "Valid Sensor",
+                type: DeviceType.Sensor,
+                firmwareVersion: "",
+                metadata: {}
+            }),
+            ValidationError("Firmware version cannot be empty")
+        );
+    }
+
+    test("activate transitions device to Active and sets lastSeenAt") {
+        let Device device = deviceDb.Device.create({
+            serialNumber: "IOT-TEST-008",
+            name: "Actuator Unit",
+            type: DeviceType.Actuator,
+            firmwareVersion: "3.0.0",
+            metadata: {}
+        });
+        device.save();
+        device.activate();
+        assert device.status == DeviceStatus.Active;
+        assert device.lastSeenAt != null;
+    }
+
+    test("decommission transitions device to Decommissioned") {
+        let Device device = deviceDb.Device.create({
+            serialNumber: "IOT-TEST-009",
+            name: "Legacy Controller",
+            type: DeviceType.Controller,
+            firmwareVersion: "1.0.0",
+            metadata: {}
+        });
+        device.save();
+        device.decommission();
+        assert device.status == DeviceStatus.Decommissioned;
+    }
+
+    test("heartbeat updates lastSeenAt and firmware version") {
+        let Device device = deviceDb.Device.create({
+            serialNumber: "IOT-TEST-010",
+            name: "Network Gateway",
+            type: DeviceType.Gateway,
+            status: DeviceStatus.Active,
+            firmwareVersion: "2.0.0",
+            metadata: {},
+            lastSeenAt: now()
+        });
+        device.save();
+        device.heartbeat("2.1.0");
+        assert device.firmwareVersion == "2.1.0";
+        assert device.lastSeenAt != null;
+    }
+
+    test("firmware change emits DeviceFirmwareUpdated") {
+        let Device device = deviceDb.Device.create({
+            serialNumber: "IOT-TEST-011",
+            name: "Firmware Test Sensor",
+            type: DeviceType.Sensor,
+            firmwareVersion: "1.0.0",
+            metadata: {}
+        });
+        device.save();
+        device.firmwareVersion = "1.1.0";
+        device.save();
+        assert emitted(DeviceFirmwareUpdated(device.id, device.serialNumber, "1.0.0", "1.1.0"));
+    }
+
+    test("validation rejects empty group name") {
+        assert throws(
+            () => deviceDb.DeviceGroup.create({
+                name: ""
+            }),
+            ValidationError("Group name cannot be empty")
+        );
+    }
 }

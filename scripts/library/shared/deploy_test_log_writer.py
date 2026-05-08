@@ -75,30 +75,40 @@ _DOCKER_EXCERPT_CONTEXT_LINES = 3
 _DOCKER_EXCERPT_TAIL_LINES = 50
 
 # Phase detection patterns from deploy-test-output.log
+# Must match BOTH the structured markers emitted by deploy_test.py
+# (e.g. docker_build_started) AND any legacy human-readable headers
+# (e.g. === Docker Build ===).
 _PHASE_MARKERS: dict[str, re.Pattern[str]] = {
     "docker-build": re.compile(
-        r"(?i)=== Docker Build ===|Building services|docker.compose.build"
+        r"(?i)=== Docker Build ===|Building services|docker\.compose\.build"
+        r"|docker_build_started"
     ),
     "docker-up": re.compile(
-        r"(?i)=== Docker Up ===|Starting services|docker.compose.up"
+        r"(?i)=== Docker Up ===|Starting services|docker\.compose\.up"
+        r"|docker_up_started|docker_up output:|docker_up_retry"
     ),
     "health-check": re.compile(
-        r"(?i)=== Health Check ===|health.check|waiting for services"
+        r"(?i)=== Health Check ===|health\.check|waiting for services"
+        r"|docker_container_health_check_started|service_waiting"
     ),
     "db-connectivity": re.compile(
-        r"(?i)=== DB Connectivity ===|database.connectivity|db.connect"
+        r"(?i)=== DB Connectivity ===|database\.connectivity|db\.connect"
+        r"|database_connectivity_validation_started"
     ),
     "spec-tests": re.compile(
-        r"(?i)=== Spec Tests ===|spec.tests|running spec"
+        r"(?i)=== Spec Tests ===|spec\.tests|running spec"
+        r"|spec_tests_phase_started"
     ),
     "integration-tests": re.compile(
-        r"(?i)=== Integration Tests ===|integration.tests|running integration"
+        r"(?i)=== Integration Tests ===|integration\.tests|running integration"
+        r"|integration_tests_phase_started|jest_tests_started"
     ),
 }
 
 _PHASE_FAILURE_PATTERNS: dict[str, re.Pattern[str]] = {
     "docker-build": re.compile(
         r"(?i)build.failed|ERROR.*build|failed to build"
+        r"|docker_build_failed"
     ),
     "docker-up": re.compile(
         r"(?i)docker_up_failed|unhealthy|failed to start|"
@@ -106,15 +116,21 @@ _PHASE_FAILURE_PATTERNS: dict[str, re.Pattern[str]] = {
     ),
     "health-check": re.compile(
         r"(?i)health.check.*fail|health.check.*timeout|"
-        r"not responding|connection refused"
+        r"not responding|connection refused|"
+        r"docker_container_health_check_failed|service_health_timeout"
     ),
     "db-connectivity": re.compile(
         r"(?i)db.connectivity.*fail|database.*unreachable|"
-        r"cannot connect to.*database"
+        r"cannot connect to.*database|"
+        r"database_connectivity_validation_failed|"
+        r"database_connectivity_check_failed"
     ),
-    "spec-tests": re.compile(r"(?i)spec.*failed|spec.*error"),
+    "spec-tests": re.compile(
+        r"(?i)spec.*failed|spec.*error|spec_tests_phase_failed"
+    ),
     "integration-tests": re.compile(
-        r"(?i)integration.*failed|integration.*error"
+        r"(?i)integration.*failed|integration.*error|"
+        r"jest_tests_failed"
     ),
 }
 

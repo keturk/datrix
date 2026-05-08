@@ -364,6 +364,7 @@ entity User extends BaseEntity {
 | Service topology (`discovery { }`) | Job schedules, retry/timeout defaults |
 | Computed fields | Provider credentials |
 | Extern service contract (`extern service { rest_api ... }`) | Extern service deployment mode, image, URL, auth secrets |
+| Gateway type and usage plan structure (`gateway : type('managed') { apiKeys { ... } }`) | Gateway throttle limits, cache TTL, WAF toggle, custom domain, certificate ARN |
 
 **Enforcement:** The parser rejects environmental data in the DSL at parse time. `SERVICE_ATTR_IDENTIFIERS` in `contextual_keywords.py` restricts service attributes to `version` and `description` — writing `port(8000)` in a `.dtrx` file produces an error listing the allowed attributes.
 

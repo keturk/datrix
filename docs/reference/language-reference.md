@@ -458,19 +458,19 @@ Semantics: `status(N)` is required on every declared exception. Optional `messag
 Define constrained aliases on top of existing primitive or domain types inside **`module`** or **`service`**. Use the new scalar name as a field type elsewhere in the module/service.
 
 ```dtrx
-module aviation.common {
-    scalar Altitude : Float {
+module catalog.common {
+    scalar Price : Float {
         min(0);
-        max(60000);
+        max(999999);
     }
 
-    scalar IataCode : String(3) {
-        pattern("[A-Z]{3}");
+    scalar Sku : String(12) {
+        pattern("[A-Z0-9]+");
     }
 }
 ```
 
-These differ from **extension-pack** scalars (declared via `use extension` and `DatrixExtension`): packs add wholly new types with per-language maps; custom scalars are aliases with constraints. Valid constraint names: `min(value)`, `max(value)`, `range(min, max)`, `pattern(regex)`. Custom scalars are globally visible (no import needed) and compose with collections (`Array<Altitude>`, etc.). See the [extensions guide](../../../datrix-extensions/docs/extensions-guide.md) for extension-pack scalars.
+These differ from **extension-pack** scalars (declared via `use extension` and `DatrixExtension`): packs add wholly new types with per-language maps; custom scalars are aliases with constraints. Valid constraint names: `min(value)`, `max(value)`, `range(min, max)`, `pattern(regex)`. Custom scalars are globally visible (no import needed) and compose with collections (`Array<Price>`, etc.). See the [extensions guide](../../../datrix-extensions/docs/extensions-guide.md) for extension-pack scalars.
 
 ---
 

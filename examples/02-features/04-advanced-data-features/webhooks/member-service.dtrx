@@ -74,6 +74,18 @@ service library.MemberService('config/member-service.yaml') : version('1.0.0'), 
         }
     }
 
+    test("computed fullName concatenates first and last name") {
+        let memberDb.Member member = memberDb.Member.create({
+            firstName: "Alice",
+            lastName: "Johnson",
+            email: "alice.johnson@example.com",
+            membershipNumber: "MEM001SPECFN",
+            membershipType: MembershipType.Standard
+        });
+        member.save();
+        assert member.fullName == "Alice Johnson";
+    }
+
     rest_api MemberAPI : basePath("/api/v1/members") {
         // 'resource' auto-generates standard CRUD endpoints for the entity
         resource memberDb.Member;

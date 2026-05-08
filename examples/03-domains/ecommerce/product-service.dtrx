@@ -513,6 +513,48 @@ service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0
         assert emitted(InventoryUpdated(product.id, 0, 50));
     }
 
+    test("publish transitions product from Draft to Active") {
+        let productDb.Category category = productDb.Category.create({
+            name: "Publish Test Category",
+            slug: "publish-test-category"
+        });
+        category.save();
+        let productDb.Product product = productDb.Product.create({
+            name: "SpecDraftProduct",
+            description: "Draft product for publish spec",
+            price: Money.of(39.99, Currency.USD),
+            status: ProductStatus.Draft,
+            slug: "spec-draft-product",
+            categoryId: category.id,
+            images: [],
+            tags: []
+        });
+        product.save();
+        product.publish();
+        assert product.status == ProductStatus.Active;
+    }
+
+    test("discontinue marks product as Discontinued") {
+        let productDb.Category category = productDb.Category.create({
+            name: "Discontinue Test Category",
+            slug: "discontinue-test-category"
+        });
+        category.save();
+        let productDb.Product product = productDb.Product.create({
+            name: "SpecActiveProduct",
+            description: "Active product for discontinue spec",
+            price: Money.of(59.99, Currency.USD),
+            status: ProductStatus.Active,
+            slug: "spec-active-product",
+            categoryId: category.id,
+            images: [],
+            tags: []
+        });
+        product.save();
+        product.discontinue();
+        assert product.status == ProductStatus.Discontinued;
+    }
+
     // Jobs block - defines scheduled/background tasks
     jobs('config/product-service.yaml') {
         // Job to release inventory reservations that have expired

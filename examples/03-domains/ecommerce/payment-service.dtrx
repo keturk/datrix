@@ -362,6 +362,52 @@ service ecommerce.PaymentService('config/payment-service.yaml') : version('1.0.0
         assert payment.canRefund == true;
     }
 
+    test("afterUpdate emits PaymentProcessed when status is Completed") {
+        let paymentDb.Payment payment = paymentDb.Payment.create({
+            orderId: uuid(),
+            customerId: uuid(),
+            amount: Money.of(175.50, Currency.USD),
+            method: PaymentMethod.CreditCard,
+            transactionId: "TXN-SPEC-003",
+            status: PaymentStatus.Processing
+        });
+        payment.save();
+        payment.status = PaymentStatus.Completed;
+        payment.save();
+        assert emitted(PaymentProcessed(payment.id, payment.orderId, payment.amount));
+    }
+
+    test("afterUpdate emits PaymentFailed when status is Failed") {
+        let paymentDb.Payment payment = paymentDb.Payment.create({
+            orderId: uuid(),
+            customerId: uuid(),
+            amount: Money.of(220.00, Currency.USD),
+            method: PaymentMethod.DebitCard,
+            transactionId: "TXN-SPEC-004",
+            status: PaymentStatus.Processing,
+            errorMessage: "Insufficient funds"
+        });
+        payment.save();
+        payment.status = PaymentStatus.Failed;
+        payment.save();
+        assert emitted(PaymentFailed(payment.id, payment.orderId, "Insufficient funds"));
+    }
+
+    test("afterUpdate emits PaymentRefunded when status is Refunded") {
+        let paymentDb.Payment payment = paymentDb.Payment.create({
+            orderId: uuid(),
+            customerId: uuid(),
+            amount: Money.of(89.99, Currency.USD),
+            method: PaymentMethod.PayPal,
+            transactionId: "TXN-SPEC-005",
+            status: PaymentStatus.Completed
+        });
+        payment.save();
+        payment.status = PaymentStatus.Refunded;
+        payment.save();
+        assert emitted(PaymentRefunded(payment.id, payment.orderId, payment.amount));
+    }
+
     // Service-level async function for payment processing
     fn processPaymentAsync(paymentDb.Payment payment, String? cardToken) {
         payment.status = PaymentStatus.Processing;

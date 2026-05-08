@@ -446,4 +446,171 @@ service logistics.FleetService('config/fleet-service.yaml') : version('1.0.0'), 
         vehicle.save();
         assert emitted(VehicleRegistered(vehicle.id, vehicle.vehicleNumber, VehicleType.Drone));
     }
+
+    test("computed needsMaintenance is false below threshold") {
+        let Vehicle vehicle = fleetDb.Vehicle.create({
+            vehicleNumber: "VH-TEST-005",
+            type: VehicleType.Van,
+            capacity: 1500.00,
+            mileage: 30000
+        });
+        vehicle.save();
+        assert vehicle.needsMaintenance == false;
+    }
+
+    test("computed hasDriver when currentDriverId is set") {
+        let Vehicle vehicle = fleetDb.Vehicle.create({
+            vehicleNumber: "VH-TEST-006",
+            type: VehicleType.Truck,
+            capacity: 8000.00,
+            mileage: 5000,
+            currentDriverId: uuid(),
+            status: VehicleStatus.InUse
+        });
+        vehicle.save();
+        assert vehicle.hasDriver == true;
+    }
+
+    test("computed hasDriver is false when no driver") {
+        let Vehicle vehicle = fleetDb.Vehicle.create({
+            vehicleNumber: "VH-TEST-007",
+            type: VehicleType.Van,
+            capacity: 2500.00,
+            mileage: 12000
+        });
+        vehicle.save();
+        assert vehicle.hasDriver == false;
+    }
+
+    test("assignDriver sets driver and status to InUse") {
+        let Vehicle vehicle = fleetDb.Vehicle.create({
+            vehicleNumber: "VH-TEST-008",
+            type: VehicleType.Truck,
+            capacity: 7000.00,
+            mileage: 20000
+        });
+        vehicle.save();
+        let UUID driverId = uuid();
+        vehicle.assignDriver(driverId);
+        assert vehicle.currentDriverId == driverId;
+        assert vehicle.status == VehicleStatus.InUse;
+    }
+
+    test("releaseDriver clears driver and sets Available") {
+        let Vehicle vehicle = fleetDb.Vehicle.create({
+            vehicleNumber: "VH-TEST-009",
+            type: VehicleType.Van,
+            capacity: 3000.00,
+            mileage: 15000,
+            currentDriverId: uuid(),
+            status: VehicleStatus.InUse
+        });
+        vehicle.save();
+        vehicle.releaseDriver();
+        assert vehicle.currentDriverId == null;
+        assert vehicle.status == VehicleStatus.Available;
+    }
+
+    test("status change emits VehicleStatusChanged") {
+        let Vehicle vehicle = fleetDb.Vehicle.create({
+            vehicleNumber: "VH-TEST-010",
+            type: VehicleType.Trailer,
+            capacity: 12000.00,
+            mileage: 0
+        });
+        vehicle.save();
+        vehicle.status = VehicleStatus.Maintenance;
+        vehicle.save();
+        assert emitted(VehicleStatusChanged(vehicle.id, vehicle.vehicleNumber, VehicleStatus.Available, VehicleStatus.Maintenance));
+    }
+
+    test("validation rejects negative mileage") {
+        assert throws(
+            () => fleetDb.Vehicle.create({
+                vehicleNumber: "VH-TEST-011",
+                type: VehicleType.Bike,
+                capacity: 50.00,
+                mileage: -100
+            }),
+            ValidationError("Vehicle mileage cannot be negative")
+        );
+    }
+
+    test("validation rejects empty driver first name") {
+        assert throws(
+            () => fleetDb.Driver.create({
+                firstName: "",
+                lastName: "Smith",
+                licenseNumber: "DL-12345",
+                phone: "+15551234567"
+            }),
+            ValidationError("First name cannot be empty")
+        );
+    }
+
+    test("validation rejects empty driver last name") {
+        assert throws(
+            () => fleetDb.Driver.create({
+                firstName: "James",
+                lastName: "",
+                licenseNumber: "DL-67890",
+                phone: "+15559876543"
+            }),
+            ValidationError("Last name cannot be empty")
+        );
+    }
+
+    test("validation rejects empty license number") {
+        assert throws(
+            () => fleetDb.Driver.create({
+                firstName: "Robert",
+                lastName: "Jones",
+                licenseNumber: "",
+                phone: "+15555555555"
+            }),
+            ValidationError("License number cannot be empty")
+        );
+    }
+
+    test("computed driver isAvailable for Available status") {
+        let Driver driver = fleetDb.Driver.create({
+            firstName: "Thomas",
+            lastName: "Anderson",
+            licenseNumber: "DL-NEO-001",
+            phone: "+15550001111",
+            status: DriverStatus.Available
+        });
+        driver.save();
+        assert driver.isAvailable == true;
+    }
+
+    test("computed driver fullName concatenates names") {
+        let Driver driver = fleetDb.Driver.create({
+            firstName: "Maria",
+            lastName: "Garcia",
+            licenseNumber: "DL-MG-002",
+            phone: "+15550002222"
+        });
+        driver.save();
+        assert driver.fullName == "Maria Garcia";
+    }
+
+    test("validation rejects negative maintenance cost") {
+        let Vehicle vehicle = fleetDb.Vehicle.create({
+            vehicleNumber: "VH-TEST-012",
+            type: VehicleType.Truck,
+            capacity: 5000.00,
+            mileage: 45000
+        });
+        vehicle.save();
+        assert throws(
+            () => fleetDb.MaintenanceRecord.create({
+                vehicleId: vehicle.id,
+                description: "Oil change",
+                cost: -50.00,
+                scheduledDate: now().addDays(7)
+            }),
+            ValidationError("Maintenance cost cannot be negative")
+        );
+    }
 }

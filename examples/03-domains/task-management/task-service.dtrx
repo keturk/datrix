@@ -740,4 +740,97 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
         task.save();
         assert task.taskNumber != null;
     }
+
+    test("computed isCompleted for Done status") {
+        let Task task = taskDb.Task.create({
+            projectId: uuid(),
+            title: "Completed Check Task",
+            priority: Priority.High,
+            status: TaskStatus.Done,
+            completedAt: now()
+        });
+        task.save();
+        assert task.isCompleted == true;
+    }
+
+    test("computed isOpen for InProgress status") {
+        let Task task = taskDb.Task.create({
+            projectId: uuid(),
+            title: "In Progress Check Task",
+            priority: Priority.Medium,
+            status: TaskStatus.InProgress,
+            startedAt: now()
+        });
+        task.save();
+        assert task.isOpen == true;
+    }
+
+    test("computed isOpen for InReview status") {
+        let Task task = taskDb.Task.create({
+            projectId: uuid(),
+            title: "In Review Check Task",
+            priority: Priority.Medium,
+            status: TaskStatus.InReview
+        });
+        task.save();
+        assert task.isOpen == true;
+    }
+
+    test("computed isOpen is false for Cancelled status") {
+        let Task task = taskDb.Task.create({
+            projectId: uuid(),
+            title: "Cancelled Check Task",
+            priority: Priority.Low,
+            status: TaskStatus.Cancelled
+        });
+        task.save();
+        assert task.isOpen == false;
+    }
+
+    test("computed hasAssignee when assigneeId is set") {
+        let Task task = taskDb.Task.create({
+            projectId: uuid(),
+            title: "Assigned Task",
+            priority: Priority.High,
+            assigneeId: uuid()
+        });
+        task.save();
+        assert task.hasAssignee == true;
+    }
+
+    test("computed hasAssignee is false when no assignee") {
+        let Task task = taskDb.Task.create({
+            projectId: uuid(),
+            title: "Unassigned Task",
+            priority: Priority.Medium
+        });
+        task.save();
+        assert task.hasAssignee == false;
+    }
+
+    test("validation rejects negative actual hours") {
+        assert throws(
+            () => taskDb.Task.create({
+                projectId: uuid(),
+                title: "Negative Actual Hours Task",
+                priority: Priority.Low,
+                actualHours: -2.5
+            }),
+            ValidationError("Actual hours cannot be negative")
+        );
+    }
+
+    test("assignee change emits TaskAssigned") {
+        let UUID projectId = uuid();
+        let UUID assigneeId = uuid();
+        let Task task = taskDb.Task.create({
+            projectId: projectId,
+            title: "Assignee Change Task",
+            priority: Priority.Medium
+        });
+        task.save();
+        task.assigneeId = assigneeId;
+        task.save();
+        assert emitted(TaskAssigned(task.id, projectId, assigneeId));
+    }
 }

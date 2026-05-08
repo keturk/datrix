@@ -260,4 +260,54 @@ service blog.AuthorService('config/author-service.yaml') : version('1.0.0'), des
         author.save();
         assert emitted(AuthorRegistered(author.id, author.email, author.fullName));
     }
+
+    test("computed isVerified is true when emailVerifiedAt is set") {
+        let Author author = authorDb.Author.create({
+            email: "verified.spec@example.com",
+            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
+            firstName: "Verified",
+            lastName: "Author",
+            emailVerifiedAt: now()
+        });
+        author.save();
+        assert author.isVerified == true;
+    }
+
+    test("computed isVerified is false when emailVerifiedAt is null") {
+        let Author author = authorDb.Author.create({
+            email: "notverified.spec@example.com",
+            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
+            firstName: "NotVerified",
+            lastName: "Author"
+        });
+        author.save();
+        assert author.isVerified == false;
+    }
+
+    test("computed canLogin is false for inactive author") {
+        let Author author = authorDb.Author.create({
+            email: "inactive.spec@example.com",
+            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
+            firstName: "Inactive",
+            lastName: "Author",
+            status: AuthorStatus.Inactive,
+            emailVerifiedAt: now()
+        });
+        author.save();
+        assert author.canLogin == false;
+    }
+
+    test("afterUpdate emits AuthorStatusChanged on status change") {
+        let Author author = authorDb.Author.create({
+            email: "statuschange.spec@example.com",
+            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
+            firstName: "StatusChange",
+            lastName: "Author",
+            emailVerifiedAt: now()
+        });
+        author.save();
+        author.status = AuthorStatus.Active;
+        author.save();
+        assert emitted(AuthorStatusChanged(author.id, AuthorStatus.Pending, AuthorStatus.Active));
+    }
 }

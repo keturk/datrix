@@ -152,6 +152,78 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         }
     }
 
+    test("computed isAvailable is true for Available status") {
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatAvail" });
+        cat.save();
+        let bookDb.Book book = bookDb.Book.create({
+            title: "Test Book",
+            isbn: "9780000000001",
+            author: "Test Author",
+            publicationYear: 2020,
+            categoryId: cat.id
+        });
+        book.save();
+        assert book.isAvailable == true;
+    }
+
+    test("computed displayTitle formats title and year") {
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatDisp" });
+        cat.save();
+        let bookDb.Book book = bookDb.Book.create({
+            title: "Clean Code",
+            isbn: "9780000000002",
+            author: "Robert Martin",
+            publicationYear: 2008,
+            categoryId: cat.id
+        });
+        book.save();
+        assert book.displayTitle == "Clean Code (2008)";
+    }
+
+    test("validation rejects empty title") {
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatValQ" });
+        cat.save();
+        assert throws(
+            () => bookDb.Book.create({
+                title: "",
+                isbn: "9780000000003",
+                author: "Test Author",
+                publicationYear: 2020,
+                categoryId: cat.id
+            }),
+            ValidationError("Title cannot be empty")
+        );
+    }
+
+    test("validation rejects future publication year") {
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatFutQ" });
+        cat.save();
+        assert throws(
+            () => bookDb.Book.create({
+                title: "Future Book",
+                isbn: "9780000000004",
+                author: "Test Author",
+                publicationYear: 2099,
+                categoryId: cat.id
+            }),
+            ValidationError("Publication year cannot be in the future")
+        );
+    }
+
+    test("beforeCreate generates catalogNumber") {
+        let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatCatNo" });
+        cat.save();
+        let bookDb.Book book = bookDb.Book.create({
+            title: "Catalog Test",
+            isbn: "9780000000005",
+            author: "Test Author",
+            publicationYear: 2020,
+            categoryId: cat.id
+        });
+        book.save();
+        assert book.catalogNumber != null;
+    }
+
     test("afterCreate dispatches IndexBook task") {
         let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatQueue" });
         cat.save();

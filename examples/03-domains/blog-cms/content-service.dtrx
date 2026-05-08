@@ -118,4 +118,16 @@ service blog.ContentService('config/content-service.yaml') : version('1.0.0'), d
         post.save();
         assert post.isDraft == true;
     }
+
+    test("computed isDraft is false for Published status") {
+        let Post post = contentDb.Post.create({
+            authorId: uuid(),
+            title: "Published Spec Post",
+            body: "Published content for spec test",
+            status: ContentStatus.Published,
+            publishedAt: now()
+        });
+        post.save();
+        assert post.isDraft == false;
+    }
 }

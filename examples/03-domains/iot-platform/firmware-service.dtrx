@@ -602,4 +602,235 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
             ValidationError("File size must be greater than zero")
         );
     }
+
+    test("computed isFinished for Completed rollout") {
+        let FirmwareVersion firmware = firmwareDb.FirmwareVersion.create({
+            version: "4.0.0-test",
+            fileUrl: "https://firmware.test/v4.0.0.bin",
+            fileSize: 5120000,
+            checksum: "finish123hash",
+            isStable: true
+        });
+        firmware.save();
+        let FirmwareRollout rollout = firmwareDb.FirmwareRollout.create({
+            rolloutCode: "FW-TEST-003",
+            firmwareVersionId: firmware.id,
+            status: RolloutStatus.Completed,
+            totalDevices: 50,
+            updatedDevices: 48,
+            failedDevices: 2,
+            completedAt: now()
+        });
+        rollout.save();
+        assert rollout.isFinished == true;
+        assert rollout.isActive == false;
+    }
+
+    test("computed isFinished for Failed rollout") {
+        let FirmwareVersion firmware = firmwareDb.FirmwareVersion.create({
+            version: "4.1.0-test",
+            fileUrl: "https://firmware.test/v4.1.0.bin",
+            fileSize: 3072000,
+            checksum: "failhash456",
+            isStable: false
+        });
+        firmware.save();
+        let FirmwareRollout rollout = firmwareDb.FirmwareRollout.create({
+            rolloutCode: "FW-TEST-004",
+            firmwareVersionId: firmware.id,
+            status: RolloutStatus.Failed,
+            totalDevices: 40,
+            updatedDevices: 10,
+            failedDevices: 30,
+            completedAt: now()
+        });
+        rollout.save();
+        assert rollout.isFinished == true;
+    }
+
+    test("computed isFinished for Cancelled rollout") {
+        let FirmwareVersion firmware = firmwareDb.FirmwareVersion.create({
+            version: "4.2.0-test",
+            fileUrl: "https://firmware.test/v4.2.0.bin",
+            fileSize: 2048000,
+            checksum: "cancelhash789",
+            isStable: false
+        });
+        firmware.save();
+        let FirmwareRollout rollout = firmwareDb.FirmwareRollout.create({
+            rolloutCode: "FW-TEST-005",
+            firmwareVersionId: firmware.id,
+            status: RolloutStatus.Cancelled
+        });
+        rollout.save();
+        assert rollout.isFinished == true;
+    }
+
+    test("computed progressPercent is zero when totalDevices is zero") {
+        let FirmwareVersion firmware = firmwareDb.FirmwareVersion.create({
+            version: "4.3.0-test",
+            fileUrl: "https://firmware.test/v4.3.0.bin",
+            fileSize: 1024000,
+            checksum: "zerohash000",
+            isStable: false
+        });
+        firmware.save();
+        let FirmwareRollout rollout = firmwareDb.FirmwareRollout.create({
+            rolloutCode: "FW-TEST-006",
+            firmwareVersionId: firmware.id,
+            status: RolloutStatus.Planned,
+            totalDevices: 0,
+            updatedDevices: 0
+        });
+        rollout.save();
+        assert rollout.progressPercent == 0.0;
+    }
+
+    test("validation rejects empty file URL") {
+        assert throws(
+            () => firmwareDb.FirmwareVersion.create({
+                version: "5.0.0-test",
+                fileUrl: "",
+                fileSize: 1024,
+                checksum: "urlhash123"
+            }),
+            ValidationError("File URL cannot be empty")
+        );
+    }
+
+    test("validation rejects empty checksum") {
+        assert throws(
+            () => firmwareDb.FirmwareVersion.create({
+                version: "5.1.0-test",
+                fileUrl: "https://firmware.test/v5.1.0.bin",
+                fileSize: 2048,
+                checksum: ""
+            }),
+            ValidationError("Checksum cannot be empty")
+        );
+    }
+
+    test("validation rejects negative total devices on rollout") {
+        let FirmwareVersion firmware = firmwareDb.FirmwareVersion.create({
+            version: "5.2.0-test",
+            fileUrl: "https://firmware.test/v5.2.0.bin",
+            fileSize: 4096000,
+            checksum: "neghash456",
+            isStable: true
+        });
+        firmware.save();
+        assert throws(
+            () => firmwareDb.FirmwareRollout.create({
+                rolloutCode: "FW-TEST-007",
+                firmwareVersionId: firmware.id,
+                totalDevices: -1
+            }),
+            ValidationError("Total devices cannot be negative")
+        );
+    }
+
+    test("rollout status change emits RolloutStatusChanged") {
+        let FirmwareVersion firmware = firmwareDb.FirmwareVersion.create({
+            version: "5.3.0-test",
+            fileUrl: "https://firmware.test/v5.3.0.bin",
+            fileSize: 6144000,
+            checksum: "statushash789",
+            isStable: true
+        });
+        firmware.save();
+        let FirmwareRollout rollout = firmwareDb.FirmwareRollout.create({
+            rolloutCode: "FW-TEST-008",
+            firmwareVersionId: firmware.id,
+            status: RolloutStatus.Planned
+        });
+        rollout.save();
+        rollout.start(25);
+        assert emitted(RolloutStatusChanged(rollout.id, rollout.rolloutCode, RolloutStatus.Planned, RolloutStatus.InProgress));
+    }
+
+    test("start fn sets status, startedAt, and totalDevices") {
+        let FirmwareVersion firmware = firmwareDb.FirmwareVersion.create({
+            version: "5.4.0-test",
+            fileUrl: "https://firmware.test/v5.4.0.bin",
+            fileSize: 7168000,
+            checksum: "starthash012",
+            isStable: true
+        });
+        firmware.save();
+        let FirmwareRollout rollout = firmwareDb.FirmwareRollout.create({
+            rolloutCode: "FW-TEST-009",
+            firmwareVersionId: firmware.id,
+            status: RolloutStatus.Planned
+        });
+        rollout.save();
+        rollout.start(30);
+        assert rollout.status == RolloutStatus.InProgress;
+        assert rollout.startedAt != null;
+        assert rollout.totalDevices == 30;
+    }
+
+    test("pause fn sets status to Paused") {
+        let FirmwareVersion firmware = firmwareDb.FirmwareVersion.create({
+            version: "5.5.0-test",
+            fileUrl: "https://firmware.test/v5.5.0.bin",
+            fileSize: 8192000,
+            checksum: "pausehash345",
+            isStable: true
+        });
+        firmware.save();
+        let FirmwareRollout rollout = firmwareDb.FirmwareRollout.create({
+            rolloutCode: "FW-TEST-010",
+            firmwareVersionId: firmware.id,
+            status: RolloutStatus.InProgress,
+            startedAt: now(),
+            totalDevices: 20
+        });
+        rollout.save();
+        rollout.pause();
+        assert rollout.status == RolloutStatus.Paused;
+    }
+
+    test("recordSuccess increments updatedDevices") {
+        let FirmwareVersion firmware = firmwareDb.FirmwareVersion.create({
+            version: "5.6.0-test",
+            fileUrl: "https://firmware.test/v5.6.0.bin",
+            fileSize: 9216000,
+            checksum: "successhash678",
+            isStable: true
+        });
+        firmware.save();
+        let FirmwareRollout rollout = firmwareDb.FirmwareRollout.create({
+            rolloutCode: "FW-TEST-011",
+            firmwareVersionId: firmware.id,
+            status: RolloutStatus.InProgress,
+            startedAt: now(),
+            totalDevices: 10,
+            updatedDevices: 3
+        });
+        rollout.save();
+        rollout.recordSuccess();
+        assert rollout.updatedDevices == 4;
+    }
+
+    test("recordFailure increments failedDevices") {
+        let FirmwareVersion firmware = firmwareDb.FirmwareVersion.create({
+            version: "5.7.0-test",
+            fileUrl: "https://firmware.test/v5.7.0.bin",
+            fileSize: 1024000,
+            checksum: "failurehash901",
+            isStable: true
+        });
+        firmware.save();
+        let FirmwareRollout rollout = firmwareDb.FirmwareRollout.create({
+            rolloutCode: "FW-TEST-012",
+            firmwareVersionId: firmware.id,
+            status: RolloutStatus.InProgress,
+            startedAt: now(),
+            totalDevices: 10,
+            failedDevices: 1
+        });
+        rollout.save();
+        rollout.recordFailure();
+        assert rollout.failedDevices == 2;
+    }
 }

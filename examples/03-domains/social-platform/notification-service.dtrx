@@ -469,4 +469,68 @@ service social.NotificationService('config/notification-service.yaml') : version
         notification.markAsRead();
         assert notification.readAt == firstReadAt;
     }
+
+    test("notification defaults to unread") {
+        let Notification notification = notificationDb.Notification.create({
+            userId: uuid(),
+            type: NotificationType.Follow,
+            title: "New follower notification"
+        });
+        notification.save();
+        assert notification.read == false;
+        assert notification.readAt == null;
+    }
+
+    test("notification with body stores body text") {
+        let Notification notification = notificationDb.Notification.create({
+            userId: uuid(),
+            type: NotificationType.Comment,
+            title: "New comment on your post",
+            body: "Someone left a detailed comment on your latest post"
+        });
+        notification.save();
+        assert notification.body == "Someone left a detailed comment on your latest post";
+    }
+
+    test("notification stores referenceId and referenceType") {
+        let UUID postId = uuid();
+        let UUID actorUserId = uuid();
+        let Notification notification = notificationDb.Notification.create({
+            userId: uuid(),
+            type: NotificationType.Like,
+            title: "Post liked",
+            referenceId: postId,
+            referenceType: "Post",
+            actorId: actorUserId
+        });
+        notification.save();
+        assert notification.referenceId == postId;
+        assert notification.referenceType == "Post";
+        assert notification.actorId == actorUserId;
+    }
+
+    test("notification preference defaults are all enabled") {
+        let NotificationPreference prefs = notificationDb.NotificationPreference.create({
+            userId: uuid()
+        });
+        prefs.save();
+        assert prefs.emailEnabled == true;
+        assert prefs.pushEnabled == true;
+        assert prefs.likeNotifications == true;
+        assert prefs.commentNotifications == true;
+        assert prefs.followNotifications == true;
+        assert prefs.mentionNotifications == true;
+    }
+
+    test("notification preference can disable specific channels") {
+        let NotificationPreference prefs = notificationDb.NotificationPreference.create({
+            userId: uuid(),
+            emailEnabled: false,
+            pushEnabled: false
+        });
+        prefs.save();
+        assert prefs.emailEnabled == false;
+        assert prefs.pushEnabled == false;
+        assert prefs.likeNotifications == true;
+    }
 }

@@ -567,4 +567,221 @@ service realestate.ListingService('config/listing-service.yaml') : version('1.0.
             ValidationException("Only draft listings can be activated")
         );
     }
+
+    test("computed isAvailable is false for Sold status") {
+        let Listing listing = listingDb.Listing.create({
+            title: "Sold Property",
+            description: "This property has been sold",
+            listingRef: "LST-TEST-007",
+            propertyType: PropertyType.House,
+            status: ListingStatus.Sold,
+            price: Money.of(500000, "USD"),
+            bedrooms: 3,
+            bathrooms: 2,
+            squareFeet: 2000,
+            address: "111 Sold Street",
+            city: "San Antonio",
+            state: "TX",
+            zipCode: "78201"
+        });
+        listing.save();
+        assert listing.isAvailable == false;
+    }
+
+    test("validation rejects non-positive square feet") {
+        assert throws(
+            () => listingDb.Listing.create({
+                title: "Zero SqFt Listing",
+                description: "Invalid square footage",
+                listingRef: "LST-TEST-008",
+                propertyType: PropertyType.Condo,
+                price: Money.of(100000, "USD"),
+                bedrooms: 1,
+                bathrooms: 1,
+                squareFeet: 0,
+                address: "222 Zero Ave",
+                city: "Austin",
+                state: "TX",
+                zipCode: "78705"
+            }),
+            ValidationError("Square feet must be positive")
+        );
+    }
+
+    test("validation rejects negative bathrooms") {
+        assert throws(
+            () => listingDb.Listing.create({
+                title: "Negative Bath Listing",
+                description: "Invalid bathrooms count",
+                listingRef: "LST-TEST-009",
+                propertyType: PropertyType.Apartment,
+                price: Money.of(120000, "USD"),
+                bedrooms: 2,
+                bathrooms: -1,
+                squareFeet: 900,
+                address: "333 Bath Road",
+                city: "Austin",
+                state: "TX",
+                zipCode: "78706"
+            }),
+            ValidationError("Bathrooms cannot be negative")
+        );
+    }
+
+    test("markUnderContract fails for non-active listing") {
+        let Listing listing = listingDb.Listing.create({
+            title: "Draft Contract Listing",
+            description: "Trying to put draft under contract",
+            listingRef: "LST-TEST-010",
+            propertyType: PropertyType.House,
+            status: ListingStatus.Draft,
+            price: Money.of(300000, "USD"),
+            bedrooms: 3,
+            bathrooms: 2,
+            squareFeet: 1600,
+            address: "444 Draft Lane",
+            city: "Dallas",
+            state: "TX",
+            zipCode: "75202"
+        });
+        listing.save();
+        assert throws(
+            () => listing.markUnderContract(),
+            ValidationException("Only active listings can be placed under contract")
+        );
+    }
+
+    test("markSold fails for non-under-contract listing") {
+        let Listing listing = listingDb.Listing.create({
+            title: "Active Not Under Contract",
+            description: "Cannot mark sold directly from active",
+            listingRef: "LST-TEST-011",
+            propertyType: PropertyType.Townhouse,
+            status: ListingStatus.Active,
+            price: Money.of(275000, "USD"),
+            bedrooms: 2,
+            bathrooms: 2,
+            squareFeet: 1400,
+            address: "555 Active Blvd",
+            city: "Dallas",
+            state: "TX",
+            zipCode: "75203"
+        });
+        listing.save();
+        assert throws(
+            () => listing.markSold(),
+            ValidationException("Only listings under contract can be marked as sold")
+        );
+    }
+
+    test("withdraw fails for sold listing") {
+        let Listing listing = listingDb.Listing.create({
+            title: "Sold Withdraw Test",
+            description: "Cannot withdraw a sold listing",
+            listingRef: "LST-TEST-012",
+            propertyType: PropertyType.House,
+            status: ListingStatus.Sold,
+            price: Money.of(450000, "USD"),
+            bedrooms: 4,
+            bathrooms: 3,
+            squareFeet: 2800,
+            address: "666 Sold Ct",
+            city: "Houston",
+            state: "TX",
+            zipCode: "77002"
+        });
+        listing.save();
+        assert throws(
+            () => listing.withdraw(),
+            ValidationException("Sold listings cannot be withdrawn")
+        );
+    }
+
+    test("status change emits ListingStatusChanged") {
+        let Listing listing = listingDb.Listing.create({
+            title: "Status Event Listing",
+            description: "Testing status change event emission",
+            listingRef: "LST-TEST-013",
+            propertyType: PropertyType.House,
+            status: ListingStatus.Draft,
+            price: Money.of(320000, "USD"),
+            bedrooms: 3,
+            bathrooms: 2,
+            squareFeet: 1900,
+            address: "777 Event Dr",
+            city: "Austin",
+            state: "TX",
+            zipCode: "78707"
+        });
+        listing.save();
+        listing.status = ListingStatus.Active;
+        listing.save();
+        assert emitted(ListingStatusChanged(listing.id, listing.listingRef, ListingStatus.Draft, ListingStatus.Active));
+    }
+
+    test("price change emits ListingPriceChanged") {
+        let Listing listing = listingDb.Listing.create({
+            title: "Price Change Listing",
+            description: "Testing price change event",
+            listingRef: "LST-TEST-014",
+            propertyType: PropertyType.Condo,
+            status: ListingStatus.Active,
+            price: Money.of(200000, "USD"),
+            bedrooms: 2,
+            bathrooms: 1,
+            squareFeet: 1100,
+            address: "888 Price Way",
+            city: "Austin",
+            state: "TX",
+            zipCode: "78708"
+        });
+        listing.save();
+        listing.price = Money.of(210000, "USD");
+        listing.save();
+        assert emitted(ListingPriceChanged(listing.id, listing.listingRef, Money.of(200000, "USD"), Money.of(210000, "USD")));
+    }
+
+    test("validation rejects empty image URL") {
+        assert throws(
+            () => listingDb.ListingImage.create({
+                listingId: uuid(),
+                url: "",
+                orderIndex: 0
+            }),
+            ValidationError("Image URL cannot be empty")
+        );
+    }
+
+    test("validation rejects negative image orderIndex") {
+        assert throws(
+            () => listingDb.ListingImage.create({
+                listingId: uuid(),
+                url: "https://images.test/photo.jpg",
+                orderIndex: -1
+            }),
+            ValidationError("Order index cannot be negative")
+        );
+    }
+
+    test("validation rejects empty feature name") {
+        assert throws(
+            () => listingDb.ListingFeature.create({
+                listingId: uuid(),
+                featureName: "",
+                featureValue: "Yes"
+            }),
+            ValidationError("Feature name cannot be empty")
+        );
+    }
+
+    test("validation rejects empty feature value") {
+        assert throws(
+            () => listingDb.ListingFeature.create({
+                listingId: uuid(),
+                featureName: "Pool",
+                featureValue: ""
+            }),
+            ValidationError("Feature value cannot be empty")
+        );
+    }
 }

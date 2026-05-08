@@ -204,9 +204,8 @@ def _read_index_json(index_path: Path) -> Optional[TestResult]:
      phase_status = "PASSED" if total_failed == 0 and total_errors == 0 else "FAILED"
      phases[phase_key] = PhaseResult(status=phase_status)
 
-  # Use full.log path for log_file reference
-  full_log = run_dir / "full.log"
-  log_file_str = str(full_log) if full_log.exists() else str(index_path)
+  # Use index.json path for log_file reference (smaller, structured summary)
+  log_file_str = str(index_path)
 
   return TestResult(
    project_path=str(project_dir.resolve()),

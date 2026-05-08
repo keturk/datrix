@@ -569,4 +569,67 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
         alert.resolve("Customer confirmed travel", true, uuid());
         assert alert.status == AlertStatus.FalsePositive;
     }
+
+    test("computed isEscalated is true when status is Escalated") {
+        let ComplianceAlert alert = complianceDb.ComplianceAlert.create({
+            accountId: uuid(),
+            type: AlertType.AccountBehaviorChange,
+            severity: AlertSeverity.High,
+            status: AlertStatus.Escalated,
+            description: "Test escalated behavior change alert"
+        });
+        alert.save();
+        assert alert.isEscalated == true;
+    }
+
+    test("startReview transitions Open to UnderReview") {
+        let ComplianceAlert alert = complianceDb.ComplianceAlert.create({
+            accountId: uuid(),
+            type: AlertType.VelocityExceeded,
+            severity: AlertSeverity.Medium,
+            status: AlertStatus.Open,
+            description: "Test velocity exceeded for review"
+        });
+        alert.save();
+        alert.startReview();
+        assert alert.status == AlertStatus.UnderReview;
+    }
+
+    test("escalate transitions to Escalated") {
+        let ComplianceAlert alert = complianceDb.ComplianceAlert.create({
+            accountId: uuid(),
+            type: AlertType.SuspiciousPattern,
+            severity: AlertSeverity.High,
+            status: AlertStatus.Open,
+            description: "Test suspicious pattern for escalation"
+        });
+        alert.save();
+        alert.escalate("Requires senior review", "compliance-manager@org.com");
+        assert alert.status == AlertStatus.Escalated;
+    }
+
+    test("afterCreate emits CriticalAlertRaised for Critical severity") {
+        let ComplianceAlert alert = complianceDb.ComplianceAlert.create({
+            accountId: uuid(),
+            type: AlertType.LargeTransaction,
+            severity: AlertSeverity.Critical,
+            status: AlertStatus.Open,
+            description: "Critical large transaction detected in audit"
+        });
+        alert.save();
+        assert emitted(CriticalAlertRaised(alert.id, alert.accountId, AlertType.LargeTransaction, "Critical large transaction detected in audit"));
+    }
+
+    test("afterUpdate emits AlertStatusChanged") {
+        let ComplianceAlert alert = complianceDb.ComplianceAlert.create({
+            accountId: uuid(),
+            type: AlertType.GeographicAnomaly,
+            severity: AlertSeverity.Medium,
+            status: AlertStatus.Open,
+            description: "Test geographic anomaly status change event"
+        });
+        alert.save();
+        alert.startReview();
+        assert emitted(AlertStatusChanged(alert.id, alert.accountId, AlertStatus.Open, AlertStatus.UnderReview));
+    }
 }

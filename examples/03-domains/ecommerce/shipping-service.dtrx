@@ -478,6 +478,67 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
         assert shipment.isInProgress == true;
     }
 
+    test("markDelivered sets status and actualDelivery") {
+        let shippingDb.Shipment shipment = shippingDb.Shipment.create({
+            orderId: uuid(),
+            trackingNumber: "SPEC-TRACK-003",
+            carrier: ShippingCarrier.USPS,
+            status: ShipmentStatus.InTransit,
+            destination: { street: "789 Elm St", city: "Capital City", state: "IL", zipCode: "62702", country: "US" },
+            weight: 3.25
+        });
+        shipment.save();
+        shipment.markDelivered();
+        assert shipment.status == ShipmentStatus.Delivered;
+        assert shipment.actualDelivery != null;
+    }
+
+    test("markFailed sets status and failureReason") {
+        let shippingDb.Shipment shipment = shippingDb.Shipment.create({
+            orderId: uuid(),
+            trackingNumber: "SPEC-TRACK-004",
+            carrier: ShippingCarrier.DHL,
+            status: ShipmentStatus.OutForDelivery,
+            destination: { street: "321 Pine Rd", city: "Ogdenville", state: "IL", zipCode: "62703", country: "US" },
+            weight: 5.00
+        });
+        shipment.save();
+        shipment.markFailed("Recipient not available");
+        assert shipment.status == ShipmentStatus.Failed;
+        assert shipment.failureReason == "Recipient not available";
+    }
+
+    test("afterUpdate emits ShipmentDispatched when InTransit") {
+        let shippingDb.Shipment shipment = shippingDb.Shipment.create({
+            orderId: uuid(),
+            trackingNumber: "SPEC-TRACK-005",
+            carrier: ShippingCarrier.FedEx,
+            status: ShipmentStatus.Pending,
+            destination: { street: "555 Oak Blvd", city: "Greenfield", state: "WI", zipCode: "53220", country: "US" },
+            weight: 2.00
+        });
+        shipment.save();
+        shipment.status = ShipmentStatus.InTransit;
+        shipment.save();
+        assert emitted(ShipmentDispatched(shipment.id, shipment.orderId, shipment.trackingNumber));
+    }
+
+    test("afterUpdate emits ShipmentDelivered when Delivered") {
+        let shippingDb.Shipment shipment = shippingDb.Shipment.create({
+            orderId: uuid(),
+            trackingNumber: "SPEC-TRACK-006",
+            carrier: ShippingCarrier.UPS,
+            status: ShipmentStatus.InTransit,
+            destination: { street: "888 Willow Ave", city: "Riverside", state: "CA", zipCode: "92501", country: "US" },
+            weight: 4.50,
+            actualDelivery: now()
+        });
+        shipment.save();
+        shipment.status = ShipmentStatus.Delivered;
+        shipment.save();
+        assert emitted(ShipmentDelivered(shipment.id, shipment.orderId, shipment.actualDelivery ?? now()));
+    }
+
     // Scheduled jobs for background processing
     jobs('config/shipping-service.yaml') {
         // Periodically sync tracking info from carrier APIs

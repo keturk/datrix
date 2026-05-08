@@ -248,6 +248,74 @@ service healthcare.PatientService('config/patient-service.yaml') : version('1.0.
         assert emitted(PatientRegistered(patient.id, patient.mrn, patient.fullName, patient.dateOfBirth));
     }
 
+    test("computed formalName formats lastName comma firstName") {
+        let Patient patient = patientDb.Patient.create({
+            firstName: "Elena",
+            lastName: "Rodriguez",
+            dateOfBirth: Date.of(1978, 11, 3),
+            gender: Gender.Female
+        });
+        patient.save();
+        assert patient.formalName == "Rodriguez, Elena";
+    }
+
+    test("computed isMinor is true for age under 18") {
+        let Patient patient = patientDb.Patient.create({
+            firstName: "Liam",
+            lastName: "Foster",
+            dateOfBirth: today().subtractYears(12),
+            gender: Gender.Male
+        });
+        patient.save();
+        assert patient.isMinor == true;
+    }
+
+    test("computed isMinor is false for adult") {
+        let Patient patient = patientDb.Patient.create({
+            firstName: "Nora",
+            lastName: "Bennett",
+            dateOfBirth: Date.of(1980, 4, 22),
+            gender: Gender.Female
+        });
+        patient.save();
+        assert patient.isMinor == false;
+    }
+
+    test("beforeCreate generates MRN when not provided") {
+        let Patient patient = patientDb.Patient.create({
+            firstName: "Marcus",
+            lastName: "Hale",
+            dateOfBirth: Date.of(1995, 8, 10),
+            gender: Gender.Male
+        });
+        patient.save();
+        assert patient.mrn != null;
+    }
+
+    test("afterCreate emits PatientRegistered with correct fields") {
+        let Patient patient = patientDb.Patient.create({
+            firstName: "Serena",
+            lastName: "Okafor",
+            dateOfBirth: Date.of(1992, 2, 14),
+            gender: Gender.Female
+        });
+        patient.save();
+        assert emitted(PatientRegistered(patient.id, patient.mrn, patient.fullName, patient.dateOfBirth));
+    }
+
+    test("afterUpdate emits PatientStatusChanged on status change") {
+        let Patient patient = patientDb.Patient.create({
+            firstName: "Derek",
+            lastName: "Tanaka",
+            dateOfBirth: Date.of(1970, 7, 30),
+            gender: Gender.Male
+        });
+        patient.save();
+        patient.status = PatientStatus.Inactive;
+        patient.save();
+        assert emitted(PatientStatusChanged(patient.id, patient.mrn, "Active", "Inactive"));
+    }
+
     // REST API block with monitoring alerts
     rest_api PatientAPI : basePath('/api/v1/patients') {
         alert responseTime(p95) over(5m) > 500ms @severity(warning);

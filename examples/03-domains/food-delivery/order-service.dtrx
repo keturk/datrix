@@ -473,4 +473,105 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
             ValidationError("Order must have at least one item")
         );
     }
+
+    test("computed isCompleted when status is Delivered") {
+        let orderDb.Order order = orderDb.Order.create({
+            customerId: uuid(),
+            restaurantId: uuid(),
+            orderNumber: "FD-TEST-005",
+            status: OrderStatus.Delivered,
+            subtotal: Money.of(40.00, "USD"),
+            tax: Money.of(3.20, "USD"),
+            deliveryFee: Money.of(4.99, "USD"),
+            total: Money.of(48.19, "USD"),
+            deliveryAddress: { street: "600 Birch Ln", city: "Springfield", state: "IL", zipCode: "62705" }
+        });
+        order.save();
+        assert order.isCompleted == true;
+    }
+
+    test("computed isPaid when paymentStatus is Charged") {
+        let orderDb.Order order = orderDb.Order.create({
+            customerId: uuid(),
+            restaurantId: uuid(),
+            orderNumber: "FD-TEST-006",
+            paymentStatus: PaymentStatus.Charged,
+            subtotal: Money.of(22.00, "USD"),
+            tax: Money.of(1.76, "USD"),
+            deliveryFee: Money.of(4.99, "USD"),
+            total: Money.of(28.75, "USD"),
+            deliveryAddress: { street: "700 Walnut St", city: "Springfield", state: "IL", zipCode: "62706" }
+        });
+        order.save();
+        assert order.isPaid == true;
+    }
+
+    test("afterCreate emits OrderPlaced with correct fields") {
+        let orderDb.Order order = orderDb.Order.create({
+            customerId: uuid(),
+            restaurantId: uuid(),
+            orderNumber: "FD-TEST-007",
+            subtotal: Money.of(35.00, "USD"),
+            tax: Money.of(2.80, "USD"),
+            deliveryFee: Money.of(4.99, "USD"),
+            total: Money.of(42.79, "USD"),
+            deliveryAddress: { street: "800 Cedar Ave", city: "Springfield", state: "IL", zipCode: "62707" }
+        });
+        order.save();
+        assert emitted(OrderPlaced(order.id, "FD-TEST-007", order.customerId, order.restaurantId, order.total));
+    }
+
+    test("afterUpdate emits OrderStatusChanged on status change") {
+        let orderDb.Order order = orderDb.Order.create({
+            customerId: uuid(),
+            restaurantId: uuid(),
+            orderNumber: "FD-TEST-008",
+            status: OrderStatus.Placed,
+            subtotal: Money.of(28.00, "USD"),
+            tax: Money.of(2.24, "USD"),
+            deliveryFee: Money.of(4.99, "USD"),
+            total: Money.of(35.23, "USD"),
+            deliveryAddress: { street: "900 Spruce Dr", city: "Springfield", state: "IL", zipCode: "62708" }
+        });
+        order.save();
+        order.status = OrderStatus.Preparing;
+        order.save();
+        assert emitted(OrderStatusChanged(order.id, "FD-TEST-008", OrderStatus.Placed, OrderStatus.Preparing));
+    }
+
+    test("afterUpdate emits OrderConfirmed when Confirmed") {
+        let orderDb.Order order = orderDb.Order.create({
+            customerId: uuid(),
+            restaurantId: uuid(),
+            orderNumber: "FD-TEST-009",
+            status: OrderStatus.Placed,
+            subtotal: Money.of(45.00, "USD"),
+            tax: Money.of(3.60, "USD"),
+            deliveryFee: Money.of(4.99, "USD"),
+            total: Money.of(53.59, "USD"),
+            deliveryAddress: { street: "1000 Ash Blvd", city: "Springfield", state: "IL", zipCode: "62709" }
+        });
+        order.save();
+        order.status = OrderStatus.Confirmed;
+        order.save();
+        assert emitted(OrderConfirmed(order.id, "FD-TEST-009", order.restaurantId, order.deliveryAddress));
+    }
+
+    test("afterUpdate emits OrderCancelled when Cancelled") {
+        let orderDb.Order order = orderDb.Order.create({
+            customerId: uuid(),
+            restaurantId: uuid(),
+            orderNumber: "FD-TEST-010",
+            status: OrderStatus.Placed,
+            subtotal: Money.of(18.00, "USD"),
+            tax: Money.of(1.44, "USD"),
+            deliveryFee: Money.of(4.99, "USD"),
+            total: Money.of(24.43, "USD"),
+            deliveryAddress: { street: "1100 Poplar Way", city: "Springfield", state: "IL", zipCode: "62710" }
+        });
+        order.save();
+        order.status = OrderStatus.Cancelled;
+        order.save();
+        assert emitted(OrderCancelled(order.id, "FD-TEST-010", order.customerId));
+    }
 }

@@ -592,6 +592,135 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
         assert emitted(OrderCancelled(order.id, order.cancellationReason, order.inventoryReservationId));
     }
 
+    test("computed isCompleted is true for Delivered status") {
+        let orderDb.Order order = orderDb.Order.create({
+            customerId: uuid(),
+            orderNumber: "ORD-SPEC-005",
+            subtotal: Money.of(150.00, Currency.USD),
+            tax: Money.of(12.00, Currency.USD),
+            shippingCost: Money.of(0.00, Currency.USD),
+            discount: Money.of(0.00, Currency.USD),
+            status: OrderStatus.Delivered,
+            shippingAddress: { street: "500 Maple Dr", city: "Lakewood", state: "CO", zipCode: "80226", country: "US" },
+            billingAddress: { street: "500 Maple Dr", city: "Lakewood", state: "CO", zipCode: "80226", country: "US" },
+            inventoryReservationId: uuid()
+        });
+        order.save();
+        assert order.isCompleted == true;
+    }
+
+    test("computed isPendingOrPaymentPending for Pending status") {
+        let orderDb.Order order = orderDb.Order.create({
+            customerId: uuid(),
+            orderNumber: "ORD-SPEC-006",
+            subtotal: Money.of(80.00, Currency.USD),
+            tax: Money.of(6.40, Currency.USD),
+            shippingCost: Money.of(5.99, Currency.USD),
+            discount: Money.of(0.00, Currency.USD),
+            status: OrderStatus.Pending,
+            shippingAddress: { street: "601 Birch Ln", city: "Aurora", state: "CO", zipCode: "80010", country: "US" },
+            billingAddress: { street: "601 Birch Ln", city: "Aurora", state: "CO", zipCode: "80010", country: "US" },
+            inventoryReservationId: uuid()
+        });
+        order.save();
+        assert order.isPendingOrPaymentPending == true;
+    }
+
+    test("afterCreate emits ProcessPayment event") {
+        let orderDb.Order order = orderDb.Order.create({
+            customerId: uuid(),
+            orderNumber: "ORD-SPEC-007",
+            subtotal: Money.of(250.00, Currency.USD),
+            tax: Money.of(20.00, Currency.USD),
+            shippingCost: Money.of(0.00, Currency.USD),
+            discount: Money.of(0.00, Currency.USD),
+            shippingAddress: { street: "702 Cedar Ct", city: "Boulder", state: "CO", zipCode: "80301", country: "US" },
+            billingAddress: { street: "702 Cedar Ct", city: "Boulder", state: "CO", zipCode: "80301", country: "US" },
+            inventoryReservationId: uuid()
+        });
+        order.save();
+        assert dispatched(ProcessPayment(order.id, order.total, order.total.currency.value.toLowerCase()));
+    }
+
+    test("afterUpdate emits OrderStatusChanged on status change") {
+        let orderDb.Order order = orderDb.Order.create({
+            customerId: uuid(),
+            orderNumber: "ORD-SPEC-008",
+            subtotal: Money.of(60.00, Currency.USD),
+            tax: Money.of(4.80, Currency.USD),
+            shippingCost: Money.of(5.99, Currency.USD),
+            discount: Money.of(0.00, Currency.USD),
+            shippingAddress: { street: "803 Spruce Way", city: "Denver", state: "CO", zipCode: "80202", country: "US" },
+            billingAddress: { street: "803 Spruce Way", city: "Denver", state: "CO", zipCode: "80202", country: "US" },
+            inventoryReservationId: uuid()
+        });
+        order.save();
+        orderDb.OrderItem.create({
+            orderId: order.id,
+            productId: uuid(),
+            productName: "Status Change Product",
+            quantity: 2,
+            unitPrice: Money.of(30.00, Currency.USD)
+        });
+        order.status = OrderStatus.Processing;
+        order.save();
+        assert emitted(OrderStatusChanged(order.id, OrderStatus.Pending, OrderStatus.Processing));
+    }
+
+    test("afterUpdate emits OrderConfirmed when status is Confirmed") {
+        let orderDb.Order order = orderDb.Order.create({
+            customerId: uuid(),
+            orderNumber: "ORD-SPEC-009",
+            subtotal: Money.of(120.00, Currency.USD),
+            tax: Money.of(9.60, Currency.USD),
+            shippingCost: Money.of(0.00, Currency.USD),
+            discount: Money.of(0.00, Currency.USD),
+            shippingAddress: { street: "904 Aspen Blvd", city: "Fort Collins", state: "CO", zipCode: "80521", country: "US" },
+            billingAddress: { street: "904 Aspen Blvd", city: "Fort Collins", state: "CO", zipCode: "80521", country: "US" },
+            inventoryReservationId: uuid(),
+            paymentId: uuid()
+        });
+        order.save();
+        orderDb.OrderItem.create({
+            orderId: order.id,
+            productId: uuid(),
+            productName: "Confirmed Product",
+            quantity: 3,
+            unitPrice: Money.of(40.00, Currency.USD)
+        });
+        order.status = OrderStatus.Confirmed;
+        order.save();
+        assert emitted(OrderConfirmed(order.id, order.paymentId, order.inventoryReservationId, order.shippingAddress, order.items.map(i => { productId: i.productId, quantity: i.quantity }), order.items.length() * 1.0));
+    }
+
+    test("validation rejects order with more than 50 items") {
+        let orderDb.Order order = orderDb.Order.create({
+            customerId: uuid(),
+            orderNumber: "ORD-SPEC-010",
+            subtotal: Money.of(500.00, Currency.USD),
+            tax: Money.of(40.00, Currency.USD),
+            shippingCost: Money.of(0.00, Currency.USD),
+            discount: Money.of(0.00, Currency.USD),
+            shippingAddress: { street: "1005 Walnut St", city: "Pueblo", state: "CO", zipCode: "81001", country: "US" },
+            billingAddress: { street: "1005 Walnut St", city: "Pueblo", state: "CO", zipCode: "81001", country: "US" },
+            inventoryReservationId: uuid()
+        });
+        order.save();
+        foreach i in range(51) {
+            orderDb.OrderItem.create({
+                orderId: order.id,
+                productId: uuid(),
+                productName: #"Excess Item {i}",
+                quantity: 1,
+                unitPrice: Money.of(9.99, Currency.USD)
+            });
+        }
+        assert throws(
+            () => order.save(),
+            ValidationError("Order cannot have more than 50 items")
+        );
+    }
+
     jobs('config/order-service.yaml') {
         job CleanupExpiredIdempotencyKeys {
             let DateTime threshold = now().addDays(-1);

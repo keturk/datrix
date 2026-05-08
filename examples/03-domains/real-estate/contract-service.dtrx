@@ -479,4 +479,174 @@ service realestate.ContractService('config/contract-service.yaml') : version('1.
         contract.sign();
         assert emitted(ContractStatusChanged(contract.id, contract.contractRef, contract.listingId, ContractStatus.Pending, ContractStatus.Signed));
     }
+
+    test("computed isActive for Active status") {
+        let Contract contract = contractDb.Contract.create({
+            contractRef: "CTR-TEST-007",
+            listingId: uuid(),
+            buyerId: uuid(),
+            sellerId: uuid(),
+            contractType: ContractType.Sale,
+            status: ContractStatus.Active,
+            price: Money.of(400000, "USD"),
+            activatedAt: now()
+        });
+        contract.save();
+        assert contract.isActive == true;
+        assert contract.isDraft == false;
+    }
+
+    test("computed isTerminated for Terminated status") {
+        let Contract contract = contractDb.Contract.create({
+            contractRef: "CTR-TEST-008",
+            listingId: uuid(),
+            buyerId: uuid(),
+            sellerId: uuid(),
+            contractType: ContractType.Lease,
+            status: ContractStatus.Terminated,
+            price: Money.of(2000, "USD"),
+            terminatedAt: now(),
+            terminationReason: "Breach of terms"
+        });
+        contract.save();
+        assert contract.isTerminated == true;
+    }
+
+    test("submit fn transitions Draft to Pending") {
+        let Contract contract = contractDb.Contract.create({
+            contractRef: "CTR-TEST-009",
+            listingId: uuid(),
+            buyerId: uuid(),
+            sellerId: uuid(),
+            contractType: ContractType.Sale,
+            status: ContractStatus.Draft,
+            price: Money.of(350000, "USD")
+        });
+        contract.save();
+        contract.submit();
+        assert contract.status == ContractStatus.Pending;
+    }
+
+    test("submit fails for non-draft contract") {
+        let Contract contract = contractDb.Contract.create({
+            contractRef: "CTR-TEST-010",
+            listingId: uuid(),
+            buyerId: uuid(),
+            sellerId: uuid(),
+            contractType: ContractType.Sale,
+            status: ContractStatus.Pending,
+            price: Money.of(250000, "USD")
+        });
+        contract.save();
+        assert throws(
+            () => contract.submit(),
+            ValidationException("Only draft contracts can be submitted")
+        );
+    }
+
+    test("activate fn transitions Signed to Active") {
+        let Contract contract = contractDb.Contract.create({
+            contractRef: "CTR-TEST-011",
+            listingId: uuid(),
+            buyerId: uuid(),
+            sellerId: uuid(),
+            contractType: ContractType.Sale,
+            status: ContractStatus.Signed,
+            price: Money.of(380000, "USD"),
+            signedAt: now()
+        });
+        contract.save();
+        contract.activate();
+        assert contract.status == ContractStatus.Active;
+        assert contract.activatedAt != null;
+    }
+
+    test("activate fails for non-signed contract") {
+        let Contract contract = contractDb.Contract.create({
+            contractRef: "CTR-TEST-012",
+            listingId: uuid(),
+            buyerId: uuid(),
+            sellerId: uuid(),
+            contractType: ContractType.Lease,
+            status: ContractStatus.Pending,
+            price: Money.of(1800, "USD")
+        });
+        contract.save();
+        assert throws(
+            () => contract.activate(),
+            ValidationException("Only signed contracts can be activated")
+        );
+    }
+
+    test("terminate sets status, reason, and terminatedAt") {
+        let Contract contract = contractDb.Contract.create({
+            contractRef: "CTR-TEST-013",
+            listingId: uuid(),
+            buyerId: uuid(),
+            sellerId: uuid(),
+            contractType: ContractType.Sale,
+            status: ContractStatus.Active,
+            price: Money.of(320000, "USD"),
+            activatedAt: now()
+        });
+        contract.save();
+        contract.terminate("Financing fell through");
+        assert contract.status == ContractStatus.Terminated;
+        assert contract.terminationReason == "Financing fell through";
+        assert contract.terminatedAt != null;
+    }
+
+    test("terminate fails for already terminated contract") {
+        let Contract contract = contractDb.Contract.create({
+            contractRef: "CTR-TEST-014",
+            listingId: uuid(),
+            buyerId: uuid(),
+            sellerId: uuid(),
+            contractType: ContractType.Sale,
+            status: ContractStatus.Terminated,
+            price: Money.of(290000, "USD"),
+            terminatedAt: now()
+        });
+        contract.save();
+        assert throws(
+            () => contract.terminate("Second termination attempt"),
+            ValidationException("Contract is already terminated or expired")
+        );
+    }
+
+    test("validation rejects empty contract reference") {
+        assert throws(
+            () => contractDb.Contract.create({
+                contractRef: "",
+                listingId: uuid(),
+                buyerId: uuid(),
+                sellerId: uuid(),
+                contractType: ContractType.Sale,
+                price: Money.of(100000, "USD")
+            }),
+            ValidationError("Contract reference cannot be empty")
+        );
+    }
+
+    test("validation rejects empty document name") {
+        assert throws(
+            () => contractDb.ContractDocument.create({
+                contractId: uuid(),
+                documentName: "",
+                documentUrl: "https://docs.test/contract.pdf"
+            }),
+            ValidationError("Document name cannot be empty")
+        );
+    }
+
+    test("validation rejects empty document URL") {
+        assert throws(
+            () => contractDb.ContractDocument.create({
+                contractId: uuid(),
+                documentName: "Purchase Agreement",
+                documentUrl: ""
+            }),
+            ValidationError("Document URL cannot be empty")
+        );
+    }
 }

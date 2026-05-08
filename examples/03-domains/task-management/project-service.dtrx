@@ -436,4 +436,92 @@ service taskapp.ProjectService('config/project-service.yaml') : version('1.0.0')
         project.save();
         assert emitted(ProjectCreated(project.id, "Event Project", ownerId));
     }
+
+    test("computed isCompleted for Completed status") {
+        let Project project = projectDb.Project.create({
+            name: "Completed Project",
+            ownerId: uuid(),
+            status: ProjectStatus.Completed,
+            actualEndDate: now()
+        });
+        project.save();
+        assert project.isCompleted == true;
+        assert project.isActive == false;
+    }
+
+    test("computed canAddTasks is false for Completed project") {
+        let Project project = projectDb.Project.create({
+            name: "Completed No Tasks Project",
+            ownerId: uuid(),
+            status: ProjectStatus.Completed
+        });
+        project.save();
+        assert project.canAddTasks == false;
+    }
+
+    test("computed canAddTasks is false for OnHold project") {
+        let Project project = projectDb.Project.create({
+            name: "On Hold Project",
+            ownerId: uuid(),
+            status: ProjectStatus.OnHold
+        });
+        project.save();
+        assert project.canAddTasks == false;
+    }
+
+    test("computed canAddTasks is false for Archived project") {
+        let Project project = projectDb.Project.create({
+            name: "Archived Tasks Project",
+            ownerId: uuid(),
+            status: ProjectStatus.Archived
+        });
+        project.save();
+        assert project.canAddTasks == false;
+    }
+
+    test("status change emits ProjectStatusChanged") {
+        let Project project = projectDb.Project.create({
+            name: "Status Event Project",
+            ownerId: uuid(),
+            status: ProjectStatus.Planning
+        });
+        project.save();
+        project.status = ProjectStatus.Active;
+        project.save();
+        assert emitted(ProjectStatusChanged(project.id, ProjectStatus.Planning, ProjectStatus.Active));
+    }
+
+    test("validation rejects project name exceeding 200 chars") {
+        let String longName = "A".repeat(201);
+        assert throws(
+            () => projectDb.Project.create({
+                name: longName,
+                ownerId: uuid()
+            }),
+            ValidationError("Project name cannot exceed 200 characters")
+        );
+    }
+
+    test("afterCreate on ProjectMember emits MemberAdded") {
+        let UUID projectId = uuid();
+        let UUID userId = uuid();
+        let ProjectMember member = projectDb.ProjectMember.create({
+            projectId: projectId,
+            userId: userId,
+            role: MemberRole.Contributor
+        });
+        member.save();
+        assert emitted(MemberAdded(projectId, userId, MemberRole.Contributor));
+    }
+
+    test("validation rejects null userId on ProjectMember") {
+        assert throws(
+            () => projectDb.ProjectMember.create({
+                projectId: uuid(),
+                userId: null,
+                role: MemberRole.Viewer
+            }),
+            ValidationError("User ID is required for project membership")
+        );
+    }
 }
