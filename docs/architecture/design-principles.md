@@ -390,7 +390,7 @@ entity User extends BaseEntity {
 
 Enable packs in **`system.dtrx`** with `use extension <name>;` (not YAML). Exhaustive mapping rules still apply: unknown extension keys or unmapped types **fail at generation time** with explicit errors (for example `ExtensionNotSupportedError` from `build_python_type_map` when Python has no map for a declared extension).
 
-**See also:** [Extensions guide](../../../datrix-extensions/docs/extensions-guide.md) and [Architecture Overview — Domain extension system](./architecture-overview.md#domain-extension-system).
+**See also:** [Extensions guide](../../../datrix-extensions/docs/extensions-guide.md) and [Architecture Overview — Domain extension system](./architecture/repository-architecture.md#domain-extension-system).
 
 ---
 
