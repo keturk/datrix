@@ -136,6 +136,21 @@ Detects leftover debug/logging artifacts in source code (print, breakpoint, cons
 
 **Exit codes:** 0 = clean, 1 = artifacts found, 2 = usage error
 
+### `dev\check-import-boundaries.ps1`
+
+Enforces cross-package import boundary rules across the monorepo. Scans `src/` directories for forbidden imports using Python AST analysis. See [Import Boundaries](../../../datrix-common/docs/architecture/import-boundaries.md) for the full rule table.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Fail mode** | `.\dev\check-import-boundaries.ps1` | Report violations, exit 1 on any |
+| **Warning mode** | `.\dev\check-import-boundaries.ps1 -Warn` | Report violations, exit 0 |
+| **Custom base dir** | `.\dev\check-import-boundaries.ps1 -BaseDir D:\other` | Different workspace |
+| **Show files** | `.\dev\check-import-boundaries.ps1 -ShowFiles` | Print each file being scanned |
+
+**Parameters:** `-Warn`, `-ShowFiles`, `-BaseDir`, `-Dbg`
+
+**Exit codes:** 0 = clean (or warning mode), 1 = violations found
+
 ### `dev\triage-failures.ps1`
 
 Parses test/generation logs and groups failures by likely root cause. Produces a triage report suitable for feeding into `/fix-tests` or `/checkpoint-debug`.

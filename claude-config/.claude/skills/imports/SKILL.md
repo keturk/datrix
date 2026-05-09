@@ -1,0 +1,64 @@
+---
+description: Look up canonical Datrix module import paths
+disable-model-invocation: true
+---
+
+# Canonical Module Paths
+
+- `datrix_common.datrix_model.entity` → `Entity`, `Field`
+- `datrix_common.datrix_model.containers` → `Service`, `Application`
+- `datrix_common.datrix_model.blocks` → `RdbmsBlock`, `CacheBlock`
+- `datrix_common.datrix_model.pubsub` → `PubsubBlock`, `Topic`, `Event`, `Subscription`
+- `datrix_common.datrix_model.cqrs` → `CqrsBlock`, `View`
+- `datrix_common.datrix_model.api` → `RestApi`, `GraphqlApi`
+- `datrix_common.datrix_model.callables` → `Function`, `Endpoint`, `Command`, `Query`, `EventHandler`, `Parameter`, `AccessLevel`
+- `datrix_common.types` → `TypeRegistry`, `ScalarType`, `DatrixType`
+- `datrix_common.semantic` → `SemanticAnalyzer`, `AnalysisResult`
+- `datrix_common.rendering` → `render`, `RenderOptions`
+- `datrix_common.config_resolution` → `resolve_service_configs`, `resolve_infrastructure_configs`
+- `datrix_language.parser` → `TreeSitterParser`
+- `datrix_common.generation.template_generator` → `TemplateGenerator`
+- `datrix_common.generation.generator` → `Generator`, `GeneratedFile`
+- `datrix_common.generation.pipeline` → `GenerationPipeline`, `PipelineConfig`, `PipelineResult`
+- `datrix_common.generation.type_resolver` → `TypeResolver`, `OrmTypeResolver`, `TypeMapping`
+- `datrix_common.generation.plugin_helpers` → `detect_service_features`, `render_code_file`, `create_template_generator`
+- `datrix_common.generation.discovery` → `discover_generators`, `discover_platforms`
+- `datrix_common.generation.orchestrator` → `ServiceOrchestrator`
+- `datrix_common.generation.language_generator` → `LanguageGenerator`
+- `datrix_common.generation.type_mapping_registry` → `TypeMappingRegistry`, `global_registry`
+- `datrix_common.transpiler.language_transpiler` → `LanguageTranspiler`, `LiteralKeywords`
+- `datrix_common.transpiler.protocols` → `TranspilerStateProtocol`
+- `datrix_common.generation.language_helpers` → `_derive_default_dialect`, `_build_service_map`, `_register_module_level_names`, `effective_observability_config`
+- `datrix_common.generation.import_paths` → `build_entity_import_paths`
+- `datrix_common.generation.sample_values` → `select_sample_index`
+- `datrix_common.generation.registry` → `GeneratorDep`, `SubGeneratorSpec`
+- `datrix_common.generation.validation` → `require_mapped_type`, `validate_template_dir`, `require_deployment_field`
+- `datrix_common.generation.defaults` → `build_project_config`
+- `datrix_common.generation.file_writer` → `FileWriter`, `WriteResult`, `ConflictStrategy`
+- `datrix_common.generation.app_context` → `get_app_name`
+- `datrix_common.migration.generator` → `MigrationGenerator`, `MigrationFormat`
+- `datrix_common.migration.differ` → `SchemaDiffer`, `SchemaDiff`, `SchemaChange`, `ChangeKind`
+- `datrix_common.migration.errors` → `DestructiveOperationError`, `NoSnapshotError`
+- `datrix_common.fileops` → `read_text_utf8`, `write_text_utf8`, `load_json`, `save_json`
+- `datrix_common.utils.text` → `to_snake_case`, `to_camel_case`, `to_pascal_case`, `to_kebab_case`, `to_screaming_snake_case`, `to_plural`, `to_singular`, `extract_simple_name`
+- `datrix_common.paths` → `ServicePaths`
+- `datrix_common.config.codegen_context` → `CodegenContext`
+- `datrix_common.config.platform` → `BasePlatformConfig`, `DockerPlatformConfig`, `K8sPlatformConfig`, `AwsPlatformConfig`, `AzurePlatformConfig`
+- `datrix_common.config.project` → `ProjectConfig`, `InfraImageCatalog`, `PlatformsConfig`
+- `datrix_common.config.project.catalog` → `get_dependency_version`, `CatalogLookupError`
+- `datrix_common.config.datasource` → `BrokerEngine`, `CacheEngine`, `get_broker_engine`, `get_cache_engine`, `KAFKA`, `REDIS`, `all_broker_engines`, `all_cache_engines` (plus `rdbms_engine`, `nosql_engine`, models, loader)
+- `datrix_common.secrets` → `SecretStore`, `generate_password`, `generate_secret_key`
+- `datrix_common.infra.registry` → `InfraRegistry`, `InfraGroup`, `InfraIdentity`
+- `datrix_common.infra.images` → (docstring-only; deployment values from config models, test values from `datrix_common.testing.infra_constants`)
+- `datrix_common.testing.infra_constants` → `RDBMS_DEPLOYMENT_DEFAULTS`, `CACHE_DEPLOYMENT_DEFAULTS`, `PUBSUB_DEPLOYMENT_DEFAULTS`, `NOSQL_DEPLOYMENT_DEFAULTS`
+- `datrix_common.config.datasource.rdbms_engine` → `RdbmsEngine`, `POSTGRES`, `MYSQL`, `MARIADB`, `get_rdbms_engine`, `get_rdbms_engine_by_sql_dialect`, `all_rdbms_engines`
+- `datrix_common.errors.configuration` → `ConfigurationError`, `ConfigFileNotFoundError`, `ConfigParseError`, `ConfigValidationError`
+- `datrix_common.utils.engine_helpers` → `engine_str`, `validate_engine`, `resolve_sql_dialect`
+- `datrix_common.utils.job_helpers` → `job_timeout_seconds`, `job_retry_limit`, `get_job_render_context`
+- `datrix_common.utils.resources` → `parse_cpu_millicores`, `parse_memory_mib`, `cpu_to_compose_str`, `memory_to_compose_str`
+- `datrix_common.utils.provider_helpers` → `resolve_email_provider`, `resolve_sms_provider`, `get_provider_deps`, `get_provider_env_vars`
+- `datrix_common.utils.json` → `canonical_json_string`, `parse_and_serialize_json`
+- `datrix_common.directory_constants` → `SOURCE_DIR`, `SERVICES_DIR`, `ENUMS_DIR`, etc.
+- `datrix_common.builtins.traits` → `BUILTIN_TRAIT_NAMES`
+- `datrix_common.builtins.enums` → `BUILTIN_ENUM_NAMES`, `ENUM_REQUIRED_BY_TRAIT`
+- `datrix_language.builtins.loader` → `get_builtin_traits`, `get_builtin_enums`

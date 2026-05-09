@@ -89,8 +89,8 @@ service library.BookService : version('1.0.0'), description('Book management ser
 
         abstract entity BaseEntity {
             UUID id : primaryKey, server = uuid();
-            UDateTime createdAt : server = utcNow();
-            UDateTime updatedAt : server = utcNow();
+            DateTime createdAt : server = DateTime.now();
+            DateTime updatedAt : server = DateTime.now();
         }
 
         entity Book extends BaseEntity {
@@ -111,7 +111,7 @@ service library.BookService : version('1.0.0'), description('Book management ser
 
 ### Field attributes (short list)
 
-- **`server`** — server-managed field (system-populated; not accepted on create/update APIs). Use the `server` modifier in the field’s modifier list after `:` (for example `UUID id : primaryKey, server = uuid();` or `UDateTime createdAt : server = utcNow();`).
+- **`server`** — server-managed field (system-populated; not accepted on create/update APIs). Use the `server` modifier in the field’s modifier list after `:` (for example `UUID id : primaryKey, server = uuid();` or `DateTime createdAt : server = DateTime.now();`).
 - **`trim`** — trim string input.
 - **`unique`** — unique constraint.
 - **`index`** — index (including FKs).

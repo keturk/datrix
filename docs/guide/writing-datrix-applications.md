@@ -397,7 +397,7 @@ Datrix provides a rich type system that maps to appropriate types in each target
 | Datrix Type | Python | TypeScript | PostgreSQL |
 |-------------|--------|------------|------------|
 | `DateTime` | `datetime` | `Date` | `TIMESTAMP` |
-| `UDateTime` | `datetime` (UTC) | `Date` | `TIMESTAMP` |
+| `DateTime` | `datetime` (UTC) | `Date` | `TIMESTAMP` |
 | `Date` | `date` | `Date` | `DATE` |
 | `Time` | `time` | `string` | `TIME` |
 | `Duration` | `timedelta` | `number` (ms) | `INTERVAL` |

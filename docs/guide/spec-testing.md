@@ -40,7 +40,7 @@ service library.BookService : version('1.0.0') {
             }
 
             beforeUpdate {
-                if (dueDate < utcNow() && status == BookStatus.Available)
+                if (dueDate < DateTime.now() && status == BookStatus.Available)
                     status = BookStatus.Overdue;
             }
 
