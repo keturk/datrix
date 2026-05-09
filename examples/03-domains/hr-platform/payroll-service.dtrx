@@ -88,7 +88,7 @@ service hr.PayrollService('config/payroll-service.yaml') : version('1.0.0'), des
             afterUpdate {
                 if (isChanged(status)) {
                     if (status == PayrollStatus.Completed) {
-                        processedAt = now();
+                        processedAt = DateTime.now();
                         dispatch PayrollCompleted(id, payrollRef, payPeriod, totalGross, totalNet, entryCount);
                         Log.info("Payroll run completed", { payrollRef: payrollRef, totalNet: totalNet, entries: entryCount });
                     } else if (status == PayrollStatus.Failed) {
@@ -110,7 +110,7 @@ service hr.PayrollService('config/payroll-service.yaml') : version('1.0.0'), des
                     throw ValidationException("Only processing payroll runs can be completed");
                 }
                 status = PayrollStatus.Completed;
-                processedAt = now();
+                processedAt = DateTime.now();
                 this.save();
             }
 
@@ -355,7 +355,7 @@ service hr.PayrollService('config/payroll-service.yaml') : version('1.0.0'), des
     jobs('config/payroll-service.yaml') {
         // Scheduled monthly payroll processing
         job ProcessMonthlyPayroll {
-            let DateTime today = now();
+            let DateTime today = DateTime.now();
             let Array<PayrollRun> pendingRuns = payrollDb.PayrollRun
                 .where(status: PayrollStatus.Pending)
                 .where(payPeriod: PayPeriod.Monthly)
@@ -395,7 +395,7 @@ service hr.PayrollService('config/payroll-service.yaml') : version('1.0.0'), des
         job GeneratePayStubs {
             let Array<PayrollRun> completedRuns = payrollDb.PayrollRun
                 .where(status: PayrollStatus.Completed)
-                .where(processedAt: gte(now().addDays(-1)))
+                .where(processedAt: gte(DateTime.now().addDays(-1)))
                 .all();
 
             foreach run in completedRuns {

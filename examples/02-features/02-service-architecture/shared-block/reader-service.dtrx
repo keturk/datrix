@@ -8,7 +8,7 @@ service library.ReportService('config/report-service.yaml') : version('1.0.0'), 
     rdbms reportMeta {
         entity ReportWatermark {
             UUID id : primaryKey = uuid();
-            DateTime lastRunAt = now();
+            DateTime lastRunAt = DateTime.now();
         }
     }
 

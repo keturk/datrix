@@ -27,9 +27,9 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         abstract entity BaseEntity {
             // UUID is a semantic type; 'primaryKey' marks the PK; uuid() generates a default
             UUID id : primaryKey, server = uuid();
-            // DateTime holds timestamps; now() sets the default; : server marks system-populated fields
-            DateTime createdAt : server = now();
-            DateTime updatedAt : server = now();
+            // DateTime holds timestamps; DateTime.now() sets the default; : server marks system-populated fields
+            DateTime createdAt : server = DateTime.now();
+            DateTime updatedAt : server = DateTime.now();
         }
 
         entity Category extends BaseEntity {
@@ -83,7 +83,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
                 if (title.trim().isEmpty())
                     // ValidationError raises a validation error with a user-facing message
                     ValidationError("Title cannot be empty");
-                if (publicationYear > now().year())
+                if (publicationYear > DateTime.now().year())
                     ValidationError("Publication year cannot be in the future");
             }
 

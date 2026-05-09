@@ -7,7 +7,7 @@ service library.CacheReaderService('config/cache-reader-service.yaml') : version
     rdbms readerMeta {
         entity ReaderState {
             UUID id : primaryKey = uuid();
-            DateTime checkedAt = now();
+            DateTime checkedAt = DateTime.now();
         }
     }
 

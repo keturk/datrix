@@ -485,8 +485,8 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
             let IdempotencyKey? existing = orderDb.IdempotencyKey
                 .where(key: idempotencyKey)
                 .where(operation: operation)
-                // 'gt(now())' is a comparison filter: greater than current time
-                .where(expiresAt: gt(now()))
+                // 'gt(DateTime.now())' is a comparison filter: greater than current time
+                .where(expiresAt: gt(DateTime.now()))
                 .first();
 
             if (existing != null) {
@@ -505,7 +505,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
                 operation: operation,
                 resourceId: resourceId,
                 response: response,
-                expiresAt: now().addHours(24)
+                expiresAt: DateTime.now().addHours(24)
             });
         }
     }
@@ -723,7 +723,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
 
     jobs('config/order-service.yaml') {
         job CleanupExpiredIdempotencyKeys {
-            let DateTime threshold = now().addDays(-1);
+            let DateTime threshold = DateTime.now().addDays(-1);
             let Array<IdempotencyKey> expired = orderDb.IdempotencyKey
                 .where(expiresAt: lt(threshold))
                 .all();

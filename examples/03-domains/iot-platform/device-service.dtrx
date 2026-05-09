@@ -61,7 +61,7 @@ service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), desc
             Array<String> tags = [];
             JSON metadata;
 
-            Boolean isOnline := lastSeenAt != null && DateTime.diffInSeconds(lastSeenAt, now()) < HEARTBEAT_TIMEOUT_SECONDS;
+            Boolean isOnline := lastSeenAt != null && DateTime.diffInSeconds(lastSeenAt, DateTime.now()) < HEARTBEAT_TIMEOUT_SECONDS;
             Boolean isActive := status == DeviceStatus.Active;
             String displayName := #"{name} ({serialNumber})";
 
@@ -92,7 +92,7 @@ service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), desc
 
             fn activate() {
                 status = DeviceStatus.Active;
-                lastSeenAt = now();
+                lastSeenAt = DateTime.now();
                 this.save();
             }
 
@@ -102,7 +102,7 @@ service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), desc
             }
 
             fn heartbeat(String version) {
-                lastSeenAt = now();
+                lastSeenAt = DateTime.now();
                 firmwareVersion = version;
                 this.save();
             }
@@ -121,7 +121,7 @@ service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), desc
         }
 
         entity DeviceGroupMember extends BaseEntity {
-            DateTime joinedAt = now();
+            DateTime joinedAt = DateTime.now();
 
             belongsTo DeviceGroup : index;
             belongsTo Device : index;
@@ -179,7 +179,7 @@ service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), desc
                 deviceId: deviceId,
                 status: newStatus,
                 firmwareVersion: "",
-                lastSeenAt: now()
+                lastSeenAt: DateTime.now()
             });
 
             if (newStatus == DeviceStatus.Active) {
@@ -263,7 +263,7 @@ service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), desc
                 deviceId: device.id,
                 status: device.status,
                 firmwareVersion: request.firmwareVersion,
-                lastSeenAt: now()
+                lastSeenAt: DateTime.now()
             });
 
             dispatch DeviceHeartbeat(device.id, device.serialNumber, request.firmwareVersion);
@@ -323,7 +323,7 @@ service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), desc
             let DeviceGroupMember member = deviceDb.DeviceGroupMember.create({
                 group: group,
                 device: device,
-                joinedAt: now()
+                joinedAt: DateTime.now()
             });
 
             Log.info("Device added to group", {
@@ -369,7 +369,7 @@ service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), desc
             status: DeviceStatus.Active,
             firmwareVersion: "1.0.0",
             metadata: {},
-            lastSeenAt: now()
+            lastSeenAt: DateTime.now()
         });
         device.save();
         assert device.isActive == true;
@@ -487,7 +487,7 @@ service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), desc
             status: DeviceStatus.Active,
             firmwareVersion: "2.0.0",
             metadata: {},
-            lastSeenAt: now()
+            lastSeenAt: DateTime.now()
         });
         device.save();
         device.heartbeat("2.1.0");

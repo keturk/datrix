@@ -7,7 +7,7 @@ service library.StorageWriterService('config/storage-writer-service.yaml') : ver
     rdbms writerMeta {
         entity WriterState {
             UUID id : primaryKey = uuid();
-            DateTime updatedAt = now();
+            DateTime updatedAt = DateTime.now();
         }
     }
 

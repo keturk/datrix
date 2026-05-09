@@ -309,7 +309,7 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
                 tax: Money.of(0, "USD"),
                 deliveryFee: Money.of(DEFAULT_DELIVERY_FEE, "USD"),
                 total: Money.of(0, "USD"),
-                estimatedDelivery: now().addMinutes(45)
+                estimatedDelivery: DateTime.now().addMinutes(45)
             });
 
             foreach item in request.items {
@@ -318,7 +318,7 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
                     let Money itemSubtotal = menuItem.price.multiply(item.quantity);
 
                     orderDb.OrderItem.create({
-                        order: order,
+                        orderId: order.id,
                         menuItemId: item.menuItemId,
                         name: menuItem.name,
                         quantity: item.quantity,
@@ -339,7 +339,7 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
                 estimatedDelivery: order.estimatedDelivery
             });
 
-            redis.OrdersToday.incr(now().format('YYYY-MM-DD'));
+            redis.OrdersToday.incr(DateTime.now().format('YYYY-MM-DD'));
 
             Log.info("Order placed", {
                 orderId: order.id,
@@ -534,6 +534,14 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
             deliveryAddress: { street: "900 Spruce Dr", city: "Springfield", state: "IL", zipCode: "62708" }
         });
         order.save();
+        orderDb.OrderItem.create({
+            orderId: order.id,
+            menuItemId: uuid(),
+            name: "Test Item",
+            quantity: 1,
+            unitPrice: Money.of(28.00, "USD"),
+            subtotal: Money.of(28.00, "USD")
+        });
         order.status = OrderStatus.Preparing;
         order.save();
         assert emitted(OrderStatusChanged(order.id, "FD-TEST-008", OrderStatus.Placed, OrderStatus.Preparing));
@@ -552,6 +560,14 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
             deliveryAddress: { street: "1000 Ash Blvd", city: "Springfield", state: "IL", zipCode: "62709" }
         });
         order.save();
+        orderDb.OrderItem.create({
+            orderId: order.id,
+            menuItemId: uuid(),
+            name: "Test Item",
+            quantity: 1,
+            unitPrice: Money.of(45.00, "USD"),
+            subtotal: Money.of(45.00, "USD")
+        });
         order.status = OrderStatus.Confirmed;
         order.save();
         assert emitted(OrderConfirmed(order.id, "FD-TEST-009", order.restaurantId, order.deliveryAddress));
@@ -570,6 +586,14 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
             deliveryAddress: { street: "1100 Poplar Way", city: "Springfield", state: "IL", zipCode: "62710" }
         });
         order.save();
+        orderDb.OrderItem.create({
+            orderId: order.id,
+            menuItemId: uuid(),
+            name: "Test Item",
+            quantity: 1,
+            unitPrice: Money.of(18.00, "USD"),
+            subtotal: Money.of(18.00, "USD")
+        });
         order.status = OrderStatus.Cancelled;
         order.save();
         assert emitted(OrderCancelled(order.id, "FD-TEST-010", order.customerId));

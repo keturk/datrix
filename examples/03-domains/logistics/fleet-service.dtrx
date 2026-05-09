@@ -85,7 +85,7 @@ service logistics.FleetService('config/fleet-service.yaml') : version('1.0.0'), 
                     dispatch VehicleStatusChanged(id, vehicleNumber, oldValue(status), status);
 
                     if (status == VehicleStatus.Maintenance) {
-                        lastMaintenanceDate = now();
+                        lastMaintenanceDate = DateTime.now();
                     }
                 }
             }
@@ -368,7 +368,7 @@ service logistics.FleetService('config/fleet-service.yaml') : version('1.0.0'), 
                         vehicleId: vehicle.id,
                         description: #"Scheduled maintenance at {vehicle.mileage} miles",
                         cost: 0,
-                        scheduledDate: now().addDays(7)
+                        scheduledDate: DateTime.now().addDays(7)
                     });
                     record.save();
 
@@ -608,7 +608,7 @@ service logistics.FleetService('config/fleet-service.yaml') : version('1.0.0'), 
                 vehicleId: vehicle.id,
                 description: "Oil change",
                 cost: -50.00,
-                scheduledDate: now().addDays(7)
+                scheduledDate: DateTime.now().addDays(7)
             }),
             ValidationError("Maintenance cost cannot be negative")
         );

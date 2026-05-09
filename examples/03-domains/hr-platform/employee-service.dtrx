@@ -81,7 +81,7 @@ service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), d
             // Computed fields
             String fullName := #"{firstName} {lastName}";
             Boolean isActive := status == EmployeeStatus.Active;
-            Int yearsOfService := Math.floor(now().diffInDays(hireDate) / 365);
+            Int yearsOfService := Math.floor(DateTime.now().diffInDays(hireDate) / 365);
 
             hasMany EmergencyContact as emergencyContacts : cascade(delete);
 
@@ -98,7 +98,7 @@ service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), d
                     ValidationError("Last name cannot be empty");
                 if (salary.amount <= 0)
                     ValidationError("Salary must be positive");
-                if (hireDate > now())
+                if (hireDate > DateTime.now())
                     ValidationError("Hire date cannot be in the future");
             }
 
@@ -112,7 +112,7 @@ service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), d
                     dispatch EmployeeStatusChanged(id, employeeNumber, oldValue(status), status);
 
                     if (status == EmployeeStatus.Terminated) {
-                        terminationDate = now();
+                        terminationDate = DateTime.now();
                         Log.info("Employee terminated", { employeeId: id, employeeNumber: employeeNumber });
                     } else if (status == EmployeeStatus.Suspended) {
                         Log.warn("Employee suspended", { employeeId: id, employeeNumber: employeeNumber });
@@ -133,7 +133,7 @@ service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), d
                     throw ValidationException("Employee is already terminated");
                 }
                 status = EmployeeStatus.Terminated;
-                terminationDate = now();
+                terminationDate = DateTime.now();
                 terminationReason = reason;
                 this.save();
             }
@@ -266,7 +266,7 @@ service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), d
                     department: department,
                     status: EmployeeStatus.Active,
                     employmentType: employmentType,
-                    hireDate: now()
+                    hireDate: DateTime.now()
                 });
             }
 

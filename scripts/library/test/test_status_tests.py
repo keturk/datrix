@@ -92,6 +92,29 @@ def test_find_all_test_results_directory_format(tmp_path: Path) -> None:
     assert results[0].total_skipped == 1
 
 
+def test_find_all_test_results_error_singular_key_parsed(tmp_path: Path) -> None:
+    """structured_log_writer uses 'error' (singular) key — errors must be counted."""
+    root = tmp_path
+    pkg = root / "datrix-example"
+    (pkg / "tests").mkdir(parents=True)
+    run_dir = pkg / ".test_results" / "test-results-20260508-191848"
+    run_dir.mkdir(parents=True)
+    (run_dir / "index.json").write_text(json.dumps({
+        "schema_version": 1,
+        "result": "FAILED",
+        "counts": {"passed": 371, "failed": 0, "error": 40, "skipped": 0},
+        "phases": {"Parallel": 1, "Serial": 0},
+    }), encoding="utf-8")
+
+    results = find_all_test_results(root)
+
+    assert len(results) == 1
+    assert results[0].project_name == "datrix-example"
+    assert results[0].status == "FAILED"
+    assert results[0].total_passed == 371
+    assert results[0].total_errors == 40
+
+
 def test_find_all_test_results_legacy_flat_file_still_works(tmp_path: Path) -> None:
     """Legacy flat .log files are still discovered and parsed."""
     root = tmp_path

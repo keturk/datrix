@@ -100,13 +100,13 @@ service realestate.ContractService('config/contract-service.yaml') : version('1.
                     dispatch ContractStatusChanged(id, contractRef, listingId, oldValue(status), status);
 
                     if (status == ContractStatus.Signed) {
-                        signedAt = now();
+                        signedAt = DateTime.now();
                         Log.info("Contract signed", { contractId: id, contractRef: contractRef });
                     } else if (status == ContractStatus.Active) {
-                        activatedAt = now();
+                        activatedAt = DateTime.now();
                         Log.info("Contract activated", { contractId: id, contractRef: contractRef });
                     } else if (status == ContractStatus.Terminated) {
-                        terminatedAt = now();
+                        terminatedAt = DateTime.now();
                         Log.warn("Contract terminated", { contractId: id, contractRef: contractRef, reason: terminationReason });
                     }
                 }
@@ -117,7 +117,7 @@ service realestate.ContractService('config/contract-service.yaml') : version('1.
                     throw ValidationException("Only pending contracts can be signed");
                 }
                 status = ContractStatus.Signed;
-                signedAt = now();
+                signedAt = DateTime.now();
                 this.save();
             }
 
@@ -126,7 +126,7 @@ service realestate.ContractService('config/contract-service.yaml') : version('1.
                     throw ValidationException("Only signed contracts can be activated");
                 }
                 status = ContractStatus.Active;
-                activatedAt = now();
+                activatedAt = DateTime.now();
                 this.save();
             }
 
@@ -136,7 +136,7 @@ service realestate.ContractService('config/contract-service.yaml') : version('1.
                 }
                 status = ContractStatus.Terminated;
                 terminationReason = reason;
-                terminatedAt = now();
+                terminatedAt = DateTime.now();
                 this.save();
             }
 
@@ -153,7 +153,7 @@ service realestate.ContractService('config/contract-service.yaml') : version('1.
         entity ContractDocument extends BaseEntity {
             String(200) documentName : trim;
             String(500) documentUrl;
-            DateTime uploadedAt = now();
+            DateTime uploadedAt = DateTime.now();
 
             belongsTo Contract : index;
 
@@ -489,7 +489,7 @@ service realestate.ContractService('config/contract-service.yaml') : version('1.
             contractType: ContractType.Sale,
             status: ContractStatus.Active,
             price: Money.of(400000, "USD"),
-            activatedAt: now()
+            activatedAt: DateTime.now()
         });
         contract.save();
         assert contract.isActive == true;
@@ -505,7 +505,7 @@ service realestate.ContractService('config/contract-service.yaml') : version('1.
             contractType: ContractType.Lease,
             status: ContractStatus.Terminated,
             price: Money.of(2000, "USD"),
-            terminatedAt: now(),
+            terminatedAt: DateTime.now(),
             terminationReason: "Breach of terms"
         });
         contract.save();
@@ -553,7 +553,7 @@ service realestate.ContractService('config/contract-service.yaml') : version('1.
             contractType: ContractType.Sale,
             status: ContractStatus.Signed,
             price: Money.of(380000, "USD"),
-            signedAt: now()
+            signedAt: DateTime.now()
         });
         contract.save();
         contract.activate();
@@ -587,7 +587,7 @@ service realestate.ContractService('config/contract-service.yaml') : version('1.
             contractType: ContractType.Sale,
             status: ContractStatus.Active,
             price: Money.of(320000, "USD"),
-            activatedAt: now()
+            activatedAt: DateTime.now()
         });
         contract.save();
         contract.terminate("Financing fell through");
@@ -605,7 +605,7 @@ service realestate.ContractService('config/contract-service.yaml') : version('1.
             contractType: ContractType.Sale,
             status: ContractStatus.Terminated,
             price: Money.of(290000, "USD"),
-            terminatedAt: now()
+            terminatedAt: DateTime.now()
         });
         contract.save();
         assert throws(

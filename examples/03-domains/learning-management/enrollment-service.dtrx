@@ -70,7 +70,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
             UUID studentId : index;
             UUID courseId : index;
             EnrollmentStatus status = EnrollmentStatus.Pending;
-            DateTime enrolledAt = now();
+            DateTime enrolledAt = DateTime.now();
             DateTime? completedAt;
             DateTime? droppedAt;
             Int progress = 0;
@@ -108,7 +108,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
 
                     if (progress == MAX_SCORE && status != EnrollmentStatus.Completed) {
                         status = EnrollmentStatus.Completed;
-                        completedAt = now();
+                        completedAt = DateTime.now();
                         this.save();
                         dispatch EnrollmentCompleted(id, studentId, courseId, averageScore);
 
@@ -125,7 +125,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
                     dispatch EnrollmentStatusChanged(id, studentId, courseId, oldValue(status), status);
 
                     if (status == EnrollmentStatus.Dropped) {
-                        droppedAt = now();
+                        droppedAt = DateTime.now();
                     }
                 }
             }
@@ -179,7 +179,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
             UUID enrollmentId : index;
             String(100) activityType;
             JSON? metadata;
-            DateTime occurredAt = now();
+            DateTime occurredAt = DateTime.now();
 
             index(enrollmentId, occurredAt);
         }
@@ -481,7 +481,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
             }
 
             enrollment.progress = request.progress;
-            enrollment.lastAccessedAt = now();
+            enrollment.lastAccessedAt = DateTime.now();
             enrollment.save();
 
             return enrollment;
@@ -518,8 +518,8 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
                 score: request.score,
                 feedback: request.feedback,
                 status: GradeStatus.Graded,
-                submittedAt: now(),
-                gradedAt: now(),
+                submittedAt: DateTime.now(),
+                gradedAt: DateTime.now(),
                 gradedBy: Auth.user().id
             });
             grade.save();
@@ -676,7 +676,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
             courseId: uuid(),
             status: EnrollmentStatus.Completed,
             progress: 100,
-            completedAt: now()
+            completedAt: DateTime.now()
         });
         enrollment.save();
         assert enrollment.isCompleted == true;
@@ -749,7 +749,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
             courseId: uuid(),
             status: EnrollmentStatus.Completed,
             progress: 100,
-            completedAt: now()
+            completedAt: DateTime.now()
         });
         enrollment.save();
         assert enrollment.canSubmitGrades == false;

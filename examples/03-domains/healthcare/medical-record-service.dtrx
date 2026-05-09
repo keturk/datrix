@@ -147,7 +147,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
             fulltext(title, content);
 
             validate {
-                if (recordDate > now())
+                if (recordDate > DateTime.now())
                     ValidationError("Record date cannot be in the future");
             }
 
@@ -156,7 +156,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
             }
 
             beforeUpdate {
-                updatedAt = now();
+                updatedAt = DateTime.now();
                 updatedBy = Auth.userId();
             }
 
@@ -236,7 +236,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
             String? discontinuationReason;
 
             // Complex computed field with multiple conditions
-            Boolean isActive := status == PrescriptionStatus.Active && (endDate == null || endDate >= today());
+            Boolean isActive := status == PrescriptionStatus.Active && (endDate == null || endDate >= Date.now());
             Boolean hasRefillsRemaining := refillsUsed < refillsAllowed;
             Int refillsRemaining := refillsAllowed - refillsUsed;
 
@@ -280,7 +280,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
             fn discontinue(String reason) {
                 status = PrescriptionStatus.Cancelled;
                 discontinuationReason = reason;
-                endDate = today();
+                endDate = Date.now();
                 this.save();
             }
         }
@@ -358,7 +358,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
                 type: RecordType.Note,
                 title: #"{type} note - {providerName}",
                 content: "",
-                recordDate: now(),
+                recordDate: DateTime.now(),
                 status: RecordStatus.Draft
             });
 
@@ -382,7 +382,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
                 type: RecordType.Note,
                 title: "Future Note",
                 content: "Test content",
-                recordDate: now().addDays(30)
+                recordDate: DateTime.now().addDays(30)
             }),
             ValidationError("Record date cannot be in the future")
         );
@@ -395,7 +395,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
             type: RecordType.Note,
             title: "Draft Record",
             content: "Draft content",
-            recordDate: now()
+            recordDate: DateTime.now()
         });
         record.save();
         assert record.isDraft == true;
@@ -408,7 +408,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
             type: RecordType.Diagnosis,
             title: "Diagnosis Record",
             content: "Diagnosis content",
-            recordDate: now()
+            recordDate: DateTime.now()
         });
         record.save();
         assert emitted(RecordCreated(record.id, record.patientId, record.type, record.providerId));
@@ -421,7 +421,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
             type: RecordType.Consultation,
             title: "Initial Consultation Draft",
             content: "Patient presents with recurring symptoms",
-            recordDate: now(),
+            recordDate: DateTime.now(),
             status: RecordStatus.Draft
         });
         record.save();
@@ -435,7 +435,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
             type: RecordType.Diagnosis,
             title: "Finalized Diagnosis",
             content: "Confirmed diagnosis after lab results",
-            recordDate: now(),
+            recordDate: DateTime.now(),
             status: RecordStatus.Final
         });
         record.save();
@@ -449,7 +449,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
             type: RecordType.Note,
             title: "Editable Draft Note",
             content: "Work in progress note",
-            recordDate: now(),
+            recordDate: DateTime.now(),
             status: RecordStatus.Draft
         });
         record.save();
@@ -463,7 +463,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
             type: RecordType.LabResult,
             title: "Blood Panel Results",
             content: "All markers within normal range",
-            recordDate: now(),
+            recordDate: DateTime.now(),
             status: RecordStatus.Draft
         });
         record.save();
@@ -478,7 +478,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
             type: RecordType.Diagnosis,
             title: "Amended Diagnosis Record",
             content: "Original diagnosis content",
-            recordDate: now(),
+            recordDate: DateTime.now(),
             status: RecordStatus.Final
         });
         record.save();
@@ -493,7 +493,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
             type: RecordType.Note,
             title: "Record To Be Voided",
             content: "This record was entered in error",
-            recordDate: now(),
+            recordDate: DateTime.now(),
             status: RecordStatus.Draft
         });
         record.save();
@@ -508,7 +508,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
             type: RecordType.Procedure,
             title: "Procedure Note",
             content: "Minor procedure completed without complications",
-            recordDate: now()
+            recordDate: DateTime.now()
         });
         record.save();
         assert emitted(RecordCreated(record.id, record.patientId, record.type, record.providerId));
@@ -521,7 +521,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
             type: RecordType.Imaging,
             title: "MRI Report",
             content: "No abnormalities detected in scan",
-            recordDate: now(),
+            recordDate: DateTime.now(),
             status: RecordStatus.Draft
         });
         record.save();
@@ -535,8 +535,8 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
             prescribingDoctor: "Dr. Eriksson",
             medicationName: "Amoxicillin 500mg",
             quantity: 30,
-            startDate: now(),
-            endDate: now().addDays(90),
+            startDate: DateTime.now(),
+            endDate: DateTime.now().addDays(90),
             refillsAllowed: 3,
             status: PrescriptionStatus.Active
         });
@@ -550,7 +550,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
             prescribingDoctor: "Dr. Moreau",
             medicationName: "Lisinopril 10mg",
             quantity: 60,
-            startDate: now(),
+            startDate: DateTime.now(),
             refillsAllowed: 5,
             refillsUsed: 2,
             status: PrescriptionStatus.Active
@@ -565,7 +565,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
             prescribingDoctor: "Dr. Okonkwo",
             medicationName: "Metformin 850mg",
             quantity: 90,
-            startDate: now(),
+            startDate: DateTime.now(),
             refillsAllowed: 6,
             refillsUsed: 2,
             status: PrescriptionStatus.Active
@@ -580,7 +580,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
             prescribingDoctor: "Dr. Brennan",
             medicationName: "Atorvastatin 20mg",
             quantity: 30,
-            startDate: now(),
+            startDate: DateTime.now(),
             refillsAllowed: 3,
             refillsUsed: 0,
             status: PrescriptionStatus.Active
@@ -596,7 +596,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
             prescribingDoctor: "Dr. Vasquez",
             medicationName: "Omeprazole 40mg",
             quantity: 30,
-            startDate: now(),
+            startDate: DateTime.now(),
             refillsAllowed: 2,
             status: PrescriptionStatus.Active
         });
@@ -611,7 +611,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
             prescribingDoctor: "Dr. Lindqvist",
             medicationName: "Amlodipine 5mg",
             quantity: 60,
-            startDate: now(),
+            startDate: DateTime.now(),
             refillsAllowed: 4,
             status: PrescriptionStatus.Active
         });
@@ -966,7 +966,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
                 type: request.type,
                 title: request.title,
                 content: request.content,
-                recordDate: now(),
+                recordDate: DateTime.now(),
                 status: RecordStatus.Draft
             });
         }

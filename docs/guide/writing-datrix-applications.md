@@ -289,8 +289,8 @@ rdbms db('config/datasources.yaml') {
         UUID id : primaryKey = uuid();
         String(100) name : trim;
         Email email : unique, index;
-        DateTime createdAt = now();
-        DateTime updatedAt = now();
+        DateTime createdAt = DateTime.now();
+        DateTime updatedAt = DateTime.now();
     }
 }
 ```
@@ -338,8 +338,8 @@ Add the **`server`** modifier to a field’s modifier list to mark it as server-
 ```dtrx
 entity Order {
     UUID id : primaryKey, server = uuid();        // Server generates on create
-    DateTime createdAt : server = now();           // Server sets on create
-    DateTime updatedAt : server = now();           // Server updates on save
+    DateTime createdAt : server = DateTime.now();           // Server sets on create
+    DateTime updatedAt : server = DateTime.now();           // Server updates on save
     String(200) customerName : trim;       // Client provides
 }
 ```
@@ -569,8 +569,8 @@ module ecommerce.common {
     }
 
     trait Timestamped {
-        DateTime createdAt : server = now();
-        DateTime updatedAt : server = now();
+        DateTime createdAt : server = DateTime.now();
+        DateTime updatedAt : server = DateTime.now();
     }
 }
 ```
@@ -1786,8 +1786,8 @@ async listOrders(@TenantId() tenantId: string) {
 ```dtrx
 abstract entity BaseEntity {
     UUID id : primaryKey, server = uuid();
-    DateTime createdAt : server = now();
-    DateTime updatedAt : server = now();
+    DateTime createdAt : server = DateTime.now();
+    DateTime updatedAt : server = DateTime.now();
 }
 
 // All entities extend BaseEntity
@@ -1815,8 +1815,8 @@ entity Order extends BaseEntity with Auditable, SoftDeletable { ... }
 ```dtrx
 entity Order {
     UUID id : primaryKey, server = uuid();        // Server generates
-    DateTime createdAt : server = now();           // Server sets
-    DateTime updatedAt : server = now();           // Server updates
+    DateTime createdAt : server = DateTime.now();           // Server sets
+    DateTime updatedAt : server = DateTime.now();           // Server updates
     String customerName : trim;            // Client provides
 }
 ```
@@ -1939,7 +1939,7 @@ entity Order extends BaseEntity with SoftDeletable {
 // In API
 delete deleteOrder(UUID id) {
     let order = db.Order.findOrFail(id);
-    order.deletedAt = now();
+    order.deletedAt = DateTime.now();
     order.deletedBy = Request.userId();
     db.Order.save(order);
 }

@@ -23,8 +23,8 @@ service library.MemberService('config/member-service.yaml') : version('1.0.0'), 
 
         abstract entity BaseEntity {
             UUID id : primaryKey, server = uuid();
-            DateTime createdAt : server = now();
-            DateTime updatedAt : server = now();
+            DateTime createdAt : server = DateTime.now();
+            DateTime updatedAt : server = DateTime.now();
         }
 
         entity Member extends BaseEntity {

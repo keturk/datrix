@@ -111,7 +111,7 @@ service realestate.ListingService('config/listing-service.yaml') : version('1.0.
                     ValidationError("Bathrooms cannot be negative");
                 if (squareFeet <= 0)
                     ValidationError("Square feet must be positive");
-                if (yearBuilt != null && yearBuilt > now().year())
+                if (yearBuilt != null && yearBuilt > DateTime.now().year())
                     ValidationError("Year built cannot be in the future");
             }
 

@@ -17,8 +17,8 @@ service library.LoanService('config/loan-service.yaml') : version('1.0.0'), desc
 
         abstract entity BaseEntity {
             UUID id : primaryKey, server = uuid();
-            DateTime createdAt : server = now();
-            DateTime updatedAt : server = now();
+            DateTime createdAt : server = DateTime.now();
+            DateTime updatedAt : server = DateTime.now();
         }
 
         entity Loan extends BaseEntity {
@@ -31,7 +31,7 @@ service library.LoanService('config/loan-service.yaml') : version('1.0.0'), desc
             DateTime? returnedAt;
 
             // Complex computed expression with logical operators
-            Boolean isOverdue := status == LoanStatus.Overdue || (status == LoanStatus.Active && now() > dueDate);
+            Boolean isOverdue := status == LoanStatus.Overdue || (status == LoanStatus.Active && DateTime.now() > dueDate);
         }
     }
 
@@ -46,7 +46,7 @@ service library.LoanService('config/loan-service.yaml') : version('1.0.0'), desc
             bookId: uuid(),
             memberId: uuid(),
             status: LoanStatus.Overdue,
-            dueDate: now().addDays(7)
+            dueDate: DateTime.now().addDays(7)
         });
         loan.save();
         assert loan.isOverdue == true;
@@ -57,7 +57,7 @@ service library.LoanService('config/loan-service.yaml') : version('1.0.0'), desc
             bookId: uuid(),
             memberId: uuid(),
             status: LoanStatus.Returned,
-            dueDate: now().subtractDays(7)
+            dueDate: DateTime.now().subtractDays(7)
         });
         loan.save();
         assert loan.isOverdue == false;
@@ -78,7 +78,7 @@ service library.LoanService('config/loan-service.yaml') : version('1.0.0'), desc
             let Loan loan = loanDb.Loan.create({
                 bookId: request.bookId,
                 memberId: request.memberId,
-                dueDate: now().addDays(14)
+                dueDate: DateTime.now().addDays(14)
             });
             return loan;
         }

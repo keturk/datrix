@@ -50,8 +50,8 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         // Abstract entities provide reusable field definitions; they don't generate tables
         abstract entity BaseEntity {
             UUID id : primaryKey, server = uuid();
-            DateTime createdAt : server = now();
-            DateTime updatedAt : server = now();
+            DateTime createdAt : server = DateTime.now();
+            DateTime updatedAt : server = DateTime.now();
         }
 
         entity Category extends BaseEntity {
@@ -139,14 +139,14 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
             // Entity function that derives a boolean from the entity's own fields
             fn isRecentlyPublished() -> Boolean {
-                return publicationYear >= now().year() - 2;
+                return publicationYear >= DateTime.now().year() - 2;
             }
 
             // Custom validation block - runs before create and update operations
             validate {
                 if (title.trim().isEmpty())
                     ValidationError("Title cannot be empty");
-                if (publicationYear > now().year())
+                if (publicationYear > DateTime.now().year())
                     ValidationError("Publication year cannot be in the future");
             }
 
@@ -268,7 +268,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
                     author: book.author,
                     publicationYear: book.publicationYear,
                     status: BookStatus.Available,
-                    lastUpdated: now()
+                    lastUpdated: DateTime.now()
                 });
             }
 
@@ -276,7 +276,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             on BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
                 let BookCatalogView? view = BookCatalogView.findById(bookId);
                 view.status = newStatus;
-                view.lastUpdated = now();
+                view.lastUpdated = DateTime.now();
                 view.save();
             }
         }

@@ -25,8 +25,8 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         // Abstract entities provide reusable field definitions; they don't generate tables
         abstract entity BaseEntity {
             UUID id : primaryKey, server = uuid();
-            DateTime createdAt : server = now();
-            DateTime updatedAt : server = now();
+            DateTime createdAt : server = DateTime.now();
+            DateTime updatedAt : server = DateTime.now();
         }
 
         // Primary book data in relational storage
@@ -44,7 +44,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         collection ReadingHistory {
             UUID userId : index;
             UUID bookId : index;
-            DateTime startedAt : server = now();
+            DateTime startedAt : server = DateTime.now();
             Int pagesRead;
             // JSON type stores arbitrary structured data without a fixed schema
             JSON metadata;

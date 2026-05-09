@@ -98,7 +98,7 @@ service taskapp.ProjectService('config/project-service.yaml') : version('1.0.0')
                     dispatch ProjectStatusChanged(id, oldValue(status), status);
 
                     if (status == ProjectStatus.Completed && actualEndDate == null) {
-                        actualEndDate = now();
+                        actualEndDate = DateTime.now();
                     }
 
                     Log.info("Project status changed", {
@@ -442,7 +442,7 @@ service taskapp.ProjectService('config/project-service.yaml') : version('1.0.0')
             name: "Completed Project",
             ownerId: uuid(),
             status: ProjectStatus.Completed,
-            actualEndDate: now()
+            actualEndDate: DateTime.now()
         });
         project.save();
         assert project.isCompleted == true;

@@ -250,7 +250,7 @@ service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0
             Text? body;
             JSON? media;
             Boolean verified = false;
-            DateTime createdAt : server = now();
+            DateTime createdAt : server = DateTime.now();
 
             // Compound indexes for query performance
             index(productId, createdAt);
@@ -261,7 +261,7 @@ service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0
             UUID productId : index;
             String eventType;
             JSON payload;
-            DateTime timestamp = now();
+            DateTime timestamp = DateTime.now();
 
             index(productId, eventType, timestamp);
         }
@@ -399,7 +399,7 @@ service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0
                         reservationId: request.reservationId,
                         productId: item.productId,
                         quantity: item.quantity,
-                        expiresAt: now().addSeconds(request.ttlSeconds),
+                        expiresAt: DateTime.now().addSeconds(request.ttlSeconds),
                         status: ReservationStatus.Reserved
                     });
                 }
@@ -485,7 +485,7 @@ service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0
             () => productDb.InventoryReservation.create({
                 productId: product.id,
                 quantity: 0,
-                expiresAt: now().addDays(1)
+                expiresAt: DateTime.now().addDays(1)
             }),
             ValidationError("Reservation quantity must be positive")
         );
@@ -561,7 +561,7 @@ service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0
         job ReleaseExpiredReservations {
             let Array<InventoryReservation> expired = productDb.InventoryReservation
                 .where(status: ReservationStatus.Reserved)
-                .where(expiresAt: lt(now()))
+                .where(expiresAt: lt(DateTime.now()))
                 .all();
 
             let JSON reservationGroups = {};

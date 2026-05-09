@@ -102,7 +102,7 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
                     // Automatically create tracking events on status changes
                     shippingDb.ShipmentEvent.create({
                         shipment: this,
-                        timestamp: now(),
+                        timestamp: DateTime.now(),
                         status: status,
                         location: "System",
                         description: #"Status updated to {status}"
@@ -111,7 +111,7 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
                     if (status == ShipmentStatus.InTransit) {
                         dispatch ShipmentDispatched(id, orderId, trackingNumber);
                     } else if (status == ShipmentStatus.Delivered) {
-                        dispatch ShipmentDelivered(id, orderId, actualDelivery ?? now());
+                        dispatch ShipmentDelivered(id, orderId, actualDelivery ?? DateTime.now());
                     } else if (status == ShipmentStatus.Failed) {
                         dispatch ShipmentFailed(id, orderId, failureReason ?? "Delivery failed");
                     }
@@ -125,7 +125,7 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
 
             fn markDelivered() {
                 status = ShipmentStatus.Delivered;
-                actualDelivery = now();
+                actualDelivery = DateTime.now();
                 this.save();
             }
 
@@ -206,7 +206,7 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
 
             shippingDb.ShipmentEvent.create({
                 shipment: shipment,
-                timestamp: now(),
+                timestamp: DateTime.now(),
                 status: ShipmentStatus.Pending,
                 location: "Warehouse",
                 description: "Shipment created, awaiting pickup"
@@ -214,7 +214,7 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
 
             dispatch ShipmentCreated(shipment.id, orderId);
             // Increment daily shipment counter
-            redis.ShipmentsToday.incr(now().format('YYYY-MM-DD'));
+            redis.ShipmentsToday.incr(DateTime.now().format('YYYY-MM-DD'));
 
             Log.info("Shipment created from order confirmation", {
                 shipmentId: shipment.id,
@@ -286,7 +286,7 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
 
             shippingDb.ShipmentEvent.create({
                 shipment: shipment,
-                timestamp: now(),
+                timestamp: DateTime.now(),
                 status: ShipmentStatus.Pending,
                 location: "Warehouse",
                 description: "Shipment created, awaiting pickup"
@@ -294,7 +294,7 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
 
             dispatch ShipmentCreated(shipment.id, request.orderId);
 
-            redis.ShipmentsToday.incr(now().format('YYYY-MM-DD'));
+            redis.ShipmentsToday.incr(DateTime.now().format('YYYY-MM-DD'));
 
             Log.info("Shipment created", {
                 shipmentId: shipment.id,
@@ -314,14 +314,14 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
             shipment.status = request.status;
 
             if (request.status == ShipmentStatus.Delivered) {
-                shipment.actualDelivery = now();
+                shipment.actualDelivery = DateTime.now();
             }
 
             shipment.save();
 
             shippingDb.ShipmentEvent.create({
                 shipment: shipment,
-                timestamp: now(),
+                timestamp: DateTime.now(),
                 status: request.status,
                 location: request.location ?? "Unknown",
                 description: request.description ?? #"Status updated to {request.status}"
@@ -345,7 +345,7 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
 
             let ShipmentEvent event = shippingDb.ShipmentEvent.create({
                 shipment: shipment,
-                timestamp: now(),
+                timestamp: DateTime.now(),
                 status: request.status,
                 location: request.location,
                 description: request.description
@@ -354,7 +354,7 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
             if (shipment.status != request.status) {
                 shipment.status = request.status;
                 if (request.status == ShipmentStatus.Delivered) {
-                    shipment.actualDelivery = now();
+                    shipment.actualDelivery = DateTime.now();
                 }
                 shipment.save();
             }
@@ -407,7 +407,7 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
 
             shippingDb.ShipmentEvent.create({
                 shipment: shipment,
-                timestamp: now(),
+                timestamp: DateTime.now(),
                 status: newStatus,
                 location: location,
                 description: request.payload.description
@@ -416,7 +416,7 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
             if (shipment.status != newStatus) {
                 shipment.status = newStatus;
                 if (newStatus == ShipmentStatus.Delivered) {
-                    shipment.actualDelivery = now();
+                    shipment.actualDelivery = DateTime.now();
                 }
                 shipment.save();
             }
@@ -459,7 +459,7 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
             status: ShipmentStatus.Delivered,
             destination: { street: "123 Main St", city: "Springfield", state: "IL", zipCode: "62701", country: "US" },
             weight: 2.50,
-            actualDelivery: now()
+            actualDelivery: DateTime.now()
         });
         shipment.save();
         assert shipment.isDelivered == true;
@@ -531,12 +531,12 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
             status: ShipmentStatus.InTransit,
             destination: { street: "888 Willow Ave", city: "Riverside", state: "CA", zipCode: "92501", country: "US" },
             weight: 4.50,
-            actualDelivery: now()
+            actualDelivery: DateTime.now()
         });
         shipment.save();
         shipment.status = ShipmentStatus.Delivered;
         shipment.save();
-        assert emitted(ShipmentDelivered(shipment.id, shipment.orderId, shipment.actualDelivery ?? now()));
+        assert emitted(ShipmentDelivered(shipment.id, shipment.orderId, shipment.actualDelivery ?? DateTime.now()));
     }
 
     // Scheduled jobs for background processing
@@ -545,7 +545,7 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
         job SyncCarrierTracking {
             let Array<Shipment> activeShipments = shippingDb.Shipment
                 .whereIn(status: [ShipmentStatus.PickedUp, ShipmentStatus.InTransit, ShipmentStatus.OutForDelivery])
-                .where(createdAt: gt(now().subtractDays(30)))
+                .where(createdAt: gt(DateTime.now().subtractDays(30)))
                 .all();
 
             foreach shipment in activeShipments {
@@ -581,7 +581,7 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
 
     fn calculateEstimatedDelivery(ShippingCarrier carrier, Address destination) -> DateTime {
         let Int days = getEstimatedDays(carrier, destination);
-        return now().addDays(days);
+        return DateTime.now().addDays(days);
     }
 
     fn getEstimatedDays(ShippingCarrier carrier, Address destination) -> Int {

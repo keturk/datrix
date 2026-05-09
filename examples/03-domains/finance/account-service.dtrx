@@ -98,7 +98,7 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
             AccountStatus status = AccountStatus.PendingApproval;
             Money balance;
             Currency currency;
-            DateTime openedAt = now();
+            DateTime openedAt = DateTime.now();
             DateTime? closedAt;
             String(500)? closureReason;
 
@@ -130,7 +130,7 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
                     if (status == AccountStatus.Frozen) {
                         Log.warn("Account frozen", { accountId: id, accountNumber: accountNumber });
                     } else if (status == AccountStatus.Closed) {
-                        closedAt = now();
+                        closedAt = DateTime.now();
                         Log.info("Account closed", { accountId: id, accountNumber: accountNumber });
                     }
                 }
@@ -253,7 +253,7 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
                 status: AccountStatus.PendingApproval,
                 balance: Money.of(0, request.currency),
                 currency: request.currency,
-                openedAt: now()
+                openedAt: DateTime.now()
             });
             account.save();
 

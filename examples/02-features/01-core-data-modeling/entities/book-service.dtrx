@@ -13,9 +13,9 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             // UUID is a semantic type for universally unique identifiers
             // 'primaryKey' marks this as the primary key; uuid() generates a default value
             UUID id : primaryKey, server = uuid();
-            // @UDateTime is a UTC datetime type; utcNow() sets the default to current UTC time
-            UDateTime createdAt : server = utcNow();
-            UDateTime updatedAt : server = utcNow();
+            // @UDateTime is a UTC datetime type; DateTime.utcNow() sets the default to current UTC time
+            UDateTime createdAt : server = DateTime.utcNow();
+            UDateTime updatedAt : server = DateTime.utcNow();
         }
 
         // Concrete entity - inherits all fields from BaseEntity and maps to a database table

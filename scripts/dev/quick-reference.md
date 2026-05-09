@@ -53,6 +53,41 @@ Reports generation status from the latest `generate-results-*.log` file. Lists w
 
 **Parameters:** (none)
 
+### `dev\generate-doc-fragments.ps1`
+
+Generates documentation fragments from source code. Extracts semantic pipeline stages (from `SemanticAnalyzer.analyze()` via AST parsing) and CLI help output (from `datrix generate --help`) into markdown files under `datrix/docs/generated/`.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **All fragments** | `.\dev\generate-doc-fragments.ps1` | Generate all fragments |
+| **Semantic only** | `.\dev\generate-doc-fragments.ps1 semantic-pipeline` | Generate pipeline stages only |
+| **CLI help only** | `.\dev\generate-doc-fragments.ps1 cli-help` | Generate CLI help only |
+| **Check mode** | `.\dev\generate-doc-fragments.ps1 -Check` | Verify fragments are up-to-date (non-zero exit if stale) |
+| **With debug** | `.\dev\generate-doc-fragments.ps1 -Dbg` | Show detailed output |
+
+**Parameters:** `-Fragment` (positional 0: all\|semantic-pipeline\|cli-help, default: all), `-Check`, `-Dbg`
+
+---
+
+## Documentation Checks
+
+### `dev\check-docs.ps1`
+
+Lints documentation for common drift patterns: deprecated CLI flags, fixed phase counts, CDX doc naming/structure, missing capability status labels.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **All checks** | `.\dev\check-docs.ps1` | Run all docs lint checks |
+| **Specific check** | `.\dev\check-docs.ps1 -Check deprecated-cli-flags` | Run one check |
+| **Multiple checks** | `.\dev\check-docs.ps1 -Check cdx-filenames -Check cdx-structure` | Run selected checks |
+| **Detailed output** | `.\dev\check-docs.ps1 -Detailed` | Show content and suggestions |
+| **Custom docs dir** | `.\dev\check-docs.ps1 path\to\docs` | Scan specific directory |
+| **Debug** | `.\dev\check-docs.ps1 -Dbg` | Debug logging |
+
+**Parameters:** `-DocsDir` (positional, variadic — defaults to all monorepo docs/), `-Check` (deprecated-cli-flags\|fixed-phase-count\|cdx-filenames\|cdx-structure\|capability-status-labels, repeatable), `-Detailed`, `-Dbg`
+
+**Exit codes:** 0 = clean, 1 = lint failures found
+
 ---
 
 ## Anti-Pattern Scanners

@@ -79,8 +79,8 @@ service ecommerce.OrderService : version('1.0.0') {
 rdbms bookDb('config/datasources.yaml') {
     abstract entity BaseEntity {
         UUID id : primaryKey = uuid();
-        DateTime createdAt = now();
-        DateTime updatedAt = now();
+        DateTime createdAt = DateTime.now();
+        DateTime updatedAt = DateTime.now();
     }
 
     entity Book extends BaseEntity {

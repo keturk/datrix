@@ -125,7 +125,7 @@ service blog.ContentService('config/content-service.yaml') : version('1.0.0'), d
             title: "Published Spec Post",
             body: "Published content for spec test",
             status: ContentStatus.Published,
-            publishedAt: now()
+            publishedAt: DateTime.now()
         });
         post.save();
         assert post.isDraft == false;

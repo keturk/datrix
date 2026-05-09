@@ -54,7 +54,7 @@ service blog.AuthorService('config/author-service.yaml') : version('1.0.0'), des
 
             // Lifecycle hook - runs before each update
             beforeUpdate {
-                updatedAt = now();
+                updatedAt = DateTime.now();
             }
 
             // Lifecycle hook - runs after creation
@@ -85,7 +85,7 @@ service blog.AuthorService('config/author-service.yaml') : version('1.0.0'), des
             IPAddress? ipAddress;
             DateTime expiresAt;
 
-            Boolean isExpired := now() > expiresAt;
+            Boolean isExpired := DateTime.now() > expiresAt;
             // 'belongsTo' defines a many-to-one relationship
             belongsTo Author : index;
             index(authorId, expiresAt);
@@ -157,7 +157,7 @@ service blog.AuthorService('config/author-service.yaml') : version('1.0.0'), des
             firstName: "Active",
             lastName: "Author",
             status: AuthorStatus.Active,
-            emailVerifiedAt: now()
+            emailVerifiedAt: DateTime.now()
         });
         author.save();
         assert author.isActive == true;
@@ -170,7 +170,7 @@ service blog.AuthorService('config/author-service.yaml') : version('1.0.0'), des
             firstName: "Login",
             lastName: "User",
             status: AuthorStatus.Active,
-            emailVerifiedAt: now()
+            emailVerifiedAt: DateTime.now()
         });
         author.save();
         assert author.canLogin == true;
@@ -218,7 +218,7 @@ service blog.AuthorService('config/author-service.yaml') : version('1.0.0'), des
             firstName: "Mark",
             lastName: "Twain",
             status: AuthorStatus.Active,
-            emailVerifiedAt: now()
+            emailVerifiedAt: DateTime.now()
         });
         author.save();
         assert author.isActive == true;
@@ -231,7 +231,7 @@ service blog.AuthorService('config/author-service.yaml') : version('1.0.0'), des
             firstName: "Ernest",
             lastName: "Hemingway",
             status: AuthorStatus.Active,
-            emailVerifiedAt: now()
+            emailVerifiedAt: DateTime.now()
         });
         author.save();
         assert author.canLogin == true;
@@ -267,7 +267,7 @@ service blog.AuthorService('config/author-service.yaml') : version('1.0.0'), des
             passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
             firstName: "Verified",
             lastName: "Author",
-            emailVerifiedAt: now()
+            emailVerifiedAt: DateTime.now()
         });
         author.save();
         assert author.isVerified == true;
@@ -291,7 +291,7 @@ service blog.AuthorService('config/author-service.yaml') : version('1.0.0'), des
             firstName: "Inactive",
             lastName: "Author",
             status: AuthorStatus.Inactive,
-            emailVerifiedAt: now()
+            emailVerifiedAt: DateTime.now()
         });
         author.save();
         assert author.canLogin == false;
@@ -303,7 +303,7 @@ service blog.AuthorService('config/author-service.yaml') : version('1.0.0'), des
             passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
             firstName: "StatusChange",
             lastName: "Author",
-            emailVerifiedAt: now()
+            emailVerifiedAt: DateTime.now()
         });
         author.save();
         author.status = AuthorStatus.Active;

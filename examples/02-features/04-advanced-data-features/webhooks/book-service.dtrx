@@ -189,7 +189,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
             // Entity function that derives a boolean from the entity's own fields
             fn isRecentlyPublished() -> Boolean {
-                return publicationYear >= now().year() - 2;
+                return publicationYear >= DateTime.now().year() - 2;
             }
 
             // Uses an imported constant for domain logic
@@ -201,7 +201,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             validate {
                 if (title.trim().isEmpty())
                     ValidationError("Title cannot be empty");
-                if (publicationYear > now().year())
+                if (publicationYear > DateTime.now().year())
                     ValidationError("Publication year cannot be in the future");
                 if (price < 0)
                     ValidationError("Price cannot be negative");
@@ -245,7 +245,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
         // Checkout tracks the lifecycle of a book being borrowed
         entity Checkout extends BaseEntity with Auditable {
-            DateTime checkoutDate = now();
+            DateTime checkoutDate = DateTime.now();
             DateTime dueDate;
             // Nullable DateTime - set when the book is returned
             DateTime? returnDate;
@@ -260,7 +260,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
         abstract entity BaseReportEntity {
             UUID id : primaryKey, server = uuid();
-            DateTime createdAt : server = now();
+            DateTime createdAt : server = DateTime.now();
         }
 
         // Audit log records every significant change for compliance tracking
@@ -270,7 +270,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             String(100)? performedBy;
             // JSON type stores arbitrary structured data
             JSON? changes;
-            DateTime occurredAt : server = now();
+            DateTime occurredAt : server = DateTime.now();
 
             // Composite index for efficient time-range queries per book
             index(bookId, occurredAt);
@@ -283,7 +283,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             Int totalReturns = 0;
             Int newBooks = 0;
             Int activeMembers = 0;
-            DateTime generatedAt : server = now();
+            DateTime generatedAt : server = DateTime.now();
         }
     }
 
@@ -317,7 +317,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
                 bookId: bookId,
                 action: AuditAction.Created,
                 performedBy: "system",
-                occurredAt: now()
+                occurredAt: DateTime.now()
             });
             auditLog.save();
         }
@@ -337,7 +337,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
                 bookId: bookId,
                 action: auditAction,
                 changes: { oldStatus: oldStatus, newStatus: newStatus },
-                occurredAt: now()
+                occurredAt: DateTime.now()
             });
             auditLog.save();
         }
@@ -353,7 +353,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
                 bookId: bookId,
                 action: AuditAction.ConditionChanged,
                 changes: { oldCondition: oldCondition, newCondition: newCondition },
-                occurredAt: now()
+                occurredAt: DateTime.now()
             });
             auditLog.save();
         }
@@ -447,14 +447,14 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
                     author: book.author,
                     publicationYear: book.publicationYear,
                     status: BookStatus.Available,
-                    lastUpdated: now()
+                    lastUpdated: DateTime.now()
                 });
             }
 
             on BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
                 let BookCatalogView? view = BookCatalogView.findById(bookId);
                 view.status = newStatus;
-                view.lastUpdated = now();
+                view.lastUpdated = DateTime.now();
                 view.save();
             }
         }
@@ -500,7 +500,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
                     break;
                 }
 
-                if (checkout.dueDate < now()) {
+                if (checkout.dueDate < DateTime.now()) {
                     Log.warn(#"Overdue checkout: {checkout.id}");
                     processed += 1;
                 }
@@ -511,7 +511,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
         // Aggregation job that queries across databases and writes summary statistics
         job AggregateDailyStats {
-            let DateTime today = now();
+            let DateTime today = DateTime.now();
             let Array<Checkout> checkouts = catalog.Checkout.where(checkoutDate: today).all();
             let Array<Checkout> returns = catalog.Checkout.where(returnDate: today).all();
 
@@ -521,7 +521,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
                 totalReturns: returns.length(),
                 newBooks: 0,
                 activeMembers: 0,
-                generatedAt: now()
+                generatedAt: DateTime.now()
             });
             stats.save();
 
@@ -538,7 +538,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             UUID memberId : index;
             String action;
             JSON metadata;
-            DateTime timestamp = now();
+            DateTime timestamp = DateTime.now();
 
             // Composite indexes for efficient queries on multiple fields
             index(bookId, timestamp);
@@ -550,7 +550,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             UUID memberId : index;
             Int rating;
             Text? review;
-            DateTime createdAt : server = now();
+            DateTime createdAt : server = DateTime.now();
 
             index(bookId, createdAt);
         }
@@ -633,7 +633,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         get() : access(librarian) -> Array<catalog.Checkout> {
             return catalog.Checkout
                 .whereNull(returnDate)
-                .where(dueDate: lt(now()))
+                .where(dueDate: lt(DateTime.now()))
                 .orderBy(dueDate: asc)
                 .limit(100)
                 .all();
@@ -722,8 +722,8 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
                 let Checkout checkout = catalog.Checkout.create({
                     bookId: id,
-                    checkoutDate: now(),
-                    dueDate: now().addDays(MAX_CHECKOUT_DAYS)
+                    checkoutDate: DateTime.now(),
+                    dueDate: DateTime.now().addDays(MAX_CHECKOUT_DAYS)
                 });
 
                 // 'transaction(datasource)' wraps multiple saves in an atomic operation
@@ -761,7 +761,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
                 book.status = BookStatus.Available;
                 book.save();
 
-                checkout.returnDate = now();
+                checkout.returnDate = DateTime.now();
                 checkout.save();
             }
 
@@ -960,7 +960,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             isbn: "9780321125217",
             author: "Eric Evans",
             publicationYear: 2003,
-            publishDate: today(),
+            publishDate: Date.now(),
             categoryId: cat.id,
             branchId: br.id,
             price: Money.of(29.99, Currency.USD),
@@ -981,7 +981,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             isbn: "9780132350884",
             author: "Robert Martin",
             publicationYear: 2008,
-            publishDate: today(),
+            publishDate: Date.now(),
             categoryId: cat.id,
             branchId: br.id,
             price: Money.of(24.99, Currency.USD),
@@ -1002,7 +1002,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             isbn: "9780201633610",
             author: "Gang of Four",
             publicationYear: 1994,
-            publishDate: today(),
+            publishDate: Date.now(),
             categoryId: cat.id,
             branchId: br.id,
             price: Money.of(39.99, Currency.USD),
@@ -1019,7 +1019,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         let catalog.Branch br = catalog.Branch.create({ name: "SpecBranchValTitle", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
         assert throws(
-            () => catalog.Book.create({ title: "", isbn: "1234567890", author: "Author", publicationYear: 2020, publishDate: today(), categoryId: cat.id, branchId: br.id, price: Money.of(9.99, Currency.USD), metadata: {}, tags: [] }),
+            () => catalog.Book.create({ title: "", isbn: "1234567890", author: "Author", publicationYear: 2020, publishDate: Date.now(), categoryId: cat.id, branchId: br.id, price: Money.of(9.99, Currency.USD), metadata: {}, tags: [] }),
             ValidationError("Title cannot be empty")
         );
     }
@@ -1030,7 +1030,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         let catalog.Branch br = catalog.Branch.create({ name: "SpecBranchValYear", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
         assert throws(
-            () => catalog.Book.create({ title: "Future Book", isbn: "1234567890", author: "Author", publicationYear: 20999, publishDate: today(), categoryId: cat.id, branchId: br.id, price: Money.of(9.99, Currency.USD), metadata: {}, tags: [] }),
+            () => catalog.Book.create({ title: "Future Book", isbn: "1234567890", author: "Author", publicationYear: 20999, publishDate: Date.now(), categoryId: cat.id, branchId: br.id, price: Money.of(9.99, Currency.USD), metadata: {}, tags: [] }),
             ValidationError("Publication year cannot be in the future")
         );
     }
@@ -1045,7 +1045,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             isbn: "9780201485677",
             author: "Martin Fowler",
             publicationYear: 1999,
-            publishDate: today(),
+            publishDate: Date.now(),
             categoryId: cat.id,
             branchId: br.id,
             price: Money.of(34.99, Currency.USD),
@@ -1066,7 +1066,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             isbn: "9780134494166",
             author: "Robert Martin",
             publicationYear: 2017,
-            publishDate: today(),
+            publishDate: Date.now(),
             categoryId: cat.id,
             branchId: br.id,
             price: Money.of(27.99, Currency.USD),
@@ -1087,7 +1087,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             isbn: "9780321127426",
             author: "Martin Fowler",
             publicationYear: 2002,
-            publishDate: today(),
+            publishDate: Date.now(),
             categoryId: cat.id,
             branchId: br.id,
             price: Money.of(44.99, Currency.USD),
@@ -1110,7 +1110,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             isbn: "9780131177055",
             author: "Michael Feathers",
             publicationYear: 2004,
-            publishDate: today(),
+            publishDate: Date.now(),
             categoryId: cat.id,
             branchId: br.id,
             price: Money.of(32.99, Currency.USD),
@@ -1133,7 +1133,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             isbn: "9780135957059",
             author: "David Thomas",
             publicationYear: 2019,
-            publishDate: today(),
+            publishDate: Date.now(),
             categoryId: cat.id,
             branchId: br.id,
             price: Money.of(42.99, Currency.USD),
@@ -1154,7 +1154,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             isbn: "9780321601919",
             author: "Jez Humble",
             publicationYear: 2010,
-            publishDate: today(),
+            publishDate: Date.now(),
             categoryId: cat.id,
             branchId: br.id,
             price: Money.of(38.99, Currency.USD),
@@ -1177,7 +1177,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             isbn: "9780321146533",
             author: "Kent Beck",
             publicationYear: 2002,
-            publishDate: today(),
+            publishDate: Date.now(),
             categoryId: cat.id,
             branchId: br.id,
             price: Money.of(29.99, Currency.USD),
@@ -1200,7 +1200,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             isbn: "9780321278654",
             author: "Kent Beck",
             publicationYear: 2004,
-            publishDate: today(),
+            publishDate: Date.now(),
             categoryId: cat.id,
             branchId: br.id,
             price: Money.of(27.99, Currency.USD),

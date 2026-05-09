@@ -3,7 +3,7 @@ module hostdemo.common {
 
     abstract entity BaseEntity {
         UUID id : primaryKey, server = uuid();
-        DateTime createdAt : server = now();
-        DateTime updatedAt : server = now();
+        DateTime createdAt : server = DateTime.now();
+        DateTime updatedAt : server = DateTime.now();
     }
 }

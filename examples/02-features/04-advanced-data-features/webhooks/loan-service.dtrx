@@ -42,7 +42,7 @@ service library.LoanService('config/loan-service.yaml') : version('1.0.0'), desc
             DateTime? returnedAt;
 
             // Complex computed expression with logical operators
-            Boolean isOverdue := status == LoanStatus.Overdue || (status == LoanStatus.Active && now() > dueDate);
+            Boolean isOverdue := status == LoanStatus.Overdue || (status == LoanStatus.Active && DateTime.now() > dueDate);
         }
 
         // IdempotencyKey stores previous request results to prevent duplicate operations
@@ -66,7 +66,7 @@ service library.LoanService('config/loan-service.yaml') : version('1.0.0'), desc
             bookId: uuid(),
             memberId: uuid(),
             status: LoanStatus.Overdue,
-            dueDate: now().addDays(7)
+            dueDate: DateTime.now().addDays(7)
         });
         loan.save();
         assert loan.isOverdue == true;
@@ -77,7 +77,7 @@ service library.LoanService('config/loan-service.yaml') : version('1.0.0'), desc
             bookId: uuid(),
             memberId: uuid(),
             status: LoanStatus.Returned,
-            dueDate: now().subtractDays(7)
+            dueDate: DateTime.now().subtractDays(7)
         });
         loan.save();
         assert loan.isOverdue == false;
@@ -88,7 +88,7 @@ service library.LoanService('config/loan-service.yaml') : version('1.0.0'), desc
             () => loanDb.IdempotencyKey.create({
                 key: "",
                 operation: "create_loan",
-                expiresAt: now().addHours(24)
+                expiresAt: DateTime.now().addHours(24)
             }),
             ValidationError("Idempotency key cannot be empty")
         );
@@ -121,7 +121,7 @@ service library.LoanService('config/loan-service.yaml') : version('1.0.0'), desc
                 let Loan loan = loanDb.Loan.create({
                     bookId: request.bookId,
                     memberId: request.memberId,
-                    dueDate: now().addDays(14)
+                    dueDate: DateTime.now().addDays(14)
                 });
                 // 'transaction(datasource)' wraps saves in an atomic operation
                 transaction(loanDb) {
@@ -166,20 +166,20 @@ service library.LoanService('config/loan-service.yaml') : version('1.0.0'), desc
         post(UUID id) -> Void {
             let Loan loan = loanDb.Loan.findOrFail(id);
             loan.status = LoanStatus.Returned;
-            loan.returnedAt = now();
+            loan.returnedAt = DateTime.now();
             loan.save();
             Log.info("Loan returned", { loanId: id });
         }
 
         // API-level function that checks for a previously cached idempotent response
-        // 'gt(now())' filters for non-expired keys
+        // 'gt(DateTime.now())' filters for non-expired keys
         fn checkIdempotency(String? idempotencyKey, String operation) -> JSON? {
             if (idempotencyKey == null) return null;
 
             let IdempotencyKey? existing = loanDb.IdempotencyKey
                 .where(key: idempotencyKey)
                 .where(operation: operation)
-                .where(expiresAt: gt(now()))
+                .where(expiresAt: gt(DateTime.now()))
                 .first();
 
             if (existing != null) {
@@ -199,7 +199,7 @@ service library.LoanService('config/loan-service.yaml') : version('1.0.0'), desc
                 operation: operation,
                 resourceId: resourceId,
                 response: response,
-                expiresAt: now().addHours(24)
+                expiresAt: DateTime.now().addHours(24)
             });
         }
     }

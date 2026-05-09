@@ -85,7 +85,7 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
 
             beforeCreate {
                 if (status == ContentStatus.Published) {
-                    publishedAt = now();
+                    publishedAt = DateTime.now();
                 }
             }
 
@@ -98,7 +98,7 @@ service social.PostService('config/post-service.yaml') : version('1.0.0'), descr
             afterUpdate {
                 if (isChanged(status)) {
                     if (status == ContentStatus.Published && publishedAt == null) {
-                        publishedAt = now();
+                        publishedAt = DateTime.now();
                     }
                     dispatch PostStatusChanged(id, authorId, oldValue(status), status);
                 }

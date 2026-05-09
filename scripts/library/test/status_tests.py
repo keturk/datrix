@@ -178,7 +178,9 @@ def _read_index_json(index_path: Path) -> Optional[TestResult]:
 
   total_passed = int(counts.get("passed", 0))
   total_failed = int(counts.get("failed", 0))
-  total_errors = int(counts.get("errors", 0))
+  # structured_log_writer uses "error" (singular), generated_test_log_writer
+  # uses "errors" (plural) — accept both keys.
+  total_errors = int(counts.get("error", counts.get("errors", 0)))
   total_skipped = int(counts.get("skipped", 0))
   total_warnings = int(counts.get("warnings", 0))
 

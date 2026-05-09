@@ -87,7 +87,7 @@ Key features:
 - **Computed fields**: `:=` defines derived values
 - **Lifecycle hooks**: `afterCreate`, `afterUpdate`, `afterDelete` trigger side effects
 - **Validation modifiers**: `: trim`, `: unique`, `: index`, `: nullable`
-- **Default values**: `= OrderStatus.Pending`, `= now()`, `= uuid()`
+- **Default values**: `= OrderStatus.Pending`, `= DateTime.now()`, `= uuid()`
 
 ### Self-Referential Tree Helpers
 
@@ -359,8 +359,8 @@ module ecommerce.common {
 
     abstract entity BaseEntity {
         UUID id : primaryKey, server = uuid();
-        DateTime createdAt : server = now();
-        DateTime updatedAt : server = now();
+        DateTime createdAt : server = DateTime.now();
+        DateTime updatedAt : server = DateTime.now();
     }
 }
 ```
@@ -383,7 +383,7 @@ fn getUser(UUID id) -> User { ... }
 ```dtrx
 String email : unique, index, trim;
 UUID id : primaryKey, server = uuid();
-DateTime createdAt : server = now();
+DateTime createdAt : server = DateTime.now();
 UUID authorId -> db.Author : cascade(delete);
 resource db.Order : only(list, get), access(admin);
 ```

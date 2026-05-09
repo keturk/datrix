@@ -53,7 +53,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
             String(500) fileUrl;
             Int fileSize;
             String(64) checksum;
-            DateTime releasedAt = now();
+            DateTime releasedAt = DateTime.now();
             Boolean isStable = false;
 
             hasMany FirmwareRollout as rollouts;
@@ -111,7 +111,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
 
             fn start(Int deviceCount) {
                 status = RolloutStatus.InProgress;
-                startedAt = now();
+                startedAt = DateTime.now();
                 totalDevices = deviceCount;
                 this.save();
             }
@@ -128,13 +128,13 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
 
             fn complete() {
                 status = RolloutStatus.Completed;
-                completedAt = now();
+                completedAt = DateTime.now();
                 this.save();
             }
 
             fn fail() {
                 status = RolloutStatus.Failed;
-                completedAt = now();
+                completedAt = DateTime.now();
                 this.save();
             }
 
@@ -163,13 +163,13 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
 
             fn markCompleted() {
                 status = DeviceUpdateStatus.Completed;
-                completedAt = now();
+                completedAt = DateTime.now();
                 this.save();
             }
 
             fn markFailed(String error) {
                 status = DeviceUpdateStatus.Failed;
-                completedAt = now();
+                completedAt = DateTime.now();
                 errorMessage = error;
                 this.save();
             }
@@ -492,7 +492,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
                 foreach log in pendingLogs {
                     try {
                         log.status = DeviceUpdateStatus.Downloading;
-                        log.startedAt = now();
+                        log.startedAt = DateTime.now();
                         log.save();
 
                         Log.info("Initiating firmware update for device", {
@@ -542,7 +542,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
             updatedDevices: 50,
             failedDevices: 5,
             status: RolloutStatus.InProgress,
-            startedAt: now()
+            startedAt: DateTime.now()
         });
         rollout.save();
         assert rollout.progressPercent == 50.0;
@@ -561,7 +561,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
             rolloutCode: "FW-TEST-002",
             firmwareVersionId: firmware.id,
             status: RolloutStatus.InProgress,
-            startedAt: now()
+            startedAt: DateTime.now()
         });
         rollout.save();
         assert rollout.isActive == true;
@@ -619,7 +619,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
             totalDevices: 50,
             updatedDevices: 48,
             failedDevices: 2,
-            completedAt: now()
+            completedAt: DateTime.now()
         });
         rollout.save();
         assert rollout.isFinished == true;
@@ -642,7 +642,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
             totalDevices: 40,
             updatedDevices: 10,
             failedDevices: 30,
-            completedAt: now()
+            completedAt: DateTime.now()
         });
         rollout.save();
         assert rollout.isFinished == true;
@@ -782,7 +782,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
             rolloutCode: "FW-TEST-010",
             firmwareVersionId: firmware.id,
             status: RolloutStatus.InProgress,
-            startedAt: now(),
+            startedAt: DateTime.now(),
             totalDevices: 20
         });
         rollout.save();
@@ -803,7 +803,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
             rolloutCode: "FW-TEST-011",
             firmwareVersionId: firmware.id,
             status: RolloutStatus.InProgress,
-            startedAt: now(),
+            startedAt: DateTime.now(),
             totalDevices: 10,
             updatedDevices: 3
         });
@@ -825,7 +825,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
             rolloutCode: "FW-TEST-012",
             firmwareVersionId: firmware.id,
             status: RolloutStatus.InProgress,
-            startedAt: now(),
+            startedAt: DateTime.now(),
             totalDevices: 10,
             failedDevices: 1
         });

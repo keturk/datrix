@@ -26,8 +26,8 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
         abstract entity BaseEntity {
             UUID id : primaryKey, server = uuid();
-            DateTime createdAt : server = now();
-            DateTime updatedAt : server = now();
+            DateTime createdAt : server = DateTime.now();
+            DateTime updatedAt : server = DateTime.now();
         }
 
         entity Category extends BaseEntity {
@@ -65,7 +65,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             validate {
                 if (title.trim().isEmpty())
                     ValidationError("Title cannot be empty");
-                if (publicationYear > now().year())
+                if (publicationYear > DateTime.now().year())
                     ValidationError("Publication year cannot be in the future");
             }
 

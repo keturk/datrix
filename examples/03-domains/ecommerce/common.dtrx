@@ -64,14 +64,14 @@ module ecommerce.common {
     }
 
     fn generateOrderNumber() -> String {
-        return #"ORD-{now().format('YYYYMMDDHHmmss')}-{Random.string(4, '0123456789')}";
+        return #"ORD-{DateTime.now().format('YYYYMMDDHHmmss')}-{Random.string(4, '0123456789')}";
     }
 
     fn generateTransactionId() -> String {
-        return #"TXN-{now().format('YYYYMMDDHHmmss')}-{Random.string(8)}";
+        return #"TXN-{DateTime.now().format('YYYYMMDDHHmmss')}-{Random.string(8)}";
     }
 
     fn generateTrackingNumber() -> String {
-        return #"TRACK-{now().format('YYYYMMDD')}-{Random.string(10).toUpperCase()}";
+        return #"TRACK-{DateTime.now().format('YYYYMMDD')}-{Random.string(10).toUpperCase()}";
     }
 }

@@ -12,8 +12,8 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     rdbms bookDb {
         abstract entity BaseEntity {
             UUID id : primaryKey, server = uuid();
-            DateTime createdAt : server = now();
-            DateTime updatedAt : server = now();
+            DateTime createdAt : server = DateTime.now();
+            DateTime updatedAt : server = DateTime.now();
         }
 
         entity Category extends BaseEntity {
@@ -36,7 +36,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
         entity Checkout extends BaseEntity {
             UUID bookId : index;
-            DateTime checkoutDate = now();
+            DateTime checkoutDate = DateTime.now();
             DateTime dueDate;
             DateTime? returnDate;
         }
@@ -124,7 +124,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         get() : public -> Array<bookDb.Checkout> {
             return bookDb.Checkout
                 .whereNull(returnDate)
-                .where(dueDate: lt(now()))
+                .where(dueDate: lt(DateTime.now()))
                 .orderBy(dueDate: asc)
                 .limit(100)
                 .all();
