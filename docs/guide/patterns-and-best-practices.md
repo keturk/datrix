@@ -35,8 +35,8 @@ This guide covers common patterns, best practices, and anti-patterns based on re
 ```dtrx
 abstract entity BaseEntity {
     UUID id : primaryKey, server = uuid();
-    UDateTime createdAt : server = utcNow();
-    UDateTime updatedAt : server = utcNow();
+    DateTime createdAt : server = DateTime.now();
+    DateTime updatedAt : server = DateTime.now();
 }
 
 entity User extends BaseEntity {

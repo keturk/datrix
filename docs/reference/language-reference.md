@@ -109,7 +109,7 @@ Datrix provides a rich type system that maps to concrete types in each target la
 
 ### Temporal Types
 
-`DateTime`, `UDateTime` (UTC), `Date`, `Time`, `Duration`, `Timestamp`
+`DateTime`, `DateTime` (UTC), `Date`, `Time`, `Duration`, `Timestamp`
 
 ### Collections
 

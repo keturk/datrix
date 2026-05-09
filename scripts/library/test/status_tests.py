@@ -196,15 +196,40 @@ def _read_index_json(index_path: Path) -> Optional[TestResult]:
    status = "UNKNOWN"
 
   # Build phases from index.json if available
+  # Note: index.json only has overall counts, not per-phase counts.
+  # We assign overall failures/errors to the first failed phase for display purposes.
   phases: dict = {}
   phases_data = data.get("phases")
   if phases_data and isinstance(phases_data, dict):
+   # Identify which phase(s) failed
+   failed_phases = []
+   for phase_name, phase_info in phases_data.items():
+    phase_key = phase_name.capitalize()
+    if isinstance(phase_info, dict):
+     phase_status_val = phase_info.get("status")
+     if phase_status_val == 2:  # FAILED
+      failed_phases.append(phase_key)
+
+   # Build phase results
    for phase_name, phase_info in phases_data.items():
     phase_key = phase_name.capitalize()
     phase_items = int(phase_info.get("items", 0)) if isinstance(phase_info, dict) else 0
     if phase_items > 0 or phase_key in ("Parallel", "Serial", "Tests"):
-     phase_status = "PASSED" if total_failed == 0 and total_errors == 0 else "FAILED"
-     phases[phase_key] = PhaseResult(status=phase_status)
+     phase_status_val = phase_info.get("status", 0) if isinstance(phase_info, dict) else 0
+     phase_status = "PASSED" if phase_status_val == 1 else "FAILED" if phase_status_val == 2 else "PASSED"
+
+     # Assign overall failure/error counts to the first failed phase for display
+     if phase_status == "FAILED" and failed_phases and phase_key == failed_phases[0]:
+      phases[phase_key] = PhaseResult(
+       status=phase_status,
+       failed=total_failed,
+       errors=total_errors,
+       passed=0,  # Don't have per-phase passed count
+       skipped=0,
+       warnings=0
+      )
+     else:
+      phases[phase_key] = PhaseResult(status=phase_status)
 
   # Use index.json path for log_file reference (smaller, structured summary)
   log_file_str = str(index_path)
