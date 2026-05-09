@@ -183,7 +183,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
             // Entity function that derives a boolean from the entity's own fields
             fn isRecentlyPublished() -> Boolean {
-                return publicationYear >= now().year() - 2;
+                return publicationYear >= DateTime.now().year() - 2;
             }
 
             // Entity function referencing an imported const for business rule enforcement
@@ -195,7 +195,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             validate {
                 if (title.trim().isEmpty())
                     ValidationError("Title cannot be empty");
-                if (publicationYear > now().year())
+                if (publicationYear > DateTime.now().year())
                     ValidationError("Publication year cannot be in the future");
                 if (price < 0)
                     ValidationError("Price cannot be negative");
@@ -240,7 +240,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
         // Checkout entity uses 'with Auditable' to track who created/updated it
         entity Checkout extends BaseEntity with Auditable {
-            DateTime checkoutDate = now();
+            DateTime checkoutDate = DateTime.now();
             DateTime dueDate;
             DateTime? returnDate;
             Int renewals = 0;
@@ -255,7 +255,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
         abstract entity BaseReportEntity {
             UUID id : primaryKey, server = uuid();
-            DateTime createdAt : server = now();
+            DateTime createdAt : server = DateTime.now();
         }
 
         // Audit log entity records every significant action for compliance/analytics
@@ -265,7 +265,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             String(100)? performedBy;
             // 'JSON' type stores arbitrary change data without a fixed schema
             JSON? changes;
-            DateTime occurredAt : server = now();
+            DateTime occurredAt : server = DateTime.now();
 
             // Composite index for time-range queries per book
             index(bookId, occurredAt);
@@ -278,7 +278,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             Int totalReturns = 0;
             Int newBooks = 0;
             Int activeMembers = 0;
-            DateTime generatedAt : server = now();
+            DateTime generatedAt : server = DateTime.now();
         }
     }
 
@@ -315,7 +315,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
                 bookId: bookId,
                 action: AuditAction.Created,
                 performedBy: "system",
-                occurredAt: now()
+                occurredAt: DateTime.now()
             });
             auditLog.save();
         }
@@ -337,7 +337,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
                 bookId: bookId,
                 action: auditAction,
                 changes: { oldStatus: oldStatus, newStatus: newStatus },
-                occurredAt: now()
+                occurredAt: DateTime.now()
             });
             auditLog.save();
         }
@@ -353,7 +353,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
                 bookId: bookId,
                 action: AuditAction.ConditionChanged,
                 changes: { oldCondition: oldCondition, newCondition: newCondition },
-                occurredAt: now()
+                occurredAt: DateTime.now()
             });
             auditLog.save();
         }
@@ -431,7 +431,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
                     author: book.author,
                     publicationYear: book.publicationYear,
                     status: BookStatus.Available,
-                    lastUpdated: now()
+                    lastUpdated: DateTime.now()
                 });
             }
 
@@ -439,7 +439,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             on BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
                 let BookCatalogView? view = BookCatalogView.findById(bookId);
                 view.status = newStatus;
-                view.lastUpdated = now();
+                view.lastUpdated = DateTime.now();
                 view.save();
             }
         }
@@ -492,7 +492,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
                     break;
                 }
 
-                if (checkout.dueDate < now()) {
+                if (checkout.dueDate < DateTime.now()) {
                     Log.warn(#"Overdue checkout: {checkout.id}");
                     processed += 1;
                 }
@@ -503,7 +503,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
         // Cross-database job: reads from 'catalog' and writes to 'reporting'
         job AggregateDailyStats {
-            let DateTime today = now();
+            let DateTime today = DateTime.now();
             let Array<Checkout> checkouts = catalog.Checkout.where(checkoutDate: today).all();
             let Array<Checkout> returns = catalog.Checkout.where(returnDate: today).all();
 
@@ -514,7 +514,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
                 totalReturns: returns.length(),
                 newBooks: 0,
                 activeMembers: 0,
-                generatedAt: now()
+                generatedAt: DateTime.now()
             });
             stats.save();
 
@@ -533,7 +533,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             String action;
             // 'JSON' type stores arbitrary structured data without a fixed schema
             JSON metadata;
-            DateTime timestamp = now();
+            DateTime timestamp = DateTime.now();
 
             // Composite indexes for efficient time-range queries per book or member
             index(bookId, timestamp);
@@ -545,7 +545,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             UUID memberId : index;
             Int rating;
             Text? review;
-            DateTime createdAt : server = now();
+            DateTime createdAt : server = DateTime.now();
 
             index(bookId, createdAt);
         }
@@ -685,8 +685,8 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
                 // Uses the imported MAX_CHECKOUT_DAYS const for the due date calculation
                 let Checkout checkout = catalog.Checkout.create({
                     bookId: id,
-                    checkoutDate: now(),
-                    dueDate: now().addDays(MAX_CHECKOUT_DAYS)
+                    checkoutDate: DateTime.now(),
+                    dueDate: DateTime.now().addDays(MAX_CHECKOUT_DAYS)
                 });
                 checkout.save();
 

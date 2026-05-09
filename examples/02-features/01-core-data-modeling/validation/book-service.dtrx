@@ -16,8 +16,8 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         // Abstract entities provide reusable field definitions; they don't generate tables
         abstract entity BaseEntity {
             UUID id : primaryKey, server = uuid();
-            DateTime createdAt : server = now();
-            DateTime updatedAt : server = now();
+            DateTime createdAt : server = DateTime.now();
+            DateTime updatedAt : server = DateTime.now();
         }
 
         // Entity with field-level and block-level validation
@@ -36,7 +36,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
                 if (title.trim().isEmpty())
                     // ValidationError raises a validation error with a user-facing message
                     ValidationError("Title cannot be empty");
-                if (publicationYear > now().year())
+                if (publicationYear > DateTime.now().year())
                     ValidationError("Publication year cannot be in the future");
                 if (publicationYear < 1450)
                     ValidationError("Publication year cannot be before printing press invention");

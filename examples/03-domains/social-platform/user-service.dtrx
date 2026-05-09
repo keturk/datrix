@@ -83,7 +83,7 @@ service social.UserService('config/user-service.yaml') : version('1.0.0'), descr
         entity Follow extends BaseEntity {
             UUID followerId : index;
             UUID followeeId : index;
-            DateTime followedAt = now();
+            DateTime followedAt = DateTime.now();
 
             index(followerId, followeeId) : unique;
             index(followeeId, followedAt);

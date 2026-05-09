@@ -92,19 +92,19 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
 
             fn calculateDuration() -> Int {
                 if (startedAt == null) return 0;
-                if (completedAt == null) return DateTime.diffInMinutes(startedAt, now());
+                if (completedAt == null) return DateTime.diffInMinutes(startedAt, DateTime.now());
                 return DateTime.diffInMinutes(startedAt, completedAt);
             }
 
             fn start() {
                 status = RouteStatus.Active;
-                startedAt = now();
+                startedAt = DateTime.now();
                 this.save();
             }
 
             fn complete(Decimal distance) {
                 status = RouteStatus.Completed;
-                completedAt = now();
+                completedAt = DateTime.now();
                 actualDistance = distance;
                 this.save();
             }
@@ -132,14 +132,14 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
 
             fn markArrived() {
                 status = StopStatus.Arrived;
-                actualArrival = now();
+                actualArrival = DateTime.now();
                 this.save();
             }
 
             fn markCompleted() {
                 status = StopStatus.Completed;
                 if (actualArrival == null) {
-                    actualArrival = now();
+                    actualArrival = DateTime.now();
                 }
                 this.save();
             }
@@ -456,7 +456,7 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
             endLocation: "Distribution Center B",
             plannedDistance: 125.50,
             status: RouteStatus.Active,
-            startedAt: now()
+            startedAt: DateTime.now()
         });
         route.save();
         assert route.isActive == true;
@@ -519,8 +519,8 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
             endLocation: "Depot D",
             plannedDistance: 200.00,
             status: RouteStatus.Completed,
-            startedAt: now().addHours(-3),
-            completedAt: now(),
+            startedAt: DateTime.now().addHours(-3),
+            completedAt: DateTime.now(),
             actualDistance: 195.50
         });
         route.save();
@@ -567,7 +567,7 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
             endLocation: "Center J",
             plannedDistance: 100.00,
             status: RouteStatus.Active,
-            startedAt: now()
+            startedAt: DateTime.now()
         });
         route.save();
         route.complete(105.25);
@@ -650,7 +650,7 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
             endLocation: "Hub P",
             plannedDistance: 90.00,
             status: RouteStatus.Active,
-            startedAt: now()
+            startedAt: DateTime.now()
         });
         route.save();
         let RouteStop stop = routeDb.RouteStop.create({
@@ -675,7 +675,7 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
             endLocation: "Hub R",
             plannedDistance: 70.00,
             status: RouteStatus.Active,
-            startedAt: now()
+            startedAt: DateTime.now()
         });
         route.save();
         let RouteStop stop = routeDb.RouteStop.create({
@@ -684,7 +684,7 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
             address: "789 Pickup Blvd",
             sequence: 1,
             status: StopStatus.Arrived,
-            actualArrival: now()
+            actualArrival: DateTime.now()
         });
         stop.save();
         stop.markCompleted();

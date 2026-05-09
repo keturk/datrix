@@ -11,17 +11,19 @@ The project is split into **thirteen** installable packages (twelve core toolcha
 ### Core Repositories (2)
 
 #### 1. datrix-common
-**Purpose:** Shared foundation and code generation framework for all Datrix packages — AST model, type system, semantic analysis, config resolution, and generator infrastructure.
+**Purpose:** Shared foundation and code generation framework for all Datrix packages — AST model, type system, semantic analysis, standard library, config resolution, and generator infrastructure.
 
 **Responsibilities:**
 - **AST and types:** AST model (`Application`, `Entity`, `Service`, **`Shared`**, `RdbmsBlock`, etc.) — the single representation consumed by all generators; type system (`TypeRegistry`, `ScalarType`) and builtin scalar type definitions
 - **Semantic analysis:** ordered passes in `SemanticAnalyzer.analyze` (`datrix_common.semantic.analyzer`) — stdlib symbol registration, symbol collection, import and reference resolution, field typing, inheritance merge, FK synthesis, index resolution, type checking, and domain validators (collects diagnostics; fails the pipeline when errors remain)
+- **Standard library:** Ships `.dtrx` stdlib modules (`datrix_common.stdlib`) and the stdlib loader. Parsing of stdlib `.dtrx` sources uses a `StdlibParserProtocol` injected by `datrix-language` — `datrix-common` never imports the parser directly. See `datrix_common.stdlib.protocols`.
 - **Config resolution:** parses YAML config files referenced by AST blocks, selects active profile, validates against schemas, attaches resolved config to blocks
-- **Generation framework:** Generator base classes, plugin protocols (`GeneratorPlugin`, `PlatformPlugin`), pipeline orchestration, template rendering (Jinja2), YAML/JSON document builders, file coordination, code formatting integration, testing utilities for generator packages
+- **Generation framework:** Generator base classes, plugin protocols (`GeneratorPlugin`, `PlatformPlugin`), template rendering (Jinja2), YAML/JSON document builders, file coordination, code formatting integration, testing utilities for generator packages. **Pipeline orchestration** (`GenerationPipeline`) lives in `datrix-cli`, not here — `datrix-common` provides the framework; `datrix-cli` owns the orchestrator.
+- **Protocols:** `ParserProtocol`, `StdlibParserProtocol`, `LanguageHooks`, `LanguageRuntimeSpec`, `GeneratorPlugin`, `PlatformPlugin` — all protocol definitions that enable dependency inversion across packages
 - **Transpiler:** Staged DSL-to-source pipeline shared across language packages — **`NameResolver`** (Stage 1) and **`QueryExpander`** (Stage 2) in **datrix-common** produce **`ResolutionTable`** / query-annotation side-tables; each **`LanguageTranspiler`** subclass (Stage 3) consumes those tables and returns **`TranspileResult`**. Configuration is a frozen **`TranspileContext`**; per-file sibling-flow state lives in **`FileScope`** / **`PythonFileScope`** / **`TypeScriptFileScope`**. Expression and statement work uses **`ExpressionVisitor`** / **`StatementVisitor`** and **`node.accept()`**; call targets use **`CallTargetEmitter`** and **`dispatch_call()`**. See [datrix-common — Transpiler architecture](../../../../datrix-common/docs/architecture.md#transpiler-architecture-staged-pipeline), [code-generation.md — Consolidated generator infrastructure](../../../../datrix-common/docs/architecture/code-generation.md#consolidated-generator-infrastructure), and [datrix-common-api — Transpiler modules](../../../../datrix-common/docs/datrix-common-api.md#transpiler-modules).
 - **Shared:** Rendering utilities, error classes, configuration models, shared utilities
 
-**Dependencies:** None (zero dependencies on other Datrix packages)
+**Dependencies:** None (zero dependencies on other Datrix packages). All parser and stdlib-loader functionality is injected via protocols at runtime.
 
 ---
 
@@ -30,16 +32,17 @@ The project is split into **thirteen** installable packages (twelve core toolcha
 
 **Responsibilities:**
 - Parsing .dtrx files (Tree-sitter grammar, lexer, parser)
-- Shipped **standard library** `.dtrx` modules under `src/datrix_language/stdlib/` (pre-parsed artifacts, consumed by semantic analysis in `datrix-common` via the stdlib loader)
+- Implements `ParserProtocol` and `StdlibParserProtocol` (defined in `datrix-common`) — provides the concrete `TreeSitterParser` used by CLI and stdlib loader
+- Shipped **builtins** `.dtrx` definitions under `src/datrix_language/builtins/` (injected at parse time)
 - CST-to-AST transformers that produce `Application` objects (defined in `datrix-common`)
-- **Server-managed fields** via the **`server`** field modifier (for example `UUID id : primaryKey, server = uuid();`, `DateTime createdAt : server = now();`) — not a `@` prefix on the type
+- **Server-managed fields** via the **`server`** field modifier (for example `UUID id : primaryKey, server = uuid();`, `DateTime createdAt : server = DateTime.now();`) — not a `@` prefix on the type
 - **Custom exception catalogs** via `exceptions { … }` blocks on `module` and `service`
 - **User-defined scalars** via `scalar Name : BaseType { … }` on `module` and `service` (constrained aliases; distinct from extension-pack scalars — see [language reference](../../reference/language-reference.md#custom-scalar-types))
 
-**Key Insight:** The parser + transformers produce `Application` directly. There is no separate IR layer. The `Application` model and all AST types are defined in `datrix-common`; datrix-language imports them.
+**Key Insight:** The parser + transformers produce `Application` directly. There is no separate IR layer. The `Application` model and all AST types are defined in `datrix-common`; datrix-language imports them. Standard library `.dtrx` resources live in `datrix-common` (the semantic layer); `datrix-language` provides the parser implementation that the stdlib loader calls via protocol injection.
 
 **Dependencies:**
-- `datrix-common` (AST model, type system, semantic analysis, config resolution)
+- `datrix-common` (AST model, type system, semantic analysis, config resolution, stdlib protocols)
 
 ---
 
@@ -117,15 +120,15 @@ Generates Azure infrastructure (Bicep, ARM templates) including Container Apps, 
 Command-line interface for code generation
 
 **Responsibilities:**
-- Pipeline orchestration
+- **Pipeline orchestration** — owns `GenerationPipeline` (parse → analyze → generate → format → write), the full end-to-end orchestrator that coordinates parsing, semantic analysis, config resolution, generator execution, file writing, and post-processing hooks. Constructs `TreeSitterParser` and stdlib loader from `datrix-language` and injects them into the pipeline stages.
 - Plugin discovery
 - Linting and formatting
 - Progress reporting
 - User interaction
 
 **Dependencies:**
-- `datrix-common` (AST model, type system, configuration, semantic analysis, pipeline, generator discovery)
-- `datrix-language` (parser, CST-to-AST transformers)
+- `datrix-common` (AST model, type system, configuration, semantic analysis, generation framework, generator discovery)
+- `datrix-language` (parser, CST-to-AST transformers, `ParserProtocol` implementation)
 - Discovers installed generator *plugins* dynamically (datrix-codegen-python, etc.)
 
 ---

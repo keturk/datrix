@@ -74,7 +74,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
             String(500) description;
             Money? transactionAmount;
             UUID? transactionId;
-            DateTime detectedAt = now();
+            DateTime detectedAt = DateTime.now();
             DateTime? reviewedAt;
             DateTime? resolvedAt;
             UUID? resolvedBy;
@@ -120,7 +120,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
                     throw ValidationException("Only open alerts can be reviewed");
                 }
                 status = AlertStatus.UnderReview;
-                reviewedAt = now();
+                reviewedAt = DateTime.now();
                 this.save();
             }
 
@@ -134,7 +134,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
                     status = AlertStatus.Resolved;
                 }
                 resolution = resolutionNote;
-                resolvedAt = now();
+                resolvedAt = DateTime.now();
                 resolvedBy = userId;
                 this.save();
             }
@@ -157,7 +157,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
             String(50) action;
             JSON changes;
             UUID performedBy;
-            DateTime performedAt = now();
+            DateTime performedAt = DateTime.now();
             String(45)? ipAddress;
             String(500)? userAgent;
 
@@ -186,7 +186,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
             Int largeTransactionCount = 0;
             Money largeTransactionTotal;
             JSON? reportData;
-            DateTime generatedAt = now();
+            DateTime generatedAt = DateTime.now();
 
             index(reportDate, reportType);
 
@@ -242,7 +242,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
                 action: "created",
                 changes: { type: type, amount: amount, currency: currency, reference: reference },
                 performedBy: accountId,
-                performedAt: now()
+                performedAt: DateTime.now()
             });
             audit.save();
         }
@@ -254,7 +254,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
                 action: "status_changed",
                 changes: { oldStatus: oldStatus, newStatus: newStatus, amount: amount },
                 performedBy: accountId,
-                performedAt: now()
+                performedAt: DateTime.now()
             });
             audit.save();
         }
@@ -267,7 +267,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
                 action: "opened",
                 changes: { accountNumber: accountNumber, customerId: customerId, type: type, currency: currency },
                 performedBy: customerId,
-                performedAt: now()
+                performedAt: DateTime.now()
             });
             audit.save();
 
@@ -281,7 +281,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
                 action: "status_changed",
                 changes: { accountNumber: accountNumber, oldStatus: oldStatus, newStatus: newStatus },
                 performedBy: accountId,
-                performedAt: now()
+                performedAt: DateTime.now()
             });
             audit.save();
         }
@@ -406,7 +406,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
             let Int critical = allAlerts.filter(a => a.severity == AlertSeverity.Critical).length();
 
             return {
-                reportDate: now(),
+                reportDate: DateTime.now(),
                 totalAlerts: total,
                 openAlerts: open,
                 resolvedAlerts: resolved,
@@ -428,7 +428,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
     jobs('config/compliance-service.yaml') {
         // Check for large transactions that may have been missed by real-time processing
         job CheckLargeTransactions {
-            let DateTime yesterday = now().addDays(-1);
+            let DateTime yesterday = DateTime.now().addDays(-1);
             let Array<AuditTrail> recentTxAudits = complianceDb.AuditTrail
                 .where(entityType: "Transaction")
                 .where(action: "created")
@@ -468,7 +468,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
 
         // Generate periodic compliance reports
         job GenerateComplianceReport {
-            let DateTime today = now();
+            let DateTime today = DateTime.now();
 
             let Array<ComplianceAlert> allAlerts = complianceDb.ComplianceAlert.all();
             let Array<ComplianceAlert> criticalAlerts = allAlerts.filter(a => a.severity == AlertSeverity.Critical);
@@ -498,7 +498,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
                 largeTransactionTotal: largeTxTotal,
                 reportData: {
                     generatedBy: "system",
-                    timestamp: now()
+                    timestamp: DateTime.now()
                 }
             });
             report.save();

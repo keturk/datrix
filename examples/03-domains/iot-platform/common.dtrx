@@ -7,7 +7,7 @@ module iot.common {
     }
 
     fn generateRolloutCode() -> String {
-        return #"FW-{now().format('YYYYMMDD')}-{Random.string(6).toUpperCase()}";
+        return #"FW-{DateTime.now().format('YYYYMMDD')}-{Random.string(6).toUpperCase()}";
     }
 
     const HEARTBEAT_TIMEOUT_SECONDS = 300;

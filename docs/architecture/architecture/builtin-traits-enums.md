@@ -30,6 +30,14 @@ Datrix provides a catalog of **ten builtin traits** and **two builtin enums** th
 | **PublishStatus** | `Draft`, `Published`, `Archived` | Publishable trait |
 | **ScheduleStatus** | `Pending`, `Scheduled`, `Executed`, `Cancelled` | Schedulable trait |
 
+### Builtin Objects (Temporal)
+
+| Object | Methods / Constants | Purpose |
+|--------|---------------------|---------|
+| **Timezone** | `Timezone.UTC`, `Timezone.of(identifier)` | Timezone specification for datetime operations. `UTC` is the only constant; `of()` accepts IANA identifiers (e.g., `"America/New_York"`). |
+
+`Timezone` is used as a parameter to `DateTime.now()` and `DateTime.fromTimestamp()`. When omitted, both default to `Timezone.UTC`. There is no `Timezone.server()` — server-local time is an anti-pattern for generated code.
+
 ### How It Works
 
 1. Builtin traits and enums are **defined in Datrix DSL** in `datrix-language/src/datrix_language/builtins/builtins.dtrx`. `datrix_language.builtins.loader` parses that file once (with `inject_builtins=False` to avoid recursion), caches the module, and returns **deep copies** for injection.

@@ -75,7 +75,7 @@ service social.NotificationService('config/notification-service.yaml') : version
             fn markAsRead() {
                 if (!read) {
                     read = true;
-                    readAt = now();
+                    readAt = DateTime.now();
                     this.save();
                 }
             }

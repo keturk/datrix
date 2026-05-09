@@ -85,14 +85,16 @@ graph TD
 ```
 
 **Legend:**
-- **datrix-common** (no dependencies) — Foundation and generation framework (AST model, type system, semantic analysis, config resolution, plugin protocols, pipeline)
-- **datrix-language** (depends on datrix-common) — Parser + CST-to-AST transformers
+- **datrix-common** (no dependencies) — Foundation and generation framework (AST model, type system, semantic analysis, standard library resources + loader protocols, config resolution, plugin protocols, generation framework). Does **not** import `datrix-language` — parser and stdlib-loader implementations are injected via protocols.
+- **datrix-language** (depends on datrix-common) — Parser + CST-to-AST transformers, implements `ParserProtocol` and `StdlibParserProtocol` defined in datrix-common
 - **datrix-extensions** (depends on datrix-common) — Optional domain packs; **not** required by `datrix-cli` or generators unless you declare `use extension` and install the pack
 - **datrix-codegen-common** (depends on datrix-common) — Shared codegen intelligence: profile-driven transpiler, language-agnostic algorithms, context models, field analysis, parity checking. Consumed only by language codegen packages.
 - **Language Code Generators** (depend on datrix-codegen-common, which depends on datrix-common) — Python, TypeScript
 - **Other Code Generators** (depend on datrix-common) — SQL, component
 - **Platform Generators** (depend on datrix-common) — Docker, Kubernetes, AWS, Azure
-- **datrix-cli** (depends on datrix-common, datrix-language; discovers generator plugins dynamically)
+- **datrix-cli** (depends on datrix-common, datrix-language; owns `GenerationPipeline` orchestration; discovers generator plugins dynamically)
+
+**Import boundary enforcement:** The dependency edges above are enforced by automated tooling — see [Import Boundaries](../../datrix-common/docs/architecture/import-boundaries.md) for the full rule table and scanner usage.
 
 ---
 
@@ -167,6 +169,24 @@ graph TD
 - Plugin architecture
 
 **Result:** Separate repos for Docker, K8s, AWS, Azure
+
+---
+
+### Decision 4: One DateTime Type, Always Timezone-Aware
+
+**Rationale:**
+- A timezone-aware datetime and a UTC datetime are the same *type* with different *values* for the timezone component — UTC is just one timezone
+- Having separate `UDateTime` / `UDate` / `UTime` types implies UTC is structurally different from other timezones, which it isn't
+- Naive datetimes (no timezone info) are almost always a bug in server code
+- The Python ecosystem is moving away from naive datetimes; JavaScript's `Date` is always aware
+
+**Result:**
+- **`DateTime`** is always timezone-aware. There is no naive datetime in the DSL.
+- **`Timezone`** is a builtin object that specifies which timezone. `Timezone.UTC` is the default; `Timezone.of("America/New_York")` for arbitrary IANA timezones.
+- **`DateTime.now()`** defaults to UTC (no argument needed). `DateTime.now(Timezone.of("US/Eastern"))` for other timezones.
+- `UDateTime`, `UDate`, `UTime` and all aliases (`UTCDateTime`, `DateTimeUTC`, `Instant`, `UTCDate`, `UTCTime`) are removed.
+- `DateTime.utcNow()` is removed — it's just `DateTime.now()`.
+- `Date` and `Time` remain timezone-unaware (calendar dates and wall-clock times don't carry timezone semantics).
 
 ---
 

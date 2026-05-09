@@ -106,7 +106,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
             validate {
                 if (title.trim().isEmpty())
                     ValidationError("Job posting title cannot be empty");
-                if (closingDate != null && closingDate < now())
+                if (closingDate != null && closingDate < DateTime.now())
                     ValidationError("Closing date cannot be in the past");
             }
 
@@ -166,7 +166,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
             String(500)? resumeUrl;
             Text? coverLetter;
             ApplicationStatus status = ApplicationStatus.Received;
-            DateTime appliedAt = now();
+            DateTime appliedAt = DateTime.now();
             String(1000)? notes;
             DateTime? statusChangedAt;
 
@@ -190,7 +190,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
 
             afterUpdate {
                 if (isChanged(status)) {
-                    statusChangedAt = now();
+                    statusChangedAt = DateTime.now();
                     dispatch ApplicationStatusChanged(id, jobPostingId, candidateName, oldValue(status), status);
 
                     if (status == ApplicationStatus.Hired) {

@@ -21,7 +21,7 @@ module finance.common {
 
     // Shared utility: generate a unique reference number for financial operations
     fn generateReference(String prefix) -> String {
-        return #"{prefix}-{now().format('YYYYMMDDHHmmss')}-{Random.string(6).toUpperCase()}";
+        return #"{prefix}-{DateTime.now().format('YYYYMMDDHHmmss')}-{Random.string(6).toUpperCase()}";
     }
 
     // Format currency amount with symbol

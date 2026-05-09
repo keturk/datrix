@@ -67,7 +67,7 @@ entity Order extends BaseEntity with SoftDeletable {
 // In API (conceptual)
 delete deleteOrder(UUID id) {
     let order = db.Order.findOrFail(id);
-    order.deletedAt = now();
+    order.deletedAt = DateTime.now();
     order.deletedBy = Request.userId();
     db.Order.save(order);
 }
@@ -602,7 +602,7 @@ entity OrderEvent extends BaseEntity {
     UUID orderId : index;
     String eventType : index;
     JSON eventData;
-    DateTime occurredAt : server = now();
+    DateTime occurredAt : server = DateTime.now();
 }
 
 entity Order {
@@ -1277,7 +1277,7 @@ entity Order {
 
         // Set shipped timestamp
         if (status == OrderStatus.Shipped && shippedAt == null) {
-            this.shippedAt = now();
+            this.shippedAt = DateTime.now();
         }
     }
 }
@@ -1528,15 +1528,15 @@ post processOrder(UUID orderId) -> Order {
 ```dtrx
 entity User {
     UUID id : primaryKey = uuid();
-    DateTime createdAt = now();
-    DateTime updatedAt = now();
+    DateTime createdAt = DateTime.now();
+    DateTime updatedAt = DateTime.now();
     String name;
 }
 
 entity Product {
     UUID id : primaryKey = uuid();
-    DateTime createdAt = now();
-    DateTime updatedAt = now();
+    DateTime createdAt = DateTime.now();
+    DateTime updatedAt = DateTime.now();
     String name;
 }
 
@@ -1548,8 +1548,8 @@ entity Product {
 ```dtrx
 abstract entity BaseEntity {
     UUID id : primaryKey, server = uuid();
-    DateTime createdAt : server = now();
-    DateTime updatedAt : server = now();
+    DateTime createdAt : server = DateTime.now();
+    DateTime updatedAt : server = DateTime.now();
 }
 
 entity User extends BaseEntity {

@@ -238,7 +238,7 @@ service ecommerce.PaymentService('config/payment-service.yaml') : version('1.0.0
 
             if (success) {
                 refund.status = PaymentStatus.Completed;
-                refund.processedAt = now();
+                refund.processedAt = DateTime.now();
                 refund.save();
 
                 let Money newTotalRefunded = totalRefunded.add(request.amount);
@@ -267,7 +267,7 @@ service ecommerce.PaymentService('config/payment-service.yaml') : version('1.0.0
 
                 if (payment != null && payment.status == PaymentStatus.Processing) {
                     payment.status = PaymentStatus.Completed;
-                    payment.processedAt = now();
+                    payment.processedAt = DateTime.now();
                     payment.gatewayResponse = JSON.stringify(data);
                     payment.save();
                 }
@@ -464,7 +464,7 @@ service ecommerce.PaymentService('config/payment-service.yaml') : version('1.0.0
 
         if (success) {
             payment.status = PaymentStatus.Completed;
-            payment.processedAt = now();
+            payment.processedAt = DateTime.now();
             payment.gatewayResponse = gatewayResponse;
         } else {
             payment.status = PaymentStatus.Failed;

@@ -152,13 +152,13 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
             fn assignDriver(UUID assignedDriverId) {
                 driverId = assignedDriverId;
                 status = DeliveryStatus.Assigned;
-                assignedAt = now();
+                assignedAt = DateTime.now();
                 this.save();
             }
 
             fn markPickedUp() {
                 status = DeliveryStatus.PickingUp;
-                pickedUpAt = now();
+                pickedUpAt = DateTime.now();
                 this.save();
             }
 
@@ -169,7 +169,7 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
 
             fn markDelivered() {
                 status = DeliveryStatus.Delivered;
-                deliveredAt = now();
+                deliveredAt = DateTime.now();
                 this.save();
             }
         }
@@ -345,7 +345,7 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
                 driverId: driver.id,
                 latitude: request.latitude,
                 longitude: request.longitude,
-                lastUpdate: now()
+                lastUpdate: DateTime.now()
             });
 
             return driver;
@@ -492,7 +492,7 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
             pickupAddress: "Restaurant A",
             deliveryAddress: { street: "123 Main St", city: "Springfield", state: "IL", zipCode: "62701" },
             status: DeliveryStatus.Assigned,
-            assignedAt: now()
+            assignedAt: DateTime.now()
         });
         delivery.save();
         assert delivery.isAssigned == true;

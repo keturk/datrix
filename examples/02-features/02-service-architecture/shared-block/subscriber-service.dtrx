@@ -24,7 +24,7 @@ service library.AnalysisService('config/analysis-service.yaml') : version('1.0.0
             analysisDb.AnalysisRun.create({
                 source: source,
                 status: AnalysisStatus.Pending,
-                startedAt: now()
+                startedAt: DateTime.now()
             });
         }
 
@@ -53,7 +53,7 @@ service library.AnalysisService('config/analysis-service.yaml') : version('1.0.0
         let analysisDb.AnalysisRun run = analysisDb.AnalysisRun.create({
             source: "TestSource",
             status: AnalysisStatus.Pending,
-            startedAt: now()
+            startedAt: DateTime.now()
         });
         assert run.status == AnalysisStatus.Pending;
     }

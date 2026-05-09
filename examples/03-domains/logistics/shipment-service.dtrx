@@ -100,14 +100,14 @@ service logistics.ShipmentService('config/shipment-service.yaml') : version('1.0
                     dispatch ShipmentStatusChanged(id, trackingNumber, oldValue(status), status);
 
                     if (status == ShipmentStatus.Delivered) {
-                        actualDelivery = now();
+                        actualDelivery = DateTime.now();
                     }
                 }
             }
 
             fn markDelivered() {
                 status = ShipmentStatus.Delivered;
-                actualDelivery = now();
+                actualDelivery = DateTime.now();
                 this.save();
             }
 
@@ -120,7 +120,7 @@ service logistics.ShipmentService('config/shipment-service.yaml') : version('1.0
         entity ShipmentEvent extends BaseEntity {
             String(100) eventType;
             String(200) location;
-            DateTime timestamp = now();
+            DateTime timestamp = DateTime.now();
             Text? notes;
 
             belongsTo Shipment : index;
@@ -135,7 +135,7 @@ service logistics.ShipmentService('config/shipment-service.yaml') : version('1.0
             String(50) trackingNumber : index;
             Decimal(10, 6) latitude;
             Decimal(10, 6) longitude;
-            DateTime timestamp = now();
+            DateTime timestamp = DateTime.now();
             Decimal(10, 2)? speed;
             Decimal(5, 2)? heading;
             JSON metadata;
@@ -235,7 +235,7 @@ service logistics.ShipmentService('config/shipment-service.yaml') : version('1.0
                 shipment: shipment,
                 eventType: "CREATED",
                 location: request.origin,
-                timestamp: now(),
+                timestamp: DateTime.now(),
                 notes: "Shipment created and awaiting pickup"
             });
 
@@ -256,7 +256,7 @@ service logistics.ShipmentService('config/shipment-service.yaml') : version('1.0
                 shipment: shipment,
                 eventType: #"STATUS_{request.status}",
                 location: request.location,
-                timestamp: now(),
+                timestamp: DateTime.now(),
                 notes: request.notes
             });
 
@@ -325,7 +325,7 @@ service logistics.ShipmentService('config/shipment-service.yaml') : version('1.0
             status: ShipmentStatus.Delivered,
             packageSize: PackageSize.Medium,
             weight: 5.50,
-            actualDelivery: now()
+            actualDelivery: DateTime.now()
         });
         shipment.save();
         assert shipment.isDelivered == true;
@@ -438,7 +438,7 @@ service logistics.ShipmentService('config/shipment-service.yaml') : version('1.0
             status: ShipmentStatus.Delivered,
             packageSize: PackageSize.ExtraLarge,
             weight: 45.00,
-            actualDelivery: now()
+            actualDelivery: DateTime.now()
         });
         shipment.save();
         assert shipment.isActive == false;
@@ -538,8 +538,8 @@ service logistics.ShipmentService('config/shipment-service.yaml') : version('1.0
             status: ShipmentStatus.Delivered,
             packageSize: PackageSize.Small,
             weight: 2.50,
-            estimatedDelivery: now().addDays(-2),
-            actualDelivery: now()
+            estimatedDelivery: DateTime.now().addDays(-2),
+            actualDelivery: DateTime.now()
         });
         shipment.save();
         assert shipment.isLate == true;

@@ -103,7 +103,7 @@ service healthcare.PatientService('config/patient-service.yaml') : version('1.0.
             Int age := calculateAge(dateOfBirth);
             Boolean isMinor := age < 18;
             Boolean hasValidInsurance := primaryInsurance != null &&
-                (primaryInsurance.expirationDate == null || primaryInsurance.expirationDate >= today());
+                (primaryInsurance.expirationDate == null || primaryInsurance.expirationDate >= Date.now());
 
             index(firstName, lastName);
             index(dateOfBirth);
@@ -120,7 +120,7 @@ service healthcare.PatientService('config/patient-service.yaml') : version('1.0.
             }
 
             beforeUpdate {
-                updatedAt = now();
+                updatedAt = DateTime.now();
             }
 
             afterCreate {
@@ -151,9 +151,9 @@ service healthcare.PatientService('config/patient-service.yaml') : version('1.0.
                     ValidationError("Invalid email format");
                 if (phone != null && !Validator.isPhone(phone))
                     ValidationError("Invalid phone number");
-                if (dateOfBirth > today())
+                if (dateOfBirth > Date.now())
                     ValidationError("Date of birth cannot be in the future");
-                if (dateOfBirth < today().subtractYears(150))
+                if (dateOfBirth < Date.now().subtractYears(150))
                     ValidationError("Invalid date of birth");
             }
         }
@@ -263,7 +263,7 @@ service healthcare.PatientService('config/patient-service.yaml') : version('1.0.
         let Patient patient = patientDb.Patient.create({
             firstName: "Liam",
             lastName: "Foster",
-            dateOfBirth: today().subtractYears(12),
+            dateOfBirth: Date.now().subtractYears(12),
             gender: Gender.Male
         });
         patient.save();

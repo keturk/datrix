@@ -141,7 +141,7 @@ datrix generate --profile production --source specs/system.dtrx --output ./gener
 **CLI short form:**
 
 ```bash
-datrix generate -p production -s specs/system.dtrx -o ./generated
+datrix generate --profile production -s specs/system.dtrx -o ./generated
 ```
 
 ### Common Profile Names
@@ -1559,7 +1559,7 @@ production:
 All configuration is validated at generation time:
 
 ```bash
-datrix generate -p production -s specs/system.dtrx -o ./generated
+datrix generate --profile production -s specs/system.dtrx -o ./generated
 ```
 
 **Validation checks:**

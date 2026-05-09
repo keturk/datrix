@@ -16,11 +16,11 @@ module fooddelivery.common {
     }
 
     fn generateOrderNumber() -> String {
-        return #"FD-{now().format('YYYYMMDDHHmmss')}-{Random.string(6).toUpperCase()}";
+        return #"FD-{DateTime.now().format('YYYYMMDDHHmmss')}-{Random.string(6).toUpperCase()}";
     }
 
     fn generateDeliveryCode() -> String {
-        return #"DLV-{now().format('YYYYMMDD')}-{Random.string(8).toUpperCase()}";
+        return #"DLV-{DateTime.now().format('YYYYMMDD')}-{Random.string(8).toUpperCase()}";
     }
 
     const MAX_ORDER_ITEMS = 50;

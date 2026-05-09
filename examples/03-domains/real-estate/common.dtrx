@@ -19,11 +19,11 @@ module realestate.common {
 
     // Generate a unique listing reference
     fn generateListingRef() -> String {
-        return #"LST-{now().format('YYYYMMDDHHmmss')}-{Random.string(4).toUpperCase()}";
+        return #"LST-{DateTime.now().format('YYYYMMDDHHmmss')}-{Random.string(4).toUpperCase()}";
     }
 
     // Generate a unique contract reference
     fn generateContractRef() -> String {
-        return #"CTR-{now().format('YYYYMMDDHHmmss')}-{Random.string(6).toUpperCase()}";
+        return #"CTR-{DateTime.now().format('YYYYMMDDHHmmss')}-{Random.string(6).toUpperCase()}";
     }
 }

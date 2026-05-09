@@ -62,7 +62,7 @@ module healthcare.common {
 
     // Shared utility functions
     fn calculateAge(Date birthDate) -> Int {
-        return DateTime.diffInYears(birthDate, now());
+        return DateTime.diffInYears(birthDate, DateTime.now());
     }
 
     fn formatPatientName(String firstName, String lastName, String? middleName) -> String {
@@ -73,12 +73,12 @@ module healthcare.common {
     }
 
     fn generateMRN() -> String {
-        return #"MRN-{now().format('YYYYMMDD')}-{Random.digits(6)}";
+        return #"MRN-{DateTime.now().format('YYYYMMDD')}-{Random.digits(6)}";
     }
 
     fn isValidInsurance(InsuranceInfo? insurance) -> Boolean {
         if (insurance == null) return false;
-        if (insurance.expirationDate != null && insurance.expirationDate < today()) {
+        if (insurance.expirationDate != null && insurance.expirationDate < Date.now()) {
             return false;
         }
         return true;

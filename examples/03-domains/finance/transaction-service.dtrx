@@ -123,7 +123,7 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
                     dispatch TransactionStatusChanged(id, accountId, oldValue(status), status, amount);
 
                     if (status == TransactionStatus.Completed) {
-                        completedAt = now();
+                        completedAt = DateTime.now();
                         Log.info("Transaction completed", { txId: id, reference: reference, amount: amount });
                     } else if (status == TransactionStatus.Failed) {
                         Log.warn("Transaction failed", { txId: id, reference: reference, reason: failureReason });
@@ -133,7 +133,7 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
 
             fn complete() {
                 status = TransactionStatus.Completed;
-                completedAt = now();
+                completedAt = DateTime.now();
                 this.save();
             }
 
@@ -176,7 +176,7 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
 
             afterUpdate {
                 if (isChanged(status) && status == BatchStatus.Completed) {
-                    completedAt = now();
+                    completedAt = DateTime.now();
                     Log.info("Batch completed", { batchId: batchId, success: successCount, failed: failedCount });
                 }
             }
@@ -536,7 +536,7 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
     jobs('config/transaction-service.yaml') {
         // Daily reconciliation job: summarize the day's transactions
         job ReconcileDailyTransactions {
-            let DateTime today = now();
+            let DateTime today = DateTime.now();
             let Array<Transaction> dayTransactions = txDb.Transaction
                 .where(status: TransactionStatus.Completed)
                 .where(completedAt: gte(today.startOfDay()))
@@ -564,7 +564,7 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
                 totalCredits: totalCredits,
                 netAmount: netAmount,
                 isBalanced: balanced,
-                verifiedAt: now()
+                verifiedAt: DateTime.now()
             });
             recon.save();
 

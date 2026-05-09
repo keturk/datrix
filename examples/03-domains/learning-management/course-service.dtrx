@@ -141,7 +141,7 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
                     dispatch CourseStatusChanged(id, oldValue(status), status);
 
                     if (status == CourseStatus.Published && publishedAt == null) {
-                        publishedAt = now();
+                        publishedAt = DateTime.now();
                     }
 
                     Log.info("Course status changed", {
@@ -159,7 +159,7 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
             fn publish() {
                 if (status == CourseStatus.Draft) {
                     status = CourseStatus.Published;
-                    publishedAt = now();
+                    publishedAt = DateTime.now();
                     this.save();
                     Log.info("Course published", { courseId: id, title: title });
                 }

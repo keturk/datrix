@@ -38,7 +38,7 @@ service library.DataIngestionService('config/data-ingestion-service.yaml') : ver
             return ingestionDb.IngestionRun.create({
                 source: source,
                 status: IngestionStatus.Running,
-                startedAt: now()
+                startedAt: DateTime.now()
             });
         }
     }
@@ -47,7 +47,7 @@ service library.DataIngestionService('config/data-ingestion-service.yaml') : ver
         let ingestionDb.IngestionRun run = ingestionDb.IngestionRun.create({
             source: "TestSource",
             status: IngestionStatus.Running,
-            startedAt: now(),
+            startedAt: DateTime.now(),
             recordsProcessed: 42
         });
         run.status = IngestionStatus.Completed;

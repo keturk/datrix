@@ -7,9 +7,9 @@ module library.common {
         // UUID is a semantic type for universally unique identifiers
         // 'primaryKey' marks this as the primary key; uuid() generates a default value
         UUID id : primaryKey, server = uuid();
-        // DateTime holds timestamps; now() sets the default; : server marks system-populated fields
-        DateTime createdAt : server = now();
-        DateTime updatedAt : server = now();
+        // DateTime holds timestamps; DateTime.now() sets the default; : server marks system-populated fields
+        DateTime createdAt : server = DateTime.now();
+        DateTime updatedAt : server = DateTime.now();
     }
 
     // Auditable and SoftDeletable are builtin traits provided by the framework

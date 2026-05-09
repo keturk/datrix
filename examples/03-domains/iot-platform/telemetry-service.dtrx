@@ -71,7 +71,7 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
 
         collection TelemetryData {
             UUID deviceId : index;
-            DateTime timestamp = now();
+            DateTime timestamp = DateTime.now();
             Decimal(6, 2)? temperature;
             Decimal(5, 2)? humidity;
             Decimal(8, 2)? pressure;
@@ -86,7 +86,7 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
             UUID deviceId : index;
             String(20) level;
             Text message;
-            DateTime timestamp = now();
+            DateTime timestamp = DateTime.now();
             JSON? context;
 
             index(deviceId, timestamp);
@@ -101,7 +101,7 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
             AlertStatus status = AlertStatus.Active;
             String(200) condition;
             Text message;
-            DateTime triggeredAt = now();
+            DateTime triggeredAt = DateTime.now();
             DateTime? acknowledgedAt;
             DateTime? resolvedAt;
             Text? notes;
@@ -132,14 +132,14 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
 
             fn acknowledge(String? acknowledgeNotes) {
                 status = AlertStatus.Acknowledged;
-                acknowledgedAt = now();
+                acknowledgedAt = DateTime.now();
                 notes = acknowledgeNotes;
                 this.save();
             }
 
             fn resolve() {
                 status = AlertStatus.Resolved;
-                resolvedAt = now();
+                resolvedAt = DateTime.now();
                 this.save();
             }
         }
@@ -180,7 +180,7 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
 
             fn isInCooldown() -> Boolean {
                 if (lastTriggeredAt == null) return false;
-                return DateTime.diffInMinutes(lastTriggeredAt, now()) < DEFAULT_ALERT_COOLDOWN_MINUTES;
+                return DateTime.diffInMinutes(lastTriggeredAt, DateTime.now()) < DEFAULT_ALERT_COOLDOWN_MINUTES;
             }
         }
     }
@@ -293,7 +293,7 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
         post(IngestTelemetryRequest request) -> JSON {
             docdb.TelemetryData.insert({
                 deviceId: request.deviceId,
-                timestamp: now(),
+                timestamp: DateTime.now(),
                 temperature: request.temperature,
                 humidity: request.humidity,
                 pressure: request.pressure,
@@ -308,13 +308,13 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
                     temperature: request.temperature ?? 0,
                     humidity: request.humidity ?? 0,
                     batteryLevel: request.batteryLevel ?? 0,
-                    timestamp: now()
+                    timestamp: DateTime.now()
                 });
             }
 
-            redis.TelemetryIngestCount.incr(now().format('YYYY-MM-DD'));
+            redis.TelemetryIngestCount.incr(DateTime.now().format('YYYY-MM-DD'));
 
-            dispatch TelemetryIngested(request.deviceId, now(), {
+            dispatch TelemetryIngested(request.deviceId, DateTime.now(), {
                 temperature: request.temperature,
                 humidity: request.humidity,
                 pressure: request.pressure,
@@ -322,7 +322,7 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
                 signalStrength: request.signalStrength
             });
 
-            return { status: "ingested", deviceId: request.deviceId, timestamp: now() };
+            return { status: "ingested", deviceId: request.deviceId, timestamp: DateTime.now() };
         }
 
         @path('/device/:deviceId/latest')
@@ -525,11 +525,11 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
                                 severity: rule.severity,
                                 condition: #"{rule.metricName} {rule.operator} {rule.threshold}",
                                 message: #"Alert: {rule.metricName} value {metricValue} triggered rule (threshold: {rule.threshold})",
-                                triggeredAt: now()
+                                triggeredAt: DateTime.now()
                             });
                             alert.save();
 
-                            rule.lastTriggeredAt = now();
+                            rule.lastTriggeredAt = DateTime.now();
                             rule.save();
 
                             alertsTriggered = alertsTriggered + 1;
@@ -548,7 +548,7 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
         }
 
         job AggregateHourlyStats {
-            let DateTime oneHourAgo = now().subtractHours(1);
+            let DateTime oneHourAgo = DateTime.now().subtractHours(1);
 
             let Array<JSON> recentData = docdb.TelemetryData
                 .where(timestamp: gte(oneHourAgo))
@@ -561,7 +561,7 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
                 totalReadings: totalReadings,
                 uniqueDevices: uniqueDevices,
                 periodStart: oneHourAgo,
-                periodEnd: now()
+                periodEnd: DateTime.now()
             });
         }
     }

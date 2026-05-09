@@ -92,11 +92,11 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
 
             // Computed fields for scheduling logic
             DateTime scheduledEndAt := scheduledAt.addMinutes(durationMinutes);
-            Boolean isUpcoming := scheduledAt > now() && status == AppointmentStatus.Scheduled;
-            Boolean isPast := scheduledAt < now() || status == AppointmentStatus.Completed;
+            Boolean isUpcoming := scheduledAt > DateTime.now() && status == AppointmentStatus.Scheduled;
+            Boolean isPast := scheduledAt < DateTime.now() || status == AppointmentStatus.Completed;
             Boolean canCancel := status == AppointmentStatus.Scheduled || status == AppointmentStatus.Confirmed;
             Boolean canStart := status == AppointmentStatus.Confirmed || status == AppointmentStatus.CheckedIn;
-            Int minutesUntil := DateTime.diffInMinutes(now(), scheduledAt);
+            Int minutesUntil := DateTime.diffInMinutes(DateTime.now(), scheduledAt);
 
             index(patientId, scheduledAt);
             index(providerId, scheduledAt);
@@ -158,7 +158,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
                     throw ValidationException("Cannot start appointment - invalid status");
                 }
                 status = AppointmentStatus.InProgress;
-                startedAt = now();
+                startedAt = DateTime.now();
                 this.save();
             }
 
@@ -167,7 +167,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
                     throw ValidationException("Cannot complete - appointment not in progress");
                 }
                 status = AppointmentStatus.Completed;
-                completedAt = now();
+                completedAt = DateTime.now();
                 if (completionNotes != null) {
                     notes = completionNotes;
                 }
@@ -273,7 +273,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
             () => appointmentDb.Appointment.create({
                 patientId: uuid(),
                 providerName: "Dr. Spec",
-                scheduledAt: now().addDays(1),
+                scheduledAt: DateTime.now().addDays(1),
                 durationMinutes: 2
             }),
             ValidationError("Appointment must be at least 5 minutes")
@@ -285,7 +285,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
             () => appointmentDb.Appointment.create({
                 patientId: uuid(),
                 providerName: "Dr. Spec",
-                scheduledAt: now().addDays(1),
+                scheduledAt: DateTime.now().addDays(1),
                 durationMinutes: 500
             }),
             ValidationError("Appointment cannot exceed 8 hours")
@@ -296,7 +296,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
         let Appointment appt = appointmentDb.Appointment.create({
             patientId: uuid(),
             providerName: "Dr. Smith",
-            scheduledAt: now().addDays(7),
+            scheduledAt: DateTime.now().addDays(7),
             durationMinutes: 30
         });
         appt.save();
@@ -307,7 +307,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
         let Appointment appt = appointmentDb.Appointment.create({
             patientId: uuid(),
             providerName: "Dr. Nguyen",
-            scheduledAt: now().addDays(14),
+            scheduledAt: DateTime.now().addDays(14),
             durationMinutes: 45,
             status: AppointmentStatus.Scheduled
         });
@@ -319,7 +319,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
         let Appointment appt = appointmentDb.Appointment.create({
             patientId: uuid(),
             providerName: "Dr. Patel",
-            scheduledAt: now().addDays(5),
+            scheduledAt: DateTime.now().addDays(5),
             durationMinutes: 30,
             status: AppointmentStatus.Scheduled
         });
@@ -331,7 +331,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
         let Appointment appt = appointmentDb.Appointment.create({
             patientId: uuid(),
             providerName: "Dr. Olsen",
-            scheduledAt: now().addDays(3),
+            scheduledAt: DateTime.now().addDays(3),
             durationMinutes: 30,
             status: AppointmentStatus.Confirmed
         });
@@ -343,7 +343,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
         let Appointment appt = appointmentDb.Appointment.create({
             patientId: uuid(),
             providerName: "Dr. Kimura",
-            scheduledAt: now().addDays(1),
+            scheduledAt: DateTime.now().addDays(1),
             durationMinutes: 30,
             status: AppointmentStatus.Confirmed
         });
@@ -356,7 +356,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
         let Appointment appt = appointmentDb.Appointment.create({
             patientId: uuid(),
             providerName: "Dr. Fernandez",
-            scheduledAt: now().addDays(2),
+            scheduledAt: DateTime.now().addDays(2),
             durationMinutes: 30,
             status: AppointmentStatus.CheckedIn
         });
@@ -369,7 +369,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
         let Appointment appt = appointmentDb.Appointment.create({
             patientId: uuid(),
             providerName: "Dr. Whitfield",
-            scheduledAt: now().addDays(1),
+            scheduledAt: DateTime.now().addDays(1),
             durationMinutes: 30,
             status: AppointmentStatus.InProgress
         });
@@ -383,7 +383,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
         let Appointment appt = appointmentDb.Appointment.create({
             patientId: uuid(),
             providerName: "Dr. Chang",
-            scheduledAt: now().addDays(10),
+            scheduledAt: DateTime.now().addDays(10),
             durationMinutes: 30,
             status: AppointmentStatus.Scheduled
         });
@@ -397,7 +397,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
         let Appointment appt = appointmentDb.Appointment.create({
             patientId: uuid(),
             providerName: "Dr. Alvarez",
-            scheduledAt: now().addDays(1),
+            scheduledAt: DateTime.now().addDays(1),
             durationMinutes: 30,
             status: AppointmentStatus.Scheduled
         });
@@ -410,7 +410,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
         let Appointment appt = appointmentDb.Appointment.create({
             patientId: uuid(),
             providerName: "Dr. Bergstrom",
-            scheduledAt: now().addDays(21),
+            scheduledAt: DateTime.now().addDays(21),
             durationMinutes: 60,
             type: AppointmentType.FollowUp
         });
@@ -422,7 +422,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
         let Appointment appt = appointmentDb.Appointment.create({
             patientId: uuid(),
             providerName: "Dr. Rossi",
-            scheduledAt: now().addDays(1),
+            scheduledAt: DateTime.now().addDays(1),
             durationMinutes: 30,
             status: AppointmentStatus.InProgress
         });
@@ -435,7 +435,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
         let Appointment appt = appointmentDb.Appointment.create({
             patientId: uuid(),
             providerName: "Dr. Hartley",
-            scheduledAt: now().addDays(8),
+            scheduledAt: DateTime.now().addDays(8),
             durationMinutes: 30,
             status: AppointmentStatus.Scheduled
         });
@@ -626,7 +626,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
             return appointmentDb.Appointment
                 .where(patientId: patientId)
                 .whereIn(status: [AppointmentStatus.Scheduled, AppointmentStatus.Confirmed])
-                .where(scheduledAt: gt(now()))
+                .where(scheduledAt: gt(DateTime.now()))
                 .orderBy(scheduledAt: asc)
                 .limit(10)
                 .all();
@@ -762,7 +762,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
     jobs('config/appointment-service.yaml') {
         // Send reminders for tomorrow's appointments
         job SendAppointmentReminders {
-            let DateTime tomorrow = now().addDays(1);
+            let DateTime tomorrow = DateTime.now().addDays(1);
             let DateTime tomorrowStart = DateTime.parse(#"{tomorrow.format('YYYY-MM-DD')}T00:00:00");
             let DateTime tomorrowEnd = DateTime.parse(#"{tomorrow.format('YYYY-MM-DD')}T23:59:59");
 
@@ -792,7 +792,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
                         });
 
                         appointment.reminderSent = true;
-                        appointment.reminderSentAt = now();
+                        appointment.reminderSentAt = DateTime.now();
                         appointment.save();
                         sentCount = sentCount + 1;
                     }
@@ -809,7 +809,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
 
         // Mark overdue appointments as no-shows
         job MarkNoShows {
-            let DateTime threshold = now().subtractMinutes(30);
+            let DateTime threshold = DateTime.now().subtractMinutes(30);
 
             let Array<Appointment> missedAppointments = appointmentDb.Appointment
                 .where(scheduledAt: lt(threshold))

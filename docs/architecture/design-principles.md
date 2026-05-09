@@ -59,7 +59,7 @@ Datrix is built on proven software engineering principles that ensure:
 
 **Example (Grafana dashboard JSON):** `DashboardBuilder` (`datrix_codegen_docker.generators.infra.dashboard_builder`) assembles Grafana **provisioned** dashboard documents in Python (nested dicts), serializes them to JSON under `config/grafana/dashboards/`, and pairs them with Jinja2-rendered Prometheus alert YAML — no ad-hoc string concatenation of panel definitions.
 
-**Key Insight:** Templates should aim for clean output; the pipeline’s formatter pass catches remaining drift when `format_output` is enabled (set false only for diagnostics or dry runs).
+**Key Insight:** Templates should aim for clean output; the pipeline's post-processing passes (import fix, format, validate) catch remaining drift. Which passes run is controlled by `PipelineConfig.validation_level` — see [Validation levels](architecture/pipeline-and-capabilities.md#validation-levels) for the level-to-hook mapping.
 
 **When to Use Each Approach:**
 
@@ -207,8 +207,8 @@ service library.BookService : version('1.0.0') {
  rdbms db('config/book-service/datasources.yaml') {
  abstract entity BaseEntity {
  UUID id : primaryKey, server = uuid();
- UDateTime createdAt : server = utcNow();
- UDateTime updatedAt : server = utcNow();
+ DateTime createdAt : server = DateTime.now();
+ DateTime updatedAt : server = DateTime.now();
  }
  entity Book extends BaseEntity {
  String(200) title;
@@ -242,8 +242,8 @@ service library.BookService : version('1.0.0') {
 ```datrix
 abstract entity BaseEntity {
  UUID id : primaryKey, server = uuid();
- UDateTime createdAt : server = utcNow();
- UDateTime updatedAt : server = utcNow();
+ DateTime createdAt : server = DateTime.now();
+ DateTime updatedAt : server = DateTime.now();
 }
 
 // Inherit everywhere - no repetition
@@ -440,6 +440,43 @@ Enable packs in **`system.dtrx`** with `use extension <name>;` (not YAML). Exhau
 - ✅ Clear variable names
 - ✅ Proper formatting
 - ✅ Logical structure
+
+---
+
+## Documentation Standards
+
+### Capability status labels
+
+Every capability described in documentation must include one of these status labels so readers know what is implemented, what is planned, and what is illustrative:
+
+| Label | Meaning |
+|-------|---------|
+| **Stable** | Supported by normal CLI generation and tested. |
+| **Beta** | Implemented but coverage or UX may change. |
+| **Experimental** | Available behind a flag or partial path. |
+| **Planned** | Design intent, not yet implemented. |
+| **Illustrative** | Example only, not a support claim. |
+
+Place the label near the heading of the capability section (e.g., `### Feature Name (Stable)`).
+
+### Docs synchronization checklist
+
+When changing any of the following, update the corresponding documentation:
+
+1. **CLI options** — Update `datrix-cli/docs/commands/generate.md` and any docs containing CLI examples (e.g., `configuration-guide.md`, `first-project.md`, `architecture-overview.md`).
+2. **Semantic analysis phases** — Update the ordered phase list in `architecture/pipeline-and-capabilities.md` to match `SemanticAnalyzer.analyze()`.
+3. **Config models** — Update `configuration-guide.md` and any config schema docs.
+4. **Generator support** — Update capability sections in `pipeline-and-capabilities.md` with correct status labels.
+
+### Canonical CLI examples
+
+Documentation examples must use current flag syntax. The canonical `datrix generate` invocation is:
+
+```bash
+datrix generate --source examples/03-domains/ecommerce/system.dtrx --output generated --language python --hosting docker
+```
+
+Short flags: `--source` / `-s`, `--output` / `-o`, `--language` / `-L`, `--hosting` / `-H`, `--platform` / `-P`. Note: `--profile` has no short flag.
 
 ---
 
