@@ -236,7 +236,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
             String? discontinuationReason;
 
             // Complex computed field with multiple conditions
-            Boolean isActive := status == PrescriptionStatus.Active && (endDate == null || endDate >= Date.now());
+            Boolean isActive := status == PrescriptionStatus.Active && (endDate == null || endDate >= DateTime.now());
             Boolean hasRefillsRemaining := refillsUsed < refillsAllowed;
             Int refillsRemaining := refillsAllowed - refillsUsed;
 
@@ -280,7 +280,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
             fn discontinue(String reason) {
                 status = PrescriptionStatus.Cancelled;
                 discontinuationReason = reason;
-                endDate = Date.now();
+                endDate = DateTime.now();
                 this.save();
             }
         }
