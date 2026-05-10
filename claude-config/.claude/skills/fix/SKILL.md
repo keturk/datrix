@@ -9,7 +9,15 @@ Follow this phased approach. Assess confidence at each boundary — proceed when
 
 ## Phase 1: Understand (Read Only)
 
-- Read the issue report, failing code, templates, generators
+- **Read the FULL issue report first:**
+  - Root Cause Analysis section (if present)
+  - Recommended Fix section (if present)
+  - Open Questions section (if present)
+- **If the issue has a "Recommended Fix" section:**
+  - START with that approach unless you have a specific technical reason to deviate
+  - If the recommendation is unclear (e.g., mentions "spec test context" but you don't see how to identify it), **STOP and ASK** before investigating alternatives
+  - Don't rediscover what's already documented
+- Read the failing code, templates, generators to understand implementation details
 - Identify the exact root cause and the exact lines to change
 - **End-of-phase assessment:**
   - Root cause (one sentence)
@@ -17,7 +25,7 @@ Follow this phased approach. Assess confidence at each boundary — proceed when
   - What the change will be (brief description)
   - Estimated scope: Small (1-2 files, <20 lines), Medium (3-5 files), Large (6+ files)
 - **If confident** → proceed to Phase 2 (include brief status note)
-- **If NOT confident** (ambiguous root cause, multiple causes, Large scope) → **STOP and present diagnosis, WAIT**
+- **If NOT confident** (ambiguous root cause, multiple causes, Large scope, unclear recommended fix) → **STOP and present diagnosis, WAIT**
 
 ## Phase 2: Fix (Write Code)
 

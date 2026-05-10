@@ -498,73 +498,68 @@ Process fixes in priority order (highest-confidence first). For each fix:
    - If marker exists, update the summary/rules
    - If deleting marked code, remove the marker entirely
 
-#### Step B: Run Codegen Package Tests
+#### Step B: Verify Fix Against Originally-Failing Tests
 
-Run tests for the affected codegen package:
+**IMPORTANT:** Do NOT run the full test suite after each fix. Instead, verify the fix resolves the originally-failing tests.
 
-```
-powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
-```
+**Verification strategy:**
 
-**Determine package name from file path:**
-- `datrix-codegen-python/...` → `datrix-codegen-python`
-- `datrix-codegen-typescript/...` → `datrix-codegen-typescript`
-- etc.
+1. **If originally-failing tests can be run directly** (unit/integration tests with specific test IDs):
+   ```
+   powershell -File "d:/datrix/datrix/scripts/test/test-single.ps1" "{test-path}::{test-name}" -Project {package-name}
+   ```
+   Run each originally-failing test individually to confirm the fix resolves it.
 
-**Assess results:**
-- **If tests pass:** Report success, move to next root cause
-- **If tests FAIL:** Assess whether failure is related to the fix:
+2. **If originally-failing tests require generation** (e2e tests that generate code):
+   - Skip running tests after each individual fix
+   - Proceed to next fix
+   - Run full test suite ONLY after ALL fixes are applied (in Step C below)
+
+**Assess results (for directly-runnable tests only):**
+- **If originally-failing test(s) now PASS:** Report success, move to next root cause
+- **If originally-failing test(s) still FAIL:** Assess whether new failure is related to the fix:
   - Related → adjust fix (max 3 attempts per root cause)
-  - Unrelated → STOP and report (this is a critical error)
+  - Same error as before → fix incomplete, investigate further
+  - Different error → fix introduced regression, investigate
+
+**For fixes that cannot be verified individually:** Simply report "Fix applied, verification deferred to final test run"
 
 #### Step C: Checkpoint Report
 
-After each fix (successful or failed):
+After each fix:
 
 ```
 CHECKPOINT — Root Cause #{N}: {title}
-Status: FIXED / FAILED (attempt {X}/3)
+Status: FIXED / FAILED / DEFERRED
 Changed: {file:line} — {what changed}
-Tests: {pass}/{total} passing
+Verification: {result}
 ```
 
-**If tests PASS:**
+**If originally-failing tests were verified and PASS:**
 ```
-CHECKPOINT — Root Cause #1: Service generator missing repository import
+CHECKPOINT — Root Cause #1: Import path incorrect
 Status: FIXED
-Changed: templates/service.py.j2:12 — Added repository imports
-Tests: 42/42 passing
+Changed: python_visitor_expressions.py:393 — Changed import from base to entity
+Verification: 2 originally-failing tests now PASS
 ```
 
-**If tests FAIL (related to fix, will retry):**
+**If verification was deferred (e2e tests requiring generation):**
 ```
-CHECKPOINT — Root Cause #1: Service generator missing repository import
+CHECKPOINT — Root Cause #2: PolyString not converted to str
+Status: FIXED (verification deferred)
+Changed: _entity_relationships.py:578 — Added str() conversion
+Verification: Deferred to final test run (requires generation)
+```
+
+**If originally-failing tests still FAIL (will retry):**
+```
+CHECKPOINT — Root Cause #1: Import path incorrect
 Status: FAILED (attempt 1/3)
-Changed: templates/service.py.j2:12 — Added repository imports
-Tests: 40/42 passing
-
-New failures:
-- test_service_with_multiple_repos — AssertionError: Expected 2 imports, got 1
+Changed: python_visitor_expressions.py:393 — Changed import from base to entity
+Verification: Originally-failing tests still fail with same error
 
 Adjusting fix (attempt 2/3)...
 ```
-
-**If tests FAIL (unrelated, STOP):**
-```
-CHECKPOINT — Root Cause #1: Service generator missing repository import
-Status: FAILED (unrelated test failures introduced)
-Changed: templates/service.py.j2:12 — Added repository imports
-Tests: 35/42 passing
-
-Unrelated failures introduced:
-- test_entity_generator — ImportError (NOT related to service generator)
-- test_repository_generator — SyntaxError (NOT related to service generator)
-
-STOPPING: Fix introduced cascading failures in unrelated generators.
-Reverting change and reporting to user.
-```
-
-**WAIT for user decision.**
 
 ### Output
 
@@ -611,14 +606,15 @@ On abort, report what was fixed, what failed, and what remains.
 - **NO fixing generated code directly** — always fix the generator/template
 - **NO debug scatter** — zero temporary logging
 - **NO cross-language fixes** — stay in the declared scope (Python or TypeScript)
-- **NO batch-fixing** — one root cause at a time with verification
+- **NO running full test suite after each fix** — verify originally-failing tests only, run full suite AFTER all fixes
 
 ### Best Practices
 
-- Fail fast and loud: if tests fail unexpectedly, STOP and report
+- Fail fast and loud: if originally-failing tests still fail, STOP and report
 - Read before editing: always use Read tool to see current code state
 - Minimal edits: change only what fix plan specifies
 - Update markers: maintain logic map markers on modified code
+- Defer verification when tests require generation (e2e tests)
 
 ### End-of-Phase Report
 
@@ -629,21 +625,151 @@ Fixes applied: {N}
 Fixes failed: {N}
 
 Changes made:
-1. {file:line} — {what changed} — fixes {root cause title}
-2. {file:line} — {what changed} — fixes {root cause title}
+1. {file:line} — {what changed} — fixes {root cause title} — {verification status}
+2. {file:line} — {what changed} — fixes {root cause title} — {verification status}
 
-Codegen package tests: {pass}/{total} PASS
+{If any fixes need deferred verification:}
+Some fixes require full test suite run to verify (e2e tests that depend on generation).
 
-{If any failed:}
-Unresolved:
-- {root cause title} — reason: {why}
+Proceeding to full test suite verification...
 ```
 <!-- END_PHASE: fix_implementation -->
 
-<!-- PHASE: regeneration -->
-## Phase 5: Regeneration and Verification
+<!-- PHASE: full_test_verification -->
+## Phase 4.5: Full Test Suite Verification
 
-Regenerate affected examples and verify that originally-failing tests now pass.
+**IMPORTANT:** This phase runs AFTER all fixes are applied to verify:
+1. Originally-failing tests now pass
+2. No new test failures were introduced
+
+### Input
+
+All applied fixes from fix_implementation phase.
+
+### Steps
+
+#### Step 1: Run Full Codegen Package Test Suite
+
+Run the complete test suite for the affected codegen package:
+
+```
+powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Fast
+```
+
+**Determine package name from file path:**
+- `datrix-codegen-python/...` → `datrix-codegen-python`
+- `datrix-codegen-typescript/...` → `datrix-codegen-typescript`
+- `datrix-codegen-common/...` → `datrix-codegen-common`
+- etc.
+
+#### Step 2: Assess Results
+
+Compare results to original failures:
+
+**SUCCESS criteria:**
+- All originally-failing tests now PASS
+- No new test failures introduced
+- Test count increased or stayed the same (if tests were added/fixed)
+
+**PARTIAL SUCCESS criteria:**
+- Some originally-failing tests now PASS
+- Some originally-failing tests still FAIL with SAME error (incomplete fix)
+- No new unrelated failures
+
+**REGRESSION criteria:**
+- New test failures introduced that weren't in original failure set
+- Originally-failing tests now fail with DIFFERENT error
+- Test count decreased (tests broken by fix)
+
+#### Step 3: Handle Results
+
+**If SUCCESS:**
+```
+FULL TEST VERIFICATION: PASS
+
+Originally failing: {N} tests
+Now passing: {N} tests
+New failures: 0
+
+All fixes verified successfully.
+Proceeding to regeneration phase.
+```
+
+**If PARTIAL SUCCESS:**
+```
+FULL TEST VERIFICATION: PARTIAL
+
+Originally failing: {N} tests
+Now passing: {M} tests ({M < N})
+Still failing: {K} tests (same errors)
+New failures: 0
+
+Fixed root causes: {list}
+Unresolved root causes: {list}
+
+Proceed to regeneration for successfully-fixed issues, or debug remaining failures?
+```
+WAIT for user decision.
+
+**If REGRESSION:**
+```
+FULL TEST VERIFICATION: REGRESSION DETECTED
+
+Originally failing: {N} tests
+Now passing: {M} tests
+New failures: {K} tests
+
+New failures introduced:
+- {test name} — {error}
+- {test name} — {error}
+
+STOPPING: Fixes introduced new failures.
+Analysis needed before proceeding.
+```
+WAIT for user decision.
+
+### Output
+
+```json
+{
+  "verification_status": "SUCCESS" | "PARTIAL" | "REGRESSION",
+  "originally_failing_count": 12,
+  "now_passing_count": 12,
+  "new_failures_count": 0,
+  "tests_total": 3934,
+  "tests_passing": 3934
+}
+```
+
+### End-of-Phase Report
+
+```
+FULL TEST SUITE VERIFICATION COMPLETE:
+
+Test suite: {package-name}
+Result: {SUCCESS / PARTIAL / REGRESSION}
+
+Originally failing: {N} tests → Now passing: {M} tests
+New failures: {K} tests
+Total: {pass}/{total} PASS
+
+{If SUCCESS:}
+All originally-failing tests now pass. No regressions detected.
+
+{If PARTIAL:}
+Progress made but some issues remain. See unresolved root causes above.
+
+{If REGRESSION:}
+Fixes introduced new failures. Review and adjust before proceeding.
+```
+<!-- END_PHASE: full_test_verification -->
+
+<!-- PHASE: regeneration -->
+## Phase 5: Regeneration and Verification (Optional)
+
+**Note:** This phase is OPTIONAL and only needed for deploy test failures or when explicitly requested. For unit/integration test failures that were verified in Phase 4.5, this phase can be skipped.
+
+Regenerate affected examples and verify generated code is correct.
 
 ### Input
 

@@ -47,6 +47,14 @@ SKIP: cleanup
 
 This skill executes five phases. Each phase builds on the previous.
 
+**Execution discipline:**
+- Each phase runs to completion unless BLOCKED
+- "Blocked" means: missing information, conflicting requirements, or technical impossibility
+- "This seems like a lot of work" is NOT a blocker
+- Do NOT ask "should I continue?" mid-phase unless blocked
+- Do NOT generate partial deliverables and wait for approval
+- User invoked this skill to run the full pipeline — execute it completely
+
 ---
 
 ### Phase 1: Analysis — Audit the Design Document
@@ -62,6 +70,17 @@ This skill executes five phases. Each phase builds on the previous.
    - **Implementation scope** — which packages/modules are affected
    - **Dependencies** — what must exist before this design can be implemented
 
+## Phase 1 Completion Gate
+
+This phase is COMPLETE when:
+- [ ] Design document read in full
+- [ ] All architecture docs cross-referenced
+- [ ] Open questions identified and investigated (not just listed)
+- [ ] Decision points classified correctly
+- [ ] Implementation scope determined
+- [ ] Dependencies identified
+- [ ] Output matches the format below exactly
+
 **End-of-phase output:**
 
 ```
@@ -74,6 +93,16 @@ Decision points: {N}
 Content overlap with existing docs: {N} conflicts
 Dependencies: {list}
 ```
+
+## Phase 1 Self-Check
+
+Before proceeding to Phase 2, answer:
+1. Did I investigate each "open question" to determine if it's actually open?
+2. Did I check the codebase for existing patterns that resolve ambiguities?
+3. Did I follow the "Goal:" statement above exactly?
+4. Did I deviate from any instruction in this phase? If yes, why?
+
+If you deviated: STOP and explain the deviation to the user.
 
 **If there are BLOCKING open questions** (ambiguities that prevent task generation):
 - Present them with recommended answers and evidence from the codebase
@@ -106,6 +135,14 @@ For each open question or decision point:
    - Evidence (code references, existing patterns, architectural principles)
    - Confidence: HIGH (clear evidence, no explicit alternatives) / MEDIUM (reasonable inference) / LOW (needs user input — always used for explicit alternatives)
 
+## Phase 2 Completion Gate
+
+This phase is COMPLETE when:
+- [ ] Every open question from Phase 1 has a decision
+- [ ] Every decision has rationale and evidence
+- [ ] Confidence level assigned to each decision
+- [ ] Output matches the format below exactly
+
 **End-of-phase output:**
 
 ```
@@ -123,6 +160,16 @@ DECISIONS:
    Confidence: MEDIUM — flagged for review
    Evidence: {what was found}
 ```
+
+## Phase 2 Self-Check
+
+Before proceeding to Phase 3, answer:
+1. Did I make a decision for EVERY open question from Phase 1?
+2. Did I provide evidence from the codebase (not just opinions)?
+3. Did I follow the confidence gate rules?
+4. Did I deviate from any instruction in this phase? If yes, why?
+
+If you deviated: STOP and explain the deviation to the user.
 
 **Confidence gate:**
 - **All HIGH** → proceed to Phase 3 automatically
@@ -158,6 +205,15 @@ For each section of the design document that adds NEW information:
 - If the design CONTRADICTS existing content → update to the new design (no backward compat)
 - If the design ADDS to existing content → append in the appropriate section
 
+## Phase 3 Completion Gate
+
+This phase is COMPLETE when:
+- [ ] All unique design content transferred to official docs
+- [ ] No content duplication between design doc and official docs
+- [ ] All conflicts resolved (old content replaced/updated)
+- [ ] Target docs match existing doc style and structure
+- [ ] Output matches the format below exactly
+
 **End-of-phase output:**
 
 ```
@@ -172,6 +228,16 @@ Content transferred: {N} sections from design document
 Conflicts resolved: {N}
 ```
 
+## Phase 3 Self-Check
+
+Before proceeding to Phase 4, answer:
+1. Did I transfer ALL unique content from the design to official docs?
+2. Did I identify the correct target docs (not create new standalone docs)?
+3. Did I adapt content style to match the target docs?
+4. Did I deviate from any instruction in this phase? If yes, why?
+
+If you deviated: STOP and explain the deviation to the user.
+
 ---
 
 ### Phase 4: Tasks — Generate Implementation Task Files
@@ -179,6 +245,18 @@ Conflicts resolved: {N}
 **Goal:** Break the design into implementable tasks with globally unique numbering.
 
 **MANDATORY FIRST STEP:** Read `d:\datrix\.claude\skills\generate-tasks\SKILL.md` completely before generating any tasks. This skill follows the same workflow as `/generate-tasks` with one critical override described below.
+
+**BEFORE generating tasks:**
+1. Count total tasks needed from the design (implementation + test + docs + quality gates)
+2. Re-read this entire Phase 4 section completely
+3. Confirm in your internal reasoning: "I will generate ALL {N} task files now, not a subset or roadmap"
+
+**CRITICAL:** This phase generates ALL task files. Do NOT:
+- Generate only some tasks and create a "roadmap" or "summary" for the rest
+- Wait for approval mid-phase
+- Ask "should I continue?" after generating a subset of tasks
+- Stop task generation before all tasks are created
+- Create a TASK-GENERATION-SUMMARY.md instead of actual task files
 
 **Self-containment requirement (critical):** Because Phase 5 deletes the design document, every task file generated in this phase MUST be fully self-contained. Specifically:
 
@@ -278,6 +356,19 @@ Conflicts resolved: {N}
 
 5. Report dependency graph with parallelizable groups
 
+## Phase 4 Completion Gate
+
+This phase is COMPLETE when:
+- [ ] ALL implementation tasks generated as actual .md files (not a roadmap)
+- [ ] ALL test tasks generated (one per implementation task)
+- [ ] ALL documentation tasks generated
+- [ ] ALL quality gate tasks generated (one per package with 2+ code tasks)
+- [ ] Every task file is self-contained (no design doc references)
+- [ ] Dependency graph created showing parallelizable groups
+- [ ] Output lists ALL task file paths (not "23 tasks remaining")
+
+If any task is described but not generated: Phase 4 is NOT complete.
+
 **End-of-phase output:**
 
 ```
@@ -306,6 +397,18 @@ Dependency graph:
   Group 4 (after all): tasks 07, 08          [quality gates]
 ```
 
+## Phase 4 Self-Check
+
+Before proceeding to Phase 5, answer:
+1. Did I generate ALL tasks as actual files (not a summary/roadmap)?
+2. Did I inline design content in tasks (not reference the design doc path)?
+3. Did I create test tasks for every implementation task?
+4. Did I create quality gates for every package with 2+ code tasks?
+5. Did I follow the template from `/generate-tasks` exactly?
+6. Did I deviate from any instruction in this phase? If yes, why?
+
+If you deviated: STOP and explain the deviation to the user.
+
 ---
 
 ### Phase 5: Cleanup — Delete the Design Document
@@ -321,6 +424,14 @@ Dependency graph:
 - Report what remains and why it wasn't transferred
 - WAIT for user decision
 
+## Phase 5 Completion Gate
+
+This phase is COMPLETE when:
+- [ ] Verified ALL content transferred to official docs or task files
+- [ ] Verified no unique information remains only in design document
+- [ ] Design document deleted from filesystem
+- [ ] Output matches the format below exactly
+
 **End-of-phase output:**
 
 ```
@@ -332,6 +443,16 @@ All content transferred to:
 - {doc 2}
 - Task files in phase {NN}
 ```
+
+## Phase 5 Self-Check
+
+Before reporting completion, answer:
+1. Did I verify ALL content was transferred (not just assume)?
+2. Did I actually delete the design document file?
+3. Did I follow the "Goal:" statement above exactly?
+4. Did I deviate from any instruction in this phase? If yes, why?
+
+If you deviated: STOP and explain the deviation to the user.
 
 ---
 
@@ -377,3 +498,6 @@ Next steps:
 - **NO design document path references in task files** — when operationalizing, tasks must inline design content because Phase 5 deletes the source document
 - **NO tasks without targeted tests** — every implementation and test task must have a `## Targeted Tests` section specifying which tests to run for focused verification
 - **NO missing quality gates** — every package with 2+ code tasks must have a quality gate task as the final dependency
+- **NO partial task generation** — generate ALL tasks in Phase 4, not a subset with a "roadmap"
+- **NO asking mid-phase** — complete each phase fully before asking user questions (unless blocked)
+- **NO roadmap/summary files** — generate actual task .md files, not summaries of future work

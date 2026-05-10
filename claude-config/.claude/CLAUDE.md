@@ -29,7 +29,12 @@ If a task spans 3+ unrelated subsystems, requires chain-debugging, or would fill
 
 ## Fix Execution Discipline
 
-Follow the phased approach: Understand → Fix → Verify. Invoke `/fix` for the full workflow reference. Key rules: STOP and report when not confident. STOP on new test failures. STOP when scope grows beyond estimate.
+Follow the phased approach: Understand → Fix → Verify. Invoke `/fix` for the full workflow reference. Key rules:
+
+- **Issue reports with Root Cause Analysis:** If the issue includes a "Recommended Fix" section, implement that approach first. Don't rediscover what's already documented. If the recommendation is unclear (e.g., "in spec test context" without obvious flags), STOP and ASK before investigating alternatives.
+- **STOP and report when not confident.** Don't spend tool calls investigating — ask for direction.
+- **STOP on new test failures.** Present options, don't immediately attempt fix.
+- **STOP when scope grows beyond estimate.** Report growth, get approval to continue.
 
 ## Design Doc Workflow
 
