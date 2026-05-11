@@ -1,6 +1,6 @@
 # Claude Code Rules for Datrix
 
-**On-demand skills:** `/imports` (module paths), `/logic-map` (markers), `/fix` (phased fix workflow), `/codegen-review` (submission checklist + repo rules + code examples), `/fix-tests` (one-at-a-time test fix workflow), `/scope` (session scope anchor), `/checkpoint-debug` (checkpoint-based multi-bug debugging), `/troubleshoot-and-fix` (autonomous diagnose→fix→verify pipeline), `/codegen-fix-loop` (iterative fix with test feedback), `/operationalize-design` (design doc to tasks+docs pipeline), `/execute-tasks` (implement task files with verify+complete loop), `/absorb-design` (transfer design doc knowledge into repo docs + delete source), `/commit-and-push` (scan repos, build commit messages, commit and push).
+**On-demand skills:** `/imports` (module paths), `/logic-map` (markers), `/fix` (phased fix workflow), `/codegen-review` (submission checklist + repo rules + code examples), `/fix-tests` (one-at-a-time test fix workflow), `/scope` (session scope anchor), `/checkpoint-debug` (checkpoint-based multi-bug debugging), `/troubleshoot-and-fix` (autonomous diagnose→fix→verify pipeline), `/codegen-fix-loop` (iterative fix with test feedback), `/operationalize-design` (design doc to tasks+docs pipeline), `/execute-tasks` (implement task files with verify+complete loop), `/execute-tasks-parallel` (parallel execution of independent tasks), `/absorb-design` (transfer design doc knowledge into repo docs + delete source), `/commit-and-push` (scan repos, build commit messages, commit and push).
 
 ## Core Principles
 
