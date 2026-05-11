@@ -47,6 +47,19 @@ Before doing ANY work, read these documents in full and follow their rules throu
 
 **DO NOT skip these.** Skipping = rejected report. These documents define the standards for root cause analysis quality, error message expectations, and what constitutes a thorough investigation.
 
+### Project Structure (DYNAMIC — read from generated file)
+
+Before investigating, read the project structure file for the codegen package(s) you will be tracing into:
+
+- **`d:\datrix\{package-name}\.project-structure.md`**
+
+Where `{package-name}` is determined from the generated output language (e.g., `datrix-codegen-python` for Python, `datrix-codegen-typescript` for TypeScript, `datrix-codegen-docker` for Docker issues).
+
+If the file is missing or stale, regenerate it:
+```bash
+powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}
+```
+
 ## Scope Check (BEFORE starting investigation)
 
 After reading mandatory documents and BEFORE any investigation, assess the scope:

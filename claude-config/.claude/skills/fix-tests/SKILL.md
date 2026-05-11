@@ -50,6 +50,19 @@ Before doing ANY work, read:
 
 **DO NOT skip these.** Skipping = rejected fixes.
 
+### Project Structure (DYNAMIC — read from generated file)
+
+Before investigating, read the project structure file for the target package's source, test, and template directory trees:
+
+- **`d:\datrix\{package-name}\.project-structure.md`**
+
+Where `{package-name}` is determined from the test results path or test command (e.g., `datrix-codegen-python`, `datrix-common`).
+
+If the file is missing or stale, regenerate it:
+```bash
+powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}
+```
+
 ## Scope Check
 
 After reading the failures:
@@ -170,6 +183,7 @@ Final test results: {pass count}/{total count} passing
 
 ## Anti-Patterns
 
+- **NO exploring the project structure** — read `.project-structure.md` for the target package, don't rediscover it
 - **NO batch-fixing** — fix one root cause, verify, then move on
 - **NO debug scatter** — no temporary logging, prints, or instrumentation left in code
 - **NO guessing** — read the failing code before proposing a fix

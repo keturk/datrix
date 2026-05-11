@@ -1,0 +1,73 @@
+# Import Boundary Allowlist
+#
+# Documents known import boundary violations that represent intentional
+# architectural decisions. Each entry requires a tracking issue URL.
+#
+# Format:
+#   [[allow]]
+#   file = "substring match on relative file path"
+#   import = "prefix match on imported module"
+#   issue = "URL tracking the resolution of this violation"
+#
+# These violations exist because datrix-codegen-common contains
+# language-specific transpiler implementations that by nature import
+# from the target language packages. The proper long-term fix is to
+# move these files to their respective language generator packages.
+# See: datrix-common/docs/architecture/import-boundaries.md
+
+# --- Python transpiler files in datrix-codegen-common ---
+# These files implement Python-specific transpilation logic and must
+# import from datrix_codegen_python for type mappings, operators, etc.
+
+[[allow]]
+file = "datrix_codegen_common/transpiler/python_transpiler_core.py"
+import = "datrix_codegen_python"
+issue = "datrix/.tasks/phase-36/task-36-07-quality-gate-datrix.md"
+
+[[allow]]
+file = "datrix_codegen_common/transpiler/python_visitor_expressions.py"
+import = "datrix_codegen_python"
+issue = "datrix/.tasks/phase-36/task-36-07-quality-gate-datrix.md"
+
+[[allow]]
+file = "datrix_codegen_common/transpiler/python_visitor_statements.py"
+import = "datrix_codegen_python"
+issue = "datrix/.tasks/phase-36/task-36-07-quality-gate-datrix.md"
+
+# --- TypeScript transpiler files in datrix-codegen-common ---
+# These files implement TypeScript-specific transpilation logic and must
+# import from datrix_codegen_typescript for type mappings, operators, etc.
+
+[[allow]]
+file = "datrix_codegen_common/transpiler/typescript_transpiler_core.py"
+import = "datrix_codegen_typescript"
+issue = "datrix/.tasks/phase-36/task-36-07-quality-gate-datrix.md"
+
+[[allow]]
+file = "datrix_codegen_common/transpiler/typescript_visitor_expressions.py"
+import = "datrix_codegen_typescript"
+issue = "datrix/.tasks/phase-36/task-36-07-quality-gate-datrix.md"
+
+[[allow]]
+file = "datrix_codegen_common/transpiler/typescript_visitor_statements.py"
+import = "datrix_codegen_typescript"
+issue = "datrix/.tasks/phase-36/task-36-07-quality-gate-datrix.md"
+
+# --- Algorithm files in datrix-codegen-common ---
+# These algorithm modules contain TypeScript-specific logic that should
+# eventually be moved to datrix-codegen-typescript.
+
+[[allow]]
+file = "datrix_codegen_common/algorithms/jobs_orchestration.py"
+import = "datrix_codegen_typescript"
+issue = "datrix/.tasks/phase-36/task-36-07-quality-gate-datrix.md"
+
+[[allow]]
+file = "datrix_codegen_common/algorithms/pubsub_consumer_context.py"
+import = "datrix_codegen_typescript"
+issue = "datrix/.tasks/phase-36/task-36-07-quality-gate-datrix.md"
+
+[[allow]]
+file = "datrix_codegen_common/algorithms/struct_context_typescript.py"
+import = "datrix_codegen_typescript"
+issue = "datrix/.tasks/phase-36/task-36-07-quality-gate-datrix.md"

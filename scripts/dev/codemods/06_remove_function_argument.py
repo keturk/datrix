@@ -1,4 +1,4 @@
-﻿"""
+"""
 Remove a parameter from a function and from all call sites (API migration).
 
 Usage:

@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Find and list top N files by line count in a Datrix project's src and tests trees.
 

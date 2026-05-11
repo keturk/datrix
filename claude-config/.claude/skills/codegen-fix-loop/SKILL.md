@@ -41,6 +41,19 @@ MAX ITERATIONS: 5
 3. **The files listed in `FILES TO READ FIRST`** (if provided)
 4. **`generate.ps1`** — understand the build pipeline (if not already familiar)
 
+### Project Structure (DYNAMIC — read from generated file)
+
+Before investigating, read the project structure file for the target package's source, test, and template directory trees:
+
+- **`d:\datrix\{PACKAGE}\.project-structure.md`**
+
+Where `{PACKAGE}` is the package specified in the skill invocation (e.g., `datrix-codegen-python`, `datrix-codegen-typescript`).
+
+If the file is missing or stale, regenerate it:
+```bash
+powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {PACKAGE}
+```
+
 ## Configuration
 
 | Parameter | Default | Description |
@@ -180,6 +193,7 @@ Debug artifacts: CLEAN
 
 ## Anti-Patterns
 
+- **NO exploring the project structure** — read `.project-structure.md` for the target package, don't rediscover it
 - **NO fixing without reading first** — Phase 0 is mandatory, every time
 - **NO debug scatter** — zero temporary logging in any iteration
 - **NO ignoring test output** — read the FULL error, not just the summary

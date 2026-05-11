@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Run Semgrep with Datrix-specific rules across the monorepo.
 
 Loads individual YAML rule files from scripts/config/semgrep-rules/ and runs

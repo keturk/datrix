@@ -1,4 +1,4 @@
-﻿"""Virtual environment management utilities for Datrix scripts.
+"""Virtual environment management utilities for Datrix scripts.
 
 This module provides functions to:
 - Find the Datrix root directory

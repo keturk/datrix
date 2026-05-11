@@ -321,11 +321,14 @@ def is_allowlisted(violation: Violation, allowlist: list[AllowlistEntry], monore
     Returns:
         True if the violation is allowlisted, False otherwise
     """
-    rel_path = str(violation.file_path.relative_to(monorepo_root))
+    # Normalize to forward slashes for cross-platform matching
+    rel_path = str(violation.file_path.relative_to(monorepo_root)).replace("\\", "/")
 
     for entry in allowlist:
+        # Normalize allowlist pattern to forward slashes too
+        pattern = entry.file_pattern.replace("\\", "/")
         # Simple substring matching for file patterns
-        if entry.file_pattern in rel_path and violation.imported_module.startswith(entry.import_prefix):
+        if pattern in rel_path and violation.imported_module.startswith(entry.import_prefix):
             return True
 
     return False

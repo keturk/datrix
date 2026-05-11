@@ -70,6 +70,19 @@ Before doing ANY work, read these documents in full:
 2. **`C:\Users\KErca\.claude\projects\d--datrix\memory\MEMORY.md`** — Persistent memory.
 3. **`d:\datrix\datrix-common\docs\contributing\ai-agent-rules.md`** — Full contributing rules (index with links to sub-documents under `ai-agent-rules/`).
 
+### Project Structure (DYNAMIC — read from generated file)
+
+Before implementing, read the project structure file for each target package's source, test, and template directory trees:
+
+- **`d:\datrix\{package-name}\.project-structure.md`**
+
+Where `{package-name}` is determined from the task file's `**Package:**` field (e.g., `datrix-codegen-python`, `datrix-common`).
+
+If the file is missing or stale, regenerate it:
+```bash
+powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}
+```
+
 <!-- PHASE: pre_check -->
 ## Phase 1: Pre-Execution Check
 

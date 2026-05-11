@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Shared Test Runner for Datrix Projects
 
 Provides consistent test execution across all Datrix repositories with:

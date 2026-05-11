@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Run Vulture (dead-code detection) on a Datrix project's src tree.
 

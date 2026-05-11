@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Scan Datrix Python code for anti-patterns using LibCST.
 
 Detects violations of the .cursorrules coding standards across one or more

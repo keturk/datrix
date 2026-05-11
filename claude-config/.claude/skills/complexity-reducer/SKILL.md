@@ -23,6 +23,19 @@ Or with options:
 "Fix the most complex function in datrix-codegen-python"
 ```
 
+## Project Structure (DYNAMIC — read from generated file)
+
+Before refactoring, read the project structure file for the target package's source and test directory trees:
+
+- **`d:\datrix\{package-name}\.project-structure.md`**
+
+Where `{package-name}` is the package specified in the invocation (e.g., `datrix-common`, `datrix-codegen-python`).
+
+If the file is missing or stale, regenerate it:
+```bash
+powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}
+```
+
 ## Workflow
 
 When invoked, Claude Code will:

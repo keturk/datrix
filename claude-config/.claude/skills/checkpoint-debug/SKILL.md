@@ -32,6 +32,19 @@ LOG: D:\datrix\.generated\.results\generate-results-20260503-172334.log
 1. **`d:\datrix\.claude\CLAUDE.md`** — Project rules
 2. **`C:\Users\KErca\.claude\projects\d--datrix\memory\MEMORY.md`** — Persistent memory
 
+### Project Structure (DYNAMIC — read from generated file)
+
+Before investigating, read the project structure file for each affected package's source, test, and template directory trees:
+
+- **`d:\datrix\{package-name}\.project-structure.md`**
+
+Where `{package-name}` is determined from the issues being debugged (e.g., `datrix-codegen-python`, `datrix-common`).
+
+If the file is missing or stale, regenerate it:
+```bash
+powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}
+```
+
 ## Workflow — Checkpoint-Based
 
 ### Phase 1: Issue Inventory
@@ -138,6 +151,7 @@ Issues unresolved: {N} (see details above)
 
 ## Anti-Patterns
 
+- **NO exploring the project structure** — read `.project-structure.md` for the target package, don't rediscover it
 - **NO parallel fixing** — one issue at a time, verified before moving on
 - **NO debug scatter** — zero temporary logging or instrumentation
 - **NO scope creep** — if you discover a new issue during a fix, log it as a new item, don't chase it
