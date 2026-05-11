@@ -1,6 +1,6 @@
 # Claude Code Rules for Datrix
 
-**On-demand skills:** `/imports` (module paths), `/logic-map` (markers), `/fix` (phased fix workflow), `/codegen-review` (submission checklist + repo rules + code examples), `/fix-tests` (one-at-a-time test fix workflow), `/scope` (session scope anchor), `/checkpoint-debug` (checkpoint-based multi-bug debugging), `/troubleshoot-and-fix` (autonomous diagnose→fix→verify pipeline), `/codegen-fix-loop` (iterative fix with test feedback), `/operationalize-design` (design doc to tasks+docs pipeline), `/execute-tasks` (implement task files with verify+complete loop), `/execute-tasks-parallel` (parallel execution of independent tasks), `/absorb-design` (transfer design doc knowledge into repo docs + delete source), `/commit-and-push` (scan repos, build commit messages, commit and push).
+**On-demand skills:** `/imports` (module paths), `/logic-map` (markers), `/fix` (phased fix workflow), `/codegen-review` (submission checklist + repo rules + code examples), `/fix-tests` (one-at-a-time test fix workflow), `/scope` (session scope anchor), `/checkpoint-debug` (checkpoint-based multi-bug debugging), `/troubleshoot-and-fix` (autonomous diagnose→fix→verify pipeline), `/codegen-fix-loop` (iterative fix with test feedback), `/operationalize-design` (design doc to tasks+docs pipeline), `/operationalize-design-v2` (design doc to tasks+docs with Task Review System validation), `/execute-tasks` (implement task files with verify+complete loop), `/execute-tasks-parallel` (parallel execution of independent tasks), `/absorb-design` (transfer design doc knowledge into repo docs + delete source), `/commit-and-push` (scan repos, build commit messages, commit and push).
 
 ## Core Principles
 
@@ -42,7 +42,9 @@ Design docs live in `design/` numbered by priority (e.g., `01-core.md`, `09-work
 
 - **Read first.** Before implementing a design doc: read the FULL doc, cross-reference architecture docs, and understand dependencies on other designs.
 - **Scope boundary.** Design docs define WHAT to build and WHY — they are scope boundaries. Do not add features the design doc does not specify.
-- **Operationalize before coding.** Use `/operationalize-design` to convert a design doc into actionable task files before writing code. Track implementation progress in task files, not in the design doc.
+- **Operationalize before coding.** Convert a design doc into actionable task files before writing code. Track implementation progress in task files, not in the design doc.
+  - **Use `/operationalize-design-v2`** for production-bound designs (default) — integrates Task Review System (Tier 1 local LLM + optional Tier 2 Codex) to validate tasks before execution. Adds ~5-15 minutes but catches defects early.
+  - **Use `/operationalize-design`** for rapid prototyping or when review system unavailable — generates tasks without validation.
 - **Absorb after completion.** After all tasks are complete, use `/absorb-design` to transfer the design doc's knowledge into permanent repo docs and delete the design doc. Design docs are transient — they guide implementation, then get absorbed and deleted.
 - **Never modify during implementation.** If the design needs changes, discuss first — do not silently edit the design doc while implementing it.
 
