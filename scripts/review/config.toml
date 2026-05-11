@@ -1,0 +1,22 @@
+[tier1]
+endpoint = "http://10.94.0.100:11434"
+primary_model = "qwen3-coder:30b"
+fallback_model = "qwen2.5-coder:14b"
+context_window = 32768
+fallback_after_failures = 2
+target_latency_seconds = 120       # primary model timeout (was 30, too short for structured JSON output)
+fallback_latency_seconds = 180     # fallback model timeout (deepseek-r1 is slower)
+
+[tier2]
+enabled = true
+mode = "phase-gate"          # one of: off, manual, threshold, phase-gate
+threshold_blocking = 1        # any blocking finding triggers Tier 2
+threshold_total_major = 5     # or this many major+blocking combined
+codex_command = "codex"
+skill_name = "review-tasks"
+auth_method = "plus"         # "plus" (codex login, default) or "api_key" (OPENAI_API_KEY env var)
+
+[paths]
+datrix_root = "d:/datrix"
+review_artifacts = "d:/datrix/.review"
+canonical_modules_cache = "d:/datrix/.review/.canonical-modules-cache.json"

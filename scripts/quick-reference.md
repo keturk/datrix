@@ -45,6 +45,7 @@ Read the category-specific file for the script you need:
 | **Metrics** | [metrics/quick-reference.md](metrics/quick-reference.md) | complexity.ps1, ruff.ps1, bandit.ps1, vulture.ps1, coverage.ps1, duplicate.ps1, loc.ps1, ... |
 | **Visualization** | [visualize/quick-reference.md](visualize/quick-reference.md) | visualize.ps1, openapi-gen.ps1, schema-diff.ps1, schema-snapshot.ps1, all-reports.ps1, status-docs.ps1 |
 | **Tasks** | [tasks/quick-reference.md](tasks/quick-reference.md) | todo.ps1, completed.ps1, cleanup.ps1, latest-phase.ps1 |
+| **Review** | [review/quick-reference.md](review/quick-reference.md) | review.py (Tier 1 + Tier 2 task file reviewer) |
 
 ---
 
