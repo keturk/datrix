@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Run Bandit security scanner on a Datrix project's src tree.
 

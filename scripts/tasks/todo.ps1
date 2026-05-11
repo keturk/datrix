@@ -1,6 +1,7 @@
 # List Incomplete Tasks and Bugs from .tasks and .bugs Folders
 # Scans all datrix projects for incomplete tasks (those without "COMPLETED: " prefix)
-# and incomplete bugs (those without "FIXED: " prefix)
+# and incomplete bugs (those without "FIXED: " prefix).
+# Warns for task files with missing or malformed task titles.
 # Usage: .\scripts\tasks\todo.ps1 [-BaseDir <path>] [-Filter <string>] [-Dbg]
 # -Filter: when provided, only list tasks/bugs whose file name OR title contains the string (case-insensitive).
 
@@ -60,24 +61,22 @@ function Process-TasksFolder {
  foreach ($taskFile in $taskFiles) {
  try {
  $content = Get-Content -Path $taskFile.FullName -Raw -ErrorAction Stop
- 
+ $titleWarning = $null
+
  if ([string]::IsNullOrWhiteSpace($content)) {
- continue
- }
- 
+ $firstHeading = "(missing)"
+ $titleWarning = "Task file is empty; expected first heading like 'Task ...' or '<STATUS>: Task ...'."
+ } else {
  $firstHeading = Get-FirstMarkdownHeading -Content $content
+
  if ([string]::IsNullOrWhiteSpace($firstHeading)) {
+ $firstHeading = "(missing)"
+ $titleWarning = "Missing first markdown heading; expected 'Task ...' or '<STATUS>: Task ...'."
+ } elseif ($firstHeading -match '^COMPLETED:\s+') {
  continue
+ } elseif ($firstHeading -notmatch '^(?:[A-Z][A-Z0-9_-]*:\s+)?Task\s+') {
+ $titleWarning = "Task title is not in expected format; expected 'Task ...' or '<STATUS>: Task ...'."
  }
- 
- # Only consider headings that start with "Task " as actual tasks
- if ($firstHeading -notmatch '^Task\s+') {
- continue
- }
- 
- # Check if task is completed (starts with "COMPLETED: Task ")
- if ($firstHeading -match '^COMPLETED:\s+Task\s') {
- continue
  }
  
  if (-not (Test-ItemMatchesFilter -FileName $taskFile.Name -Title $firstHeading -Filter $Filter)) {
@@ -86,11 +85,15 @@ function Process-TasksFolder {
  
  # This is an incomplete task
  $relativePath = $taskFile.FullName.Substring($BasePath.Length + 1)
- $projectTasks += @{
+ $taskEntry = @{
  File = $relativePath
  Title = $firstHeading
  FullPath = $taskFile.FullName
  }
+ if (-not [string]::IsNullOrWhiteSpace($titleWarning)) {
+ $taskEntry.Warning = $titleWarning
+ }
+ $projectTasks += $taskEntry
  $script:totalTaskCount++
  } catch {
  # Skip files that can't be read
@@ -216,6 +219,9 @@ if ($allIncompleteTasks.Count -gt 0) {
  foreach ($task in $projectData.Tasks) {
  Write-Host " $($task.FullPath)" -ForegroundColor White
  Write-Host " Title: $($task.Title)" -ForegroundColor Gray
+ if ($task.Warning) {
+ Write-Host " Warning: $($task.Warning)" -ForegroundColor Yellow
+ }
  }
  
  Write-Host ""

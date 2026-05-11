@@ -66,6 +66,19 @@ Before doing ANY work, read these documents in full:
 2. **`C:\Users\KErca\.claude\projects\d--datrix\memory\MEMORY.md`** — Persistent memory.
 3. **`d:\datrix\datrix-common\docs\contributing\ai-agent-rules.md`** — Full contributing rules (index with links to sub-documents under `ai-agent-rules/`).
 
+### Project Structure (DYNAMIC — read from generated file)
+
+Before investigating, read the project structure file for the codegen package(s) you will be tracing into:
+
+- **`d:\datrix\{package-name}\.project-structure.md`**
+
+Where `{package-name}` is determined from the SCOPE parameter and log folder paths (e.g., `datrix-codegen-python`, `datrix-codegen-typescript`).
+
+If the file is missing or stale, regenerate it:
+```bash
+powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}
+```
+
 ## Scope Check
 
 After reading mandatory documents and BEFORE investigation:
@@ -951,6 +964,7 @@ On abort, write a partial issue report to `d:\datrix\issues\` documenting what w
 
 ## Anti-Patterns
 
+- **NO exploring the project structure** — read `.project-structure.md` for the target package, don't rediscover it
 - **NO fixing generated code directly** — always fix the generator/template
 - **NO debug scatter** — zero temporary logging
 - **NO cross-language fixes** — stay in the declared scope

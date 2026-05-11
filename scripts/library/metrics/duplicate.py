@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Run Pylint duplicate-code detection (R0801) on Datrix project(s) Python code.
 

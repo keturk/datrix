@@ -263,6 +263,22 @@ Lists Datrix project directories and subfolders.
 
 **Parameters:** `-Src`, `-Tests`, `-Docs`
 
+### `dev\project-structure.ps1`
+
+Generates `.project-structure.md` files containing annotated ASCII directory trees (src/, tests/, templates/) for specified projects.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **One project** | `.\dev\project-structure.ps1 datrix-codegen-typescript` | Generate for one project |
+| **Multiple projects** | `.\dev\project-structure.ps1 datrix-codegen-typescript datrix-codegen-python` | Generate for several |
+| **All projects** | `.\dev\project-structure.ps1 -All` | All projects with src/ or tests/ |
+| **Custom depth** | `.\dev\project-structure.ps1 datrix-codegen-typescript -Depth 6` | Deeper tree traversal |
+| **Debug** | `.\dev\project-structure.ps1 datrix-codegen-typescript -Dbg` | Debug logging |
+
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Depth` (default: 4), `-Dbg`
+
+**Output:** Writes `.project-structure.md` to each project's root directory. File is gitignored.
+
 ### `dev\logic-map.ps1`
 
 Extracts logic map markers from Python source files into a SQLite database (`d:\datrix\.logic-map\markers.db`). Markers are structured comments (`@canonical`, `@pattern`, `@boundary`, `@invariant`) that document canonical implementations and patterns.

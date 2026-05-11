@@ -6,7 +6,7 @@
 
 ## System Architecture
 
-### Pipeline Flow
+### Pipeline Flow (Illustrative)
 
 ```
 .dtrx Source Files
@@ -114,7 +114,7 @@ CLI mapping: `--skip-validation` is shorthand for `--validation-level none`. `--
 
 **What validation levels never bypass:** `.dtrx` parse validation, YAML config loading and model validation, semantic analysis, and platform compatibility validation. These are pre-generation correctness checks, not post-generation quality checks.
 
-### Standard library
+### Standard library (Stable)
 
 Datrix ships a **standard library**: eight `.dtrx` modules under `datrix-language/src/datrix_language/stdlib/` (`datrix.foundation`, `datrix.auth`, `datrix.geo`, `datrix.contact`, `datrix.api`, `datrix.data`, `datrix.billing`, `datrix.notification`). They provide commonly reused types, functions, and constants—`BaseEntity`, pagination helpers, `Address`, password/token helpers, rate-limit guards, geographic utilities, billing and notification enums, and similar patterns that were previously duplicated across dozens of example and production specs.
 
@@ -135,7 +135,7 @@ Datrix ships a **standard library**: eight `.dtrx` modules under `datrix-languag
 
 **Further reading:** Module-by-module catalog and naming rules live in [datrix-stdlib-reference.md](../../../../datrix-language/docs/reference/datrix-stdlib-reference.md) inside `datrix-language`.
 
-### Phase 01 capabilities (Python and Docker)
+### Phase 01 capabilities (Stable) (Python and Docker)
 
 Details and generator APIs: [code-generation.md](../../../../datrix-common/docs/architecture/code-generation.md) (Datrix common docs) and [generators-api.md](../../../../datrix-common/docs/generators-api.md).
 
@@ -147,7 +147,7 @@ Details and generator APIs: [code-generation.md](../../../../datrix-common/docs/
 
 - **Elasticsearch (config-driven)** (Stable) — When `IntegrationsProfileConfig.search` targets Elasticsearch and the service has `:searchable` fields, `IntegrationGenerator` (`datrix_codegen_python.generators.cross_cutting.integration_generator`) emits search client code, index mapping, and sync helpers. `datrix-codegen-docker` adds Elasticsearch infrastructure services, wires `ELASTICSEARCH_HOST` / `ELASTICSEARCH_PORT`, and optional `*-search-index-init` containers (see `datrix_codegen_docker.generators.compose._compose_wiring`). This is the **config-driven** search integration path (no DSL `search` block required). See also [Search engine integration](#search-engine-integration) for the DSL-level `search` block.
 
-### Phase 02 capabilities (Python, Docker, docs)
+### Phase 02 capabilities (Stable) (Python, Docker, docs)
 
 Cross-cutting behavior described here matches the **current** generators; see [code-generation.md](../../../../datrix-common/docs/architecture/code-generation.md) for pipeline detail.
 
@@ -161,7 +161,7 @@ Cross-cutting behavior described here matches the **current** generators; see [c
 
 - **Multi-service NGINX gateway** (Stable) — For applications with more than one service, `datrix_codegen_docker.generators.config.gateway_generator` renders `config/nginx/nginx.conf` via `nginx.conf.j2`: one **upstream** per service, **location** blocks for public REST paths (including each `rest_api` **base_path** prefix), **GraphQL** `graphql_api` base paths (with WebSocket upgrade headers when the API has subscriptions), **health** aliases derived from the primary REST `base_path` plus `service.config.health_check.path` when a primary REST API exists (with `GenerationError` on duplicate external health paths), **403** for versioned paths matching internal REST segments (`INTERNAL_PATH_DENY_REGEX` in the gateway module), **CORS OPTIONS** handling and **proxy timeouts** on proxied locations, and **`client_max_body_size`** on routes for services that declare **storage** blocks. Rate limit zones from `@rateLimit` on endpoints are preserved. If an upstream has **no** matching locations, generation raises `GenerationError` listing that upstream (instead of emitting a broken config). Test-only multi-service fixtures use `attach_config_for_docker` / `ensure_minimal_rest_api_for_multi_service_gateway` in `datrix_codegen_docker.test_helpers` to add minimal `rest_api` stubs when the parsed `.dtrx` omits API blocks.
 
-### Phase 03 capabilities (Python, Docker)
+### Phase 03 capabilities (Stable) (Python, Docker)
 
 - **GraphQL DataLoaders** (Stable) — `GraphqlResolverGenerator` (`datrix_codegen_python.generators.api.graphql_resolver_generator`) emits Strawberry DataLoader wiring and batch resolvers from DSL definitions so related fields load in grouped queries instead of per-row round-trips.
 

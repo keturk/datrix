@@ -1,4 +1,4 @@
-﻿"""
+"""
 Add a new parameter to a function and update all call sites with the default value.
 
 Usage:

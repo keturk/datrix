@@ -52,6 +52,19 @@ Before doing ANY work, read these documents in full:
 
 **DO NOT skip these.** Skipping = rejected report.
 
+### Project Structure (DYNAMIC — read from generated file)
+
+Before evaluating, read the project structure file for the codegen package(s) relevant to the generated output:
+
+- **`d:\datrix\{package-name}\.project-structure.md`**
+
+Where `{package-name}` is determined from the generated output language (e.g., `datrix-codegen-python` for Python, `datrix-codegen-typescript` for TypeScript). Also read `datrix-codegen-docker` and `datrix-codegen-component` if Docker/component artifacts are being evaluated.
+
+If the file is missing or stale, regenerate it:
+```bash
+powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}
+```
+
 ## Inputs
 
 1. **SOURCE** -- Path to `system.dtrx` file (the root DSL file that may include other .dtrx files)
@@ -1076,6 +1089,7 @@ Use this table to determine which infrastructure containers should exist in dock
 
 ## Anti-Patterns to Avoid
 
+- **Do NOT explore the project structure manually** -- read `.project-structure.md` for the relevant codegen package(s), don't rediscover it
 - **Do NOT run generate.ps1** -- the skill assumes generated output already exists
 - **Do NOT modify any files** -- this is a read-only evaluation
 - **Do NOT guess at DSL syntax** -- read the actual .dtrx files, do not invent block types or features

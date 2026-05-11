@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Run tests for a specific Datrix project.
 Consolidated test runner that works for any Datrix repository.

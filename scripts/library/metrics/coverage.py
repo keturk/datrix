@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Run pytest with coverage on a Datrix project and display coverage details.
 

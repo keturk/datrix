@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Report dependency relationships between Datrix packages from pyproject.toml.
 
