@@ -13,6 +13,7 @@ Test execution and status reporting scripts.
 | `status-tests.ps1` | Show test status summary |
 | `status-unit-tests.ps1` | Show running test status |
 | `status-deploy-tests.ps1` | Show deployment test status |
+| `compare-tests.ps1` | Compare timestamped unit/deploy test runs for one project |
 | `cleanup.ps1` | Clean up test artifacts |
 
 ## test.ps1
@@ -408,6 +409,38 @@ Shows a summary of test status across projects.
 ```powershell
 .\status-tests.ps1
 ```
+
+## compare-tests.ps1
+
+Compares timestamped test result folders inside one project's `.test_results` directory.
+Unlike the status scripts, this command does not scan multiple projects. Pass the exact
+`.test_results` folder for the generated or package project you want to inspect.
+
+```powershell
+.\compare-tests.ps1 D:\datrix\.projects\curvaero\python\.test_results
+```
+
+It compares run types separately:
+
+- `unit-tests-*` folders are compared only with other `unit-tests-*` folders.
+- `deploy-test-*` folders are compared only with other `deploy-test-*` folders.
+- When more than two matching folders exist, all runs are listed and the service-level
+  delta compares the second-newest run to the newest run.
+- The history column shows each service's status across all discovered runs.
+
+Write a Markdown report with `-Report`:
+
+```powershell
+.\compare-tests.ps1 D:\datrix\.projects\curvaero\python\.test_results -Report D:\datrix\curvaero-test-comparison.md
+```
+
+### Parameters
+
+| Parameter | Description |
+|-----------|-------------|
+| `-TestResults` | Path to a single `.test_results` folder (positional, required) |
+| `-Report` | Optional Markdown report output path |
+| `-Dbg` | Enable debug logging |
 
 ## cleanup.ps1
 
