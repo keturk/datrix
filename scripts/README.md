@@ -72,6 +72,9 @@ See [quick-reference.md](quick-reference.md) for the full conversion table and l
 
 # Test with coverage
 .\test\test.ps1 datrix-language -Coverage
+
+# Compare timestamped unit/deploy results for one generated project
+.\test\compare-tests.ps1 D:\datrix\.projects\curvaero\python\.test_results
 ```
 
 ### Generate Code

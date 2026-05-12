@@ -39,7 +39,7 @@ Read the category-specific file for the script you need:
 
 | Category | File | Scripts |
 |----------|------|---------|
-| **Testing** | [test/quick-reference.md](test/quick-reference.md) | test.ps1, run-complete.ps1, dual-target.ps1, test-single.ps1, cleanup.ps1, status-*.ps1 |
+| **Testing** | [test/quick-reference.md](test/quick-reference.md) | test.ps1, run-complete.ps1, dual-target.ps1, test-single.ps1, compare-tests.ps1, cleanup.ps1, status-*.ps1 |
 | **Development** | [dev/quick-reference.md](dev/quick-reference.md) | generate.ps1, syntax-checker.ps1, compile.ps1, libcst.ps1, semgrep.ps1, audit.ps1, check-docs.ps1, generate-doc-fragments.ps1, cleanup_temps.ps1, ... |
 | **Git** | [git/quick-reference.md](git/quick-reference.md) | status.ps1, pull.ps1, commit-and-push.ps1, l-commit-and-push.ps1 |
 | **Metrics** | [metrics/quick-reference.md](metrics/quick-reference.md) | complexity.ps1, ruff.ps1, bandit.ps1, vulture.ps1, coverage.ps1, duplicate.ps1, loc.ps1, ... |
@@ -111,7 +111,7 @@ Most scripts support:
 |------|-------|
 | Virtual environment | `D:\datrix\.venv` |
 | Generation logs | `.generated/.results/` |
-| Test results | `<project>/.test_results/test-results-YYYYMMDD-HHMMSS/` (directory with `index.json`, `full.log`, `failures/`) |
+| Test results | `<project>/.test_results/test-results-YYYYMMDD-HHMMSS/` for package tests; generated projects also use `unit-tests-YYYYMMDD-HHMMSS/` and `deploy-test-YYYYMMDD-HHMMSS/` |
 | Ruff check logs | `<project>/.ruff_check/` |
 | Test config | `scripts/config/test-projects.json` |
 | Semgrep rules | `scripts/config/semgrep-rules/` |
@@ -179,4 +179,9 @@ Most scripts support:
 .\dev\status-generation.ps1
 .\test\status-tests.ps1
 .\test\status-deploy-tests.ps1
+```
+
+### Compare Test Result Timestamps
+```powershell
+.\test\compare-tests.ps1 D:\datrix\.projects\curvaero\python\.test_results
 ```

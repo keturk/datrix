@@ -117,6 +117,22 @@ Lists/deletes `.test_results` folders (containing timestamped test result direct
 
 ---
 
+## `test\compare-tests.ps1`
+
+Compares timestamped test runs inside one explicit `.test_results` folder. It does not scan multiple projects.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Compare project runs** | `.\test\compare-tests.ps1 D:\datrix\.projects\curvaero\python\.test_results` | Compare unit/deploy runs for one project |
+| **Write Markdown report** | `.\test\compare-tests.ps1 D:\datrix\.projects\curvaero\python\.test_results -Report D:\datrix\curvaero-test-comparison.md` | Save report to a file |
+| **Debug logging** | `.\test\compare-tests.ps1 D:\datrix\.projects\curvaero\python\.test_results -Dbg` | Enable debug output |
+
+**Parameters:** `-TestResults` (positional, required; must be a `.test_results` folder), `-Report`, `-Dbg`
+
+**Comparison behavior:** `unit-tests-*` folders are compared only with unit-test runs, and `deploy-test-*` folders only with deploy-test runs. When more than two timestamps exist, all runs are listed and the service-level delta compares the second-newest run to the newest run; the history column shows all runs.
+
+---
+
 ## Status Scripts
 
 ### `test\status-tests.ps1`
