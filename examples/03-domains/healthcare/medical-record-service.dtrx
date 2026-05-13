@@ -151,13 +151,8 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
                     ValidationError("Record date cannot be in the future");
             }
 
-            beforeCreate {
-                createdBy = Auth.userId();
-            }
-
             beforeUpdate {
                 updatedAt = DateTime.now();
-                updatedBy = Auth.userId();
             }
 
             afterCreate {
