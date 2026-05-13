@@ -303,6 +303,12 @@ if ($Rerun) {
  }
 
  # For each project, compute output path and check .test_results
+ # Honor skip flags in rerun selection: skipped test types are not inspected.
+ $checkUnitResults = -not $Skip3
+ $checkDeployResults = -not $Skip4
+ if (-not $checkUnitResults -and -not $checkDeployResults) {
+  Write-Warning "Rerun mode: both Step 3 and Step 4 are skipped; no test-result folders will be inspected."
+ }
  $generatedBase = Join-Path $datrixRoot ".generated"
  $projectsToRerun = @()
 
@@ -323,37 +329,39 @@ if ($Rerun) {
   $outputRelative = "$Language/$Platform/$base"
   $projectOutputDir = Join-Path $generatedBase $outputRelative
 
-  # Check .test_results for latest result of each test type (unit-tests, deploy-test)
-  # A project needs re-run if ANY test type is missing or not PASSED.
+  # Check .test_results for latest result of each enabled test type (unit-tests, deploy-test)
+  # A project needs re-run if ANY enabled test type is missing or not PASSED.
   $needsRerun = $false
   $testResultsDir = Join-Path $projectOutputDir ".test_results"
 
   if (-not (Test-Path $testResultsDir)) {
-   # No test results at all — needs rerun
-   $needsRerun = $true
+   # No test results at all — needs rerun only if at least one test type is enabled
+   $needsRerun = $checkUnitResults -or $checkDeployResults
   } else {
-   # Check unit-tests: use index.json (reliable for unit tests)
-   $unitDirs = @(Get-ChildItem -Path $testResultsDir -Directory -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -like "unit-tests-*" })
-   if ($unitDirs.Count -eq 0) {
-    $needsRerun = $true
-   } else {
-    $unitIndexFiles = @()
-    foreach ($dir in $unitDirs) {
-     $idx = Join-Path $dir.FullName "index.json"
-     if (Test-Path $idx) { $unitIndexFiles += Get-Item $idx }
-    }
-    if ($unitIndexFiles.Count -eq 0) {
+   # Check unit-tests only when Step 3 is enabled.
+   if ($checkUnitResults) {
+    $unitDirs = @(Get-ChildItem -Path $testResultsDir -Directory -ErrorAction SilentlyContinue |
+     Where-Object { $_.Name -like "unit-tests-*" })
+    if ($unitDirs.Count -eq 0) {
      $needsRerun = $true
     } else {
-     $latestUnitIndex = $unitIndexFiles | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-     $unitResult = Get-Content $latestUnitIndex.FullName -Raw | ConvertFrom-Json
-     if ($unitResult.result -ne "PASSED") { $needsRerun = $true }
+     $unitIndexFiles = @()
+     foreach ($dir in $unitDirs) {
+      $idx = Join-Path $dir.FullName "index.json"
+      if (Test-Path $idx) { $unitIndexFiles += Get-Item $idx }
+     }
+     if ($unitIndexFiles.Count -eq 0) {
+      $needsRerun = $true
+     } else {
+      $latestUnitIndex = $unitIndexFiles | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+      $unitResult = Get-Content $latestUnitIndex.FullName -Raw | ConvertFrom-Json
+      if ($unitResult.result -ne "PASSED") { $needsRerun = $true }
+     }
     }
    }
 
-   # Check deploy-test: use failures.json (index.json is unreliable for deploy tests)
-   if (-not $needsRerun) {
+   # Check deploy-test only when Step 4 is enabled.
+   if ($checkDeployResults -and -not $needsRerun) {
     $deployDirs = @(Get-ChildItem -Path $testResultsDir -Directory -ErrorAction SilentlyContinue |
      Where-Object { $_.Name -like "deploy-test-*" })
     if ($deployDirs.Count -eq 0) {
