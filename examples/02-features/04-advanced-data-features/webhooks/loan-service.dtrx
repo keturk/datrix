@@ -94,7 +94,7 @@ service library.LoanService('config/loan-service.yaml') : version('1.0.0'), desc
         );
     }
 
-    rest_api LoanAPI : basePath("/api/v1/loans") {
+    rest_api LoanAPI : basePath("/api/v1/loans"), rdbms(loanDb) {
         // @retry automatically retries failed requests up to maxAttempts
         // @timeout sets a maximum response time for the endpoint
         @retry(maxAttempts: 3)

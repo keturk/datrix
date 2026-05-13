@@ -190,7 +190,7 @@ service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), desc
         }
     }
 
-    rest_api DeviceAPI : basePath('/api/v1/devices') {
+    rest_api DeviceAPI : basePath('/api/v1/devices'), rdbms(deviceDb) {
 
         resource deviceDb.Device : only(list, get);
         resource deviceDb.DeviceGroup;

@@ -348,7 +348,7 @@ service lms.EnrollmentService('config/enrollment-service.yaml') : version('1.0.0
         }
     }
 
-    rest_api EnrollmentAPI : basePath('/api/v1/enrollments') {
+    rest_api EnrollmentAPI : basePath('/api/v1/enrollments'), rdbms(enrollmentDb) {
 
         // Enroll in a course
         post(EnrollRequest request) -> enrollmentDb.Enrollment {

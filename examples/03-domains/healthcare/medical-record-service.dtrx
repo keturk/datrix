@@ -614,7 +614,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.yaml') : 
         assert emitted(PrescriptionCreated(rx.id, rx.patientId, rx.medicationName, rx.prescribingDoctor));
     }
 
-    rest_api MedicalRecordAPI : basePath('/api/v1/records') {
+    rest_api MedicalRecordAPI : basePath('/api/v1/records'), rdbms(medicalRecordDb) {
         alert responseTime(p95) over(5m) > 500ms @severity(warning);
         alert errorRate(ratio) over(5m) > 5% @severity(critical);
 

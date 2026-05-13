@@ -58,7 +58,7 @@ service hostdemo.BlogService('config/blog-service.yaml') : version('1.0.0'), des
         }
     }
 
-    rest_api BlogAPI : basePath("/api/v1/posts") {
+    rest_api BlogAPI : basePath("/api/v1/posts"), rdbms(blogDb) {
         resource blogDb.Post;
         resource blogDb.Comment;
         resource blogDb.Tag;

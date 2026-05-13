@@ -241,7 +241,7 @@ service realestate.ContractService('config/contract-service.yaml') : version('1.
         }
     }
 
-    rest_api ContractAPI : basePath('/api/v1/contracts') {
+    rest_api ContractAPI : basePath('/api/v1/contracts'), rdbms(contractDb) {
         alert responseTime(p95) over(5m) > 500ms @severity(warning);
 
         // List contracts with pagination

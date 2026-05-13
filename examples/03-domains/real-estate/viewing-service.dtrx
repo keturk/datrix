@@ -189,7 +189,7 @@ service realestate.ViewingService('config/viewing-service.yaml') : version('1.0.
         }
     }
 
-    rest_api ViewingAPI : basePath('/api/v1/viewings') {
+    rest_api ViewingAPI : basePath('/api/v1/viewings'), rdbms(viewingDb) {
         alert responseTime(p95) over(5m) > 500ms @severity(warning);
 
         // List viewings with pagination

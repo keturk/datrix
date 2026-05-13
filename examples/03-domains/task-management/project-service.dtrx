@@ -184,7 +184,7 @@ service taskapp.ProjectService('config/project-service.yaml') : version('1.0.0')
         }
     }
 
-    rest_api ProjectAPI : basePath('/api/v1/projects') {
+    rest_api ProjectAPI : basePath('/api/v1/projects'), rdbms(projectDb) {
 
         // List projects for the current user
         get(Int page = 1, Int perPage = 20, ProjectStatus? status) -> PaginatedProjects {

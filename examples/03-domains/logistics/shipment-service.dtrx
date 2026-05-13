@@ -192,7 +192,7 @@ service logistics.ShipmentService('config/shipment-service.yaml') : version('1.0
         }
     }
 
-    rest_api ShipmentAPI : basePath('/api/v1/shipments') {
+    rest_api ShipmentAPI : basePath('/api/v1/shipments'), rdbms(shipmentDb) {
 
         resource shipmentDb.Shipment : only(list, get);
 

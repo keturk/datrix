@@ -234,7 +234,7 @@ service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'
         }
     }
 
-    rest_api OrderAPI : basePath('/api/v1/orders') {
+    rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(orderDb) {
 
         get(Int page = 1, Int perPage = 20, OrderStatus? status) -> PaginatedOrders {
             let UUID customerId = Auth.user().id;

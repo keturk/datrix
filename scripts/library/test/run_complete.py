@@ -1367,7 +1367,7 @@ def _produce_structured_output(
         return None
 
 
-def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel: bool = False, test_type: str = "unit") -> dict:
+def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel: bool = False, test_type: str = "unit", verbose: bool = False) -> dict:
     """
     Helper function to run tests for a single project.
     Returns a dictionary with project result information.
@@ -1380,6 +1380,7 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
         generated_base: Base path for generated projects
         parallel: If True, suppress real-time output (for parallel execution)
         test_type: Type of tests to run ("unit", "spec", "integration")
+        verbose: If True, pass --verbose to generated test scripts
     """
     project_name = project.relative_to(generated_base)
     empty_stats = {"passed": 0, "failed": 0, "errors": 0, "skipped": 0, "suiteFailures": 0}
@@ -1389,6 +1390,8 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
     if unit_tests_script.exists():
         python_exe = get_venv_python()
         cmd = [str(python_exe), str(unit_tests_script), "--parallel"]
+        if verbose:
+            cmd.append("--verbose")
         test_desc = f"{test_type.capitalize()} tests for {project_name}" if not parallel else ""
         success, output = run_command(
             cmd,
@@ -1437,6 +1440,8 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
         cmd = [node, str(ts_unit_tests_js)]
         if parallel:
             cmd.append("--parallel")
+        if verbose:
+            cmd.append("--verbose")
         test_desc = f"{test_type.capitalize()} tests for {project_name}" if not parallel else ""
         success, output = run_command(
             cmd,
@@ -1636,7 +1641,7 @@ def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path
                 print("-" * 60)
 
                 try:
-                    project_result = _run_single_project_unit_tests(project, generated_base, parallel=False)
+                    project_result = _run_single_project_unit_tests(project, generated_base, parallel=False, verbose=args.verbose)
                     project_results.append(project_result)
 
                     print()
@@ -1815,7 +1820,7 @@ def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path
         # Reuse the same helper as batch mode — parent serves as base so
         # relative_to produces just the leaf directory name.
         result = _run_single_project_unit_tests(
-            project_path_abs, project_path_abs.parent, parallel=False,
+            project_path_abs, project_path_abs.parent, parallel=False, verbose=args.verbose,
         )
 
         project_name = result["name"]
@@ -1849,7 +1854,7 @@ def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path
 
 
 
-def step4_run_deployment_tests(all_examples: bool, paths: dict[str, Path], output_path: Optional[str] = None, test_set: Optional[str] = None, language: str = "python", platform: str = "docker") -> bool:
+def step4_run_deployment_tests(all_examples: bool, paths: dict[str, Path], output_path: Optional[str] = None, test_set: Optional[str] = None, language: str = "python", platform: str = "docker", verbose: bool = False) -> bool:
     """Step 4: Run deployment tests (spec + integration) for generated projects using deploy_test.py"""
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 
@@ -1905,7 +1910,7 @@ def step4_run_deployment_tests(all_examples: bool, paths: dict[str, Path], outpu
                 print("-" * 60)
 
                 try:
-                    project_result = _run_single_project_deploy_tests(project, project_name, paths, timestamp)
+                    project_result = _run_single_project_deploy_tests(project, project_name, paths, timestamp, verbose=verbose)
                     if project_result is None:
                         # Project was skipped (no deploy_test.py)
                         print_warning(f" [SKIP] No deployment test script found for {project_name}")
@@ -2081,7 +2086,7 @@ def step4_run_deployment_tests(all_examples: bool, paths: dict[str, Path], outpu
             return False
 
         project_name = project_path_abs.name
-        result = _run_single_project_deploy_tests(project_path_abs, project_name, paths, timestamp)
+        result = _run_single_project_deploy_tests(project_path_abs, project_name, paths, timestamp, verbose=verbose)
 
         if result is None:
             print_warning(f"No deployment test script found for {project_name}")
@@ -2161,6 +2166,8 @@ def _run_single_project_deploy_tests(
     project_name: str,
     paths: dict[str, Path],
     timestamp: str,
+    *,
+    verbose: bool = False,
 ) -> dict | None:
     """Run deployment tests for one project.  Returns result dict, or None if skipped."""
     deploy_test_script_py = project / "tests" / "deploy_test.py"
@@ -2175,8 +2182,11 @@ def _run_single_project_deploy_tests(
 
         python_exe = get_venv_python()
         try:
+            cmd = [str(python_exe), str(deploy_test_script_py), "--results-dir", str(deploy_test_dir)]
+            if verbose:
+                cmd.append("--verbose")
             success, output = run_command(
-                [str(python_exe), str(deploy_test_script_py), "--results-dir", str(deploy_test_dir)],
+                cmd,
                 cwd=project,
                 description=f"Deployment tests for {project_name}",
                 capture_output=True,
@@ -2227,8 +2237,11 @@ def _run_single_project_deploy_tests(
         # The deploy-test.js script manages the full Docker lifecycle internally
         # (down → build → up → test → logs → down), just like Python's deploy_test.py
         try:
+            cmd = [node, str(deploy_test_script_js), "--results-dir", str(deploy_test_dir)]
+            if verbose:
+                cmd.append("--verbose")
             success, output = run_command(
-                [node, str(deploy_test_script_js), "--results-dir", str(deploy_test_dir)],
+                cmd,
                 cwd=project,
                 description=f"Deployment tests for {project_name}",
                 capture_output=True,
@@ -2502,7 +2515,7 @@ def _run_single_project_deploy_tests(
     return {"name": project_name, "success": False, **empty_stats}
 
 
-def step5_run_deployment_tests(all_examples: bool, paths: dict[str, Path], output_path: Optional[str] = None, test_set: Optional[str] = None, language: str = "python", platform: str = "docker") -> bool:
+def step5_run_deployment_tests(all_examples: bool, paths: dict[str, Path], output_path: Optional[str] = None, test_set: Optional[str] = None, language: str = "python", platform: str = "docker", verbose: bool = False) -> bool:
     """Step 5: Run deployment/integration tests for generated projects using deploy_test.py"""
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 
@@ -2543,7 +2556,7 @@ def step5_run_deployment_tests(all_examples: bool, paths: dict[str, Path], outpu
             print_info(f"Running deployment tests for: {project_name}")
             print("-" * 60)
 
-            result = _run_single_project_deploy_tests(project, project_name, paths, timestamp)
+            result = _run_single_project_deploy_tests(project, project_name, paths, timestamp, verbose=verbose)
             if result is None:
                 continue  # Skipped (e.g. TypeScript)
 
@@ -2661,7 +2674,7 @@ def step5_run_deployment_tests(all_examples: bool, paths: dict[str, Path], outpu
         project_name = project_path_abs.name
 
         result = _run_single_project_deploy_tests(
-            project_path_abs, project_name, paths, timestamp,
+            project_path_abs, project_name, paths, timestamp, verbose=verbose,
         )
         if result is None:
             return True  # Skipped (TypeScript)
@@ -2775,6 +2788,7 @@ Examples:
     action="store_true",
     help="Skip Step 5 (deployment tests for generated projects)"
     )
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging (DEBUG level instead of INFO)")
     parser.add_argument(
         "--skip-install",
@@ -2917,6 +2931,7 @@ Examples:
                 args.test_set if args.All else None,
                 args.language,
                 args.platform,
+                verbose=args.verbose,
             ):
                 print_warning("Step 4 failed. Continuing to final summary...")
                 failed_steps.append("Step 4: Deployment Tests")

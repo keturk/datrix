@@ -56,6 +56,7 @@ class LogConfig:
 	timestamp_format: str = "%Y%m%d-%H%M%S"
 	header: Optional[str] = None
 	save_to_file: bool = True
+	quiet_mode: bool = False
 
 
 class ColorCodes:
@@ -97,6 +98,7 @@ class TeeLogger:
 		self.log_file: Optional[Path] = None
 		self.log_handle: Optional[TextIO] = None
 		self.run_dir: Optional[Path] = None
+		self.quiet_mode = config.quiet_mode
 
 	def __enter__(self):
 		"""Context manager entry - create log file."""
@@ -139,13 +141,14 @@ class TeeLogger:
 		self.log_handle.write("=" * 80 + "\n\n")
 		self.log_handle.flush()
 
-		print(f"Log file: {self.log_file}")
+		if not self.quiet_mode:
+			print(f"Log file: {self.log_file}")
 
 	def _close_log_file(self) -> None:
 		"""Close log file."""
 		if self.log_handle:
 			self.log_handle.close()
-		if self.log_file:
+		if self.log_file and not self.quiet_mode:
 			print(f"\nLog saved to: {self.log_file}")
 
 	def write(self, text: str, end: str = "\n") -> None:
@@ -156,8 +159,9 @@ class TeeLogger:
 			text: Text to write
 			end: Line ending (default: newline)
 		"""
-		# Write to console with explicit flush to prevent buffering
-		print(text, end=end, flush=True)
+		# Write to console with explicit flush to prevent buffering (unless quiet mode)
+		if not self.quiet_mode:
+			print(text, end=end, flush=True)
 
 		# Write to log file (strip ANSI codes for clean logs)
 		if self.log_handle:
@@ -168,6 +172,24 @@ class TeeLogger:
 	def write_line(self, text: str) -> None:
 		"""Write a line of text (convenience method)."""
 		self.write(text, end="\n")
+
+	def write_console(self, text: str, end: str = "\n") -> None:
+		"""
+		Write text to console only (always shown, even in quiet mode).
+		Still writes to log file if logging is enabled.
+
+		Args:
+			text: Text to write
+			end: Line ending (default: newline)
+		"""
+		# Always write to console
+		print(text, end=end, flush=True)
+
+		# Write to log file (strip ANSI codes for clean logs)
+		if self.log_handle:
+			clean_text = strip_ansi(text)
+			self.log_handle.write(clean_text + end)
+			self.log_handle.flush()
 
 	def write_separator(self, char: str = "=", width: int = 80) -> None:
 		"""Write a separator line."""

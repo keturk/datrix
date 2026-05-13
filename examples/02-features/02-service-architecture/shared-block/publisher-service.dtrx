@@ -31,7 +31,7 @@ service library.DataIngestionService('config/data-ingestion-service.yaml') : ver
         }
     }
 
-    rest_api IngestionAPI : basePath('/api/v1/internal') {
+    rest_api IngestionAPI : basePath('/api/v1/internal'), rdbms(ingestionDb) {
         @path('/ingestion/trigger')
         @authorize(roles: ['Admin'])
         post(String source) -> ingestionDb.IngestionRun {

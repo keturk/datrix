@@ -302,7 +302,7 @@ service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.
         }
     }
 
-    rest_api RecruitmentAPI : basePath('/api/v1/recruitment') {
+    rest_api RecruitmentAPI : basePath('/api/v1/recruitment'), rdbms(recruitDb) {
         alert responseTime(p95) over(5m) > 500ms @severity(warning);
 
         // List job postings with pagination

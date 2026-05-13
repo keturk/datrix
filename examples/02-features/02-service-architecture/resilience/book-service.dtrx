@@ -17,7 +17,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
     // REST API exposes book data; resilience is applied at the infrastructure level
     // via the resilience.yaml config (not inline DSL decorators)
-    rest_api BookServiceAPI : basePath("/api/v1") {
+    rest_api BookServiceAPI : basePath("/api/v1"), rdbms(bookDb) {
         resource bookDb.Book;
     }
 }

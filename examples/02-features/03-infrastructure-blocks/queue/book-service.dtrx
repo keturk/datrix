@@ -127,7 +127,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         String(2000) message;
     }
 
-    rest_api BookServiceAPI : basePath("/api/v1") {
+    rest_api BookServiceAPI : basePath("/api/v1"), rdbms(bookDb) {
         resource bookDb.Book : only(list, get), public;
         resource bookDb.Book : only(create, update, delete), access(librarian);
         resource bookDb.Category : only(list, get), public;

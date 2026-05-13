@@ -54,7 +54,7 @@ service library.MemberService('config/member-service.yaml') : version('1.0.0'), 
         assert member.fullName == "Alice Johnson";
     }
 
-    rest_api MemberAPI : basePath("/api/v1/members") {
+    rest_api MemberAPI : basePath("/api/v1/members"), rdbms(memberDb) {
         resource memberDb.Member;
 
         @path('/by-membership/:membershipNumber')

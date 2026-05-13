@@ -63,7 +63,7 @@ service library.LoanService('config/loan-service.yaml') : version('1.0.0'), desc
         assert loan.isOverdue == false;
     }
 
-    rest_api LoanAPI : basePath("/api/v1/loans") {
+    rest_api LoanAPI : basePath("/api/v1/loans"), rdbms(loanDb) {
         // Custom endpoint using a struct as input and returning an entity
         post(CreateLoanRequest request) -> loanDb.Loan {
             // '#Book' is a type hint for the response from a cross-service API call

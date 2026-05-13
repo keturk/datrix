@@ -37,7 +37,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     // REST API block with a search endpoint using fulltext queries
-    rest_api BookServiceAPI : basePath("/api/v1") {
+    rest_api BookServiceAPI : basePath("/api/v1"), rdbms(bookDb) {
         // Auto-generate standard CRUD endpoints for Book
         resource bookDb.Book;
 

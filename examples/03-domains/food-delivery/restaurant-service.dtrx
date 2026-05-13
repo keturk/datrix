@@ -191,7 +191,7 @@ service fooddelivery.RestaurantService('config/restaurant-service.yaml') : versi
         }
     }
 
-    rest_api RestaurantAPI : basePath('/api/v1/restaurants') {
+    rest_api RestaurantAPI : basePath('/api/v1/restaurants'), rdbms(restaurantDb) {
 
         resource restaurantDb.Restaurant : only(list, get), public;
         resource restaurantDb.Restaurant : only(create, update, delete), access(admin);

@@ -26,9 +26,10 @@ Generates Datrix projects from `.dtrx` source files. `-Language`/`-L` is **manda
 | **Domains only** | `.\dev\generate.ps1 -Domains -L python` | examples/03-domains |
 | **Custom test set** | `.\dev\generate.ps1 -TestSet features-core -L python` | Any named test set |
 | **TypeScript validation subset** | `.\dev\generate.ps1 -TestSet typescript-validation -L typescript` | Quick TS validation |
+| **Verbose output** | `.\dev\generate.ps1 -All -L python -VerboseOutput` | Show detailed generation output |
 | **Debug logging** | `.\dev\generate.ps1 -All -L python -Dbg` | Enable DEBUG level logging |
 
-**Parameters:** `-Source` (positional 0), `-Output` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (python\|typescript, **mandatory**), `-Platform`/`-P` (docker\|kubernetes\|k8s, default: docker), `-Hosting`/`-H`, `-ServicePlatform`, `-OutputBase` (default: .generated), `-TestSet` (default: all), `-Dbg`
+**Parameters:** `-Source` (positional 0), `-Output` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (python\|typescript, **mandatory**), `-Platform`/`-P` (docker\|kubernetes\|k8s, default: docker), `-Hosting`/`-H`, `-ServicePlatform`, `-OutputBase` (default: .generated), `-TestSet` (default: all), `-VerboseOutput`, `-Dbg`
 
 ### `dev\syntax-checker.ps1`
 

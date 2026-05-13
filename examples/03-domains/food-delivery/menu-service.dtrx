@@ -165,7 +165,7 @@ service fooddelivery.MenuService('config/menu-service.yaml') : version('1.0.0'),
         }
     }
 
-    rest_api MenuAPI : basePath('/api/v1/menus') {
+    rest_api MenuAPI : basePath('/api/v1/menus'), rdbms(menuDb) {
 
         resource menuDb.MenuCategory;
         resource menuDb.MenuItem : only(list, get), public;

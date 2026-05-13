@@ -444,7 +444,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
         assert emitted(AppointmentCancelled(appt.id, appt.patientId, appt.cancellationReason));
     }
 
-    rest_api AppointmentAPI : basePath('/api/v1/appointments') {
+    rest_api AppointmentAPI : basePath('/api/v1/appointments'), rdbms(appointmentDb) {
 
         // List with multiple optional filters
         get(UUID? patientId, UUID? providerId, AppointmentStatus? status, DateTime? startDate, DateTime? endDate, Int page = 1, Int perPage = 20) -> AppointmentSearchResult {

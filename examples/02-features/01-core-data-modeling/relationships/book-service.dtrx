@@ -68,7 +68,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
     // REST API block - generates CRUD endpoints and custom routes
     // basePath sets the URL prefix for all endpoints in this API
-    rest_api BookServiceAPI : basePath("/api/v1") {
+    rest_api BookServiceAPI : basePath("/api/v1"), rdbms(bookDb) {
         // 'resource' auto-generates standard CRUD endpoints (list, get, create, update, delete)
         resource bookDb.Book;
         resource bookDb.Category;

@@ -59,7 +59,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     // REST API block with API-level functions
-    rest_api BookServiceAPI : basePath("/api/v1") {
+    rest_api BookServiceAPI : basePath("/api/v1"), rdbms(bookDb) {
         resource bookDb.Book;
 
         // --- API-level custom endpoint ---
