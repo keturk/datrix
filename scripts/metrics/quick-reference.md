@@ -156,6 +156,23 @@ Pytest coverage reports via pytest-cov.
 
 ---
 
+## `metrics\test-gen.ps1`
+
+Coverage-driven unit test generation via local Ollama. Finds uncovered functions from coverage JSON, ranks candidates, and can generate validated `_generated` test files. Generated files are kept only after Ruff, the generated test file, and the full project test suite pass; failures are deleted. Successful generated tests are tracked in `.generated/test-gen-manifest.json`, and already tracked/output-existing candidates are skipped.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Report candidates** | `.\metrics\test-gen.ps1 datrix-common` | Ranked uncovered functions (default mode=report) |
+| **Generate top candidate** | `.\metrics\test-gen.ps1 datrix-common -Generate` | Generate, validate, run project tests, and print added tests |
+| **Generate all candidates** | `.\metrics\test-gen.ps1 datrix-common -GenerateAll -MaxRetries 3` | Attempt generation for all ranked functions; summary includes generated, skipped, and failed |
+| **Target specific function** | `.\metrics\test-gen.ps1 datrix-common -Generate -TargetFunction "validate_external"` | Generate for one named function; use `Class.method`, `module.function`, or the report candidate id when a bare name is ambiguous |
+| **Custom Ollama model** | `.\metrics\test-gen.ps1 datrix-common -Generate -Model "qwen3-coder:30b"` | Override the model used for generation; default URL is `http://10.94.0.100:11434` |
+| **All projects report** | `.\metrics\test-gen.ps1 -All -Mode report` | Report candidates for all projects |
+
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mode` (report\|generate\|generate-all, default: report), `-Generate`, `-GenerateAll`, `-TargetFunction`, `-MaxRetries` (default: 3), `-MinUncoveredRatio` (default: 0.5), `-OllamaUrl` (default: `http://10.94.0.100:11434`), `-Model`, `-StopOnError`, `-VerboseOutput`
+
+---
+
 ## `metrics\code-analyzer.ps1`
 
 AST inventory of classes, methods, module functions, constants (UPPER_SNAKE heuristic), and type aliases, plus a **duplicate top-level names** section (same class/function name in two or more files) to spot accidental parallel architectures. Uses metrics **`-All`** semantics (`datrix-*` packages only). Report path defaults to **`./code-structure-report.md` under the process cwd** (where you run the script); relative `-Output` resolves against cwd.

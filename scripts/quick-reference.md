@@ -42,7 +42,7 @@ Read the category-specific file for the script you need:
 | **Testing** | [test/quick-reference.md](test/quick-reference.md) | test.ps1, run-complete.ps1, dual-target.ps1, test-single.ps1, compare-tests.ps1, cleanup.ps1, status-*.ps1 |
 | **Development** | [dev/quick-reference.md](dev/quick-reference.md) | generate.ps1, syntax-checker.ps1, compile.ps1, libcst.ps1, semgrep.ps1, audit.ps1, check-docs.ps1, generate-doc-fragments.ps1, cleanup_temps.ps1, ... |
 | **Git** | [git/quick-reference.md](git/quick-reference.md) | status.ps1, pull.ps1, commit-and-push.ps1, l-commit-and-push.ps1 |
-| **Metrics** | [metrics/quick-reference.md](metrics/quick-reference.md) | complexity.ps1, ruff.ps1, bandit.ps1, vulture.ps1, coverage.ps1, duplicate.ps1, loc.ps1, ... |
+| **Metrics** | [metrics/quick-reference.md](metrics/quick-reference.md) | complexity.ps1, ruff.ps1, bandit.ps1, vulture.ps1, coverage.ps1, test-gen.ps1, duplicate.ps1, loc.ps1, ... |
 | **Visualization** | [visualize/quick-reference.md](visualize/quick-reference.md) | visualize.ps1, openapi-gen.ps1, schema-diff.ps1, schema-snapshot.ps1, all-reports.ps1, status-docs.ps1 |
 | **Tasks** | [tasks/quick-reference.md](tasks/quick-reference.md) | todo.ps1, completed.ps1, cleanup.ps1, latest-phase.ps1 |
 | **Review** | [review/quick-reference.md](review/quick-reference.md) | review.py (Tier 1 + Tier 2 task file reviewer) |

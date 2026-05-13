@@ -709,18 +709,24 @@ def main():
                         verbose=args.verbose,
                     )
 
-                    # DEBUG: Write diagnostics to log file
-                    if logger:
-                        logger.write(f"DEBUG: Received {len(full_output)} output lines for {project_name}")
-
-                    # Write full subprocess output to log file (always, regardless of verbose mode)
-                    if logger and full_output:
-                        logger.write("")
-                        logger.write(f"=== Detailed output for {project_name} ===")
-                        for line in full_output:
-                            logger.write(line)
-                        logger.write(f"=== End output for {project_name} ===")
-                        logger.write("")
+                    # Write full subprocess output to stdout for PowerShell to capture (always, regardless of verbose mode)
+                    # When called from PS1, logger is None and PowerShell handles logging
+                    # When run standalone, logger handles it
+                    if full_output:
+                        output_lines_text = [
+                            "",
+                            f"=== Detailed output for {project_name} ===",
+                            *full_output,
+                            f"=== End output for {project_name} ===",
+                            ""
+                        ]
+                        if logger:
+                            for line in output_lines_text:
+                                logger.write(line)
+                        else:
+                            # No logger means PowerShell is handling logging - write to stdout
+                            for line in output_lines_text:
+                                print(line, flush=True)
 
                     if warnings:
                         project_warnings[project_name] = warnings
