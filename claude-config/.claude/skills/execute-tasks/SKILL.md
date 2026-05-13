@@ -7,11 +7,6 @@ delegation-strategy:
       model: "haiku"
       parallelizable: false
       description: "Read task files, validate dependencies, identify quality gates"
-    - name: "baseline"
-      model: "haiku"
-      parallelizable: true
-      max_parallel: 5
-      description: "Capture test baselines per task"
     - name: "implement"
       model: "sonnet"
       parallelizable: false
@@ -20,7 +15,7 @@ delegation-strategy:
       model: "haiku"
       parallelizable: true
       max_parallel: 5
-      description: "Run targeted tests, compare to baseline, fix failures"
+      description: "Run targeted tests, fix all failures"
     - name: "quality_gate"
       model: "opus"
       parallelizable: false
@@ -29,7 +24,9 @@ delegation-strategy:
 
 # Execute Tasks
 
-Systematic workflow for implementing tasks from `.tasks/` phase files. Reads each task file, implements it following project standards, verifies the result, updates the task file with how it was solved, and marks it complete.
+Systematic workflow for implementing tasks from `.tasks/` phase files. Reads each task file, implements it following project standards, verifies the result, fixes all test failures, updates the task file with how it was solved, and marks it complete.
+
+**Assumes all tests are passing before starting.** Does not capture baselines.
 
 ## When to Use
 
@@ -178,84 +175,8 @@ If ANY task has `is_blocked: true` or non-empty `red_flags[]`, STOP and report t
 If more than 5 tasks are provided, create a todo list before completing this phase.
 <!-- END_PHASE: pre_check -->
 
-<!-- PHASE: baseline -->
-## Phase 2: Baseline Test Capture
-
-For each task (in parallel, up to 5 tasks concurrently), capture the test baseline before implementation.
-
-### Input
-
-JSON from pre_check phase with task metadata. For each task, you receive:
-
-```json
-{
-  "task_path": "d:\\datrix\\.tasks\\phase-40\\task-40-01.md",
-  "task_id": "task-40-01",
-  "package": ".claude/",
-  "language_scope": "documentation"
-}
-```
-
-### Steps
-
-1. **Read the task file** at `task_path`
-2. **Determine if task is documentation-only:**
-   - A task is documentation-only when ALL files it creates or modifies have documentation extensions: `.md`, `.rst`, `.txt`, `.adoc`
-   - If documentation-only → skip test baseline (output `skip_baseline: true`)
-3. **Extract the `## Targeted Tests` section** from task file
-   - If NO `## Targeted Tests` section → determine package name from task metadata and prepare to run full suite
-4. **Run test commands:**
-   - **If targeted tests exist:**
-     ```
-     powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{test-path}"
-     ```
-     Run each `-Specific` command listed in the `## Targeted Tests` section
-   - **If NO targeted tests (backward compatibility):**
-     ```
-     powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
-     ```
-5. **Record results:**
-   - Total tests
-   - Pass count
-   - Fail count
-   - Names of pre-existing failures (tests that failed BEFORE implementation)
-
-### Output
-
-JSON per task:
-
-```json
-{
-  "task_path": "d:\\datrix\\.tasks\\phase-40\\task-40-01.md",
-  "task_id": "task-40-01",
-  "skip_baseline": true,
-  "reason": "Documentation-only task (only .md files)"
-}
-```
-
-OR (for code tasks):
-
-```json
-{
-  "task_path": "d:\\datrix\\.tasks\\phase-40\\task-40-03.md",
-  "task_id": "task-40-03",
-  "skip_baseline": false,
-  "total_tests": 12,
-  "pass_count": 12,
-  "fail_count": 0,
-  "pre_existing_failures": []
-}
-```
-
-### Notes
-
-- This baseline is used in the verification phase to distinguish new failures from pre-existing ones
-- If test command fails (e.g., test file does not exist), record error in output
-- Quality gate tasks run full suite for baseline
-<!-- END_PHASE: baseline -->
-
 <!-- PHASE: implement -->
-## Phase 3: Implementation
+## Phase 2: Implementation
 
 For each task (sequentially, in dependency order), read the task specification and apply the required code changes.
 
@@ -345,7 +266,6 @@ For each task:
 {
   "task_path": "...",
   "task_id": "...",
-  "baseline_results": {...},
   "is_quality_gate": false
 }
 ```
@@ -396,20 +316,21 @@ On abort, report what was completed, what failed, and what cannot proceed.
 <!-- END_PHASE: implement -->
 
 <!-- PHASE: verify -->
-## Phase 4: Verification
+## Phase 3: Verification
 
-For each task (in parallel, up to 5 tasks concurrently), run targeted tests and compare results to baseline. Fix new failures (max 3 attempts per task).
+For each task (in parallel, up to 5 tasks concurrently), run targeted tests and fix all failures (max 3 attempts per task).
+
+**Assumes all tests were passing before implementation started.**
 
 ### Input
 
-Task metadata + baseline results + implementation results.
+Task metadata + implementation results.
 
 For each task:
 ```json
 {
   "task_path": "...",
   "task_id": "...",
-  "baseline": {"total_tests": 12, "pass_count": 12, "pre_existing_failures": []},
   "implementation": {"files_created": [...], "files_modified": [...]},
   "is_quality_gate": false
 }
@@ -451,22 +372,20 @@ For tasks that modified code:
    - Fail count
    - List of failing test names
 
-#### Step 2: Compare Against Baseline
+#### Step 2: Evaluate Results
 
 ```
 if all tests pass:
     → verification PASSED
-elif failures == baseline.pre_existing_failures (same failures, no new ones):
-    → verification PASSED (pre-existing failures not this task's responsibility)
-elif new failures detected (failures NOT in baseline):
+else:
     → verification FAILED, proceed to Step 3 (Fix Failures)
 ```
 
-#### Step 3: Fix New Failures (max 3 attempts)
+#### Step 3: Fix All Failures (max 3 attempts)
 
-If new failures detected:
+If any test failures exist:
 
-1. **Invoke `/fix-tests` workflow:**
+1. **Invoke fix workflow:**
    - Read failing test file
    - Understand what the test expects
    - Identify root cause of failure
@@ -482,9 +401,9 @@ If new failures detected:
    | 3       | {description} | {pass/fail + error} |
 
 3. **Outcomes:**
-   - **If fixed within 3 attempts** → verification PASSED
-   - **If NOT fixed after 3 attempts** → verification FAILED (proceed to Step 4)
-   - **If a fix introduces NEW failures not in baseline** → STOP immediately, revert the fix attempt, report (do NOT count as successful attempt)
+   - **If all tests pass within 3 attempts** → verification PASSED
+   - **If tests still failing after 3 attempts** → verification FAILED (proceed to Step 4)
+   - **If a fix introduces additional failures** → STOP immediately, revert the fix attempt, report (do NOT count as successful attempt)
 
 #### Step 4: Verification Failed (if not fixed after 3 attempts)
 
@@ -498,7 +417,7 @@ If tests still fail after 3 fix attempts:
 ```markdown
 ## Why Failed
 
-**New test failures after implementation (not fixed after 3 attempts):**
+**Test failures after implementation (not fixed after 3 attempts):**
 
 | Attempt | What was tried | Result |
 |---------|---------------|--------|
@@ -554,9 +473,8 @@ For quality gates, the "How Solved" section reports:
 ```markdown
 ## How Solved
 
-- **Full test suite:** 185/185 passing (baseline was 183/185 — 2 pre-existing failures)
+- **Full test suite:** 185/185 passing
 - **mypy --strict:** clean
-- **New failures:** none detected
 - No files created or modified.
 ```
 
@@ -573,7 +491,7 @@ For each task:
   "tests_run": 12,
   "tests_passing": 12,
   "tests_failing": 0,
-  "new_failures": [],
+  "failures": [],
   "fix_attempts": 0,
   "files_created": [...],
   "files_modified": [...]
@@ -589,7 +507,7 @@ For each task:
   "tests_run": 15,
   "tests_passing": 13,
   "tests_failing": 2,
-  "new_failures": ["test_entity_relationships", "test_field_inheritance"],
+  "failures": ["test_entity_relationships", "test_field_inheritance"],
   "fix_attempts": 3,
   "fix_attempt_log": [
     {"attempt": 1, "tried": "...", "result": "..."},
@@ -610,7 +528,7 @@ CHECKPOINT — Task {NN}-{TT}: {Title}
 Status: COMPLETED
 Files created: {list}
 Files modified: {list}
-Tests: {pass}/{total} passing (baseline was {pass}/{total})
+Tests: {pass}/{total} passing
 ```
 
 **If FAILED:**
@@ -619,7 +537,7 @@ CHECKPOINT — Task {NN}-{TT}: {Title}
 Status: FAILED (verification failed after 3 fix attempts)
 Files created: {list}
 Files modified: {list}
-Tests: {pass}/{total} passing (baseline was {pass}/{total})
+Tests: {pass}/{total} passing
 
 Fix attempts:
 1. {what was tried} — {result}
@@ -635,16 +553,16 @@ Recommendation: {next steps}
 ### Abort Conditions
 
 STOP immediately if:
-- Working for more than 3 fix attempts on a single test failure
-- A fix attempt introduces NEW failures not present in baseline
+- Working for more than 3 fix attempts on test failures
+- A fix attempt introduces additional failures
 - Fix reveals cascading issues in unrelated subsystems
-- New test failures appear in a different package than the one being modified
+- Test failures appear in a different package than the one being modified
 
 On abort, report what was completed, what failed, and what remains.
 <!-- END_PHASE: verify -->
 
 <!-- PHASE: quality_gate -->
-## Phase 5: Quality Gate
+## Phase 4: Quality Gate
 
 Run the full test suite and mypy for the affected package(s) to catch cross-task integration issues.
 
@@ -682,11 +600,7 @@ Verification results from all tasks:
 
    (Note: Skip mypy for documentation-only packages like `.claude/`)
 
-3. **Compare to baseline:**
-   - If ANY tasks in this phase FAILED verification, the quality gate expects to see those same failures
-   - If new failures appear that were NOT reported by any task's verification phase → attribute them to likely source tasks
-
-4. **Attribute failures:**
+3. **Attribute failures (if any):**
    - For each new failure, extract the failing test file path
    - Cross-reference against each task's `## Targeted Tests` section
    - Report which task likely introduced the failure
@@ -702,8 +616,7 @@ Verification results from all tasks:
   "total_tests": 185,
   "tests_passing": 185,
   "tests_failing": 0,
-  "mypy_status": "clean",
-  "new_failures_detected": []
+  "mypy_status": "clean"
 }
 ```
 
@@ -713,7 +626,6 @@ CHECKPOINT — Quality Gate — {package-name}
 Status: COMPLETED
 Tests: 185/185 passing
 mypy: clean
-No new failures detected.
 ```
 
 **If quality gate FAILED:**
@@ -726,7 +638,7 @@ No new failures detected.
   "tests_passing": 183,
   "tests_failing": 2,
   "mypy_status": "clean",
-  "new_failures_detected": [
+  "failures": [
     {
       "test_name": "test_phase_marker_extraction",
       "error": "AssertionError: Expected 5 phases, got 4",
@@ -739,10 +651,10 @@ No new failures detected.
 Emit:
 ```
 CHECKPOINT — Quality Gate — {package-name}
-Status: FAILED (new failures detected)
+Status: FAILED
 Tests: 183/185 passing
 
-New failures (not in baseline):
+Failures:
 - test_phase_marker_extraction — AssertionError: Expected 5 phases, got 4
   Likely source: Task 40-03 (Refactor /execute-tasks Skill for Delegation)
 

@@ -10,7 +10,7 @@ delegation-strategy:
     - name: "spawn_agents"
       model: "sonnet"
       parallelizable: false
-      description: "Spawn one agent per task to execute baseline→implement→verify in parallel"
+      description: "Spawn one agent per task to execute implement→verify in parallel"
     - name: "quality_gate"
       model: "opus"
       parallelizable: false
@@ -20,6 +20,8 @@ delegation-strategy:
 # Execute Tasks in Parallel
 
 Parallel execution workflow for implementing multiple independent tasks from `.tasks/` phase files. Evaluates all tasks upfront for blocking issues, then spawns separate agents to execute each task concurrently.
+
+**Assumes all tests are passing before starting.** Does not capture baselines.
 
 ## When to Use
 
@@ -246,26 +248,18 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
 
    TASK FILE: {task_path}
 
+   ASSUMPTION: All tests were passing before starting.
+
    Your workflow:
-   1. Baseline: Capture test baseline before implementation
-   2. Implement: Read task file, apply code changes per specification
-   3. Verify: Run targeted tests, compare to baseline, fix failures (max 3 attempts)
+   1. Implement: Read task file, apply code changes per specification
+   2. Verify: Run targeted tests, fix all failures (max 3 attempts)
 
    CRITICAL RULES:
    - Read and follow ALL rules in d:\datrix\.claude\CLAUDE.md
    - Stay within this task's scope — do NOT modify files outside this task
    - If you encounter ambiguities, STOP and report them
-   - Mark the task COMPLETED only if verification passes
-   - Mark the task FAILED if verification fails after 3 attempts
-
-   --- BASELINE PHASE ---
-
-   1. Read the task file at: {task_path}
-   2. Determine if task is documentation-only (all files are .md/.rst/.txt/.adoc)
-   3. If documentation-only → skip baseline
-   4. If code task → run targeted tests from "## Targeted Tests" section:
-      powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package} -Specific "{test-path}"
-   5. Record baseline results: total tests, pass count, fail count, pre-existing failures
+   - Mark the task COMPLETED only if all tests pass
+   - Mark the task FAILED if tests still fail after 3 attempts
 
    --- IMPLEMENTATION PHASE ---
 
@@ -298,16 +292,15 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
    --- VERIFICATION PHASE ---
 
    1. Run targeted tests (or full suite if no targeted tests specified)
-   2. Compare results to baseline
-   3. If new failures detected → invoke fix workflow (max 3 attempts):
+   2. If any test failures exist → invoke fix workflow (max 3 attempts):
       - Read failing test
       - Identify root cause
       - Fix the issue
       - Re-run tests
       - Track each attempt
-   4. If fixed within 3 attempts → mark COMPLETED
-   5. If NOT fixed after 3 attempts → mark FAILED
-   6. Update task file:
+   3. If all tests pass within 3 attempts → mark COMPLETED
+   4. If tests still failing after 3 attempts → mark FAILED
+   5. Update task file:
       - COMPLETED: Change title to "# COMPLETED: Task {NN}-{TT}: {Title}", add "## How Solved" section
       - FAILED: Change title to "# FAILED: Task {NN}-{TT}: {Title}", add "## Why Failed" section
 
@@ -318,13 +311,6 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
      "task_id": "{task_id}",
      "task_path": "{task_path}",
      "status": "COMPLETED" | "FAILED" | "BLOCKED",
-     "baseline_results": {
-       "skip_baseline": true/false,
-       "total_tests": N,
-       "pass_count": N,
-       "fail_count": N,
-       "pre_existing_failures": [...]
-     },
      "implementation_results": {
        "files_created": [...],
        "files_modified": [...],
@@ -334,7 +320,7 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
        "tests_run": N,
        "tests_passing": N,
        "tests_failing": N,
-       "new_failures": [...],
+       "failures": [...],
        "fix_attempts": N,
        "fix_attempt_log": [...]
      },
@@ -373,7 +359,6 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
       "files_modified": [],
       "tests_run": 0,
       "tests_passing": 0,
-      "baseline_skipped": true
     },
     {
       "task_id": "task-40-02",
@@ -382,7 +367,6 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
       "files_modified": [],
       "tests_run": 0,
       "tests_passing": 0,
-      "baseline_skipped": true
     },
     {
       "task_id": "task-40-03",
@@ -392,7 +376,7 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
       "tests_run": 15,
       "tests_passing": 13,
       "tests_failing": 2,
-      "new_failures": ["test_entity_relationships", "test_field_inheritance"],
+      "failures": ["test_entity_relationships", "test_field_inheritance"],
       "fix_attempts": 3,
       "recommendation": "Review entity relationship logic"
     }
@@ -481,12 +465,7 @@ Results from all spawned agents:
 
    (Note: Skip mypy for documentation-only packages like `.claude/`)
 
-3. **Analyze results:**
-   - Compare to initial baseline (from pre_check phase if captured)
-   - Identify any NEW failures not reported by individual task agents
-   - Attribute failures to likely source tasks
-
-4. **Cross-reference failures:**
+3. **Attribute failures (if any):**
    - For each new failure, extract the failing test file path
    - Check which task modified code related to that test
    - Report attribution
@@ -506,8 +485,7 @@ Results from all spawned agents:
       "tests_passing": 183,
       "tests_failing": 2,
       "mypy_status": "clean",
-      "known_failures": ["test_entity_relationships", "test_field_inheritance"],
-      "new_failures_detected": []
+      "known_failures": ["test_entity_relationships", "test_field_inheritance"]
     },
     {
       "package": ".claude/",
@@ -527,13 +505,12 @@ Status: PASSED
 Package: datrix-codegen-python
   Tests: 183/185 passing
   Known failures: 2 (from Task 40-03, already reported)
-  New failures: none detected
   mypy: clean
 
 Package: .claude/
   Documentation-only (no tests)
 
-✓ No integration issues detected.
+All known failures already reported by task agents.
 ```
 
 **If quality gate FAILED:**
@@ -550,7 +527,7 @@ Package: .claude/
       "tests_failing": 5,
       "mypy_status": "2 errors",
       "known_failures": ["test_entity_relationships", "test_field_inheritance"],
-      "new_failures_detected": [
+      "failures": [
         {
           "test_name": "test_service_generator_integration",
           "error": "ImportError: cannot import name 'GeneratorBase'",
@@ -580,13 +557,13 @@ Package: .claude/
 Emit:
 ```
 QUALITY GATE — datrix-codegen-python
-Status: FAILED (integration issues detected)
+Status: FAILED
 
 Tests: 180/185 passing
 Known failures from task verification: 2
-NEW failures detected: 3
+Additional failures detected: 3
 
-New failures (not reported by task agents):
+Additional failures (not reported by task agents):
 ✗ test_service_generator_integration
   ImportError: cannot import name 'GeneratorBase'
   Likely source: Task 40-03 (modified generator_base.py)
@@ -610,7 +587,7 @@ RECOMMENDATION:
 ### Notes
 
 - Quality gate runs AFTER all parallel task agents complete
-- It's the ONLY place to catch integration issues between tasks
+- It catches integration issues that may not appear in individual task verification
 - Failed quality gate does NOT automatically re-run tasks — report to user for decision
 <!-- END_PHASE: quality_gate -->
 
