@@ -225,7 +225,7 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
         }
     }
 
-    rest_api ShippingAPI : basePath('/api/v1/shipments') {
+    rest_api ShippingAPI : basePath('/api/v1/shipments'), rdbms(shippingDb) {
 
         resource shippingDb.Shipment : only(get);
 

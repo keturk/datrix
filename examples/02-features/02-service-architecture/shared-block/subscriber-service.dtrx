@@ -41,7 +41,7 @@ service library.AnalysisService('config/analysis-service.yaml') : version('1.0.0
         }
     }
 
-    rest_api AnalysisAPI : basePath('/api/v1') {
+    rest_api AnalysisAPI : basePath('/api/v1'), rdbms(analysisDb) {
         @path('/analysis/runs')
         @authorize(roles: ['Admin'])
         get(Int? limit) -> Array<analysisDb.AnalysisRun> {

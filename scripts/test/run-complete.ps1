@@ -57,6 +57,9 @@
 .PARAMETER Skip5
  Skip Step 5 (deployment/integration tests for generated projects).
 
+.PARAMETER VerboseOutput
+ Enable verbose output. When not specified, minimal output is shown (summary only).
+
 .PARAMETER FreshBuild
  Force fresh Docker builds (--no-cache) for deployment tests. By default, deploy tests use Docker layer cache for faster builds.
 
@@ -149,6 +152,7 @@ param(
 
  [switch]$Rerun,
 
+ [switch]$VerboseOutput,
  [switch]$SkipVenv,
  [switch]$Skip1,
  [switch]$Skip2,
@@ -438,6 +442,7 @@ if ($Rerun) {
   }
   if ($DebugLogging) { $singleArgs += "--debug" }
   if ($SkipInstall) { $singleArgs += "--skip-install" }
+  if ($VerboseOutput) { $singleArgs += "--verbose" }
 
   Write-Info "Running: $pythonExe -u $($singleArgs -join ' ')"
   Write-Info ""
@@ -561,6 +566,9 @@ if ($DebugLogging) {
 }
 if ($SkipInstall) {
  $pythonArgs += "--skip-install"
+}
+if ($VerboseOutput) {
+ $pythonArgs += "--verbose"
 }
 
 # Set environment variable for fresh build mode (deploy tests will use --no-cache)

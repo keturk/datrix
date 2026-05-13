@@ -314,7 +314,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
         }
     }
 
-    rest_api ComplianceAPI : basePath('/api/v1/compliance') {
+    rest_api ComplianceAPI : basePath('/api/v1/compliance'), rdbms(complianceDb) {
         alert responseTime(p95) over(5m) > 500ms @severity(warning);
 
         // List alerts with filtering and pagination

@@ -42,6 +42,9 @@
 .PARAMETER TestSet
  Test set to use (default: all). Only used with -All parameter.
 
+.PARAMETER VerboseOutput
+ Enable verbose output. When not specified, minimal output is shown (summary only).
+
 .PARAMETER Debug
  Enable debug logging (DEBUG level instead of INFO).
 
@@ -106,6 +109,9 @@ param(
 
  [Parameter()]
  [string]$TestSet = "all",
+
+ [Parameter()]
+ [switch]$VerboseOutput,
 
  [Parameter()]
  [switch]$Dbg,
@@ -526,6 +532,9 @@ $("=" * 80)
  if ($Dbg) {
  $pythonArgs += "--debug"
  }
+ if ($VerboseOutput) {
+ $pythonArgs += "--verbose"
+ }
 
  # Run the Python script
  $batchLabel = if ($Domains) { "domains" }
@@ -573,6 +582,9 @@ $("=" * 80)
  }
  if ($Dbg) {
  $pythonArgs += "--debug"
+ }
+ if ($VerboseOutput) {
+ $pythonArgs += "--verbose"
  }
 
  # Run the generation command

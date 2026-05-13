@@ -165,7 +165,7 @@ service ecommerce.PaymentService('config/payment-service.yaml') : version('1.0.0
         });
     }
 
-    rest_api PaymentAPI : basePath('/api/v1/payments') {
+    rest_api PaymentAPI : basePath('/api/v1/payments'), rdbms(paymentDb) {
         alert responseTime(p95) over(5m) > 500ms @severity(warning);
         alert errorRate(ratio) over(5m) > 3% @severity(critical);
 

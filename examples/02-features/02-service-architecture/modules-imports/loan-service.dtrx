@@ -61,7 +61,7 @@ service library.LoanService('config/loan-service.yaml') : version('1.0.0'), desc
         assert loan.isOverdue == false;
     }
 
-    rest_api LoanAPI : basePath("/api/v1/loans") {
+    rest_api LoanAPI : basePath("/api/v1/loans"), rdbms(loanDb) {
         // '@retry' retries the request up to maxAttempts times on transient failures
         // '@timeout' aborts the request if it exceeds the specified duration
         @retry(maxAttempts: 3)

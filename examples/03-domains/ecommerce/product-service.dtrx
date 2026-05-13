@@ -274,7 +274,7 @@ service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0
         folder thumbnails : path('products/thumbnails/'), allowed(['image/jpeg', 'image/png', 'image/webp']), maxSize('2mb')
     }
 
-    rest_api ProductAPI : basePath('/api/v1/products') {
+    rest_api ProductAPI : basePath('/api/v1/products'), rdbms(productDb) {
 
         resource productDb.Product : only(list, get), public;
 

@@ -50,7 +50,7 @@ service blog.CommentService('config/comment-service.yaml') : version('1.0.0'), d
         }
     }
 
-    rest_api CommentAPI : basePath("/api/v1/comments") {
+    rest_api CommentAPI : basePath("/api/v1/comments"), rdbms(commentDb) {
         // 'only(...)' restricts which CRUD operations are generated
         resource commentDb.Comment : only(get), public;
         @path('/')

@@ -260,7 +260,7 @@ service social.NotificationService('config/notification-service.yaml') : version
         }
     }
 
-    rest_api NotificationAPI : basePath('/api/v1/notifications') {
+    rest_api NotificationAPI : basePath('/api/v1/notifications'), rdbms(notificationDb) {
 
         // Get notifications for the authenticated user
         get(Int page = 1, Int perPage = 20, Boolean? unreadOnly) -> PaginatedNotifications {

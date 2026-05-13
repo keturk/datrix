@@ -32,7 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from shared.logging_utils import LogConfig, TeeLogger
+from shared.logging_utils import ColorCodes, LogConfig, TeeLogger, colorize
 from shared.venv import get_venv_python
 
 
@@ -61,11 +61,14 @@ class TestRunner:
   self.python_exe: Optional[str] = None
   self.has_xdist: bool = False
 
- def _get_python_executable(self) -> str:
+ def _get_python_executable(self, verbose: bool = False) -> str:
   """
   Get the Python executable to use.
   Uses common datrix venv at D:\\datrix\\.venv (where all projects are installed in editable mode)
   if available, otherwise falls back to current Python.
+
+  Args:
+   verbose: If True, print diagnostic messages about which Python is being used
   """
   # Use shared.venv to get the venv Python (D:\\datrix\\.venv)
   try:
@@ -78,18 +81,49 @@ class TestRunner:
      check=False,
     )
     if result.returncode == 0:
-     print(f"Using Datrix common virtual environment: {venv_python}")
+     if verbose:
+      print(f"Using Datrix common virtual environment: {venv_python}")
      return str(venv_python)
   except Exception:
    pass
 
   # Fall back to current Python (should be from activated venv)
-  print(f"Using current Python: {sys.executable}")
-  if os.environ.get("VIRTUAL_ENV"):
-   print(f" (from activated virtual environment: {os.environ.get('VIRTUAL_ENV')})")
-  else:
-   print("WARNING: No virtual environment detected. Consider setting up the Datrix venv at D:\\datrix\\.venv")
+  if verbose:
+   print(f"Using current Python: {sys.executable}")
+   if os.environ.get("VIRTUAL_ENV"):
+    print(f" (from activated virtual environment: {os.environ.get('VIRTUAL_ENV')})")
+   else:
+    print("WARNING: No virtual environment detected. Consider setting up the Datrix venv at D:\\datrix\\.venv")
   return sys.executable
+
+ def _get_test_summary(self, index_json_path: Optional[Path]) -> Optional[dict]:
+  """
+  Extract test summary from index.json.
+
+  Args:
+   index_json_path: Path to index.json file
+
+  Returns:
+   Dictionary with test counts or None if unavailable
+  """
+  if not index_json_path or not index_json_path.exists():
+   return None
+
+  try:
+   import json
+   with open(index_json_path, "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+   # Extract counts from index.json structure
+   counts = data.get("counts", {})
+   return {
+    "passed": counts.get("passed", 0),
+    "failed": counts.get("failed", 0),
+    "error": counts.get("error", 0),
+    "skipped": counts.get("skipped", 0),
+   }
+  except Exception:
+   return None
 
  def _check_xdist_available(self, python_exe: str) -> bool:
   """Check if pytest-xdist is available for parallel testing."""
@@ -236,7 +270,7 @@ class TestRunner:
 
   Args:
    coverage: Generate coverage report
-   verbose: Verbose test output
+   verbose: Verbose test output (default is minimal/quiet output)
    save_log: Save output to log file
    marker_expr: Pytest marker expression (e.g., "unit", "integration", "not slow")
    test_path: Specific test file or directory to run
@@ -246,14 +280,15 @@ class TestRunner:
    Exit code (0 = success, non-zero = failure)
   """
   # Get Python executable
-  python_exe = self._get_python_executable()
+  python_exe = self._get_python_executable(verbose=verbose)
 
-  # Setup logging
+  # Setup logging with quiet mode (inverted from verbose)
   log_config = LogConfig(
    log_dir=".test_results",
    prefix="test-results",
    project_name=self.config.project_name,
    save_to_file=save_log,
+   quiet_mode=not verbose,
   )
 
   with TeeLogger(log_config, self.config.project_root) as logger:
@@ -484,6 +519,7 @@ class TestRunner:
     phase_results["Tests"] = rc_remaining
 
    # ── Post-process JUnit XML into structured output ────────────────
+   index_json_path: Optional[Path] = None
    if run_dir and save_log:
     try:
      from shared.structured_log_writer import StructuredLogWriter
@@ -508,7 +544,8 @@ class TestRunner:
       timestamp=datetime.now(),
       phase_results=phase_results,
      )
-     logger.write(f"Structured test results: {run_dir / 'index.json'}")
+     index_json_path = run_dir / 'index.json'
+     logger.write(f"Structured test results: {index_json_path}")
     except Exception as e:
      logger.write_warning(f"Warning: Failed to generate structured test results: {e}")
 
@@ -541,5 +578,37 @@ class TestRunner:
    elif returncode == 5:
     logger.write("\nNo tests collected (test library or framework project)")
     returncode = 0 # Treat as success
+
+   # ── Minimal summary (shown even in quiet mode) ────────────────────
+   if logger.quiet_mode:
+    # Parse test results from index.json if available
+    test_summary = self._get_test_summary(index_json_path)
+
+    # Build status line
+    status = "PASSED" if returncode == 0 else "FAILED"
+    color = ColorCodes.GREEN if returncode == 0 else ColorCodes.RED
+
+    logger.write_console("")
+    logger.write_console(colorize(f"[{status}] {self.config.project_name}", color))
+
+    if test_summary:
+     summary_parts = []
+     if test_summary.get('passed', 0) > 0:
+      summary_parts.append(f"pass: {test_summary['passed']}")
+     if test_summary.get('failed', 0) > 0:
+      summary_parts.append(f"fail: {test_summary['failed']}")
+     if test_summary.get('error', 0) > 0:
+      summary_parts.append(f"error: {test_summary['error']}")
+     if test_summary.get('skipped', 0) > 0:
+      summary_parts.append(f"skip: {test_summary['skipped']}")
+
+     if summary_parts:
+      logger.write_console(f"  {', '.join(summary_parts)}")
+
+    # Show link to index.json
+    if index_json_path:
+     logger.write_console(f"  Details: {index_json_path}")
+    elif logger.get_log_path():
+     logger.write_console(f"  Log: {logger.get_log_path()}")
 
   return returncode

@@ -310,7 +310,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     // REST API block - generates CRUD endpoints and custom routes
-    rest_api BookServiceAPI : basePath("/api/v1") {
+    rest_api BookServiceAPI : basePath("/api/v1"), rdbms(bookDb) {
         // 'resource' auto-generates standard CRUD endpoints
         // 'only(...)' restricts which CRUD operations are generated
         // 'public' makes endpoints accessible without authentication

@@ -343,7 +343,7 @@ service lms.CourseService('config/course-service.yaml') : version('1.0.0'), desc
         }
     }
 
-    rest_api CourseAPI : basePath('/api/v1/courses') {
+    rest_api CourseAPI : basePath('/api/v1/courses'), rdbms(courseDb) {
 
         // List published courses
         get(DifficultyLevel? difficulty, Int page = 1, Int perPage = 20) : public -> PaginatedCourses {

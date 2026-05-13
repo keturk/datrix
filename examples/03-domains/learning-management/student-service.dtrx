@@ -85,7 +85,7 @@ service lms.StudentService('config/student-service.yaml') : version('1.0.0'), de
         }
     }
 
-    rest_api StudentAPI : basePath('/api/v1/students') {
+    rest_api StudentAPI : basePath('/api/v1/students'), rdbms(studentDb) {
 
         resource studentDb.Student : only(list, get), public;
 

@@ -24,7 +24,7 @@ service examples.OrderService('config/order-service.yaml') : version('1.0.0'), d
         queue ProcessShipment(UUID orderId);
     }
 
-    rest_api OrderApi : basePath('/api/v1') {
+    rest_api OrderApi : basePath('/api/v1'), rdbms(db) {
         resource db.Order : only(list, get), public;
     }
 

@@ -239,7 +239,7 @@ service logistics.RouteService('config/route-service.yaml') : version('1.0.0'), 
         }
     }
 
-    rest_api RouteAPI : basePath('/api/v1/routes') {
+    rest_api RouteAPI : basePath('/api/v1/routes'), rdbms(routeDb) {
 
         resource routeDb.Route;
 

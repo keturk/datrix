@@ -283,7 +283,7 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
         }
     }
 
-    rest_api TransactionAPI : basePath('/api/v1/transactions') {
+    rest_api TransactionAPI : basePath('/api/v1/transactions'), rdbms(txDb) {
         alert responseTime(p95) over(5m) > 300ms @severity(warning);
         alert errorRate(ratio) over(5m) > 3% @severity(critical);
 

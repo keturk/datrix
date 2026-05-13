@@ -316,7 +316,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
         }
     }
 
-    rest_api OrderAPI : basePath('/api/v1/orders') {
+    rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(orderDb) {
         // API-level monitoring alerts
         alert responseTime(p95) over(5m) > 500ms @severity(warning);
         alert errorRate(ratio) over(5m) > 5% @severity(critical);

@@ -198,7 +198,7 @@ service finance.AccountService('config/account-service.yaml') : version('1.0.0')
         }
     }
 
-    rest_api AccountAPI : basePath('/api/v1/accounts') {
+    rest_api AccountAPI : basePath('/api/v1/accounts'), rdbms(accountDb) {
         alert responseTime(p95) over(5m) > 500ms @severity(warning);
         alert errorRate(ratio) over(5m) > 5% @severity(critical);
 

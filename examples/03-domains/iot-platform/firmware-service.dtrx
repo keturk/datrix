@@ -268,7 +268,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
         }
     }
 
-    rest_api FirmwareAPI : basePath('/api/v1/firmware') {
+    rest_api FirmwareAPI : basePath('/api/v1/firmware'), rdbms(firmwareDb) {
 
         resource firmwareDb.FirmwareVersion;
 

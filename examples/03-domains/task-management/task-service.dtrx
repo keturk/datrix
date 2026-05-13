@@ -335,7 +335,7 @@ service taskapp.TaskService('config/task-service.yaml') : version('1.0.0'), desc
         }
     }
 
-    rest_api TaskAPI : basePath('/api/v1/tasks') {
+    rest_api TaskAPI : basePath('/api/v1/tasks'), rdbms(taskDb) {
 
         // List tasks with filtering
         get(UUID? projectId, UUID? assigneeId, TaskStatus? status, Priority? priority, Int page = 1, Int perPage = 20) -> PaginatedTasks {

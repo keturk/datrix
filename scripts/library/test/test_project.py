@@ -524,18 +524,21 @@ Note: This script should be called from test.ps1, which handles virtual environm
   print(f"ERROR: {e}", file=sys.stderr)
   return 1
 
- print(f"Found project '{args.project_name}' at: {project_root}")
+ if args.verbose:
+  print(f"Found project '{args.project_name}' at: {project_root}")
 
  # Get Python executable (use common venv at D:\\datrix\\.venv where all projects are installed in editable mode)
  python_exe = get_venv_python()
  if python_exe.exists():
-  print(f"Using Datrix common virtual environment: {python_exe}")
-  print(" (All projects are installed in editable mode in this venv)")
+  if args.verbose:
+   print(f"Using Datrix common virtual environment: {python_exe}")
+   print(" (All projects are installed in editable mode in this venv)")
   python_exe = str(python_exe)
  else:
   # Fall back to current Python (should be from activated venv)
   python_exe = sys.executable
-  print(f"Using current Python: {python_exe}")
+  if args.verbose:
+   print(f"Using current Python: {python_exe}")
   if not os.environ.get("VIRTUAL_ENV"):
    print("WARNING: No virtual environment detected. Consider setting up the Datrix venv at D:\\datrix\\.venv", file=sys.stderr)
 
@@ -546,7 +549,8 @@ Note: This script should be called from test.ps1, which handles virtual environm
  needs_dev_deps, has_pyproject_dev = check_dev_dependencies(python_exe, project_root)
  if needs_dev_deps:
   if packages_ensured_by_caller:
-   print("Packages ensured by caller (test.ps1); skipping per-project dev install. Proceeding with tests.")
+   if args.verbose:
+    print("Packages ensured by caller (test.ps1); skipping per-project dev install. Proceeding with tests.")
   else:
    print("Detected missing dev dependencies. Installing automatically...")
    if not args.skip_install:
@@ -574,7 +578,8 @@ Note: This script should be called from test.ps1, which handles virtual environm
  deps_ok, missing_deps = check_dependencies(python_exe, current_python_exe=sys.executable)
  if not deps_ok:
   if packages_ensured_by_caller:
-   print("Packages ensured by caller (test.ps1); skipping per-project install. Proceeding with tests.")
+   if args.verbose:
+    print("Packages ensured by caller (test.ps1); skipping per-project install. Proceeding with tests.")
   else:
    print("ERROR: Missing required test dependencies:", file=sys.stderr)
    for module_name, package_name in missing_deps:

@@ -227,7 +227,7 @@ service logistics.FleetService('config/fleet-service.yaml') : version('1.0.0'), 
         }
     }
 
-    rest_api FleetAPI : basePath('/api/v1/fleet') {
+    rest_api FleetAPI : basePath('/api/v1/fleet'), rdbms(fleetDb) {
 
         resource fleetDb.Vehicle;
         resource fleetDb.Driver;

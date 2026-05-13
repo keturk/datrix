@@ -141,9 +141,16 @@ def generate_single_project(
     args,
     datrix_root: Path,
     python_exe: str,
-) -> Tuple[bool, str, Path, Path, List[str], List[str]]:
+    verbose: bool = True,
+) -> Tuple[bool, str, Path, Path, List[str], List[str], List[str]]:
     """
     Generate a single project.
+
+    Returns:
+        Tuple of (success, project_name, project_path, output_path, warnings, errors, full_output)
+
+    Args:
+        verbose: If True, print generation output in real-time. If False, only capture for logs.
 
     Returns:
         Tuple of (success: bool, project_name: str, project_path: Path, output_path: Path, warnings: list[str], errors: list[str])
@@ -264,8 +271,9 @@ app()
                 for line in process.stdout:
                     # Strip ANSI escape sequences for clean logging
                     plain_line = strip_ansi(line).rstrip()
-                    # Print all output in real-time
-                    print(plain_line, flush=True)
+                    # Print all output in real-time (only in verbose mode)
+                    if verbose:
+                        print(plain_line, flush=True)
                     output_lines.append(plain_line)
                     # Capture warning and error lines for the summary.
                     # Warnings match:
@@ -320,7 +328,7 @@ app()
                 else:
                     errors = [f"Generation failed with exit code {exit_code}"]
 
-            return (exit_code == 0, project_name, project_path, output_path, warnings, errors)
+            return (exit_code == 0, project_name, project_path, output_path, warnings, errors, output_lines)
         finally:
             # Unregister process after completion
             unregister_process(process)
@@ -333,7 +341,7 @@ app()
     except Exception as e:
         error_msg = f"Error generating {project_name}: {e}"
         print(f"ERROR: {error_msg}", file=sys.stderr)
-        return (False, project_name, project_path, output_path, [], [error_msg])
+        return (False, project_name, project_path, output_path, [], [error_msg], [])
 
 
 def _print_generation_summary(
@@ -390,25 +398,29 @@ def _print_generation_summary(
             print()
 
     # 3. Generation Summary (counts) at the very end so it is visible without scrolling
+    # Always show summary, even in quiet mode
     summary_banner = "########## Generation Summary ##########"
     if logger:
-        logger.write(summary_banner)
-        logger.write("")
-        logger.write(f" Total projects: {len(projects)}")
-        logger.write(f" Successful: {success_count}")
+        logger.write_console(summary_banner)
+        logger.write_console("")
+        logger.write_console(f" Total projects: {len(projects)}")
+        if success_count > 0:
+            logger.write_console(colorize(f" Successful: {success_count}", ColorCodes.GREEN))
+        else:
+            logger.write_console(f" Successful: {success_count}")
         if fail_count > 0:
-            logger.write_error(f" Failed: {fail_count}")
+            logger.write_console(colorize(f" Failed: {fail_count}", ColorCodes.RED))
         else:
-            logger.write(f" Failed: {fail_count}")
+            logger.write_console(f" Failed: {fail_count}")
         if total_warnings > 0:
-            logger.write_warning(f" Warnings: {total_warnings}")
+            logger.write_console(colorize(f" Warnings: {total_warnings}", ColorCodes.YELLOW))
         else:
-            logger.write(f" Warnings: {total_warnings}")
+            logger.write_console(f" Warnings: {total_warnings}")
         if total_errors > 0:
-            logger.write_error(f" Errors: {total_errors}")
+            logger.write_console(colorize(f" Errors: {total_errors}", ColorCodes.RED))
         else:
-            logger.write(f" Errors: {total_errors}")
-        logger.write("")
+            logger.write_console(f" Errors: {total_errors}")
+        logger.write_console("")
     else:
         print(colorize(summary_banner, ColorCodes.CYAN), flush=True)
         print("")
@@ -429,12 +441,13 @@ def _print_generation_summary(
         print()
 
     # 4. Failed projects list (below summary so counts are first at end of log)
+    # Always show failed projects, even in quiet mode
     if fail_count > 0:
         if logger:
-            logger.write_error("Failed projects:")
+            logger.write_console(colorize("Failed projects:", ColorCodes.RED))
             for failed_project in failed_projects:
-                logger.write_error(f" - {failed_project}")
-            logger.write("")
+                logger.write_console(colorize(f" - {failed_project}", ColorCodes.RED))
+            logger.write_console("")
         else:
             print(colorize("Failed projects:", ColorCodes.RED))
             for failed_project in failed_projects:
@@ -450,12 +463,12 @@ def _print_generation_summary(
                 "incomplete mappings in the generators) and re-run."
             )
             if logger:
-                logger.write_error(msg)
+                logger.write_console(colorize(msg, ColorCodes.RED))
             else:
                 print(colorize(msg, ColorCodes.RED))
         return 1
     if logger:
-        logger.write_success("All projects generated successfully!")
+        logger.write_console(colorize("All projects generated successfully!", ColorCodes.GREEN))
     else:
         print(colorize("All projects generated successfully!", ColorCodes.GREEN))
     return 0
@@ -491,8 +504,9 @@ def main():
     )
     parser.add_argument("--output-base", type=str, default=".generated", help="Output base directory")
     parser.add_argument("--test-set", type=str, default="all", help="Test set to use (e.g. all, foundation, non-foundation, features, domains)")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
- 
+
     args = parser.parse_args()
  
     try:
@@ -525,6 +539,7 @@ def main():
             prefix="generate-results",
             project_name="datrix-generate",
             save_to_file=True,
+            quiet_mode=not args.verbose,
         )
         logger = TeeLogger(log_config, datrix_root)
         logger.__enter__()
@@ -601,12 +616,13 @@ def main():
                 logger.write(f" Platform: {args.platform}")
                 logger.write("")
             else:
-                print(f"Generating single project: {project_name}")
-                print(f" Source: {source_path}")
-                print(f" Output: {output_path}")
-                print(f" Language: {args.language}")
-                print(f" Platform: {args.platform}")
-                print()
+                if args.verbose:
+                    print(f"Generating single project: {project_name}")
+                    print(f" Source: {source_path}")
+                    print(f" Output: {output_path}")
+                    print(f" Language: {args.language}")
+                    print(f" Platform: {args.platform}")
+                    print()
         else:
             try:
                 projects = get_test_projects(
@@ -634,8 +650,9 @@ def main():
                 logger.write(f"Generating {len(projects)} projects from test set '{args.test_set}'...")
                 logger.write("")
             else:
-                print(f"Generating {len(projects)} projects from test set '{args.test_set}'...")
-                print()
+                if args.verbose:
+                    print(f"Generating {len(projects)} projects from test set '{args.test_set}'...")
+                    print()
 
         success_count = 0
         fail_count = 0
@@ -670,25 +687,41 @@ def main():
                         logger.write(f" Output: {output_path}")
                     logger.write("-" * banner_width)
                 else:
-                    print("", flush=True)
-                    print(colorize(banner_line, ColorCodes.CYAN), flush=True)
-                    print("", flush=True)
-                    if source_path:
-                        print(f" Source: {source_path}")
-                    if output_path:
-                        print(f" Output: {output_path}")
-                    print("-" * banner_width)
-                    sys.stdout.flush()
+                    if args.verbose:
+                        print("", flush=True)
+                        print(colorize(banner_line, ColorCodes.CYAN), flush=True)
+                        print("", flush=True)
+                        if source_path:
+                            print(f" Source: {source_path}")
+                        if output_path:
+                            print(f" Output: {output_path}")
+                        print("-" * banner_width)
+                        sys.stdout.flush()
 
                 try:
-                    success, project_name, project_path, output_path, warnings, errors = generate_single_project(
+                    success, project_name, project_path, output_path, warnings, errors, full_output = generate_single_project(
                         project,
                         project_index,
                         len(projects),
                         args,
                         datrix_root,
                         python_exe,
+                        verbose=args.verbose,
                     )
+
+                    # DEBUG: Write diagnostics to log file
+                    if logger:
+                        logger.write(f"DEBUG: Received {len(full_output)} output lines for {project_name}")
+
+                    # Write full subprocess output to log file (always, regardless of verbose mode)
+                    if logger and full_output:
+                        logger.write("")
+                        logger.write(f"=== Detailed output for {project_name} ===")
+                        for line in full_output:
+                            logger.write(line)
+                        logger.write(f"=== End output for {project_name} ===")
+                        logger.write("")
+
                     if warnings:
                         project_warnings[project_name] = warnings
                     if errors:

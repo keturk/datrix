@@ -8,6 +8,9 @@
  for one or more projects. Ensures virtual environment is deactivated even
  if the script is interrupted (Ctrl-C).
 
+ By default, test output is minimal (summary + link to detailed results).
+ Use -VerboseOutput to see full test output in the console.
+
 .PARAMETER Projects
  One or more project names or folder paths to test (e.g., datrix-common, 
  .\datrix-common\, D:\datrix\datrix-common). Paths will be resolved and the 
@@ -20,7 +23,7 @@
  Generate coverage reports.
 
 .PARAMETER VerboseOutput
- Enable verbose test output.
+ Enable verbose test output. When not specified, minimal output is shown (summary only).
 
 .PARAMETER NoSave
  Don't save test output to log files.
@@ -459,9 +462,13 @@ try {
  $tempFile = [System.IO.Path]::GetTempFileName()
  try {
  # Run and capture output to temp file while displaying in real-time
+ # Set ErrorAction to Continue for this command to avoid treating Python stderr as PowerShell errors
+ $ErrorActionPreference_Saved = $ErrorActionPreference
+ $ErrorActionPreference = "Continue"
  & python @projectArgs 2>&1 | Tee-Object -FilePath $tempFile
  $exitCode = $LASTEXITCODE
- 
+ $ErrorActionPreference = $ErrorActionPreference_Saved
+
  # Read captured output for parsing
  $outputString = Get-Content -Path $tempFile -Raw
  } finally {
@@ -516,7 +523,7 @@ try {
  }
  # Fallback: try to find the most recent result in project's .test_results directory
  if (-not $projectLogPath -or -not (Test-Path $projectLogPath)) {
- $projectTestResultsDir = Join-Path $datrixRoot $project ".test_results"
+ $projectTestResultsDir = Join-Path (Join-Path $datrixRoot $project) ".test_results"
  if (Test-Path $projectTestResultsDir) {
  # Try new directory format first
  $latestDir = Get-ChildItem -Path $projectTestResultsDir -Directory -Filter "test-results-*" |

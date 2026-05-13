@@ -70,7 +70,7 @@ service taskapp.UserService('config/user-service.yaml') : version('1.0.0'), desc
         }
     }
 
-    rest_api UserAPI : basePath('/api/v1/users') {
+    rest_api UserAPI : basePath('/api/v1/users'), rdbms(userDb) {
 
         resource userDb.User : only(list, get), public;
 

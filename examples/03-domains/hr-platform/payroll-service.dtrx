@@ -195,7 +195,7 @@ service hr.PayrollService('config/payroll-service.yaml') : version('1.0.0'), des
         }
     }
 
-    rest_api PayrollAPI : basePath('/api/v1/payroll') {
+    rest_api PayrollAPI : basePath('/api/v1/payroll'), rdbms(payrollDb) {
         alert responseTime(p95) over(5m) > 500ms @severity(warning);
 
         // List payroll runs with pagination

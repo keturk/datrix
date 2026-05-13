@@ -294,7 +294,7 @@ service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('
         }
     }
 
-    rest_api DeliveryAPI : basePath('/api/v1/deliveries') {
+    rest_api DeliveryAPI : basePath('/api/v1/deliveries'), rdbms(deliveryDb) {
 
         resource deliveryDb.Delivery : only(list, get);
         resource deliveryDb.DeliveryDriver : only(list, get, create, update);
