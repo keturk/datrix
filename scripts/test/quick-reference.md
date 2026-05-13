@@ -31,6 +31,8 @@ Runs tests for one or more Datrix projects.
 
 **Parameters:** `-Projects` (positional, variadic), `-All`, `-Coverage`, `-VerboseOutput`, `-NoSave`, `-NoAutoInstall`, `-SkipInstall`, `-Unit`, `-Integration`, `-E2E`, `-Fast`, `-Slow` (mutually exclusive), `-Specific <path>`, `-Keyword <expr>`, `-Dbg`
 
+**Log output:** Unless `-NoSave` is used, `test.ps1` creates one timestamped log folder for each project it runs under that project's `.test_results` directory. AI agents do not need to capture full console output; read the final console lines to find the saved log folder, then inspect the files in that folder.
+
 ---
 
 ## `test\run-complete.ps1`

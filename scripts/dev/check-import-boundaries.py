@@ -2,8 +2,9 @@
 """Cross-package import boundary scanner for Datrix monorepo.
 
 Enforces architectural dependency rules by scanning all Python source files
-in each package's src/ directory and checking imports against forbidden
-prefix rules. Uses AST parsing - no package installation required.
+in each package's src/, tests/, fixtures/, and helpers/ directories (when they
+exist) and checking imports against forbidden prefix rules. Uses AST parsing -
+no package installation required.
 
 Exit codes:
     0: Clean (no violations) or --warn mode
@@ -85,6 +86,15 @@ BOUNDARY_RULES: dict[str, list[str]] = {
 
 
 @dataclass(frozen=True)
+class PackageInfo:
+    """Package metadata for scanning."""
+
+    name: str  # e.g., datrix_common
+    root: Path  # e.g., d:/datrix/datrix-common
+    src_dir: Path  # e.g., d:/datrix/datrix-common/src/datrix_common
+
+
+@dataclass(frozen=True)
 class Violation:
     """Represents a single import boundary violation."""
 
@@ -163,16 +173,16 @@ def extract_imports_from_file(file_path: Path) -> list[tuple[int, str]]:
     return imports
 
 
-def discover_packages(base_dir: Path) -> dict[str, Path]:
+def discover_packages(base_dir: Path) -> dict[str, PackageInfo]:
     """Discover all datrix-* packages in the monorepo.
 
     Args:
         base_dir: Monorepo root directory
 
     Returns:
-        Dictionary mapping package names (datrix_common) to src directories
+        Dictionary mapping package names to PackageInfo objects
     """
-    packages: dict[str, Path] = {}
+    packages: dict[str, PackageInfo] = {}
 
     for candidate in base_dir.iterdir():
         if not candidate.is_dir():
@@ -195,22 +205,24 @@ def discover_packages(base_dir: Path) -> dict[str, Path]:
 
         # Use the first datrix* directory name as the package name
         package_name = package_dirs[0].name
-        packages[package_name] = src_dir / package_name
+        packages[package_name] = PackageInfo(
+            name=package_name,
+            root=candidate,
+            src_dir=src_dir / package_name,
+        )
 
     return packages
 
 
 def scan_package_for_violations(
-    package_name: str,
-    package_src_dir: Path,
+    package_info: PackageInfo,
     monorepo_root: Path,
     verbose: bool,
 ) -> list[Violation]:
     """Scan a single package for import boundary violations.
 
     Args:
-        package_name: Package name (e.g., datrix_common)
-        package_src_dir: Path to package source directory
+        package_info: Package metadata
         monorepo_root: Monorepo root for relative path calculation
         verbose: Print each file being scanned
 
@@ -220,44 +232,54 @@ def scan_package_for_violations(
     violations: list[Violation] = []
 
     # Get forbidden prefixes for this package
-    forbidden_prefixes = BOUNDARY_RULES.get(package_name, [])
+    forbidden_prefixes = BOUNDARY_RULES.get(package_info.name, [])
     if not forbidden_prefixes:
         return violations
 
-    # Walk all .py files under the package src directory
-    for py_file in package_src_dir.rglob("*.py"):
-        if verbose:
-            rel_path = py_file.relative_to(monorepo_root)
-            print(f"Scanning: {rel_path}", file=sys.stderr)
+    # Directories to scan: src/, tests/, fixtures/, helpers/
+    scan_dirs = [package_info.src_dir]
 
-        try:
-            imports = extract_imports_from_file(py_file)
-        except SyntaxError as e:
-            rel_path = py_file.relative_to(monorepo_root)
-            print(
-                f"Warning: Failed to parse {rel_path}:{e.lineno} - {e.msg}",
-                file=sys.stderr,
-            )
-            continue
-        except OSError as e:
-            rel_path = py_file.relative_to(monorepo_root)
-            print(f"Warning: Failed to read {rel_path} - {e}", file=sys.stderr)
-            continue
+    # Add optional directories if they exist
+    for dir_name in ["tests", "fixtures", "helpers"]:
+        optional_dir = package_info.root / dir_name
+        if optional_dir.exists() and optional_dir.is_dir():
+            scan_dirs.append(optional_dir)
 
-        # Check each import against forbidden prefixes
-        for line_num, imported_module in imports:
-            for forbidden_prefix in forbidden_prefixes:
-                if is_forbidden_import(package_name, imported_module, forbidden_prefix):
-                    violations.append(
-                        Violation(
-                            file_path=py_file,
-                            line_number=line_num,
-                            imported_module=imported_module,
-                            source_package=package_name,
-                            forbidden_prefix=forbidden_prefix,
+    # Walk all .py files under all scan directories
+    for scan_dir in scan_dirs:
+        for py_file in scan_dir.rglob("*.py"):
+            if verbose:
+                rel_path = py_file.relative_to(monorepo_root)
+                print(f"Scanning: {rel_path}", file=sys.stderr)
+
+            try:
+                imports = extract_imports_from_file(py_file)
+            except SyntaxError as e:
+                rel_path = py_file.relative_to(monorepo_root)
+                print(
+                    f"Warning: Failed to parse {rel_path}:{e.lineno} - {e.msg}",
+                    file=sys.stderr,
+                )
+                continue
+            except OSError as e:
+                rel_path = py_file.relative_to(monorepo_root)
+                print(f"Warning: Failed to read {rel_path} - {e}", file=sys.stderr)
+                continue
+
+            # Check each import against forbidden prefixes
+            for line_num, imported_module in imports:
+                for forbidden_prefix in forbidden_prefixes:
+                    if is_forbidden_import(package_info.name, imported_module, forbidden_prefix):
+                        violations.append(
+                            Violation(
+                                file_path=py_file,
+                                line_number=line_num,
+                                imported_module=imported_module,
+                                source_package=package_info.name,
+                                forbidden_prefix=forbidden_prefix,
+                            )
                         )
-                    )
-                    break  # Only report first matching forbidden prefix
+                        break  # Only report first matching forbidden prefix
 
     return violations
 
@@ -446,10 +468,9 @@ def main() -> int:
 
     # Scan all packages
     all_violations: list[Violation] = []
-    for package_name, package_src_dir in sorted(packages.items()):
+    for package_name, package_info in sorted(packages.items()):
         violations = scan_package_for_violations(
-            package_name,
-            package_src_dir,
+            package_info,
             monorepo_root,
             args.verbose,
         )

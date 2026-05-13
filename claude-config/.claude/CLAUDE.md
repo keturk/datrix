@@ -45,7 +45,7 @@ Design docs live in `design/` numbered by priority (e.g., `01-core.md`, `09-work
 - **Operationalize before coding.** Convert a design doc into actionable task files before writing code. Track implementation progress in task files, not in the design doc.
   - **Use `/operationalize-design-v2`** for production-bound designs (default) — integrates Task Review System (Tier 1 local LLM + optional Tier 2 Codex) to validate tasks before execution. Adds ~5-15 minutes but catches defects early.
   - **Use `/operationalize-design`** for rapid prototyping or when review system unavailable — generates tasks without validation.
-- **Absorb after completion.** After all tasks are complete, use `/absorb-design` to transfer the design doc's knowledge into permanent repo docs and delete the design doc. Design docs are transient — they guide implementation, then get absorbed and deleted.
+- **Absorb after completion.** After all tasks are complete, use `/absorb-design` to transfer the design doc's knowledge into permanent repo docs. Design docs are preserved as historical reference after their content is absorbed into permanent documentation.
 - **Never modify during implementation.** If the design needs changes, discuss first — do not silently edit the design doc while implementing it.
 
 ## Logic Map

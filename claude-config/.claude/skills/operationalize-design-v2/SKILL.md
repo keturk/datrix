@@ -288,12 +288,9 @@ Converts a design document into actionable task files with **automated review va
     - Workflow changes → `contributing/workflows.md`
     - Testing patterns → `contributing/test-guidelines/*.md`
 
-16. **Delete design doc**
+16. **Preserve design doc**
 
-    Design doc is now absorbed into permanent docs:
-    ```bash
-    rm design/TASK_REVIEW_SYSTEM_DESIGN.md
-    ```
+    Design doc is preserved as historical reference after content is absorbed into permanent docs.
 
 ### Phase 5: Final Report
 
@@ -324,7 +321,7 @@ Converts a design document into actionable task files with **automated review va
     Documentation:
     - Updated: datrix/docs/architecture/pipeline-and-capabilities.md
     - Updated: datrix-common/docs/contributing/ai-agent-rules.md
-    - Deleted: design/TASK_REVIEW_SYSTEM_DESIGN.md (absorbed)
+    - Preserved: design/TASK_REVIEW_SYSTEM_DESIGN.md (content absorbed into docs)
 
     Tasks ready for execution at:
     - d:\datrix\datrix-common\.tasks\phase-05\

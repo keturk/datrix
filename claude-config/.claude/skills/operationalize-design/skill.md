@@ -411,16 +411,15 @@ If you deviated: STOP and explain the deviation to the user.
 
 ---
 
-### Phase 5: Cleanup — Delete the Design Document
+### Phase 5: Cleanup — Verify Design Document Preservation
 
-**Goal:** Prevent stale design documents from lingering.
+**Goal:** Verify all content has been transferred while preserving the design document.
 
 1. Verify ALL content has been transferred to official docs or task files
 2. Check that no unique information remains only in the design document
-3. Delete the original design document
+3. Report completion (design document is preserved)
 
 **If content was NOT fully transferred** (e.g., a section was skipped):
-- Do NOT delete
 - Report what remains and why it wasn't transferred
 - WAIT for user decision
 
@@ -429,7 +428,7 @@ If you deviated: STOP and explain the deviation to the user.
 This phase is COMPLETE when:
 - [ ] Verified ALL content transferred to official docs or task files
 - [ ] Verified no unique information remains only in design document
-- [ ] Design document deleted from filesystem
+- [ ] Design document preserved on filesystem
 - [ ] Output matches the format below exactly
 
 **End-of-phase output:**
@@ -437,7 +436,7 @@ This phase is COMPLETE when:
 ```
 CLEANUP:
 
-Design document deleted: {path}
+Design document preserved: {path}
 All content transferred to:
 - {doc 1}
 - {doc 2}
@@ -448,7 +447,7 @@ All content transferred to:
 
 Before reporting completion, answer:
 1. Did I verify ALL content was transferred (not just assume)?
-2. Did I actually delete the design document file?
+2. Did I preserve the design document file?
 3. Did I follow the "Goal:" statement above exactly?
 4. Did I deviate from any instruction in this phase? If yes, why?
 
@@ -471,7 +470,7 @@ Tasks generated: {N} tasks in phase {NN}
   Test: {N}
   Documentation: {N}
   Quality Gate: {N}
-Design document: DELETED / RETAINED (reason)
+Design document: PRESERVED at {path}
 
 Medium-confidence decisions to review:
 - {decision 1} — {rationale summary}
@@ -487,8 +486,8 @@ Next steps:
 ## Anti-Patterns
 
 - **NO generating tasks without resolving ambiguities first** — Phase 2 before Phase 4
-- **NO deleting the design doc until all content is transferred** — verify first
-- **NO duplicating content** — transfer, don't copy (delete from source after transfer)
+- **NO deleting the design doc** — design docs are preserved as historical reference
+- **NO duplicating content** — transfer, don't copy
 - **NO creating new standalone docs** — integrate into existing doc structure
 - **NO skipping dependency analysis** — task ordering must reflect real dependencies
 - **NO fabricating decisions** — every decision needs evidence from the codebase

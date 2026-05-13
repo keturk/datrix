@@ -1,11 +1,11 @@
 ---
-description: Absorb a design document into existing docs across all repos, then delete the source
+description: Absorb a design document into existing docs across all repos, preserving the source
 disable-model-invocation: true
 ---
 
 # Absorb Design Document
 
-Transfer all knowledge from a design document into the appropriate existing documentation files across all 14 repo doc folders, then delete the original document. No tasks, no decisions — purely a knowledge-transfer operation.
+Transfer all knowledge from a design document into the appropriate existing documentation files across all 14 repo doc folders, preserving the original document as historical reference. No tasks, no decisions — purely a knowledge-transfer operation.
 
 ## When to Use
 
@@ -43,7 +43,7 @@ KEEP SOURCE: true
 |-----------|----------|-------------|
 | DOCUMENT | Yes | Path to the design document to absorb |
 | DRY RUN | No | If `true`, produce the transfer plan but do not write any files |
-| KEEP SOURCE | No | If `true`, do not delete the source document after transfer |
+| DELETE SOURCE | No | If `true`, delete the source document after transfer (default: preserve) |
 
 ## Target Documentation Folders
 
@@ -191,15 +191,25 @@ WAIT for user decision.
 
 ---
 
-### Phase 4: Cleanup — Delete the Source Document
+### Phase 4: Cleanup — Preserve the Source Document
 
-**Goal:** Remove the design document to prevent stale/duplicate documentation.
+**Goal:** Preserve the design document as historical reference.
 
-1. **If KEEP SOURCE is true** → skip deletion, report completion
-2. **If all content was transferred** → delete the original design document
-3. **If the design document is tracked in any index or README** → remove the reference
+1. **If DELETE SOURCE is true** → delete the original design document
+2. **Otherwise** → preserve the design document and report completion
+3. **If the design document is tracked in any index or README** → update references to indicate content is now in official docs
 
 **End-of-phase output:**
+
+```
+CLEANUP:
+
+Source preserved: {path}
+References updated in:
+- {index/readme path} (if any)
+```
+
+Or, if DELETE SOURCE was set:
 
 ```
 CLEANUP:
@@ -221,7 +231,7 @@ Knowledge units transferred: {N}
 Knowledge units skipped: {N} (with reasons)
 Files modified: {N}
 Files created: {M}
-Source document: DELETED / RETAINED (reason)
+Source document: PRESERVED / DELETED (if DELETE SOURCE flag used)
 
 Modified files:
 - {path 1}
@@ -235,7 +245,7 @@ Modified files:
 - **NO dumping content at the end of a file** — place content in the correct section
 - **NO creating new standalone docs when existing docs cover the topic** — integrate, don't fragment
 - **NO preserving the source document's structure in the target** — adapt to the target's style
-- **NO leaving the source document after successful transfer** (unless KEEP SOURCE is set)
+- **NO deleting the source document** (unless DELETE SOURCE flag is explicitly set)
 - **NO transferring implementation details into docs** — those belong in code
 - **NO duplicating content across multiple targets** — each unit goes to exactly one place
 - **NO skipping content silently** — every skipped unit must be reported with a reason
