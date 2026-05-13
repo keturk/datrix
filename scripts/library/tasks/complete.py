@@ -20,19 +20,31 @@ import re
 import sys
 from pathlib import Path
 
-# Allow imports from scripts/library/shared
-library_dir = Path(__file__).resolve().parent.parent
-if str(library_dir) not in sys.path:
-    sys.path.insert(0, str(library_dir))
-
-from shared.venv import get_datrix_root
-
 logger = logging.getLogger(__name__)
 
 HEADING_PATTERN = re.compile(r"^(?P<prefix>#+\s+)(?P<title>.+?)\s*$")
 TASK_TITLE_PATTERN = re.compile(r"^(?:[A-Z][A-Z0-9_-]*:\s+)?Task\s+.+$")
 COMPLETED_TITLE_PATTERN = re.compile(r"^COMPLETED:\s+Task\s+.+$")
 STRIP_STATUS_PATTERN = re.compile(r"^(?:[A-Z][A-Z0-9_-]*:\s+)?(Task\s+.+)$")
+
+
+def get_datrix_root() -> Path:
+    """Find the workspace root by walking up to a directory containing datrix-* repos."""
+    current = Path(__file__).resolve()
+
+    for candidate in [current.parent] + list(current.parents):
+        try:
+            children = list(candidate.iterdir())
+        except OSError:
+            continue
+
+        repo_count = sum(
+            1 for child in children if child.is_dir() and child.name.startswith("datrix")
+        )
+        if repo_count >= 2:
+            return candidate
+
+    raise FileNotFoundError("Could not find Datrix root directory")
 
 
 def _iter_task_files(datrix_root: Path) -> list[Path]:

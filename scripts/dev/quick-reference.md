@@ -138,7 +138,7 @@ Detects leftover debug/logging artifacts in source code (print, breakpoint, cons
 
 ### `dev\check-import-boundaries.ps1`
 
-Enforces cross-package import boundary rules across the monorepo. Scans `src/` directories for forbidden imports using Python AST analysis. See [Import Boundaries](../../../datrix-common/docs/architecture/import-boundaries.md) for the full rule table.
+Enforces cross-package import boundary rules across the monorepo. Scans each package's `src/`, `tests/`, `fixtures/`, and `helpers/` directories for forbidden imports using Python AST analysis. See [Import Boundaries](../../../datrix-common/docs/architecture/import-boundaries.md) for the full rule table.
 
 | Mode | Command | Description |
 |------|---------|-------------|

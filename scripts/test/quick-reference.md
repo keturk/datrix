@@ -169,3 +169,26 @@ Reports run test results from `.generated/` tree.
 | **With debug** | `.\test\status-unit-tests.ps1 -Dbg` |
 
 **Parameters:** `-Dbg`
+
+---
+
+## Validation Scripts
+
+### `test\type-mapping-completeness.ps1`
+
+Validates that all canonical types in the TypeRegistry have mappings in the requested language generators. This is a repo-level cross-package validation script that checks type mapping completeness across language packages.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Python only** | `.\test\type-mapping-completeness.ps1 -Languages python` | Check Python type mappings |
+| **TypeScript only** | `.\test\type-mapping-completeness.ps1 -Languages typescript` | Check TypeScript type mappings |
+| **Both languages** | `.\test\type-mapping-completeness.ps1 -Languages python,typescript` | Check both Python and TypeScript |
+| **SQL dialects** | `.\test\type-mapping-completeness.ps1 -Languages sql` | Check SQL type mappings for all dialects |
+| **Skip install** | `.\test\type-mapping-completeness.ps1 -Languages python,typescript -SkipInstall` | Skip dependency installation |
+| **Debug** | `.\test\type-mapping-completeness.ps1 -Languages python -Dbg` | Debug logging |
+
+**Parameters:** `-Languages` (comma-separated list: python, typescript, sql; required), `-SkipInstall`, `-Dbg`
+
+**Exit codes:** 0 = all types mapped, 1 = missing mappings found
+
+**Purpose:** This script replaces package-local cross-language type mapping tests. Individual language packages test only their own mappings; this repo-level script validates completeness across all requested languages.
