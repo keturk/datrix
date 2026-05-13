@@ -253,11 +253,13 @@ function Write-TeeOutput {
  param(
  [Parameter(ValueFromPipeline=$true)]
  [object]$InputObject,
- [string]$LogFilePath
+ [string]$LogFilePath,
+ [switch]$QuietMode
  )
  begin {
  $utf8Encoding = New-Object System.Text.UTF8Encoding($false)
  $logStream = $null
+ $script:inDetailedSection = $false
  if ($LogFilePath) {
  # Ensure the log directory exists (may have been removed by an external process)
  $logParent = Split-Path -Parent $LogFilePath
@@ -278,6 +280,26 @@ function Write-TeeOutput {
  $line = $InputObject.ToString()
  # Use same plain text for both console and log (strip ANSI so log and console match)
  $plainLine = $line -replace '\x1b\[[0-9;]*m', ''
+
+ # Track detailed output sections (suppress from console in quiet mode, but always log)
+ $isStartMarker = $plainLine -match '^=== Detailed output for .* ===$'
+ $isEndMarker = $plainLine -match '^=== End output for .* ===$'
+
+ # Determine if this line should be written to console
+ # In quiet mode: skip markers and everything between them
+ if ($QuietMode) {
+ $writeToConsole = -not ($isStartMarker -or $isEndMarker -or $script:inDetailedSection)
+ } else {
+ $writeToConsole = $true
+ }
+
+ # Update section tracking AFTER determining console output
+ if ($isStartMarker) {
+ $script:inDetailedSection = $true
+ } elseif ($isEndMarker) {
+ $script:inDetailedSection = $false
+ }
+
  # Split long ERROR / Pipeline error lines on "; " so each error is on its own line
  if ($plainLine.Length -gt $MAX_LINE_LENGTH_BEFORE_SPLIT -and $plainLine -match ';\s') {
  $segments = $plainLine -split ';\s*'
@@ -286,14 +308,18 @@ function Write-TeeOutput {
  $seg = $seg.Trim()
  if ($seg.Length -eq 0) { continue }
  $outLine = if ($first) { $seg } else { "  " + $seg }
+ if ($writeToConsole) {
  Write-Host $outLine
+ }
  if ($logWriter) {
  try { $logWriter.WriteLine($outLine) } catch { }
  }
  $first = $false
  }
  } else {
+ if ($writeToConsole) {
  Write-Host $plainLine
+ }
  if ($logWriter) {
  try { $logWriter.WriteLine($plainLine) } catch { }
  }
@@ -600,7 +626,12 @@ $("=" * 80)
  $env:DATRIX_DISABLE_LOG = "1"
  try {
  # Capture output to both console and log file (ASCII) - stream in real-time
+ # In quiet mode (no -VerboseOutput), suppress detailed output sections from console but keep in log
+ if ($VerboseOutput) {
  & $pythonExe @pythonArgs 2>&1 | Write-TeeOutput -LogFilePath $logFilePath
+ } else {
+ & $pythonExe @pythonArgs 2>&1 | Write-TeeOutput -LogFilePath $logFilePath -QuietMode
+ }
  $exitCode = $LASTEXITCODE
  } finally {
  Remove-Item env:DATRIX_DISABLE_LOG -ErrorAction SilentlyContinue

@@ -18,6 +18,7 @@ Code metrics and linting for Datrix Python packages: Radon (complexity, raw, Hal
 | `duplicate.ps1` | Run Pylint duplicate-code detection (R0801) |
 | `bandit.ps1` | Run Bandit security scanner |
 | `coverage.ps1` | Run pytest with coverage and show coverage details |
+| `test-gen.ps1` | Coverage-driven unit test generation via local Ollama |
 
 ## complexity.ps1
 
@@ -243,10 +244,46 @@ Uses [scripts/library/metrics/coverage.py](../library/metrics/coverage.py) and [
 | `-StopOnError` | Stop on first project failure |
 | `-VerboseOutput` | Verbose pytest output |
 
-## Behavior
+## test-gen.ps1
 
-1. Resolves project root (workspace root + project name or path).
-2. Runs the tool on `project_root/src` (tests excluded by default for complexity/vulture).
-3. complexity mode=check: exits 1 if any block exceeds `-Max`; otherwise 0.
+Uses [scripts/library/metrics/test_gen.py](../library/metrics/test_gen.py), [pytest-cov](https://github.com/pytest-dev/pytest-cov), [Ruff](https://github.com/astral-sh/ruff), and a local Ollama server. It runs project coverage, ranks uncovered functions, and can generate `_generated` pytest files under `tests/unit/`. Generated files are kept only after Ruff, the generated test file, and the full project test suite pass; failing generated files are deleted.
 
-The complexity threshold aligns with the project guideline: cyclomatic complexity ≤ 15.
+**Modes:** `report` lists ranked candidates, `generate` creates one validated test file, and `generate-all` attempts every matching candidate. Generation modes print an `Added tests` summary for the files that were kept and a summary of generated, skipped, and failed candidates.
+
+The tool writes a per-project manifest at `.generated/test-gen-manifest.json`. Candidates already recorded as successful, or whose generated output file already exists, are skipped rather than regenerated. Existing related tests under `tests/` are included in the prompt as duplicate-avoidance context, and generated files are rejected before writing if they reuse an existing `test_*` function name.
+
+### Usage
+
+```powershell
+.\scripts\metrics\test-gen.ps1 datrix-common
+.\scripts\metrics\test-gen.ps1 datrix-common -Generate
+.\scripts\metrics\test-gen.ps1 datrix-common -GenerateAll -MaxRetries 3
+.\scripts\metrics\test-gen.ps1 datrix-common -Generate -TargetFunction "validate_external"
+.\scripts\metrics\test-gen.ps1 datrix-common -Generate -TargetFunction "Parser.validate_external"
+.\scripts\metrics\test-gen.ps1 datrix-common -Generate -OllamaUrl "http://10.94.0.100:11434" -Model "qwen3-coder:30b"
+.\scripts\metrics\test-gen.ps1 -All -Mode report
+```
+
+### Parameters
+
+| Parameter | Description |
+|-----------|-------------|
+| `Projects` | Project names or paths (positional) |
+| `-All` | Run for all datrix-* projects |
+| `-Mode` | report, generate, generate-all (default: report) |
+| `-Generate` | Shortcut for `-Mode generate` |
+| `-GenerateAll` | Shortcut for `-Mode generate-all` |
+| `-TargetFunction` | Bare function name, `Class.method`, `module.function`, or the full candidate id printed by report mode. Ambiguous bare names fail in generate mode. |
+| `-MaxRetries` | Maximum Ollama retries per generated test (default: 3) |
+| `-MinUncoveredRatio` | Include functions where uncovered/total lines is greater than this ratio (default: 0.5) |
+| `-OllamaUrl` | Ollama server URL (default: `http://10.94.0.100:11434`) |
+| `-Model` | Override the Ollama model |
+| `-StopOnError` | Stop on first project failure |
+| `-VerboseOutput` | Verbose wrapper output |
+
+## Shared Behavior
+
+1. Resolves project root from the workspace root plus the project name or path.
+2. Excludes the `datrix` showcase package when using `-All` or normalized project inputs.
+3. Activates the shared workspace virtual environment before running the Python library tool.
+4. Returns a non-zero exit code when any selected project fails, unless a tool mode explicitly defines a different result contract.
