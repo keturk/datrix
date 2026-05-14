@@ -160,10 +160,12 @@ Key module paths:
 
 ## Files to Review Before Starting
 
+**IMPORTANT:** All file paths in this section MUST be absolute paths (e.g., `d:\datrix\...`), never relative paths.
+
 1. **Agent rules:** `d:\datrix\datrix-common\docs\contributing\ai-agent-rules.md` (index with links to sub-documents)
 2. **Test guidelines:** `d:\datrix\datrix-common\docs\contributing\test-guidelines\` (unit, integration, e2e — each an index with links to shared sub-documents under `shared/`)
-3. **Design doc:** `{design-doc-path}` -- Section(s) {X.Y}
-{4. Additional files: architecture docs, existing code, example .dtrx files relevant to this task}
+3. **Design doc:** `{absolute-design-doc-path}` -- Section(s) {X.Y}
+{4. Additional files: architecture docs, existing code, example .dtrx files relevant to this task — ALL with absolute paths}
 
 ## Files to Create
 
@@ -546,3 +548,4 @@ When creating tasks, point agents to relevant example `.dtrx` files:
 7. **Reference specific design document sections** — not just the whole document
 8. **Reference specific example files** — not just "look at examples"
 9. **All module paths must be valid** — check against the canonical and non-existent module lists
+10. **ALL file paths in generated task files MUST be absolute paths** — use `d:\datrix\...` format, never relative paths like `docs/...` or `examples/...`

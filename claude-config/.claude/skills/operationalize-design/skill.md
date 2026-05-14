@@ -264,6 +264,7 @@ If you deviated: STOP and explain the deviation to the user.
 - **No file path references to the design document.** Task files must NOT contain any path pointing to the design document being operationalized — not in the header, not in "Files to Review", not in prose. The design document will not exist when the task is executed.
 - **Include "why" context.** Each task must include enough rationale and design-decision context that an implementer understands not just what to build but why it was designed that way — without needing the original design doc.
 - **Replace "Files to Review" design-doc entries.** Instead of listing the design document under "Files to Review Before Starting", list only the architecture docs, code files, and test guidelines that the implementer actually needs. If specific design content is needed, inline it in the task body.
+- **All file paths MUST be absolute.** Every file path in the generated task files must use absolute paths (e.g., `d:\datrix\datrix\docs\architecture\...`), never relative paths (e.g., `docs/architecture/...`). This applies to all sections: "Files to Review Before Starting", "Design reference", example file references, etc.
 
 **Pre-requisite:** Verify you have read `/generate-tasks` SKILL.md. If not, STOP and read it now.
 
