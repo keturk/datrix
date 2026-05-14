@@ -58,6 +58,7 @@ Converts a design document into actionable task files with **automated review va
    - Create task markdown files in `{repo}/.tasks/phase-NN/`
    - One task per significant deliverable
    - Include all standard task sections (Files to Create, Implementation Steps, Test Plan, etc.)
+   - **CRITICAL:** All file paths in generated task files MUST be absolute paths (e.g., `d:\datrix\datrix\docs\...`), never relative paths
 
 3. **Initial report**
    ```

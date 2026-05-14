@@ -246,11 +246,11 @@ Uses [scripts/library/metrics/coverage.py](../library/metrics/coverage.py) and [
 
 ## test-gen.ps1
 
-Uses [scripts/library/metrics/test_gen.py](../library/metrics/test_gen.py), [pytest-cov](https://github.com/pytest-dev/pytest-cov), [Ruff](https://github.com/astral-sh/ruff), and a local Ollama server. It runs project coverage, ranks uncovered functions, and can generate `_generated` pytest files under `tests/unit/`. Generated files are kept only after Ruff, the generated test file, and the full project test suite pass; failing generated files are deleted.
+Uses [scripts/library/metrics/test_gen.py](../library/metrics/test_gen.py), [pytest-cov](https://github.com/pytest-dev/pytest-cov), [Ruff](https://github.com/astral-sh/ruff), and a local Ollama server. It runs project coverage, ranks uncovered functions, and can generate `_generated` pytest files under `tests/unit/`. Generated files are kept only after target-reference checks, Ruff auto-fix/check, the generated test file, and the full project test suite pass; failing generated files are deleted.
 
 **Modes:** `report` lists ranked candidates, `generate` creates one validated test file, and `generate-all` attempts every matching candidate. Generation modes print an `Added tests` summary for the files that were kept and a summary of generated, skipped, and failed candidates.
 
-The tool writes a per-project manifest at `.generated/test-gen-manifest.json`. Candidates already recorded as successful, or whose generated output file already exists, are skipped rather than regenerated. Existing related tests under `tests/` are included in the prompt as duplicate-avoidance context, and generated files are rejected before writing if they reuse an existing `test_*` function name.
+The tool writes a per-project manifest at `.generated/test-gen-manifest.json`. Candidates already recorded as successful, or whose generated output file already exists, are skipped rather than regenerated. Existing related test files and test names under `tests/` are summarized in the prompt as duplicate-avoidance context, and generated files are rejected before writing if they reuse an existing `test_*` function name or do not reference the target module and function.
 
 ### Usage
 

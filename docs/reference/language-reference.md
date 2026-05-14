@@ -54,7 +54,7 @@ service ecommerce.OrderService : version('1.0.0') {
     pubsub mq('config/order-service/pubsub.yaml') { ... }
     queues('config/order-service/queue.yaml') { ... }
 
-    rest_api OrderAPI : basePath('/api/v1/orders') { ... }
+    rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(db) { ... }
 }
 ```
 
@@ -144,13 +144,13 @@ Enums are first-class types used in fields, parameters, and event payloads.
 ## REST APIs
 
 ```dtrx
-rest_api OrderAPI : basePath('/api/v1/orders') {
-    resource db.Order;
-    resource db.OrderItem : only(list, get), access(admin);
+rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(db) {
+    resource Order;
+    resource OrderItem : only(list, get), access(admin);
 
     @path('/search')
     fn search(String? query, OrderStatus? status) -> List<Order> {
-        return db.Order.filter(
+        return Order.filter(
             title.contains(query) && status == status
         );
     }
@@ -158,6 +158,123 @@ rest_api OrderAPI : basePath('/api/v1/orders') {
 ```
 
 `resource` generates standard CRUD endpoints. Use `: only(...)` to limit operations, `: access(...)` to restrict access. Custom endpoints are defined as functions.
+
+### API Storage Defaults
+
+`rest_api` and `graphql_api` blocks support optional storage defaults that define the default storage block for bare entity references inside that API.
+
+#### Syntax
+
+```dtrx
+rest_api MemberAPI : basePath("/api/v1/members"), rdbms(memberDb) {
+    get(UUID id) -> Member {
+        return Member.findOne({ id: id });
+    }
+}
+
+graphql_api MemberGraphQL : basePath("/graphql"), rdbms(memberDb) {
+    query member(UUID id) -> Member {
+        return Member.findOne({ id: id });
+    }
+}
+
+rest_api CatalogAPI : basePath("/api/v1/catalog"), nosql(catalogStore) {
+    get(String sku) -> ProductDocument {
+        return ProductDocument.findOne({ sku: sku });
+    }
+}
+```
+
+#### Attributes
+
+- `basePath(string)` — Required. Base path for the API.
+- `rdbms(blockName)` — Optional. Default RDBMS block for bare entity references.
+- `nosql(blockName)` — Optional. Default NoSQL block for bare entity references.
+
+Attributes are comma-separated. An API may declare neither, one, or both storage defaults.
+
+#### Resolution Rules
+
+For a storage-entity reference inside a service-owned REST or GraphQL API:
+
+1. **Explicit `block.Entity` wins.** If the user writes `auditDb.AuditEntry`, that is the final binding.
+2. **Declaration-level explicit binding wins.** If an endpoint or operation has an explicit binding, use that.
+3. **Otherwise, use the API default matching the storage kind.** Bare `Member` uses `rdbms(memberDb)` if declared.
+4. **Otherwise, fail.** The user must use `block.Entity` or declare an API default.
+
+#### Examples
+
+**API Default:**
+
+```dtrx
+service MemberService {
+    rdbms memberDb {
+        entity Member {
+            id: UUID primaryKey
+        }
+    }
+
+    rest_api MemberAPI : basePath("/members"), rdbms(memberDb) {
+        get(UUID id) -> Member {
+            return Member.findOne({ id: id });
+        }
+    }
+}
+```
+
+`Member` resolves to `memberDb.Member`.
+
+**Explicit Override:**
+
+```dtrx
+service MemberService {
+    rdbms memberDb {
+        entity Member { id: UUID primaryKey }
+    }
+
+    rdbms auditDb {
+        entity AuditEntry { id: UUID primaryKey }
+    }
+
+    rest_api MemberAPI : basePath("/members"), rdbms(memberDb) {
+        getAudit(UUID id) -> auditDb.AuditEntry {
+            return auditDb.AuditEntry.findOne({ id: id });
+        }
+    }
+}
+```
+
+`auditDb.AuditEntry` uses the explicit block and does not consult the API default.
+
+**No Default (Error):**
+
+```dtrx
+rest_api MemberAPI : basePath("/members") {
+    get(UUID id) -> Member {
+        return Member.findOne({ id: id });
+    }
+}
+```
+
+This is invalid when `Member` is a storage entity. The user must either declare `rdbms(memberDb)` or write `memberDb.Member`.
+
+**Mixed Defaults Conflict:**
+
+```dtrx
+rest_api SearchAPI : basePath("/search"), rdbms(sqlDb), nosql(documentStore) {
+    get(UUID id) -> Product {
+        return Product.findOne({ id: id });
+    }
+}
+```
+
+If both `sqlDb.Product` and `documentStore.Product` exist, bare `Product` is invalid. The user must write `sqlDb.Product` or `documentStore.Product`.
+
+#### Restrictions
+
+- Storage defaults are valid only on service-owned APIs.
+- `rest_api` blocks inside `extern service` may not use `rdbms(...)` or `nosql(...)`.
+- Extern-service REST APIs may not reference storage entities in endpoint signatures, even block-qualified.
 
 ---
 

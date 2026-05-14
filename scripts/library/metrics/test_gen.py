@@ -31,7 +31,6 @@ parse_ollama_response = _ollama_utils.parse_ollama_response
 
 DEFAULT_UNCOVERED_RATIO = 0.5
 DEFAULT_MAX_RETRIES = 3
-MAX_EXISTING_TEST_CONTEXT_CHARS = 20000
 MANIFEST_VERSION = 1
 
 SYSTEM_PROMPT = """You are a Python test expert for the Datrix project.
@@ -49,10 +48,13 @@ Test rules (MANDATORY):
 
 Output rules:
 - Return ONLY a complete Python test file inside a ```python code fence
+- Do not include prose before or after the code fence
+- Use ASCII characters only
 - Include all necessary imports at the top
 - One test function per scenario (2-4 scenarios per function)
 - Test both happy path and error cases
 - Do not duplicate scenarios already covered by the existing tests in the prompt
+- Do not reuse any forbidden existing test function name listed in the prompt
 """
 
 
@@ -521,21 +523,22 @@ def _build_existing_test_context(
     candidate: FunctionCandidate,
 ) -> str:
     chunks: list[str] = []
-    total_chars = 0
     for test_file in _find_related_test_files(project_root, candidate):
         try:
             rel_path = test_file.relative_to(project_root)
         except ValueError:
             rel_path = test_file
-        text = test_file.read_text(encoding="utf-8", errors="replace")
-        remaining = MAX_EXISTING_TEST_CONTEXT_CHARS - total_chars
-        if remaining <= 0:
-            break
-        if len(text) > remaining:
-            text = text[:remaining] + "\n# ... truncated ...\n"
-        chunk = f"# {rel_path.as_posix()}\n{text}"
-        chunks.append(chunk)
-        total_chars += len(text)
+        try:
+            tree = ast.parse(test_file.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            test_names: list[str] = []
+        else:
+            test_names = sorted(_collect_test_function_names_from_tree(tree))
+        if test_names:
+            names = "\n".join(f"- {name}" for name in test_names)
+        else:
+            names = "- no parseable test functions"
+        chunks.append(f"{rel_path.as_posix()}\n{names}")
     return "\n\n".join(chunks)
 
 
@@ -583,6 +586,9 @@ def _build_user_prompt(project_root: Path, candidate: FunctionCandidate) -> str:
     imports_text = _extract_import_lines(source_lines)
     class_context = _extract_class_context(tree, source_lines, candidate.class_name)
     existing_test_context = _build_existing_test_context(project_root, candidate)
+    existing_test_names = "\n".join(
+        f"- {name}" for name in sorted(_collect_existing_test_function_names(project_root))
+    )
 
     import_line = (
         f"from {candidate.module_path} import {candidate.function_name}"
@@ -599,8 +605,10 @@ def _build_user_prompt(project_root: Path, candidate: FunctionCandidate) -> str:
         f"```python\n{class_context or '# none'}\n```\n\n"
         "File imports:\n"
         f"```python\n{imports_text}\n```\n\n"
-        "Existing related tests (do not duplicate these scenarios):\n"
-        f"```python\n{existing_test_context or '# none'}\n```\n"
+        "Forbidden existing test function names (do not use these names):\n"
+        f"{existing_test_names or '- none'}\n\n"
+        "Existing related test summary (do not duplicate these scenarios):\n"
+        f"{existing_test_context or '- none'}\n"
     )
 
 
@@ -608,6 +616,7 @@ def _validate_generated_test(
     test_file_path: Path,
     generated_content: str,
     project_root: Path,
+    candidate: FunctionCandidate,
 ) -> tuple[bool, str]:
     try:
         generated_tree = ast.parse(generated_content)
@@ -617,6 +626,16 @@ def _validate_generated_test(
     generated_names = _collect_test_function_names_from_tree(generated_tree)
     if not generated_names:
         return False, "generated file contains no test_* functions"
+    if candidate.function_name not in generated_content:
+        return False, (
+            "generated file does not reference target function "
+            f"{candidate.function_name}"
+        )
+    if candidate.module_path not in generated_content:
+        return False, (
+            "generated file does not import or reference target module "
+            f"{candidate.module_path}"
+        )
     existing_names = _collect_existing_test_function_names(project_root)
     duplicate_names = sorted(generated_names & existing_names)
     if duplicate_names:
@@ -626,6 +645,25 @@ def _validate_generated_test(
 
     test_file_path.parent.mkdir(parents=True, exist_ok=True)
     test_file_path.write_text(generated_content, encoding="utf-8", newline="\n")
+
+    ruff_fix_cmd = [
+        sys.executable,
+        "-m",
+        "ruff",
+        "check",
+        "--fix",
+        str(test_file_path),
+    ]
+    try:
+        subprocess.run(
+            ruff_fix_cmd,
+            cwd=str(project_root),
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        test_file_path.unlink(missing_ok=True)
+        return False, "ruff fix failed: ruff not found in environment"
 
     ruff_cmd = [sys.executable, "-m", "ruff", "check", str(test_file_path)]
     try:
@@ -745,7 +783,12 @@ def _try_generate_for_candidate(
             retry_feedback = "Could not parse Python code fence from Ollama response."
             continue
 
-        ok, detail = _validate_generated_test(output_path, parsed, project_root)
+        ok, detail = _validate_generated_test(
+            output_path,
+            parsed,
+            project_root,
+            candidate,
+        )
         if ok:
             _record_generated_test(
                 project_root,

@@ -158,7 +158,7 @@ Pytest coverage reports via pytest-cov.
 
 ## `metrics\test-gen.ps1`
 
-Coverage-driven unit test generation via local Ollama. Finds uncovered functions from coverage JSON, ranks candidates, and can generate validated `_generated` test files. Generated files are kept only after Ruff, the generated test file, and the full project test suite pass; failures are deleted. Successful generated tests are tracked in `.generated/test-gen-manifest.json`, and already tracked/output-existing candidates are skipped.
+Coverage-driven unit test generation via local Ollama. Finds uncovered functions from coverage JSON, ranks candidates, and can generate validated `_generated` test files. Generated files are kept only after target-reference checks, Ruff auto-fix/check, the generated test file, and the full project test suite pass; failures are deleted. Successful generated tests are tracked in `.generated/test-gen-manifest.json`, and already tracked/output-existing candidates are skipped.
 
 | Mode | Command | Description |
 |------|---------|-------------|
