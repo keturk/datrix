@@ -31,30 +31,33 @@ parse_ollama_response = _ollama_utils.parse_ollama_response
 
 DEFAULT_UNCOVERED_RATIO = 0.5
 DEFAULT_MAX_RETRIES = 3
+DEFAULT_MAX_PROMPT_TOKENS = 6000
+PROMPT_WARNING_TOKENS = 4000
+MAX_RELEVANT_IMPORTS = 20
+MAX_RELATED_TEST_FILES = 3
+MAX_TEST_NAMES_PER_FILE = 8
+MAX_RELEVANT_CLASS_METHODS = 5
 MANIFEST_VERSION = 1
 
-SYSTEM_PROMPT = """You are a Python test expert for the Datrix project.
+SYSTEM_PROMPT = """Generate a complete pytest file for the target Datrix function.
 
-Test rules (MANDATORY):
-- Use pytest (no unittest)
-- Use REAL objects only - NO unittest.mock, NO MagicMock, NO patch, NO SimpleNamespace
-- Use factories from datrix_common.testing when available
-- Use .dtrx fixture files for parser/transformer tests
-- Validate generated code with ast.parse() or yaml.safe_load()
-- Test naming: test_<function_name>_<scenario>
-- Structure: Arrange -> Act -> Assert
-- Add @pytest.mark.unit decorator
-- Import the function under test from its actual module path
-
-Output rules:
-- Return ONLY a complete Python test file inside a ```python code fence
-- Do not include prose before or after the code fence
-- Use ASCII characters only
-- Include all necessary imports at the top
-- One test function per scenario (2-4 scenarios per function)
-- Test both happy path and error cases
-- Do not duplicate scenarios already covered by the existing tests in the prompt
-- Do not reuse any forbidden existing test function name listed in the prompt
+Mandatory:
+- pytest only; no unittest.mock, MagicMock, patch, or SimpleNamespace.
+- Use real objects/factories when available.
+- Import the target from the exact module path provided.
+- Add @pytest.mark.unit to each test.
+- Return only ASCII Python inside one ```python code fence.
+- Use unique test_<function>_<scenario> names.
+- Respect type hints; do not pass None for non-Optional parameters.
+- Prefer tiny local real helper classes for simple attribute-only inputs.
+- Do not instantiate imported domain classes unless their constructor is shown.
+- Do not import or instantiate annotation-only types from signatures.
+- Test doubles must implement every attribute/method the target calls.
+- For acc.add(category, name, default), the env var name is the second argument.
+- Do not invent category names; use category constants/literals from the target.
+- For imported-helper exceptions, assert type only unless exact text is in the target body.
+- Do not invent package import paths.
+- Cover useful happy/error paths without duplicating listed existing tests.
 """
 
 
@@ -446,21 +449,228 @@ def _extract_source_segment(
     return "\n".join(source_lines[start - 1 : end])
 
 
-def _extract_import_lines(source_lines: list[str]) -> str:
+def _dedent_block(text: str) -> str:
+    lines = text.splitlines()
+    indents = [
+        len(line) - len(line.lstrip())
+        for line in lines
+        if line.strip()
+    ]
+    if not indents:
+        return text
+    indent = min(indents)
+    return "\n".join(line[indent:] if len(line) >= indent else line for line in lines)
+
+
+def _find_function_node(
+    tree: ast.Module,
+    candidate: FunctionCandidate,
+) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if node.name != candidate.function_name or node.lineno != candidate.start_line:
+            continue
+        return node
+    return None
+
+
+def _referenced_names(node: ast.AST | None) -> set[str]:
+    if node is None:
+        return set()
+    names: set[str] = set()
+    for child in ast.walk(node):
+        if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load):
+            names.add(child.id)
+        elif isinstance(child, ast.Attribute) and isinstance(child.value, ast.Name):
+            names.add(child.value.id)
+    return names
+
+
+def _import_alias_matches(alias: ast.alias, referenced: set[str]) -> bool:
+    alias_name = alias.asname or alias.name.split(".", 1)[0]
+    return alias_name in referenced or alias.name in referenced
+
+
+def _extract_node_source(source_lines: list[str], node: ast.AST) -> str:
+    start = getattr(node, "lineno", 1)
+    end = getattr(node, "end_lineno", start) or start
+    return _dedent_block("\n".join(source_lines[start - 1 : end]))
+
+
+def _extract_import_lines(
+    tree: ast.Module,
+    source_lines: list[str],
+    function_node: ast.FunctionDef | ast.AsyncFunctionDef | None,
+) -> str:
+    referenced = _referenced_names(function_node)
     imports: list[str] = []
-    for line in source_lines:
-        stripped = line.strip()
-        if stripped.startswith("import ") or stripped.startswith("from "):
-            imports.append(line)
-        elif imports and stripped and not stripped.startswith("#"):
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            if any(_import_alias_matches(alias, referenced) for alias in node.names):
+                imports.append(_extract_node_source(source_lines, node))
+        elif isinstance(node, ast.ImportFrom):
+            if any(alias.name == "*" or _import_alias_matches(alias, referenced) for alias in node.names):
+                imports.append(_extract_node_source(source_lines, node))
+        if len(imports) >= MAX_RELEVANT_IMPORTS:
             break
-    return "\n".join(imports[:120])
+    return "\n".join(imports[:MAX_RELEVANT_IMPORTS])
+
+
+def _extract_local_context(
+    tree: ast.Module,
+    source_lines: list[str],
+    function_node: ast.FunctionDef | ast.AsyncFunctionDef | None,
+) -> str:
+    referenced = _referenced_names(function_node)
+    snippets: list[str] = []
+    for node in tree.body:
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = _assignment_target_names(node)
+            if targets & referenced:
+                snippets.append(_extract_node_source(source_lines, node))
+        elif isinstance(node, ast.ClassDef) and node.name in referenced:
+            snippets.append(_summarize_class_for_prompt(node, source_lines))
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in referenced:
+            snippets.append(_extract_signature_from_node(node, source_lines))
+        if len(snippets) >= 8:
+            break
+    return "\n\n".join(snippets)
+
+
+def _extract_string_literals(node: ast.AST | None) -> list[str]:
+    if node is None:
+        return []
+    values: list[str] = []
+    seen: set[str] = set()
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Constant) or not isinstance(child.value, str):
+            continue
+        value = child.value
+        if value == "":
+            continue
+        if value in seen:
+            continue
+        seen.add(value)
+        values.append(value)
+    return values[:30]
+
+
+def _format_string_literals(values: list[str]) -> str:
+    if not values:
+        return "- none"
+    return "\n".join(f"- {value}" for value in values)
+
+
+def _extract_attribute_accesses(node: ast.AST | None) -> list[str]:
+    if node is None:
+        return []
+    values: list[str] = []
+    seen: set[str] = set()
+    for child in ast.walk(node):
+        name: str | None = None
+        if isinstance(child, ast.Attribute):
+            name = _attribute_chain(child)
+        elif isinstance(child, ast.Call):
+            name = _getattr_access(child) or _helper_required_attribute(child)
+        if name is None or name in seen:
+            continue
+        seen.add(name)
+        values.append(name)
+    return values[:30]
+
+
+def _attribute_chain(node: ast.Attribute) -> str | None:
+    parts = [node.attr]
+    current = node.value
+    while isinstance(current, ast.Attribute):
+        parts.append(current.attr)
+        current = current.value
+    if not isinstance(current, ast.Name):
+        return None
+    parts.append(current.id)
+    return ".".join(reversed(parts))
+
+
+def _getattr_access(node: ast.Call) -> str | None:
+    if not isinstance(node.func, ast.Name) or node.func.id != "getattr":
+        return None
+    if len(node.args) < 2:
+        return None
+    target, attr = node.args[0], node.args[1]
+    if not isinstance(target, ast.Name):
+        return None
+    if not isinstance(attr, ast.Constant) or not isinstance(attr.value, str):
+        return None
+    return f"{target.id}.{attr.value}"
+
+
+def _helper_required_attribute(node: ast.Call) -> str | None:
+    if not isinstance(node.func, ast.Name) or not node.args:
+        return None
+    first_arg = node.args[0]
+    if not isinstance(first_arg, ast.Name):
+        return None
+    if node.func.id == "engine_str":
+        return f"{first_arg.id}.engine"
+    return None
+
+
+def _format_attribute_accesses(values: list[str]) -> str:
+    if not values:
+        return "- none"
+    return "\n".join(f"- {value}" for value in values)
+
+
+def _assignment_target_names(node: ast.Assign | ast.AnnAssign) -> set[str]:
+    targets: list[ast.expr]
+    if isinstance(node, ast.Assign):
+        targets = list(node.targets)
+    else:
+        targets = [node.target]
+    names: set[str] = set()
+    for target in targets:
+        if isinstance(target, ast.Name):
+            names.add(target.id)
+    return names
+
+
+def _summarize_class_for_prompt(node: ast.ClassDef, source_lines: list[str]) -> str:
+    header = source_lines[node.lineno - 1].strip()
+    methods = [
+        _indent_block(_extract_node_source(source_lines, child), "    ")
+        for child in node.body
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ][:MAX_RELEVANT_CLASS_METHODS]
+    if not methods:
+        return header
+    return header + "\n" + "\n".join(methods)
+
+
+def _indent_block(text: str, prefix: str) -> str:
+    return "\n".join(prefix + line if line else line for line in text.splitlines())
+
+
+def _extract_signature_from_node(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    source_lines: list[str],
+) -> str:
+    signature_lines: list[str] = []
+    paren_balance = 0
+    end = node.end_lineno or node.lineno
+    for line in source_lines[node.lineno - 1 : end]:
+        signature_lines.append(line.strip())
+        paren_balance += line.count("(") - line.count(")")
+        if line.strip().endswith(":") and paren_balance <= 0:
+            break
+    return "\n".join(signature_lines)
 
 
 def _extract_class_context(
     tree: ast.Module,
     source_lines: list[str],
     class_name: str | None,
+    target_name: str,
 ) -> str:
     if class_name is None:
         return ""
@@ -472,9 +682,30 @@ def _extract_class_context(
                 for n in node.body
                 if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
             ]
-            methods_text = ", ".join(method_names[:25])
-            return f"{header}\nMethods: {methods_text}"
+            relevant = _select_relevant_method_names(method_names, target_name)
+            return (
+                f"{header}\n"
+                f"Method count: {len(method_names)}\n"
+                f"Relevant methods: {', '.join(relevant) if relevant else 'none'}"
+            )
     return ""
+
+
+def _select_relevant_method_names(
+    method_names: list[str],
+    target_name: str,
+) -> list[str]:
+    target_parts = {part for part in target_name.lower().split("_") if part}
+
+    def score(name: str) -> tuple[int, str]:
+        parts = {part for part in name.lower().split("_") if part}
+        overlap = len(parts & target_parts)
+        init_bonus = 1 if name == "__init__" else 0
+        target_bonus = 2 if name == target_name else 0
+        return (target_bonus + init_bonus + overlap, name)
+
+    ranked = sorted(method_names, key=score, reverse=True)
+    return ranked[:MAX_RELEVANT_CLASS_METHODS]
 
 
 def _iter_test_files(project_root: Path) -> list[Path]:
@@ -501,21 +732,29 @@ def _find_related_test_files(
     if candidate.class_name is not None:
         search_terms.add(candidate.class_name)
 
-    related: list[Path] = []
+    related: list[tuple[int, Path]] = []
     direct = project_root / "tests" / "unit" / f"test_{module_stem}.py"
     if direct.exists():
-        related.append(direct)
+        related.append((100, direct))
 
     for test_file in _iter_test_files(project_root):
-        if test_file in related:
+        if any(path == test_file for _, path in related):
             continue
+        score = 0
         if module_stem in test_file.stem:
-            related.append(test_file)
-            continue
+            score += 30
         text = test_file.read_text(encoding="utf-8", errors="replace")
-        if any(term in text for term in search_terms):
-            related.append(test_file)
-    return related
+        for term in search_terms:
+            if term in text:
+                score += 10
+        if candidate.function_name in text:
+            score += 30
+        if score > 0:
+            related.append((score, test_file))
+    return [
+        path
+        for _, path in sorted(related, key=lambda item: (-item[0], str(item[1])))
+    ][:MAX_RELATED_TEST_FILES]
 
 
 def _build_existing_test_context(
@@ -535,7 +774,10 @@ def _build_existing_test_context(
         else:
             test_names = sorted(_collect_test_function_names_from_tree(tree))
         if test_names:
-            names = "\n".join(f"- {name}" for name in test_names)
+            shown = test_names[:MAX_TEST_NAMES_PER_FILE]
+            names = "\n".join(f"- {name}" for name in shown)
+            if len(test_names) > len(shown):
+                names += f"\n- ... {len(test_names) - len(shown)} more"
         else:
             names = "- no parseable test functions"
         chunks.append(f"{rel_path.as_posix()}\n{names}")
@@ -573,28 +815,70 @@ def _build_generated_test_path(project_root: Path, candidate: FunctionCandidate)
     return tests_unit / name
 
 
+def _build_target_import_line(candidate: FunctionCandidate) -> str:
+    if candidate.class_name is None:
+        return f"from {candidate.module_path} import {candidate.function_name}"
+    return f"from {candidate.module_path} import {candidate.class_name}"
+
+
+def _estimate_prompt_tokens(text: str) -> int:
+    return max(1, len(text) // 4)
+
+
+def _maybe_report_prompt(
+    prompt: str,
+    *,
+    label: str,
+    max_prompt_tokens: int,
+    verbose_prompts: bool,
+) -> None:
+    token_estimate = _estimate_prompt_tokens(prompt)
+    if token_estimate > PROMPT_WARNING_TOKENS:
+        print(
+            f"Warning: {label} prompt is about {token_estimate} tokens "
+            f"(budget={max_prompt_tokens}).",
+            file=sys.stderr,
+        )
+    if token_estimate > max_prompt_tokens:
+        print(
+            f"Warning: {label} prompt exceeds --max-prompt-tokens.",
+            file=sys.stderr,
+        )
+    if verbose_prompts:
+        print(f"\n--- {label} prompt ({token_estimate} tokens est.) ---")
+        print(prompt)
+        print(f"--- end {label} prompt ---\n")
+
+
 def _build_user_prompt(project_root: Path, candidate: FunctionCandidate) -> str:
     source_text = candidate.file_path.read_text(encoding="utf-8", errors="replace")
     source_lines = source_text.splitlines()
     tree = ast.parse(source_text)
+    function_node = _find_function_node(tree, candidate)
 
-    function_source = _extract_source_segment(
+    # Use the AST function span instead of coverage line spans; coverage can
+    # stop on the final executable line and omit closing syntax.
+    function_source = (
+        _extract_node_source(source_lines, function_node)
+        if function_node is not None
+        else _extract_source_segment(source_lines, candidate.start_line, candidate.end_line)
+    )
+    # Keep only imports referenced by the target body. This is the largest prompt
+    # reduction for modules with broad import blocks.
+    imports_text = _extract_import_lines(tree, source_lines, function_node)
+    class_context = _extract_class_context(
+        tree,
         source_lines,
-        candidate.start_line,
-        candidate.end_line,
+        candidate.class_name,
+        candidate.function_name,
     )
-    imports_text = _extract_import_lines(source_lines)
-    class_context = _extract_class_context(tree, source_lines, candidate.class_name)
+    local_context = _extract_local_context(tree, source_lines, function_node)
+    string_literals = _format_string_literals(_extract_string_literals(function_node))
+    attribute_accesses = _format_attribute_accesses(
+        _extract_attribute_accesses(function_node)
+    )
     existing_test_context = _build_existing_test_context(project_root, candidate)
-    existing_test_names = "\n".join(
-        f"- {name}" for name in sorted(_collect_existing_test_function_names(project_root))
-    )
-
-    import_line = (
-        f"from {candidate.module_path} import {candidate.function_name}"
-        if candidate.class_name is None
-        else f"from {candidate.module_path} import {candidate.class_name}"
-    )
+    import_line = _build_target_import_line(candidate)
 
     return (
         f"Target function: {candidate.id}\n\n"
@@ -605,11 +889,83 @@ def _build_user_prompt(project_root: Path, candidate: FunctionCandidate) -> str:
         f"```python\n{class_context or '# none'}\n```\n\n"
         "File imports:\n"
         f"```python\n{imports_text}\n```\n\n"
-        "Forbidden existing test function names (do not use these names):\n"
-        f"{existing_test_names or '- none'}\n\n"
+        "Referenced local definitions/constants:\n"
+        f"```python\n{local_context or '# none'}\n```\n\n"
+        "String literals in target body (prefer these exact expected values):\n"
+        f"{string_literals}\n\n"
+        "Attributes/methods the target reads or calls (test doubles must provide these):\n"
+        f"{attribute_accesses}\n\n"
         "Existing related test summary (do not duplicate these scenarios):\n"
         f"{existing_test_context or '- none'}\n"
     )
+
+
+def _build_retry_prompt(
+    candidate: FunctionCandidate,
+    retry_feedback: str,
+) -> str:
+    signature = _extract_function_signature(candidate)
+    imports_text = _extract_relevant_imports_for_candidate(candidate)
+    function_node = _function_node_for_candidate(candidate)
+    string_literals = _format_string_literals(_extract_string_literals(function_node))
+    attribute_accesses = _format_attribute_accesses(
+        _extract_attribute_accesses(function_node)
+    )
+    local_context = _extract_local_context_for_candidate(candidate)
+    return (
+        "Previous generated test failed validation. Return a corrected complete "
+        "pytest file.\n\n"
+        f"Target function: {candidate.id}\n"
+        f"Required import: {_build_target_import_line(candidate)}\n"
+        f"Exact signature:\n```python\n{signature}\n```\n"
+        f"Relevant imports from source file:\n```python\n{imports_text}\n```\n"
+        f"Referenced local definitions/constants:\n```python\n{local_context or '# none'}\n```\n"
+        "String literals in target body (prefer these exact expected values):\n"
+        f"{string_literals}\n"
+        "Attributes/methods the target reads or calls:\n"
+        f"{attribute_accesses}\n"
+        f"Validation error:\n{retry_feedback}\n"
+    )
+
+
+def _function_node_for_candidate(
+    candidate: FunctionCandidate,
+) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
+    source_text = candidate.file_path.read_text(encoding="utf-8", errors="replace")
+    tree = ast.parse(source_text)
+    return _find_function_node(tree, candidate)
+
+
+def _extract_relevant_imports_for_candidate(candidate: FunctionCandidate) -> str:
+    source_text = candidate.file_path.read_text(encoding="utf-8", errors="replace")
+    source_lines = source_text.splitlines()
+    tree = ast.parse(source_text)
+    function_node = _find_function_node(tree, candidate)
+    return _extract_import_lines(tree, source_lines, function_node)
+
+
+def _extract_local_context_for_candidate(candidate: FunctionCandidate) -> str:
+    source_text = candidate.file_path.read_text(encoding="utf-8", errors="replace")
+    source_lines = source_text.splitlines()
+    tree = ast.parse(source_text)
+    function_node = _find_function_node(tree, candidate)
+    return _extract_local_context(tree, source_lines, function_node)
+
+
+def _extract_function_signature(candidate: FunctionCandidate) -> str:
+    source_lines = candidate.file_path.read_text(
+        encoding="utf-8",
+        errors="replace",
+    ).splitlines()
+    signature_lines: list[str] = []
+    paren_balance = 0
+    for line in source_lines[candidate.start_line - 1 : candidate.end_line]:
+        signature_lines.append(line)
+        paren_balance += line.count("(") - line.count(")")
+        stripped = line.strip()
+        if stripped.endswith(":") and paren_balance <= 0:
+            break
+    return "\n".join(signature_lines)
 
 
 def _validate_generated_test(
@@ -736,6 +1092,8 @@ def _try_generate_for_candidate(
     candidate: FunctionCandidate,
     manifest: dict[str, object],
     max_retries: int,
+    max_prompt_tokens: int,
+    verbose_prompts: bool,
     ollama_url: str,
     model: str,
 ) -> GenerationResult:
@@ -757,16 +1115,27 @@ def _try_generate_for_candidate(
         )
 
     prompt_base = _build_user_prompt(project_root, candidate)
+    _maybe_report_prompt(
+        prompt_base,
+        label="initial",
+        max_prompt_tokens=max_prompt_tokens,
+        verbose_prompts=verbose_prompts,
+    )
     retry_feedback = ""
 
     for attempt in range(1, max_retries + 1):
-        prompt = prompt_base
+        # Retries are intentionally small: local models were failing when the
+        # full context was resent with growing feedback appended.
         if retry_feedback:
-            prompt += (
-                "\n\nIMPORTANT: previous attempt failed. "
-                "Fix using this feedback:\n"
-                f"{retry_feedback}\n"
+            prompt = _build_retry_prompt(candidate, retry_feedback)
+            _maybe_report_prompt(
+                prompt,
+                label=f"retry-{attempt}",
+                max_prompt_tokens=max_prompt_tokens,
+                verbose_prompts=verbose_prompts,
             )
+        else:
+            prompt = prompt_base
 
         response = call_ollama(
             SYSTEM_PROMPT,
@@ -929,6 +1298,21 @@ def main() -> int:
         default=OLLAMA_DEFAULT_MODEL,
         help=f"Ollama model (default: {OLLAMA_DEFAULT_MODEL}).",
     )
+    parser.add_argument(
+        "--max-prompt-tokens",
+        type=int,
+        default=DEFAULT_MAX_PROMPT_TOKENS,
+        metavar="N",
+        help=(
+            "Warn when generated prompts exceed this approximate token budget "
+            f"(default: {DEFAULT_MAX_PROMPT_TOKENS})."
+        ),
+    )
+    parser.add_argument(
+        "--verbose-prompts",
+        action="store_true",
+        help="Print generated prompts for debugging.",
+    )
 
     args = parser.parse_args()
     project_root = args.project_root.resolve()
@@ -992,6 +1376,8 @@ def main() -> int:
             candidates[0],
             manifest,
             max_retries=args.max_retries,
+            max_prompt_tokens=args.max_prompt_tokens,
+            verbose_prompts=args.verbose_prompts,
             ollama_url=args.ollama_url,
             model=args.model,
         )
@@ -1022,6 +1408,8 @@ def main() -> int:
             candidate,
             manifest,
             max_retries=args.max_retries,
+            max_prompt_tokens=args.max_prompt_tokens,
+            verbose_prompts=args.verbose_prompts,
             ollama_url=args.ollama_url,
             model=args.model,
         )

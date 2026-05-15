@@ -250,7 +250,7 @@ Uses [scripts/library/metrics/test_gen.py](../library/metrics/test_gen.py), [pyt
 
 **Modes:** `report` lists ranked candidates, `generate` creates one validated test file, and `generate-all` attempts every matching candidate. Generation modes print an `Added tests` summary for the files that were kept and a summary of generated, skipped, and failed candidates.
 
-The tool writes a per-project manifest at `.generated/test-gen-manifest.json`. Candidates already recorded as successful, or whose generated output file already exists, are skipped rather than regenerated. Existing related test files and test names under `tests/` are summarized in the prompt as duplicate-avoidance context, and generated files are rejected before writing if they reuse an existing `test_*` function name or do not reference the target module and function.
+The tool writes a per-project manifest at `.generated/test-gen-manifest.json`. Candidates already recorded as successful, or whose generated output file already exists, are skipped rather than regenerated. Prompts are intentionally compact for local models: imports are filtered to names referenced by the target function, class context is reduced to the class signature plus a few relevant method names, related tests are capped to three summarized files, and retry prompts include only target identity plus focused validation context. Prompts also include compact target string literals, local constants/classes, and required test-double attributes so generated tests assert real outputs instead of invented keys. Generated files are rejected before writing if they reuse an existing `test_*` function name or do not reference the target module and function.
 
 ### Usage
 
@@ -260,7 +260,8 @@ The tool writes a per-project manifest at `.generated/test-gen-manifest.json`. C
 .\scripts\metrics\test-gen.ps1 datrix-common -GenerateAll -MaxRetries 3
 .\scripts\metrics\test-gen.ps1 datrix-common -Generate -TargetFunction "validate_external"
 .\scripts\metrics\test-gen.ps1 datrix-common -Generate -TargetFunction "Parser.validate_external"
-.\scripts\metrics\test-gen.ps1 datrix-common -Generate -OllamaUrl "http://10.94.0.100:11434" -Model "qwen3-coder:30b"
+.\scripts\metrics\test-gen.ps1 datrix-common -Generate -OllamaUrl "http://10.94.0.100:11434" -Model "qwen3-coder-cline:latest"
+.\scripts\metrics\test-gen.ps1 datrix-common -Generate -VerbosePrompts -MaxPromptTokens 4000
 .\scripts\metrics\test-gen.ps1 -All -Mode report
 ```
 
@@ -276,8 +277,10 @@ The tool writes a per-project manifest at `.generated/test-gen-manifest.json`. C
 | `-TargetFunction` | Bare function name, `Class.method`, `module.function`, or the full candidate id printed by report mode. Ambiguous bare names fail in generate mode. |
 | `-MaxRetries` | Maximum Ollama retries per generated test (default: 3) |
 | `-MinUncoveredRatio` | Include functions where uncovered/total lines is greater than this ratio (default: 0.5) |
+| `-MaxPromptTokens` | Approximate prompt token budget before warnings are emitted (default: 6000) |
+| `-VerbosePrompts` | Print generated prompts for debugging |
 | `-OllamaUrl` | Ollama server URL (default: `http://10.94.0.100:11434`) |
-| `-Model` | Override the Ollama model |
+| `-Model` | Override the Ollama model (default: `qwen3-coder-cline:latest`) |
 | `-StopOnError` | Stop on first project failure |
 | `-VerboseOutput` | Verbose wrapper output |
 
