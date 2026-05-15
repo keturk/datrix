@@ -186,6 +186,80 @@ Datrix is built on proven software engineering principles that ensure:
 
 ---
 
+### 8. Block-Qualified Storage Entity Identity
+
+**Principle:** Storage entities have canonical block-qualified identity. No service-wide fallbacks.
+
+**Why:**
+- Stable behavior when adding new storage blocks
+- Clear ownership and boundaries
+- Prevents ambiguity in multi-block services
+- Makes generator logic deterministic
+
+**The canonical identity for storage entities:**
+
+```
+service → storage block → entity
+```
+
+Storage blocks are `rdbms` and `nosql`. Each entity belongs to exactly one storage block. The entity's identity is the triple `(service_name, block_name, entity_name)`.
+
+**Resolution contract:**
+
+1. **Explicit `block.Entity` always wins** — `memberDb.Member` unambiguously refers to `memberDb.Member`
+2. **API storage defaults provide bare-name resolution** — `rest_api` and `graphql_api` may declare `rdbms(blockName)` and/or `nosql(blockName)` to resolve bare entity references like `Member` inside that API
+3. **No service-wide fallbacks** — Generators must NOT infer a storage block from:
+   - Service block count (e.g., "the only RDBMS block")
+   - Service iteration order (e.g., "the first RDBMS block")
+   - Service-wide entity-name uniqueness (e.g., "Member exists in only one block, so use that")
+   - Callable parameter types (e.g., "first entity parameter defines the block")
+
+**Application:**
+
+- REST and GraphQL APIs declare explicit storage defaults via `rdbms(blockName)` or `nosql(blockName)` attributes
+- API defaults define how bare entity references (e.g., `Member`) resolve inside that API block
+- Semantic analysis attaches `StorageEntityBinding` directly to AST nodes during validation
+- Generators consume attached semantic bindings; they do not resolve or infer storage blocks
+
+**Benefits:**
+- ✅ Adding a second storage block does not change existing API behavior
+- ✅ No "first block" or "only block" guessing in generators
+- ✅ Clear error messages when defaults are missing
+- ✅ Explicit migration path for services with multiple storage blocks
+
+**Example (stable resolution):**
+
+```dtrx
+service MemberService {
+    rdbms memberDb {
+        entity Member {
+            id: UUID primaryKey
+        }
+    }
+
+    // This API works because of the rdbms(memberDb) default
+    rest_api MemberAPI : basePath("/members"), rdbms(memberDb) {
+        get(UUID id) -> Member {
+            return Member.findOne({ id: id });
+        }
+    }
+}
+```
+
+Adding a second storage block does not break the API:
+
+```dtrx
+    rdbms auditDb {
+        entity AuditEntry {
+            id: UUID primaryKey
+        }
+    }
+
+    // MemberAPI still resolves Member to memberDb.Member (not ambiguous)
+```
+
+---
+
 ## Language Design Principles
 
 ### Contextual keywords and server-managed fields

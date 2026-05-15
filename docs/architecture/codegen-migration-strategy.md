@@ -175,3 +175,77 @@ def test_typescript_transpiler_satisfies_protocol():
 **Integration tests:**
 - Transpile same AST expressions before and after migration
 - Output must be identical
+
+---
+
+## API Storage Defaults Migration
+
+**From:** RDBMS-only bindings and service-wide fallbacks
+**To:** Generalized storage bindings with explicit API defaults
+
+### Migration Steps
+
+1. Add generalized `StorageEntityKey` and `StorageEntityBinding` to `datrix_common.generation.storage_identity`
+2. Replace RDBMS-only binding helpers with generalized storage helpers
+3. Add default storage fields to `RestApi` and `GraphqlApi` AST nodes
+4. Extend API attribute parsing for `basePath`, `rdbms`, and `nosql`
+5. Reject duplicate and unknown API attributes in the transformer
+6. Add semantic validation for API defaults and extern-service restrictions
+7. Attach `StorageEntityBinding` directly to AST nodes that reference storage entities
+8. Update REST resource/batch semantic resolution to attach bindings
+9. Update REST endpoint and API-local function resolution to use API defaults
+10. Update GraphQL operation, type inference, and data-loader resolution to use API defaults
+11. Remove REST single-block fallback from Python generation
+12. Remove GraphQL first-block behavior from Python generation
+13. Update TypeScript REST and GraphQL generation/test setup to consume semantic bindings
+14. Update fixtures and examples by intent:
+    - Use API defaults for APIs with one primary storage block
+    - Use block-qualified names for multi-block and cross-block examples
+
+### Backward Compatibility
+
+**No backward compatibility.** Services with multiple storage blocks and no API defaults will fail in semantic analysis with clear error messages listing the available blocks. This is intentional — the old "first block" behavior was unstable and unpredictable.
+
+### Verification Checklist
+
+**Transformer tests:**
+- `rest_api Api : basePath("/api"), rdbms(db) { ... }`
+- `rest_api Api : basePath("/api"), nosql(store) { ... }`
+- `graphql_api Api : basePath("/graphql"), rdbms(db) { ... }`
+- `graphql_api Api : basePath("/graphql"), nosql(store) { ... }`
+- Duplicate `basePath`, `rdbms`, or `nosql` fails
+- Unknown API attribute fails
+- `basePath` behavior remains unchanged
+
+**Semantic tests:**
+- API default RDBMS block must exist
+- API default NoSQL block must exist
+- API default block kind must match the attribute
+- Bare RDBMS entity without RDBMS default fails
+- Bare NoSQL entity without NoSQL default fails
+- Bare entity present in both declared default blocks fails
+- Bare entity missing from declared defaults fails even if present in one non-default block
+- Explicit `block.Entity` works when API default points elsewhere
+- Unused API defaults are valid
+- `rdbms(...)` and `nosql(...)` inside `extern service { rest_api ... }` fail
+- Storage entities in extern-service REST signatures fail, even block-qualified
+
+**REST tests:**
+- REST endpoint body with bare `Member.findOne(...)` uses `rest_api ... rdbms(memberDb)`
+- REST API-local function body uses API defaults
+- REST `resource` and `batch` can use API defaults or explicit block-qualified names
+- Adding an unrelated second storage block does not change resolution
+- No single-RDBMS fallback remains
+
+**GraphQL tests:**
+- GraphQL operation body with bare `Member.findOne(...)` uses `graphql_api ... rdbms(memberDb)`
+- GraphQL type and data-loader inference use API defaults
+- Pure GraphQL API without storage access remains valid without defaults
+- GraphQL storage access without default or explicit block fails
+- No first-RDBMS-block selection remains
+
+**Search-based acceptance:**
+- API generators do not call `next(iter(service.rdbms_blocks...))`
+- API generators do not call single-block fallback helpers
+- REST and GraphQL ownership paths do not use service-wide `dict[str, Entity]` maps
+- Generators do not call API default resolution helpers; they consume attached semantic bindings
