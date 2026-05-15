@@ -1592,7 +1592,7 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
     }
 
 
-def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path: Optional[str] = None, test_set: Optional[str] = None, language: str = "python", platform: str = "docker") -> bool:
+def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path: Optional[str] = None, test_set: Optional[str] = None, language: str = "python", platform: str = "docker", verbose: bool = False) -> bool:
     """Step 3: Run unit tests for generated projects using unit_tests.py"""
     if all_examples:
         print_step(3, "Run Unit Tests for Generated Projects")
@@ -1641,7 +1641,7 @@ def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path
                 print("-" * 60)
 
                 try:
-                    project_result = _run_single_project_unit_tests(project, generated_base, parallel=False, verbose=args.verbose)
+                    project_result = _run_single_project_unit_tests(project, generated_base, parallel=False, verbose=verbose)
                     project_results.append(project_result)
 
                     print()
@@ -1820,7 +1820,7 @@ def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path
         # Reuse the same helper as batch mode — parent serves as base so
         # relative_to produces just the leaf directory name.
         result = _run_single_project_unit_tests(
-            project_path_abs, project_path_abs.parent, parallel=False, verbose=args.verbose,
+            project_path_abs, project_path_abs.parent, parallel=False, verbose=verbose,
         )
 
         project_name = result["name"]
@@ -2913,6 +2913,7 @@ Examples:
                 args.test_set if args.All else None,
                 args.language,
                 args.platform,
+                verbose=args.verbose,
             ):
                 print_warning("Step 3 failed. Continuing to Step 4...")
                 failed_steps.append("Step 3: Unit Tests")

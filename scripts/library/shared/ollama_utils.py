@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # --- Configuration ---
 OLLAMA_DEFAULT_URL = "http://10.94.0.100:11434"
-OLLAMA_DEFAULT_MODEL = "qwen3-coder:30b"
+OLLAMA_DEFAULT_MODEL = "qwen3-coder-cline:latest"
 OLLAMA_TIMEOUT_SECONDS = 300
 OLLAMA_DEFAULT_NUM_PREDICT = 32768
 OLLAMA_MAX_FIX_RETRIES = 3

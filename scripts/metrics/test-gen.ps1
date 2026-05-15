@@ -24,10 +24,14 @@
  Maximum generation retries per function (default: 3).
 .PARAMETER MinUncoveredRatio
 Include only functions where uncovered/total lines > ratio (default: 0.5).
+.PARAMETER MaxPromptTokens
+ Approximate prompt token budget before warnings are emitted (default: 6000).
+.PARAMETER VerbosePrompts
+ Print generated prompts for debugging.
 .PARAMETER OllamaUrl
  Ollama server URL used for generation (default: http://10.94.0.100:11434).
 .PARAMETER Model
- Override the Ollama model used for generation.
+ Override the Ollama model used for generation (default: qwen3-coder-cline:latest).
 .PARAMETER StopOnError
 Stop after first project failure.
 .PARAMETER VerboseOutput
@@ -45,6 +49,8 @@ param(
  [string]$TargetFunction,
  [int]$MaxRetries = 3,
  [double]$MinUncoveredRatio = 0.5,
+ [int]$MaxPromptTokens = 6000,
+ [switch]$VerbosePrompts,
  [string]$OllamaUrl = "http://10.94.0.100:11434",
  [string]$Model,
  [switch]$StopOnError,
@@ -113,7 +119,8 @@ try {
    "--project-root", $projectRoot,
    "--mode", $Mode,
    "--max-retries", $MaxRetries,
-   "--min-uncovered-ratio", $MinUncoveredRatio
+   "--min-uncovered-ratio", $MinUncoveredRatio,
+   "--max-prompt-tokens", $MaxPromptTokens
   )
   if ($TargetFunction) {
    $args += "--target-function", $TargetFunction
@@ -123,6 +130,9 @@ try {
   }
   if ($Model) {
    $args += "--model", $Model
+  }
+  if ($VerbosePrompts) {
+   $args += "--verbose-prompts"
   }
   & python @args
   $exitCode = $LASTEXITCODE
