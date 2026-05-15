@@ -113,9 +113,10 @@ function Get-TaskFiles {
  return
  }
  
- # Find all markdown files recursively
- $taskFiles = Get-ChildItem -Path $TasksFolderPath -Filter "*.md" -Recurse -File -ErrorAction SilentlyContinue
- 
+ # Find task artifact files recursively (task markdown, review JSON, debug attempts, backups, etc.)
+ $taskFiles = Get-ChildItem -Path $TasksFolderPath -Recurse -File -ErrorAction SilentlyContinue |
+ Where-Object { $_.Name -like "task-*" }
+
  # Handle case where Get-ChildItem returns a single object instead of an array
  if ($null -eq $taskFiles) {
  return
@@ -137,7 +138,7 @@ function Get-TaskFiles {
  $phase = [int]$matches[1]
  }
  }
- $script:allTaskFiles += @{
+ $script:allTaskFiles += [PSCustomObject]@{
  Project = $ProjectName
  FullPath = $taskFile.FullName
  Name = $taskFile.Name
