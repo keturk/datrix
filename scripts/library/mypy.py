@@ -7,7 +7,6 @@ virtual environment activation and package installation checks.
 """
 
 import argparse
-import os
 import subprocess
 import sys
 from datetime import datetime
@@ -140,7 +139,6 @@ Note: This script should be called from mypy.ps1, which handles virtual environm
  parser.add_argument("--verbose", "-v", action="store_true", help="Show verbose mypy context")
  parser.add_argument("--no-save", action="store_true", help="Don't save mypy output to log files")
  parser.add_argument("--no-auto-install", action="store_true", help=argparse.SUPPRESS)
- parser.add_argument("--skip-install", action="store_true", help=argparse.SUPPRESS)
  parser.add_argument("--unit", action="store_true", help=argparse.SUPPRESS)
  parser.add_argument("--integration", action="store_true", help=argparse.SUPPRESS)
  parser.add_argument("--e2e", action="store_true", help=argparse.SUPPRESS)
@@ -158,7 +156,7 @@ Note: This script should be called from mypy.ps1, which handles virtual environm
   return 1
 
  ignored_options = []
- for name in ["coverage", "no_auto_install", "skip_install", "unit", "integration", "e2e", "fast", "slow", "keyword"]:
+ for name in ["coverage", "no_auto_install", "unit", "integration", "e2e", "fast", "slow", "keyword"]:
   value = getattr(args, name)
   if value:
    ignored_options.append(name.replace("_", "-"))

@@ -1,7 +1,7 @@
 # Cleanup Ruff Check Output
 # Lists all files under .ruff_check folders of each datrix project.
 # If -Force is provided, deletes those files and removes .ruff_check if empty.
-# Usage: .\scripts\metrics\cleanup_ruff.ps1 [-BaseDir <path>] [-Force] [-KeepLatest] [-Dbg]
+# Usage: .\scripts\metrics\cleanup-ruff.ps1 [-BaseDir <path>] [-Force] [-KeepLatest] [-Dbg]
 
 [CmdletBinding()]
 param(
@@ -183,11 +183,12 @@ if ($Force) {
  Write-Host "To delete these files, run with -Force parameter" -ForegroundColor Cyan
  Write-Host ""
  Write-Host "Options:" -ForegroundColor Gray
- Write-Host " .\cleanup_ruff.ps1 -Force # Delete all log files and empty .ruff_check folders" -ForegroundColor Gray
- Write-Host " .\cleanup_ruff.ps1 -Force -KeepLatest # Keep latest log per project" -ForegroundColor Gray
+ Write-Host " .\cleanup-ruff.ps1 -Force # Delete all log files and empty .ruff_check folders" -ForegroundColor Gray
+ Write-Host " .\cleanup-ruff.ps1 -Force -KeepLatest # Keep latest log per project" -ForegroundColor Gray
  Write-Host "========================================" -ForegroundColor Cyan
 }
 
 Write-Host ""
 
 exit 0
+

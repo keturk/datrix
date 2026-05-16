@@ -65,22 +65,22 @@ Dead-code detection using Vulture. Runs a combined scan across selected projects
 
 ---
 
-## `metrics\dead_code_report.ps1`
+## `metrics\dead-code-report.ps1`
 
 Two-pass Vulture dead-code report: classifies findings as "never referenced" or "only referenced by tests".
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Default projects** | `.\metrics\dead_code_report.ps1` | Default 11 packages |
-| **All projects** | `.\metrics\dead_code_report.ps1 -All` | All datrix-* projects |
-| **Specific projects** | `.\metrics\dead_code_report.ps1 datrix-common datrix-language` | Selected projects |
-| **JSON output** | `.\metrics\dead_code_report.ps1 -All -Output json` | JSON format |
-| **High confidence** | `.\metrics\dead_code_report.ps1 -All -MinConfidence 100` | Only 100% confidence |
-| **Save to file** | `.\metrics\dead_code_report.ps1 -All -OutputPath dead-code.md` | Write report to file |
-| **Raw (no filters)** | `.\metrics\dead_code_report.ps1 -All -Raw` | Disable false-positive filters |
-| **Quiet** | `.\metrics\dead_code_report.ps1 -All -OutputPath report.md -Quiet` | Only write to file |
+| **Default projects** | `.\metrics\dead-code-report.ps1` | Default 11 packages |
+| **All projects** | `.\metrics\dead-code-report.ps1 -All` | All datrix-* projects |
+| **Specific projects** | `.\metrics\dead-code-report.ps1 datrix-common .\datrix-language\` | Selected projects by name or path |
+| **JSON output** | `.\metrics\dead-code-report.ps1 -All -Output json` | JSON format |
+| **High confidence** | `.\metrics\dead-code-report.ps1 -All -MinConfidence 100` | Only 100% confidence |
+| **Save to file** | `.\metrics\dead-code-report.ps1 -All -OutputPath dead-code.md` | Write report to file |
+| **Raw (no filters)** | `.\metrics\dead-code-report.ps1 -All -Raw` | Disable false-positive filters |
+| **Quiet** | `.\metrics\dead-code-report.ps1 -All -OutputPath report.md -Quiet` | Only write to file |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-MinConfidence` (60-100, default: 60), `-Output` (text\|json), `-OutputPath`, `-VerboseOutput`, `-Raw`, `-Quiet`
+**Parameters:** `-Projects` (positional, variadic; package names or folder paths), `-All`, `-MinConfidence` (60-100, default: 60), `-Output` (text\|json), `-OutputPath`, `-VerboseOutput`, `-Raw`, `-Quiet`
 
 ---
 
@@ -240,14 +240,14 @@ Lines-of-code counting using pygount.
 
 ---
 
-## `metrics\cleanup_ruff.ps1`
+## `metrics\cleanup-ruff.ps1`
 
 Cleans up Ruff check log files from `.ruff_check/` folders.
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **List (dry run)** | `.\metrics\cleanup_ruff.ps1` | Show all log files |
-| **Delete all** | `.\metrics\cleanup_ruff.ps1 -Force` | Delete all log files |
-| **Keep latest** | `.\metrics\cleanup_ruff.ps1 -Force -KeepLatest` | Delete old, keep latest per project |
+| **List (dry run)** | `.\metrics\cleanup-ruff.ps1` | Show all log files |
+| **Delete all** | `.\metrics\cleanup-ruff.ps1 -Force` | Delete all log files |
+| **Keep latest** | `.\metrics\cleanup-ruff.ps1 -Force -KeepLatest` | Delete old, keep latest per project |
 
 **Parameters:** `-BaseDir`, `-Force`, `-KeepLatest`, `-Dbg`

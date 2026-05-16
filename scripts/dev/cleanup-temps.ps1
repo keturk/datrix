@@ -1,7 +1,7 @@
 # Cleanup Temporary Cache Folders
 # Lists cache folders and files under the monorepo root ($BaseDir) and in all datrix* projects (recursive). Root: direct children only; projects: full recursion (skips .git, .venv, node_modules, .generated; does not scan inside .generated). Folders: .hypothesis, .ruff_cache, .ruff_check, .mypy_cache, .pytest_cache, htmlcov, .benchmarks, __pycache__, .tox, .nox, .cache, .pyre, .pytype, cython_debug. Files: .coverage, .coverage.*, coverage.xml, .dmypy.json, dmypy.json.
 # If -Force parameter is provided, asks for confirmation before deletion
-# Usage: .\scripts\dev\cleanup_temps.ps1 [-BaseDir <path>] [-Force] [-AdditionalFolders <string[]>] [-Dbg]
+# Usage: .\scripts\dev\cleanup-temps.ps1 [-BaseDir <path>] [-Force] [-AdditionalFolders <string[]>] [-Dbg]
 
 [CmdletBinding()]
 param(
@@ -324,11 +324,12 @@ if ($Force) {
  Write-Host "To delete these items, run with -Force parameter" -ForegroundColor Cyan
  Write-Host ""
  Write-Host "Usage:" -ForegroundColor Gray
- Write-Host " .\scripts\dev\cleanup_temps.ps1 -Force # Delete all cache folders and files" -ForegroundColor Gray
- Write-Host " .\scripts\dev\cleanup_temps.ps1 -Force -AdditionalFolders \".coverage\",\"__pycache__\" # Delete cache items plus additional ones" -ForegroundColor Gray
+ Write-Host " .\scripts\dev\cleanup-temps.ps1 -Force # Delete all cache folders and files" -ForegroundColor Gray
+ Write-Host " .\scripts\dev\cleanup-temps.ps1 -Force -AdditionalFolders \".coverage\",\"__pycache__\" # Delete cache items plus additional ones" -ForegroundColor Gray
  Write-Host "========================================" -ForegroundColor Cyan
 }
 
 Write-Host ""
 
 exit 0
+

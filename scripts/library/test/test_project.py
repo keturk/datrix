@@ -479,11 +479,6 @@ Note: This script should be called from test.ps1, which handles virtual environm
  action="store_true",
  help="Disable automatic dependency installation (prompt instead)",
  )
- parser.add_argument(
- "--skip-install",
- action="store_true",
- help="Skip dependency installation and show error message only",
- )
 
  # Test type filters (mutually exclusive)
  test_filter_group = parser.add_mutually_exclusive_group()

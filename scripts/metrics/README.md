@@ -12,7 +12,7 @@ Code metrics and linting for Datrix Python packages: Radon (complexity, raw, Hal
 |--------|-------------|
 | `complexity.ps1` | Run Radon metrics: check (enforce max), cc, raw, halstead, mi |
 | `vulture.ps1` | Run Vulture dead-code detection |
-| `dead_code_report.ps1` | Dead-code report: never referenced vs only referenced by tests (two-pass Vulture) |
+| `dead-code-report.ps1` | Dead-code report: never referenced vs only referenced by tests (two-pass Vulture) |
 | `ruff.ps1` | Run Ruff lint (check) or format |
 | `dependency.ps1` | Report datrix package dependencies (tree, list, json) |
 | `duplicate.ps1` | Run Pylint duplicate-code detection (R0801) |
@@ -79,7 +79,7 @@ Uses [scripts/library/metrics/vulture.py](../library/metrics/vulture.py) and [Vu
 | `-SortBySize` | Sort unused classes/functions by size |
 | `-MakeWhitelist` | Output whitelist to stdout |
 
-## dead_code_report.ps1
+## dead-code-report.ps1
 
 Uses [scripts/library/metrics/dead_code_report.py](../library/metrics/dead_code_report.py) and runs Vulture twice: once on `src/` only (excluding tests) and once on `src/` and `tests/`. Dead code in `src/` is classified as:
 
@@ -94,24 +94,24 @@ Only code under each project's `src/` is reported; dead code inside `tests/` is 
 
 ```powershell
 # Default: the 11 packages (datrix-cli, datrix-common, ... datrix-language)
-.\scripts\metrics\dead_code_report.ps1
+.\scripts\metrics\dead-code-report.ps1
 
 # All datrix-* projects (except datrix)
-.\scripts\metrics\dead_code_report.ps1 -All
+.\scripts\metrics\dead-code-report.ps1 -All
 
 # Specific projects, JSON output
-.\scripts\metrics\dead_code_report.ps1 datrix-common datrix-language -Output json
+.\scripts\metrics\dead-code-report.ps1 datrix-common .\datrix-language\ -Output json
 
 # Save report to file
-.\scripts\metrics\dead_code_report.ps1 -All -OutputPath dead-code-report.md
-.\scripts\metrics\dead_code_report.ps1 -All -Output json | Out-File report.json
+.\scripts\metrics\dead-code-report.ps1 -All -OutputPath dead-code-report.md
+.\scripts\metrics\dead-code-report.ps1 -All -Output json | Out-File report.json
 ```
 
 ### Parameters
 
 | Parameter | Description |
 |-----------|-------------|
-| `Projects` | Optional. Project names (positional). If omitted, uses default 11 packages. |
+| `Projects` | Optional. Project names or folder paths (positional). If omitted, uses default 11 packages. |
 | `-All` | Scan all datrix-* projects (exclude `datrix`) |
 | `-MinConfidence` | Vulture min confidence 60-100 (default: 60; use 80+ to exclude functions/classes) |
 | `-Output` | text or json (default: text) |

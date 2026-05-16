@@ -63,9 +63,6 @@
 .PARAMETER FreshBuild
  Force fresh Docker builds (--no-cache) for deployment tests. By default, deploy tests use Docker layer cache for faster builds.
 
-.PARAMETER SkipInstall
- Skip pip/network installs during generation (sets DATRIX_OFFLINE for the workflow). Requires a fully populated .venv.
-
 .PARAMETER DebugLogging
  Enable debug logging (DEBUG level instead of INFO).
 
@@ -118,7 +115,7 @@
 
 .EXAMPLE
  $env:DATRIX_OFFLINE = "1"; .\run-complete.ps1 -TestSet foundation -L python
- Offline: no pip during the workflow (requires a ready .venv). Or use -SkipInstall (sets DATRIX_OFFLINE for the Python driver).
+ Offline: no pip during the workflow (requires a ready .venv).
 #>
 
 [CmdletBinding()]
@@ -160,7 +157,6 @@ param(
  [switch]$Skip4,
  [switch]$Skip5,
  [switch]$FreshBuild,
- [switch]$SkipInstall,
  [Alias("Dbg")]
  [switch]$DebugLogging
 )
@@ -440,8 +436,7 @@ if ($Rerun) {
    $singleArgs += "-Hosting"
    $singleArgs += $Hosting
   }
-  if ($DebugLogging) { $singleArgs += "--debug" }
-  if ($SkipInstall) { $singleArgs += "--skip-install" }
+   if ($DebugLogging) { $singleArgs += "--debug" }
   if ($VerboseOutput) { $singleArgs += "--verbose" }
 
   Write-Info "Running: $pythonExe -u $($singleArgs -join ' ')"
@@ -563,9 +558,6 @@ if (-not [string]::IsNullOrWhiteSpace($Hosting)) {
 }
 if ($DebugLogging) {
  $pythonArgs += "--debug"
-}
-if ($SkipInstall) {
- $pythonArgs += "--skip-install"
 }
 if ($VerboseOutput) {
  $pythonArgs += "--verbose"

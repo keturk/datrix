@@ -37,9 +37,6 @@
 .PARAMETER FailFast
  Stop on first failure (-x flag).
 
-.PARAMETER SkipInstall
- Skip pip install verification. Requires a ready .venv.
-
 .PARAMETER Dbg
  Enable debug logging.
 
@@ -79,9 +76,6 @@ param(
 
  [Parameter()]
  [switch]$FailFast,
-
- [Parameter()]
- [switch]$SkipInstall,
 
  [Parameter()]
  [switch]$Dbg
@@ -146,9 +140,7 @@ try {
   exit 1
  }
 
- if (-not $SkipInstall) {
-  Ensure-DatrixPackagesInstalled
- }
+ Ensure-DatrixPackagesInstalled
 
  # Get Python executable from venv
  $venvPath = Get-DatrixVenvPath

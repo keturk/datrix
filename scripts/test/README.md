@@ -77,9 +77,6 @@ Main test runner for one or more Datrix projects.
 # Don't save logs
 .\test.ps1 datrix-common -NoSave
 
-# Skip dependency installation
-.\test.ps1 datrix-common -SkipInstall
-
 # Debug mode
 .\test.ps1 datrix-common -Dbg
 ```
@@ -94,7 +91,6 @@ Main test runner for one or more Datrix projects.
 | `-VerboseOutput` | Enable verbose test output |
 | `-NoSave` | Don't save output to log files |
 | `-NoAutoInstall` | Prompt for dependency installation |
-| `-SkipInstall` | Skip dependency installation |
 | `-Unit` | Run unit tests only |
 | `-Integration` | Run integration tests only |
 | `-E2E` | Run end-to-end tests only |
