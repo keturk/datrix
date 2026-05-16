@@ -62,3 +62,4 @@ disable-model-invocation: true
 - `datrix_common.builtins.traits` → `BUILTIN_TRAIT_NAMES`
 - `datrix_common.builtins.enums` → `BUILTIN_ENUM_NAMES`, `ENUM_REQUIRED_BY_TRAIT`
 - `datrix_language.builtins.loader` → `get_builtin_traits`, `get_builtin_enums`
+

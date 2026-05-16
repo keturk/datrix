@@ -27,12 +27,8 @@ PHASE: 6
 SKIP: cleanup
 ```
 
-## Mandatory Reading (BEFORE any work)
-
-1. **`d:\datrix\.claude\CLAUDE.md`** — Project rules
-2. **`C:\Users\KErca\.claude\projects\d--datrix\memory\MEMORY.md`** — Persistent memory
-3. **`d:\datrix\datrix\docs\architecture\architecture-overview.md`** — Current architecture (index with links to sub-documents: `architecture/pipeline-and-capabilities.md`, `architecture/repository-architecture.md`, `architecture/builtin-traits-enums.md`)
-4. **`d:\datrix\datrix\docs\architecture\design-principles.md`** — Design principles
+## Prereqs
+Read first: CLAUDE.md, MEMORY.md, `datrix-common/docs/contributing/ai-agent-rules.md`, architecture docs.
 
 ## Inputs
 
@@ -276,7 +272,7 @@ If you deviated: STOP and explain the deviation to the user.
 
 2. Review the task file template in `/generate-tasks` SKILL.md (lines 127-200+) to ensure correct formatting.
 
-3. Break the design into tasks. Four categories of tasks MUST be generated:
+3. Break the design into tasks. Five categories of tasks MUST be generated:
 
    **a) Implementation tasks:**
    - One task per discrete unit of work
@@ -295,7 +291,16 @@ If you deviated: STOP and explain the deviation to the user.
    - Test task slug should mirror the implementation task with a `-tests` suffix
      (e.g., `task-{NN}-{TT}-add-widget.md` → `task-{NN}-{TT+1}-add-widget-tests.md`)
 
-   **c) Documentation tasks:**
+   **c) Verification tasks:**
+   - For each implementation task (or group of 2-3 related implementation tasks), generate a verification task
+   - Verification tasks are executed by a **different agent** than the implementer — this is their core purpose
+   - They confirm: files exist, code is non-trivial (not stubs), tests pass, mypy passes
+   - Verification tasks depend on the corresponding implementation + test tasks
+   - Verification task slug: `-verify` suffix (e.g., `task-{NN}-{TT}-verify-gendsl-parser.md`)
+   - Include `**Category:** Verification` in header metadata
+   - See the Verification Task template in `/generate-tasks` SKILL.md for the full checklist format
+
+   **d) Documentation tasks:**
    - Generate tasks for updating or adding documentation in the affected repo's `docs/` folder
    - Each documentation task identifies the target doc file(s) and what content to add/update
    - Target the correct repo's docs directory based on scope:
@@ -326,7 +331,7 @@ If you deviated: STOP and explain the deviation to the user.
    - Doc task slug should use a `-docs` suffix
      (e.g., `task-{NN}-{TT}-update-codegen-docs.md`)
 
-   **d) Quality gate tasks:**
+   **e) Quality gate tasks:**
    - For each package that has 2+ code tasks (implementation + test combined) in this phase, generate a quality gate task
    - Quality gate tasks run the full test suite + `mypy --strict` as final verification — no implementation code
    - Quality gate tasks depend on ALL other tasks targeting the same package
@@ -362,6 +367,7 @@ If you deviated: STOP and explain the deviation to the user.
 This phase is COMPLETE when:
 - [ ] ALL implementation tasks generated as actual .md files (not a roadmap)
 - [ ] ALL test tasks generated (one per implementation task)
+- [ ] ALL verification tasks generated (one per implementation task or group of 2-3 related tasks)
 - [ ] ALL documentation tasks generated
 - [ ] ALL quality gate tasks generated (one per package with 2+ code tasks)
 - [ ] Every task file is self-contained (no design doc references)
@@ -379,6 +385,7 @@ Phase: {NN}
 Tasks: {N} total across {M} repos
   Implementation: {N}
   Test: {N}
+  Verification: {N}
   Documentation: {N}
   Quality Gate: {N}
 
@@ -386,16 +393,19 @@ d:\datrix\datrix-common\.tasks\phase-{NN}\task-{NN}-01-add-orchestrator.md
 d:\datrix\datrix-common\.tasks\phase-{NN}\task-{NN}-02-add-orchestrator-tests.md
 d:\datrix\datrix-codegen-python\.tasks\phase-{NN}\task-{NN}-03-python-pipeline.md
 d:\datrix\datrix-codegen-python\.tasks\phase-{NN}\task-{NN}-04-python-pipeline-tests.md
-d:\datrix\datrix-common\.tasks\phase-{NN}\task-{NN}-05-update-architecture-docs.md
-d:\datrix\datrix-codegen-python\.tasks\phase-{NN}\task-{NN}-06-update-codegen-docs.md
-d:\datrix\datrix-common\.tasks\phase-{NN}\task-{NN}-07-quality-gate-datrix-common.md
-d:\datrix\datrix-codegen-python\.tasks\phase-{NN}\task-{NN}-08-quality-gate-datrix-codegen-python.md
+d:\datrix\datrix-common\.tasks\phase-{NN}\task-{NN}-05-verify-orchestrator.md
+d:\datrix\datrix-codegen-python\.tasks\phase-{NN}\task-{NN}-06-verify-python-pipeline.md
+d:\datrix\datrix-common\.tasks\phase-{NN}\task-{NN}-07-update-architecture-docs.md
+d:\datrix\datrix-codegen-python\.tasks\phase-{NN}\task-{NN}-08-update-codegen-docs.md
+d:\datrix\datrix-common\.tasks\phase-{NN}\task-{NN}-09-quality-gate-datrix-common.md
+d:\datrix\datrix-codegen-python\.tasks\phase-{NN}\task-{NN}-10-quality-gate-datrix-codegen-python.md
 
 Dependency graph:
   Group 1 (parallel): tasks 01, 03           [implementation]
   Group 2 (after group 1): tasks 02, 04      [tests]
-  Group 3 (after group 2): tasks 05, 06      [docs]
-  Group 4 (after all): tasks 07, 08          [quality gates]
+  Group 3 (after group 2): tasks 05, 06      [verification — different agent]
+  Group 4 (after group 3): tasks 07, 08      [docs]
+  Group 5 (after all): tasks 09, 10          [quality gates]
 ```
 
 ## Phase 4 Self-Check
@@ -404,9 +414,10 @@ Before proceeding to Phase 5, answer:
 1. Did I generate ALL tasks as actual files (not a summary/roadmap)?
 2. Did I inline design content in tasks (not reference the design doc path)?
 3. Did I create test tasks for every implementation task?
-4. Did I create quality gates for every package with 2+ code tasks?
-5. Did I follow the template from `/generate-tasks` exactly?
-6. Did I deviate from any instruction in this phase? If yes, why?
+4. Did I create verification tasks for every implementation task (or group of 2-3)?
+5. Did I create quality gates for every package with 2+ code tasks?
+6. Did I follow the template from `/generate-tasks` exactly?
+7. Did I deviate from any instruction in this phase? If yes, why?
 
 If you deviated: STOP and explain the deviation to the user.
 
@@ -469,6 +480,7 @@ Docs updated: {N} files
 Tasks generated: {N} tasks in phase {NN}
   Implementation: {N}
   Test: {N}
+  Verification: {N}
   Documentation: {N}
   Quality Gate: {N}
 Design document: PRESERVED at {path}
@@ -494,6 +506,7 @@ Next steps:
 - **NO fabricating decisions** — every decision needs evidence from the codebase
 - **NO task files without acceptance criteria** — every task must be verifiable
 - **NO implementation tasks without corresponding test tasks** — every implementation needs tests
+- **NO implementation tasks without corresponding verification tasks** — every implementation needs independent verification by a different agent
 - **NO skipping documentation tasks** — if a design changes architecture, APIs, or extensions, the relevant repo docs must be updated
 - **NO design document path references in task files** — when operationalizing, tasks must inline design content because Phase 5 deletes the source document
 - **NO tasks without targeted tests** — every implementation and test task must have a `## Targeted Tests` section specifying which tests to run for focused verification
@@ -501,3 +514,4 @@ Next steps:
 - **NO partial task generation** — generate ALL tasks in Phase 4, not a subset with a "roadmap"
 - **NO asking mid-phase** — complete each phase fully before asking user questions (unless blocked)
 - **NO roadmap/summary files** — generate actual task .md files, not summaries of future work
+- **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

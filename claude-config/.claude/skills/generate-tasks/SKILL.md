@@ -203,6 +203,7 @@ Key module paths:
 - **Implicit or "magic" logic:** Make all behavior explicit and documented
 - **Over-engineering:** Do NOT add unnecessary abstractions or feature flags
 - **Mocks/fakes in tests:** Do NOT use `MagicMock`, `Mock`, `patch`, `SimpleNamespace`, or any fake stand-in — use real objects, `.dtrx` fixtures, and factories from `datrix_common.testing`
+- **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)
 
 ## Best Practices to Follow
 
@@ -301,10 +302,11 @@ After generating all task files, verify:
 6. Every task file starts with the agent rules perusal instruction
 7. Task titles follow the `# Task {NN}-{TT}: {Title}` format
 8. Every implementation task that introduces significant new code has a corresponding test task (or justification for why inline tests suffice)
-9. Documentation tasks exist for any new user-facing features, APIs, or architectural changes — targeting the correct `docs/` folder per the Documentation Folders table
-10. Every package with 2+ code tasks has a quality gate task that depends on ALL tasks targeting that package
-11. Quality gate tasks include the `**Category:** Quality Gate` marker in their header metadata
-12. Every implementation and test task has a `## Targeted Tests` section specifying which tests to run for focused verification
+9. Every implementation task (or group of 2-3 related implementation tasks) has a corresponding verification task with `**Category:** Verification`
+10. Documentation tasks exist for any new user-facing features, APIs, or architectural changes — targeting the correct `docs/` folder per the Documentation Folders table
+11. Every package with 2+ code tasks has a quality gate task that depends on ALL tasks targeting that package
+12. Quality gate tasks include the `**Category:** Quality Gate` marker in their header metadata
+13. Every implementation and test task has a `## Targeted Tests` section specifying which tests to run for focused verification
 
 ### Step 7: Report Summary and Dependency Graph
 
@@ -319,6 +321,9 @@ Phase {NN} — {Phase Title}
 
   Tests:
     {repo}/.tasks/phase-{NN}/task-{NN}-{TT}-{slug}.md — {Title}
+
+  Verification:
+    {repo}/.tasks/phase-{NN}/task-{NN}-{TT}-verify-{slug}.md — Verify {Feature} Implementation
 
   Documentation:
     {repo}/.tasks/phase-{NN}/task-{NN}-{TT}-{slug}.md — {Title}
@@ -340,8 +345,9 @@ Task Dependencies:
 Parallelizable groups (tasks within a group can run concurrently):
   Group 1: {NN}-{TT}, {NN}-{TT}          (no dependencies — implementation)
   Group 2: {NN}-{TT}, {NN}-{TT}          (after Group 1 — tests)
-  Group 3: {NN}-{TT}                      (after Group 2 — docs)
-  Group 4: {NN}-{TT}, {NN}-{TT}          (after all package tasks — quality gates)
+  Group 3: {NN}-{TT}, {NN}-{TT}          (after Group 2 — verification, by different agent)
+  Group 4: {NN}-{TT}                      (after Group 3 — docs)
+  Group 5: {NN}-{TT}, {NN}-{TT}          (after all package tasks — quality gates)
 ```
 
 The dependency graph must:
@@ -404,6 +410,91 @@ Documentation tasks should:
 - Include the content outline or draft for each documentation file
 - Follow existing documentation conventions in the target `docs/` folder
 
+#### Verification Tasks
+Independent verification tasks that confirm implementation tasks were actually completed — not just marked complete. These are executed by a **different agent session** than the one that implemented the code. Generate one verification task per implementation task (or per logical group of 2-3 closely related implementation tasks).
+
+Verification tasks should:
+- **Be assigned to a different agent than the implementer** — this is the core purpose
+- Depend on the corresponding implementation task(s) AND their test task(s)
+- Have a title like `Task {NN}-{TT}: Verify {Feature} Implementation`
+- Have a slug with a `-verify` suffix (e.g., `task-{NN}-{TT}-verify-gendsl-parser.md`)
+- Include `**Category:** Verification` in the header metadata
+- NOT contain any implementation code or new tests
+- Specify concrete checks (see template below)
+
+Verification task template:
+
+```markdown
+> **Peruse 'd:\datrix\datrix-common\docs\contributing\ai-agent-rules.md' (and its sub-documents) and follow the rules**
+
+# Task {NN}-{TT}: Verify {Feature} Implementation
+
+## Overview
+
+Independent verification that {implementation task(s)} were completed correctly. This task is executed by a different agent than the implementer.
+
+**Package:** `{package-name}` (`d:\datrix\{repo}\`)
+**Depends on:** {implementation task ID}, {test task ID}
+**Category:** Verification
+
+## Verification Checklist
+
+### 1. File Existence
+Confirm every file listed in the implementation task's "Files to Create" section exists on disk:
+{list each expected file path}
+
+### 2. Non-Trivial Implementation
+For each created file, confirm it contains real implementation (not stubs):
+- File has >10 lines of non-comment, non-import code
+- No `pass` statements in function/method bodies
+- No `# TODO` or `# FIXME` markers
+- No `NotImplementedError` raises in production code
+- Classes/functions have actual logic, not just signatures
+
+### 3. Type Checking
+Run mypy on the created files:
+```
+mypy --strict {file paths}
+```
+
+### 4. Test Execution
+Run the targeted tests and capture raw output:
+```
+powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{test-path}"
+```
+
+### 5. Test Coverage Sanity
+Confirm tests exercise the implementation (not just import it):
+- At least one test per public class/function
+- Tests include both success and error cases
+- Tests use real objects (no mocks/fakes)
+
+### 6. Test Quality (anti-gap-codification)
+Confirm tests prove the feature works, not that it's broken:
+- No tests that assert `NotImplementedError` or `NotImplemented` on production code paths
+- No tests that only verify shallow behavior while core logic is untested
+- If the task requires "X replaces Y", verify tests prove X works AND no test relies on Y still being present
+- If the task implements a validator/checker, verify at least one test fails when the check is removed (i.e., the check actually does something)
+
+## Success Criteria
+
+1. All files from implementation task exist
+2. No stub/placeholder code detected
+3. mypy --strict passes on all new files
+4. All targeted tests pass
+5. Tests exercise actual implementation logic
+6. No tests that codify gaps (asserting NotImplementedError on production paths)
+
+## Evidence Required
+
+Paste the following raw output into "How Solved":
+- `mypy --strict` output (full)
+- `pytest` output (full, including test names and pass/fail)
+- For each file: first 5 lines + line count confirming non-trivial content
+```
+
+**When to group verification tasks:** If 2-3 implementation tasks are closely related (e.g., parser + parser tests for the same module), they can share one verification task. Do NOT group more than 3 implementation tasks into one verification task.
+
 #### Quality Gate Tasks
 Dedicated tasks that run the full test suite for a package as a final verification pass. Generate these when:
 - A phase includes 2+ code tasks (implementation + test combined) targeting the same package
@@ -432,7 +523,7 @@ Quality gate task template:
 
 ## Overview
 
-Final verification pass for {package-name}. Runs the full test suite and mypy to ensure all implementation and test tasks in this phase integrate correctly.
+Final verification pass for {package-name}. Runs the full test suite, mypy, and behavioral checks to ensure all implementation and test tasks in this phase integrate correctly.
 
 **Package:** `{package-name}` (`d:\datrix\{repo}\`)
 **Depends on:** {comma-separated list of ALL tasks targeting this package}
@@ -450,13 +541,26 @@ Final verification pass for {package-name}. Runs the full test suite and mypy to
    mypy --strict src/{package_underscored}/
    ```
 
-3. If any failures: investigate, classify as task-specific regression or pre-existing, report.
+3. Scan for completion red flags in all files created/modified by this phase's tasks:
+   - `NotImplementedError` in production code (not test code)
+   - `# TODO` / `# FIXME` / `pass` in function bodies
+   - Always-true/always-false validators or checkers
+   - Legacy code paths that should have been deleted per task requirements
+   - Dual paths (old + new) where tasks required full migration
+
+4. Verify each task's "How Solved" section does not self-contradict:
+   - Read each COMPLETED task's "How Solved" narrative
+   - Flag any containing: "remains unchanged", "legacy", "future migration", "not yet wired", "partial", "workaround", "dual path"
+
+5. If any failures: investigate, classify as task-specific regression or pre-existing, report.
 
 ## Success Criteria
 
 1. Full test suite passes (or only pre-existing failures remain)
 2. mypy --strict passes
-3. No TODO/pass/placeholder code introduced by this phase's tasks
+3. No TODO/pass/placeholder/NotImplementedError in production code introduced by this phase's tasks
+4. No self-contradictory "How Solved" sections in completed tasks
+5. No dual code paths where tasks required migration
 
 ## Targeted Tests
 
@@ -487,9 +591,10 @@ When creating documentation tasks, **read the existing docs** in the target fold
 - Infrastructure/framework tasks come first (base classes, utilities)
 - Feature tasks build on infrastructure (specific generators, handlers)
 - Test tasks follow their corresponding implementation tasks
+- Verification tasks follow their corresponding implementation + test tasks
 - Documentation tasks come after the implementation tasks they document
 - Integration/testing tasks come after unit test tasks (end-to-end, CLI, multi-target)
-- Quality gate tasks come LAST — after ALL implementation, test, and documentation tasks for their package
+- Quality gate tasks come LAST — after ALL implementation, test, verification, and documentation tasks for their package
 - Tasks within a phase can be parallelized if they share no dependencies
 
 ### Repository Assignment

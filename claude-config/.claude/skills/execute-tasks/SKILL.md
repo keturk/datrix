@@ -59,39 +59,16 @@ Single task:
 TASK: d:\datrix\datrix-common\.tasks\phase-05\task-05-01-generator-base.md
 ```
 
-## Mandatory Reading (BEFORE any work)
+## Prereqs
+Read first: CLAUDE.md, MEMORY.md, `datrix-common/docs/contributing/ai-agent-rules.md`.
 
-Before doing ANY work, read these documents in full:
-
-1. **`d:\datrix\.claude\CLAUDE.md`** — Project rules. All rules apply throughout.
-2. **`C:\Users\KErca\.claude\projects\d--datrix\memory\MEMORY.md`** — Persistent memory.
-3. **`d:\datrix\datrix-common\docs\contributing\ai-agent-rules.md`** — Full contributing rules (index with links to sub-documents under `ai-agent-rules/`).
-
-### Project Structure (DYNAMIC — read from generated file)
-
-Before implementing, read the project structure file for each target package's source, test, and template directory trees:
-
-- **`d:\datrix\{package-name}\.project-structure.md`**
-
-Where `{package-name}` is determined from the task file's `**Package:**` field (e.g., `datrix-codegen-python`, `datrix-common`).
-
-If the file is missing or stale, regenerate it:
-```bash
-powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}
-```
+### Project Structure
+Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}`.
 
 <!-- PHASE: pre_check -->
 ## Phase 1: Pre-Execution Check
 
 Read all task files, validate dependencies, and plan execution order.
-
-### Mandatory Reading
-
-Before proceeding, read these documents in full:
-
-1. **`d:\datrix\.claude\CLAUDE.md`** — Project rules
-2. **`C:\Users\KErca\.claude\projects\d--datrix\memory\MEMORY.md`** — Persistent memory
-3. **`d:\datrix\datrix-common\docs\contributing\ai-agent-rules.md`** — Contributing rules
 
 ### Steps
 
@@ -117,6 +94,11 @@ For each task file provided in the skill invocation:
 6. **Identify quality gate tasks:**
    - If `**Category:** Quality Gate` → mark this task as quality_gate type
    - Quality gate tasks MUST execute LAST among all tasks for the package
+7. **Identify verification tasks:**
+   - If `**Category:** Verification` → mark this task as verification type
+   - Verification tasks are verification-only — they check that implementation was done correctly
+   - Verification tasks MUST execute AFTER their dependency implementation/test tasks
+   - Verification tasks should ideally be executed in a **different session** than the implementation tasks they verify
 
 ### Input
 
@@ -234,6 +216,18 @@ Apply the implementation described in the task file:
 - If implementation grows beyond what the task describes, STOP and report
 - Do NOT make "improvements" to surrounding code beyond what the task requires
 
+**STUCK protocol — report, don't fake it:**
+- If implementation hits unexpected complexity (e.g., dependencies missing, patterns unclear, design ambiguity), mark the task as BLOCKED — do NOT write stub/placeholder code and mark it complete
+- If you cannot figure out the correct implementation after reading the relevant code, STOP and report what you found and what's unclear
+- Writing `pass`, `NotImplementedError`, empty method bodies, or trivial stubs that satisfy type checkers but do nothing is **worse than reporting BLOCKED** — it creates invisible debt that wastes future sessions
+- A BLOCKED task with a clear explanation is a success. A fake-completed task is a failure.
+
+**Partial completion is NOT completion:**
+- If the task says "delete old path, use new path" and you keep both paths → task is NOT complete
+- If a dependency (e.g., executor) has `NotImplementedError` and you work around it with legacy code → mark BLOCKED, not COMPLETED
+- If you implement a checker/validator but its checks always return true or are placeholder logic → task is NOT complete
+- The test for "is this complete?" is: does the code do what the task's acceptance criteria specify, without workarounds, fallbacks, or dual paths?
+
 **Anti-patterns to avoid:**
 - NO `dict.get(key, None)` — raise explicit errors
 - NO `type_map.get(t, "Any")` — raise on unknown types
@@ -241,6 +235,7 @@ Apply the implementation described in the task file:
 - NO `# TODO` / `pass` — implement completely
 - NO `-> T | None` error returns — raise descriptive errors
 - NO mocks/fakes in tests (`MagicMock`, `Mock`, `patch`, `SimpleNamespace`)
+- **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)
 
 **Best practices:**
 - Fail fast and loud: `raise ExplicitError(f"message with context")`
@@ -258,6 +253,9 @@ For each task, record:
 
 **Quality gate tasks:**
 Quality gate tasks (identified by `**Category:** Quality Gate`) are verification-only — they have NO implementation step. Skip Step 2 for quality gate tasks.
+
+**Verification tasks:**
+Verification tasks (identified by `**Category:** Verification`) are verification-only — they have NO implementation step. Skip Step 2 for verification tasks. They run their own checklist in the verify phase.
 
 ### Input Format
 
@@ -437,9 +435,33 @@ If tests still fail after 3 fix attempts:
 
 If verification PASSED:
 
-1. **Update the task file:**
+1. **Verify files are non-trivial (anti-stub check):**
+   For each file in "Files to Create", confirm:
+   - File exists on disk
+   - File has >10 lines of non-comment, non-import code
+   - No `pass` in function/method bodies (search with grep)
+   - No `NotImplementedError` in production code
+   - No `# TODO` or `# FIXME` markers
+   - No always-true/always-false checks that make validators or checkers functionally useless
+   - No legacy/old code paths kept alongside new code when the task requires replacement
+   If ANY file fails this check → do NOT mark complete. Either fix the implementation or mark BLOCKED.
+
+2. **Verify tests prove the feature, not the gap:**
+   - Tests must NOT assert `NotImplementedError` or `NotImplemented` on production code paths — that codifies the gap as "expected behavior"
+   - Tests must NOT only test shallow/happy paths while leaving the core behavior untested
+   - If the task requires "X replaces Y", tests must prove X works AND Y is gone — not just that the code doesn't crash
+
+3. **Self-contradiction check on "How Solved" narrative:**
+   Before writing the "How Solved" section, re-read the task's acceptance criteria. Then check: does your narrative contain any of these red flags?
+   - "remains unchanged" / "original path still used" / "legacy code preserved"
+   - "future migration" / "when executor supports X" / "not yet wired"
+   - "partial" / "workaround" / "fallback to old path"
+   - "dual path" / "both old and new" / "backward compatibility layer"
+   If ANY of these appear in your narrative, the task is NOT complete. Mark it BLOCKED with an honest explanation.
+
+2. **Update the task file:**
    - Change title from `# Task {NN}-{TT}: {Title}` to `# COMPLETED: Task {NN}-{TT}: {Title}`
-   - Add `## How Solved` section immediately after title:
+   - Add `## How Solved` section immediately after title with **mandatory proof-of-work**:
 
 ```markdown
 ## How Solved
@@ -447,7 +469,24 @@ If verification PASSED:
 - **`{file_path}`** — {implementation summary}
 - **Design decisions:** {key decisions made}
 - **Test coverage:** {test summary}
+
+### Proof of Work
+
+**pytest output:**
 ```
+{paste RAW pytest output here — full output, not a summary}
+```
+
+**mypy output:**
+```
+{paste RAW mypy --strict output here}
+```
+
+**Files created (with line counts):**
+- `{file_path}` — {N} lines (non-comment, non-blank)
+```
+
+The proof-of-work section is **mandatory**. A task without raw test/mypy output in its "How Solved" section is NOT considered properly completed. This evidence allows independent verification without re-running the tools.
 
 **Example:**
 
@@ -458,15 +497,31 @@ If verification PASSED:
 - **`templates/entity.py.j2`** — Created Jinja2 template for Python entity models with full type annotation support.
 - **`tests/unit/test_entity_generator.py`** — 12 tests covering: basic entity, all field types, relationships, error cases.
 - **Design decision:** Used composition over inheritance for generator mixins, matching existing pattern in ServiceGenerator.
+
+### Proof of Work
+
+**pytest output:**
+```
+tests/unit/test_entity_generator.py::TestEntityGenerator::test_basic_entity PASSED
+tests/unit/test_entity_generator.py::TestEntityGenerator::test_field_types PASSED
+... (full output)
+12 passed in 1.23s
+```
+
+**mypy output:**
+```
+Success: no issues found in 3 source files
+```
+
+**Files created (with line counts):**
+- `src/generators/entity_generator.py` — 187 lines
+- `templates/entity.py.j2` — 45 lines
+- `tests/unit/test_entity_generator.py` — 203 lines
 ```
 
 **Quality gate tasks:**
 
-For quality gates, the "How Solved" section reports:
-- Total tests: {pass}/{total}
-- mypy result: clean / {N} errors
-- Whether any new failures were found
-- No files created/modified (quality gates are verification-only)
+For quality gates, the "How Solved" section reports with **mandatory raw output**:
 
 **Example (quality gate):**
 
@@ -476,7 +531,27 @@ For quality gates, the "How Solved" section reports:
 - **Full test suite:** 185/185 passing
 - **mypy --strict:** clean
 - No files created or modified.
+
+### Proof of Work
+
+**pytest output:**
 ```
+{paste RAW full test suite output}
+```
+
+**mypy output:**
+```
+{paste RAW mypy --strict output}
+```
+```
+
+**Verification tasks:**
+
+Verification tasks (identified by `**Category:** Verification`) follow their own checklist defined in the task file. They do NOT implement code — they verify that implementation tasks were completed correctly. The "How Solved" section must include:
+- Result of each verification checklist item (pass/fail)
+- Raw pytest and mypy output
+- For each file checked: line count and stub-check result
+- If ANY check fails: mark the task FAILED and identify which implementation task needs rework
 
 ### Output Format
 

@@ -58,26 +58,11 @@ LOG FOLDER:
 D:\datrix\.generated\python\docker\01-foundation\.test_results\unit-tests-20260303-111307
 ```
 
-## Mandatory Reading (BEFORE any work)
+## Prereqs
+Read first: CLAUDE.md, MEMORY.md, `datrix-common/docs/contributing/ai-agent-rules.md`.
 
-Before doing ANY work, read these documents in full:
-
-1. **`d:\datrix\.claude\CLAUDE.md`** — Project rules. All rules apply throughout.
-2. **`C:\Users\KErca\.claude\projects\d--datrix\memory\MEMORY.md`** — Persistent memory.
-3. **`d:\datrix\datrix-common\docs\contributing\ai-agent-rules.md`** — Full contributing rules (index with links to sub-documents under `ai-agent-rules/`).
-
-### Project Structure (DYNAMIC — read from generated file)
-
-Before investigating, read the project structure file for the codegen package(s) you will be tracing into:
-
-- **`d:\datrix\{package-name}\.project-structure.md`**
-
-Where `{package-name}` is determined from the SCOPE parameter and log folder paths (e.g., `datrix-codegen-python`, `datrix-codegen-typescript`).
-
-If the file is missing or stale, regenerate it:
-```bash
-powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}
-```
+### Project Structure
+Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}`.
 
 ## Scope Check
 
@@ -91,14 +76,6 @@ After reading mandatory documents and BEFORE investigation:
 ## Phase 1: Log Parsing
 
 Parse test failure logs and extract structured failure data for root cause analysis.
-
-### Mandatory Reading
-
-Before proceeding, read these documents in full:
-
-1. **`d:\datrix\.claude\CLAUDE.md`** — Project rules
-2. **`C:\Users\KErca\.claude\projects\d--datrix\memory\MEMORY.md`** — Persistent memory
-3. **`d:\datrix\datrix-common\docs\contributing\ai-agent-rules.md`** — Contributing rules
 
 ### Steps
 
@@ -620,6 +597,7 @@ On abort, report what was fixed, what failed, and what remains.
 - **NO debug scatter** — zero temporary logging
 - **NO cross-language fixes** — stay in the declared scope (Python or TypeScript)
 - **NO running full test suite after each fix** — verify originally-failing tests only, run full suite AFTER all fixes
+- **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)
 
 ### Best Practices
 
@@ -971,3 +949,4 @@ On abort, write a partial issue report to `d:\datrix\issues\` documenting what w
 - **NO guessing** — read the code at every phase boundary
 - **NO skipping regeneration** — always verify the fix produces correct output
 - **NO batch-fixing** — one root cause at a time with verification
+- **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

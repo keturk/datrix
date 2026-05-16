@@ -1,93 +1,61 @@
 # Claude Code Rules for Datrix
 
-**On-demand skills:** `/imports` (module paths), `/logic-map` (markers), `/fix` (phased fix workflow), `/fix-issue` (fix from structured issue reports with Root Cause Analysis), `/codegen-review` (submission checklist + repo rules + code examples), `/fix-tests` (one-at-a-time test fix workflow), `/scope` (session scope anchor), `/checkpoint-debug` (checkpoint-based multi-bug debugging), `/troubleshoot-and-fix` (autonomous diagnose→fix→verify pipeline), `/codegen-fix-loop` (iterative fix with test feedback), `/operationalize-design` (design doc to tasks+docs pipeline), `/operationalize-design-v2` (design doc to tasks+docs with Task Review System validation), `/execute-tasks` (implement task files with verify+complete loop), `/execute-tasks-parallel` (parallel execution of independent tasks), `/absorb-design` (transfer design doc knowledge into repo docs + delete source), `/commit-and-push` (scan repos, build commit messages, commit and push), `/evaluate-generated` (quick project-level evaluation, generates service prompts), `/evaluate-generated-service` (deep single-service evaluation with semantic verification), `/fix-cli` (diagnose+fix CLI test failures from index.json), `/fix-codegen-aws` (diagnose+fix AWS codegen test failures from index.json), `/fix-codegen-azure` (diagnose+fix Azure codegen test failures from index.json), `/fix-codegen-common` (diagnose+fix codegen-common test failures from index.json), `/fix-codegen-component` (diagnose+fix component codegen test failures from index.json), `/fix-codegen-docker` (diagnose+fix Docker codegen test failures from index.json), `/fix-codegen-k8s` (diagnose+fix K8s codegen test failures from index.json), `/fix-codegen-python` (diagnose+fix Python codegen test failures from index.json), `/fix-codegen-sql` (diagnose+fix SQL codegen test failures from index.json), `/fix-codegen-typescript` (diagnose+fix TS codegen test failures from index.json), `/fix-common` (diagnose+fix datrix-common test failures from index.json), `/fix-extensions` (diagnose+fix extensions test failures from index.json), `/fix-language` (diagnose+fix language test failures from index.json).
+**On-demand skills:** `/imports`, `/logic-map`, `/fix`, `/fix-issue`, `/codegen-review`, `/fix-tests`, `/scope`, `/checkpoint-debug`, `/troubleshoot-and-fix`, `/codegen-fix-loop`, `/operationalize-design`, `/operationalize-design-v2`, `/execute-tasks`, `/execute-tasks-parallel`, `/absorb-design`, `/commit-and-push`, `/evaluate-generated`, `/evaluate-generated-service`, `/fix-cli`, `/fix-common`, `/fix-extensions`, `/fix-language`, `/fix-codegen-{aws,azure,common,component,docker,k8s,python,sql,typescript}`.
 
 ## Core Principles
 
-- **Own every issue.** If we see a bug, we fix it. No blame-shifting. Scope note: when *reviewing*, only flag issues within the task's stated scope.
-- **Never assume, never fabricate.** Look it up: category-specific `quick-reference.md` under `datrix/scripts/{category}/` for scripts, grammar for DSL, source for APIs.
-- **No GitHub Actions.** Not used in this project.
-- **No backward compatibility.** Delete old code, don't wrap it. One way to do each thing.
-- **No git reverts.** Never use `git checkout`, `git restore`, `git reset`, or any other git command to revert or discard changes. The agent does not have authority to restore files from the repository.
-- **Editor context.** Do not act on the open editor file unless explicitly mentioned.
+- Own every issue (when reviewing, stay in task scope). Never assume/fabricate — look it up.
+- No GitHub Actions. No backward compat (delete old code). Editor context: don't act on open file unless mentioned.
+- **No git reverts.** Never use `git checkout`, `git restore`, `git reset`, `git stash`, `git revert`, or any variant to revert or discard changes. The agent does not know how many prior tasks have modified working tree files — reverting may destroy uncommitted work. Undo your own edits manually.
 
 ## STOP AND THINK
 
 Before touching code: read all relevant code, trace root cause, understand full impact, design the fix, ask if uncertain. One correct fix > five quick patches.
 
-## Investigation & Debugging Discipline
+## Investigation & Debugging
 
-- **Read before hypothesizing.** When investigating bugs or unfamiliar code, ALWAYS read the relevant build scripts, generation scripts, and existing code BEFORE forming hypotheses. Never fabricate assumptions about what code does — read it first.
-- **Confirm language/generator scope.** This is a polyglot project with Python AND TypeScript generators. Confirm which language/generator is relevant BEFORE making changes. Do NOT generate Python fixes for TypeScript issues or vice versa.
-- **No debug scatter.** Do NOT scatter debug/logging statements throughout the codebase. If temporary debug code is needed, track every insertion and remove it all before completing the task. Never leave debug artifacts that break builds.
-- **Investigate before asking.** Do your own codebase research FIRST before asking clarifying questions. Come with findings, not just questions.
-- **Don't repeat acknowledged info.** When the user says 'OK' or acknowledges a summary, proceed to the next action. Do not repeat or re-summarize.
-- **Fix root causes, not symptoms.** Prefer removing the root cause (e.g., removing dual naming/aliases) over adding workarounds. Ask: does this fix eliminate the problem or just paper over it?
+Read before hypothesizing (build scripts, generators, existing code). Confirm Python vs TypeScript generator scope before changes. No debug scatter (track+remove all temp logging). Investigate before asking — come with findings. Don't repeat acknowledged info. Fix root causes not symptoms.
 
 ## Task Scope Back-Off
 
-If a task spans 3+ unrelated subsystems, requires chain-debugging, or would fill the context window — STOP and propose a split into smaller tasks. Don't silently attempt massive tasks.
+If a task spans 3+ unrelated subsystems, requires chain-debugging, or would fill context — STOP and propose splitting. Don't silently attempt massive tasks.
 
-## Fix Execution Discipline
+## Fix Execution
 
-Follow the phased approach: Understand → Fix → Verify. Invoke `/fix` for the full workflow reference. Key rules:
-
-- **Issue reports with Root Cause Analysis:** If the issue includes a "Recommended Fix" section, implement that approach first. Don't rediscover what's already documented. If the recommendation is unclear (e.g., "in spec test context" without obvious flags), STOP and ASK before investigating alternatives.
-- **STOP and report when not confident.** Don't spend tool calls investigating — ask for direction.
-- **STOP on new test failures.** Present options, don't immediately attempt fix.
-- **STOP when scope grows beyond estimate.** Report growth, get approval to continue.
+Understand→Fix→Verify (`/fix` for full workflow). Implement "Recommended Fix" from issue reports first. STOP+report when: not confident, new test failures appear, scope grows beyond estimate.
 
 ## Design Doc Workflow
 
-Design docs live in `design/` numbered by priority (e.g., `01-core.md`, `09-workflow.md`).
-
-- **Read first.** Before implementing a design doc: read the FULL doc, cross-reference architecture docs, and understand dependencies on other designs.
-- **Scope boundary.** Design docs define WHAT to build and WHY — they are scope boundaries. Do not add features the design doc does not specify.
-- **Operationalize before coding.** Convert a design doc into actionable task files before writing code. Track implementation progress in task files, not in the design doc.
-  - **Use `/operationalize-design-v2`** for production-bound designs (default) — integrates Task Review System (Tier 1 local LLM + optional Tier 2 Codex) to validate tasks before execution. Adds ~5-15 minutes but catches defects early.
-  - **Use `/operationalize-design`** for rapid prototyping or when review system unavailable — generates tasks without validation.
-- **Absorb after completion.** After all tasks are complete, use `/absorb-design` to transfer the design doc's knowledge into permanent repo docs. Design docs are preserved as historical reference after their content is absorbed into permanent documentation.
-- **Never modify during implementation.** If the design needs changes, discuss first — do not silently edit the design doc while implementing it.
+Docs in `design/` numbered by priority. Read full doc + cross-ref architecture before implementing. Design docs are scope boundaries — don't add unspecified features. Operationalize before coding: `/operationalize-design-v2` (production, with review) or `/operationalize-design` (rapid). Absorb after completion (`/absorb-design`). Never modify design docs during implementation.
 
 ## Logic Map
 
-Query `d:/datrix/.logic-map/markers.db` before implementing significant new logic. Invoke `/logic-map` for syntax, queries, and scripts.
+Query `d:/datrix/.logic-map/markers.db` before implementing significant new logic. `/logic-map` for syntax.
 
 ## Architecture
 
 - Pipeline: `.dtrx → TreeSitterParser + Transformers → Application (validated AST) → Generators` — no IR layer.
 - Cheat sheets: `datrix/docs/architecture/architecture-cheat-sheet.md`, `design-principles-cheat-sheet.md`
 - Scripts: `datrix/scripts/quick-reference.md` (index) → category files under `test/`, `dev/`, `git/`, `metrics/`, `visualize/`, `tasks/`
-- Full docs: `datrix/docs/architecture/architecture-overview.md` (index → sub-docs: `architecture/pipeline-and-capabilities.md`, `architecture/repository-architecture.md`, `architecture/builtin-traits-enums.md`), `design-principles.md`
-- Agent rules: `datrix-common/docs/contributing/ai-agent-rules.md` (index → sub-docs: `ai-agent-rules/prohibited-patterns.md`, `ai-agent-rules/code-quality-standards.md`, `ai-agent-rules/repo-specific-rules.md`, `ai-agent-rules/canonical-imports.md`)
-- Test guidelines: `datrix-common/docs/contributing/test-guidelines/` (unit + integration index files → shared sub-docs: `shared/test-utilities-and-fixtures.md`, `shared/assertion-anti-patterns.md`, `shared/repo-specific-testing.md`, `shared/repo-specific-integration.md`)
+- Full docs: `datrix/docs/architecture/architecture-overview.md` (index → sub-docs: `pipeline-and-capabilities.md`, `repository-architecture.md`, `builtin-traits-enums.md`), `design-principles.md`
+- Agent rules: `datrix-common/docs/contributing/ai-agent-rules.md` (index → sub-docs: `prohibited-patterns.md`, `code-quality-standards.md`, `repo-specific-rules.md`, `canonical-imports.md`)
+- Test guidelines: `datrix-common/docs/contributing/test-guidelines/` (unit + integration index → shared sub-docs)
 
 ## Code Standards
 
-- **Type hints** on all functions. `mypy --strict` must pass.
-- **No `Any`** — use real types, `Protocol`, `TypeVar`, or `Union`. Exception: Pydantic `@model_validator(mode="before")` `data` parameter.
-- **Logging:** standard `logging` (NOT structlog), `logger = logging.getLogger(__name__)`, %-style formatting.
-- **Cognitive complexity** ≤15. Max 3 nesting levels. Early returns.
-- **DRY** — search for existing functions before writing new code.
-- **No magic constants** — named constants only.
-- **Error messages** must include: what went wrong, what was expected, valid options, fix suggestions.
-- **Testing:** real objects only. NO `unittest.mock`, `SimpleNamespace`, or fake objects. Test output, validate syntax, test error cases. Guidelines: `datrix-common/docs/contributing/test-guidelines/`
+Type hints on all fns; `mypy --strict` must pass. No `Any` (exception: Pydantic `@model_validator(mode="before")` data param). Logging: `logging.getLogger(__name__)`, %-style. Cognitive complexity ≤15; max 3 nesting; early returns. DRY — search existing fns first. Named constants only. Error msgs: what went wrong + expected + valid options + fix suggestion. Testing: real objects only, no `unittest.mock`/`SimpleNamespace`/fakes; guidelines in `datrix-common/docs/contributing/test-guidelines/`.
 
 ## Anti-Patterns
 
-No placeholders/TODOs. No silent fallbacks (`dict.get(key, None)`). No default type mappings (`get(t, "Any")`). No `except: pass`. No raw string concatenation for code. No `T | None` error returns. No deep inheritance. No platform-specific DSLs. No implicit/magic logic. No mechanical grep-and-replace (fix root cause). No unverified answers. No SQLite in generated code.
+No placeholders/TODOs. No silent fallbacks (`dict.get(key, None)`). No default type mappings (`get(t, "Any")`). No `except: pass`. No raw string concat for code. No `T | None` error returns. No deep inheritance. No platform-specific DSLs. No implicit/magic logic. No mechanical grep-and-replace. No unverified answers. No SQLite in generated code.
 
 ## Project Domain Isolation
 
-Customer/project-specific domain language MUST NOT appear in any framework package (datrix, datrix-cli, datrix-codegen-*, datrix-common, datrix-extensions, datrix-language). This applies to code, tests, docs, examples, and comments.
+Customer/project domain language MUST NOT appear in framework packages (datrix, datrix-cli, datrix-codegen-*, datrix-common, datrix-extensions, datrix-language).
 
-**CurvAero prohibited terms** (never use in framework packages):
-- aviation, airport, runway, airspace, navaid, taxiway, waypoint (in aviation context)
-- curvaero, CurvAero
-- AIRAC, NASR, TFR, NOTAM
-- Any CurvAero service name (AviationDataService, AirspaceService, ObstacleService, etc.)
+**CurvAero prohibited terms:** aviation, airport, runway, airspace, navaid, taxiway, waypoint (aviation context), curvaero/CurvAero, AIRAC, NASR, TFR, NOTAM, any CurvAero service name.
 
-**For framework docs/tests/examples:** use neutral e-commerce domain (Product, Order, Customer, Warehouse, Variant, LineItem) or invent a fictional domain unrelated to any customer project.
+**Framework docs/tests/examples:** use neutral e-commerce domain (Product, Order, Customer, Warehouse, Variant, LineItem) or fictional domain.
 
 ## Cannot Complete?
 

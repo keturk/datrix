@@ -56,27 +56,11 @@ When only one path is given, the skill **must ask for the other**. Both SOURCE a
 
 **For deep semantic verification of individual services**, run the generated prompt files using `/evaluate-generated-service`.
 
-## Mandatory Reading (BEFORE any evaluation)
+## Prereqs
+Read first: CLAUDE.md, MEMORY.md, `datrix-common/docs/contributing/ai-agent-rules.md`, architecture docs.
 
-Before doing ANY work, read these documents in full:
-
-1. **`d:\datrix\.claude\CLAUDE.md`** -- Project instructions and coding standards
-2. **`d:\datrix\datrix-common\docs\contributing\ai-agent-rules.md`** -- Full contributing rules (index with links to sub-documents under `ai-agent-rules/`)
-3. **`d:\datrix\datrix\docs\architecture\architecture-overview.md`** -- System architecture and pipeline (index with links to sub-documents under `architecture/`)
-4. **`d:\datrix\datrix\docs\architecture\design-principles.md`** -- Design principles
-
-### Project Structure (DYNAMIC — read from generated file)
-
-Before evaluating, read the project structure file for the codegen package(s) relevant to the generated output:
-
-- **`d:\datrix\{package-name}\.project-structure.md`**
-
-Where `{package-name}` is determined from the generated output language (e.g., `datrix-codegen-python` for Python, `datrix-codegen-typescript` for TypeScript). Also read `datrix-codegen-docker` and `datrix-codegen-component` if Docker/component artifacts are being evaluated.
-
-If the file is missing or stale, regenerate it:
-```bash
-powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}
-```
+### Project Structure
+Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}`.
 
 ## Inputs
 
@@ -648,6 +632,7 @@ PROMPT_FILE: D:\datrix\eval\{timestamp}-{project}\service-{service-name}.prompt.
 - **Do NOT read all config YAMLs** -- only system-level configs
 - **Do NOT verify entity completeness** -- service-level concern
 - **Do NOT detect dead code at service level** -- service-level concern
+- **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)
 
 This skill is FAST and LIGHTWEIGHT. It creates the evaluation structure and delegates deep work to `/evaluate-generated-service`.
 

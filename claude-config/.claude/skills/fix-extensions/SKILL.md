@@ -19,13 +19,8 @@ Diagnose and fix failures, errors, and warnings in `datrix-extensions` from a st
 
 The argument is the absolute path to an `index.json` file inside a `.test_results/test-results-YYYYMMDD-HHMMSS/` directory.
 
-## Mandatory Reading (BEFORE any work)
-
-Before doing ANY work, read these documents in full:
-
-1. **`d:\datrix\.claude\CLAUDE.md`** — Project rules. All rules apply throughout.
-2. **`d:\datrix\datrix-common\docs\contributing\ai-agent-rules.md`** — Contributing rules (index with links to sub-documents).
-3. **`d:\datrix\datrix-common\docs\contributing\test-guidelines\`** — Test guidelines (unit + integration index files).
+## Prereqs
+Read first: CLAUDE.md, `datrix-common/docs/contributing/ai-agent-rules.md`, `test-guidelines/`.
 
 ## Scope
 
@@ -132,16 +127,8 @@ path/to/file.py:99: UserWarning: something suspicious
 - `SyntaxWarning` — Suspicious syntax; fix the syntax
 - `ResourceWarning` — Unclosed files/connections; add proper cleanup
 
-### Project Structure (DYNAMIC — read from generated file)
-
-Before investigating, read the project structure file for the current source, test, and template directory trees:
-
-- **`d:\datrix\datrix-extensions\.project-structure.md`**
-
-If the file is missing or stale, regenerate it:
-```bash
-powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" datrix-extensions
-```
+### Project Structure
+Read `d:\datrix\datrix-extensions\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" datrix-extensions`.
 
 ### Test-to-Source Mapping Convention
 
@@ -348,3 +335,4 @@ On abort, report what was investigated, what was attempted, and what remains.
 - **NO debug scatter** — zero temporary logging
 - **NO cross-package fixes** — activate the other project's fix skill instead
 - **NO running full suite after each fix** — verify individual tests first
+- **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)
