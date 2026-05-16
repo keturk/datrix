@@ -31,11 +31,8 @@ DRY RUN: true
 KEEP SOURCE: true
 ```
 
-## Mandatory Reading (BEFORE any work)
-
-1. **`d:\datrix\.claude\CLAUDE.md`** — Project rules
-2. **`C:\Users\KErca\.claude\projects\d--datrix\memory\MEMORY.md`** — Persistent memory
-3. **The design document itself** — Read in full before proceeding
+## Prereqs
+Read first: CLAUDE.md, MEMORY.md. Also read the design document itself in full before proceeding.
 
 ## Inputs
 
@@ -250,3 +247,4 @@ Modified files:
 - **NO duplicating content across multiple targets** — each unit goes to exactly one place
 - **NO skipping content silently** — every skipped unit must be reported with a reason
 - **NO modifying code files** — this skill only touches documentation files
+- **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

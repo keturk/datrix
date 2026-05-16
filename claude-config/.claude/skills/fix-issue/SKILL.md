@@ -21,13 +21,8 @@ The argument is the absolute path to an issue markdown file.
 
 Process issues sequentially — complete one before starting the next.
 
-## Mandatory Reading (BEFORE any work)
-
-Before doing ANY work, read these documents in full:
-
-1. **`d:\datrix\.claude\CLAUDE.md`** — Project rules. All rules apply throughout.
-2. **`d:\datrix\datrix-common\docs\contributing\ai-agent-rules.md`** — Contributing rules (index with links to sub-documents).
-3. **`d:\datrix\datrix-common\docs\contributing\test-guidelines\`** — Test guidelines (unit + integration index files).
+## Prereqs
+Read first: CLAUDE.md, MEMORY.md, `datrix-common/docs/contributing/ai-agent-rules.md` + `test-guidelines/`.
 
 ---
 
@@ -248,3 +243,4 @@ Recommend: [continue / revert and rethink / split into smaller tasks]
 - **NO running full test suites for each issue** — verify only affected tests
 - **NO committing changes** — user decides when to commit
 - **NO fabricating file locations** — if Root Cause Analysis says "exact file TBD", search for it first
+- **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

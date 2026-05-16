@@ -27,23 +27,11 @@ Or with a log:
 LOG: D:\datrix\.generated\.results\generate-results-20260503-172334.log
 ```
 
-## Mandatory Reading (BEFORE any work)
+## Prereqs
+Read first: CLAUDE.md, MEMORY.md.
 
-1. **`d:\datrix\.claude\CLAUDE.md`** — Project rules
-2. **`C:\Users\KErca\.claude\projects\d--datrix\memory\MEMORY.md`** — Persistent memory
-
-### Project Structure (DYNAMIC — read from generated file)
-
-Before investigating, read the project structure file for each affected package's source, test, and template directory trees:
-
-- **`d:\datrix\{package-name}\.project-structure.md`**
-
-Where `{package-name}` is determined from the issues being debugged (e.g., `datrix-codegen-python`, `datrix-common`).
-
-If the file is missing or stale, regenerate it:
-```bash
-powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}
-```
+### Project Structure
+Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}`.
 
 ## Workflow — Checkpoint-Based
 
@@ -157,3 +145,4 @@ Issues unresolved: {N} (see details above)
 - **NO scope creep** — if you discover a new issue during a fix, log it as a new item, don't chase it
 - **NO assumption-driven fixes** — read the code at every checkpoint
 - **NO skipping checkpoints** — every fix gets Understand → Fix → Verify
+- **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

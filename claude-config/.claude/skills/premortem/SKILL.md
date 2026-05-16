@@ -326,3 +326,4 @@ The user sees the HTML report first. The transcript is available if they want to
 - **NO vague revisions.** "Consider your pricing" is useless. "Test $X with 20 people" is actionable.
 - **NO running without sufficient context.** Get the minimum threshold (what/who/success) before starting.
 - **NO skipping the HTML report.** The visual output is what makes findings scannable and actionable.
+- **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

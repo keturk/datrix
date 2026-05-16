@@ -34,25 +34,11 @@ TEST COMMAND: powershell -File "d:/datrix/datrix/scripts/test/test-single.ps1" -
 MAX ITERATIONS: 5
 ```
 
-## Mandatory Reading (BEFORE any work)
+## Prereqs
+Read first: CLAUDE.md, MEMORY.md. Also read `FILES TO READ FIRST` (if provided) and `generate.ps1` (if not already familiar).
 
-1. **`d:\datrix\.claude\CLAUDE.md`** — Project rules
-2. **`C:\Users\KErca\.claude\projects\d--datrix\memory\MEMORY.md`** — Persistent memory
-3. **The files listed in `FILES TO READ FIRST`** (if provided)
-4. **`generate.ps1`** — understand the build pipeline (if not already familiar)
-
-### Project Structure (DYNAMIC — read from generated file)
-
-Before investigating, read the project structure file for the target package's source, test, and template directory trees:
-
-- **`d:\datrix\{PACKAGE}\.project-structure.md`**
-
-Where `{PACKAGE}` is the package specified in the skill invocation (e.g., `datrix-codegen-python`, `datrix-codegen-typescript`).
-
-If the file is missing or stale, regenerate it:
-```bash
-powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {PACKAGE}
-```
+### Project Structure
+Read `d:\datrix\{PACKAGE}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {PACKAGE}`.
 
 ## Configuration
 
@@ -201,3 +187,4 @@ Debug artifacts: CLEAN
 - **NO cross-package changes** — stay within PACKAGE boundary
 - **NO reverting to try the same thing again** — if you revert, the NEXT attempt must be different
 - **NO guessing at the fix** — each iteration's rationale must reference specific code or error output
+- **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

@@ -49,27 +49,11 @@ Optional:
 - **PROJECT_SOURCE** -- Path to `system.dtrx` (for resolving imports and system config)
 - **PROMPT_FILE** -- Path to a prompt file containing all required inputs
 
-## Mandatory Reading (BEFORE any evaluation)
+## Prereqs
+Read first: CLAUDE.md, MEMORY.md, `datrix-common/docs/contributing/ai-agent-rules.md`, architecture docs.
 
-Before doing ANY work, read these documents in full:
-
-1. **`d:\datrix\.claude\CLAUDE.md`** -- Project instructions and coding standards
-2. **`d:\datrix\datrix-common\docs\contributing\ai-agent-rules.md`** -- Full contributing rules (index with links to sub-documents under `ai-agent-rules/`)
-3. **`d:\datrix\datrix\docs\architecture\architecture-overview.md`** -- System architecture and pipeline (index with links to sub-documents under `architecture/`)
-4. **`d:\datrix\datrix\docs\architecture\design-principles.md`** -- Design principles
-
-### Project Structure (DYNAMIC — read from generated file)
-
-Before evaluating, read the project structure file for the codegen package(s) relevant to the generated output:
-
-- **`d:\datrix\{package-name}\.project-structure.md`**
-
-Where `{package-name}` is determined from the generated output language (e.g., `datrix-codegen-python` for Python, `datrix-codegen-typescript` for TypeScript).
-
-If the file is missing or stale, regenerate it:
-```bash
-powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}
-```
+### Project Structure
+Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}`.
 
 ## Workflow -- Phased with Confidence Checks
 
@@ -897,6 +881,7 @@ Key module paths (adjust based on affected package):
 - **Default type mappings:** Do NOT use `type_map.get(t, "Any")` -- raise on unknown types
 - **String-based code generation:** Do NOT use `code += f"class {name}:"` -- use Jinja2 templates
 - **Placeholder code:** Do NOT use `# TODO` / `pass` -- implement completely
+- **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)
 
 ## Success Criteria
 
@@ -1165,6 +1150,7 @@ Summary:
 - **Do NOT verify business logic correctness** -- only verify transpilation correctness
 - **Do NOT flag stylistic choices as semantic issues** -- only flag transpilation bugs
 - **Do NOT assume transpilation bugs without reading the code** -- verify by reading both DSL source and generated code line-by-line
+- **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)
 
 ## CLI Quick Reference
 

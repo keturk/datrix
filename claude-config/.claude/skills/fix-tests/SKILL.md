@@ -41,27 +41,11 @@ tests/test_foo.py::test_bar - TypeError: expected str got int
 tests/test_baz.py::test_qux - AttributeError: 'NoneType' has no attribute 'name'
 ```
 
-## Mandatory Reading (BEFORE any work)
+## Prereqs
+Read first: CLAUDE.md, MEMORY.md.
 
-Before doing ANY work, read:
-
-1. **`d:\datrix\.claude\CLAUDE.md`** — Project rules. All rules apply.
-2. **`C:\Users\KErca\.claude\projects\d--datrix\memory\MEMORY.md`** — Persistent memory. Check for relevant lessons.
-
-**DO NOT skip these.** Skipping = rejected fixes.
-
-### Project Structure (DYNAMIC — read from generated file)
-
-Before investigating, read the project structure file for the target package's source, test, and template directory trees:
-
-- **`d:\datrix\{package-name}\.project-structure.md`**
-
-Where `{package-name}` is determined from the test results path or test command (e.g., `datrix-codegen-python`, `datrix-common`).
-
-If the file is missing or stale, regenerate it:
-```bash
-powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}
-```
+### Project Structure
+Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}`.
 
 ## Scope Check
 
@@ -190,3 +174,4 @@ Final test results: {pass count}/{total count} passing
 - **NO cross-language fixes** — confirm Python vs TypeScript scope first
 - **NO scope creep** — don't fix unrelated issues discovered during investigation
 - **NO mechanical grep-and-replace** — understand the root cause, don't just pattern-match symptoms
+- **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

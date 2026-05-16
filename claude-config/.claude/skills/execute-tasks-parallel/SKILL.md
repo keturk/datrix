@@ -54,39 +54,16 @@ Execute all tasks in a phase:
 PHASE: d:\datrix\datrix-common\.tasks\phase-05\
 ```
 
-## Mandatory Reading (BEFORE any work)
+## Prereqs
+Read first: CLAUDE.md, MEMORY.md, `datrix-common/docs/contributing/ai-agent-rules.md`.
 
-Before doing ANY work, read these documents in full:
-
-1. **`d:\datrix\.claude\CLAUDE.md`** — Project rules. All rules apply throughout.
-2. **`C:\Users\KErca\.claude\projects\d--datrix\memory\MEMORY.md`** — Persistent memory.
-3. **`d:\datrix\datrix-common\docs\contributing\ai-agent-rules.md`** — Full contributing rules (index with links to sub-documents under `ai-agent-rules/`).
-
-### Project Structure (DYNAMIC — read from generated file)
-
-Before implementing, read the project structure file for each target package's source, test, and template directory trees:
-
-- **`d:\datrix\{package-name}\.project-structure.md`**
-
-Where `{package-name}` is determined from the task file's `**Package:**` field (e.g., `datrix-codegen-python`, `datrix-common`).
-
-If the file is missing or stale, regenerate it:
-```bash
-powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}
-```
+### Project Structure
+Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}`.
 
 <!-- PHASE: pre_check -->
 ## Phase 1: Pre-Execution Check & Blocker Detection
 
 Read all task files, validate dependencies, check for blockers, and determine if parallel execution is possible.
-
-### Mandatory Reading
-
-Before proceeding, read these documents in full:
-
-1. **`d:\datrix\.claude\CLAUDE.md`** — Project rules
-2. **`C:\Users\KErca\.claude\projects\d--datrix\memory\MEMORY.md`** — Persistent memory
-3. **`d:\datrix\datrix-common\docs\contributing\ai-agent-rules.md`** — Contributing rules
 
 ### Steps
 
@@ -112,7 +89,12 @@ For each task file provided in the skill invocation:
 6. **Identify quality gate tasks:**
    - If `**Category:** Quality Gate` → mark this task as quality_gate type
    - Quality gate tasks MUST execute LAST among all tasks for the package
-7. **Check for intra-phase dependencies:**
+7. **Identify verification tasks:**
+   - If `**Category:** Verification` → mark this task as verification type
+   - Verification tasks MUST execute AFTER their dependency implementation/test tasks
+   - Verification tasks should ideally be executed in a **different session** than the implementation tasks they verify
+   - If both an implementation task and its verification task are in the same batch → mark as ORDERING_REQUIRED
+8. **Check for intra-phase dependencies:**
    - If any task depends on another task in the same batch → mark as ORDERING_REQUIRED
    - Tasks with intra-phase dependencies must execute sequentially
 
@@ -253,13 +235,26 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
    Your workflow:
    1. Implement: Read task file, apply code changes per specification
    2. Verify: Run targeted tests, fix all failures (max 3 attempts)
+   3. Prove: Capture raw test/mypy output as proof-of-work
 
    CRITICAL RULES:
    - Read and follow ALL rules in d:\datrix\.claude\CLAUDE.md
    - Stay within this task's scope — do NOT modify files outside this task
    - If you encounter ambiguities, STOP and report them
-   - Mark the task COMPLETED only if all tests pass
+   - Mark the task COMPLETED only if all tests pass AND proof-of-work is captured
    - Mark the task FAILED if tests still fail after 3 attempts
+   - Mark the task BLOCKED if you cannot implement (see STUCK protocol)
+
+   STUCK PROTOCOL — report, don't fake it:
+   - If implementation hits unexpected complexity, mark BLOCKED — do NOT write stubs
+   - Writing `pass`, `NotImplementedError`, empty method bodies, or trivial stubs
+     is WORSE than reporting BLOCKED
+   - A BLOCKED task with a clear explanation is a success
+   - A fake-completed task with stubs is a failure that wastes future sessions
+   - Partial completion is NOT completion:
+     - If the task says "delete old path, use new path" and you keep both → BLOCKED
+     - If a dependency has NotImplementedError and you work around it → BLOCKED
+     - If you write a checker whose checks always return true → BLOCKED
 
    --- IMPLEMENTATION PHASE ---
 
@@ -283,26 +278,57 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
    - NO dict.get(key, None) — raise explicit errors
    - NO type_map.get(t, "Any") — raise on unknown types
    - NO bare except: pass
-   - NO # TODO / pass
+   - NO # TODO / pass / NotImplementedError in production code
    - NO -> T | None error returns
    - NO mocks/fakes in tests
+   - NO stub implementations that satisfy type checkers but do nothing
 
    Step 3: Record implementation results
 
    --- VERIFICATION PHASE ---
 
-   1. Run targeted tests (or full suite if no targeted tests specified)
-   2. If any test failures exist → invoke fix workflow (max 3 attempts):
+   1. Anti-stub check: For each file in "Files to Create", confirm:
+      - File exists on disk
+      - File has >10 lines of non-comment, non-import code
+      - No `pass` in function/method bodies
+      - No `NotImplementedError` in production code
+      - No `# TODO` or `# FIXME` markers
+      - No always-true checks that make validators functionally useless
+      - No legacy code paths kept when the task requires replacement
+      If ANY check fails → fix or mark BLOCKED
+   2. Test quality check:
+      - Tests must NOT assert NotImplementedError on production paths
+      - Tests must prove the feature works, not just that code doesn't crash
+      - If task requires "X replaces Y", tests must prove X works AND Y is gone
+   3. Run targeted tests (or full suite if no targeted tests specified)
+   4. If any test failures exist → invoke fix workflow (max 3 attempts):
       - Read failing test
       - Identify root cause
       - Fix the issue
       - Re-run tests
       - Track each attempt
-   3. If all tests pass within 3 attempts → mark COMPLETED
-   4. If tests still failing after 3 attempts → mark FAILED
-   5. Update task file:
-      - COMPLETED: Change title to "# COMPLETED: Task {NN}-{TT}: {Title}", add "## How Solved" section
-      - FAILED: Change title to "# FAILED: Task {NN}-{TT}: {Title}", add "## Why Failed" section
+   5. If all tests pass within 3 attempts → proceed to proof-of-work
+   6. If tests still failing after 3 attempts → mark FAILED
+   7. Self-contradiction check before marking COMPLETED:
+      Re-read the task acceptance criteria. Does your "How Solved" contain:
+      "remains unchanged", "legacy", "future migration", "not yet wired",
+      "partial", "workaround", "dual path", "both old and new"?
+      If YES → task is NOT complete. Mark BLOCKED.
+
+   --- PROOF OF WORK (mandatory before marking COMPLETED) ---
+
+   Capture and paste into the task file's "How Solved" section:
+   - RAW pytest output (full, not summarized)
+   - RAW mypy --strict output (full)
+   - Line count for each created file
+
+   Update task file:
+   - COMPLETED: Change title to "# COMPLETED: Task {NN}-{TT}: {Title}",
+     add "## How Solved" section WITH "### Proof of Work" subsection
+   - FAILED: Change title to "# FAILED: Task {NN}-{TT}: {Title}",
+     add "## Why Failed" section
+   - BLOCKED: Change title to "# BLOCKED: Task {NN}-{TT}: {Title}",
+     add "## Why Blocked" section explaining what prevented implementation
 
    --- OUTPUT FORMAT ---
 
@@ -323,6 +349,12 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
        "failures": [...],
        "fix_attempts": N,
        "fix_attempt_log": [...]
+     },
+     "proof_of_work": {
+       "pytest_output_captured": true,
+       "mypy_output_captured": true,
+       "file_line_counts": {"file_path": N, ...},
+       "anti_stub_check_passed": true
      },
      "errors": []
    }

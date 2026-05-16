@@ -37,28 +37,11 @@ Alternative invocations (skill resolves the log folders):
 "Diagnose failing tests in .generated/python/docker/02-features/05-infrastructure-combinations/multi-database"
 ```
 
-## Mandatory Reading (BEFORE any investigation)
+## Prereqs
+Read first: CLAUDE.md, MEMORY.md, `datrix-common/docs/contributing/ai-agent-rules.md`.
 
-Before doing ANY work, read these documents in full and follow their rules throughout:
-
-1. **`d:\datrix\.claude\CLAUDE.md`** — Project instructions, coding standards, anti-patterns, and submission rules. All rules apply to this skill.
-2. **`C:\Users\KErca\.claude\projects\d--datrix\memory\MEMORY.md`** — Persistent memory with shell path rules, anti-pattern lessons, and key technical notes. Consult before making assumptions.
-3. **`d:\datrix\datrix-common\docs\contributing\ai-agent-rules.md`** — Full contributing rules for AI agents (index with links to sub-documents under `ai-agent-rules/`). This is the authoritative source for how to investigate, reason about, and document issues in this codebase.
-
-**DO NOT skip these.** Skipping = rejected report. These documents define the standards for root cause analysis quality, error message expectations, and what constitutes a thorough investigation.
-
-### Project Structure (DYNAMIC — read from generated file)
-
-Before investigating, read the project structure file for the codegen package(s) you will be tracing into:
-
-- **`d:\datrix\{package-name}\.project-structure.md`**
-
-Where `{package-name}` is determined from the generated output language (e.g., `datrix-codegen-python` for Python, `datrix-codegen-typescript` for TypeScript, `datrix-codegen-docker` for Docker issues).
-
-If the file is missing or stale, regenerate it:
-```bash
-powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}
-```
+### Project Structure
+Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}`.
 
 ## Scope Check (BEFORE starting investigation)
 
