@@ -190,6 +190,25 @@ graph TD
 
 ---
 
+### Decision 5: Generator Definition DSL (Planned)
+
+**Rationale:**
+- Generator implementations encode structure (file declarations, iteration patterns, feature gates, semantic requirements) as imperative Python — registries, class constructors, context builders, and template rendering paths
+- The same structural information is split across multiple locations, making it hard to answer "what does this generator produce?"
+- Feature gates are repeated and sometimes implicit; semantic contracts are not declared adjacent to file emission; context dictionaries are often untyped
+- Platform generators cannot reuse the language-generator registry model
+
+**Result:**
+- A constrained generator-definition DSL (genDSL) embedded in Python docstrings declares generator structure: identity, domains, feature gates, semantic requirements, iteration scopes, context models, file declarations, and cross-domain contributions
+- The genDSL compiles in memory at import time into Python IR objects (`GeneratorDefinition`, `DomainDefinition`, `FileDefinition`, etc.) consumed by the existing generator runtime — no generated source files, no checked-in artifacts
+- Python remains the implementation language for context builders, type resolvers, transpilers, and complex algorithms; the genDSL declares structure, Python implements computation
+- IR foundation types live in `datrix-common`; the parser, validator, and runtime live in `datrix-codegen-common`; each generator package embeds its own genDSL definitions
+- When a generator migrates to genDSL, the entire registry moves at once — no partial migration, no mixed sources, no backward compatibility wrappers
+
+**Design reference:** `design/ARCH-12-generator-definition-dsl.md`
+
+---
+
 ## Installation
 
 ```bash
