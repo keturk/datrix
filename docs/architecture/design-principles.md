@@ -470,6 +470,29 @@ Enable packs in **`system.dtrx`** with `use extension <name>;` (not YAML). Exhau
 
 ## Code Generation Principles
 
+### No Derived Artifacts (Planned)
+
+**Principle:** Generator definitions must not create a second editable artifact. The genDSL docstring is source; the compiled IR is runtime state only.
+
+**Why:**
+- Prevents AI agents and humans from patching a derived file instead of editing the source declaration
+- Eliminates stale-cache and regeneration-ordering bugs
+- Single source of truth for generator structure
+
+**Application:**
+
+| Forbidden | Allowed |
+|-----------|---------|
+| Checked-in generated Python registry files | Embedded generator-definition docstrings |
+| Checked-in generated generator classes | Hand-written Python context builders, hooks, algorithms |
+| Generated manifest or metadata files | Templates |
+| Generated cache or build-output tables | Tests that compile definitions in memory |
+| | CLI/runtime introspection over in-memory IR |
+
+If a genDSL compiler needs intermediate structures, they stay in process memory and are rebuilt every run.
+
+---
+
 ### Staged transpilation and explicit state
 
 **Principle:** Imperative DSL bodies are lowered to target source through **explicit stages and data classes**, not implicit mutable transpiler fields.
