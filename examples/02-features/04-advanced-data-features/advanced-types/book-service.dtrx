@@ -1,6 +1,6 @@
 
 // Advanced types feature example - self-contained service demonstrating('config/service.yaml') :
-// - Money type for currency values with 'positive' constraint
+// - Money type for amount values with 'positive' constraint
 // - Slug type for URL-friendly identifiers
 // - Map<K,V> for key-value metadata
 // - Set<T> for unique collections
@@ -28,7 +28,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
         entity Book extends BaseEntity {
             // String(200) = varchar with max 200 chars
             String(200) title;
-            // Money is a semantic type for currency amounts; 'positive' ensures > 0
+            // Money is a semantic type for monetary amounts; 'positive' ensures > 0
             Money price : positive;
             // Slug is a semantic type for URL-safe identifiers (e.g., "my-book-title")
             Slug slug;

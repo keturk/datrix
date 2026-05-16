@@ -38,7 +38,7 @@ module ecommerce.common {
 
     // Trait for price comparison and discount calculation
     trait Discountable {
-        // Money is a semantic type for currency-safe arithmetic
+        // Money is a semantic amount type; currency is modeled explicitly where needed
         Money price : positive;
         Money? compareAtPrice;
 

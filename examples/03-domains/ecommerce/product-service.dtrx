@@ -1,5 +1,5 @@
 
-from ecommerce.common import OrderLineInput, Sluggable, Inventoried, Discountable;
+from ecommerce.common import Currency, OrderLineInput, Sluggable, Inventoried, Discountable;
 
 service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0'), description('product management service') {
     discovery { }
