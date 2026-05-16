@@ -22,7 +22,7 @@ Tools for code generation, parser building, and code quality.
 | `datrix-count.ps1` | Count .dtrx files in the workspace |
 | `file-count.ps1` | Count files by type |
 | `empty-folders.ps1` | Find empty folders |
-| `cleanup_temps.ps1` | Clean up temporary files |
+| `cleanup-temps.ps1` | Clean up temporary files |
 
 ## generate.ps1
 

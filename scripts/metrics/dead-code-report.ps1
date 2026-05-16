@@ -8,7 +8,7 @@
 Reports dead code in src/ only, classified as "never referenced" or "only referenced by tests".
 
 .PARAMETER Projects
- One or more project names (e.g. datrix-common, datrix-language). If omitted, uses the default 11 packages.
+ One or more project names or folder paths (e.g. datrix-common, .\datrix-codegen-aws\). If omitted, uses the default 11 packages.
 
 .PARAMETER All
  Scan all datrix-* projects (except datrix). Overrides default project list.
@@ -32,10 +32,10 @@ Reports dead code in src/ only, classified as "never referenced" or "only refere
  Only write to -OutputPath (if set); do not print to console.
 
 .EXAMPLE
- .\dead_code_report.ps1
- .\dead_code_report.ps1 -All -Output json | Out-File report.json
- .\dead_code_report.ps1 datrix-common datrix-language -MinConfidence 100 -OutputPath dead-code.md
- .\dead_code_report.ps1 -All -Raw
+  .\dead-code-report.ps1
+  .\dead-code-report.ps1 -All -Output json | Out-File report.json
+  .\dead-code-report.ps1 datrix-common .\datrix-language\ -MinConfidence 100 -OutputPath dead-code.md
+  .\dead-code-report.ps1 -All -Raw
 #>
 
 [CmdletBinding()]
@@ -89,15 +89,27 @@ if (-not (Ensure-DatrixVenv)) {
 }
 
 try {
+ $normalizedProjects = @()
+ if ($Projects.Count -gt 0) {
+  $normalizedProjects = ($Projects | ForEach-Object { ConvertTo-DatrixProjectName -ProjectInput $_ }) |
+   Where-Object { $_ -ne "datrix" } |
+   Select-Object -Unique
+
+  if ($normalizedProjects.Count -eq 0) {
+   Write-Error "No valid projects selected. Pass one or more datrix-* package names or paths (excluding 'datrix')."
+   exit 1
+  }
+ }
+
  $pyArgs = @(
   "--workspace-root", $workspaceRoot,
   "--min-confidence", $MinConfidence,
   "--output", $Output
  )
  if ($All) { $pyArgs += "--all" }
- elseif ($Projects.Count -gt 0) {
+ elseif ($normalizedProjects.Count -gt 0) {
   $pyArgs += "--projects"
-  $pyArgs += $Projects
+  $pyArgs += $normalizedProjects
  }
  if ($VerboseOutput) { $pyArgs += "--verbose" }
  if ($Raw) { $pyArgs += "--raw" }
@@ -115,3 +127,4 @@ try {
 } finally {
  Invoke-Cleanup
 }
+

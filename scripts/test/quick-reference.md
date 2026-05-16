@@ -25,11 +25,10 @@ Runs tests for one or more Datrix projects.
 | **Specific test file** | `.\test\test.ps1 datrix-common -Specific "tests/unit/test_foo.py"` | Run one test file |
 | **Keyword filter** | `.\test\test.ps1 datrix-common -Keyword "test_parse"` | Match by keyword (-k) |
 | **Verbose output** | `.\test\test.ps1 datrix-common -VerboseOutput` | Verbose pytest output |
-| **Skip dependency install** | `.\test\test.ps1 datrix-common -SkipInstall` | Skip pip install |
 | **No log save** | `.\test\test.ps1 datrix-common -NoSave` | Don't save output to log files |
 | **Debug logging** | `.\test\test.ps1 datrix-common -Dbg` | Enable DEBUG level |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Coverage`, `-VerboseOutput`, `-NoSave`, `-NoAutoInstall`, `-SkipInstall`, `-Unit`, `-Integration`, `-E2E`, `-Fast`, `-Slow` (mutually exclusive), `-Specific <path>`, `-Keyword <expr>`, `-Dbg`
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Coverage`, `-VerboseOutput`, `-NoSave`, `-NoAutoInstall`, `-Unit`, `-Integration`, `-E2E`, `-Fast`, `-Slow` (mutually exclusive), `-Specific <path>`, `-Keyword <expr>`, `-Dbg`
 
 **Log output:** Unless `-NoSave` is used, `test.ps1` creates one timestamped log folder for each project it runs under that project's `.test_results` directory. AI agents do not need to capture full console output; read the final console lines to find the saved log folder, then inspect the files in that folder.
 
@@ -61,11 +60,10 @@ Complete workflow: syntax check, code generation, unit tests, deployment tests. 
 | **Rerun domains** | `.\test\run-complete.ps1 -Rerun -Domains -L python` | Re-run only failed/untested domain projects |
 | **Rerun tests only** | `.\test\run-complete.ps1 -Rerun -L python -Skip2` | Re-run failed/untested projects without regenerating |
 | **Verbose output** | `.\test\run-complete.ps1 -All -L python -VerboseOutput` | Show detailed generation and test output |
-| **Skip installs** | `.\test\run-complete.ps1 -All -L python -SkipInstall` | Skip pip/network installs (requires populated .venv) |
 | **Skip venv** | `.\test\run-complete.ps1 -All -L python -SkipVenv` | Use system Python |
 | **Debug** | `.\test\run-complete.ps1 -All -L python -Dbg` | Debug logging |
 
-**Parameters:** `-ExamplePath` (positional 0), `-OutputPath` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (python\|typescript, **mandatory**), `-Platform`/`-P` (docker\|kubernetes\|k8s, default: docker), `-Hosting`/`-H`, `-TestSet` (default: all), `-Rerun`, `-VerboseOutput`, `-SkipVenv`, `-Skip1`, `-Skip2`, `-Skip3`, `-Skip4`, `-Skip5` (deprecated), `-FreshBuild`, `-SkipInstall`, `-Dbg`/`-DebugLogging`
+**Parameters:** `-ExamplePath` (positional 0), `-OutputPath` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (python\|typescript, **mandatory**), `-Platform`/`-P` (docker\|kubernetes\|k8s, default: docker), `-Hosting`/`-H`, `-TestSet` (default: all), `-Rerun`, `-VerboseOutput`, `-SkipVenv`, `-Skip1`, `-Skip2`, `-Skip3`, `-Skip4`, `-Skip5` (deprecated), `-FreshBuild`, `-Dbg`/`-DebugLogging`
 
 **Note:** Deploy tests (Step 4) use Docker cache by default for faster builds and better network resilience. Use `-FreshBuild` to force `--no-cache` for maximum validation confidence. `-Skip5` is accepted but deprecated (Step 5 merged into Step 4).
 
@@ -97,9 +95,8 @@ Lightweight single-test runner for checkpoint-based debugging. Runs exactly what
 | **Keyword** | `.\test\test-single.ps1 -Project datrix-common -Keyword "test_poly_string"` | Match by keyword |
 | **Fail fast** | `.\test\test-single.ps1 "tests/test_enum.py" -Project datrix-codegen-typescript -FailFast` | Stop on first failure |
 | **Verbose** | `.\test\test-single.ps1 "tests/test_foo.py" -Project datrix-common -Verbose` | Full pytest output |
-| **Skip install** | `.\test\test-single.ps1 "tests/test_foo.py" -Project datrix-common -SkipInstall` | Skip pip install |
 
-**Parameters:** `-TestPath` (positional 0), `-Project`, `-Keyword`, `-Marker`, `-Verbose`, `-FailFast`, `-SkipInstall`, `-Dbg`
+**Parameters:** `-TestPath` (positional 0), `-Project`, `-Keyword`, `-Marker`, `-Verbose`, `-FailFast`, `-Dbg`
 
 **Note:** Auto-detects project from full test path. Use `-Project` when providing relative paths or keyword-only searches.
 
@@ -185,10 +182,9 @@ Validates that all canonical types in the TypeRegistry have mappings in the requ
 | **TypeScript only** | `.\test\type-mapping-completeness.ps1 -Languages typescript` | Check TypeScript type mappings |
 | **Both languages** | `.\test\type-mapping-completeness.ps1 -Languages python,typescript` | Check both Python and TypeScript |
 | **SQL dialects** | `.\test\type-mapping-completeness.ps1 -Languages sql` | Check SQL type mappings for all dialects |
-| **Skip install** | `.\test\type-mapping-completeness.ps1 -Languages python,typescript -SkipInstall` | Skip dependency installation |
 | **Debug** | `.\test\type-mapping-completeness.ps1 -Languages python -Dbg` | Debug logging |
 
-**Parameters:** `-Languages` (comma-separated list: python, typescript, sql; required), `-SkipInstall`, `-Dbg`
+**Parameters:** `-Languages` (comma-separated list: python, typescript, sql; required), `-Dbg`
 
 **Exit codes:** 0 = all types mapped, 1 = missing mappings found
 

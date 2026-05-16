@@ -8,6 +8,7 @@
 - **Never assume, never fabricate.** Look it up: category-specific `quick-reference.md` under `datrix/scripts/{category}/` for scripts, grammar for DSL, source for APIs.
 - **No GitHub Actions.** Not used in this project.
 - **No backward compatibility.** Delete old code, don't wrap it. One way to do each thing.
+- **No git reverts.** Never use `git checkout`, `git restore`, `git reset`, or any other git command to revert or discard changes. The agent does not have authority to restore files from the repository.
 - **Editor context.** Do not act on the open editor file unless explicitly mentioned.
 
 ## STOP AND THINK

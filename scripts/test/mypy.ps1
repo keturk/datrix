@@ -25,9 +25,6 @@
 .PARAMETER NoAutoInstall
  Accepted for parity with test.ps1; dependency installation is handled by this wrapper.
 
-.PARAMETER SkipInstall
- Skip pip installs; verify monorepo packages and CLI only. Requires a ready .venv.
-
 .PARAMETER Unit
  Accepted for parity with test.ps1; ignored by mypy.py.
 
@@ -63,7 +60,6 @@ param(
  [switch]$VerboseOutput,
  [switch]$NoSave,
  [switch]$NoAutoInstall,
- [switch]$SkipInstall,
 
  [switch]$Unit,
  [switch]$Integration,
@@ -163,22 +159,12 @@ try {
  exit 1
  }
 
- if (-not $SkipInstall) {
  $packagesInstalled = Ensure-DatrixPackagesInstalled -SkipIfInstalled
  if (-not $packagesInstalled) {
  Write-Host ""
  Write-Host "ERROR: Failed to install or update packages!" -ForegroundColor Red
  Write-Error "Failed to install or update packages"
  exit 1
- }
- } else {
- $packagesInstalled = Ensure-DatrixPackagesInstalled -Offline
- if (-not $packagesInstalled) {
- Write-Host ""
- Write-Host "ERROR: Offline/skip-install verification failed (packages or CLI not ready)." -ForegroundColor Red
- Write-Error "Failed offline package verification"
- exit 1
- }
  }
 
  $mypyArgs = @()

@@ -10,9 +10,6 @@
 .PARAMETER Languages
  Comma-separated list of languages to check (e.g., "python,typescript").
 
-.PARAMETER SkipInstall
- Skip pip installs; verify monorepo packages only (requires ready .venv).
-
 .PARAMETER Dbg
  Enable debug logging (DEBUG level instead of INFO).
 
@@ -29,8 +26,6 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$Languages,
-
-    [switch]$SkipInstall,
 
     [Parameter()]
     [switch]$Dbg
@@ -75,12 +70,7 @@ trap {
 Ensure-DatrixVenv
 
 try {
-    # Install packages unless skip requested
-    if ($SkipInstall) {
-        Ensure-DatrixPackagesInstalled -SkipInstall
-    } else {
-        Ensure-DatrixPackagesInstalled
-    }
+    Ensure-DatrixPackagesInstalled
 
     # Build Python arguments
     $pythonArgs = @($runnerScript, "--languages", $Languages)

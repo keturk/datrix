@@ -344,16 +344,16 @@ Counts files with a specified extension across all datrix project directories.
 
 ## Cleanup
 
-### `dev\cleanup_temps.ps1`
+### `dev\cleanup-temps.ps1`
 
 Lists/deletes temporary cache folders and files across the monorepo (`.pytest_cache`, `__pycache__`, `.mypy_cache`, `.ruff_cache`, `.coverage`, etc.).
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **List (dry run)** | `.\dev\cleanup_temps.ps1` | Show cache items with sizes |
-| **Delete** | `.\dev\cleanup_temps.ps1 -Force` | Delete after confirmation |
-| **Extra folders** | `.\dev\cleanup_temps.ps1 -Force -AdditionalFolders ".coverage","__pycache__"` | Add extra folder names |
-| **Custom base** | `.\dev\cleanup_temps.ps1 -BaseDir D:\other` | Different workspace |
+| **List (dry run)** | `.\dev\cleanup-temps.ps1` | Show cache items with sizes |
+| **Delete** | `.\dev\cleanup-temps.ps1 -Force` | Delete after confirmation |
+| **Extra folders** | `.\dev\cleanup-temps.ps1 -Force -AdditionalFolders ".coverage","__pycache__"` | Add extra folder names |
+| **Custom base** | `.\dev\cleanup-temps.ps1 -BaseDir D:\other` | Different workspace |
 
 **Parameters:** `-BaseDir`, `-Force`, `-AdditionalFolders`, `-Dbg`
 

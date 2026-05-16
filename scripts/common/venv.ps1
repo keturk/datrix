@@ -10,7 +10,7 @@
  Set environment variable DATRIX_OFFLINE to 1, true, or yes (case-insensitive).
  Scripts that dot-source this file should skip pip installs and only verify that
  dependencies are already present; otherwise they fail with a clear message.
- Orchestrators (e.g. run_complete.py --skip-install) may set DATRIX_OFFLINE for child processes.
+ Orchestrators may set DATRIX_OFFLINE for child processes.
 
 .NOTES
  Usage: . .\datrix\scripts\common\venv.ps1
