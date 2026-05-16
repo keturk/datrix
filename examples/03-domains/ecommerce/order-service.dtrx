@@ -58,7 +58,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
             String(20) orderNumber : unique;
             OrderStatus status = OrderStatus.Pending;
 
-            // Money type for currency-safe financial calculations
+            // Money amount fields; currency is passed explicitly at process boundaries
             Money subtotal;
             Money tax;
             Money shippingCost;
@@ -93,7 +93,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
 
             afterCreate {
                 dispatch OrderCreated(id, orderNumber, customerId, total, inventoryReservationId);
-                dispatch ProcessPayment(id, total, total.currency.value.toLowerCase());
+                dispatch ProcessPayment(id, total, "usd");
                 let JSON u = UserService.UserAPI.get('/internal/:id', customerId);
                 dispatch SendOrderConfirmation(id, u.email, orderNumber);
             }
@@ -562,7 +562,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
         });
         order.save();
         assert emitted(OrderCreated(order.id, order.orderNumber, order.customerId, order.total, order.inventoryReservationId));
-        assert dispatched(ProcessPayment(order.id, order.total, order.total.currency.value.toLowerCase()));
+        assert dispatched(ProcessPayment(order.id, order.total, "usd"));
     }
 
     test("status change to Cancelled emits OrderCancelled") {
@@ -639,7 +639,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
             inventoryReservationId: uuid()
         });
         order.save();
-        assert dispatched(ProcessPayment(order.id, order.total, order.total.currency.value.toLowerCase()));
+        assert dispatched(ProcessPayment(order.id, order.total, "usd"));
     }
 
     test("afterUpdate emits OrderStatusChanged on status change") {

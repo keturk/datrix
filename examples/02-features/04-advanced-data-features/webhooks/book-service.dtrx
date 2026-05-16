@@ -137,7 +137,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
             Array<String> keywords = [];
             Decimal(3, 2) rating = 0.0;
 
-            // Money is a semantic type that handles currency values with proper precision
+            // Money is a semantic amount type with fixed-point precision
             Money price;
             // Map<K, V> stores key-value pairs; Set<T> stores unique values
             Map<String, String> metadata;
