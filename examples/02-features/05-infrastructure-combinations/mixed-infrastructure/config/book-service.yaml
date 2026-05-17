@@ -19,12 +19,23 @@ base:
       database: library_books
       poolSize: 20
       platform: container
+      port: 5432
+      dockerImage: postgres:17-alpine
+      volumePath: /var/lib/postgresql/data
+      asyncDriver: postgresql+asyncpg
+      syncDriver: postgresql+psycopg2
+      healthCheckSql: SELECT 1
+      defaultUser: postgres
   nosql:
     analytics:
       engine: mongodb
       uri: mongodb://localhost:27017
       database: library_analytics
       platform: container
+      port: 27017
+      dockerImage: mongo:8.0
+      volumePath: /data/db
+      healthCheckCmd: mongosh --eval "db.runCommand('ping').ok"
   registration:
     tags:
     - api
@@ -49,6 +60,10 @@ base:
       engine: redis
       host: localhost
       platform: container
+      port: 6379
+      dockerImage: redis:7-alpine
+      volumePath: /data
+      healthCheckCmd: redis-cli ping
   storage:
     media:
       provider: minio
