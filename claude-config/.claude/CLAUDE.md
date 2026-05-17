@@ -8,6 +8,18 @@
 - No GitHub Actions. No backward compat (delete old code). Editor context: don't act on open file unless mentioned.
 - **No git reverts.** Never use `git checkout`, `git restore`, `git reset`, `git stash`, `git revert`, or any variant to revert or discard changes. The agent does not know how many prior tasks have modified working tree files — reverting may destroy uncommitted work. Undo your own edits manually.
 
+## Temporary File Policy
+
+**Never create temporary files in arbitrary locations.** No test logs, scratch scripts, result dumps, or temp files anywhere in the repo tree outside the designated folders. These stray files end up committed and pushed — this is banned.
+
+| Purpose | Location |
+|---|---|
+| Temporary scripts (runners, one-off helpers) | `D:\datrix\.scripts\` |
+| Test output / result logs | `D:\datrix\.test-output\` |
+| All other temp / scratch files | `D:\datrix\.tmp\` |
+
+These folders are cleared regularly — never store anything important in them. Create the folder if it doesn't exist. If a tool or command defaults to writing output elsewhere, redirect it to the appropriate folder above.
+
 ## STOP AND THINK
 
 Before touching code: read all relevant code, trace root cause, understand full impact, design the fix, ask if uncertain. One correct fix > five quick patches.
