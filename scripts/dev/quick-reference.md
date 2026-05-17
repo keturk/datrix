@@ -249,6 +249,25 @@ Compares `.generated` vs `.generated_saved` with content-level feature detection
 
 ---
 
+## Evaluation
+
+### `dev\evaluate-services.ps1`
+
+Runs `/evaluate-generated-service` prompts in parallel using Claude Code CLI in non-interactive mode. Finds all `service-*.prompt.md` files in the evaluation folder and processes up to 5 concurrently.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **From eval dir** | `cd eval\2026-05-16-...; .\..\..\datrix\scripts\dev\evaluate-services.ps1 -SourceDir <src> -GeneratedDir <gen>` | Uses current dir as eval folder |
+| **Explicit eval dir** | `.\dev\evaluate-services.ps1 -SourceDir <src> -GeneratedDir <gen> -EvalDir <path>` | Specify eval folder |
+| **Custom parallelism** | `.\dev\evaluate-services.ps1 -SourceDir <src> -GeneratedDir <gen> -Parallel 3` | Fewer concurrent jobs |
+| **Different model** | `.\dev\evaluate-services.ps1 -SourceDir <src> -GeneratedDir <gen> -Model sonnet` | Use sonnet instead of opus |
+
+**Parameters:** `-SourceDir` (mandatory), `-GeneratedDir` (mandatory), `-EvalDir` (default: current directory), `-Parallel` (default: 5), `-Model` (default: opus)
+
+**Prereqs:** Run `/evaluate-generated` first to produce `service-*.prompt.md` files.
+
+---
+
 ## Utilities
 
 ### `dev\projects.ps1`

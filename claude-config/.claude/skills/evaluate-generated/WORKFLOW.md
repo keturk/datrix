@@ -77,7 +77,21 @@ PROMPT_FILE: D:\datrix\eval\2026-05-11-143022-curvaero\service-aviation-data-ser
 
 **Time:** ~2-4 minutes per service
 
-#### Option B: Evaluate Multiple Services in Parallel
+#### Option B: Evaluate Multiple Services in Parallel (Script)
+
+Use `evaluate-services.ps1` to run all service prompts in parallel batches:
+
+```powershell
+cd D:\datrix\eval\2026-05-11-143022-curvaero
+
+powershell -File "d:/datrix/datrix/scripts/dev/evaluate-services.ps1" `
+    -SourceDir "d:\datrix\datrix-projects\curvaero\datrix-app" `
+    -GeneratedDir "d:\datrix\.generated\python\docker\curvaero"
+```
+
+This runs 5 services concurrently (configurable via `-Parallel`). See `dev/quick-reference.md` for full parameters.
+
+#### Option C: Evaluate Multiple Services Manually
 
 Spawn multiple agents to evaluate services concurrently:
 
@@ -99,9 +113,7 @@ PROMPT_FILE: D:\datrix\eval\...\service-obstacle-service.prompt.md
 
 Or use the Task tool to spawn parallel agents programmatically.
 
-**Time:** 2-4 minutes total (if running 10+ services in parallel)
-
-#### Option C: Evaluate All Services Sequentially
+#### Option D: Evaluate All Services Sequentially
 
 ```
 # For each service, run:
