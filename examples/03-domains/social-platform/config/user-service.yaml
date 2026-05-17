@@ -28,6 +28,13 @@ base:
       database: social_users
       poolSize: 20
       platform: container
+      port: 5432
+      dockerImage: postgres:17-alpine
+      volumePath: /var/lib/postgresql/data
+      asyncDriver: postgresql+asyncpg
+      syncDriver: postgresql+psycopg2
+      healthCheckSql: SELECT 1
+      defaultUser: postgres
   registration:
     tags:
     - api
@@ -72,6 +79,10 @@ base:
       engine: redis
       host: localhost
       platform: container
+      port: 6379
+      dockerImage: redis:7-alpine
+      volumePath: /data
+      healthCheckCmd: redis-cli ping
   pubsub:
     mq:
       engine: kafka
@@ -84,6 +95,10 @@ base:
           partitions: 3
           retention: 7d
       platform: container
+      port: 9092
+      dockerImage: confluentinc/cp-kafka:7.8.0
+      volumePath: /var/lib/kafka/data
+      controllerPort: 9093
 production:
   platform: ecs-fargate
   strategy:

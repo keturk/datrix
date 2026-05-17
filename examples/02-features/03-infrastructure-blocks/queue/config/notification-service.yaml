@@ -19,6 +19,13 @@ base:
       database: library_notifications
       poolSize: 10
       platform: container
+      port: 5432
+      dockerImage: postgres:17-alpine
+      volumePath: /var/lib/postgresql/data
+      asyncDriver: postgresql+asyncpg
+      syncDriver: postgresql+psycopg2
+      healthCheckSql: SELECT 1
+      defaultUser: postgres
   registration:
     tags:
     - api

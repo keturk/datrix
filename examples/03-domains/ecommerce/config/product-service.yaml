@@ -28,12 +28,23 @@ base:
       database: ecommerce_products
       poolSize: 15
       platform: container
+      port: 5432
+      dockerImage: postgres:17-alpine
+      volumePath: /var/lib/postgresql/data
+      asyncDriver: postgresql+asyncpg
+      syncDriver: postgresql+psycopg2
+      healthCheckSql: SELECT 1
+      defaultUser: postgres
   nosql:
     docdb:
       engine: mongodb
       uri: mongodb://localhost:27017
       database: ecommerce_product_reviews
       platform: container
+      port: 27017
+      dockerImage: mongo:8.0
+      volumePath: /data/db
+      healthCheckCmd: mongosh --eval "db.runCommand('ping').ok"
   registration:
     tags:
     - api
@@ -69,6 +80,10 @@ base:
       engine: redis
       host: localhost
       platform: container
+      port: 6379
+      dockerImage: redis:7-alpine
+      volumePath: /data
+      healthCheckCmd: redis-cli ping
   pubsub:
     mq:
       engine: kafka
@@ -81,6 +96,10 @@ base:
           partitions: 3
           retention: 7d
       platform: container
+      port: 9092
+      dockerImage: confluentinc/cp-kafka:7.8.0
+      volumePath: /var/lib/kafka/data
+      controllerPort: 9093
   storage:
     store:
       provider: minio

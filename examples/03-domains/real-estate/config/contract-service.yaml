@@ -19,6 +19,13 @@ base:
       database: realestate_contracts
       poolSize: 20
       platform: container
+      port: 5432
+      dockerImage: postgres:17-alpine
+      volumePath: /var/lib/postgresql/data
+      asyncDriver: postgresql+asyncpg
+      syncDriver: postgresql+psycopg2
+      healthCheckSql: SELECT 1
+      defaultUser: postgres
   registration:
     tags:
     - api
@@ -50,6 +57,10 @@ base:
           partitions: 6
           retention: 30d
       platform: container
+      port: 9092
+      dockerImage: confluentinc/cp-kafka:7.8.0
+      volumePath: /var/lib/kafka/data
+      controllerPort: 9093
   storage:
     store:
       provider: minio

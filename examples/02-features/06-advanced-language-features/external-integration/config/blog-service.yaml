@@ -23,6 +23,13 @@ base:
       database: hostdemo_blog
       poolSize: 10
       platform: container
+      port: 5432
+      dockerImage: postgres:17-alpine
+      volumePath: /var/lib/postgresql/data
+      asyncDriver: postgresql+asyncpg
+      syncDriver: postgresql+psycopg2
+      healthCheckSql: SELECT 1
+      defaultUser: postgres
   registration:
     name: blog-service
     host: localhost
@@ -54,6 +61,10 @@ base:
       engine: redis
       host: localhost
       platform: container
+      port: 6379
+      dockerImage: redis:7-alpine
+      volumePath: /data
+      healthCheckCmd: redis-cli ping
   pubsub:
     mq:
       engine: rabbitmq
@@ -62,6 +73,10 @@ base:
       partitions: 1
       replicationFactor: 1
       platform: container
+      port: 5672
+      dockerImage: rabbitmq:4.0-management-alpine
+      volumePath: /var/lib/rabbitmq
+      managementPort: 15672
   storage:
     media:
       provider: minio
