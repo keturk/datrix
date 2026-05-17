@@ -91,7 +91,7 @@ param(
 
  [Parameter()]
  [Alias("P")]
- [ValidateSet("docker", "kubernetes", "k8s")]
+ [ValidateSet("docker", "kubernetes", "k8s", "azure")]
  [string]$Platform = "docker",
 
  [Parameter()]
@@ -100,6 +100,9 @@ param(
 
  [Parameter()]
  [string]$ServicePlatform = "",
+
+ [Parameter()]
+ [string]$ConfigProfile = "",
 
  [Parameter()]
  [string]$OutputBase = ".generated",
@@ -459,7 +462,10 @@ $("=" * 80)
 "@
  $utf8Encoding = New-Object System.Text.UTF8Encoding($false)
  [System.IO.File]::WriteAllText($logFilePath, $header, $utf8Encoding)
- 
+
+  # Let the Python generator append verbose context directly to the same log file
+  $env:DATRIX_GENERATE_LOG_FILE = $logFilePath
+
  Write-TeeHost "Log file: $logFilePath" -ForegroundColor Cyan -LogFilePath $logFilePath
  Write-TeeHost "" -LogFilePath $logFilePath
  
@@ -537,6 +543,10 @@ $("=" * 80)
  $pythonArgs += "--service-platform"
  $pythonArgs += $ServicePlatform
  }
+ if (-not [string]::IsNullOrWhiteSpace($ConfigProfile)) {
+ $pythonArgs += "--profile"
+ $pythonArgs += $ConfigProfile
+ }
  if ($OutputBase -ne ".generated") {
  $pythonArgs += "--output-base"
  $pythonArgs += $OutputBase
@@ -596,6 +606,10 @@ $("=" * 80)
  $pythonArgs += "--service-platform"
  $pythonArgs += $ServicePlatform
  }
+ if (-not [string]::IsNullOrWhiteSpace($ConfigProfile)) {
+ $pythonArgs += "--profile"
+ $pythonArgs += $ConfigProfile
+ }
  if ($Dbg) {
  $pythonArgs += "--debug"
  }
@@ -625,6 +639,7 @@ $("=" * 80)
  $exitCode = $LASTEXITCODE
  } finally {
  Remove-Item env:DATRIX_DISABLE_LOG -ErrorAction SilentlyContinue
+  Remove-Item env:DATRIX_GENERATE_LOG_FILE -ErrorAction SilentlyContinue
  }
 
  # Append Errors section and Generation Summary to the log file

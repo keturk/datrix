@@ -51,6 +51,8 @@ from datrix_common.config.enums import ServiceFlavor
 # Exhaustive list for argparse --service-platform (maps to `datrix generate --platform`).
 _SERVICE_PLATFORM_CHOICES: tuple[str, ...] = tuple(e.value for e in ServiceFlavor)
 
+_GENERATE_LOG_FILE_ENV = "DATRIX_GENERATE_LOG_FILE"
+
 
 def _hosting_for_path_platform(path_platform: str) -> str | None:
     """Map script output-path `--platform` to `datrix generate --hosting`; None if default docker."""
@@ -76,6 +78,25 @@ def _append_datrix_generate_cli_overrides(cmd_args: list[str], args: argparse.Na
             cmd_args.extend(["--hosting", hosting])
     if args.service_platform is not None:
         cmd_args.extend(["--platform", args.service_platform])
+    if getattr(args, "profile", None) is not None:
+        cmd_args.extend(["--profile", args.profile])
+
+
+def _append_log_only_lines(lines: list[str]) -> None:
+    """Append lines to the wrapper log file without emitting console output."""
+    log_file = os.environ.get(_GENERATE_LOG_FILE_ENV)
+    if not log_file:
+        return
+
+    log_path = Path(log_file)
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a", encoding="utf-8") as handle:
+            for line in lines:
+                handle.write(f"{line}\n")
+    except Exception:
+        # Logging must never break generation.
+        pass
 
 
 # Pattern to detect spinner/progress lines that should be filtered from logs
@@ -205,6 +226,19 @@ def generate_single_project(
 
         # Get venv path from python_exe
         venv_path = Path(python_exe).parent.parent
+
+        _append_log_only_lines(
+            [
+                f"Generating project: {project_name}",
+                f" Source: {project_path}",
+                f" Output: {output_path}",
+                f" Language: {args.language}",
+                f" Hosting: {args.hosting or _hosting_for_path_platform(args.platform) or 'config/default'}",
+                f" Output platform segment: {args.platform}",
+                f" Service platform override: {args.service_platform or 'config/default'}",
+                "",
+            ]
+        )
 
         # Try to find datrix command in venv
         if os.name == "nt":
@@ -493,7 +527,7 @@ def main():
  
     # Batch mode
     parser.add_argument("--language", type=str.lower, default="python", choices=["python", "typescript"], help="Target language")
-    parser.add_argument("--platform", type=str.lower, default="docker", choices=["docker", "kubernetes", "k8s"], help="Output path segment; also forwarded as datrix --hosting when not docker")
+    parser.add_argument("--platform", type=str.lower, default="docker", choices=["docker", "kubernetes", "k8s", "azure"], help="Output path segment; also forwarded as datrix --hosting when not docker")
     parser.add_argument("--hosting", type=str.lower, default=None, choices=["docker", "kubernetes", "aws", "azure"], help="Explicit hosting platform override (takes priority over --platform derivation)")
     parser.add_argument(
         "--service-platform",
@@ -504,6 +538,7 @@ def main():
     )
     parser.add_argument("--output-base", type=str, default=".generated", help="Output base directory")
     parser.add_argument("--test-set", type=str, default="all", help="Test set to use (e.g. all, foundation, non-foundation, features, domains)")
+    parser.add_argument("--profile", type=str, default=None, help="Config profile for YAML resolution (e.g., test, development, production)")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
 
@@ -613,16 +648,31 @@ def main():
                 logger.write(f" Source: {source_path}")
                 logger.write(f" Output: {output_path}")
                 logger.write(f" Language: {args.language}")
-                logger.write(f" Platform: {args.platform}")
+                logger.write(
+                    f" Hosting: {args.hosting or _hosting_for_path_platform(args.platform) or 'config/default'}"
+                )
+                logger.write(f" Output platform segment: {args.platform}")
+                logger.write(
+                    f" Service platform override: {args.service_platform or 'config/default'}"
+                )
                 logger.write("")
             else:
-                if args.verbose:
-                    print(f"Generating single project: {project_name}")
-                    print(f" Source: {source_path}")
-                    print(f" Output: {output_path}")
-                    print(f" Language: {args.language}")
-                    print(f" Platform: {args.platform}")
-                    print()
+                # Always print source/output so PS1's Write-TeeOutput captures them in the log.
+                # These brief context lines are appropriate to show on the console in all modes.
+                print(f"Generating single project: {project_name}", flush=True)
+                print(f" Source: {source_path}", flush=True)
+                print(f" Output: {output_path}", flush=True)
+                print(f" Language: {args.language}", flush=True)
+                print(
+                    f" Hosting: {args.hosting or _hosting_for_path_platform(args.platform) or 'config/default'}",
+                    flush=True,
+                )
+                print(f" Output platform segment: {args.platform}", flush=True)
+                print(
+                    f" Service platform override: {args.service_platform or 'config/default'}",
+                    flush=True,
+                )
+                print(flush=True)
         else:
             try:
                 projects = get_test_projects(
@@ -691,10 +741,14 @@ def main():
                         print("", flush=True)
                         print(colorize(banner_line, ColorCodes.CYAN), flush=True)
                         print("", flush=True)
-                        if source_path:
-                            print(f" Source: {source_path}")
-                        if output_path:
-                            print(f" Output: {output_path}")
+                    # Always print source/output so PS1's Write-TeeOutput captures them in
+                    # the log regardless of verbose mode. These brief context lines are
+                    # appropriate to show on the console in all modes.
+                    if source_path:
+                        print(f" Source: {source_path}", flush=True)
+                    if output_path:
+                        print(f" Output: {output_path}", flush=True)
+                    if args.verbose:
                         print("-" * banner_width)
                         sys.stdout.flush()
 
