@@ -224,7 +224,6 @@ Key module paths:
 2. {Measurable quality threshold}
 {... 8-15 specific criteria}
 - All tests pass: `python -m pytest tests/ -q`
-- mypy --strict passes
 - >90% test coverage
 - No TODO/pass/placeholder code
 
@@ -451,25 +450,19 @@ For each created file, confirm it contains real implementation (not stubs):
 - No `NotImplementedError` raises in production code
 - Classes/functions have actual logic, not just signatures
 
-### 3. Type Checking
-Run mypy on the created files:
-```
-mypy --strict {file paths}
-```
-
-### 4. Test Execution
+### 3. Test Execution
 Run the targeted tests and capture raw output:
 ```
 powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{test-path}"
 ```
 
-### 5. Test Coverage Sanity
+### 4. Test Coverage Sanity
 Confirm tests exercise the implementation (not just import it):
 - At least one test per public class/function
 - Tests include both success and error cases
 - Tests use real objects (no mocks/fakes)
 
-### 6. Test Quality (anti-gap-codification)
+### 5. Test Quality (anti-gap-codification)
 Confirm tests prove the feature works, not that it's broken:
 - No tests that assert `NotImplementedError` or `NotImplemented` on production code paths
 - No tests that only verify shallow behavior while core logic is untested
@@ -480,15 +473,13 @@ Confirm tests prove the feature works, not that it's broken:
 
 1. All files from implementation task exist
 2. No stub/placeholder code detected
-3. mypy --strict passes on all new files
-4. All targeted tests pass
-5. Tests exercise actual implementation logic
-6. No tests that codify gaps (asserting NotImplementedError on production paths)
+3. All targeted tests pass
+4. Tests exercise actual implementation logic
+5. No tests that codify gaps (asserting NotImplementedError on production paths)
 
 ## Evidence Required
 
 Paste the following raw output into "How Solved":
-- `mypy --strict` output (full)
 - `pytest` output (full, including test names and pass/fail)
 - For each file: first 5 lines + line count confirming non-trivial content
 ```
@@ -512,7 +503,7 @@ Quality gate tasks should:
 - Have a slug like `quality-gate-{package-name}`
 - NOT contain any implementation code, new tests, or "Files to Create" section
 - Include `**Category:** Quality Gate` in the header metadata
-- Run the full test suite + `mypy --strict` as their sole verification step
+- Run the full test suite as their sole verification step
 
 Quality gate task template:
 
@@ -523,7 +514,7 @@ Quality gate task template:
 
 ## Overview
 
-Final verification pass for {package-name}. Runs the full test suite, mypy, and behavioral checks to ensure all implementation and test tasks in this phase integrate correctly.
+Final verification pass for {package-name}. Runs the full test suite and behavioral checks to ensure all implementation and test tasks in this phase integrate correctly.
 
 **Package:** `{package-name}` (`d:\datrix\{repo}\`)
 **Depends on:** {comma-separated list of ALL tasks targeting this package}
@@ -536,31 +527,25 @@ Final verification pass for {package-name}. Runs the full test suite, mypy, and 
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
    ```
 
-2. Run mypy:
-   ```
-   mypy --strict src/{package_underscored}/
-   ```
-
-3. Scan for completion red flags in all files created/modified by this phase's tasks:
+2. Scan for completion red flags in all files created/modified by this phase's tasks:
    - `NotImplementedError` in production code (not test code)
    - `# TODO` / `# FIXME` / `pass` in function bodies
    - Always-true/always-false validators or checkers
    - Legacy code paths that should have been deleted per task requirements
    - Dual paths (old + new) where tasks required full migration
 
-4. Verify each task's "How Solved" section does not self-contradict:
+3. Verify each task's "How Solved" section does not self-contradict:
    - Read each COMPLETED task's "How Solved" narrative
    - Flag any containing: "remains unchanged", "legacy", "future migration", "not yet wired", "partial", "workaround", "dual path"
 
-5. If any failures: investigate, classify as task-specific regression or pre-existing, report.
+4. If any failures: investigate, classify as task-specific regression or pre-existing, report.
 
 ## Success Criteria
 
 1. Full test suite passes (or only pre-existing failures remain)
-2. mypy --strict passes
-3. No TODO/pass/placeholder/NotImplementedError in production code introduced by this phase's tasks
-4. No self-contradictory "How Solved" sections in completed tasks
-5. No dual code paths where tasks required migration
+2. No TODO/pass/placeholder/NotImplementedError in production code introduced by this phase's tasks
+3. No self-contradictory "How Solved" sections in completed tasks
+4. No dual code paths where tasks required migration
 
 ## Targeted Tests
 

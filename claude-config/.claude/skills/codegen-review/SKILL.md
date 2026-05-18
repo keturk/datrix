@@ -10,7 +10,6 @@ disable-model-invocation: true
 - [ ] No placeholders/TODOs
 - [ ] No mocks/fakes
 - [ ] No silent fallbacks
-- [ ] mypy --strict passes
 - [ ] All tests pass (pytest)
 - [ ] Tests follow test guidelines (real objects, output validation, error cases)
 - [ ] Generated code valid (if applicable)

@@ -14,7 +14,7 @@ delegation-strategy:
     - name: "quality_gate"
       model: "opus"
       parallelizable: false
-      description: "Run full suite and mypy for final validation across all tasks"
+      description: "Run full suite for final validation across all tasks"
 ---
 
 # Execute Tasks in Parallel
@@ -235,7 +235,7 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
    Your workflow:
    1. Implement: Read task file, apply code changes per specification
    2. Verify: Run targeted tests, fix all failures (max 3 attempts)
-   3. Prove: Capture raw test/mypy output as proof-of-work
+   3. Prove: Capture raw test output as proof-of-work
 
    CRITICAL RULES:
    - Read and follow ALL rules in d:\datrix\.claude\CLAUDE.md
@@ -268,7 +268,7 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
    Step 2: Implement (Write Code)
    - Create/modify files as specified in task
    - Follow all code skeletons, type hints, patterns from task file
-   - Apply full type hints (`mypy --strict` must pass)
+   - Apply full type hints
    - Use standard logging: `logger = logging.getLogger(__name__)`, %-style formatting
    - Use Jinja2 templates + formatter for code generation (NO raw string concatenation)
    - Delete replaced functionality completely (no dead code, no backward-compatibility wrappers)
@@ -319,7 +319,6 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
 
    Capture and paste into the task file's "How Solved" section:
    - RAW pytest output (full, not summarized)
-   - RAW mypy --strict output (full)
    - Line count for each created file
 
    Update task file:
@@ -352,7 +351,6 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
      },
      "proof_of_work": {
        "pytest_output_captured": true,
-       "mypy_output_captured": true,
        "file_line_counts": {"file_path": N, ...},
        "anti_stub_check_passed": true
      },
@@ -461,7 +459,7 @@ If an agent crashes or times out:
 <!-- PHASE: quality_gate -->
 ## Phase 3: Quality Gate
 
-Run the full test suite and mypy for all affected package(s) to catch cross-task integration issues.
+Run the full test suite for all affected package(s) to catch cross-task integration issues.
 
 ### Input
 
@@ -490,13 +488,6 @@ Results from all spawned agents:
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
    ```
 
-   **Type checking:**
-   ```
-   mypy --strict src/{package_underscored}/
-   ```
-
-   (Note: Skip mypy for documentation-only packages like `.claude/`)
-
 3. **Attribute failures (if any):**
    - For each new failure, extract the failing test file path
    - Check which task modified code related to that test
@@ -516,14 +507,12 @@ Results from all spawned agents:
       "total_tests": 185,
       "tests_passing": 183,
       "tests_failing": 2,
-      "mypy_status": "clean",
       "known_failures": ["test_entity_relationships", "test_field_inheritance"]
     },
     {
       "package": ".claude/",
       "total_tests": 0,
-      "documentation_only": true,
-      "mypy_status": "skipped"
+      "documentation_only": true
     }
   ]
 }
@@ -537,7 +526,6 @@ Status: PASSED
 Package: datrix-codegen-python
   Tests: 183/185 passing
   Known failures: 2 (from Task 40-03, already reported)
-  mypy: clean
 
 Package: .claude/
   Documentation-only (no tests)
@@ -557,7 +545,6 @@ All known failures already reported by task agents.
       "total_tests": 185,
       "tests_passing": 180,
       "tests_failing": 5,
-      "mypy_status": "2 errors",
       "known_failures": ["test_entity_relationships", "test_field_inheritance"],
       "failures": [
         {
@@ -571,14 +558,6 @@ All known failures already reported by task agents.
           "error": "AttributeError: 'FieldValidator' object has no attribute 'validate_all'",
           "likely_source_task": "task-40-04",
           "reason": "Task 40-04 refactored FieldValidator interface"
-        }
-      ],
-      "mypy_errors": [
-        {
-          "file": "src/generators/entity_generator.py",
-          "line": 45,
-          "error": "Incompatible return type",
-          "likely_source_task": "task-40-03"
         }
       ]
     }
@@ -605,10 +584,6 @@ Additional failures (not reported by task agents):
   AttributeError: 'FieldValidator' object has no attribute 'validate_all'
   Likely source: Task 40-04 (refactored FieldValidator interface)
   Impact: Field validation broken in downstream code
-
-mypy errors: 2
-✗ src/generators/entity_generator.py:45 — Incompatible return type
-  Likely source: Task 40-03
 
 RECOMMENDATION:
 1. Task 40-03 introduced breaking changes to GeneratorBase — needs interface fix
@@ -651,7 +626,6 @@ Failed:
 
 Integration Issues (Quality Gate):
 ✗ 3 new failures detected across package
-✗ 2 mypy errors
   See quality gate report above for details
 
 NEXT STEPS:

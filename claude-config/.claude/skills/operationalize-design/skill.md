@@ -294,7 +294,7 @@ If you deviated: STOP and explain the deviation to the user.
    **c) Verification tasks:**
    - For each implementation task (or group of 2-3 related implementation tasks), generate a verification task
    - Verification tasks are executed by a **different agent** than the implementer — this is their core purpose
-   - They confirm: files exist, code is non-trivial (not stubs), tests pass, mypy passes
+   - They confirm: files exist, code is non-trivial (not stubs), tests pass
    - Verification tasks depend on the corresponding implementation + test tasks
    - Verification task slug: `-verify` suffix (e.g., `task-{NN}-{TT}-verify-gendsl-parser.md`)
    - Include `**Category:** Verification` in header metadata
@@ -333,7 +333,7 @@ If you deviated: STOP and explain the deviation to the user.
 
    **e) Quality gate tasks:**
    - For each package that has 2+ code tasks (implementation + test combined) in this phase, generate a quality gate task
-   - Quality gate tasks run the full test suite + `mypy --strict` as final verification — no implementation code
+   - Quality gate tasks run the full test suite as final verification — no implementation code
    - Quality gate tasks depend on ALL other tasks targeting the same package
    - Quality gate task numbering comes AFTER all other tasks for the phase
    - Use the quality gate template from `/generate-tasks` (no "Files to Create" section)

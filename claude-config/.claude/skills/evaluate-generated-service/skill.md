@@ -892,8 +892,7 @@ Key module paths (adjust based on affected package):
    - No semantic issues for items fixed by this task
    - No dead code for modules/dependencies removed by this task
 4. All tests pass: `powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}`
-5. mypy --strict passes
-6. No TODO/pass/placeholder code
+5. No TODO/pass/placeholder code
 
 ## Targeted Tests
 

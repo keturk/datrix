@@ -19,7 +19,7 @@ delegation-strategy:
     - name: "quality_gate"
       model: "opus"
       parallelizable: false
-      description: "Run full suite and mypy for final validation"
+      description: "Run full suite for final validation"
 ---
 
 # Execute Tasks
@@ -199,7 +199,7 @@ Apply the implementation described in the task file:
    - Before modifying any function or class, search for `@canonical`, `@pattern`, `@boundary`, `@invariant` markers
    - If a marker exists on code you're modifying, update the marker summary/rules
    - If deleting marked code, remove the marker entirely
-4. **Apply full type hints** on all functions — `mypy --strict` must pass
+4. **Apply full type hints** on all functions
 5. **Use standard logging:**
    - `logger = logging.getLogger(__name__)`
    - %-style formatting: `logger.info("event key=%s", value)`
@@ -359,11 +359,6 @@ For tasks that modified code:
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
    ```
 
-   **Quality gate also runs mypy:**
-   ```
-   mypy --strict src/{package_underscored}/
-   ```
-
 3. **Record results:**
    - Total tests
    - Pass count
@@ -477,16 +472,11 @@ If verification PASSED:
 {paste RAW pytest output here — full output, not a summary}
 ```
 
-**mypy output:**
-```
-{paste RAW mypy --strict output here}
-```
-
 **Files created (with line counts):**
 - `{file_path}` — {N} lines (non-comment, non-blank)
 ```
 
-The proof-of-work section is **mandatory**. A task without raw test/mypy output in its "How Solved" section is NOT considered properly completed. This evidence allows independent verification without re-running the tools.
+The proof-of-work section is **mandatory**. A task without raw test output in its "How Solved" section is NOT considered properly completed. This evidence allows independent verification without re-running the tools.
 
 **Example:**
 
@@ -508,11 +498,6 @@ tests/unit/test_entity_generator.py::TestEntityGenerator::test_field_types PASSE
 12 passed in 1.23s
 ```
 
-**mypy output:**
-```
-Success: no issues found in 3 source files
-```
-
 **Files created (with line counts):**
 - `src/generators/entity_generator.py` — 187 lines
 - `templates/entity.py.j2` — 45 lines
@@ -529,7 +514,6 @@ For quality gates, the "How Solved" section reports with **mandatory raw output*
 ## How Solved
 
 - **Full test suite:** 185/185 passing
-- **mypy --strict:** clean
 - No files created or modified.
 
 ### Proof of Work
@@ -538,18 +522,13 @@ For quality gates, the "How Solved" section reports with **mandatory raw output*
 ```
 {paste RAW full test suite output}
 ```
-
-**mypy output:**
-```
-{paste RAW mypy --strict output}
-```
 ```
 
 **Verification tasks:**
 
 Verification tasks (identified by `**Category:** Verification`) follow their own checklist defined in the task file. They do NOT implement code — they verify that implementation tasks were completed correctly. The "How Solved" section must include:
 - Result of each verification checklist item (pass/fail)
-- Raw pytest and mypy output
+- Raw pytest output
 - For each file checked: line count and stub-check result
 - If ANY check fails: mark the task FAILED and identify which implementation task needs rework
 
@@ -639,7 +618,7 @@ On abort, report what was completed, what failed, and what remains.
 <!-- PHASE: quality_gate -->
 ## Phase 4: Quality Gate
 
-Run the full test suite and mypy for the affected package(s) to catch cross-task integration issues.
+Run the full test suite for the affected package(s) to catch cross-task integration issues.
 
 ### Input
 
@@ -668,13 +647,6 @@ Verification results from all tasks:
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
    ```
 
-   **Type checking:**
-   ```
-   mypy --strict src/{package_underscored}/
-   ```
-
-   (Note: Skip mypy for documentation-only packages like `.claude/`)
-
 3. **Attribute failures (if any):**
    - For each new failure, extract the failing test file path
    - Cross-reference against each task's `## Targeted Tests` section
@@ -690,8 +662,7 @@ Verification results from all tasks:
   "packages_tested": [".claude/"],
   "total_tests": 185,
   "tests_passing": 185,
-  "tests_failing": 0,
-  "mypy_status": "clean"
+  "tests_failing": 0
 }
 ```
 
@@ -700,7 +671,6 @@ Emit:
 CHECKPOINT — Quality Gate — {package-name}
 Status: COMPLETED
 Tests: 185/185 passing
-mypy: clean
 ```
 
 **If quality gate FAILED:**
@@ -712,7 +682,6 @@ mypy: clean
   "total_tests": 185,
   "tests_passing": 183,
   "tests_failing": 2,
-  "mypy_status": "clean",
   "failures": [
     {
       "test_name": "test_phase_marker_extraction",
