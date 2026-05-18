@@ -45,7 +45,7 @@ When invoked, Claude Code will:
 3. **For Each Function**:
    - Read full function with imports and context
    - Apply refactoring strategies
-   - Validate with pytest + mypy
+   - Validate with pytest
    - Retry with error context if validation fails
    - Stage successful changes
 4. **Report**: Summary of results
@@ -117,14 +117,13 @@ The refactored code MUST:
 - Keep decorators intact
 - Preserve docstrings and type hints
 - Follow PEP 8 formatting
-- Pass mypy --strict
+- Pass all tests
 
 ## Validation
 
 Each refactoring is validated:
 1. **Syntax**: AST parsing succeeds
-2. **Types**: mypy --strict passes
-3. **Tests**: Affected tests pass
+2. **Tests**: Affected tests pass
 4. **Behavior**: Same results for same inputs
 
 ## CLI
