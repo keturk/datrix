@@ -346,7 +346,7 @@ For each task:
 
 ### Steps
 
-#### Step 1: Run Tests
+#### Step 1: Identify Required Tests
 
 **Documentation-only tasks — skip verification.**
 
@@ -354,10 +354,10 @@ For tasks that modified code:
 
 1. **Determine test scope:**
    - Read task file's `## Targeted Tests` section
-   - If targeted tests exist AND task is NOT quality gate → run targeted tests only
-   - If NO targeted tests OR task IS quality gate → run full suite
+   - If targeted tests exist AND task is NOT quality gate → identify targeted tests
+   - If NO targeted tests OR task IS quality gate → identify full suite requirement
 
-2. **Run test commands:**
+2. **Report test commands to user:**
 
    **Targeted tests:**
    ```
@@ -369,20 +369,28 @@ For tasks that modified code:
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
    ```
 
-3. **Record results:**
-   - Total tests
-   - Pass count
-   - Fail count
-   - List of failing test names
+3. **Pause execution and inform user:**
+   - Stop and tell the user exactly what tests need to be run
+   - Include the exact command(s) to execute
+   - Wait for user to run the tests and provide results
+   - User will paste the test output back to you
+   - DO NOT proceed until user provides test results
 
-#### Step 2: Evaluate Results
+#### Step 2: Resume After User Provides Test Results
 
-```
-if all tests pass:
-    → verification PASSED
-else:
-    → verification FAILED, proceed to Step 3 (Fix Failures)
-```
+**User will paste test output.** Once received:
+
+1. **Parse the test results:**
+   - Extract total tests, pass count, fail count
+   - List failing test names and error messages
+
+2. **Evaluate results:**
+   ```
+   if all tests pass:
+       → verification PASSED
+   else:
+       → verification FAILED, proceed to Step 3 (Fix Failures)
+   ```
 
 #### Step 3: Fix All Failures (max 3 attempts)
 
@@ -393,9 +401,14 @@ If any test failures exist:
    - Understand what the test expects
    - Identify root cause of failure
    - Fix the issue (modify code, update test, or both)
-   - Re-run tests
+   - Tell user what tests to run again
 
-2. **Track each attempt:**
+2. **After each fix attempt:**
+   - **STOP and tell user which test command(s) to run**
+   - Wait for user to run tests and provide results
+   - Parse the new test output when user provides it
+
+3. **Track each attempt:**
 
    | Attempt | What was tried | Result |
    |---------|---------------|--------|
@@ -403,7 +416,7 @@ If any test failures exist:
    | 2       | {description} | {pass/fail + error} |
    | 3       | {description} | {pass/fail + error} |
 
-3. **Outcomes:**
+4. **Outcomes:**
    - **If all tests pass within 3 attempts** → verification PASSED
    - **If tests still failing after 3 attempts** → verification FAILED (proceed to Step 4)
    - **If a fix introduces additional failures** → STOP immediately, revert the fix attempt, report (do NOT count as successful attempt)
@@ -650,14 +663,25 @@ Verification results from all tasks:
    - Group tasks by `package` field
    - For each unique package, prepare to run full suite
 
-2. **For each package, run:**
+2. **For each package, identify test command:**
 
    **Full test suite:**
    ```
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
    ```
 
-3. **Attribute failures (if any):**
+3. **Pause execution and inform user:**
+   - STOP and tell the user exactly what test commands need to be run for quality gate
+   - Include the exact command(s) to execute for each affected package
+   - Wait for user to run the tests and provide results
+   - User will paste the test output back to you
+   - DO NOT proceed until user provides test results
+
+4. **Resume after user provides test results:**
+   - Parse the test output provided by user
+   - Extract total tests, pass count, fail count, failing test names
+
+5. **Attribute failures (if any):**
    - For each new failure, extract the failing test file path
    - Cross-reference against each task's `## Targeted Tests` section
    - Report which task likely introduced the failure
@@ -724,27 +748,16 @@ Recommendation: Re-run task-40-03 with /fix-tests, then re-run quality gate.
 
 ## Final Report
 
-After all phases complete:
+After all phases complete, report only essential status:
 
 ```
-EXECUTION COMPLETE
-
 Tasks completed: {N}/{total}
 Tasks failed: {N}
-Tasks skipped: {N} (dependency not met / blocked)
 
 Completed:
-1. Task {NN}-{TT}: {Title} — {files changed summary}
-2. Task {NN}-{TT}: {Title} — {files changed summary}
+- Task {NN}-{TT}: {Title}
+- Task {NN}-{TT}: {Title}
 
 Failed (if any):
-- Task {NN}-{TT}: {Title} — Reason: {why}
-
-Remaining (if any):
-- Task {NN}-{TT}: {Title} — Blocked by: {what}
-
-Performance Metrics (if instrumented):
-- Cost: ${total_cost} (estimated ${monolithic_cost} monolithic, {savings}% reduction)
-- Latency: {total_duration}s (estimated {monolithic_duration}s monolithic, {savings}% reduction)
-- Phases successful: {success_count}/{total_count}
+- Task {NN}-{TT}: {Title} — {why}
 ```
