@@ -192,7 +192,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
                 ensure total > 0;
             }
             publish OrderConfirmed(UUID orderId, UUID? paymentId, UUID reservationId, Address shippingAddress, Array<JSON> items, Decimal estimatedWeight) {
-                ensure items.length > 0;
+                ensure items.length() > 0;
                 ensure estimatedWeight > 0;
             }
             publish OrderCancelled(UUID orderId, String reason, UUID reservationId) {

@@ -187,7 +187,7 @@ service healthcare.PatientService('config/patient-service.yaml') : version('1.0.
                 ensure oldStatus != newStatus;
             }
             publish PatientUpdated(UUID patientId, String mrn, Array<String> changedFields) {
-                ensure changedFields.length > 0;
+                ensure changedFields.length() > 0;
             }
         }
     }

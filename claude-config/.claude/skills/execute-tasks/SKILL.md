@@ -65,6 +65,16 @@ Read first: CLAUDE.md, MEMORY.md, `datrix-common/docs/contributing/ai-agent-rule
 ### Project Structure
 Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}`.
 
+## Delegation Constraints
+
+When phases are delegated to sub-agents (per the delegation-strategy metadata):
+
+- **max_turns:** Set `max_turns: 40` on each delegated agent. Do NOT leave agents uncapped — unbounded agents become unmonitorable and block question relay.
+- **No background delegation:** Do NOT use `run_in_background: true` for delegated phases. Keep agents foreground so the orchestrator can receive results, relay questions, and report progress promptly.
+- **Question relay:** If a delegated agent returns with questions or ambiguities (status BLOCKED or NEEDS_CONTEXT), the orchestrator MUST immediately relay those questions to the user via `AskUserQuestion`. After receiving answers, resume the agent with the context. Do NOT guess answers or silently skip the agent.
+- **Progress reporting:** After each phase completes (or each task within a phase), emit a brief status update to the user. Do NOT run through all phases silently and dump a wall of text at the end.
+- **Test execution split:** Delegated agents run ONLY targeted tests (from each task's `## Targeted Tests` section). The orchestrator runs the full test suite once in the quality gate phase. This prevents redundant full-suite runs when multiple tasks are being processed. If a task has no targeted tests section, the agent skips test execution and reports `no_targeted_tests: true`.
+
 <!-- PHASE: pre_check -->
 ## Phase 1: Pre-Execution Check
 
