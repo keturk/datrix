@@ -10,11 +10,11 @@ delegation-strategy:
     - name: "spawn_agents"
       model: "sonnet"
       parallelizable: false
-      description: "Spawn one agent per task to execute implement→verify in parallel"
-    - name: "quality_gate"
+      description: "Spawn one agent per task to implement code changes only (no test execution)"
+    - name: "verify_and_gate"
       model: "opus"
       parallelizable: false
-      description: "Run full suite for final validation across all tasks"
+      description: "Run full suite once per package, attribute failures, fix loop, final validation"
 ---
 
 # Execute Tasks in Parallel
@@ -207,15 +207,22 @@ If more than 5 tasks are provided, create a todo list before completing this pha
 <!-- END_PHASE: pre_check -->
 
 <!-- PHASE: spawn_agents -->
-## Phase 2: Spawn Parallel Task Agents
+## Phase 2: Spawn Parallel Implementation Agents
 
-For each task (all in parallel), spawn a dedicated agent to execute baseline→implement→verify workflow.
+For each task (all in parallel), spawn a dedicated agent to implement code changes only. Agents do NOT run tests — verification is centralized in Phase 3 to avoid N parallel test suite executions.
 
 ### Input
 
 JSON from pre_check phase with task metadata and confirmation that `can_parallelize: true`.
 
 ### Steps
+
+### Delegation Constraints
+
+- **max_turns:** Set `max_turns: 40` on each spawned agent. Do NOT leave agents uncapped — an agent that runs for hundreds of turns without returning is unmonitorable and blocks question relay.
+- **No background agents:** Do NOT use `run_in_background: true`. Spawn agents in the foreground so the orchestrator can receive their results (including questions and status) promptly. Since multiple foreground agents are spawned in a single message, they still execute concurrently.
+- **Question relay:** If an agent returns with status BLOCKED or NEEDS_CONTEXT and includes questions/ambiguities, the orchestrator MUST immediately relay those questions to the user via `AskUserQuestion`. After receiving answers, resume the agent with the context. Do NOT silently skip blocked agents or guess answers on behalf of the user.
+- **Progress reporting:** After all agents return (or after resuming any that had questions), emit a progress summary to the user before proceeding to the quality gate phase. If any agent is still outstanding, report which tasks are pending and what's holding them up.
 
 1. **For each task in the batch, spawn a Task agent with subagent_type="general-purpose":**
 
@@ -224,25 +231,39 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
    Execute single task: {task_id}
    ```
 
+   **Critical Task tool parameters:**
+   - `max_turns: 40` — hard limit per agent
+   - Do NOT set `run_in_background: true`
+
    **Agent prompt template:**
    ```
    You are executing a SINGLE task from a parallel batch. Your scope is LIMITED to this one task only.
 
    TASK FILE: {task_path}
 
-   ASSUMPTION: All tests were passing before starting.
+   IMPORTANT: You implement code AND run ONLY targeted tests for your task.
+   Do NOT run the full test suite — the orchestrator runs it once after ALL agents
+   complete, to avoid N parallel full-suite executions.
 
    Your workflow:
-   1. Implement: Read task file, apply code changes per specification
-   2. Verify: Run targeted tests, fix all failures (max 3 attempts)
-   3. Prove: Capture raw test output as proof-of-work
+   1. Understand: Read task file and all referenced files
+   2. Implement: Apply code changes per specification
+   3. Self-check: Anti-stub checks + self-contradiction check
+   4. Run targeted tests: ONLY the tests listed in the task's "## Targeted Tests" section
+   5. Fix targeted test failures (max 3 attempts)
+   6. Return: Report implementation + targeted test results to orchestrator
 
    CRITICAL RULES:
    - Read and follow ALL rules in d:\datrix\.claude\CLAUDE.md
    - Stay within this task's scope — do NOT modify files outside this task
-   - If you encounter ambiguities, STOP and report them
-   - Mark the task COMPLETED only if all tests pass AND proof-of-work is captured
-   - Mark the task FAILED if tests still fail after 3 attempts
+   - Run ONLY targeted tests from the task's "## Targeted Tests" section
+   - Do NOT run the full test suite (no `test.ps1 {package}` without -Specific flag)
+   - If the task has NO targeted tests section → skip test execution, report "no_targeted_tests"
+   - If you encounter ambiguities, STOP IMMEDIATELY and return with status NEEDS_CONTEXT
+     listing your questions. Do NOT guess or block — the orchestrator will relay your
+     questions to the user and resume you with answers.
+   - Mark the task IMPLEMENTED when code changes are complete, self-checks pass, and targeted tests pass
+   - Mark the task FAILED if targeted tests still fail after 3 attempts
    - Mark the task BLOCKED if you cannot implement (see STUCK protocol)
 
    STUCK PROTOCOL — report, don't fake it:
@@ -256,16 +277,16 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
      - If a dependency has NotImplementedError and you work around it → BLOCKED
      - If you write a checker whose checks always return true → BLOCKED
 
-   --- IMPLEMENTATION PHASE ---
+   --- STEP 1: UNDERSTAND (Read Only — No Edits) ---
 
-   Step 1: Understand (Read Only)
    - Read task file completely
    - Read ALL files listed in "Files to Review Before Starting"
    - Read existing code in files to be modified
    - Search for existing functions/utilities (DRY principle)
-   - If ambiguities found → STOP and report
+   - If ambiguities found → STOP and return NEEDS_CONTEXT with your questions
 
-   Step 2: Implement (Write Code)
+   --- STEP 2: IMPLEMENT (Write Code) ---
+
    - Create/modify files as specified in task
    - Follow all code skeletons, type hints, patterns from task file
    - Apply full type hints
@@ -283,131 +304,137 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
    - NO mocks/fakes in tests
    - NO stub implementations that satisfy type checkers but do nothing
 
-   Step 3: Record implementation results
+   --- STEP 3: SELF-CHECK ---
 
-   --- VERIFICATION PHASE ---
+   Anti-stub check — for each file in "Files to Create", confirm:
+   - File exists on disk
+   - File has >10 lines of non-comment, non-import code
+   - No `pass` in function/method bodies
+   - No `NotImplementedError` in production code
+   - No `# TODO` or `# FIXME` markers
+   - No always-true checks that make validators functionally useless
+   - No legacy code paths kept when the task requires replacement
+   If ANY check fails → fix the code or mark BLOCKED
 
-   1. Anti-stub check: For each file in "Files to Create", confirm:
-      - File exists on disk
-      - File has >10 lines of non-comment, non-import code
-      - No `pass` in function/method bodies
-      - No `NotImplementedError` in production code
-      - No `# TODO` or `# FIXME` markers
-      - No always-true checks that make validators functionally useless
-      - No legacy code paths kept when the task requires replacement
-      If ANY check fails → fix or mark BLOCKED
-   2. Test quality check:
-      - Tests must NOT assert NotImplementedError on production paths
-      - Tests must prove the feature works, not just that code doesn't crash
-      - If task requires "X replaces Y", tests must prove X works AND Y is gone
-   3. Run targeted tests (or full suite if no targeted tests specified)
-   4. If any test failures exist → invoke fix workflow (max 3 attempts):
-      - Read failing test
-      - Identify root cause
-      - Fix the issue
-      - Re-run tests
-      - Track each attempt
-   5. If all tests pass within 3 attempts → proceed to proof-of-work
-   6. If tests still failing after 3 attempts → mark FAILED
-   7. Self-contradiction check before marking COMPLETED:
-      Re-read the task acceptance criteria. Does your "How Solved" contain:
-      "remains unchanged", "legacy", "future migration", "not yet wired",
-      "partial", "workaround", "dual path", "both old and new"?
-      If YES → task is NOT complete. Mark BLOCKED.
+   Test quality check (code review only):
+   - Tests must NOT assert NotImplementedError on production paths
+   - Tests must prove the feature works, not just that code doesn't crash
+   - If task requires "X replaces Y", tests must prove X works AND Y is gone
 
-   --- PROOF OF WORK (mandatory before marking COMPLETED) ---
+   Self-contradiction check:
+   Re-read the task acceptance criteria. Would your "How Solved" contain:
+   "remains unchanged", "legacy", "future migration", "not yet wired",
+   "partial", "workaround", "dual path", "both old and new"?
+   If YES → task is NOT complete. Mark BLOCKED.
 
-   Capture and paste into the task file's "How Solved" section:
-   - RAW pytest output (full, not summarized)
-   - Line count for each created file
+   --- STEP 4: RUN TARGETED TESTS ONLY ---
 
-   Update task file:
-   - COMPLETED: Change title to "# COMPLETED: Task {NN}-{TT}: {Title}",
-     add "## How Solved" section WITH "### Proof of Work" subsection
-   - FAILED: Change title to "# FAILED: Task {NN}-{TT}: {Title}",
-     add "## Why Failed" section
-   - BLOCKED: Change title to "# BLOCKED: Task {NN}-{TT}: {Title}",
-     add "## Why Blocked" section explaining what prevented implementation
+   ONLY run tests listed in the task's "## Targeted Tests" section:
+   ```
+   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{test-path}"
+   ```
 
-   --- OUTPUT FORMAT ---
+   Do NOT run the full test suite. The orchestrator runs it once after all agents finish.
+
+   If the task has NO "## Targeted Tests" section → skip test execution entirely.
+   Report "no_targeted_tests": true in your output so the orchestrator knows.
+
+   If targeted tests fail → fix and re-run (max 3 attempts, targeted tests only).
+   If still failing after 3 attempts → mark FAILED.
+
+   --- STEP 5: RETURN RESULTS ---
+
+   Do NOT update the task file title yet (the orchestrator does this after full-suite verification).
+   Add a "## Implementation Notes" section to the task file with:
+   - Files created/modified with summaries
+   - Design decisions made
+   - Line counts for created files
+   - Targeted test results (if run)
 
    Return a JSON report:
    {
      "task_id": "{task_id}",
      "task_path": "{task_path}",
-     "status": "COMPLETED" | "FAILED" | "BLOCKED",
+     "status": "IMPLEMENTED" | "FAILED" | "BLOCKED" | "NEEDS_CONTEXT",
      "implementation_results": {
        "files_created": [...],
        "files_modified": [...],
        "design_decisions": [...]
      },
-     "verification_results": {
+     "self_check": {
+       "anti_stub_check_passed": true,
+       "test_quality_check_passed": true,
+       "self_contradiction_check_passed": true,
+       "file_line_counts": {"file_path": N, ...}
+     },
+     "targeted_tests": {
+       "ran": true,
+       "no_targeted_tests": false,
        "tests_run": N,
        "tests_passing": N,
        "tests_failing": N,
        "failures": [...],
-       "fix_attempts": N,
-       "fix_attempt_log": [...]
+       "fix_attempts": N
      },
-     "proof_of_work": {
-       "pytest_output_captured": true,
-       "file_line_counts": {"file_path": N, ...},
-       "anti_stub_check_passed": true
-     },
+     "questions": [],
      "errors": []
    }
    ```
 
-2. **Spawn all agents in parallel** using a single message with multiple Task tool calls
+2. **Spawn all agents in parallel** using a single message with multiple Task tool calls (all foreground, `max_turns: 40`)
 
-3. **Wait for all agents to complete**
-
-4. **Collect results from each agent:**
-   - Task status (COMPLETED / FAILED / BLOCKED)
+3. **Collect results as agents return:**
+   - Task status (IMPLEMENTED / FAILED / BLOCKED / NEEDS_CONTEXT)
    - Files created/modified
-   - Test results
-   - Any errors encountered
+   - Targeted test results (if any)
+   - Any errors or questions encountered
+
+4. **Handle agent questions immediately:**
+   - If ANY agent returns with questions/ambiguities (status BLOCKED or NEEDS_CONTEXT), use `AskUserQuestion` to relay them to the user
+   - After the user answers, resume the agent with the provided context
+   - Do NOT proceed to quality gate while questions are outstanding
+
+5. **Report progress to user** after all agents have returned (or been resumed and re-completed):
+   - Which tasks completed, failed, or remain blocked
+   - Brief summary of each result
 
 ### Model Selection
 
 - Use `model: "sonnet"` for code implementation tasks
 - Use `model: "haiku"` for documentation-only tasks
-- Let each agent choose sub-models for its phases (baseline=haiku, implement=sonnet, verify=haiku)
 
 ### Output Format
 
 ```json
 {
   "agents_spawned": 3,
-  "agents_completed": 3,
-  "agents_failed": 0,
+  "agents_implemented": 2,
+  "agents_failed": 1,
   "results": [
     {
       "task_id": "task-40-01",
-      "status": "COMPLETED",
+      "status": "IMPLEMENTED",
       "files_created": ["d:\\datrix\\.claude\\docs\\skill-delegation-schema.md"],
       "files_modified": [],
-      "tests_run": 0,
-      "tests_passing": 0,
+      "targeted_tests": {"ran": false, "no_targeted_tests": true}
     },
     {
       "task_id": "task-40-02",
-      "status": "COMPLETED",
+      "status": "IMPLEMENTED",
       "files_created": ["d:\\datrix\\.claude\\docs\\phase-orchestrator-spec.md"],
       "files_modified": [],
-      "tests_run": 0,
-      "tests_passing": 0,
+      "targeted_tests": {"ran": true, "tests_run": 5, "tests_passing": 5, "tests_failing": 0}
     },
     {
       "task_id": "task-40-03",
       "status": "FAILED",
       "files_created": ["src/generators/entity_generator.py"],
       "files_modified": ["src/core/generator_base.py"],
-      "tests_run": 15,
-      "tests_passing": 13,
-      "tests_failing": 2,
-      "failures": ["test_entity_relationships", "test_field_inheritance"],
-      "fix_attempts": 3,
+      "targeted_tests": {
+        "ran": true, "tests_run": 8, "tests_passing": 6, "tests_failing": 2,
+        "failures": ["test_entity_relationships", "test_field_inheritance"],
+        "fix_attempts": 3
+      },
       "recommendation": "Review entity relationship logic"
     }
   ]
@@ -416,60 +443,70 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
 
 ### Checkpoint Reporting
 
-After all agents complete, emit a summary:
+After all agents complete, emit a summary to the user:
 
 ```
-PARALLEL EXECUTION COMPLETE
+IMPLEMENTATION PHASE COMPLETE
 
 Agents spawned: 3
-Agents completed: 2
-Agents failed: 1
+Implemented: 2
+Failed (targeted tests): 1
 
-COMPLETED:
+IMPLEMENTED (pending full-suite verification):
 ✓ Task 40-01: Define Skill Delegation Metadata Schema
   - Files created: skill-delegation-schema.md
-  - Documentation-only (no tests)
+  - No targeted tests defined
 
 ✓ Task 40-02: Design Phase Orchestrator Specification
   - Files created: phase-orchestrator-spec.md
-  - Documentation-only (no tests)
+  - Targeted tests: 5/5 passing
 
-FAILED:
+FAILED (targeted test failures):
 ✗ Task 40-03: Implement Entity Generator
   - Files created: entity_generator.py
   - Files modified: generator_base.py
-  - Tests: 13/15 passing (2 new failures after 3 fix attempts)
-  - Failing tests:
-    • test_entity_relationships — AssertionError: Expected bidirectional refs
-    • test_field_inheritance — AttributeError: 'Field' has no 'parent'
+  - Targeted tests: 6/8 passing (2 failures after 3 fix attempts)
+  - Failing: test_entity_relationships, test_field_inheritance
   - Recommendation: Review entity relationship logic
 
-Proceeding to quality gate phase...
+Proceeding to full-suite verification...
 ```
 
 ### Error Handling
 
-If an agent crashes or times out:
+If an agent crashes, times out, or hits `max_turns`:
 - Record the error in results
-- Mark task as BLOCKED
+- Mark task as BLOCKED with explanation (e.g., "Agent hit max_turns limit — task may need to be broken down or retried")
+- Report the issue to the user immediately — do NOT silently skip
 - Continue with other agents
 - Report the issue in quality gate phase
+
+If an agent returns with questions (NEEDS_CONTEXT):
+- Relay questions to user via AskUserQuestion
+- Resume agent after user provides answers
+- If user cannot answer, mark task BLOCKED
 <!-- END_PHASE: spawn_agents -->
 
-<!-- PHASE: quality_gate -->
-## Phase 3: Quality Gate
+<!-- PHASE: verify_and_gate -->
+## Phase 3: Centralized Verification & Quality Gate
 
-Run the full test suite for all affected package(s) to catch cross-task integration issues.
+The orchestrator runs the full test suite **once** per affected package — not per task. This avoids N parallel full-suite executions that waste resources and risk conflicts.
+
+### Why Centralized
+
+- Agents already ran targeted tests for their own task scope
+- The full suite catches cross-task integration issues, import breakage, and regressions
+- Running it once (not per-agent) saves cost and avoids parallel pytest conflicts
 
 ### Input
 
-Results from all spawned agents:
+Implementation results from all agents + task metadata from pre_check.
 
 ```json
 {
   "tasks": [
-    {"task_id": "task-40-01", "status": "COMPLETED", "package": ".claude/"},
-    {"task_id": "task-40-02", "status": "COMPLETED", "package": ".claude/"},
+    {"task_id": "task-40-01", "status": "IMPLEMENTED", "package": ".claude/"},
+    {"task_id": "task-40-02", "status": "IMPLEMENTED", "package": "datrix-codegen-python"},
     {"task_id": "task-40-03", "status": "FAILED", "package": "datrix-codegen-python"}
   ]
 }
@@ -477,68 +514,133 @@ Results from all spawned agents:
 
 ### Steps
 
+#### Step 1: Run Full Suite Once Per Package
+
 1. **Determine affected packages:**
    - Group tasks by `package` field
-   - For each unique package, prepare to run full suite
+   - Skip documentation-only packages (no tests to run)
+   - For each package with code tasks, run the full suite **once**
 
-2. **For each package, run:**
-
-   **Full test suite:**
+2. **Run full test suite:**
    ```
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
    ```
 
-3. **Attribute failures (if any):**
-   - For each new failure, extract the failing test file path
-   - Check which task modified code related to that test
-   - Report attribution
+3. **Record results:**
+   - Total tests, pass count, fail count
+   - List of all failing test names + error messages
+
+#### Step 2: Attribute Failures to Tasks
+
+For each test failure:
+
+1. Extract the failing test file path and error message
+2. Cross-reference against each task's files_created and files_modified
+3. Check the task's `## Targeted Tests` section — does this test appear there?
+4. Assign attribution: `likely_source_task: "task-{NN}-{TT}"`
+5. If a failure cannot be attributed to any task → flag as "pre-existing or environmental"
+
+Separate failures into:
+- **Known failures:** Already reported by agents during targeted tests (agent status = FAILED)
+- **New failures:** Discovered only in the full suite (integration/cross-task issues)
+
+#### Step 3: Fix Loop (Max 3 Attempts Per Attributed Task)
+
+For each NEW failure (not already known from agent targeted tests):
+
+1. **Read the failing test** and the source code it exercises
+2. **Identify root cause** — which task's changes broke this test?
+3. **Fix the issue** (modify code — stay within the attributed task's scope)
+4. **Re-run ONLY the failing tests** (targeted, not full suite):
+   ```
+   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{failing-test-path}"
+   ```
+5. Track each attempt in a table
+
+| Attempt | Task | What was tried | Result |
+|---------|------|---------------|--------|
+| 1       | task-40-03 | Fixed import path in generator_base.py | PASS |
+| 2       | task-40-04 | Updated validate_all → validate method call | FAIL — new error |
+
+**Stop conditions:**
+- 3 attempts per attributed task with no progress → mark that task FAILED
+- A fix introduces additional failures → revert the fix attempt, report
+- Fix reveals cascading issues in unrelated subsystems → STOP, report to user
+
+#### Step 4: Final Validation
+
+After all fix attempts are exhausted:
+
+1. **Re-run full suite once** for each affected package (to confirm fixes + catch regressions)
+2. **Compare against Step 1 results** — are we better, same, or worse?
+
+#### Step 5: Mark Tasks Complete / Failed
+
+For each task with status IMPLEMENTED:
+
+- **If all tests pass (including full suite):**
+  - Update task file: change title to `# COMPLETED: Task {NN}-{TT}: {Title}`
+  - Add `## How Solved` section with proof-of-work (raw pytest output from final full suite, file line counts)
+  - Status → COMPLETED
+
+- **If tests still fail after fix loop:**
+  - Update task file: change title to `# FAILED: Task {NN}-{TT}: {Title}`
+  - Add `## Why Failed` section with fix attempt log and failing tests
+  - Status → FAILED
+
+For tasks that agents already marked FAILED (targeted test failures):
+- Keep status as FAILED — do not re-attempt in this phase
+- Report to user for separate attention
 
 ### Output Format
 
-**If quality gate PASSED:**
+**If verification PASSED:**
 
 ```json
 {
-  "status": "COMPLETED",
-  "packages_tested": ["datrix-codegen-python", ".claude/"],
+  "status": "PASSED",
+  "packages_tested": ["datrix-codegen-python"],
+  "full_suite_runs": 2,
   "results_per_package": [
     {
       "package": "datrix-codegen-python",
       "total_tests": 185,
-      "tests_passing": 183,
-      "tests_failing": 2,
-      "known_failures": ["test_entity_relationships", "test_field_inheritance"]
-    },
-    {
-      "package": ".claude/",
-      "total_tests": 0,
-      "documentation_only": true
+      "tests_passing": 185,
+      "tests_failing": 0
     }
+  ],
+  "tasks_completed": ["task-40-01", "task-40-02"],
+  "tasks_failed": ["task-40-03"],
+  "fix_loop_applied": true,
+  "fixes_made": [
+    {"task": "task-40-02", "test": "test_integration_x", "attempt": 1, "result": "fixed"}
   ]
 }
 ```
 
 Emit:
 ```
-QUALITY GATE — All Packages
+VERIFICATION & QUALITY GATE — datrix-codegen-python
 Status: PASSED
 
-Package: datrix-codegen-python
-  Tests: 183/185 passing
-  Known failures: 2 (from Task 40-03, already reported)
+Full suite: 185/185 passing
+Full suite runs: 2 (initial + post-fix validation)
 
-Package: .claude/
-  Documentation-only (no tests)
+Tasks now COMPLETED:
+✓ Task 40-01: Define Skill Delegation Metadata Schema
+✓ Task 40-02: Design Phase Orchestrator Specification (1 integration fix applied)
 
-All known failures already reported by task agents.
+Tasks FAILED (from agent phase — not re-attempted):
+✗ Task 40-03: Implement Entity Generator — 2 targeted test failures
 ```
 
-**If quality gate FAILED:**
+**If verification FAILED:**
 
 ```json
 {
   "status": "FAILED",
   "packages_tested": ["datrix-codegen-python"],
+  "full_suite_runs": 2,
   "results_per_package": [
     {
       "package": "datrix-codegen-python",
@@ -546,18 +648,13 @@ All known failures already reported by task agents.
       "tests_passing": 180,
       "tests_failing": 5,
       "known_failures": ["test_entity_relationships", "test_field_inheritance"],
-      "failures": [
+      "new_failures": [
         {
           "test_name": "test_service_generator_integration",
           "error": "ImportError: cannot import name 'GeneratorBase'",
           "likely_source_task": "task-40-03",
-          "reason": "Task 40-03 modified generator_base.py"
-        },
-        {
-          "test_name": "test_field_validator",
-          "error": "AttributeError: 'FieldValidator' object has no attribute 'validate_all'",
-          "likely_source_task": "task-40-04",
-          "reason": "Task 40-04 refactored FieldValidator interface"
+          "fix_attempts": 3,
+          "fix_result": "not_fixed"
         }
       ]
     }
@@ -567,36 +664,30 @@ All known failures already reported by task agents.
 
 Emit:
 ```
-QUALITY GATE — datrix-codegen-python
+VERIFICATION & QUALITY GATE — datrix-codegen-python
 Status: FAILED
 
-Tests: 180/185 passing
-Known failures from task verification: 2
-Additional failures detected: 3
+Full suite: 180/185 passing
+Known failures (agent phase): 2
+New failures (integration): 3 (1 fixed, 2 not fixed after 3 attempts)
 
-Additional failures (not reported by task agents):
+Not fixed:
 ✗ test_service_generator_integration
   ImportError: cannot import name 'GeneratorBase'
-  Likely source: Task 40-03 (modified generator_base.py)
-  Impact: Service generator now broken due to base class changes
-
-✗ test_field_validator
-  AttributeError: 'FieldValidator' object has no attribute 'validate_all'
-  Likely source: Task 40-04 (refactored FieldValidator interface)
-  Impact: Field validation broken in downstream code
+  Source: Task 40-03 (modified generator_base.py)
+  Fix attempts: 3 — not resolved
 
 RECOMMENDATION:
-1. Task 40-03 introduced breaking changes to GeneratorBase — needs interface fix
-2. Task 40-04 broke FieldValidator contract — needs compatibility layer or downstream updates
-3. Re-run failed tasks with fixes, then re-run quality gate
+1. Task 40-03 needs manual review — GeneratorBase interface change broke downstream
+2. Re-run with /fix-tests after manual correction
 ```
 
 ### Notes
 
-- Quality gate runs AFTER all parallel task agents complete
-- It catches integration issues that may not appear in individual task verification
-- Failed quality gate does NOT automatically re-run tasks — report to user for decision
-<!-- END_PHASE: quality_gate -->
+- Full suite runs at most TWICE: once to find failures, once to validate fixes
+- If Step 1 finds zero failures → skip Steps 3-4, go straight to Step 5 (mark all IMPLEMENTED tasks as COMPLETED)
+- Failed quality gate does NOT automatically re-run tasks beyond the fix loop — report to user for decision
+<!-- END_PHASE: verify_and_gate -->
 
 ## Final Report
 
@@ -606,9 +697,10 @@ After all phases complete:
 PARALLEL EXECUTION COMPLETE
 
 Tasks processed: {N}
-Tasks completed: {N}
-Tasks failed: {N}
-Quality gate: PASSED / FAILED
+Tasks completed: {N} (implemented + full suite passed)
+Tasks failed: {N} (targeted or full-suite failures)
+Full suite: PASSED / FAILED
+Full suite runs: {N} (target: 1-2 total)
 
 SUMMARY:
 
@@ -622,22 +714,21 @@ Completed:
 Failed:
 ✗ Task 40-03: Implement Entity Generator
   Files: entity_generator.py (created), generator_base.py (modified)
-  Reason: 2 test failures after 3 fix attempts
+  Reason: 2 targeted test failures after 3 fix attempts
 
-Integration Issues (Quality Gate):
-✗ 3 new failures detected across package
-  See quality gate report above for details
+Integration Fixes Applied:
+- test_integration_x: fixed in task-40-02 scope (attempt 1)
 
 NEXT STEPS:
 1. Review and fix Task 40-03 failures
-2. Address integration issues from quality gate
-3. Re-run quality gate to verify fixes
+2. Re-run quality gate to verify fixes
 
 Performance Metrics:
 - Wall-clock time: {duration}s
 - Estimated sequential time: {estimated_sequential}s
 - Time savings: {savings}%
 - Total cost: ${total_cost}
+- Full suite runs saved: {N-1} (vs {N} if each agent ran full suite)
 ```
 
 ## Advantages Over Sequential Execution
