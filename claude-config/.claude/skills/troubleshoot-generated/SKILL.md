@@ -71,7 +71,6 @@ Which should I start with?
 Before writing the report:
 1. **Read and understand** all relevant code — generated code, templates, generators, .dtrx source
 2. **Trace the root cause** — why is this happening, not just what is happening
-3. **Understand the full impact** — what else does this template/generator produce? How many examples are affected?
 4. **If uncertain, say so** — never guess at architecture, intent, or behavior
 
 ## Inputs
@@ -535,9 +534,9 @@ Side-by-side compare the generated code (broken) against the template logic to p
 
 ---
 
-### Phase 4: Assess Impact and Group Issues
+### Phase 4: Group Issues and Write Report
 
-**Goal:** Determine scope and write the report.
+**Goal:** Group failures and write the report.
 
 #### 4a: Identify Distinct Issues and Group Failures
 
@@ -632,13 +631,6 @@ Use the current date/time for the timestamp. The `{issue-slug}` should be a keba
 # {file_path}:{line_number}
 {the problematic source code}
 ```
-
-## Impact Assessment
-
-- **Examples with confirmed failures:** {list}
-- **Other examples potentially affected:** {list or "none" / "unknown"}
-- **Severity:** Critical / High / Medium / Low
-- **Blast radius of fix:** {what changes, how many examples affected}
 
 ## Recommended Fix
 
