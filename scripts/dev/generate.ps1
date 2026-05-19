@@ -31,10 +31,15 @@
  The actual language used for generation is read from config/system-config.yaml.
  Can be abbreviated as -L.
 
-.PARAMETER Platform
- Target platform for output path derivation (default: docker).
- The actual platform used for generation is read from config/system-config.yaml.
- Can be abbreviated as -P.
+.PARAMETER Runtime
+ Optional runtime for output path derivation (options: docker-compose, kubernetes, azure-container-apps, azure-app-service, ecs-fargate, app-runner).
+ The actual runtime used for generation is read from config/system-config.yaml deployment section.
+ Can be abbreviated as -R.
+
+.PARAMETER Provider
+ Optional provider for output path derivation (options: local, existing, aws, azure).
+ The actual provider used for generation is read from config/system-config.yaml deployment section.
+ Can be abbreviated as -Pv.
 
 .PARAMETER OutputBase
  Output base directory (default: .generated). Only used with -All parameter.
@@ -61,8 +66,8 @@
  Generate all projects for Python.
 
 .EXAMPLE
- .\generate.ps1 -All -Language typescript -Platform kubernetes
- Generate all projects for TypeScript and Kubernetes platform.
+ .\generate.ps1 -All -Language typescript -Runtime kubernetes -Provider existing
+ Generate all projects for TypeScript with output paths using kubernetes/existing.
 
 .EXAMPLE
  .\generate.ps1 -Domains -L typescript
@@ -90,16 +95,14 @@ param(
  [string]$Language,
 
  [Parameter()]
- [Alias("P")]
- [ValidateSet("docker", "kubernetes", "k8s", "azure")]
- [string]$Platform = "docker",
+ [Alias("R")]
+ [ValidateSet("docker-compose", "kubernetes", "azure-container-apps", "azure-app-service", "ecs-fargate", "app-runner")]
+ [string]$Runtime = "",
 
  [Parameter()]
- [Alias("H")]
- [string]$Hosting = "",
-
- [Parameter()]
- [string]$ServicePlatform = "",
+ [Alias("Pv")]
+ [ValidateSet("local", "existing", "aws", "azure")]
+ [string]$Provider = "",
 
  [Parameter()]
  [string]$ConfigProfile = "",
@@ -160,19 +163,19 @@ function Show-HelpMessage {
  Write-Host ""
  Write-Host "Usage:" -ForegroundColor Yellow
  Write-Host " Generate single project:" -ForegroundColor Cyan
- Write-Host " .\generate.ps1 <Source> [Output] -Language <lang> [-Platform <platform>] [-Dbg]" -ForegroundColor White
+ Write-Host " .\generate.ps1 <Source> [Output] -Language <lang> [-Runtime <runtime>] [-Provider <provider>] [-Dbg]" -ForegroundColor White
  Write-Host "   (Output optional; derived from test-projects.json when omitted)" -ForegroundColor Gray
  Write-Host ""
  Write-Host " Generate all projects:" -ForegroundColor Cyan
- Write-Host " .\generate.ps1 -All -Language <lang> [-Platform <platform>] [-OutputBase <dir>] [-TestSet <set>] [-Dbg]" -ForegroundColor White
+ Write-Host " .\generate.ps1 -All -Language <lang> [-Runtime <runtime>] [-Provider <provider>] [-OutputBase <dir>] [-TestSet <set>] [-Dbg]" -ForegroundColor White
  Write-Host " Generate by example folder:" -ForegroundColor Cyan
- Write-Host " .\generate.ps1 -Domains -Language <lang> [-Platform <platform>] [-Dbg]" -ForegroundColor White
+ Write-Host " .\generate.ps1 -Domains -Language <lang> [-Runtime <runtime>] [-Provider <provider>] [-Dbg]" -ForegroundColor White
  Write-Host ""
  Write-Host "Examples:" -ForegroundColor Yellow
  Write-Host " .\generate.ps1 examples/02-features/01-core-data-modeling/entities/system.dtrx -L python" -ForegroundColor Gray
  Write-Host " .\generate.ps1 -All -L python" -ForegroundColor Gray
  Write-Host " .\generate.ps1 -Domains -L python" -ForegroundColor Gray
- Write-Host " .\generate.ps1 -All -Language typescript -Platform kubernetes -Dbg" -ForegroundColor Gray
+ Write-Host " .\generate.ps1 -All -Language typescript -Runtime kubernetes -Provider existing -Dbg" -ForegroundColor Gray
  Write-Host ""
  Write-Host "Use Get-Help .\generate.ps1 -Full for detailed help." -ForegroundColor Yellow
  Write-Host ""
@@ -531,17 +534,13 @@ $("=" * 80)
  else { $TestSet }
  $pythonArgs += "--language"
  $pythonArgs += $Language
- if ($Platform -ne "docker") {
- $pythonArgs += "--platform"
- $pythonArgs += $Platform
+ if (-not [string]::IsNullOrWhiteSpace($Runtime)) {
+ $pythonArgs += "--runtime"
+ $pythonArgs += $Runtime
  }
- if (-not [string]::IsNullOrWhiteSpace($Hosting)) {
- $pythonArgs += "--hosting"
- $pythonArgs += $Hosting
- }
- if (-not [string]::IsNullOrWhiteSpace($ServicePlatform)) {
- $pythonArgs += "--service-platform"
- $pythonArgs += $ServicePlatform
+ if (-not [string]::IsNullOrWhiteSpace($Provider)) {
+ $pythonArgs += "--provider"
+ $pythonArgs += $Provider
  }
  if (-not [string]::IsNullOrWhiteSpace($ConfigProfile)) {
  $pythonArgs += "--profile"
@@ -594,17 +593,13 @@ $("=" * 80)
  
  $pythonArgs += "--language"
  $pythonArgs += $Language
- if ($Platform -ne "docker") {
- $pythonArgs += "--platform"
- $pythonArgs += $Platform
+ if (-not [string]::IsNullOrWhiteSpace($Runtime)) {
+ $pythonArgs += "--runtime"
+ $pythonArgs += $Runtime
  }
- if (-not [string]::IsNullOrWhiteSpace($Hosting)) {
- $pythonArgs += "--hosting"
- $pythonArgs += $Hosting
- }
- if (-not [string]::IsNullOrWhiteSpace($ServicePlatform)) {
- $pythonArgs += "--service-platform"
- $pythonArgs += $ServicePlatform
+ if (-not [string]::IsNullOrWhiteSpace($Provider)) {
+ $pythonArgs += "--provider"
+ $pythonArgs += $Provider
  }
  if (-not [string]::IsNullOrWhiteSpace($ConfigProfile)) {
  $pythonArgs += "--profile"

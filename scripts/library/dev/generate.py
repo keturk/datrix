@@ -46,38 +46,14 @@ _datrix_common_src = _datrix_root / "datrix-common" / "src"
 if _datrix_common_src.exists() and str(_datrix_common_src) not in sys.path:
     sys.path.insert(0, str(_datrix_common_src))
 from datrix_common import DATRIX_FILE_EXTENSION
-from datrix_common.config.enums import ServiceFlavor
-
-# Exhaustive list for argparse --service-platform (maps to `datrix generate --platform`).
-_SERVICE_PLATFORM_CHOICES: tuple[str, ...] = tuple(e.value for e in ServiceFlavor)
 
 _GENERATE_LOG_FILE_ENV = "DATRIX_GENERATE_LOG_FILE"
 
 
-def _hosting_for_path_platform(path_platform: str) -> str | None:
-    """Map script output-path `--platform` to `datrix generate --hosting`; None if default docker."""
-    raw = path_platform.strip().lower()
-    if raw == "k8s":
-        raw = "kubernetes"
-    if raw == "docker":
-        return None
-    return raw
-
-
 def _append_datrix_generate_cli_overrides(cmd_args: list[str], args: argparse.Namespace) -> None:
-    """Append --language, --hosting, and --platform flags for datrix generate from script args."""
+    """Append --language flag for datrix generate from script args."""
     if args.language != "python":
         cmd_args.extend(["--language", args.language])
-    # Explicit --hosting takes priority over derived from --platform
-    explicit_hosting = getattr(args, "hosting", None)
-    if explicit_hosting:
-        cmd_args.extend(["--hosting", explicit_hosting])
-    else:
-        hosting = _hosting_for_path_platform(args.platform)
-        if hosting is not None:
-            cmd_args.extend(["--hosting", hosting])
-    if args.service_platform is not None:
-        cmd_args.extend(["--platform", args.service_platform])
     if getattr(args, "profile", None) is not None:
         cmd_args.extend(["--profile", args.profile])
 
@@ -194,11 +170,17 @@ def generate_single_project(
                 rel_path = project_path.relative_to(examples_dir)
                 from shared.test_projects import build_output_path
                 rel_path_str = f"examples/{rel_path}"
-                output_relative = build_output_path(rel_path_str, args.language, args.platform)
+                # Use runtime and provider for output path (defaults: docker-compose, local)
+                runtime_segment = args.runtime or "docker-compose"
+                provider_segment = args.provider or "local"
+                output_relative = build_output_path(rel_path_str, args.language, f"{runtime_segment}/{provider_segment}")
                 output_path = datrix_root / output_base / output_relative
             else:
                 # Fallback: use project name under language/platform
-                output_name = f"{args.language}/{args.platform}/{project_name}"
+                # Use runtime and provider for output path (defaults: docker-compose, local)
+                runtime_segment = args.runtime or "docker-compose"
+                provider_segment = args.provider or "local"
+                output_name = f"{args.language}/{runtime_segment}/{provider_segment}/{project_name}"
                 output_path = datrix_root / output_base / output_name
         else:
             # Use default from project config if available (from get_test_projects)
@@ -211,31 +193,37 @@ def generate_single_project(
                 if examples_dir in project_path.parents:
                     rel_path = project_path.relative_to(examples_dir)
                     rel_path_str = f"examples/{rel_path}"
-                    output_relative = build_output_path(rel_path_str, args.language, args.platform)
+                    # Use runtime and provider for output path (defaults: docker-compose, local)
+                runtime_segment = args.runtime or "docker-compose"
+                provider_segment = args.provider or "local"
+                output_relative = build_output_path(rel_path_str, args.language, f"{runtime_segment}/{provider_segment}")
                     output_path = datrix_root / ".generated" / output_relative
                 else:
-                    output_name = f"{args.language}/{args.platform}/{project_name}"
+                    # Use runtime and provider for output path (defaults: docker-compose, local)
+                runtime_segment = args.runtime or "docker-compose"
+                provider_segment = args.provider or "local"
+                output_name = f"{args.language}/{runtime_segment}/{provider_segment}/{project_name}"
                     output_path = datrix_root / ".generated" / output_name
 
-        # Build datrix generate command. Optional overrides mirror `datrix generate`
-        # (--language, --hosting, --platform). Script `--platform` is the output-path
-        # segment (docker/kubernetes/k8s); it maps to Typer --hosting. Use
-        # `--service-platform` for Typer --platform (service flavor).
+        # Build datrix generate command. Language override can be passed via --language.
+        # Runtime and provider are used only for output path derivation and are NOT
+        # forwarded to datrix generate (deployment is read from config).
         import os
         import tempfile
 
         # Get venv path from python_exe
         venv_path = Path(python_exe).parent.parent
 
+        runtime_segment = args.runtime or "docker-compose"
+        provider_segment = args.provider or "local"
         _append_log_only_lines(
             [
                 f"Generating project: {project_name}",
                 f" Source: {project_path}",
                 f" Output: {output_path}",
                 f" Language: {args.language}",
-                f" Hosting: {args.hosting or _hosting_for_path_platform(args.platform) or 'config/default'}",
-                f" Output platform segment: {args.platform}",
-                f" Service platform override: {args.service_platform or 'config/default'}",
+                f" Runtime (output path): {runtime_segment}",
+                f" Provider (output path): {provider_segment}",
                 "",
             ]
         )
@@ -527,15 +515,8 @@ def main():
  
     # Batch mode
     parser.add_argument("--language", type=str.lower, default="python", choices=["python", "typescript"], help="Target language")
-    parser.add_argument("--platform", type=str.lower, default="docker", choices=["docker", "kubernetes", "k8s", "azure"], help="Output path segment; also forwarded as datrix --hosting when not docker")
-    parser.add_argument("--hosting", type=str.lower, default=None, choices=["docker", "kubernetes", "aws", "azure"], help="Explicit hosting platform override (takes priority over --platform derivation)")
-    parser.add_argument(
-        "--service-platform",
-        type=str,
-        default=None,
-        choices=_SERVICE_PLATFORM_CHOICES,
-        help="Forwarded to datrix generate --platform (service flavor); optional",
-    )
+    parser.add_argument("--runtime", type=str.lower, default=None, choices=["docker-compose", "kubernetes", "azure-container-apps", "azure-app-service", "ecs-fargate", "app-runner"], help="Optional output path runtime segment; generation reads runtime from resolved config")
+    parser.add_argument("--provider", type=str.lower, default=None, choices=["local", "existing", "aws", "azure"], help="Optional output path provider segment; generation reads provider from resolved config")
     parser.add_argument("--output-base", type=str, default=".generated", help="Output base directory")
     parser.add_argument("--test-set", type=str, default="all", help="Test set to use (e.g. all, foundation, non-foundation, features, domains)")
     parser.add_argument("--profile", type=str, default=None, help="Config profile for YAML resolution (e.g., test, development, production)")
@@ -592,11 +573,13 @@ def main():
             source_path = Path(args.source).resolve()
             if not args.output:
                 try:
+                    runtime_seg = args.runtime or "docker-compose"
+                    provider_seg = args.provider or "local"
                     args.output = str(
                         get_default_output_path(
                             str(source_path),
                             language=args.language,
-                            platform=args.platform,
+                            platform=f"{runtime_seg}/{provider_seg}",
                         )
                     )
                 except (ValueError, FileNotFoundError):
@@ -643,18 +626,15 @@ def main():
                 "output": str(output_path),
                 "description": f"Single project: {project_name}",
             }]
+            runtime_display = args.runtime or "config/default"
+            provider_display = args.provider or "config/default"
             if logger:
                 logger.write(f"Generating single project: {project_name}")
                 logger.write(f" Source: {source_path}")
                 logger.write(f" Output: {output_path}")
                 logger.write(f" Language: {args.language}")
-                logger.write(
-                    f" Hosting: {args.hosting or _hosting_for_path_platform(args.platform) or 'config/default'}"
-                )
-                logger.write(f" Output platform segment: {args.platform}")
-                logger.write(
-                    f" Service platform override: {args.service_platform or 'config/default'}"
-                )
+                logger.write(f" Runtime: {runtime_display}")
+                logger.write(f" Provider: {provider_display}")
                 logger.write("")
             else:
                 # Always print source/output so PS1's Write-TeeOutput captures them in the log.
@@ -663,22 +643,17 @@ def main():
                 print(f" Source: {source_path}", flush=True)
                 print(f" Output: {output_path}", flush=True)
                 print(f" Language: {args.language}", flush=True)
-                print(
-                    f" Hosting: {args.hosting or _hosting_for_path_platform(args.platform) or 'config/default'}",
-                    flush=True,
-                )
-                print(f" Output platform segment: {args.platform}", flush=True)
-                print(
-                    f" Service platform override: {args.service_platform or 'config/default'}",
-                    flush=True,
-                )
+                print(f" Runtime: {runtime_display}", flush=True)
+                print(f" Provider: {provider_display}", flush=True)
                 print(flush=True)
         else:
             try:
+                runtime_seg = args.runtime or "docker-compose"
+                provider_seg = args.provider or "local"
                 projects = get_test_projects(
                     test_set=args.test_set,
                     language=args.language,
-                    platform=args.platform,
+                    platform=f"{runtime_seg}/{provider_seg}",
                 )
             except Exception as e:
                 error_msg = f"Error loading test projects: {e}"
