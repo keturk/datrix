@@ -293,9 +293,12 @@ service library.BookService : version('1.0.0') {
  }
 }
 
-// Platform selection via config (system-config.yaml: language, hosting), not CLI flags:
-// Set hosting: docker | kubernetes | aws | azure in the active profile, then:
+// Platform selection via config (system-config.yaml: language, deployment), not CLI flags:
+// Set deployment.runtime and deployment.provider in the active profile, then:
 // datrix generate --source system.dtrx --output ./generated
+//
+// See architecture-overview.md Decision 6: Deployment Target Contract for the full
+// deployment model (runtime, provider, target, registry).
 ```
 
 **Generated Differences:**
@@ -570,10 +573,12 @@ When changing any of the following, update the corresponding documentation:
 Documentation examples must use current flag syntax. The canonical `datrix generate` invocation is:
 
 ```bash
-datrix generate --source examples/03-domains/ecommerce/system.dtrx --output generated --language python --hosting docker
+datrix generate --source examples/03-domains/ecommerce/system.dtrx --output generated
 ```
 
-Short flags: `--source` / `-s`, `--output` / `-o`, `--language` / `-L`, `--hosting` / `-H`, `--platform` / `-P`. Note: `--profile` has no short flag.
+The target language and deployment settings (runtime, provider, target, registry) are read from resolved config in `system-config.yaml`. There are no deployment-affecting CLI overrides — see [architecture-overview.md Decision 6: Deployment Target Contract](architecture-overview.md#decision-6-deployment-target-contract-planned). `--profile` selects the config profile to use.
+
+> **Migration note:** The `--hosting` / `-H` and `--platform` / `-P` flags are being removed. The `--language` / `-L` flag remains for development convenience but deployment dimensions come exclusively from config.
 
 ---
 

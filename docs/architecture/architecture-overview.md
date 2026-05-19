@@ -209,6 +209,108 @@ graph TD
 
 ---
 
+### Decision 6: Deployment Target Contract (Planned)
+
+**Rationale:**
+- The current `hosting` field (`docker | kubernetes | aws | azure`) conflates runtime packaging shape, infrastructure provider, and cloud-managed targets into a single dimension
+- "Docker" and "Kubernetes" are runtime/packaging targets, not cloud providers; "AWS" and "Azure" are providers, not runtimes
+- The one-dimensional model cannot express combinations like "Kubernetes on Azure (AKS)" or "Docker Compose on AWS (VM)" without overloading `hosting`
+- CLI overrides (`--hosting`, `--platform`) can create partial deployment states where the command line says one target but resolved config still contains values for another
+
+**Result:**
+- An explicit deployment target model replaces the single `hosting` dimension with four orthogonal fields:
+
+```yaml
+language: python | typescript
+
+deployment:
+  runtime: docker-compose | kubernetes | azure-container-apps | azure-app-service | ecs-fargate | app-runner
+  provider: local | existing | aws | azure
+  target: aks | eks | vm | ...        # optional, provider-specific
+  registry: acr | ecr | ...           # optional, provider-specific
+```
+
+- `language` selects the generated application implementation
+- `deployment.runtime` selects the deployable artifact shape (Compose, Kubernetes manifests, etc.)
+- `deployment.provider` selects the infrastructure provider or substrate owner
+- `deployment.target` and `deployment.registry` are optional provider-specific refinements
+- `host` remains a network endpoint concept only — never used to mean AWS, Azure, Docker, or Kubernetes
+- The word "platform" is retired from user-facing deployment selection; where it remains temporarily, it is qualified as "service flavor" (per-service runtime variant) or "infrastructure flavor" (per-component provisioning choice)
+
+**Concept matrix:**
+
+| Concept | Examples | Owns |
+| --- | --- | --- |
+| Language | `python`, `typescript` | Application source code, framework/runtime adapters, language package/dependency files |
+| Runtime | `docker-compose`, `kubernetes`, `ecs-fargate`, `azure-container-apps` | Deployable artifact shape and process model |
+| Provider | `local`, `existing`, `aws`, `azure` | Provider-managed substrate, registry, identity, networking, managed services |
+| Service flavor | `compose`, `container-apps`, `ecs-fargate`, `app-service` | Per-service runtime flavor when multiple are possible under a provider/runtime |
+| Infrastructure flavor | `container`, `external`, `rds`, `flexible-server`, `event-hubs` | Per-component provisioning choice |
+| Host | `db.example.com`, `api.example.com`, `localhost` | Network endpoint |
+
+**Deployment examples:**
+
+```yaml
+# Local Docker Compose
+language: python
+deployment:
+  runtime: docker-compose
+  provider: local
+
+# Kubernetes on Azure
+language: python
+deployment:
+  runtime: kubernetes
+  provider: azure
+  target: aks
+  registry: acr
+
+# Azure Container Apps
+language: typescript
+deployment:
+  runtime: azure-container-apps
+  provider: azure
+  registry: acr
+```
+
+**Generator orchestration** becomes multidimensional:
+
+| Deployment | Language generators | Runtime generators | Provider generators |
+| --- | --- | --- | --- |
+| Python Docker Compose local | `component`, `python`, `sql` | `docker` | none |
+| TypeScript Docker Compose local | `component`, `typescript`, `sql`, `python_http_contract_overlay` | `docker` | none |
+| Python Kubernetes existing | `component`, `python`, `sql` | `k8s` | none |
+| Python Kubernetes on Azure | `component`, `python`, `sql` | `k8s` | `azure` provider support |
+| TypeScript Azure Container Apps | `component`, `typescript`, `sql`, `python_http_contract_overlay` | image/runtime support | `azure` native app support |
+| Python ECS Fargate | `component`, `python`, `sql` | image/runtime support | `aws` native app support |
+
+Provider generators augment runtime output unless the runtime is provider-native. For `runtime: kubernetes, provider: azure`, Azure support adds AKS/ACR/identity/networking/managed-service integration without replacing Kubernetes manifests.
+
+**Explicit config rule:** Defaults are an anti-pattern for deployment generation. Every deployment-relevant field must come from resolved config. Missing required fields must produce explicit errors naming the config path and expected field. Invalid combinations must produce validation errors rather than being corrected silently. No generator may override a user-provided config value.
+
+**Validation rules:** Provider values are scoped by runtime:
+
+| Runtime | Valid providers |
+| --- | --- |
+| `docker-compose` | `local`, `aws`, `azure` |
+| `kubernetes` | `existing`, `aws`, `azure` |
+| `azure-container-apps` | `azure` |
+| `azure-app-service` | `azure` |
+| `ecs-fargate` | `aws` |
+| `app-runner` | `aws` |
+
+**CLI contract:** Deployment-affecting values are not accepted as one-off CLI overrides. `datrix generate` reads `language` and `deployment` from resolved config. `--hosting` and `--platform` generation-time overrides are removed. Users who need to change deployment target edit config files (or use a `datrix config set-deployment` helper command that writes config explicitly).
+
+**Output path contract:** Generated output paths include language, runtime, and provider:
+
+```text
+.projects/<app>/<language>/<runtime>/<provider>/
+```
+
+**Design reference:** [ARCH-14: Deployment Target Contract](../../../design/ARCH-14-deployment-target-contract.md)
+
+---
+
 ## Installation
 
 ```bash
@@ -247,7 +349,9 @@ datrix generate --source system.dtrx --output ./generated --language typescript
 datrix generate --source system.dtrx --output ./generated -L python -H docker -P compose
 ```
 
-**Config-driven generation:** The usual source of truth is YAML: `language` and `hosting` in `system-config.yaml`, and service-level `platform` in each service config (e.g. `compose`, `ecs-fargate`, `lambda`). Use `--language` / `-L`, `--hosting` / `-H`, and `--platform` / `-P` only when you want CLI overrides for a single invocation.
+**Config-driven generation:** The source of truth is YAML: `language` and `deployment` (runtime, provider, target, registry) in `system-config.yaml`, and service-level `serviceFlavor` in each service config (e.g. `compose`, `ecs-fargate`, `container-apps`). Generation reads deployment settings from resolved config — there are no deployment-affecting CLI overrides. See [Decision 6: Deployment Target Contract](#decision-6-deployment-target-contract-planned) for the full deployment model.
+
+> **Migration note:** The `--hosting` / `-H` and `--platform` / `-P` CLI overrides and the `hosting` field in system config are being replaced by the `deployment` model. During migration, `hosting` maps to `deployment` as described in Decision 6.
 
 ---
 

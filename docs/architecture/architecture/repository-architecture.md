@@ -95,7 +95,12 @@ Generates SQL DDL (PostgreSQL, MySQL)
 
 ### Platform Generators (4)
 
-Generate infrastructure and deployment configurations.
+Generate infrastructure and deployment configurations. Under the [Deployment Target Contract](../architecture-overview.md#decision-6-deployment-target-contract-planned) (Planned), these generators are re-classified by their role in the multidimensional deployment model:
+
+- **Runtime generators** (`datrix-codegen-docker`, `datrix-codegen-k8s`) — own the deployable artifact shape for `docker-compose` and `kubernetes` runtimes respectively
+- **Provider generators** (`datrix-codegen-aws`, `datrix-codegen-azure`) — own provider-managed infrastructure, and also own provider-native runtimes (`ecs-fargate`, `app-runner` for AWS; `azure-container-apps`, `azure-app-service` for Azure)
+
+Provider generators augment runtime output when selected alongside Docker or Kubernetes. For `runtime: kubernetes, provider: azure`, the K8s generator still produces Kubernetes manifests; the Azure generator adds AKS/ACR/identity/networking/managed-service integration.
 
 #### 8. datrix-codegen-docker
 Generates Dockerfiles and docker-compose.yml, including optional **job worker** services for Python services with jobs, **Elasticsearch** infrastructure plus index-init containers when search integration and searchable fields are present, **Varnish** cache proxy containers when `cdn` blocks are configured (simulates edge caching for local development), **PgBouncer** containers when `connectionPooler.enabled: true` on RDBMS blocks (one PgBouncer container per consolidated database, with health check and dependency wiring), and **Kong Gateway** containers with declarative config when `gateway.type` is `managed` or `kong` (rate-limiting, key-auth, and proxy-cache plugins)
