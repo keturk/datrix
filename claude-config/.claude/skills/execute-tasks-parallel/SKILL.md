@@ -10,7 +10,7 @@ delegation-strategy:
     - name: "spawn_agents"
       model: "sonnet"
       parallelizable: false
-      description: "Spawn one agent per task to implement code changes only (no test execution)"
+      description: "Spawn one agent per task to implement code changes and run targeted tests"
     - name: "verify_and_gate"
       model: "opus"
       parallelizable: false
@@ -209,7 +209,7 @@ If more than 5 tasks are provided, create a todo list before completing this pha
 <!-- PHASE: spawn_agents -->
 ## Phase 2: Spawn Parallel Implementation Agents
 
-For each task (all in parallel), spawn a dedicated agent to implement code changes only. Agents do NOT run tests — verification is centralized in Phase 3 to avoid N parallel test suite executions.
+For each task (all in parallel), spawn a dedicated agent to implement code changes and run targeted tests. Agents run ONLY the targeted tests listed in their task file — the full test suite is centralized in Phase 3 to avoid N parallel full-suite executions.
 
 ### Input
 
@@ -327,20 +327,19 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
    "partial", "workaround", "dual path", "both old and new"?
    If YES → task is NOT complete. Mark BLOCKED.
 
-   --- STEP 4: IDENTIFY TARGETED TESTS ---
+   --- STEP 4: RUN TARGETED TESTS ---
 
-   Identify tests listed in the task's "## Targeted Tests" section:
+   Run tests listed in the task's "## Targeted Tests" section:
    ```
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{test-path}"
    ```
 
-   **CRITICAL: DO NOT RUN TESTS YOURSELF.**
-   - Identify the test command(s) that need to be run
+   **YOU MUST RUN TARGETED TESTS YOURSELF.**
    - If the task has NO "## Targeted Tests" section → report "no_targeted_tests": true
-   - The orchestrator will tell the user what to run and collect the results
-   - You will receive test results from the orchestrator in your input
-   - If targeted tests fail → the orchestrator will coordinate fixes with you
-   - Max 3 fix attempts total (coordinated by orchestrator)
+   - Run each targeted test command and capture the output
+   - If targeted tests fail → attempt to fix (max 3 attempts)
+   - Do NOT run the full test suite (no `test.ps1 {package}` without -Specific flag)
+   - The orchestrator runs the full test suite once after ALL agents complete
 
    --- STEP 5: RETURN RESULTS ---
 
@@ -368,9 +367,11 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
        "file_line_counts": {"file_path": N, ...}
      },
      "targeted_tests": {
-       "identified": true,
+       "ran": true,
        "no_targeted_tests": false,
-       "test_commands": ["powershell -File ..."]
+       "test_commands": ["powershell -File ..."],
+       "passed": true,
+       "fix_attempts": 0
      },
      "questions": [],
      "errors": []
@@ -380,9 +381,9 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
 2. **Spawn all agents in parallel** using a single message with multiple Task tool calls (all foreground, `max_turns: 40`)
 
 3. **Collect results as agents return:**
-   - Task status (IMPLEMENTED / BLOCKED / NEEDS_CONTEXT)
+   - Task status (IMPLEMENTED / BLOCKED / NEEDS_CONTEXT / FAILED)
    - Files created/modified
-   - Targeted test commands identified (not run yet)
+   - Targeted test results (pass/fail, fix attempts made)
    - Any errors or questions encountered
 
 4. **Handle agent questions immediately:**
@@ -392,10 +393,9 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
 
 5. **Report progress to user** after all agents have returned (or been resumed and re-completed):
    - Which tasks completed implementation
-   - Brief summary of each result
-   - Collect all targeted test commands from all agents
-   - STOP and tell user what test commands to run
-   - Wait for user to provide test results before proceeding to quality gate
+   - Brief summary of each result including targeted test outcomes
+   - Which targeted tests passed/failed per agent
+   - Proceed directly to Phase 3 (quality gate) — agents already ran targeted tests
 
 ### Model Selection
 
@@ -414,7 +414,7 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
       "status": "IMPLEMENTED",
       "files_created": ["d:\\datrix\\.claude\\docs\\skill-delegation-schema.md"],
       "files_modified": [],
-      "targeted_tests": {"identified": false, "no_targeted_tests": true}
+      "targeted_tests": {"ran": false, "no_targeted_tests": true}
     },
     {
       "task_id": "task-40-02",
@@ -422,7 +422,9 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
       "files_created": ["d:\\datrix\\.claude\\docs\\phase-orchestrator-spec.md"],
       "files_modified": [],
       "targeted_tests": {
-        "identified": true,
+        "ran": true,
+        "passed": true,
+        "fix_attempts": 0,
         "test_commands": ["powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-common -Specific \"tests/unit/test_phase_orchestrator.py\""]
       }
     },
@@ -432,14 +434,12 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
       "files_created": ["src/generators/entity_generator.py"],
       "files_modified": ["src/core/generator_base.py"],
       "targeted_tests": {
-        "identified": true,
+        "ran": true,
+        "passed": true,
+        "fix_attempts": 1,
         "test_commands": ["powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-python -Specific \"tests/unit/test_entity_generator.py\""]
       }
     }
-  ],
-  "all_test_commands": [
-    "powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-common -Specific \"tests/unit/test_phase_orchestrator.py\"",
-    "powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-python -Specific \"tests/unit/test_entity_generator.py\""
   ]
 }
 ```
@@ -454,27 +454,21 @@ IMPLEMENTATION PHASE COMPLETE
 Agents spawned: 3
 Implemented: 3
 
-IMPLEMENTED (ready for test verification):
+IMPLEMENTED (targeted tests passed by agents):
 ✓ Task 40-01: Define Skill Delegation Metadata Schema
   - Files created: skill-delegation-schema.md
   - No targeted tests defined
 
 ✓ Task 40-02: Design Phase Orchestrator Specification
   - Files created: phase-orchestrator-spec.md
-  - Targeted tests identified
+  - Targeted tests: PASSED
 
 ✓ Task 40-03: Implement Entity Generator
   - Files created: entity_generator.py
   - Files modified: generator_base.py
-  - Targeted tests identified
+  - Targeted tests: PASSED (1 fix attempt)
 
-PLEASE RUN THE FOLLOWING TEST COMMANDS:
-
-1. powershell -File "d:/datrix/datrix/scripts/test/test.ps1" datrix-common -Specific "tests/unit/test_phase_orchestrator.py"
-
-2. powershell -File "d:/datrix/datrix/scripts/test/test.ps1" datrix-codegen-python -Specific "tests/unit/test_entity_generator.py"
-
-Once you've run these tests, paste the output back and I will continue with verification and quality gate.
+Proceeding to full-suite quality gate...
 ```
 
 ### Error Handling

@@ -16,6 +16,7 @@ Tools for code generation, parser building, and code quality.
 | `run-codemod.ps1` | Run a Bowler codemod (rename, add/remove args, replace patterns). See [codemods/README.md](codemods/README.md). |
 | `libcst.ps1` | Scan Python code for anti-patterns using LibCST (AST-level analysis) |
 | `semgrep.ps1` | Scan Python code for anti-patterns using Semgrep (YAML rule-based) |
+| `ast-grep.ps1` | Scan Python code for structural anti-patterns using ast-grep rules or one-off patterns |
 | `ruff-checker.ps1` | Check Jinja2 templates with ruff linter |
 | `syntax-checker.ps1` | Validate .dtrx file syntax |
 | `status-generation.ps1` | Show generation status for projects |
@@ -218,6 +219,81 @@ See [config/semgrep-rules/README.md](../config/semgrep-rules/README.md) for addi
 
 - Semgrep uses `git ls-files` for file discovery in directories. In non-git workspaces, the scanner expands directories into explicit `.py` file paths to bypass this limitation.
 - Full monorepo scans with all 11 rules take ~20-25 minutes. Running individual rules (`-Rule <name>`) is much faster (~2-3 minutes per rule).
+- Jinja2 template files (`.j2`) are automatically excluded from scanning.
+
+---
+
+## ast-grep.ps1
+
+Scans Datrix Python code for structural anti-patterns using [ast-grep](https://ast-grep.github.io/). Saved rules live in `scripts/config/ast-grep-rules/`; one-off structural patterns can be passed with `-Pattern`.
+
+### Rules
+
+Rules are loaded from `scripts/config/ast-grep-rules/`. Each YAML file contains one ast-grep rule.
+
+| Rule | Pattern | Severity |
+|------|---------|----------|
+| `silent-fallback-none` | `dict.get(key, None)` | warning |
+| `default-type-mapping-any` | `.get(..., "Any")` | error |
+| `empty-except-pass` | `except ...: pass` | warning |
+| `return-none-lookup` | lookup-style functions returning `None` | warning |
+| `missing-encoding-read-text` | `Path.read_text()` without arguments | warning |
+| `missing-encoding-write-text` | `Path.write_text(value)` without `encoding=` | warning |
+| `open-without-encoding` | `open(path)` / `open(path, mode)` | warning |
+| `placeholder-function-body` | function body with only `pass` / ellipsis | warning |
+| `placeholder-notimplemented-body` | `raise NotImplementedError(...)` | warning |
+| `generic-exception-raise` | `raise Exception(...)` | warning |
+| `legacy-compatibility-call` | `legacy_*` / `*_compatibility` calls | warning |
+| `banned-mock-import` | `from unittest.mock import ...` | error |
+| `banned-simple-namespace` | `from types import SimpleNamespace` | error |
+| `codegen-string-append` | `code += f"..."` string append | warning |
+
+See [config/ast-grep-rules/README.md](../config/ast-grep-rules/README.md) for usage examples and rule details.
+
+### Usage
+
+```powershell
+# List available rules
+.\ast-grep.ps1 -ListRules
+
+# Scan all projects with all saved rules
+.\ast-grep.ps1 -All
+
+# Scan all projects with a specific rule
+.\ast-grep.ps1 -All -Rule placeholder-notimplemented-body
+
+# Scan one project
+.\ast-grep.ps1 datrix-common
+
+# Run a one-off structural pattern
+.\ast-grep.ps1 -All -Pattern 'raise Exception($MSG)'
+
+# Scan all and write a markdown report
+.\ast-grep.ps1 -All -Report ast-grep-report.md
+```
+
+### Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `Projects` | string[] | One or more project names (positional) |
+| `-All` | switch | Scan all projects in the monorepo |
+| `-Pattern` | string | Run a one-off ast-grep Python pattern |
+| `-Rule` | string[] | Run only these rules (repeatable); name matches YAML filename without extension |
+| `-ListRules` | switch | List all available rules and exit |
+| `-Report` | string | Write markdown report to this path (relative to monorepo root) |
+| `-ShowRaw` | switch | Show raw ast-grep output for each invocation |
+
+### Implementation
+
+- **PowerShell:** `scripts/dev/ast-grep.ps1` — Activates venv, ensures `sg` / `ast-grep` is installed, invokes the scanner.
+- **Python:** `scripts/library/dev/ast_grep.py` — Discovers rules, expands directories into file lists, runs ast-grep per rule, aggregates findings.
+- **Rules:** `scripts/config/ast-grep-rules/*.yaml` — Individual YAML rule files.
+
+### Notes
+
+- PowerShell expands `$NAME` in double-quoted strings. Use single quotes for ast-grep metavariable patterns, for example `-Pattern 'raise Exception($MSG)'`.
+- The npm install exposes `sg.cmd` and `ast-grep.cmd` on Windows; the wrapper prefers those command shims.
 - Jinja2 template files (`.j2`) are automatically excluded from scanning.
 
 ---

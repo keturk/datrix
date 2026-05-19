@@ -1,6 +1,8 @@
 base:
   language: python
-  hosting: docker
+  deployment:
+    runtime: docker-compose
+    provider: local
   defaultTimeout: 30000
   maxPageSize: 100
   env:
@@ -58,7 +60,9 @@ base:
     port: 8500
     datacenter: dc1
 production:
-  hosting: aws
+  deployment:
+    runtime: ecs-fargate
+    provider: aws
   region: us-east-1
   secrets:
     provider: vault

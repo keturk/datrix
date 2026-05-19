@@ -1,0 +1,10 @@
+id: datrix.codegen-string-append
+language: Python
+severity: warning
+message: Avoid string append for code generation. Prefer templates and formatters.
+rule:
+  any:
+    - pattern: code += f"$VALUE"
+    - pattern: code += f'$VALUE'
+    - pattern: code = code + f"$VALUE"
+    - pattern: code = code + f'$VALUE'

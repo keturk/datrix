@@ -1,0 +1,9 @@
+id: datrix.default-type-mapping-any
+language: Python
+severity: error
+message: Defaulting to "Any" hides unmapped Datrix types. Make type mappings exhaustive and fail loudly.
+rule:
+  any:
+    - pattern: $MAP.get($TYPE, "Any")
+    - pattern: $MAP.get($TYPE, 'Any')
+

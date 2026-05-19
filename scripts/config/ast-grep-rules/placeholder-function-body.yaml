@@ -1,0 +1,19 @@
+id: datrix.placeholder-function-body
+language: Python
+severity: warning
+message: Placeholder function body. Datrix code should be complete or explicitly abstract.
+rule:
+  any:
+    - pattern: |-
+        def $FUNC($$$ARGS):
+            pass
+    - pattern: |-
+        async def $FUNC($$$ARGS):
+            pass
+    - pattern: |-
+        def $FUNC($$$ARGS):
+            ...
+    - pattern: |-
+        async def $FUNC($$$ARGS):
+            ...
+

@@ -1,0 +1,7 @@
+id: datrix.banned-mock-import
+language: Python
+severity: error
+message: unittest.mock imports are banned in Datrix tests. Prefer real test doubles or fixtures.
+rule:
+  pattern: from unittest.mock import $$$NAMES
+

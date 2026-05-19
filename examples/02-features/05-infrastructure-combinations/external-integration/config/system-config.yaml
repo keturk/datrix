@@ -1,6 +1,8 @@
 test:
   language: python
-  hosting: docker
+  deployment:
+    runtime: docker-compose
+    provider: local
   defaultTimeout: 30000
   maxPageSize: 100
   env:
@@ -11,7 +13,9 @@ test:
     provider: env
 development:
   language: python
-  hosting: docker
+  deployment:
+    runtime: docker-compose
+    provider: local
   defaultTimeout: 30000
   maxPageSize: 100
   env:
@@ -22,7 +26,9 @@ development:
     provider: env
 production:
   language: python
-  hosting: aws
+  deployment:
+    runtime: ecs-fargate
+    provider: aws
   defaultTimeout: 30000
   maxPageSize: 100
   region: us-east-1
