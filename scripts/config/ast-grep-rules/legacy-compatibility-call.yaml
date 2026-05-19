@@ -1,0 +1,11 @@
+id: datrix.legacy-compatibility-call
+language: Python
+severity: warning
+message: Legacy or compatibility call detected. Datrix removes retired paths instead of preserving compatibility shims.
+rule:
+  any:
+    - pattern: legacy_$FUNC($$$ARGS)
+    - pattern: $OBJ.legacy_$FUNC($$$ARGS)
+    - pattern: $FUNC_compatibility($$$ARGS)
+    - pattern: $OBJ.$FUNC_compatibility($$$ARGS)
+

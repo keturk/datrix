@@ -1,0 +1,9 @@
+id: datrix.placeholder-notimplemented-body
+language: Python
+severity: warning
+message: NotImplementedError placeholder. Datrix code should not leave incomplete implementation paths.
+rule:
+  any:
+    - pattern: raise NotImplementedError()
+    - pattern: raise NotImplementedError($MSG)
+

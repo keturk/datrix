@@ -7,8 +7,9 @@ PowerShell wrapper scripts and Python implementations for development, testing, 
 ```
 scripts/
 ├── common/ # Shared PowerShell modules and utilities
-├── config/ # Configuration files (test projects, semgrep rules)
-│   └── semgrep-rules/ # Individual YAML rule files for Semgrep anti-pattern scanner
+├── config/ # Configuration files (test projects, structural-search rules)
+│   ├── semgrep-rules/ # Individual YAML rule files for Semgrep anti-pattern scanner
+│   └── ast-grep-rules/ # Individual YAML rule files for ast-grep structural scanner
 ├── dev/ # Development tools (code generation, parser, codemods, scanning)
 │   └── codemods/ # Bowler/libCST codemods for refactoring Datrix Python code
 ├── git/ # Git operations across all repositories
@@ -140,7 +141,7 @@ See [metrics/README.md](metrics/README.md) for all options (complexity, Vulture,
 
 ### Anti-Pattern Scanning
 
-Two scanners enforce `.cursorrules` coding standards across the monorepo:
+Three scanners enforce `.cursorrules` coding standards across the monorepo:
 
 ```powershell
 # LibCST — deep Python AST analysis (silent-fallback, empty-except, missing-encoding, banned imports, placeholder bodies)
@@ -152,9 +153,16 @@ Two scanners enforce `.cursorrules` coding standards across the monorepo:
 .\dev\semgrep.ps1 -All -Rule missing-encoding-read
 .\dev\semgrep.ps1 -ListRules
 .\dev\semgrep.ps1 -All -Report semgrep-report.md
+
+# ast-grep — fast structural Python rules and one-off AST patterns
+.\dev\ast-grep.ps1 -All
+.\dev\ast-grep.ps1 -All -Rule placeholder-notimplemented-body
+.\dev\ast-grep.ps1 -All -Pattern 'raise Exception($MSG)'
+.\dev\ast-grep.ps1 -ListRules
+.\dev\ast-grep.ps1 -All -Report ast-grep-report.md
 ```
 
-See [dev/README.md](dev/README.md) for all options and [config/semgrep-rules/README.md](config/semgrep-rules/README.md) for the rule catalog.
+See [dev/README.md](dev/README.md) for all options, [config/semgrep-rules/README.md](config/semgrep-rules/README.md) for the Semgrep catalog, and [config/ast-grep-rules/README.md](config/ast-grep-rules/README.md) for the ast-grep catalog.
 
 ### Codemods (Bowler / libCST)
 

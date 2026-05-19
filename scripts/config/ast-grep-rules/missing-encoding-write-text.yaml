@@ -1,0 +1,7 @@
+id: datrix.missing-encoding-write-text
+language: Python
+severity: warning
+message: write_text() without encoding is platform-dependent. Pass encoding="utf-8".
+rule:
+  pattern: $PATH.write_text($VALUE)
+

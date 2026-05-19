@@ -1,0 +1,23 @@
+id: datrix.return-none-lookup
+language: Python
+severity: warning
+message: Lookup-style functions should fail loudly instead of returning None for missing data.
+rule:
+  any:
+    - pattern: |-
+        def get_$NAME($$$ARGS):
+            $$$BODY
+            return None
+    - pattern: |-
+        def find_$NAME($$$ARGS):
+            $$$BODY
+            return None
+    - pattern: |-
+        def lookup_$NAME($$$ARGS):
+            $$$BODY
+            return None
+    - pattern: |-
+        def resolve_$NAME($$$ARGS):
+            $$$BODY
+            return None
+

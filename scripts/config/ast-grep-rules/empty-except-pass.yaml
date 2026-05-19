@@ -1,0 +1,17 @@
+id: datrix.empty-except-pass
+language: Python
+severity: warning
+message: Empty exception block. Handle the error or re-raise with context.
+rule:
+  any:
+    - pattern: |-
+        try:
+            $$$BODY
+        except:
+            pass
+    - pattern: |-
+        try:
+            $$$BODY
+        except $EXC:
+            pass
+

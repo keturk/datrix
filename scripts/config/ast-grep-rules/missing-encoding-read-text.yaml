@@ -1,0 +1,7 @@
+id: datrix.missing-encoding-read-text
+language: Python
+severity: warning
+message: read_text() without encoding is platform-dependent. Pass encoding="utf-8".
+rule:
+  pattern: $PATH.read_text()
+

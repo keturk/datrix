@@ -1,0 +1,7 @@
+id: datrix.silent-fallback-none
+language: Python
+severity: warning
+message: Silent fallback to None. Use explicit lookup and raise on missing keys.
+rule:
+  pattern: $DICT.get($KEY, None)
+

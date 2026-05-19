@@ -10,6 +10,7 @@ Shared configuration files used by scripts.
 |------------------|-------------|
 | `test-projects.json` | Project definitions for testing and code generation |
 | `semgrep-rules/` | Individual YAML rule files for the Semgrep anti-pattern scanner |
+| `ast-grep-rules/` | Individual YAML rule files for the ast-grep structural scanner |
 
 ## test-projects.json
 
@@ -71,4 +72,26 @@ See [semgrep-rules/README.md](semgrep-rules/README.md) for the full rule catalog
 
 # Run a single rule
 .\dev\semgrep.ps1 -All -Rule empty-except-pass
+```
+
+## ast-grep-rules/
+
+Individual YAML rule files for the ast-grep structural scanner (`dev/ast-grep.ps1`). Each file defines one ast-grep rule for fast AST-shaped Python searches.
+
+See [ast-grep-rules/README.md](ast-grep-rules/README.md) for the full rule catalog, usage examples, and notes on PowerShell quoting for ast-grep metavariables.
+
+### Quick Usage
+
+```powershell
+# List all available rules
+.\dev\ast-grep.ps1 -ListRules
+
+# Run all saved rules
+.\dev\ast-grep.ps1 -All
+
+# Run a single saved rule
+.\dev\ast-grep.ps1 -All -Rule placeholder-notimplemented-body
+
+# Run a one-off structural pattern
+.\dev\ast-grep.ps1 -All -Pattern 'raise Exception($MSG)'
 ```

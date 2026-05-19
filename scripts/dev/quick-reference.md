@@ -122,6 +122,25 @@ Runs Semgrep with Datrix-specific rules from `scripts/config/semgrep-rules/`.
 
 **Parameters:** `-Projects` (positional, variadic), `-All`, `-Rule <name>` (repeatable), `-ListRules`, `-Report <path>`, `-ShowRaw`
 
+### `dev\ast-grep.ps1`
+
+Runs ast-grep structural Python rules from `scripts/config/ast-grep-rules/`, or a one-off ast-grep pattern.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **One project** | `.\dev\ast-grep.ps1 datrix-common` | All saved rules on one project |
+| **All projects** | `.\dev\ast-grep.ps1 -All` | All saved rules on all projects |
+| **Single rule** | `.\dev\ast-grep.ps1 -All -Rule empty-except-pass` | One saved ast-grep rule |
+| **Multiple rules** | `.\dev\ast-grep.ps1 -All -Rule empty-except-pass -Rule placeholder-notimplemented-body` | Selected rules |
+| **One-off pattern** | `.\dev\ast-grep.ps1 -All -Pattern 'raise Exception($MSG)'` | Ad hoc structural search |
+| **List rules** | `.\dev\ast-grep.ps1 -ListRules` | Show available rule names |
+| **With report** | `.\dev\ast-grep.ps1 -All -Report ast-grep-report.md` | Write markdown report |
+| **Show raw output** | `.\dev\ast-grep.ps1 -All -Rule empty-except-pass -ShowRaw` | Show raw ast-grep output |
+
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Pattern <pattern>`, `-Rule <name>` (repeatable), `-ListRules`, `-Report <path>`, `-ShowRaw`
+
+**PowerShell note:** Use single quotes for ast-grep metavariables (`'$MSG'`) so PowerShell does not expand them.
+
 ### `dev\check-debug-artifacts.ps1`
 
 Detects leftover debug/logging artifacts in source code (print, breakpoint, console.log, debugger, temp comments). Use as a pre-commit check to catch debug scatter.

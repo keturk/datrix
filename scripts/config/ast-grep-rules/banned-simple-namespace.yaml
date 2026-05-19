@@ -1,0 +1,7 @@
+id: datrix.banned-simple-namespace
+language: Python
+severity: error
+message: SimpleNamespace hides contracts. Use typed objects, dataclasses, or explicit test fixtures.
+rule:
+  pattern: from types import SimpleNamespace
+

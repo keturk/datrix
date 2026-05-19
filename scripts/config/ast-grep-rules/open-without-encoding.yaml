@@ -1,0 +1,9 @@
+id: datrix.open-without-encoding
+language: Python
+severity: warning
+message: open() without encoding is platform-dependent. Pass encoding="utf-8" for text files.
+rule:
+  any:
+    - pattern: open($PATH)
+    - pattern: open($PATH, $MODE)
+

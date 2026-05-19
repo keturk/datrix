@@ -1,0 +1,7 @@
+id: datrix.generic-exception-raise
+language: Python
+severity: warning
+message: Raise a domain-specific exception instead of generic Exception.
+rule:
+  pattern: raise Exception($MSG)
+
