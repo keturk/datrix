@@ -13,7 +13,7 @@ Walkthrough for a minimal **library** service with one entity and a REST API—t
 You will:
 
 - Define `library.BookService` with a named RDBMS block `bookDb`, a `Book` entity, and a `rest_api`.
-- Point the `system` block at YAML under `config/`.
+- Point the `system` block at ConfigDSL under `config/` (`.dcfg` files, not YAML).
 - Validate and generate Python (FastAPI) output, then run the service.
 
 **Fastest path:** copy the folder [`examples/02-features/01-core-data-modeling/rest-api`](../../examples/02-features/01-core-data-modeling/rest-api/) and skip to [Validate and generate](#step-4-validate-and-generate).
