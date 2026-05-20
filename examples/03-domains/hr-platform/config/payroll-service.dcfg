@@ -1,23 +1,74 @@
 config service hr.PayrollService {
-  import "../../config/templates/common.dcfg";
-
   base {
-    flavor = "compose";
     port = 8001;
+    flavor = "compose";
     replicas = 1;
 
-    resources from standardResources();
-    healthCheck from standardHealthCheck();
+    resources {
+      requests {
+        cpu = "100m";
+        memory = "256Mi";
+      }
+      limits {
+        cpu = "500m";
+        memory = "512Mi";
+      }
+    }
 
-    rdbms payrollDb from postgresContainer(
-      database: "library_books"
-    );
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
 
-    registration from standardRegistration(
-      tags: ["api", "library", "v1"]
-    );
+    rdbms payrollDb {
+      engine = "postgres";
+      flavor = "container";
+      host = "localhost";
+      port = 5432;
+      database = "library_books";
+      poolSize = 20;
+      asyncDriver = "postgresql+asyncpg";
+      syncDriver = "postgresql+psycopg2";
+      healthCheckSql = "SELECT 1";
+      dockerImage = "postgres:17-alpine";
+      volumePath = "/var/lib/postgresql/data";
+      defaultUser = "postgres";
+    }
 
-    resilience from standardResilience();
+    registration {
+      tags = ["api", "library", "v1"];
+      meta = {};
+      healthCheck {
+        type = "http";
+        path = "/health";
+        interval = "10s";
+      }
+    }
+
+    resilience {
+      defaults {
+        timeout = "10s";
+        retry {
+          maxAttempts = 2;
+          backoff {
+            type = "exponential";
+            initial = "100ms";
+            multiplier = 2;
+          }
+        }
+      }
+    }
+  }
+
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
   }
 
   profile production as "prod" extends base {
@@ -27,15 +78,22 @@ config service hr.PayrollService {
     flavor = "ecs-fargate";
     replicas = 2;
 
-    replace rdbms payrollDb from postgresRds(
-      database: "library_books"
-    );
+    replace rdbms payrollDb {
+      engine = "postgres";
+      flavor = "rds";
+      host = env("DB_HOST");
+      database = "library_books";
+      poolSize = 40;
+      ssl = true;
+      asyncDriver = "postgresql+asyncpg";
+      syncDriver = "postgresql+psycopg2";
+      healthCheckSql = "SELECT 1";
+    }
 
     strategy {
       rolling {
         maxUnavailable = "25%";
       }
     }
-
   }
 }
