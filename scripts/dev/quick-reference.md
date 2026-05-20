@@ -10,14 +10,13 @@
 
 ### `dev\generate.ps1`
 
-Generates Datrix projects from `.dtrx` source files. `-Language`/`-L` is **mandatory** — you must always specify the target language. `-Platform`/`-P` controls output-path derivation (default: docker). Use `-Hosting`/`-H` to pass `--hosting` and `-ServicePlatform` to pass `--platform` (service flavor: compose, ecs-fargate, etc.).
+Generates Datrix projects from `.dtrx` source files. `-Language`/`-L`, `-Runtime`/`-R`, and `-Provider`/`-P` are wrapper-only output-path selectors. The actual language, runtime, provider, service flavor, and infrastructure flavor used for generation are read from project config.
 
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Single project (auto output)** | `.\dev\generate.ps1 <source.dtrx> -L python` | Output path derived from test-projects.json |
 | **Single project (explicit output)** | `.\dev\generate.ps1 <source.dtrx> <output-dir> -L python` | Explicit output directory |
-| **Single + language/platform** | `.\dev\generate.ps1 <source.dtrx> <output-dir> -L typescript -P kubernetes` | Override language and platform |
-| **Single + hosting/flavor** | `.\dev\generate.ps1 <source.dtrx> <out> -L python -H kubernetes -ServicePlatform kubernetes` | Override hosting and service platform |
+| **Single + output target path** | `.\dev\generate.ps1 <source.dtrx> <output-dir> -L typescript -R kubernetes -P existing` | Use explicit output path segments |
 | **All examples** | `.\dev\generate.ps1 -All -L python` | Generate all (test set all) |
 | **All + TypeScript** | `.\dev\generate.ps1 -All -L typescript` | All examples for TypeScript |
 | **All + custom output base** | `.\dev\generate.ps1 -All -L python -OutputBase .generated2` | Custom output root |
@@ -29,7 +28,7 @@ Generates Datrix projects from `.dtrx` source files. `-Language`/`-L` is **manda
 | **Verbose output** | `.\dev\generate.ps1 -All -L python -VerboseOutput` | Show detailed generation output |
 | **Debug logging** | `.\dev\generate.ps1 -All -L python -Dbg` | Enable DEBUG level logging |
 
-**Parameters:** `-Source` (positional 0), `-Output` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (python\|typescript, **mandatory**), `-Platform`/`-P` (docker\|kubernetes\|k8s, default: docker), `-Hosting`/`-H`, `-ServicePlatform`, `-OutputBase` (default: .generated), `-TestSet` (default: all), `-VerboseOutput`, `-Dbg`
+**Parameters:** `-Source` (positional 0), `-Output` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (python\|typescript, output path), `-Runtime`/`-R` (docker-compose\|kubernetes\|azure-container-apps\|azure-app-service\|ecs-fargate\|app-runner, output path), `-Provider`/`-P` (local\|existing\|aws\|azure, output path), `-OutputBase` (default: .generated), `-TestSet` (default: all), `-VerboseOutput`, `-Dbg`
 
 ### `dev\syntax-checker.ps1`
 

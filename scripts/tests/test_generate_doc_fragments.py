@@ -79,13 +79,13 @@ class TestExtractPhaseNames:
         assert phases == ["collect_symbols", "resolve_references", "check_types"]
 
     def test_extracts_phases_from_real_analyzer(self) -> None:
-        """Real analyzer.py produces exactly 13 phases."""
+        """Real analyzer.py produces exactly 15 phases."""
         datrix_root = get_datrix_root()
         analyzer_path = datrix_root / ANALYZER_RELATIVE_PATH
         source = analyzer_path.read_text(encoding="utf-8")
         phases = _extract_phase_names(source)
-        assert len(phases) == 13, (
-            f"Expected 13 phases from real analyzer, got {len(phases)}: {phases}"
+        assert len(phases) == 15, (
+            f"Expected 15 phases from real analyzer, got {len(phases)}: {phases}"
         )
 
     def test_phase_names_are_snake_case_strings(self) -> None:
@@ -272,7 +272,7 @@ class TestBuildCliHelpFragment:
 
     def test_fragment_preserves_help_content(self) -> None:
         """CLI help text is included verbatim in the fragment."""
-        help_text = "Usage: datrix generate [OPTIONS]\n\n  --source  Path\n  --language  python"
+        help_text = "Usage: datrix generate [OPTIONS]\n\n  --source  Path\n  --profile  test"
         fragment = _build_cli_help_fragment(help_text)
         assert help_text in fragment, (
             "Help text should appear verbatim inside the fragment"
@@ -284,13 +284,13 @@ class TestCliHelpCapture:
     """Test CLI help capture from the real venv environment."""
 
     def test_cli_help_contains_expected_flags(self) -> None:
-        """Captured CLI help output contains --source, --language, --hosting flags."""
+        """Captured CLI help output contains config-owned generation flags."""
         # Import here to avoid polluting other tests if this fails
         from dev.generate_doc_fragments import _capture_cli_help
 
         datrix_root = get_datrix_root()
         help_text = _capture_cli_help(datrix_root)
-        expected_flags = ["--source", "--language", "--hosting"]
+        expected_flags = ["--source", "--profile", "--output"]
         for flag in expected_flags:
             assert flag in help_text, (
                 f"CLI help should contain '{flag}', got:\n{help_text[:500]}"

@@ -37,9 +37,9 @@
  Can be abbreviated as -R.
 
 .PARAMETER Provider
- Optional provider for output path derivation (options: local, existing, aws, azure).
- The actual provider used for generation is read from config/system-config.yaml deployment section.
- Can be abbreviated as -Pv.
+  Optional provider for output path derivation (options: local, existing, aws, azure).
+  The actual provider used for generation is read from config/system-config.yaml deployment section.
+  Can be abbreviated as -P.
 
 .PARAMETER OutputBase
  Output base directory (default: .generated). Only used with -All parameter.
@@ -99,10 +99,10 @@ param(
  [ValidateSet("docker-compose", "kubernetes", "azure-container-apps", "azure-app-service", "ecs-fargate", "app-runner")]
  [string]$Runtime = "",
 
- [Parameter()]
- [Alias("Pv")]
- [ValidateSet("local", "existing", "aws", "azure")]
- [string]$Provider = "",
+  [Parameter()]
+  [Alias("P")]
+  [ValidateSet("local", "existing", "aws", "azure")]
+  [string]$Provider = "",
 
  [Parameter()]
  [string]$ConfigProfile = "",

@@ -591,7 +591,11 @@ After all fix attempts are exhausted:
 For each task with status IMPLEMENTED:
 
 - **If all tests pass (including full suite):**
-  - Update task file: change title to `# COMPLETED: Task {NN}-{TT}: {Title}`
+  - Mark task as completed using the script:
+    ```bash
+    powershell -File "d:/datrix/datrix/scripts/tasks/complete.ps1" "{task_path}"
+    ```
+    This changes the title from `# Task {NN}-{TT}: {Title}` to `# COMPLETED: Task {NN}-{TT}: {Title}`.
   - Add `## How Solved` section with proof-of-work (raw pytest output from final full suite, file line counts)
   - Status → COMPLETED
 

@@ -20,6 +20,23 @@ Lists incomplete tasks (without `COMPLETED:` prefix) and incomplete bugs (withou
 
 ---
 
+## `tasks\complete.ps1`
+
+Marks a task markdown file as completed by updating its heading from `# Task ...` (or any status-prefixed variant) to `# COMPLETED: Task ...`.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Mark complete (absolute path)** | `.\tasks\complete.ps1 "D:\datrix\datrix-common\.tasks\phase-05\task-05-01.md"` | Mark task complete with absolute path |
+| **Mark complete (relative path)** | `.\tasks\complete.ps1 ".tasks\phase-05\task-05-01.md"` | Mark task complete with relative path |
+| **Mark complete (filename only)** | `.\tasks\complete.ps1 "task-05-01.md"` | Searches all `.tasks/` folders for matching filename |
+| **With debug** | `.\tasks\complete.ps1 "task-05-01.md" -Dbg` | Enable debug logging |
+
+**Parameters:** `task_file` (required), `-Dbg`
+
+**Note:** This script only marks the task heading as COMPLETED. You must manually add the `## How Solved` section with implementation details and proof-of-work.
+
+---
+
 ## `tasks\completed.ps1`
 
 Lists completed tasks (`COMPLETED:` prefix) and fixed bugs (`FIXED:` prefix) from `.tasks/` and `.bugs/` folders.

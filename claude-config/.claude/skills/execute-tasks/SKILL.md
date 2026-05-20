@@ -477,9 +477,13 @@ If verification PASSED:
    - "dual path" / "both old and new" / "backward compatibility layer"
    If ANY of these appear in your narrative, the task is NOT complete. Mark it BLOCKED with an honest explanation.
 
-2. **Update the task file:**
-   - Change title from `# Task {NN}-{TT}: {Title}` to `# COMPLETED: Task {NN}-{TT}: {Title}`
-   - Add `## How Solved` section immediately after title with **mandatory proof-of-work**:
+2. **Mark task as completed using the script:**
+   ```bash
+   powershell -File "d:/datrix/datrix/scripts/tasks/complete.ps1" "{task_path}"
+   ```
+   This changes the title from `# Task {NN}-{TT}: {Title}` to `# COMPLETED: Task {NN}-{TT}: {Title}`.
+
+3. **Add `## How Solved` section immediately after title with **mandatory proof-of-work**:
 
 ```markdown
 ## How Solved
@@ -529,7 +533,12 @@ tests/unit/test_entity_generator.py::TestEntityGenerator::test_field_types PASSE
 
 **Quality gate tasks:**
 
-For quality gates, the "How Solved" section reports with **mandatory raw output**:
+First mark the task completed using the script:
+```bash
+powershell -File "d:/datrix/datrix/scripts/tasks/complete.ps1" "{task_path}"
+```
+
+Then add "How Solved" section with **mandatory raw output**:
 
 **Example (quality gate):**
 

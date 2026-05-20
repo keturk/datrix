@@ -307,8 +307,6 @@ Provider generators augment runtime output unless the runtime is provider-native
 .projects/<app>/<language>/<runtime>/<provider>/
 ```
 
-**Design reference:** [ARCH-14: Deployment Target Contract](../../../design/ARCH-14-deployment-target-contract.md)
-
 ---
 
 ## Installation

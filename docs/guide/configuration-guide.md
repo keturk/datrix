@@ -100,11 +100,15 @@ To avoid repeating common values across profiles, use a `base:` section. Profile
 # config/system.yaml — using base: inheritance
 base:
   language: python
-  hosting: docker
+  deployment:
+    runtime: docker-compose
+    provider: local
   defaultTimeout: 30000
 
 production:
-  hosting: aws
+  deployment:
+    runtime: ecs-fargate
+    provider: aws
   region: us-east-1
 ```
 
@@ -116,15 +120,21 @@ production:
 # config/system-config.yaml — explicit profiles
 test:                           # Profile name
   language: python
-  hosting: docker
+  deployment:
+    runtime: docker-compose
+    provider: local
 
 development:
   language: python
-  hosting: docker
+  deployment:
+    runtime: docker-compose
+    provider: local
 
 production:
   language: python
-  hosting: aws
+  deployment:
+    runtime: ecs-fargate
+    provider: aws
   region: us-east-1
 ```
 
@@ -257,7 +267,9 @@ system ecommerce.System('config/system.yaml') : version('1.0.0') {
 ```yaml
 base:
   language: python                    # Required: "python" or "typescript"
-  hosting: docker                     # Required: "docker", "kubernetes", "aws", "azure"
+  deployment:                         # Required: deployment target
+    runtime: docker-compose           #   "docker-compose", "kubernetes", "ecs-fargate", etc.
+    provider: local                   #   "local", "existing", "aws", "azure"
   defaultTimeout: 30000              # Default request timeout (ms)
   secrets: { provider: env }
   gateway:
@@ -274,8 +286,10 @@ base:
 
 production:
   language: python
-  hosting: aws
-  region: us-east-1                  # AWS region (required for AWS hosting)
+  deployment:
+    runtime: ecs-fargate
+    provider: aws
+  region: us-east-1                  # AWS region (required for AWS provider)
   defaultTimeout: 60000
   network:                            # VPC configuration (required for AWS)
     vpcId: vpc-abc123
@@ -299,12 +313,15 @@ production:
 | Field | Required When | Type | Description |
 |-------|--------------|------|-------------|
 | `language` | Always | `python` \| `typescript` | Target language |
-| `hosting` | Always | `docker` \| `kubernetes` \| `aws` \| `azure` | Hosting platform |
+| `deployment.runtime` | Always | See [Deployment Runtime Options](#deployment-runtime-options) | Deployment runtime shape |
+| `deployment.provider` | Always | See [Deployment Provider Options](#deployment-provider-options) | Infrastructure provider |
 
 ### Optional Fields
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
+| `deployment.target` | String | — | Provider-specific target (e.g., `aks`, `eks`, `vm`) |
+| `deployment.registry` | String | — | Provider-specific image registry (e.g., `acr`, `ecr`) |
 | `defaultTimeout` | Integer | 30000 | Default request timeout (ms) |
 | `region` | String | — | Cloud region (required for AWS/Azure) |
 | `network` | Object | — | VPC/network configuration |
@@ -319,14 +336,52 @@ production:
 | `python` | FastAPI application + Python code + SQL |
 | `typescript` | NestJS application + TypeScript code + SQL |
 
-### Hosting Options
+### Deployment Runtime Options
 
-| Value | Platform | Service Flavors |
-|-------|----------|----------------|
-| `docker` | Docker Compose | `compose` |
-| `kubernetes` | Kubernetes | `kubernetes` |
-| `aws` | Amazon Web Services | `ecs-fargate`, `ecs-ec2`, `lambda`, `app-runner`, `eks` |
-| `azure` | Microsoft Azure | `container-apps`, `functions`, `aks`, `app-service` |
+| Value | Artifact Shape | Service Flavors |
+|-------|----------------|----------------|
+| `docker-compose` | Docker Compose (Dockerfile, docker-compose.yml, .env) | `compose` |
+| `kubernetes` | Kubernetes manifests, Helm charts, Kustomize overlays | `kubernetes` |
+| `ecs-fargate` | AWS CDK stacks (ECS Fargate, ALB, VPC) | `ecs-fargate` |
+| `app-runner` | AWS CDK stacks (App Runner) | `app-runner` |
+| `azure-container-apps` | Azure Bicep modules (Container Apps) | `container-apps` |
+| `azure-app-service` | Azure Bicep modules (App Service) | `app-service` |
+
+### Deployment Provider Options
+
+| Value | Meaning | Valid Runtimes |
+|-------|---------|---------------|
+| `local` | Local machine (no cloud) | `docker-compose` |
+| `existing` | Pre-existing cluster (not provisioned) | `kubernetes` |
+| `aws` | Amazon Web Services | `docker-compose`, `kubernetes`, `ecs-fargate`, `app-runner` |
+| `azure` | Microsoft Azure | `docker-compose`, `kubernetes`, `azure-container-apps`, `azure-app-service` |
+
+### Deployment Examples
+
+```yaml
+# Local Docker Compose
+deployment:
+  runtime: docker-compose
+  provider: local
+
+# Kubernetes on Azure (AKS)
+deployment:
+  runtime: kubernetes
+  provider: azure
+  target: aks
+  registry: acr
+
+# Azure Container Apps
+deployment:
+  runtime: azure-container-apps
+  provider: azure
+  registry: acr
+
+# Kubernetes in existing cluster
+deployment:
+  runtime: kubernetes
+  provider: existing
+```
 
 ---
 
@@ -1448,36 +1503,56 @@ production:
 
 ## Platform-Specific Configuration
 
-### Docker Platform
+### Docker Compose (Local)
 
 No additional config file — settings in `system-config.yaml`:
 
 ```yaml
-production:
-  hosting: docker
+base:
+  deployment:
+    runtime: docker-compose
+    provider: local
   registry: registry.example.com  # Optional: private registry
 ```
 
-### Kubernetes Platform
+### Kubernetes (Existing Cluster)
 
 Namespace and labels configured per-service:
 
 ```yaml
 production:
-  platform: kubernetes
-  namespace: ecommerce           # Kubernetes namespace
-  labels:
-    app: order-service
-    environment: production
+  deployment:
+    runtime: kubernetes
+    provider: existing
+  # Per-service config:
+  # namespace: ecommerce           # Kubernetes namespace
+  # labels:
+  #   app: order-service
+  #   environment: production
 ```
 
-### AWS Platform
+### Kubernetes on Azure (AKS)
+
+```yaml
+production:
+  deployment:
+    runtime: kubernetes
+    provider: azure
+    target: aks
+    registry: acr
+  location: eastus
+  resourceGroup: ecommerce-rg
+```
+
+### AWS (ECS Fargate)
 
 Network and IAM configuration:
 
 ```yaml
 production:
-  hosting: aws
+  deployment:
+    runtime: ecs-fargate
+    provider: aws
   region: us-east-1
   network:
     vpcId: vpc-abc123
@@ -1487,13 +1562,15 @@ production:
     roleArn: arn:aws:iam::123456789012:role/OrderServiceRole
 ```
 
-### Azure Platform
+### Azure (Container Apps)
 
 Resource group and managed identity:
 
 ```yaml
 production:
-  hosting: azure
+  deployment:
+    runtime: azure-container-apps
+    provider: azure
   location: eastus
   resourceGroup: ecommerce-rg
   identity:
@@ -1568,7 +1645,7 @@ datrix generate --profile production -s specs/system.dtrx -o ./generated
 ✅ Field types correct
 ✅ Enum values valid
 ✅ Cross-field constraints (e.g., min <= max)
-✅ Platform consistency (e.g., no Azure flavor on AWS hosting)
+✅ Deployment consistency (e.g., no Azure infrastructure flavor with `provider: aws`)
 ✅ Engine-flavor compatibility (e.g., memcached works with elasticache)
 
 **Error messages include:**
@@ -1587,11 +1664,15 @@ datrix generate --profile production -s specs/system.dtrx -o ./generated
 # ✅ Good: Same structure across profiles
 test:
   language: python
-  hosting: docker
+  deployment:
+    runtime: docker-compose
+    provider: local
 
 production:
   language: python
-  hosting: aws
+  deployment:
+    runtime: ecs-fargate
+    provider: aws
   region: us-east-1
 
 # ❌ Bad: Different fields per profile
@@ -1599,7 +1680,9 @@ test:
   language: python
 
 production:
-  hosting: aws  # Missing language!
+  deployment:
+    runtime: ecs-fargate
+    provider: aws  # Missing language!
 ```
 
 ### 2. Environment Variables for Secrets
@@ -1655,13 +1738,13 @@ ConfigValidationError: Invalid value 'mysqll' for field 'engine'. Valid options:
 
 **Fix:** Check spelling and use valid option.
 
-### Error: Platform consistency
+### Error: Deployment consistency
 
 ```
-PlatformValidationError: Service platform 'compose' is incompatible with hosting 'aws'
+DeploymentValidationError: Service flavor 'compose' is incompatible with deployment runtime 'ecs-fargate', provider 'aws'
 ```
 
-**Fix:** Use compatible platform (e.g., `ecs-fargate` for AWS).
+**Fix:** Use a compatible service flavor for the selected runtime/provider (e.g., `ecs-fargate` for AWS).
 
 ---
 
