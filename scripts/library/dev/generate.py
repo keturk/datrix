@@ -3,11 +3,11 @@ r"""
 Generate all example projects.
 
 Usage:
-    python scripts/library/dev/generate.py [--language python] [--platform docker]
+    python scripts/library/dev/generate.py [--language python] [--runtime docker-compose] [--provider local]
     [--output-base .generated] [--test-set all]
 
     Or use the PowerShell wrapper:
-        .\scripts\dev\generate.ps1 -All [-Language <lang>] [-Platform <platform>] [-TestSet <set>]
+        .\scripts\dev\generate.ps1 -All [-Language <lang>] [-Runtime <runtime>] [-Provider <provider>] [-TestSet <set>]
 """
 
 import argparse
@@ -50,10 +50,8 @@ from datrix_common import DATRIX_FILE_EXTENSION
 _GENERATE_LOG_FILE_ENV = "DATRIX_GENERATE_LOG_FILE"
 
 
-def _append_datrix_generate_cli_overrides(cmd_args: list[str], args: argparse.Namespace) -> None:
-    """Append --language flag for datrix generate from script args."""
-    if args.language != "python":
-        cmd_args.extend(["--language", args.language])
+def _append_datrix_generate_cli_options(cmd_args: list[str], args: argparse.Namespace) -> None:
+    """Append non-target datrix generate options from script args."""
     if getattr(args, "profile", None) is not None:
         cmd_args.extend(["--profile", args.profile])
 
@@ -194,20 +192,20 @@ def generate_single_project(
                     rel_path = project_path.relative_to(examples_dir)
                     rel_path_str = f"examples/{rel_path}"
                     # Use runtime and provider for output path (defaults: docker-compose, local)
-                runtime_segment = args.runtime or "docker-compose"
-                provider_segment = args.provider or "local"
-                output_relative = build_output_path(rel_path_str, args.language, f"{runtime_segment}/{provider_segment}")
+                    runtime_segment = args.runtime or "docker-compose"
+                    provider_segment = args.provider or "local"
+                    output_relative = build_output_path(rel_path_str, args.language, f"{runtime_segment}/{provider_segment}")
                     output_path = datrix_root / ".generated" / output_relative
                 else:
                     # Use runtime and provider for output path (defaults: docker-compose, local)
-                runtime_segment = args.runtime or "docker-compose"
-                provider_segment = args.provider or "local"
-                output_name = f"{args.language}/{runtime_segment}/{provider_segment}/{project_name}"
+                    runtime_segment = args.runtime or "docker-compose"
+                    provider_segment = args.provider or "local"
+                    output_name = f"{args.language}/{runtime_segment}/{provider_segment}/{project_name}"
                     output_path = datrix_root / ".generated" / output_name
 
-        # Build datrix generate command. Language override can be passed via --language.
-        # Runtime and provider are used only for output path derivation and are NOT
-        # forwarded to datrix generate (deployment is read from config).
+        # Build datrix generate command. Language, runtime, and provider are used
+        # only for output path derivation and are not forwarded to datrix generate.
+        # Generation target values are read from config/system.yaml.
         import os
         import tempfile
 
@@ -236,7 +234,7 @@ def generate_single_project(
 
         # Build command arguments
         # The command structure is: datrix generate [OPTIONS]
-        # Language and platform come from the project's config/system-config.yaml
+        # Language and deployment come from the project's config/system.yaml
         cmd_args = [
         "generate",
         "--source",
@@ -244,7 +242,7 @@ def generate_single_project(
         "--output",
         str(output_path),
         ]
-        _append_datrix_generate_cli_overrides(cmd_args, args)
+        _append_datrix_generate_cli_options(cmd_args, args)
 
         # Add verbose flag if debug is enabled
         if hasattr(args, 'debug') and args.debug:
@@ -510,7 +508,7 @@ def main():
         type=str,
         default=None,
         help="Output directory. When omitted, derived as .generated/<language>/<platform>/… "
-        "from the source path using --language and --platform (see test-projects path rules).",
+        "from the source path using --language, --runtime, and --provider (see test-projects path rules).",
     )
  
     # Batch mode
