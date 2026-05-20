@@ -113,21 +113,3 @@ def test_find_all_test_results_error_singular_key_parsed(tmp_path: Path) -> None
     assert results[0].status == "FAILED"
     assert results[0].total_passed == 371
     assert results[0].total_errors == 40
-
-
-def test_find_all_test_results_legacy_flat_file_still_works(tmp_path: Path) -> None:
-    """Legacy flat .log files are still discovered and parsed."""
-    root = tmp_path
-    pkg = root / "datrix-example"
-    (pkg / "tests").mkdir(parents=True)
-    test_results_dir = pkg / ".test_results"
-    test_results_dir.mkdir(parents=True)
-    legacy_log = test_results_dir / "test-results-20260503-191002.log"
-    legacy_log.write_text("====== 12 passed in 1.0s ======\n", encoding="utf-8")
-
-    results = find_all_test_results(root)
-
-    assert len(results) == 1
-    assert results[0].project_name == "datrix-example"
-    assert results[0].status == "PASSED"
-    assert results[0].total_passed == 12

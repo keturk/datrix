@@ -159,41 +159,6 @@ def test_find_latest_log_file_directory_with_full_log_only(tmp_path: Path) -> No
     assert result == full_log
 
 
-def test_find_latest_log_file_legacy_flat_file(tmp_path: Path) -> None:
-    """Legacy flat test-results-*.log file is found when no directories exist."""
-    project = tmp_path / "datrix-example"
-    test_results_dir = project / ".test_results"
-    test_results_dir.mkdir(parents=True)
-    legacy_log = test_results_dir / "test-results-20260503-191002.log"
-    legacy_log.write_text("====== 10 passed in 2.0s ======\n", encoding="utf-8")
-
-    result = find_latest_log_file(test_results_dir)
-
-    assert result is not None
-    assert result == legacy_log
-
-
-def test_find_latest_log_file_directory_preferred_over_legacy(tmp_path: Path) -> None:
-    """When both directory and legacy file exist, directory is preferred."""
-    project = tmp_path / "datrix-example"
-    test_results_dir = project / ".test_results"
-    test_results_dir.mkdir(parents=True)
-
-    # Legacy file (older timestamp)
-    legacy_log = test_results_dir / "test-results-20260502-100000.log"
-    legacy_log.write_text("====== 5 passed in 1.0s ======\n", encoding="utf-8")
-
-    # New directory (newer timestamp)
-    run_dir = test_results_dir / "test-results-20260503-191002"
-    run_dir.mkdir()
-    index_path = _write_index(run_dir, {"counts": {"passed": 10}})
-
-    result = find_latest_log_file(test_results_dir)
-
-    assert result is not None
-    assert result == index_path
-
-
 def test_find_latest_log_file_empty_dir_returns_none(tmp_path: Path) -> None:
     """Empty .test_results directory returns None."""
     test_results_dir = tmp_path / ".test_results"
@@ -216,15 +181,6 @@ def test_parse_timestamp_directory_name() -> None:
     assert result.hour == 19
     assert result.minute == 10
     assert result.second == 2
-
-
-def test_parse_timestamp_legacy_file_name() -> None:
-    """Timestamp is parsed from legacy .log filename."""
-    result = parse_timestamp_from_log_file("test-results-20260503-191002.log")
-    assert result is not None
-    assert result.year == 2026
-    assert result.month == 5
-    assert result.day == 3
 
 
 def test_parse_timestamp_invalid_name() -> None:
@@ -289,20 +245,4 @@ def test_parse_pytest_summary_full_log_in_directory(tmp_path: Path) -> None:
 
     assert result.status == "PASSED"
     assert result.total_passed == 15
-    assert result.project_name == "datrix-example"
-
-
-def test_parse_pytest_summary_legacy_flat_file(tmp_path: Path) -> None:
-    """Legacy flat .log file is still parsed correctly."""
-    project = tmp_path / "datrix-example"
-    test_results_dir = project / ".test_results"
-    test_results_dir.mkdir(parents=True)
-    legacy_log = test_results_dir / "test-results-20260503-191002.log"
-    legacy_log.write_text("====== 20 passed, 1 skipped in 2.0s ======\n", encoding="utf-8")
-
-    result = parse_pytest_summary(legacy_log)
-
-    assert result.status == "PASSED"
-    assert result.total_passed == 20
-    assert result.total_skipped == 1
     assert result.project_name == "datrix-example"

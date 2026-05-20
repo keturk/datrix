@@ -331,51 +331,33 @@ def cleanup_old_logs(
 	keep_count: int = 10,
 	max_age_days: Optional[int] = None,
 ) -> int:
-	"""Clean up old log directories (and legacy flat log files).
+	"""Clean up old log directories.
 
 	Args:
-		log_dir: Directory containing log directories/files
-		prefix: Log directory/file prefix to match
-		keep_count: Number of most recent entries to keep
-		max_age_days: Maximum age of entries to keep (optional)
+		log_dir: Directory containing log directories
+		prefix: Log directory prefix to match
+		keep_count: Number of most recent directories to keep
+		max_age_days: Maximum age of directories to keep (optional)
 
 	Returns:
-		Number of entries deleted
+		Number of directories deleted
 	"""
 	if not log_dir.exists():
 		return 0
 
-	# Find matching log directories (new format)
 	log_dirs = sorted(
 		[d for d in log_dir.iterdir() if d.is_dir() and d.name.startswith(f"{prefix}-")],
 		key=lambda d: d.stat().st_mtime,
 		reverse=True,
 	)
 
-	# Also find legacy flat log files
-	legacy_files = sorted(
-		log_dir.glob(f"{prefix}-*.log"),
-		key=lambda f: f.stat().st_mtime,
-		reverse=True,
-	)
-
-	# Combine and sort all entries by modification time
-	all_entries: list[Path] = sorted(
-		[*log_dirs, *legacy_files],
-		key=lambda p: p.stat().st_mtime,
-		reverse=True,
-	)
-
 	deleted_count = 0
 
 	# Delete based on count
-	if len(all_entries) > keep_count:
-		for entry in all_entries[keep_count:]:
+	if len(log_dirs) > keep_count:
+		for entry in log_dirs[keep_count:]:
 			try:
-				if entry.is_dir():
-					shutil.rmtree(entry)
-				else:
-					entry.unlink()
+				shutil.rmtree(entry)
 				deleted_count += 1
 			except OSError:
 				pass
@@ -385,16 +367,13 @@ def cleanup_old_logs(
 		max_age_seconds = max_age_days * 24 * 60 * 60
 		current_time = time.time()
 
-		for entry in all_entries:
+		for entry in log_dirs:
 			if not entry.exists():
 				continue
 			try:
 				age = current_time - entry.stat().st_mtime
 				if age > max_age_seconds:
-					if entry.is_dir():
-						shutil.rmtree(entry)
-					else:
-						entry.unlink()
+					shutil.rmtree(entry)
 					deleted_count += 1
 			except OSError:
 				pass

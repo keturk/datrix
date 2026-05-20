@@ -155,44 +155,6 @@ class TestCleanupDirectoriesOnly:
 			assert d.exists()
 
 
-class TestCleanupMixedLegacy:
-	"""Cleanup handles mix of old flat files and new directories."""
-
-	def test_cleanup_mixed_entries(self, tmp_path: Path) -> None:
-		"""cleanup_old_logs handles both directories and flat .log files, sorted by mtime."""
-		log_dir = tmp_path / ".test_results"
-		log_dir.mkdir()
-
-		base_time = time.time()
-
-		# Create 5 legacy flat files (oldest)
-		for i in range(5):
-			f = log_dir / f"test-results-202604{i:02d}-120000.log"
-			f.write_text(f"legacy log {i}", encoding="utf-8")
-			mtime = base_time - (10 - i) * 3600  # oldest
-			os.utime(f, (mtime, mtime))
-
-		# Create 5 new directories (newest)
-		for i in range(5):
-			d = log_dir / f"test-results-202605{i:02d}-120000"
-			d.mkdir()
-			(d / "full.log").write_text(f"log {i}", encoding="utf-8")
-			mtime = base_time - (4 - i) * 3600  # newest
-			os.utime(d, (mtime, mtime))
-
-		# keep_count=6 should keep the 6 most recent (5 dirs + 1 newest file)
-		deleted = cleanup_old_logs(log_dir, "test-results", keep_count=6)
-		assert deleted == 4
-
-		# All 5 directories should survive (they're newest)
-		remaining_dirs = [d for d in log_dir.iterdir() if d.is_dir()]
-		assert len(remaining_dirs) == 5
-
-		# Only 1 legacy file should survive (the newest one)
-		remaining_files = list(log_dir.glob("test-results-*.log"))
-		assert len(remaining_files) == 1
-
-
 class TestCleanupAgeBased:
 	"""Cleanup with max_age_days deletes old directories."""
 
