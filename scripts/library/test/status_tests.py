@@ -1,9 +1,9 @@
 """
-Script to check test status from latest test result directories or log files.
+Script to check test status from latest test result directories.
 
 This script searches for .test_results folders in specific datrix projects,
-finds the latest test-results-* directory (reading index.json for structured data)
-or falls back to legacy test-results-*.log files, and reports test statistics.
+finds the latest test-results-* directory (reading index.json for structured data),
+and reports test statistics.
 """
 
 import json
@@ -117,19 +117,17 @@ def _no_log_result(project_dir: Path) -> TestResult:
 
 def parse_timestamp_from_log_file(log_file_name: str) -> Optional[datetime]:
  """
- Parse timestamp from a test results name (directory or legacy log file).
+ Parse timestamp from a test results directory name.
 
- Handles both formats:
- - Directory: 'test-results-20260115-130034'
- - Legacy file: 'test-results-20260115-130034.log'
+ Expected format: 'test-results-20260115-130034'
 
  Args:
- log_file_name: The directory or file name to parse
+ log_file_name: The directory name to parse
 
  Returns:
  datetime object or None if parsing fails
  """
- match = re.search(r'test-results-(\d{8})-(\d{6})(?:\.log)?$', log_file_name)
+ match = re.search(r'test-results-(\d{8})-(\d{6})$', log_file_name)
  if match:
   date_str = match.group(1) # YYYYMMDD
   time_str = match.group(2) # HHMMSS
@@ -254,34 +252,26 @@ def _read_index_json(index_path: Path) -> Optional[TestResult]:
 
 def find_latest_log_file(test_results_dir: Path) -> Optional[Path]:
  """
- Find the latest test results (directory with index.json/full.log, or legacy flat file).
+ Find the latest test results directory with index.json or full.log.
 
  Discovery order:
  1. Directories named test-results-* containing index.json → return index.json path
  2. Directories named test-results-* containing full.log → return full.log path
- 3. Legacy flat files named test-results-*.log → return file path
 
  Args:
  test_results_dir: Path to .test_results folder
 
  Returns:
- Path to index.json, full.log, or legacy .log file, or None if nothing found
+ Path to index.json or full.log, or None if nothing found
  """
- # Collect all candidates: directories and legacy files
  dirs_with_ts: list[tuple[datetime, Path]] = []
- files_with_ts: list[tuple[datetime, Path]] = []
 
  for item in test_results_dir.iterdir():
   if item.is_dir() and item.name.startswith("test-results-"):
    timestamp = parse_timestamp_from_log_file(item.name)
    if timestamp:
     dirs_with_ts.append((timestamp, item))
-  elif item.is_file() and item.name.startswith("test-results-") and item.name.endswith(".log"):
-   timestamp = parse_timestamp_from_log_file(item.name)
-   if timestamp:
-    files_with_ts.append((timestamp, item))
 
- # Try directories first (newest first)
  if dirs_with_ts:
   dirs_with_ts.sort(key=lambda x: x[0], reverse=True)
   for _, run_dir in dirs_with_ts:
@@ -291,11 +281,6 @@ def find_latest_log_file(test_results_dir: Path) -> Optional[Path]:
    full_log = run_dir / "full.log"
    if full_log.exists():
     return full_log
-
- # Fall back to legacy flat files
- if files_with_ts:
-  files_with_ts.sort(key=lambda x: x[0], reverse=True)
-  return files_with_ts[0][1]
 
  return None
 
@@ -466,14 +451,14 @@ def _compute_totals(phase_counts: dict, lines: List[str]) -> dict:
 
 def parse_pytest_summary(log_file: Path) -> TestResult:
  """
- Parse test results from index.json, full.log, or legacy test-results-*.log file.
+ Parse test results from index.json or full.log.
 
  If ``log_file`` is an index.json, structured counts are read directly.
  If that fails (INCOMPLETE or corrupt), falls back to parsing the sibling full.log.
  Otherwise, parses the log file using regex-based pytest summary extraction.
 
  Args:
- log_file: Path to index.json, full.log, or a legacy .log file
+ log_file: Path to index.json or full.log inside a run directory
 
  Returns:
  TestResult object with parsed information
@@ -506,12 +491,8 @@ def parse_pytest_summary(log_file: Path) -> TestResult:
     phases={},
    )
 
- # Determine project path: for files inside run directories (full.log),
- # the project is 3 levels up; for legacy flat files, 2 levels up.
- if log_file.name == "full.log" and log_file.parent.name.startswith("test-results-"):
-  project_dir = log_file.parent.parent.parent
- else:
-  project_dir = log_file.parent.parent
+ # Project path: full.log sits inside run_dir inside .test_results inside project
+ project_dir = log_file.parent.parent.parent
 
  project_path = str(project_dir.absolute())
  project_name = project_dir.name
