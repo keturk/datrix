@@ -69,6 +69,13 @@ config service ecommerce.PaymentService {
         }
       }
     }
+
+    integrations {
+      payment {
+        provider = "stripe";
+        currency = "USD";
+      }
+    }
   }
 
 

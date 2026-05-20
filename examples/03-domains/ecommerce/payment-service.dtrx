@@ -302,13 +302,13 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
                         refund.errorMessage = result.error ?? "Stripe refund failed";
                     }
                 } else if (payment.method == PaymentMethod.PayPal) {
-                    // PayPal gateway requires integrations.payment.provider: paypal in YAML.
+                    // PayPal gateway requires integrations.payment.provider: paypal in DCFG.
                     // This example profile configures Stripe only; refunds are not executed here.
                     Log.info("PayPal refund skipped: configure PayPal as payment provider to enable gateway refunds", {
                         paymentId: payment.id,
                         refundId: refund.id
                     });
-                    refund.errorMessage = "PayPal refunds require PayPal payment integration in integrations.yaml";
+                    refund.errorMessage = "PayPal refunds require PayPal payment integration in integrations.dcfg";
                     return false;
                 } else if (payment.method == PaymentMethod.BankTransfer) {
                     Log.info("Bank transfer refund requires manual processing", {
@@ -438,13 +438,13 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
                     error = result.error ?? "Stripe charge failed";
                 }
             } else if (payment.method == PaymentMethod.PayPal) {
-                // PayPal gateway requires integrations.payment.provider: paypal in YAML.
+                // PayPal gateway requires integrations.payment.provider: paypal in DCFG.
                 // This example profile configures Stripe only; charges are not executed here.
                 Log.info("PayPal charge skipped: configure PayPal as payment provider to enable gateway charges", {
                     paymentId: payment.id,
                     transactionId: payment.transactionId
                 });
-                error = "PayPal charges require PayPal payment integration in integrations.yaml";
+                error = "PayPal charges require PayPal payment integration in integrations.dcfg";
                 success = false;
             } else if (payment.method == PaymentMethod.BankTransfer) {
                 payment.gatewayResponse = "Bank transfer initiated - awaiting confirmation";

@@ -14,7 +14,7 @@ include 'common.dtrx';
 include 'order-service.dtrx';
 
 system ecommerce : version('1.0.0') {
-    config('config/system-config.yaml');
+    config('config/system.dcfg');
     registry('config/registry.yaml');
     gateway('config/gateway.yaml');
     observability('config/observability.yaml');

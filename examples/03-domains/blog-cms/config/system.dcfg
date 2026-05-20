@@ -32,6 +32,11 @@ config system blog.System {
 
     serviceDiscovery {
       type = "consul";      host = "localhost";      port = 8500;      datacenter = "dc1";    }  }
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
 
   profile production as "prod" extends base {
     alias env = "PROD";

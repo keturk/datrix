@@ -23,7 +23,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
     }
 
     // 'storage' block defines file/blob storage with named folders
-    // Configured via an external YAML file for provider settings (S3, MinIO, etc.)
+    // Configured via an external DCFG file for provider settings (S3, MinIO, etc.)
     storage media {
 
         // 'folder' declares a storage location with path prefix, MIME type restrictions, and size limits

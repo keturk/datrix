@@ -844,7 +844,7 @@ rest_api PricingAPI : basePath('/api/v1') {
 
 ```dtrx
 // OrderService — producer
-queues('config/order-service/queue.yaml') {
+queues('config/order-service/queue.dcfg') {
     queue ProcessPayment(UUID orderId, Money amount, String currency) {
         ensure amount > 0;
     }
@@ -857,7 +857,7 @@ queues('config/order-service/queue.yaml') {
 
 **Problem:** Service A creates work that Service B must execute exactly once.
 
-**Solution:** Service A owns `queue.yaml` and `queues { }`; Service B lists A in `discovery` and implements `enqueue A.TaskName(…) { … }`.
+**Solution:** Service A owns `queue.dcfg` and `queues { }`; Service B lists A in `discovery` and implements `enqueue A.TaskName(…) { … }`.
 
 ### Pattern: FIFO queue for ordered processing
 
