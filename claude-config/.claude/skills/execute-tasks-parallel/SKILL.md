@@ -558,14 +558,12 @@ For each NEW failure (not already known from agent targeted tests):
 1. **Read the failing test** and the source code it exercises
 2. **Identify root cause** — which task's changes broke this test?
 3. **Fix the issue** (modify code — stay within the attributed task's scope)
-4. **Identify the failing test command** to re-run:
+4. **Run the specific failing test directly:**
    ```
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{failing-test-path}"
    ```
-5. **STOP and tell user what test command to run**
-6. **Wait for user to provide test results**
-7. **Parse results when user provides them**
-8. Track each attempt in a table
+   Capture the output and parse results. Do NOT stop to ask the user for specific/targeted tests.
+5. Track each attempt in a table
 
 | Attempt | Task | What was tried | Result |
 |---------|------|---------------|--------|

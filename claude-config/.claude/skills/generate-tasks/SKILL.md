@@ -43,6 +43,8 @@ When invoked, follow these steps:
 4. Identify dependencies between tasks
 5. Identify test coverage needs — which new modules, classes, or pipelines require dedicated test tasks
 6. Identify documentation impacts — which docs need to be created or updated in the affected packages' `docs/` folders
+7. **Read the migration/rollout/adoption section** (look for "Migration", "Rollout", "Adoption", numbered migration steps). List every step. Each step that says "convert X", "migrate Y", or "create Z" is a task — not future work.
+8. **Identify dual-implementation risk** — if the design introduces a new path alongside an old one, inventory all test fixtures, examples, and project configs that currently exercise the old path. These need migration tasks or the new path ships untested.
 
 ### Step 2: Check for Ambiguities and Open Questions
 
@@ -306,6 +308,9 @@ After generating all task files, verify:
 11. Every package with 2+ code tasks has a quality gate task that depends on ALL tasks targeting that package
 12. Quality gate tasks include the `**Category:** Quality Gate` marker in their header metadata
 13. Every implementation and test task has a `## Targeted Tests` section specifying which tests to run for focused verification
+14. **Migration coverage check:** Count the numbered steps in the design's migration/rollout section. Count the migration tasks generated. If the second number is less than the first, tasks are missing. Every "convert X", "migrate Y", "create Z" step needs a task.
+15. **Dual-path coverage check:** If the design introduces a new path alongside an old one, verify that migration tasks exist to convert old test fixtures, examples, and configs to the new format. Without these, the new path is untested dead code.
+16. **Cross-repo coverage check:** Tasks span all affected repos, not just the primary package. If the design changes `datrix-common` but examples live in `datrix`, migration tasks exist in `datrix`.
 
 ### Step 7: Report Summary and Dependency Graph
 
@@ -486,6 +491,24 @@ Paste the following raw output into "How Solved":
 
 **When to group verification tasks:** If 2-3 implementation tasks are closely related (e.g., parser + parser tests for the same module), they can share one verification task. Do NOT group more than 3 implementation tasks into one verification task.
 
+#### Migration Tasks
+Dedicated tasks for converting existing files from the old format/API/system to the new one. Generate these when:
+- The design introduces a new subsystem alongside an existing one (new format, new API, new config system)
+- The design's migration/rollout/adoption section contains numbered steps calling for conversion
+- Existing test fixtures, examples, or project configs exercise the OLD path and must be migrated so the NEW path is actually tested
+
+Migration tasks should:
+- Reference the implementation tasks that create the new subsystem in "Depends on"
+- Live in the repo whose files they modify (not the repo where the new code lives)
+- Use a title like `Task {NN}-{TT}: Migrate {X} Fixtures to {New Format}` or `Task {NN}-{TT}: Create Shared {X} Template Library`
+- Include a verification step: "Confirm the new path is exercised by running X and verifying Y"
+- Each migration task must state what OLD artifacts it replaces and prove the NEW path works
+- Include `**Category:** Migration` in the header metadata
+
+**Why migration tasks are critical:** Without them, the new implementation ships untested. Old tests continue to pass on the old path, creating false confidence. If you build a new config parser but all test fixtures are still YAML, the new parser is dead code — it compiles but nothing exercises it end-to-end.
+
+**Dual-path guard:** Every migration task must include a check that the migrated artifact actually goes through the NEW code path. For example: "Parse this `.dcfg` file and verify the canonical dict matches the expected output" — not just "file exists."
+
 #### Quality Gate Tasks
 Dedicated tasks that run the full test suite for a package as a final verification pass. Generate these when:
 - A phase includes 2+ code tasks (implementation + test combined) targeting the same package
@@ -639,3 +662,6 @@ When creating tasks, point agents to relevant example `.dtrx` files:
 8. **Reference specific example files** — not just "look at examples"
 9. **All module paths must be valid** — check against the canonical and non-existent module lists
 10. **ALL file paths in generated task files MUST be absolute paths** — use `d:\datrix\...` format, never relative paths like `docs/...` or `examples/...`
+11. **Migration steps are tasks, not aspirations.** If the design's migration section says "convert X to Y", generate a task for it. Do not defer migration to "future work" unless the design explicitly says so.
+12. **Tasks span all affected repos.** Do not limit task generation to a single package. If the design changes `datrix-common` but examples live in `datrix` and project configs live in `datrix-projects`, generate tasks in all three repos.
+13. **No untested new paths.** If the design introduces a new subsystem alongside an old one, generate migration tasks that convert existing test fixtures, examples, and configs to use the new path. Without these, the new code compiles but nothing exercises it end-to-end.

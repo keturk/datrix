@@ -63,7 +63,9 @@ This skill executes five phases. Each phase builds on the previous.
    - **Open questions** — explicitly marked or implicit
    - **Decision points** — alternatives presented without resolution
    - **Content overlap** — sections that duplicate or conflict with existing docs
-   - **Implementation scope** — which packages/modules are affected
+   - **Implementation scope** — ALL packages/modules affected, not just the primary one. If the design introduces a new subsystem, identify every repo that consumes, tests, or demonstrates the old subsystem being replaced.
+   - **Migration/rollout requirements** — read the design's migration strategy, rollout plan, adoption steps, or similar section. List every numbered step. These are implementation work, not future aspirations. If the design says "convert X to Y", that is a task.
+   - **Dual-implementation risk** — if the design introduces a new path alongside an existing one (e.g., new format alongside YAML, new API alongside old API), identify all test fixtures, examples, and project configs that currently exercise the OLD path. These must be migrated or the new path will ship untested while old tests pass on the old path.
    - **Dependencies** — what must exist before this design can be implemented
 
 ## Phase 1 Completion Gate
@@ -83,11 +85,13 @@ This phase is COMPLETE when:
 ANALYSIS COMPLETE:
 
 Design: {title}
-Scope: {packages affected}
+Scope: {packages affected — ALL of them, not just the primary}
 Open questions: {N}
 Decision points: {N}
 Content overlap with existing docs: {N} conflicts
 Dependencies: {list}
+Migration steps identified: {N} (from design's migration/rollout section)
+Dual-implementation risk: {YES/NO — describe if YES}
 ```
 
 ## Phase 1 Self-Check
@@ -95,8 +99,11 @@ Dependencies: {list}
 Before proceeding to Phase 2, answer:
 1. Did I investigate each "open question" to determine if it's actually open?
 2. Did I check the codebase for existing patterns that resolve ambiguities?
-3. Did I follow the "Goal:" statement above exactly?
-4. Did I deviate from any instruction in this phase? If yes, why?
+3. Did I identify ALL affected packages — not just the one where new code lives, but every repo with tests, fixtures, examples, or configs that exercise the system being changed?
+4. Did I read the design's migration/rollout/adoption section and list every numbered step?
+5. Did I identify dual-implementation risk — will old tests pass on the old path while the new path ships untested?
+6. Did I follow the "Goal:" statement above exactly?
+7. Did I deviate from any instruction in this phase? If yes, why?
 
 If you deviated: STOP and explain the deviation to the user.
 
@@ -272,7 +279,13 @@ If you deviated: STOP and explain the deviation to the user.
 
 2. Review the task file template in `/generate-tasks` SKILL.md (lines 127-200+) to ensure correct formatting.
 
-3. Break the design into tasks. Five categories of tasks MUST be generated:
+3. **MANDATORY: Read the design's migration/rollout section.** For every numbered migration step, generate a task. Migration steps are implementation work — they produce `.dcfg` files, update test fixtures, convert examples, build template libraries, etc. They are NOT "future work" or "separate effort" unless the design explicitly says so. If the design says "convert X to Y", that is a task in THIS phase.
+
+4. **MANDATORY: Inventory dual-implementation risk.** If the design introduces a new path alongside an old one (new format, new API, new config system), identify every test fixture, example, and project config that currently exercises the OLD path. Generate migration tasks to convert these to the NEW path. Without these tasks, the new implementation ships untested — old tests continue to pass on the old path, creating false confidence.
+
+5. **MANDATORY: Tasks span all affected repos.** Do NOT limit task generation to a single "target package." If the design affects `datrix-common` (new code), `datrix` (examples), and `datrix-projects` (project configs), generate tasks in ALL of those repos. A task lives in the repo it modifies.
+
+6. Break the design into tasks. Six categories of tasks MUST be generated:
 
    **a) Implementation tasks:**
    - One task per discrete unit of work
@@ -331,7 +344,21 @@ If you deviated: STOP and explain the deviation to the user.
    - Doc task slug should use a `-docs` suffix
      (e.g., `task-{NN}-{TT}-update-codegen-docs.md`)
 
-   **e) Quality gate tasks:**
+   **e) Migration tasks:**
+   - For each numbered step in the design's migration/rollout/adoption section, generate a task
+   - Migration tasks convert existing files from the old format/API to the new one
+   - Migration tasks live in the repo whose files they modify (not the repo where the new code lives)
+   - Migration tasks depend on the implementation tasks that create the new subsystem
+   - Types of migration tasks:
+     - **Fixture conversion** — convert test fixtures from old format to new (e.g., YAML → `.dcfg`)
+     - **Example conversion** — convert example files to demonstrate the new way
+     - **Template/library creation** — create reusable shared templates or libraries the design calls for
+     - **Project config conversion** — convert real project configs (these may live in `datrix-projects` or similar)
+     - **Test path verification** — ensure tests actually exercise the NEW path, not just the old one
+   - Each migration task must include a verification step: "Confirm the new path is exercised by running X and verifying Y"
+   - Do NOT treat migration steps as "future work" unless the design explicitly defers them
+
+   **f) Quality gate tasks:**
    - For each package that has 2+ code tasks (implementation + test combined) in this phase, generate a quality gate task
    - Quality gate tasks run the full test suite as final verification — no implementation code
    - Quality gate tasks depend on ALL other tasks targeting the same package
@@ -368,11 +395,14 @@ This phase is COMPLETE when:
 - [ ] ALL implementation tasks generated as actual .md files (not a roadmap)
 - [ ] ALL test tasks generated (one per implementation task)
 - [ ] ALL verification tasks generated (one per implementation task or group of 2-3 related tasks)
+- [ ] ALL migration tasks generated (one per numbered step in the design's migration/rollout section)
 - [ ] ALL documentation tasks generated
 - [ ] ALL quality gate tasks generated (one per package with 2+ code tasks)
+- [ ] Tasks span ALL affected repos (not just the primary package)
 - [ ] Every task file is self-contained (no design doc references)
 - [ ] Dependency graph created showing parallelizable groups
 - [ ] Output lists ALL task file paths (not "23 tasks remaining")
+- [ ] No dual-implementation gap: if the design introduces a new path, migration tasks ensure the new path is exercised by tests/examples
 
 If any task is described but not generated: Phase 4 is NOT complete.
 
@@ -386,6 +416,7 @@ Tasks: {N} total across {M} repos
   Implementation: {N}
   Test: {N}
   Verification: {N}
+  Migration: {N}
   Documentation: {N}
   Quality Gate: {N}
 
@@ -415,9 +446,13 @@ Before proceeding to Phase 5, answer:
 2. Did I inline design content in tasks (not reference the design doc path)?
 3. Did I create test tasks for every implementation task?
 4. Did I create verification tasks for every implementation task (or group of 2-3)?
-5. Did I create quality gates for every package with 2+ code tasks?
-6. Did I follow the template from `/generate-tasks` exactly?
-7. Did I deviate from any instruction in this phase? If yes, why?
+5. Did I create migration tasks for every numbered step in the design's migration/rollout section?
+6. Did I generate tasks in ALL affected repos, not just the primary package?
+7. Did I create quality gates for every package with 2+ code tasks?
+8. Did I follow the template from `/generate-tasks` exactly?
+9. **Dual-path check:** If the design introduces a new path alongside an old one, will the old tests still pass without the new path being exercised? If yes, I am missing migration tasks.
+10. **Coverage check:** Count the migration steps in the design. Count the migration tasks I generated. If the second number is less than the first, I stopped early.
+11. Did I deviate from any instruction in this phase? If yes, why?
 
 If you deviated: STOP and explain the deviation to the user.
 
@@ -481,6 +516,7 @@ Tasks generated: {N} tasks in phase {NN}
   Implementation: {N}
   Test: {N}
   Verification: {N}
+  Migration: {N}
   Documentation: {N}
   Quality Gate: {N}
 Design document: PRESERVED at {path}
@@ -514,4 +550,8 @@ Next steps:
 - **NO partial task generation** — generate ALL tasks in Phase 4, not a subset with a "roadmap"
 - **NO asking mid-phase** — complete each phase fully before asking user questions (unless blocked)
 - **NO roadmap/summary files** — generate actual task .md files, not summaries of future work
+- **NO single-package scoping** — if the design affects multiple repos, generate tasks in ALL of them. The design's migration strategy tells you which repos have work.
+- **NO skipping migration tasks** — if the design has a migration/rollout section with numbered steps, every step becomes a task. "Convert X to Y" is not a suggestion — it is implementation work.
+- **NO leaving dual implementations untested** — if the design introduces a new path alongside an old one, old tests will pass on the old path regardless of whether the new path works. Migration tasks must convert fixtures, examples, and configs to the new path so the new implementation is actually exercised.
+- **NO treating migration as "future work"** — unless the design explicitly defers a migration step to a later phase, it belongs in THIS phase. The design document is the scope boundary.
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

@@ -357,28 +357,26 @@ For tasks that modified code:
    - If targeted tests exist AND task is NOT quality gate → identify targeted tests
    - If NO targeted tests OR task IS quality gate → identify full suite requirement
 
-2. **Report test commands to user:**
+2. **Execute or request tests:**
 
-   **Targeted tests:**
+   **Targeted tests — run them yourself:**
+   Run each targeted test command directly:
    ```
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{test-path}"
    ```
+   Capture the output and parse results. Do NOT stop to ask the user for targeted tests.
 
-   **Full suite (quality gate or backward compatibility):**
+   **Full suite (quality gate or backward compatibility) — ask user:**
+   STOP and tell the user the full suite needs to be run:
    ```
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
    ```
+   Wait for user to run the tests and provide results. DO NOT proceed until user provides test output.
 
-3. **Pause execution and inform user:**
-   - Stop and tell the user exactly what tests need to be run
-   - Include the exact command(s) to execute
-   - Wait for user to run the tests and provide results
-   - User will paste the test output back to you
-   - DO NOT proceed until user provides test results
+#### Step 2: Evaluate Test Results
 
-#### Step 2: Resume After User Provides Test Results
-
-**User will paste test output.** Once received:
+**For targeted tests:** Parse the test output you captured in Step 1.
+**For full suite:** Parse the test output provided by the user.
 
 1. **Parse the test results:**
    - Extract total tests, pass count, fail count
@@ -401,12 +399,14 @@ If any test failures exist:
    - Understand what the test expects
    - Identify root cause of failure
    - Fix the issue (modify code, update test, or both)
-   - Tell user what tests to run again
 
-2. **After each fix attempt:**
-   - **STOP and tell user which test command(s) to run**
-   - Wait for user to run tests and provide results
-   - Parse the new test output when user provides it
+2. **After each fix attempt, re-run the relevant tests:**
+
+   **Targeted tests — run them yourself:**
+   Re-run the targeted test commands directly and parse the output. Do NOT stop to ask the user.
+
+   **Full suite — ask user:**
+   STOP and tell the user which full-suite command to run. Wait for user to provide results.
 
 3. **Track each attempt:**
 
