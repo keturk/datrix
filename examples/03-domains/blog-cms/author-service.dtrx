@@ -2,7 +2,7 @@
 // 'from ... import' brings shared types and functions from the common module
 
 // Define a service in the 'blog' namespace with version and description
-service blog.AuthorService('config/author-service.yaml') : version('1.0.0'), description('author management service') {
+service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), description('author management service') {
 
     // Service infrastructure configuration
     discovery { }                                                   // Service discovery (auto-configured)

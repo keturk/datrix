@@ -1,6 +1,6 @@
 
 
-service fooddelivery.RestaurantService('config/restaurant-service.yaml') : version('1.0.0'), description('restaurant registration and management service') {
+service fooddelivery.RestaurantService('config/restaurant-service.dcfg') : version('1.0.0'), description('restaurant registration and management service') {
     discovery { }
     enum RestaurantStatus {
         Active,

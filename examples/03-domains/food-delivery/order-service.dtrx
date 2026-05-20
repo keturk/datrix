@@ -1,7 +1,7 @@
 
 from fooddelivery.common import DeliveryAddress, generateOrderNumber, MAX_ORDER_ITEMS, DEFAULT_DELIVERY_FEE, MIN_ORDER_AMOUNT;
 
-service fooddelivery.OrderService('config/order-service.yaml') : version('1.0.0'), description('food order management service') {
+service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'), description('food order management service') {
     discovery {
         RestaurantService { loadBalance: roundRobin, healthyOnly: true }
         MenuService { loadBalance: roundRobin, healthyOnly: true }

@@ -5,5 +5,5 @@ include 'menu-service.dtrx';
 include 'order-service.dtrx';
 include 'delivery-service.dtrx';
 
-system fooddelivery('config/system.yaml') : version('1.0.0') {
+system fooddelivery('config/system.dcfg') : version('1.0.0') {
 }

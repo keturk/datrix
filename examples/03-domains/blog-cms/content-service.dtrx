@@ -1,6 +1,6 @@
 
 
-service blog.ContentService('config/content-service.yaml') : version('1.0.0'), description('content management service') {
+service blog.ContentService('config/content-service.dcfg') : version('1.0.0'), description('content management service') {
     discovery {
         AuthorService { loadBalance: roundRobin, healthyOnly: true }
     }
@@ -59,7 +59,7 @@ service blog.ContentService('config/content-service.yaml') : version('1.0.0'), d
                 isActive: newStatus == "Active"
             });
 
-            // React to cross-service events('config/service.yaml') : archive posts when author becomes inactive
+            // React to cross-service events('config/service.dcfg') : archive posts when author becomes inactive
             if (newStatus == "Suspended" || newStatus == "Inactive") {
                 let Array<Post> publishedPosts = contentDb.Post
                     .where(authorId: authorId)

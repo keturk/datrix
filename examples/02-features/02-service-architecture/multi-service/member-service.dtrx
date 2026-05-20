@@ -3,7 +3,7 @@
 
 // A separate service in the same namespace handles member management
 // Each service gets its own database, deployment unit, and API
-service library.MemberService('config/member-service.yaml') : version('1.0.0'), description('Member management service') {
+service library.MemberService('config/member-service.dcfg') : version('1.0.0'), description('Member management service') {
 
     // Service infrastructure configuration - each service has its own config directory
     discovery { }

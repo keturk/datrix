@@ -1,7 +1,7 @@
 
 from social.common import ContentStatus, MAX_PAGE_SIZE, MAX_POST_LENGTH, paginate;
 
-service social.PostService('config/post-service.yaml') : version('1.0.0'), description('post and content management service') {
+service social.PostService('config/post-service.dcfg') : version('1.0.0'), description('post and content management service') {
     discovery {
         UserService { loadBalance: roundRobin, healthyOnly: true }
     }

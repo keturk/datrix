@@ -1,7 +1,7 @@
 
 from finance.common import AuditedEntity, Currency, generateReference;
 
-service finance.AccountService('config/account-service.yaml') : version('1.0.0'), description('account and customer management service') {
+service finance.AccountService('config/account-service.dcfg') : version('1.0.0'), description('account and customer management service') {
     discovery { }
     enum AccountType {
         Checking : value('checking'),

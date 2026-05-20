@@ -1,6 +1,6 @@
 
 // NotificationService consumes queue tasks from BookService
-service library.NotificationService('config/notification-service.yaml') : version('1.0.0'), description('notification handling service') {
+service library.NotificationService('config/notification-service.dcfg') : version('1.0.0'), description('notification handling service') {
     discovery {
         library.BookService { loadBalance: roundRobin, healthyOnly: true }
     }

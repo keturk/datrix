@@ -3,5 +3,5 @@ include 'common.dtrx';
 include 'blog-service.dtrx';
 include 'user-service.dtrx';
 
-system hostdemo.System('config/system.yaml') : version('1.0.0') {
+system hostdemo.System('config/system.dcfg') : version('1.0.0') {
 }

@@ -1,7 +1,7 @@
 
 from realestate.common import PropertyType, generateContractRef;
 
-service realestate.ContractService('config/contract-service.yaml') : version('1.0.0'), description('real estate contract management service') {
+service realestate.ContractService('config/contract-service.dcfg') : version('1.0.0'), description('real estate contract management service') {
     discovery {
         ListingService { loadBalance: roundRobin, healthyOnly: true }
     }

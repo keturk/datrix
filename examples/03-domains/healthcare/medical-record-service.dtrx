@@ -1,7 +1,7 @@
 
 from healthcare.common import AuditedEntity, Confidential;
 
-service healthcare.MedicalRecordService('config/medical-record-service.yaml') : version('1.0.0'), description('medical record management service') {
+service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : version('1.0.0'), description('medical record management service') {
     // Depends on both PatientService and AppointmentService
     discovery {
         PatientService { loadBalance: roundRobin, healthyOnly: true }

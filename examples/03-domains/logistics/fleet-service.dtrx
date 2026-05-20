@@ -1,7 +1,7 @@
 
 from logistics.common import GeoCoordinate, MAINTENANCE_MILEAGE_THRESHOLD;
 
-service logistics.FleetService('config/fleet-service.yaml') : version('1.0.0'), description('fleet and driver management service') {
+service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), description('fleet and driver management service') {
     discovery {
         ShipmentService { loadBalance: roundRobin, healthyOnly: true }
     }
@@ -354,7 +354,7 @@ service logistics.FleetService('config/fleet-service.yaml') : version('1.0.0'), 
         }
     }
 
-    jobs('config/fleet-service.yaml') {
+    jobs('config/fleet-service.dcfg') {
 
         job CheckMaintenanceSchedule {
             let Array<Vehicle> vehicles = fleetDb.Vehicle

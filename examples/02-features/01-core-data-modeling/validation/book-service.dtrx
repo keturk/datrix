@@ -1,11 +1,11 @@
 
-// Validation feature example - self-contained service demonstrating('config/service.yaml') :
+// Validation feature example - self-contained service demonstrating('config/service.dcfg') :
 // - Field-level constraints: trim, min(), positive
 // - Custom validate block with conditional logic
 // - ValidationError for user-facing error messages
 
 // Define a service in the 'library' namespace with version and description
-service library.BookService('config/book-service.yaml') : version('1.0.0'), description('Book management service') {
+service library.BookService('config/book-service.dcfg') : version('1.0.0'), description('Book management service') {
 
     // Service infrastructure configuration
     discovery { }                                              // Service discovery (auto-configured)

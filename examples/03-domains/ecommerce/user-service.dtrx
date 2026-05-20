@@ -1,7 +1,7 @@
 
 
 // Define a service in the 'ecommerce' namespace with version and description
-service ecommerce.UserService('config/user-service.yaml') : version('1.0.0'), description('user management service') {
+service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), description('user management service') {
 
     // Service infrastructure configuration
     discovery { }

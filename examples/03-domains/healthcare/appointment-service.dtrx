@@ -1,7 +1,7 @@
 
 from healthcare.common import APPOINTMENT_DURATION_DEFAULT;
 
-service healthcare.AppointmentService('config/appointment-service.yaml') : version('1.0.0'), description('appointment management service') {
+service healthcare.AppointmentService('config/appointment-service.dcfg') : version('1.0.0'), description('appointment management service') {
     // discovery block declares dependencies on other services
     discovery {
         PatientService { loadBalance: roundRobin, healthyOnly: true }
@@ -759,7 +759,7 @@ service healthcare.AppointmentService('config/appointment-service.yaml') : versi
     }
 
     // Scheduled background jobs
-    jobs('config/appointment-service.yaml') {
+    jobs('config/appointment-service.dcfg') {
         // Send reminders for tomorrow's appointments
         job SendAppointmentReminders {
             let DateTime tomorrow = DateTime.now().addDays(1);

@@ -1,7 +1,7 @@
 
 from fooddelivery.common import DeliveryAddress, generateDeliveryCode;
 
-service fooddelivery.DeliveryService('config/delivery-service.yaml') : version('1.0.0'), description('delivery driver and assignment management service') {
+service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('1.0.0'), description('delivery driver and assignment management service') {
     discovery {
         OrderService { loadBalance: roundRobin, healthyOnly: true }
     }

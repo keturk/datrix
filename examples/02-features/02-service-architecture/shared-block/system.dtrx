@@ -10,5 +10,5 @@ include 'reader-service.dtrx';
 include 'storage-writer-service.dtrx';
 include 'cache-reader-service.dtrx';
 
-system library.SharedBlockExampleSystem('config/system.yaml') : version('1.0.0') {
+system library.SharedBlockExampleSystem('config/system.dcfg') : version('1.0.0') {
 }

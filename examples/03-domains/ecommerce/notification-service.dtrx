@@ -1,5 +1,5 @@
 
-service ecommerce.NotificationService('config/notification-service.yaml') : version('1.0.0'), description('order notification consumer') {
+service ecommerce.NotificationService('config/notification-service.dcfg') : version('1.0.0'), description('order notification consumer') {
     discovery {
         ecommerce.OrderService { loadBalance: roundRobin, healthyOnly: true }
     }

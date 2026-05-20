@@ -1,7 +1,7 @@
 
 // GraphQL API feature example - demonstrates GraphQL schema with types, queries, mutations, subscriptions
 
-service library.BookService('config/book-service.yaml') : version('1.0.0'), description('GraphQL API demonstration') {
+service library.BookService('config/book-service.dcfg') : version('1.0.0'), description('GraphQL API demonstration') {
     discovery { }
     enum BookStatus {
         Available,

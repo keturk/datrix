@@ -1,7 +1,7 @@
 
 // Advanced queries feature example - demonstrates whereIn, orderBy, whereNull, count, limit, offset, chaining
 
-service library.BookService('config/book-service.yaml') : version('1.0.0'), description('Advanced query operations demonstration') {
+service library.BookService('config/book-service.dcfg') : version('1.0.0'), description('Advanced query operations demonstration') {
     discovery { }
     enum BookStatus {
         Available,

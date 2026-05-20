@@ -1,7 +1,7 @@
 
 from finance.common import AuditedEntity, Currency;
 
-service finance.ComplianceService('config/compliance-service.yaml') : version('1.0.0'), description('regulatory compliance and audit service') {
+service finance.ComplianceService('config/compliance-service.dcfg') : version('1.0.0'), description('regulatory compliance and audit service') {
     discovery {
         AccountService { loadBalance: roundRobin, healthyOnly: true }
         TransactionService { loadBalance: roundRobin, healthyOnly: true }
@@ -425,7 +425,7 @@ service finance.ComplianceService('config/compliance-service.yaml') : version('1
         }
     }
 
-    jobs('config/compliance-service.yaml') {
+    jobs('config/compliance-service.dcfg') {
         // Check for large transactions that may have been missed by real-time processing
         job CheckLargeTransactions {
             let DateTime yesterday = DateTime.now().addDays(-1);

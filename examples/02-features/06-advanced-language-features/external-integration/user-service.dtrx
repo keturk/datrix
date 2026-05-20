@@ -1,6 +1,6 @@
 
 
-service hostdemo.UserService('config/user-service.yaml') : version('1.0.0'), description('user accounts') {
+service hostdemo.UserService('config/user-service.dcfg') : version('1.0.0'), description('user accounts') {
     discovery { }
     rdbms usersDb {
 

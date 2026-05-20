@@ -5,5 +5,5 @@ include 'notification-service.dtrx';
 
 // The system block is the top-level container that groups services
 // and defines shared infrastructure configuration
-system library.System('config/system.yaml') : version('1.0.0') {
+system library.System('config/system.dcfg') : version('1.0.0') {
 }

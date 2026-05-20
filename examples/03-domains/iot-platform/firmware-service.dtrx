@@ -1,7 +1,7 @@
 
 from iot.common import generateRolloutCode, MAX_BATCH_SIZE;
 
-service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), description('firmware version and rollout management service') {
+service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), description('firmware version and rollout management service') {
     discovery {
         DeviceService { loadBalance: roundRobin, healthyOnly: true }
     }
@@ -445,7 +445,7 @@ service iot.FirmwareService('config/firmware-service.yaml') : version('1.0.0'), 
         }
     }
 
-    jobs('config/firmware-service.yaml') {
+    jobs('config/firmware-service.dcfg') {
 
         job ProcessRolloutBatch {
             let Array<FirmwareRollout> activeRollouts = firmwareDb.FirmwareRollout

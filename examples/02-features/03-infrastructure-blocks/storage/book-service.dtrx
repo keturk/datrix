@@ -1,7 +1,7 @@
 
 // Feature: Storage block - file/blob storage for book covers and documents
 // Demonstrates folder definitions with path templates, MIME restrictions, and size limits
-service library.BookService('config/book-service.yaml') : version('1.0.0'), description('Book management service with file storage') {
+service library.BookService('config/book-service.dcfg') : version('1.0.0'), description('Book management service with file storage') {
 
     // Service infrastructure configuration
     discovery { }                                              // Service discovery (auto-configured)

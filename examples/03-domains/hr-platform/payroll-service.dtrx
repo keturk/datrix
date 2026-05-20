@@ -1,7 +1,7 @@
 
 from hr.common import AuditedEntity, Department, generatePayrollRef;
 
-service hr.PayrollService('config/payroll-service.yaml') : version('1.0.0'), description('payroll processing and compensation service') {
+service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), description('payroll processing and compensation service') {
     discovery {
         EmployeeService { loadBalance: roundRobin, healthyOnly: true }
     }
@@ -352,7 +352,7 @@ service hr.PayrollService('config/payroll-service.yaml') : version('1.0.0'), des
         }
     }
 
-    jobs('config/payroll-service.yaml') {
+    jobs('config/payroll-service.dcfg') {
         // Scheduled monthly payroll processing
         job ProcessMonthlyPayroll {
             let DateTime today = DateTime.now();

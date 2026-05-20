@@ -7,5 +7,5 @@ include 'comment-service.dtrx';
 
 // The system block is the top-level container that groups services
 // and defines shared infrastructure configuration
-system blog.System('config/system.yaml') : version('1.0.0') {
+system blog.System('config/system.dcfg') : version('1.0.0') {
 }

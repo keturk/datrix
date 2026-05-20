@@ -3,5 +3,5 @@
 include 'shared-ingestion.dtrx';
 include 'order-service.dtrx';
 
-system examples.ServerlessDemoSystem('config/system.yaml') : version('1.0.0') {
+system examples.ServerlessDemoSystem('config/system.dcfg') : version('1.0.0') {
 }

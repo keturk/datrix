@@ -1,12 +1,12 @@
 
-// Dual API feature example - self-contained service demonstrating('config/service.yaml') :
+// Dual API feature example - self-contained service demonstrating('config/service.dcfg') :
 // - rest_api block for RESTful CRUD endpoints
 // - graphql_api block for GraphQL queries with type definitions
 // - Both APIs serve the same underlying entities
 // - GraphQL types with nested relationships (Book -> Category)
 
 // Define a service in the 'library' namespace with version and description
-service library.BookService('config/book-service.yaml') : version('1.0.0'), description('Book management service') {
+service library.BookService('config/book-service.dcfg') : version('1.0.0'), description('Book management service') {
 
     // Service infrastructure configuration
     discovery { }                                              // Service discovery (auto-configured)

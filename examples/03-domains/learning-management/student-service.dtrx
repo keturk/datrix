@@ -1,7 +1,7 @@
 
 from lms.common import MAX_PAGE_SIZE;
 
-service lms.StudentService('config/student-service.yaml') : version('1.0.0'), description('student profile and account management service') {
+service lms.StudentService('config/student-service.dcfg') : version('1.0.0'), description('student profile and account management service') {
     discovery { }
     enum StudentStatus {
         Active : value('active'),

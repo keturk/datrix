@@ -1,7 +1,7 @@
 
 // shared-reference-db.dtrx
 // Shared relational database for reference data read by multiple services.
-shared ProductCatalogData('config/product-catalog-data.yaml') {
+shared ProductCatalogData('config/product-catalog-data.dcfg') {
     rdbms catalog_db {
         entity Product {
             String(12) sku : primaryKey;

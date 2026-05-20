@@ -1,7 +1,7 @@
 
 from lms.common import MAX_PAGE_SIZE;
 
-service lms.CourseService('config/course-service.yaml') : version('1.0.0'), description('course catalog and content management service') {
+service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), description('course catalog and content management service') {
     discovery {
         StudentService { loadBalance: roundRobin, healthyOnly: true }
     }

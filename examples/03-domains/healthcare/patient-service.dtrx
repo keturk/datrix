@@ -3,7 +3,7 @@
 from healthcare.common import SoftDeletable, InsuranceInfo, Gender, BloodType, calculateAge, generateMRN;
 
 // Define a service in the 'healthcare' namespace
-service healthcare.PatientService('config/patient-service.yaml') : version('1.0.0'), description('patient management service') {
+service healthcare.PatientService('config/patient-service.dcfg') : version('1.0.0'), description('patient management service') {
     discovery { }
     enum PatientStatus {
         Active,

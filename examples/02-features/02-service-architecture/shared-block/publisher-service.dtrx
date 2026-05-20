@@ -1,7 +1,7 @@
 
 // publisher-service.dtrx
 // Publishes to the shared IngestionEvents topic via `uses IngestionEvents;`.
-service library.DataIngestionService('config/data-ingestion-service.yaml') : version('1.0.0'), description('Ingests data and publishes to shared topic') {
+service library.DataIngestionService('config/data-ingestion-service.dcfg') : version('1.0.0'), description('Ingests data and publishes to shared topic') {
     uses IngestionEvents;
 
     enum IngestionStatus { Idle, Running, Completed, Failed }

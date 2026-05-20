@@ -1,7 +1,7 @@
 
 from social.common import ContentStatus, MAX_PAGE_SIZE, paginate;
 
-service social.UserService('config/user-service.yaml') : version('1.0.0'), description('user management and social graph service') {
+service social.UserService('config/user-service.dcfg') : version('1.0.0'), description('user management and social graph service') {
     discovery { }
     enum UserStatus {
         Active : value('active'),

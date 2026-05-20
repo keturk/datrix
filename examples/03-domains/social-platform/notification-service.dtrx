@@ -1,7 +1,7 @@
 
 from social.common import MAX_PAGE_SIZE, paginate;
 
-service social.NotificationService('config/notification-service.yaml') : version('1.0.0'), description('notification delivery and management service') {
+service social.NotificationService('config/notification-service.dcfg') : version('1.0.0'), description('notification delivery and management service') {
     discovery {
         UserService { loadBalance: roundRobin, healthyOnly: true }
         PostService { loadBalance: roundRobin, healthyOnly: true }

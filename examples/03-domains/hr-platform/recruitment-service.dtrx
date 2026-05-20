@@ -1,7 +1,7 @@
 
 from hr.common import Department;
 
-service hr.RecruitmentService('config/recruitment-service.yaml') : version('1.0.0'), description('job posting and candidate application service') {
+service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.0'), description('job posting and candidate application service') {
     discovery {
         EmployeeService { loadBalance: roundRobin, healthyOnly: true }
     }

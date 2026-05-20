@@ -1,7 +1,7 @@
 
 from logistics.common import GeoCoordinate, generateTrackingNumber;
 
-service logistics.ShipmentService('config/shipment-service.yaml') : version('1.0.0'), description('shipment tracking and management service') {
+service logistics.ShipmentService('config/shipment-service.dcfg') : version('1.0.0'), description('shipment tracking and management service') {
     discovery { }
     enum ShipmentStatus {
         Created,

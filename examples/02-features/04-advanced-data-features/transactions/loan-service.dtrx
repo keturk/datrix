@@ -2,7 +2,7 @@
 // 'from ... import' brings shared definitions from a module into this service
 
 // LoanService depends on BookService and MemberService for cross-service operations
-service library.LoanService('config/loan-service.yaml') : version('1.0.0'), description('loan management service') {
+service library.LoanService('config/loan-service.dcfg') : version('1.0.0'), description('loan management service') {
     // discovery block declares dependencies on other services
     // loadBalance and healthyOnly configure client-side load balancing
     discovery {

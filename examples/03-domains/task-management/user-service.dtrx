@@ -1,7 +1,7 @@
 
 from taskapp.common import MAX_PAGE_SIZE;
 
-service taskapp.UserService('config/user-service.yaml') : version('1.0.0'), description('user and team member management service') {
+service taskapp.UserService('config/user-service.dcfg') : version('1.0.0'), description('user and team member management service') {
     discovery { }
     enum UserRole {
         Admin : value('admin'),

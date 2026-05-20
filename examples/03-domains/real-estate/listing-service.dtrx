@@ -1,7 +1,7 @@
 
 from realestate.common import PropertyType, formatPrice, generateListingRef;
 
-service realestate.ListingService('config/listing-service.yaml') : version('1.0.0'), description('property listing management service') {
+service realestate.ListingService('config/listing-service.dcfg') : version('1.0.0'), description('property listing management service') {
     discovery { }
     enum ListingStatus {
         Draft : value('draft'),

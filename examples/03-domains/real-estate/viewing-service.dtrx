@@ -1,7 +1,7 @@
 
 from realestate.common import PropertyType;
 
-service realestate.ViewingService('config/viewing-service.yaml') : version('1.0.0'), description('property viewing scheduling service') {
+service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.0'), description('property viewing scheduling service') {
     discovery {
         ListingService { loadBalance: roundRobin, healthyOnly: true }
     }

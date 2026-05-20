@@ -1,5 +1,5 @@
 
-// Advanced relationships feature example - self-contained service demonstrating('config/service.yaml') :
+// Advanced relationships feature example - self-contained service demonstrating('config/service.dcfg') :
 // - hasOne for one-to-one relationships (Author -> AuthorProfile)
 // - hasMany for one-to-many relationships (Author -> Books)
 // - belongsTo for the inverse side of relationships
@@ -7,7 +7,7 @@
 // - Composite unique index on the join entity
 
 // Define a service in the 'library' namespace with version and description
-service library.BookService('config/book-service.yaml') : version('1.0.0'), description('Book management service') {
+service library.BookService('config/book-service.dcfg') : version('1.0.0'), description('Book management service') {
 
     // Service infrastructure configuration
     discovery { }                                              // Service discovery (auto-configured)
