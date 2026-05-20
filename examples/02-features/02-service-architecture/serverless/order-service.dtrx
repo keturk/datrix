@@ -1,6 +1,6 @@
 
 // Order service: REST + in-process jobs + serverless event handlers, schedules, and queue workers.
-service examples.OrderService('config/order-service.yaml') : version('1.0.0'), description('Serverless demo — orders') {
+service examples.OrderService('config/order-service.dcfg') : version('1.0.0'), description('Serverless demo — orders') {
     discovery {
         examples.OrderService { loadBalance: roundRobin, healthyOnly: true }
     }
@@ -28,7 +28,7 @@ service examples.OrderService('config/order-service.yaml') : version('1.0.0'), d
         resource db.Order : only(list, get), public;
     }
 
-    jobs('config/order-service.yaml') {
+    jobs('config/order-service.dcfg') {
         job QuickCleanup {
             Log.info("Running quick cleanup");
         }

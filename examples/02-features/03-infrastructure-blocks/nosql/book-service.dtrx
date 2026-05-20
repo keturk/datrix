@@ -1,6 +1,6 @@
 
 // Define a service in the 'library' namespace with version and description
-service library.BookService('config/book-service.yaml') : version('1.0.0'), description('book management service') {
+service library.BookService('config/book-service.dcfg') : version('1.0.0'), description('book management service') {
 
     // Service infrastructure configuration
     discovery { }                                              // Service discovery (auto-configured)
@@ -284,7 +284,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
 
     // 'jobs' block defines background tasks that run asynchronously
     // Jobs are configured via an external YAML file for scheduling, retries, etc.
-    jobs('config/book-service.yaml') {
+    jobs('config/book-service.dcfg') {
         // 'job' defines a named background task with inline logic
         // Jobs can query the database and dispatch events like any other block
         job CheckOverdueBooks {

@@ -1,7 +1,7 @@
 
 from ecommerce.common import generateTrackingNumber;
 
-service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0.0'), description('shipping management service') {
+service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0.0'), description('shipping management service') {
     discovery { }
     enum ShipmentStatus {
         Pending,
@@ -540,7 +540,7 @@ service ecommerce.ShippingService('config/shipping-service.yaml') : version('1.0
     }
 
     // Scheduled jobs for background processing
-    jobs('config/shipping-service.yaml') {
+    jobs('config/shipping-service.dcfg') {
         // Periodically sync tracking info from carrier APIs
         job SyncCarrierTracking {
             let Array<Shipment> activeShipments = shippingDb.Shipment

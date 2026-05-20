@@ -4,5 +4,5 @@ include 'shipment-service.dtrx';
 include 'fleet-service.dtrx';
 include 'route-service.dtrx';
 
-system logistics('config/system.yaml') : version('1.0.0') {
+system logistics('config/system.dcfg') : version('1.0.0') {
 }

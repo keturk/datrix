@@ -4,5 +4,5 @@ include 'device-service.dtrx';
 include 'telemetry-service.dtrx';
 include 'firmware-service.dtrx';
 
-system iot('config/system.yaml') : version('1.0.0') {
+system iot('config/system.dcfg') : version('1.0.0') {
 }

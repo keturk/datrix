@@ -7,5 +7,5 @@ include 'compliance-service.dtrx';
 
 // The system block is the top-level container that groups services
 // and defines shared infrastructure configuration
-system finance('config/system.yaml') : version('1.0.0') {
+system finance('config/system.dcfg') : version('1.0.0') {
 }

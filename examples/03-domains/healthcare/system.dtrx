@@ -7,5 +7,5 @@ include 'medical-record-service.dtrx';
 
 // The system block is the top-level container that groups services
 // and defines shared infrastructure configuration
-system healthcare('config/system.yaml') : version('1.0.0') {
+system healthcare('config/system.dcfg') : version('1.0.0') {
 }

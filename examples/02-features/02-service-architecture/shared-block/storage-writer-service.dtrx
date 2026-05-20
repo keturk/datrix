@@ -1,7 +1,7 @@
 
 // storage-writer-service.dtrx
 // Demonstrates `uses SharedName.blockAlias : readwrite` on shared storage.
-service library.StorageWriterService('config/storage-writer-service.yaml') : version('1.0.0'), description('Writes to shared exchange storage') {
+service library.StorageWriterService('config/storage-writer-service.dcfg') : version('1.0.0'), description('Writes to shared exchange storage') {
     uses DataExchange.landing : readwrite;
 
     rdbms writerMeta {

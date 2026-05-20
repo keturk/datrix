@@ -7,5 +7,5 @@ include 'enrollment-service.dtrx';
 
 // The system block is the top-level container that groups services
 // and defines shared infrastructure configuration
-system lms.System('config/system.yaml') : version('1.0.0') {
+system lms.System('config/system.dcfg') : version('1.0.0') {
 }

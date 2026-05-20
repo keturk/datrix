@@ -1,6 +1,6 @@
 
 
-service fooddelivery.MenuService('config/menu-service.yaml') : version('1.0.0'), description('menu and item catalog management service') {
+service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'), description('menu and item catalog management service') {
     discovery {
         RestaurantService { loadBalance: roundRobin, healthyOnly: true }
     }

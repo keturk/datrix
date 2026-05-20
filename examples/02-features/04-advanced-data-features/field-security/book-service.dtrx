@@ -3,7 +3,7 @@
 from library.common import MAX_CHECKOUT_DAYS, MAX_RENEWALS, ISBN_PATTERN, calculateLateFee, formatBookReference;
 
 // Define a service in the 'library' namespace with version and description
-service library.BookService('config/book-service.yaml') : version('1.0.0'), description('book management service') {
+service library.BookService('config/book-service.dcfg') : version('1.0.0'), description('book management service') {
 
     // Service infrastructure configuration
     discovery { }                                              // Service discovery (auto-configured)
@@ -456,7 +456,7 @@ service library.BookService('config/book-service.yaml') : version('1.0.0'), desc
     }
 
     // 'jobs' block defines scheduled background tasks
-    jobs('config/book-service.yaml') {
+    jobs('config/book-service.dcfg') {
         job CheckOverdueBooks {
             let Array<Book> checkedOut = catalog.Book.where(status: BookStatus.CheckedOut).all();
             let Int processed = 0;

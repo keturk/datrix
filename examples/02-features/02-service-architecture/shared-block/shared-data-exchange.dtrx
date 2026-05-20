@@ -1,7 +1,7 @@
 
 // shared-data-exchange.dtrx
 // Shared object storage landing zone (demonstrates `storage` in a shared block).
-shared DataExchange('config/data-exchange.yaml') {
+shared DataExchange('config/data-exchange.dcfg') {
     storage landing {
         folder raw_data : path('raw/{tenantId}'), maxSize('100mb');
         folder processed_data : path('processed/{tenantId}'), maxSize('100mb');

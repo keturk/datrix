@@ -1,6 +1,6 @@
 
 
-service blog.CommentService('config/comment-service.yaml') : version('1.0.0'), description('comment management service') {
+service blog.CommentService('config/comment-service.dcfg') : version('1.0.0'), description('comment management service') {
     // discovery block declares dependencies on other services
     discovery {
         ContentService { loadBalance: roundRobin, healthyOnly: true }

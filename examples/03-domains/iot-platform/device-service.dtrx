@@ -1,7 +1,7 @@
 
 from iot.common import generateSerialNumber, HEARTBEAT_TIMEOUT_SECONDS;
 
-service iot.DeviceService('config/device-service.yaml') : version('1.0.0'), description('device registration and lifecycle management service') {
+service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), description('device registration and lifecycle management service') {
     discovery { }
     enum DeviceStatus {
         Active,

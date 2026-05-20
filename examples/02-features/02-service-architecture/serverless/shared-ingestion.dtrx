@@ -1,6 +1,6 @@
 
 // Shared ingestion pipeline with serverless handlers (cross-service boundary).
-shared IngestionPipeline('config/ingestion-pipeline.yaml') {
+shared IngestionPipeline('config/ingestion-pipeline.dcfg') {
     pubsub mq {
         topic IngestionEvents {
             publish SourceIngested(UUID runId, String source, Integer recordCount);

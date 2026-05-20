@@ -1,6 +1,6 @@
 
 
-service hostdemo.BlogService('config/blog-service.yaml') : version('1.0.0'), description('blog posts and comments') {
+service hostdemo.BlogService('config/blog-service.dcfg') : version('1.0.0'), description('blog posts and comments') {
     discovery { }
     rdbms blogDb {
 

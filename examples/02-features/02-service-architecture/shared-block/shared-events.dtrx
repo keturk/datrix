@@ -1,7 +1,7 @@
 
 // shared-events.dtrx
 // Demonstrates a shared pubsub topic for cross-service event communication.
-shared IngestionEvents('config/ingestion-events.yaml') {
+shared IngestionEvents('config/ingestion-events.dcfg') {
     pubsub mq {
         topic IngestionEvents {
             publish SupplementalSourceIngested(String source, String layer, DateTime timestamp) {

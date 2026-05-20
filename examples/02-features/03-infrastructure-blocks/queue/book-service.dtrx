@@ -1,6 +1,6 @@
 
 // BookService produces queues for background processing tasks
-service library.BookService('config/book-service.yaml') : version('1.0.0'), description('book management service') {
+service library.BookService('config/book-service.dcfg') : version('1.0.0'), description('book management service') {
     discovery { }
     enum BookStatus {
         Available,

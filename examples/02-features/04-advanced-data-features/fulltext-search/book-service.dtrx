@@ -1,11 +1,11 @@
 
-// Fulltext search feature example - self-contained service demonstrating('config/service.yaml') :
+// Fulltext search feature example - self-contained service demonstrating('config/service.dcfg') :
 // - fulltext(field1, field2, ...) index declaration on entities
 // - .fulltext(query) query method for natural-language search
 // - Combining fulltext search with standard query chain (.all())
 
 // Define a service in the 'library' namespace with version and description
-service library.BookService('config/book-service.yaml') : version('1.0.0'), description('Book management service') {
+service library.BookService('config/book-service.dcfg') : version('1.0.0'), description('Book management service') {
 
     // Service infrastructure configuration
     discovery { }                                              // Service discovery (auto-configured)

@@ -1,7 +1,7 @@
 
 from ecommerce.common import Currency, OrderLineInput, Sluggable, Inventoried, Discountable;
 
-service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0'), description('product management service') {
+service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0'), description('product management service') {
     discovery { }
     enum ProductStatus {
         Draft,
@@ -556,7 +556,7 @@ service ecommerce.ProductService('config/product-service.yaml') : version('1.0.0
     }
 
     // Jobs block - defines scheduled/background tasks
-    jobs('config/product-service.yaml') {
+    jobs('config/product-service.dcfg') {
         // Job to release inventory reservations that have expired
         job ReleaseExpiredReservations {
             let Array<InventoryReservation> expired = productDb.InventoryReservation

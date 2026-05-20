@@ -1,7 +1,7 @@
 
 from iot.common import DEFAULT_ALERT_COOLDOWN_MINUTES;
 
-service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0'), description('telemetry data collection and alert management service') {
+service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0'), description('telemetry data collection and alert management service') {
     discovery {
         DeviceService { loadBalance: roundRobin, healthyOnly: true }
     }
@@ -484,7 +484,7 @@ service iot.TelemetryService('config/telemetry-service.yaml') : version('1.0.0')
         }
     }
 
-    jobs('config/telemetry-service.yaml') {
+    jobs('config/telemetry-service.dcfg') {
 
         job CheckAlertRules {
             let Array<AlertRule> rules = alertDb.AlertRule

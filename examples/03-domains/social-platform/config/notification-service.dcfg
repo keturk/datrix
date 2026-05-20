@@ -1,0 +1,41 @@
+config service social.NotificationService {
+  import "../../config/templates/common.dcfg";
+
+  base {
+    flavor = "compose";
+    port = 8001;
+    replicas = 1;
+
+    resources from standardResources();
+    healthCheck from standardHealthCheck();
+
+    rdbms notificationDb from postgresContainer(
+      database: "library_books"
+    );
+
+    registration from standardRegistration(
+      tags: ["api", "library", "v1"]
+    );
+
+    resilience from standardResilience();
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+
+    flavor = "ecs-fargate";
+    replicas = 2;
+
+    replace rdbms notificationDb from postgresRds(
+      database: "library_books"
+    );
+
+    strategy {
+      rolling {
+        maxUnavailable = "25%";
+      }
+    }
+
+  }
+}

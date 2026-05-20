@@ -1,7 +1,7 @@
 
 // cache-reader-service.dtrx
 // Read-only `uses` on a shared cache block.
-service library.CacheReaderService('config/cache-reader-service.yaml') : version('1.0.0'), description('Reads shared session cache metadata') {
+service library.CacheReaderService('config/cache-reader-service.dcfg') : version('1.0.0'), description('Reads shared session cache metadata') {
     uses SessionStore : readonly;
 
     rdbms readerMeta {

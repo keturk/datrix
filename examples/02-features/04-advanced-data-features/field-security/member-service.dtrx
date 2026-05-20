@@ -3,7 +3,7 @@
 from library.common import MEMBERSHIP_NUMBER_PATTERN;
 
 // A separate service in the same namespace handles member management
-service library.MemberService('config/member-service.yaml') : version('1.0.0'), description('member management service') {
+service library.MemberService('config/member-service.dcfg') : version('1.0.0'), description('member management service') {
     discovery { }
     // 'value()' assigns an explicit serialized value to each enum variant
     // Integer values map to database column values for compact storage

@@ -1,7 +1,7 @@
 
 from hr.common import AuditedEntity, Department, generateEmployeeNumber;
 
-service hr.EmployeeService('config/employee-service.yaml') : version('1.0.0'), description('employee management and directory service') {
+service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), description('employee management and directory service') {
     discovery { }
     enum EmployeeStatus {
         Active : value('active'),

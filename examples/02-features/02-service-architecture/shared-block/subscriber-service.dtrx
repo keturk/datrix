@@ -1,7 +1,7 @@
 
 // subscriber-service.dtrx
 // Subscribes to the shared IngestionEvents topic via `uses : subscribe`.
-service library.AnalysisService('config/analysis-service.yaml') : version('1.0.0'), description('Subscribes to shared ingestion events') {
+service library.AnalysisService('config/analysis-service.dcfg') : version('1.0.0'), description('Subscribes to shared ingestion events') {
     uses IngestionEvents : subscribe;
     uses DataIngestionService;
 

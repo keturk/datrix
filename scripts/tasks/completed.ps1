@@ -41,9 +41,9 @@ function Process-TasksFolder {
  return
  }
  
- # Find all markdown files recursively
- $taskFiles = Get-ChildItem -Path $TasksFolderPath -Filter "*.md" -Recurse -File -ErrorAction SilentlyContinue
- 
+ # Find only task-prefixed markdown files recursively
+ $taskFiles = Get-ChildItem -Path $TasksFolderPath -Filter "task-*.md" -Recurse -File -ErrorAction SilentlyContinue
+
  # Handle case where Get-ChildItem returns a single object instead of an array
  if ($null -eq $taskFiles) {
  return
@@ -120,9 +120,9 @@ function Process-BugsFolder {
  return
  }
  
- # Find all markdown files recursively
- $bugFiles = Get-ChildItem -Path $BugsFolderPath -Filter "*.md" -Recurse -File -ErrorAction SilentlyContinue
- 
+ # Find only task-prefixed markdown files recursively
+ $bugFiles = Get-ChildItem -Path $BugsFolderPath -Filter "task-*.md" -Recurse -File -ErrorAction SilentlyContinue
+
  # Handle case where Get-ChildItem returns a single object instead of an array
  if ($null -eq $bugFiles) {
  return

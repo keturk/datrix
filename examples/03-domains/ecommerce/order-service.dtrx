@@ -1,7 +1,7 @@
 
 from ecommerce.common import Currency, OrderLineInput, MAX_PAGE_SIZE, generateOrderNumber;
 
-service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), description('order management service') {
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), description('order management service') {
     // discovery block declares dependencies on other services
     // loadBalance and healthyOnly configure client-side load balancing
     discovery {
@@ -373,7 +373,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
             let UUID customerId = Auth.user().id;
             let UUID reservationId = uuid();
 
-            // Cross-service call('config/service.yaml') : check product availability via ProductService
+            // Cross-service call('config/service.dcfg') : check product availability via ProductService
             let JSON availability = ProductService.ProductAPI.post('/internal/check-availability', request.items);
 
             if (!availability.allAvailable) {
@@ -384,7 +384,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
                 });
             }
 
-            // Cross-service call('config/service.yaml') : reserve inventory
+            // Cross-service call('config/service.dcfg') : reserve inventory
             let JSON reservation = ProductService.ProductAPI.post('/internal/reserve-inventory', {
                 reservationId: reservationId,
                 items: request.items,
@@ -721,7 +721,7 @@ service ecommerce.OrderService('config/order-service.yaml') : version('1.0.0'), 
         );
     }
 
-    jobs('config/order-service.yaml') {
+    jobs('config/order-service.dcfg') {
         job CleanupExpiredIdempotencyKeys {
             let DateTime threshold = DateTime.now().addDays(-1);
             let Array<IdempotencyKey> expired = orderDb.IdempotencyKey

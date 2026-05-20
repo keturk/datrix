@@ -1,7 +1,7 @@
 
 from finance.common import AuditedEntity, Currency, generateReference;
 
-service finance.TransactionService('config/transaction-service.yaml') : version('1.0.0'), description('financial transaction processing service') {
+service finance.TransactionService('config/transaction-service.dcfg') : version('1.0.0'), description('financial transaction processing service') {
     discovery {
         AccountService { loadBalance: roundRobin, healthyOnly: true }
     }
@@ -533,7 +533,7 @@ service finance.TransactionService('config/transaction-service.yaml') : version(
         }
     }
 
-    jobs('config/transaction-service.yaml') {
+    jobs('config/transaction-service.dcfg') {
         // Daily reconciliation job: summarize the day's transactions
         job ReconcileDailyTransactions {
             let DateTime today = DateTime.now();
