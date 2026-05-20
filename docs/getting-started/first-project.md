@@ -29,18 +29,18 @@ my-library/
 ├── system.dtrx
 ├── book-service.dtrx
 └── config/
-    ├── system-config.yaml
-    ├── registry.yaml
-    ├── gateway.yaml
-    ├── observability.yaml
+    ├── system.dcfg
+    ├── registry.dcfg
+    ├── gateway.dcfg
+    ├── observability.dcfg
     └── book-service/
-        ├── book-service-config.yaml
-        ├── registration.yaml
-        ├── resilience.yaml
-        └── datasources.yaml
+        ├── book-service.dcfg
+        ├── registration.dcfg
+        ├── resilience.dcfg
+        └── datasources.dcfg
 ```
 
-Copy the YAML files from [`examples/02-features/01-core-data-modeling/rest-api/config/`](../../examples/02-features/01-core-data-modeling/rest-api/config/) so paths and profile keys match what the generators expect.
+Copy the ConfigDSL files from [`examples/02-features/01-core-data-modeling/rest-api/config/`](../../examples/02-features/01-core-data-modeling/rest-api/config/) so paths and profile keys match what the generators expect.
 
 ---
 
@@ -50,10 +50,10 @@ Copy the YAML files from [`examples/02-features/01-core-data-modeling/rest-api/c
 include 'book-service.dtrx';
 
 system library.System : version('1.0.0') {
-    config('config/system-config.yaml');
-    registry('config/registry.yaml');
-    gateway('config/gateway.yaml');
-    observability('config/observability.yaml');
+    config('config/system.dcfg');
+    registry('config/registry.dcfg');
+    gateway('config/gateway.dcfg');
+    observability('config/observability.dcfg');
 }
 ```
 
@@ -66,10 +66,10 @@ This matches the reference example (comments optional in your own tree):
 ```datrix
 service library.BookService : version('1.0.0'), description('Book management service') {
 
-    config('config/book-service/book-service-config.yaml');
-    registration('config/book-service/registration.yaml');
+    config('config/book-service/book-service.dcfg');
+    registration('config/book-service/registration.dcfg');
     discovery { }
-    resilience('config/book-service/resilience.yaml');
+    resilience('config/book-service/resilience.dcfg');
 
     enum BookStatus {
         Available,
@@ -85,7 +85,7 @@ service library.BookService : version('1.0.0'), description('Book management ser
         Audiobook
     }
 
-    rdbms bookDb('config/book-service/datasources.yaml') {
+    rdbms bookDb('config/book-service/datasources.dcfg') {
 
         abstract entity BaseEntity {
             UUID id : primaryKey, server = uuid();
@@ -141,12 +141,14 @@ datrix validate .
 datrix generate --source system.dtrx --output ./generated --profile test
 ```
 
-`language` and `hosting` come from `config/system-config.yaml` for the active profile (default CLI profile is **`test`**). To override for one run:
+`language` and deployment target come from `config/system.dcfg` for the active profile (default CLI profile is **`test`**). To override the language for one run:
 
 ```bash
-datrix generate --source system.dtrx --output ./generated --language python --hosting docker
-# Short flags: --language / -L , --hosting / -H , --platform / -P
+datrix generate --source system.dtrx --output ./generated --language python
+# Short flags: --language / -L
 ```
+
+Deployment target is configured in `config/system.dcfg`, not via CLI flags.
 
 ---
 
@@ -211,6 +213,6 @@ curl -X POST "http://127.0.0.1:<port>/api/v1/books" \
 
 **Imports / module not found** — Run from the generated service root and install the package (`pip install -e .`) so `library_book_service` is on `PYTHONPATH`.
 
-**Wrong language or platform** — Check the active profile in `system-config.yaml` and per-service YAML; use `--language`, `--hosting`, and `--platform` only when you intentionally override.
+**Wrong language or deployment settings** — Check the active profile in `config/system.dcfg` and per-service configuration; language can be overridden with `--language` for testing purposes.
 
 Full CLI options: [`datrix-cli/docs/commands.md`](../../datrix-cli/docs/commands.md).

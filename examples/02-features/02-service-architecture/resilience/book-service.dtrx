@@ -1,6 +1,6 @@
 
 // BookService with resilience configuration
-// The resilience YAML defines timeouts, retries, and circuit breakers for downstream calls
+// The resilience DCFG defines timeouts, retries, and circuit breakers for downstream calls
 
 service library.BookService('config/book-service.dcfg') : version('1.0.0'), description('Book management service with resilience patterns') {
 
@@ -16,7 +16,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
     }
 
     // REST API exposes book data; resilience is applied at the infrastructure level
-    // via the resilience.yaml config (not inline DSL decorators)
+    // via the resilience.dcfg config (not inline DSL decorators)
     rest_api BookServiceAPI : basePath("/api/v1"), rdbms(bookDb) {
         resource bookDb.Book;
     }

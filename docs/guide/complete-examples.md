@@ -81,13 +81,13 @@ datrix generate --source examples/02-features/01-core-data-modeling/rest-api/sys
 datrix generate --source examples/03-domains/ecommerce/system.dtrx --output ./generated --profile test
 ```
 
-Optional **one-shot overrides** (see [`datrix-cli/docs/commands.md`](../../datrix-cli/docs/commands.md)):
+Optional **language override** for development (see [`datrix-cli/docs/commands.md`](../../datrix-cli/docs/commands.md)):
 
 ```bash
-datrix generate --source examples/03-domains/ecommerce/system.dtrx --output ./generated -L python -H docker -P compose
+datrix generate --source examples/03-domains/ecommerce/system.dtrx --output ./generated -L python
 ```
 
-(`-L` = `--language`, `-H` = `--hosting`, `-P` = `--platform`.)
+**Note:** Deployment configuration (runtime and provider) is specified in the ConfigDSL files, not via CLI flags.
 
 Some domains also ship **pre-generated** trees under `generated/` for inspection; regenerating is still the supported workflow.
 
@@ -100,7 +100,7 @@ A complete example showing an `extern service` declaration alongside a consuming
 ### Spec (`specs/system.dtrx`)
 
 ```dtrx
-system ecommerce('config/system-config.yaml') {}
+system ecommerce('config/system.dcfg') {}
 ```
 
 ### Spec (`specs/pricing-engine.dtrx`)
@@ -141,7 +141,7 @@ extern service pricing.PricingEngine('config/pricing-engine.yaml')
 service ecommerce.OrderService('config/order-service.yaml') {
     uses PricingEngine;
 
-    rdbms db('config/order-service/datasources.yaml') {
+    rdbms db('config/order-service/datasources.dcfg') {
         entity Order extends BaseEntity {
             UUID customerId;
             Money total;

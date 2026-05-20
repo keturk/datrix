@@ -129,7 +129,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
     }
 
     // Pub/sub messaging block - defines event-driven communication
-    // Connects to a message broker configured in the referenced YAML file
+    // Connects to a message broker configured in the referenced DCFG file
     pubsub mq {
         // Topics group related events; publishers declare the event schema
         topic BookEvents {

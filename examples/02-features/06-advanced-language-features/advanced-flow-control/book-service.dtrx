@@ -460,7 +460,6 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
     }
 
     // 'jobs' block defines background tasks that run asynchronously
-    // Jobs are configured via an external YAML file for scheduling, retries, etc.
     jobs('config/book-service.dcfg') {
         // 'job' defines a named background task with inline logic
         // Jobs can query the database and dispatch events like any other block
@@ -558,7 +557,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
     }
 
     // 'storage' block defines file/blob storage with named folders
-    // Configured via an external YAML file for provider settings (S3, Azure Blob, etc.)
+    // Configured via an external DCFG file for provider settings (S3, Azure Blob, etc.)
     storage store {
         // 'folder' declares a storage location with path prefix, MIME type restrictions, and size limits
         // 'allowed' restricts uploads to specific content types; 'maxSize' caps file size

@@ -46,7 +46,7 @@ Install and usage details: [`datrix-cli/docs/commands.md`](../../datrix-cli/docs
 ```bash
 datrix validate path/to/specs
 datrix generate --source path/to/system.dtrx --output ./generated
-datrix generate --source path/to/system.dtrx --output ./generated --profile production --language python --hosting docker
+datrix generate --source path/to/system.dtrx --output ./generated --profile production
 ```
 
-Short flags for overrides: `--language` / `-L`, `--hosting` / `-H`, `--platform` / `-P`.
+**Note:** Deployment configuration (runtime and provider) is specified in ConfigDSL files via the `deployment` section, not through CLI flags. The `--language` flag remains for development convenience only.

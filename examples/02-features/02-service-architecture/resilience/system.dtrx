@@ -1,6 +1,6 @@
 
 // Feature: Resilience patterns - circuit breakers, retries, timeouts, and rate limiting
-// Configuration-driven resilience via external YAML files
+// Configuration-driven resilience via external DCFG files
 include 'common.dtrx';
 include 'book-service.dtrx';
 include 'member-service.dtrx';

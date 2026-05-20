@@ -212,10 +212,10 @@ graph TD
 ### Decision 6: Deployment Target Contract (Planned)
 
 **Rationale:**
-- The current `hosting` field (`docker | kubernetes | aws | azure`) conflates runtime packaging shape, infrastructure provider, and cloud-managed targets into a single dimension
+- Legacy models conflated runtime packaging shape, infrastructure provider, and cloud-managed targets into a single dimension
 - "Docker" and "Kubernetes" are runtime/packaging targets, not cloud providers; "AWS" and "Azure" are providers, not runtimes
-- The one-dimensional model cannot express combinations like "Kubernetes on Azure (AKS)" or "Docker Compose on AWS (VM)" without overloading `hosting`
-- CLI overrides (`--hosting`, `--platform`) can create partial deployment states where the command line says one target but resolved config still contains values for another
+- One-dimensional models cannot express combinations like "Kubernetes on Azure (AKS)" or "Docker Compose on AWS (VM)" without overloading terms
+- CLI overrides can create partial deployment states where the command line says one target but resolved config still contains values for another
 
 **Result:**
 - An explicit deployment target model replaces the single `hosting` dimension with four orthogonal fields:
@@ -336,20 +336,20 @@ Use the CLI to validate and generate:
 datrix validate system.dtrx
 datrix validate examples/02-features/01-core-data-modeling/rest-api
 
-# Generate (defaults: profile test; language/hosting from YAML for that profile)
+# Generate (defaults: profile test; language and deployment from ConfigDSL for that profile)
 datrix generate --source system.dtrx --output ./generated
 
 # Generate for a specific profile
 datrix generate --source system.dtrx --output ./generated --profile production
 
-# Override language / hosting / platform for one run (optional short flags)
+# Override language for testing only (optional short flag)
 datrix generate --source system.dtrx --output ./generated --language typescript
-datrix generate --source system.dtrx --output ./generated -L python -H docker -P compose
+datrix generate --source system.dtrx --output ./generated -L python
 ```
 
-**Config-driven generation:** The source of truth is YAML: `language` and `deployment` (runtime, provider, target, registry) in `system-config.yaml`, and service-level `serviceFlavor` in each service config (e.g. `compose`, `ecs-fargate`, `container-apps`). Generation reads deployment settings from resolved config — there are no deployment-affecting CLI overrides. See [Decision 6: Deployment Target Contract](#decision-6-deployment-target-contract-planned) for the full deployment model.
+**Config-driven generation:** The source of truth is ConfigDSL: `language` and `deployment` (runtime, provider, target, registry) in `config/system.dcfg`, and service-level `flavor` in each service config (e.g. `compose`, `ecs-fargate`, `container-apps`). Generation reads deployment settings from resolved config — there are no deployment-affecting CLI overrides. See [Decision 6: Deployment Target Contract](#decision-6-deployment-target-contract-planned) for the full deployment model.
 
-> **Migration note:** The `--hosting` / `-H` and `--platform` / `-P` CLI overrides and the `hosting` field in system config are being replaced by the `deployment` model. During migration, `hosting` maps to `deployment` as described in Decision 6.
+> **Note:** The `--hosting` and `--platform` CLI overrides have been removed. Deployment target is configured in ConfigDSL files, not CLI flags.
 
 ---
 

@@ -36,7 +36,7 @@ This guide covers all configuration files in Datrix, their structure, options, a
 Datrix uses a **hierarchical configuration system** with **profile-based environments**. Configuration is split between:
 
 1. **`.dtrx` files** — Behavioral definitions (entities, APIs, services)
-2. **YAML files** — Environmental configuration (databases, credentials, deployment)
+2. **ConfigDSL (`.dcfg`) files** — Environmental configuration (databases, credentials, deployment)
 
 ### Key Principles
 
@@ -60,31 +60,31 @@ Tier 1: Project Settings (assembled from generator defaults)
 ├── Dependency version catalog
 └── Infrastructure image catalog
 
-Tier 2: System-Level Config (profile-based YAML)
-├── Language and hosting platform
+Tier 2: System-Level Config (profile-based ConfigDSL)
+├── Language and deployment target
 ├── API Gateway
 ├── Service Registry
 ├── Observability
 └── System-wide deployment settings
 
-Tier 3: Service-Level Config (profile-based YAML)
+Tier 3: Service-Level Config (profile-based ConfigDSL)
 ├── Service deployment config
 ├── Resilience patterns
 ├── Service metadata
 ├── Integrations
 └── Multi-tenancy settings
 
-Tier 4: Block-Level Config (profile-based YAML)
-├── RDBMS (datasources.yaml) — per **service** or **`shared`** block
-├── Cache (datasources.yaml)
-├── PubSub (datasources.yaml)
-├── NoSQL (datasources.yaml)
-├── Storage (storage.yaml)
-├── Jobs (jobs.yaml)
-└── Queues (queue.yaml — separate file, not a datasource)
+Tier 4: Block-Level Config (profile-based ConfigDSL)
+├── RDBMS (datasources.dcfg) — per **service** or **`shared`** block
+├── Cache (datasources.dcfg)
+├── PubSub (datasources.dcfg)
+├── NoSQL (datasources.dcfg)
+├── Storage (storage.dcfg)
+├── Jobs (jobs.dcfg)
+└── Queues (queue.dcfg — separate file, not a datasource)
 ```
 
-**`shared` blocks** use the **same** Tier 4 YAML shapes as services; paths in `.dtrx` are resolved relative to the project root during **`resolve_infrastructure_configs`** just like service-owned blocks.
+**`shared` blocks** use the **same** Tier 4 ConfigDSL shapes as services; paths in `.dtrx` are resolved relative to the project root during **`resolve_infrastructure_configs`** just like service-owned blocks.
 
 ---
 
@@ -96,46 +96,62 @@ Profiles allow environment-specific configuration in a single file.
 
 To avoid repeating common values across profiles, use a `base:` section. Profiles without explicit sections inherit from `base:`.
 
-```yaml
-# config/system.yaml — using base: inheritance
-base:
-  language: python
-  deployment:
-    runtime: docker-compose
-    provider: local
-  defaultTimeout: 30000
+```dcfg
+# config/system.dcfg — using base inheritance
+config system ecommerce.System {
+  base {
+    language = python;
+    deployment {
+      runtime = docker-compose;
+      provider = local;
+    }
+    defaultTimeout = 30000;
+  }
 
-production:
-  deployment:
-    runtime: ecs-fargate
-    provider: aws
-  region: us-east-1
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    deployment {
+      runtime = ecs-fargate;
+      provider = aws;
+    }
+  }
+}
 ```
 
-`test` and `development` inherit from `base` automatically (no section needed). Only `production` needs overrides.
+`test` and `development` inherit from `base` automatically (no explicit profile needed). Only `production` needs overrides.
 
-**Traditional profile structure (still supported):**
+**ConfigDSL format:**
 
-```yaml
-# config/system-config.yaml — explicit profiles
-test:                           # Profile name
-  language: python
-  deployment:
-    runtime: docker-compose
-    provider: local
+```dcfg
+# config/system.dcfg
+config system ecommerce.System {
+  profile test as "test" {
+    alias env = "TEST";
+    language = python;
+    deployment {
+      runtime = docker-compose;
+      provider = local;
+    }
+  }
 
-development:
-  language: python
-  deployment:
-    runtime: docker-compose
-    provider: local
+  profile development as "dev" {
+    alias env = "DEV";
+    language = python;
+    deployment {
+      runtime = docker-compose;
+      provider = local;
+    }
+  }
 
-production:
-  language: python
-  deployment:
-    runtime: ecs-fargate
-    provider: aws
-  region: us-east-1
+  profile production as "prod" {
+    alias env = "PROD";
+    language = python;
+    deployment {
+      runtime = ecs-fargate;
+      provider = aws;
+    }
+  }
+}
 ```
 
 ### Using Profiles
@@ -163,45 +179,61 @@ datrix generate --profile production -s specs/system.dtrx -o ./generated
 | `staging` | Pre-production testing |
 | `production` | Production deployment |
 
-### Multi-File Inheritance with `extends:`
+### Template Reuse with Imports
 
-Share common config across services using `extends:`:
+Share common config across services using imports and templates:
 
-```yaml
-# config/base.yaml — project-wide shared config
-base:
-  platform: compose
-  replicas: 1
-  resources:
-    requests: { cpu: 100m, memory: 256Mi }
-    limits: { cpu: 500m, memory: 512Mi }
-  healthCheck: { path: /health, initialDelay: 10s }
+```dcfg
+# config/templates/base.dcfg — project-wide shared config
+template baseService(port = 8000) {
+  flavor = compose;
+  replicas = 1;
+  resources {
+    cpu = "100m";
+    memory = "256Mi";
+  }
+  healthCheck {
+    path = "/health";
+    initialDelay = 10s;
+  }
+  port = port;
+}
 
-production:
-  platform: ecs-fargate
-  replicas: 2
+template productionService(port = 8000) {
+  flavor = ecs-fargate;
+  replicas = 2;
+  resources {
+    cpu = "500m";
+    memory = "512Mi";
+  }
+  port = port;
+}
 ```
 
-```yaml
-# config/order-service.yaml
-extends: config/base.yaml
+```dcfg
+# config/order-service.dcfg
+import "config/templates/base.dcfg";
 
-base:
-  port: 8001
-  rdbms:
-    orderDb:
-      engine: postgres
-      database: ecommerce_orders
+config service ecommerce.OrderService {
+  base from baseService(port: 8001) {
+    rdbms orderDb {
+      engine = postgres;
+      database = ecommerce_orders;
+    }
+  }
 
-production:
-  replicas: 3
-  rdbms:
-    orderDb:
-      host: ${DB_HOST}
-      platform: rds
+  profile production as "prod" extends base from productionService(port: 8001) {
+    alias env = "PROD";
+    replicas = 3;
+    rdbms orderDb {
+      host = env("DB_HOST");
+      flavor = rds;
+    }
+  }
+}
 ```
 
-Order service inherits all base config (resources, healthCheck) plus production overrides (ecs-fargate, 2 replicas → overridden to 3).
+Order service uses templates for common config plus production overrides.
 
 ### Engine Defaults
 
@@ -253,59 +285,68 @@ base:
 
 ## System Configuration
 
-**File:** `config/system.yaml` (unified format)
+**File:** `config/system.dcfg` (ConfigDSL format)
 
 **Referenced in:** `system` block (declaration-level config path)
 
 ```dtrx
-system ecommerce.System('config/system.yaml') : version('1.0.0') {
+system ecommerce.System('config/system.dcfg') : version('1.0.0') {
 }
 ```
 
-### Complete Example (with `base:` inheritance)
+### Complete Example (with `base` inheritance)
 
-```yaml
-base:
-  language: python                    # Required: "python" or "typescript"
-  deployment:                         # Required: deployment target
-    runtime: docker-compose           #   "docker-compose", "kubernetes", "ecs-fargate", etc.
-    provider: local                   #   "local", "existing", "aws", "azure"
-  defaultTimeout: 30000              # Default request timeout (ms)
-  secrets: { provider: env }
-  gateway:
-    port: 80
-    rateLimit: { default: { requests: 100, window: 1m, key: ip } }
-    cors:
-      origins: [http://localhost:3000]
-      methods: [GET, POST, PUT, DELETE, PATCH]
-  observability:
-    metrics: { provider: prometheus, endpoint: /metrics }
-    tracing: { provider: jaeger, samplingRate: 0.1 }
-    logging: { level: info, format: json }
-  serviceDiscovery: { type: consul, host: localhost, port: 8500 }
+```dcfg
+config system ecommerce.System {
+  base {
+    language = python;                    # Required: python or typescript
+    deployment {                         # Required: deployment target
+      runtime = docker-compose;           # docker-compose, kubernetes, ecs-fargate, etc.
+      provider = local;                   # local, existing, aws, azure
+    }
+    defaultTimeout = 30000;              # Default request timeout (ms)
+    secrets { provider = env; }
+    gateway {
+      port = 80;
+      rateLimit { default { requests = 100; window = 1m; key = ip; } }
+      cors {
+        origins = ["http://localhost:3000"];
+        methods = [GET, POST, PUT, DELETE, PATCH];
+      }
+    }
+    observability {
+      metrics { provider = prometheus; endpoint = "/metrics"; }
+      tracing { provider = jaeger; samplingRate = 0.1; }
+      logging { level = info; format = json; }
+    }
+    serviceDiscovery { type = consul; host = "localhost"; port = 8500; }
+  }
 
-production:
-  language: python
-  deployment:
-    runtime: ecs-fargate
-    provider: aws
-  region: us-east-1                  # AWS region (required for AWS provider)
-  defaultTimeout: 60000
-  network:                            # VPC configuration (required for AWS)
-    vpcId: vpc-abc123
-    appSubnets:
-      - subnet-app-1
-      - subnet-app-2
-    dataSubnets:
-      - subnet-data-1
-      - subnet-data-2
-  registry: 123456789012.dkr.ecr.us-east-1.amazonaws.com  # Docker registry
-  secrets:                            # Secrets management
-    provider: aws-secrets-manager     # "aws-secrets-manager" or "azure-key-vault"
-    region: us-east-1
-  encryption:                         # Data encryption
-    provider: aws-kms                 # "aws-kms" or "azure-key-vault"
-    keyId: arn:aws:kms:...
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    language = python;
+    deployment {
+      runtime = ecs-fargate;
+      provider = aws;
+    }
+    region = "us-east-1";                  # AWS region (required for AWS provider)
+    defaultTimeout = 60000;
+    network {                            # VPC configuration (required for AWS)
+      vpcId = "vpc-abc123";
+      appSubnets = ["subnet-app-1", "subnet-app-2"];
+      dataSubnets = ["subnet-data-1", "subnet-data-2"];
+    }
+    registry = "123456789012.dkr.ecr.us-east-1.amazonaws.com";  # Docker registry
+    secrets {                            # Secrets management
+      provider = aws-secrets-manager;     # aws-secrets-manager or azure-key-vault
+      region = "us-east-1";
+    }
+    encryption {                         # Data encryption
+      provider = aws-kms;                 # aws-kms or azure-key-vault
+      keyId = "arn:aws:kms:...";
+    }
+  }
+}
 ```
 
 ### Required Fields
@@ -385,9 +426,9 @@ deployment:
 
 ---
 
-## Service dependencies (`dependencies.yaml`)
+## Service dependencies (`dependencies.dcfg`)
 
-**DSL:** `dependencies('config/<service-name>/dependencies.yaml');` inside a **`service { }`** body sets **`Service.dependencies_path`**. Stage 1 config resolution loads **`DependenciesProfileConfig`** (`datrix_common.config.dependencies`) into **`service.dependencies`**.
+**DSL:** `dependencies('config/<service-name>/dependencies.dcfg');` inside a **`service { }`** body sets **`Service.dependencies_path`**. Stage 1 config resolution loads **`DependenciesProfileConfig`** (`datrix_common.config.dependencies`) into **`service.dependencies`**.
 
 **Purpose:** supply **operational** metadata for **`uses`** targets — remote **service** URLs, timeouts, retries, and optional **shared**-block overrides — separate from behavioral DSL.
 
@@ -417,13 +458,13 @@ Files may be **flat** (top-level keys `development` / `production` / `test`) or 
 
 ## Service Configuration
 
-**File:** `config/<service-name>/<service-name>-config.yaml`
+**File:** `config/<service-name>/<service-name>.dcfg`
 
 **Referenced in:** Service block
 
 ```dtrx
 service ecommerce.OrderService : version('1.0.0') {
-    config('config/order-service/order-service-config.yaml');
+    config('config/order-service/order-service.dcfg');
 }
 ```
 
@@ -589,15 +630,15 @@ tenancy:
 
 ## Datasources Configuration
 
-**File:** `config/<service-name>/datasources.yaml`
+**File:** `config/<service-name>/datasources.dcfg`
 
 **Referenced in:** `rdbms`, `cache`, `pubsub`, `nosql` blocks
 
 ```dtrx
 service OrderService {
-    rdbms db('config/order-service/datasources.yaml') { ... }
-    cache redis('config/order-service/datasources.yaml') { ... }
-    pubsub mq('config/order-service/datasources.yaml') { ... }
+    rdbms db('config/order-service/datasources.dcfg') { ... }
+    cache redis('config/order-service/datasources.dcfg') { ... }
+    pubsub mq('config/order-service/datasources.dcfg') { ... }
 }
 ```
 
@@ -751,13 +792,13 @@ nosql:
 
 ## Service Registration
 
-**File:** `config/<service-name>/registration.yaml`
+**File:** `config/<service-name>/registration.dcfg`
 
 **Referenced in:** Service block
 
 ```dtrx
 service OrderService {
-    registration('config/order-service/registration.yaml');
+    registration('config/order-service/registration.dcfg');
 }
 ```
 
@@ -790,13 +831,13 @@ test:
 
 ## Resilience Configuration
 
-**File:** `config/<service-name>/resilience.yaml`
+**File:** `config/<service-name>/resilience.dcfg`
 
 **Referenced in:** Service block
 
 ```dtrx
 service OrderService {
-    resilience('config/order-service/resilience.yaml');
+    resilience('config/order-service/resilience.dcfg');
 }
 ```
 
@@ -913,13 +954,13 @@ fallback:
 
 ## Gateway Configuration
 
-**File:** `config/gateway.yaml`
+**File:** `config/gateway.dcfg`
 
 **Referenced in:** System block
 
 ```dtrx
 system {
-    gateway('config/gateway.yaml');
+    gateway('config/gateway.dcfg');
 }
 ```
 
@@ -985,13 +1026,13 @@ production:
 
 ## Registry Configuration
 
-**File:** `config/registry.yaml`
+**File:** `config/registry.dcfg`
 
 **Referenced in:** System block
 
 ```dtrx
 system {
-    registry('config/registry.yaml');
+    registry('config/registry.dcfg');
 }
 ```
 
@@ -1018,13 +1059,13 @@ production:
 
 ## Observability Configuration
 
-**File:** `config/observability.yaml`
+**File:** `config/observability.dcfg`
 
 **Referenced in:** System block
 
 ```dtrx
 system {
-    observability('config/observability.yaml');
+    observability('config/observability.dcfg');
 }
 ```
 
@@ -1206,7 +1247,7 @@ Handler keys match **`on EventName`**, **`job JobName`**, **`@name('X')`** for H
 
 **Referenced in:** `queues('…/queue.yaml') { … }` on a **producing** service only.
 
-`queue.yaml` configures **task-dispatch** brokers (RabbitMQ, SQS, Azure Service Bus, Azure Storage Queue). It is **not** a datasource and does **not** live in `datasources.yaml`. Services that only **consume** queues via `enqueue OtherService.TaskName { … }` do **not** ship a `queue.yaml`; workers and clients resolve settings from the **producer’s** file.
+`queue.yaml` configures **task-dispatch** brokers (RabbitMQ, SQS, Azure Service Bus, Azure Storage Queue). It is **not** a datasource and does **not** live in `datasources.dcfg`. Services that only **consume** queues via `enqueue OtherService.TaskName { … }` do **not** ship a `queue.yaml`; workers and clients resolve settings from the **producer’s** file.
 
 ### Profiles and engines
 
@@ -1755,14 +1796,14 @@ DeploymentValidationError: Service flavor 'compose' is incompatible with deploym
 ```
 config/
 ├── system-config.yaml              # System configuration
-├── gateway.yaml                    # API gateway
-├── registry.yaml                   # Service registry
-├── observability.yaml              # Observability
+├── gateway.dcfg                    # API gateway
+├── registry.dcfg                   # Service registry
+├── observability.dcfg              # Observability
 └── <service-name>/
     ├── service-config.yaml        # Service deployment
-    ├── datasources.yaml           # Database/cache/pubsub
-    ├── registration.yaml          # Service metadata
-    ├── resilience.yaml            # Circuit breaker/retry
+    ├── datasources.dcfg           # Database/cache/pubsub
+    ├── registration.dcfg          # Service metadata
+    ├── resilience.dcfg            # Circuit breaker/retry
     ├── storage.yaml               # File storage
     ├── jobs.yaml                  # Job configuration
     └── integrations.yaml          # External integrations
