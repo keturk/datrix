@@ -1,0 +1,162 @@
+<#
+.SYNOPSIS
+ Fully automated commit-and-push: invokes Claude Code to analyze changes, generate commit messages, and push.
+
+.DESCRIPTION
+ This wrapper script automates the entire commit-and-push workflow:
+ 1. Invokes Claude Code in CLI mode to analyze all Datrix repos and generate commit-messages.json
+ 2. If Claude successfully generates the JSON file, automatically runs commit-and-push.ps1
+ 3. Reports success or failure
+
+ Claude Code CLI must be available in PATH as 'claude' or 'claude.exe'.
+
+.PARAMETER MessagesPath
+ Optional. Path where Claude should write commit-messages.json. Default: D:\datrix\commit-messages.json
+
+.PARAMETER Dbg
+ Optional. Pass debug flag to commit-and-push.ps1 for verbose output.
+
+.EXAMPLE
+ .\auto-commit-and-push.ps1
+ Generates commit-messages.json in D:\datrix and commits/pushes all dirty repos.
+
+.EXAMPLE
+ .\auto-commit-and-push.ps1 -Dbg
+ Same as above with debug output during commit/push phase.
+#>
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $false)]
+    [string]$MessagesPath = 'D:\datrix\commit-messages.json',
+
+    [switch]$Dbg
+)
+
+$ErrorActionPreference = 'Stop'
+
+# Resolve script locations
+$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
+$commitAndPushScript = Join-Path $scriptPath "commit-and-push.ps1"
+
+if (-not (Test-Path $commitAndPushScript)) {
+    Write-Error "commit-and-push.ps1 not found at: $commitAndPushScript"
+}
+
+# Ensure workspace root exists
+$workspaceRoot = 'D:\datrix'
+if (-not (Test-Path $workspaceRoot)) {
+    Write-Error "Workspace root not found: $workspaceRoot"
+}
+
+# Check if Claude Code CLI is available
+$claudeCmd = Get-Command 'claude' -ErrorAction SilentlyContinue
+if (-not $claudeCmd) {
+    Write-Error @"
+Claude Code CLI not found in PATH.
+
+Please ensure 'claude' command is available. Install via:
+  npm install -g @anthropic-ai/claude-code
+
+Or ensure the Claude Code CLI is in your PATH.
+"@
+}
+
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "Auto Commit and Push - Claude-Powered" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host ""
+
+# Step 1: Invoke Claude Code to generate commit-messages.json
+Write-Host "Step 1: Invoking Claude Code to analyze changes and generate commit messages..." -ForegroundColor Yellow
+Write-Host ""
+
+# Remove existing commit-messages.json if present to ensure we detect fresh generation
+if (Test-Path $MessagesPath) {
+    Write-Host "Removing existing commit-messages.json to ensure fresh generation..." -ForegroundColor Gray
+    Remove-Item -LiteralPath $MessagesPath -Force
+}
+
+# Build the prompt for Claude
+$claudePrompt = @"
+Analyze all Datrix repositories for uncommitted changes and generate commit-messages.json.
+
+Follow the /commit-and-push skill workflow exactly:
+
+1. Scan for changes in all repos under D:\datrix (use git status --porcelain)
+2. For each dirty repo, inspect diffs (git diff, git diff --cached, git diff --stat)
+3. Generate D:\datrix\commit-messages.json with detailed commit messages
+4. Report which repos have changes
+
+DO NOT run the commit-and-push.ps1 script - only generate the JSON file.
+
+Use the exact format and message style from /commit-and-push skill documentation.
+"@
+
+# Invoke Claude Code in CLI mode with --print for non-interactive execution
+# The prompt is passed as the final argument
+Set-Location $workspaceRoot
+$claudeOutput = & claude --print $claudePrompt 2>&1
+$claudeExitCode = $LASTEXITCODE
+
+if ($claudeExitCode -ne 0) {
+    Write-Host "Claude Code CLI failed with exit code: $claudeExitCode" -ForegroundColor Red
+    Write-Host "Output:" -ForegroundColor Red
+    Write-Host $claudeOutput
+    throw "Claude Code CLI invocation failed"
+}
+
+Write-Host "Claude Code output:" -ForegroundColor Gray
+Write-Host $claudeOutput
+Write-Host ""
+
+# Step 2: Verify commit-messages.json was created
+Write-Host "Step 2: Verifying commit-messages.json was generated..." -ForegroundColor Yellow
+
+if (-not (Test-Path $MessagesPath)) {
+    Write-Error @"
+Claude Code did not generate commit-messages.json at: $MessagesPath
+
+This may happen if:
+- No repos have uncommitted changes
+- Claude encountered an error during analysis
+- The CLI invocation failed
+
+Check the Claude output above for details.
+"@
+}
+
+# Validate JSON is parseable
+$jsonText = Get-Content -LiteralPath $MessagesPath -Raw -Encoding UTF8
+try {
+    $messages = $jsonText | ConvertFrom-Json
+} catch {
+    Write-Error "Generated commit-messages.json is invalid JSON: $_"
+}
+
+if ($messages -isnot [PSCustomObject]) {
+    Write-Error "Generated commit-messages.json root must be a JSON object."
+}
+
+$repoCount = @($messages.PSObject.Properties).Count
+Write-Host "commit-messages.json generated successfully with $repoCount repo(s)" -ForegroundColor Green
+Write-Host ""
+
+# Step 3: Run commit-and-push.ps1
+Write-Host "Step 3: Running commit-and-push.ps1..." -ForegroundColor Yellow
+Write-Host ""
+
+$commitArgs = @($MessagesPath)
+if ($Dbg) {
+    $commitArgs += '-Dbg'
+}
+
+& $commitAndPushScript @commitArgs
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "commit-and-push.ps1 failed with exit code: $LASTEXITCODE"
+}
+
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Green
+Write-Host "Auto Commit and Push completed successfully!" -ForegroundColor Green
+Write-Host "========================================" -ForegroundColor Green

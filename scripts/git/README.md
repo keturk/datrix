@@ -10,6 +10,7 @@ Git operations across all Datrix repositories.
 |--------|-------------|
 | `status.ps1` | Show git status for all repositories |
 | `pull.ps1` | Pull latest changes for all repositories |
+| `auto-commit-and-push.ps1` | **Recommended:** Fully automated commit-and-push using Claude Code CLI |
 | `l-commit-and-push.ps1` | Build `commit-messages.json` via local Ollama; optional `-CommitAndPush` runs `commit-and-push.ps1` |
 | `commit-and-push.ps1` | Batch commit and push using a JSON message file |
 
@@ -45,6 +46,44 @@ Pulls latest changes from remote for all repositories.
 ```powershell
 .\pull.ps1
 ```
+
+## auto-commit-and-push.ps1
+
+**Recommended approach for committing and pushing across all Datrix repos.**
+
+Fully automated workflow that invokes Claude Code CLI to analyze uncommitted changes, generate detailed commit messages, and automatically commit and push.
+
+```powershell
+# Fully automated: Claude analyzes → generates JSON → commits → pushes
+.\auto-commit-and-push.ps1
+
+# With debug output during commit/push phase
+.\auto-commit-and-push.ps1 -Dbg
+```
+
+### How It Works
+
+1. Invokes `claude --print` in CLI mode with prompt to analyze all repos
+2. Claude scans for changes using git status and diff
+3. Claude generates `D:\datrix\commit-messages.json` with detailed messages
+4. Script verifies JSON was created successfully
+5. Script automatically runs `commit-and-push.ps1` to commit and push
+
+### Prerequisites
+
+Claude Code CLI must be installed and available in PATH:
+
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+Verify with: `claude --version`
+
+### When to Use
+
+- **Use auto-commit-and-push.ps1 when:** You want Claude to analyze changes and write commit messages automatically
+- **Use commit-and-push.ps1 when:** You already have a pre-generated `commit-messages.json`
+- **Use l-commit-and-push.ps1 when:** You prefer local Ollama models over Claude API
 
 ## l-commit-and-push.ps1
 

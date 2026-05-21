@@ -44,9 +44,26 @@ Builds `commit-messages.json` using a local Ollama model for each repo with unco
 
 ---
 
+## `git\auto-commit-and-push.ps1`
+
+**Fully automated commit-and-push workflow.** Invokes Claude Code CLI to analyze all repos, generate `commit-messages.json`, then automatically commits and pushes. This is the recommended way to commit across all Datrix repos.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Auto (default)** | `.\git\auto-commit-and-push.ps1` | Claude analyzes, generates JSON, commits/pushes |
+| **Auto with debug** | `.\git\auto-commit-and-push.ps1 -Dbg` | Same with verbose git output |
+
+**Parameters:** `-MessagesPath` (default: D:\datrix\commit-messages.json), `-Dbg`
+
+**Prerequisites:** Claude Code CLI must be installed and available in PATH (`claude` command).
+
+---
+
 ## `git\commit-and-push.ps1`
 
 Batch commits and pushes repos using messages from a JSON file. Format: `{ "datrix": "message", "datrix-common": "message", ... }`. Only repos with entries in the JSON are committed. Stops on first failure.
+
+**Note:** This script is now called automatically by `auto-commit-and-push.ps1`. Use this directly only if you already have a pre-generated `commit-messages.json`.
 
 | Mode | Command | Description |
 |------|---------|-------------|
