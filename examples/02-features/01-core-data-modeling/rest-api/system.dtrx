@@ -1,8 +1,4 @@
-
-// Include service definitions from other source files
 include 'book-service.dtrx';
 
-// The system block is the top-level container that groups services
-// and defines shared infrastructure configuration
 system library.System('config/system.dcfg') : version('1.0.0') {
 }

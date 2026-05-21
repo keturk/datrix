@@ -1,9 +1,4 @@
-
-// Feature: Storage block - file/blob storage with folders and upload constraints
-// Demonstrates storage folders with path templates, MIME type restrictions, and size limits
 include 'book-service.dtrx';
 
-// The system block is the top-level container that groups services
-// and defines shared infrastructure configuration
 system library.System('config/system.dcfg') : version('1.0.0') {
 }

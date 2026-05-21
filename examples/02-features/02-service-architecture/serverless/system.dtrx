@@ -1,5 +1,3 @@
-
-// Serverless examples: shared ingestion pipeline and order service entrypoint.
 include 'shared-ingestion.dtrx';
 include 'order-service.dtrx';
 

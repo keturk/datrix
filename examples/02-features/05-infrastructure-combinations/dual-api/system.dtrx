@@ -1,9 +1,4 @@
-
-// Dual API example - demonstrates a single service exposing
-// both REST and GraphQL APIs over the same data
 include 'book-service.dtrx';
 
-// The system block is the top-level container that groups services
-// and defines shared infrastructure configuration
 system library.System('config/system.dcfg') : version('1.0.0') {
 }

@@ -1,5 +1,3 @@
-
-// Shared infrastructure and services demonstrating `shared { }` and `uses`.
 include 'shared-events.dtrx';
 include 'shared-reference-db.dtrx';
 include 'shared-data-exchange.dtrx';
