@@ -43,6 +43,19 @@ Validates `.dtrx` file syntax using the tree-sitter parser.
 
 **Parameters:** `-Path` (positional, default: all repos), `-Dbg`
 
+### `dev\config-linter.ps1`
+
+Lint/format ConfigDSL `.dcfg` files using the ConfigDSL parser.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **All repos (format)** | `.\dev\config-linter.ps1 -All` | Format all `.dcfg` files across all datrix repos |
+| **All repos (check)** | `.\dev\config-linter.ps1 -All -Check` | Check only; no file writes |
+| **Specific path** | `.\dev\config-linter.ps1 examples\01-foundation\config` | Format `.dcfg` files under a specific directory |
+| **Specific file (check)** | `.\dev\config-linter.ps1 path\to\system.dcfg -Check` | Check one file |
+
+**Parameters:** `-All`, `-Path` (positional, variadic), `-Check`, `-Dbg`
+
 ### `dev\status-generation.ps1`
 
 Reports generation status from the latest `generate-results-*.log` file. Lists which projects succeeded/failed.

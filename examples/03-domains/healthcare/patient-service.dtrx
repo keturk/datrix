@@ -317,7 +317,7 @@ service healthcare.PatientService('config/patient-service.dcfg') : version('1.0.
     }
 
     // REST API block with monitoring alerts
-    rest_api PatientAPI : basePath('/api/v1/patients') {
+    rest_api PatientAPI : basePath('/api/v1/patients'), rdbms(patientDb) {
         alert responseTime(p95) over(5m) > 500ms @severity(warning);
         alert errorRate(ratio) over(5m) > 5% @severity(critical);
 

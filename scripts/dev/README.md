@@ -18,6 +18,7 @@ Tools for code generation, parser building, and code quality.
 | `semgrep.ps1` | Scan Python code for anti-patterns using Semgrep (YAML rule-based) |
 | `ast-grep.ps1` | Scan Python code for structural anti-patterns using ast-grep rules or one-off patterns |
 | `ruff-checker.ps1` | Check Jinja2 templates with ruff linter |
+| `config-linter.ps1` | Lint and format ConfigDSL `.dcfg` files |
 | `syntax-checker.ps1` | Validate .dtrx file syntax |
 | `status-generation.ps1` | Show generation status for projects |
 | `datrix-count.ps1` | Count .dtrx files in the workspace |
@@ -382,3 +383,33 @@ Validates .dtrx file syntax without full generation.
 ```powershell
 .\syntax-checker.ps1 path/to/file.dtrx
 ```
+
+## config-linter.ps1
+
+Lints and formats ConfigDSL `.dcfg` files using the shared ConfigDSL parser (`datrix_common.config.dcfg.parser`).
+
+You must pass either `-All` or one/more file-system paths.
+
+```powershell
+# Format all .dcfg files across all datrix repos
+.\config-linter.ps1 -All
+
+# Check only (no writes)
+.\config-linter.ps1 -All -Check
+
+# Format one directory
+.\config-linter.ps1 examples\01-foundation\config
+
+# Check one file
+.\config-linter.ps1 examples\01-foundation\config\system.dcfg -Check
+```
+
+### Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `-All` | switch | Scan all datrix repositories (from `Get-DatrixDirectoryPaths`) |
+| `Path` | string[] | One or more file/directory paths to scan (positional) |
+| `-Check` | switch | Report only; do not write formatted output |
+| `-Dbg` | switch | Enable debug logging |
+

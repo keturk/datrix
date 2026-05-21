@@ -3,7 +3,6 @@ config service library.StorageWriterService {
     port = 8001;
     flavor = "compose";
     replicas = 1;
-
     resources {
       requests {
         cpu = "100m";
@@ -14,12 +13,10 @@ config service library.StorageWriterService {
         memory = "512Mi";
       }
     }
-
     healthCheck {
       path = "/health";
       initialDelay = "10s";
     }
-
     rdbms storagewriterDb {
       engine = "postgres";
       flavor = "container";
@@ -34,7 +31,20 @@ config service library.StorageWriterService {
       volumePath = "/var/lib/postgresql/data";
       defaultUser = "postgres";
     }
-
+    rdbms writerMeta {
+      engine = "postgres";
+      flavor = "container";
+      host = "localhost";
+      port = 5432;
+      database = "writermeta";
+      poolSize = 20;
+      asyncDriver = "postgresql+asyncpg";
+      syncDriver = "postgresql+psycopg2";
+      healthCheckSql = "SELECT 1";
+      dockerImage = "postgres:17-alpine";
+      volumePath = "/var/lib/postgresql/data";
+      defaultUser = "postgres";
+    }
     registration {
       tags = ["api", "library", "v1"];
       meta = {};
@@ -44,7 +54,6 @@ config service library.StorageWriterService {
         interval = "10s";
       }
     }
-
     resilience {
       defaults {
         timeout = "10s";
@@ -59,7 +68,6 @@ config service library.StorageWriterService {
       }
     }
   }
-
 
   profile test as "test" extends base {
     alias env = "TEST";
@@ -77,7 +85,6 @@ config service library.StorageWriterService {
 
     flavor = "ecs-fargate";
     replicas = 2;
-
     replace rdbms storagewriterDb {
       engine = "postgres";
       flavor = "rds";
@@ -89,7 +96,6 @@ config service library.StorageWriterService {
       syncDriver = "postgresql+psycopg2";
       healthCheckSql = "SELECT 1";
     }
-
     strategy {
       rolling {
         maxUnavailable = "25%";

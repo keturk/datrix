@@ -3,7 +3,6 @@ config service ecommerce.OrderService {
     port = 8001;
     flavor = "compose";
     replicas = 1;
-
     resources {
       requests {
         cpu = "100m";
@@ -14,12 +13,10 @@ config service ecommerce.OrderService {
         memory = "512Mi";
       }
     }
-
     healthCheck {
       path = "/health";
       initialDelay = "10s";
     }
-
     rdbms orderDb {
       engine = "postgres";
       flavor = "container";
@@ -34,7 +31,6 @@ config service ecommerce.OrderService {
       volumePath = "/var/lib/postgresql/data";
       defaultUser = "postgres";
     }
-
     cache redis {
       engine = "redis";
       flavor = "container";
@@ -44,7 +40,6 @@ config service ecommerce.OrderService {
       volumePath = "/data";
       healthCheckCmd = "redis-cli ping";
     }
-
     pubsub mq {
       engine = "kafka";
       flavor = "container";
@@ -54,8 +49,9 @@ config service ecommerce.OrderService {
       port = 9092;
       dockerImage = "confluentinc/cp-kafka:7.6";
       volumePath = "/var/lib/kafka/data";
+      retention = "7d";
+      controllerPort = 9093;
     }
-
     queues {
       engine = "rabbitmq";
       flavor = "container";
@@ -67,7 +63,6 @@ config service ecommerce.OrderService {
       volumePath = "/var/lib/rabbitmq";
       healthCheckCmd = "rabbitmq-diagnostics -q ping";
     }
-
     jobs {
       jobs {
         CleanupExpiredIdempotencyKeys {
@@ -76,7 +71,6 @@ config service ecommerce.OrderService {
         }
       }
     }
-
     registration {
       tags = ["api", "library", "v1"];
       meta = {};
@@ -86,7 +80,6 @@ config service ecommerce.OrderService {
         interval = "10s";
       }
     }
-
     resilience {
       defaults {
         timeout = "10s";
@@ -101,7 +94,6 @@ config service ecommerce.OrderService {
       }
     }
   }
-
 
   profile test as "test" extends base {
     alias env = "TEST";
@@ -119,7 +111,6 @@ config service ecommerce.OrderService {
 
     flavor = "ecs-fargate";
     replicas = 2;
-
     replace rdbms orderDb {
       engine = "postgres";
       flavor = "rds";
@@ -131,7 +122,6 @@ config service ecommerce.OrderService {
       syncDriver = "postgresql+psycopg2";
       healthCheckSql = "SELECT 1";
     }
-
     strategy {
       rolling {
         maxUnavailable = "25%";

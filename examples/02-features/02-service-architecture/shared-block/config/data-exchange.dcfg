@@ -3,7 +3,6 @@ config service library.SharedDataExchangeService {
     port = 8001;
     flavor = "compose";
     replicas = 1;
-
     resources {
       requests {
         cpu = "100m";
@@ -14,12 +13,10 @@ config service library.SharedDataExchangeService {
         memory = "512Mi";
       }
     }
-
     healthCheck {
       path = "/health";
       initialDelay = "10s";
     }
-
     rdbms dataexchangeDb {
       engine = "postgres";
       flavor = "container";
@@ -34,7 +31,15 @@ config service library.SharedDataExchangeService {
       volumePath = "/var/lib/postgresql/data";
       defaultUser = "postgres";
     }
-
+    storage landing {
+      provider = "minio";
+      flavor = "minio";
+      endpoint = "http://localhost:9000";
+      bucket = "landing";
+      region = "us-east-1";
+      accessKey = "minioadmin";
+      secretKey = "minioadmin";
+    }
     registration {
       tags = ["api", "library", "v1"];
       meta = {};
@@ -44,7 +49,6 @@ config service library.SharedDataExchangeService {
         interval = "10s";
       }
     }
-
     resilience {
       defaults {
         timeout = "10s";
@@ -59,7 +63,6 @@ config service library.SharedDataExchangeService {
       }
     }
   }
-
 
   profile test as "test" extends base {
     alias env = "TEST";
@@ -77,7 +80,6 @@ config service library.SharedDataExchangeService {
 
     flavor = "ecs-fargate";
     replicas = 2;
-
     replace rdbms dataexchangeDb {
       engine = "postgres";
       flavor = "rds";
@@ -89,7 +91,6 @@ config service library.SharedDataExchangeService {
       syncDriver = "postgresql+psycopg2";
       healthCheckSql = "SELECT 1";
     }
-
     strategy {
       rolling {
         maxUnavailable = "25%";

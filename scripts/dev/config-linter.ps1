@@ -8,7 +8,10 @@
  Also reports syntax errors and simple style warnings.
 
 .PARAMETER Path
- File or directory paths to scan (default: all datrix repositories).
+ File or directory paths to scan.
+
+.PARAMETER All
+ Scan all datrix repositories.
 
 .PARAMETER Check
  Check mode only. Reports issues and needed formatting without writing files.
@@ -17,11 +20,11 @@
  Enable debug logging.
 
 .EXAMPLE
- .\config-linter.ps1
+ .\config-linter.ps1 -All
  Format all .dcfg files under all datrix repositories.
 
 .EXAMPLE
- .\config-linter.ps1 -Check
+ .\config-linter.ps1 -All -Check
  Check all .dcfg files without modifying files.
 
 .EXAMPLE
@@ -35,6 +38,9 @@ param(
  [string[]]$Path = @(),
 
  [Parameter()]
+ [switch]$All,
+
+ [Parameter()]
  [switch]$Check,
 
  [Parameter()]
@@ -42,6 +48,20 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+if ($All -and $Path.Count -gt 0) {
+ Write-Error "Specify either -All or one or more paths, not both."
+ exit 1
+}
+
+if (-not $All -and $Path.Count -eq 0) {
+ Write-Host "Usage:" -ForegroundColor Yellow
+ Write-Host "  .\config-linter.ps1 -All [-Check] [-Dbg]" -ForegroundColor White
+ Write-Host "  .\config-linter.ps1 <path> [path2 ...] [-Check] [-Dbg]" -ForegroundColor White
+ Write-Host ""
+ Write-Host "Use Get-Help .\config-linter.ps1 -Full for detailed help." -ForegroundColor Yellow
+ exit 1
+}
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $libraryDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\library"
@@ -80,7 +100,7 @@ try {
  $pythonExe = Join-Path $venvPath "Scripts\python.exe"
 
  $pathsToCheck = @()
- if ($Path.Count -eq 0) {
+ if ($All) {
   $directories = Get-DatrixDirectoryPaths
   foreach ($dirPath in $directories) {
    if (Test-Path $dirPath) {

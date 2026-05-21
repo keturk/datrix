@@ -1,59 +1,105 @@
 config system lms.System {
   base {
-    language = "python";    deployment {
-      runtime = "docker-compose";      provider = "local";    }
-    defaultTimeout = 30000;    maxPageSize = 100;    env {
-      DEBUG = false;      CORS_ORIGINS = "[\"*\"]";      SECRETS_BACKEND = "environment";    }
+    language = "python";
+    deployment {
+      runtime = "docker-compose";
+      provider = "local";
+    }
+    defaultTimeout = 30000;
+    maxPageSize = 100;
+    env {
+      DEBUG = false;
+      CORS_ORIGINS = "[\"*\"]";
+      SECRETS_BACKEND = "environment";
+    }
     secrets {
-      provider = "env";    }
+      provider = "env";
+    }
     gateway {
-      port = 80;      rateLimit {
+      port = 80;
+      rateLimit {
         default {
-          requests = 100;          window = "1m";          key = "ip";        }      }
-
+          requests = 100;
+          window = "1m";
+          key = "ip";
+        }
+      }
       auth {
         jwt {
-          algorithm = "HS256";          issuer = "library";          expiresIn = 86400;          exclude = ["/health", "publicRoutes"];        }      }
-
+          algorithm = "HS256";
+          issuer = "library";
+          expiresIn = 86400;
+          exclude = ["/health", "publicRoutes"];
+        }
+      }
       cors {
-        origins = ["http://localhost:3000"];        methods = ["GET", "POST", "PUT", "DELETE", "PATCH"];        headers = ["Content-Type", "Authorization"];      }    }
-
+        origins = ["http://localhost:3000"];
+        methods = ["GET", "POST", "PUT", "DELETE", "PATCH"];
+        headers = ["Content-Type", "Authorization"];
+      }
+    }
     observability {
       metrics {
-        provider = "prometheus";        endpoint = "/metrics";        includeDefault = true;      }
+        provider = "prometheus";
+        endpoint = "/metrics";
+        includeDefault = true;
+      }
       tracing {
-        provider = "jaeger";        samplingRate = 0.1;      }
+        provider = "jaeger";
+        samplingRate = 0.1;
+      }
       logging {
-        level = "info";        format = "json";        provider = "loki";      }
+        level = "info";
+        format = "json";
+        provider = "loki";
+      }
       visualization {
-        provider = "grafana";      }
+        provider = "grafana";
+      }
       alerting {
-        provider = "alertmanager";      }    }
-
+        provider = "alertmanager";
+      }
+    }
     serviceDiscovery {
-      type = "consul";      host = "localhost";      port = 8500;      datacenter = "dc1";    }  }
+      type = "consul";
+      host = "localhost";
+      port = 8500;
+      datacenter = "dc1";
+    }
+  }
+
   profile test as "test" extends base {
     alias env = "TEST";
     alias resource = "test";
   }
-
 
   profile production as "prod" extends base {
     alias env = "PROD";
     alias resource = "prod";
 
     deployment {
-      runtime = "ecs-fargate";      provider = "aws";    }
+      runtime = "ecs-fargate";
+      provider = "aws";
+    }
     secrets {
-      provider = "vault";      path = "secret/library";    }
+      provider = "vault";
+      path = "secret/library";
+    }
     gateway {
       cors {
-        origins = ["https://library.example.com"];      }    }
-
+        origins = ["https://library.example.com"];
+      }
+    }
     observability {
       tracing {
-        endpoint = env("JAEGER_URL");      }    }
-
+        endpoint = env("JAEGER_URL");
+      }
+    }
     serviceDiscovery {
-      type = "kubernetes";      namespace = "default";      labelSelector = "app=library";    }
-    region = "us-east-1";  }}
+      type = "kubernetes";
+      namespace = "default";
+      labelSelector = "app=library";
+    }
+    region = "us-east-1";
+  }
+}
