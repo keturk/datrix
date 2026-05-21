@@ -1,4 +1,3 @@
-
 include 'common.dtrx';
 include 'device-service.dtrx';
 include 'telemetry-service.dtrx';

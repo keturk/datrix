@@ -1,9 +1,4 @@
-
-// Feature: GraphQL API - type-safe schema with queries and mutations
-// Demonstrates GraphQL types, queries, and mutations mapped to entity data
 include 'book-service.dtrx';
 
-// The system block is the top-level container that groups services
-// and defines shared infrastructure configuration
 system library.System('config/system.dcfg') : version('1.0.0') {
 }

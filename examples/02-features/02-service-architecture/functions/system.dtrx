@@ -1,9 +1,4 @@
-
-// Feature: Functions at three scopes - module-level, entity-level, and API-level
-// Demonstrates how functions can be defined at each scope with different access patterns
 include 'book-service.dtrx';
 
-// The system block is the top-level container that groups services
-// and defines shared infrastructure configuration
 system library.System('config/system.dcfg') : version('1.0.0') {
 }

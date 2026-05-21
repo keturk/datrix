@@ -1,11 +1,6 @@
-
-// Feature: Multi-service architecture - multiple services sharing a common module
-// Demonstrates service isolation with shared types via module imports
 include 'common.dtrx';
 include 'book-service.dtrx';
 include 'member-service.dtrx';
 
-// The system block is the top-level container that groups services
-// and defines shared infrastructure configuration
 system library.System('config/system.dcfg') : version('1.0.0') {
 }

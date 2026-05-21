@@ -1,5 +1,3 @@
-
-// Include service definitions from other source files
 include 'common.dtrx';
 include 'user-service.dtrx';
 include 'product-service.dtrx';
@@ -8,7 +6,5 @@ include 'payment-service.dtrx';
 include 'shipping-service.dtrx';
 include 'notification-service.dtrx';
 
-// The system block is the top-level container that groups services
-// and defines shared infrastructure configuration
 system ecommerce('config/system.dcfg') : version('1.0.0') {
 }
