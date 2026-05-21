@@ -1,5 +1,6 @@
 
-from ecommerce.common import Currency, OrderLineInput, MAX_PAGE_SIZE, generateOrderNumber;
+from datrix.foundation import MAX_PAGE_SIZE;
+from ecommerce.common import Currency, OrderLineInput, generateOrderNumber;
 
 service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), description('order management service') {
     // discovery block declares dependencies on other services

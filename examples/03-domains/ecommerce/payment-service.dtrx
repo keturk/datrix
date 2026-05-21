@@ -1,5 +1,6 @@
 
-from ecommerce.common import Currency, MAX_PAGE_SIZE, generateTransactionId;
+from datrix.foundation import MAX_PAGE_SIZE;
+from ecommerce.common import Currency, generateTransactionId;
 
 service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0'), description('payment management service') {
     discovery {
