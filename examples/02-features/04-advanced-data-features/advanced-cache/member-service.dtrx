@@ -43,6 +43,7 @@ service library.MemberService('config/member-service.dcfg') : version('1.0.0'), 
             // 'fulltext(...)' creates a full-text search index across the listed fields
             fulltext(firstName, lastName);
         }
+
     }
 
     test("computed fullName concatenates first and last name") {
@@ -80,11 +81,11 @@ service library.MemberService('config/member-service.dcfg') : version('1.0.0'), 
             let Int total = query.count();
             // Chained query: .orderBy() sorts, .offset() skips, .limit() restricts result count
             let Array<Member> members = query
-                .orderBy(lastName: asc)
-                .orderBy(firstName: asc)
-                .offset((page - 1) * perPage)
-                .limit(Math.min(perPage, 50))
-                .all();
+            .orderBy(lastName: asc)
+            .orderBy(firstName: asc)
+            .offset((page - 1) * perPage)
+            .limit(Math.min(perPage, 50))
+            .all();
 
             return {
                 members: members,
@@ -94,6 +95,7 @@ service library.MemberService('config/member-service.dcfg') : version('1.0.0'), 
                     total: total,
                     totalPages: Math.ceil(total / perPage)
                 }
+
             };
         }
 
@@ -115,5 +117,7 @@ service library.MemberService('config/member-service.dcfg') : version('1.0.0'), 
             let Member member = memberDb.Member.findOrFail(id);
             return { fullName: member.fullName, email: member.email, membershipType: member.membershipType };
         }
+
     }
+
 }

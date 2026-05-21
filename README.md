@@ -37,15 +37,15 @@ from taskmgmt.common import BaseEntity;
 
 service taskmgmt.TaskService : version('1.0.0') {
 
-    config('config/task-service/task-service-config.yaml');
-    registration('config/task-service/registration.yaml');
+    config('config/task-service/task-service-config.dcfg');
+    registration('config/task-service/registration.dcfg');
     discovery {
         ProjectService { loadBalance: roundRobin, healthyOnly: true }
         UserService { loadBalance: roundRobin, healthyOnly: true }
     }
-    resilience('config/task-service/resilience.yaml');
+    resilience('config/task-service/resilience.dcfg');
 
-    rdbms db('config/task-service/datasources.yaml') {
+    rdbms db('config/task-service/datasources.dcfg') {
 
         entity Task extends BaseEntity {
             UUID projectId : index;

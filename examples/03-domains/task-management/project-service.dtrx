@@ -5,6 +5,7 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
     discovery {
         UserService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     enum ProjectStatus {
         Planning : value('planning'),
         Active : value('active'),
@@ -80,9 +81,9 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
 
             validate {
                 if (name.trim().isEmpty())
-                    ValidationError("Project name cannot be empty");
+                ValidationError("Project name cannot be empty");
                 if (name.length() > 200)
-                    ValidationError("Project name cannot exceed 200 characters");
+                ValidationError("Project name cannot exceed 200 characters");
             }
 
             beforeCreate {
@@ -107,7 +108,9 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
                         newStatus: status
                     });
                 }
+
             }
+
         }
 
         entity ProjectMember extends BaseEntity {
@@ -120,13 +123,15 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
 
             validate {
                 if (userId == null)
-                    ValidationError("User ID is required for project membership");
+                ValidationError("User ID is required for project membership");
             }
 
             afterCreate {
                 dispatch MemberAdded(projectId, userId, role);
             }
+
         }
+
     }
 
     pubsub mq {
@@ -135,14 +140,18 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
             publish ProjectCreated(UUID projectId, String name, UUID ownerId) {
                 ensure name.length > 0;
             }
+
             publish ProjectStatusChanged(UUID projectId, ProjectStatus oldStatus, ProjectStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
+
             publish MemberAdded(UUID projectId, UUID userId, MemberRole role);
             publish MemberRemoved(UUID projectId, UUID userId);
             publish ProjectArchived(UUID projectId);
         }
+
     }
+
     subscribe ProjectEvents {
         on ProjectCreated(UUID projectId, String name, UUID ownerId) {
             Log.info("Project created", { projectId: projectId, name: name, ownerId: ownerId });
@@ -182,6 +191,7 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
         on ProjectArchived(UUID projectId) {
             Log.info("Project archived", { projectId: projectId });
         }
+
     }
 
     rest_api ProjectAPI : basePath('/api/v1/projects'), rdbms(projectDb) {
@@ -193,8 +203,8 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
 
             // Find projects where the user is a member
             let Array<ProjectMember> memberships = projectDb.ProjectMember
-                .where(userId: userId)
-                .all();
+            .where(userId: userId)
+            .all();
 
             let Array<UUID> projectIds = memberships.map(m => m.projectId);
 
@@ -206,10 +216,10 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
 
             let Int total = query.count();
             let Array<Project> projects = query
-                .orderBy(updatedAt: desc)
-                .offset((page - 1) * cappedPerPage)
-                .limit(cappedPerPage)
-                .all();
+            .orderBy(updatedAt: desc)
+            .offset((page - 1) * cappedPerPage)
+            .limit(cappedPerPage)
+            .all();
 
             let Int totalPages = Math.ceil(total / cappedPerPage);
 
@@ -223,6 +233,7 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
                     hasNextPage: page < totalPages,
                     hasPrevPage: page > 1
                 }
+
             };
         }
 
@@ -255,9 +266,11 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
             if (request.name != null) {
                 project.name = request.name;
             }
+
             if (request.description != null) {
                 project.description = request.description;
             }
+
             if (request.status != null) {
                 project.status = request.status;
             }
@@ -292,9 +305,9 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
 
             // Check if already a member
             let ProjectMember? existing = projectDb.ProjectMember
-                .where(projectId: id)
-                .where(userId: request.userId)
-                .first();
+            .where(projectId: id)
+            .where(userId: request.userId)
+            .first();
 
             if (existing != null) {
                 throw ValidationException({
@@ -317,9 +330,9 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
         @path('/:id/members/:userId')
         put(UUID id, UUID userId, UpdateMemberRoleRequest request) -> projectDb.ProjectMember {
             let ProjectMember member = projectDb.ProjectMember
-                .where(projectId: id)
-                .where(userId: userId)
-                .firstOrFail();
+            .where(projectId: id)
+            .where(userId: userId)
+            .firstOrFail();
 
             member.role = request.role;
             member.save();
@@ -331,9 +344,9 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
         @path('/:id/members/:userId')
         delete(UUID id, UUID userId) -> Void {
             let ProjectMember member = projectDb.ProjectMember
-                .where(projectId: id)
-                .where(userId: userId)
-                .firstOrFail();
+            .where(projectId: id)
+            .where(userId: userId)
+            .firstOrFail();
 
             if (member.role == MemberRole.Owner) {
                 throw ValidationException({
@@ -350,8 +363,8 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
         @path('/:id/members')
         get(UUID id) -> Array<projectDb.ProjectMember> {
             return projectDb.ProjectMember
-                .where(projectId: id)
-                .all();
+            .where(projectId: id)
+            .all();
         }
 
         // Search projects
@@ -359,10 +372,10 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
         get(String query, Int page = 1, Int perPage = 20) -> PaginatedProjects {
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             let Array<Project> projects = projectDb.Project
-                .fulltext(query)
-                .offset((page - 1) * cappedPerPage)
-                .limit(cappedPerPage)
-                .all();
+            .fulltext(query)
+            .offset((page - 1) * cappedPerPage)
+            .limit(cappedPerPage)
+            .all();
 
             let Int total = projectDb.Project.fulltext(query).count();
             let Int totalPages = Math.ceil(total / cappedPerPage);
@@ -377,6 +390,7 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
                     hasNextPage: page < totalPages,
                     hasPrevPage: page > 1
                 }
+
             };
         }
 
@@ -385,15 +399,16 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
         get(UUID id) : internal -> projectDb.Project {
             return projectDb.Project.findOrFail(id);
         }
+
     }
 
     test("validation rejects empty project name") {
         assert throws(
-            () => projectDb.Project.create({
-                name: "",
-                ownerId: uuid()
-            }),
-            ValidationError("Project name cannot be empty")
+        () => projectDb.Project.create({
+            name: "",
+            ownerId: uuid()
+        }),
+        ValidationError("Project name cannot be empty")
         );
     }
 
@@ -494,11 +509,11 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
     test("validation rejects project name exceeding 200 chars") {
         let String longName = "A".repeat(201);
         assert throws(
-            () => projectDb.Project.create({
-                name: longName,
-                ownerId: uuid()
-            }),
-            ValidationError("Project name cannot exceed 200 characters")
+        () => projectDb.Project.create({
+            name: longName,
+            ownerId: uuid()
+        }),
+        ValidationError("Project name cannot exceed 200 characters")
         );
     }
 
@@ -516,12 +531,13 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
 
     test("validation rejects null userId on ProjectMember") {
         assert throws(
-            () => projectDb.ProjectMember.create({
-                projectId: uuid(),
-                userId: null,
-                role: MemberRole.Viewer
-            }),
-            ValidationError("User ID is required for project membership")
+        () => projectDb.ProjectMember.create({
+            projectId: uuid(),
+            userId: null,
+            role: MemberRole.Viewer
+        }),
+        ValidationError("User ID is required for project membership")
         );
     }
+
 }

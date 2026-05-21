@@ -18,7 +18,7 @@
 
 ## DSL vs YAML Boundary
 
-| Behavioral (DSL .dtrx) | Environmental (YAML config/) |
+| Behavioral (DSL .dtrx) | Environmental (ConfigDSL .dcfg) |
 |---|---|
 | Cache TTL, rate limits, lifecycle hooks | Connection strings, ports, CPU/memory |
 | Entity structure, validation rules | CORS origins, JWT secrets |

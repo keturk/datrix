@@ -13,6 +13,7 @@ module fooddelivery.common {
         fn format() -> String {
             return #"{street}, {city}, {state} {zipCode}";
         }
+
     }
 
     fn generateOrderNumber() -> String {

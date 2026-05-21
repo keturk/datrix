@@ -39,7 +39,7 @@ Commonly referenced feature folders:
 - Authentication: [`01-core-data-modeling/authentication`](../../examples/02-features/01-core-data-modeling/authentication/)
 - Jobs: [`03-infrastructure-blocks/jobs`](../../examples/02-features/03-infrastructure-blocks/jobs/)
 - GraphQL: [`03-infrastructure-blocks/graphql`](../../examples/02-features/03-infrastructure-blocks/graphql/)
-- **Queues (task dispatch):** [`03-infrastructure-blocks/queue`](../../examples/02-features/03-infrastructure-blocks/queue/) — producer `queues('config/.../queue.yaml')`, consumer `enqueue BookService.TaskName(…)`, `dispatch` from hooks; includes `config/book-service/queue.yaml` and paired `notification-service` consumer.
+- **Queues (task dispatch):** [`03-infrastructure-blocks/queue`](../../examples/02-features/03-infrastructure-blocks/queue/) — producer `queues { ... }`, consumer `enqueue BookService.TaskName(…)`, `dispatch` from hooks; queue settings live in the producer service `.dcfg` and the paired `notification-service` consumes them.
 
 **Generated output (high level):** the producer service gets **`queue/payloads`** and **`queue/client`** modules; the consumer gets **`workers/queue_worker`** plus per-queue **handler** modules. Platform generators add broker containers (Compose/K8s) and cloud queue resources when enabled.
 
@@ -106,7 +106,7 @@ system ecommerce('config/system.dcfg') {}
 ### Spec (`specs/pricing-engine.dtrx`)
 
 ```dtrx
-extern service pricing.PricingEngine('config/pricing-engine.yaml')
+extern service pricing.PricingEngine('config/pricing-engine.dcfg')
     : version('1.0.0'), description('External pricing engine') {
 
     struct PricingRequest {
@@ -138,7 +138,7 @@ extern service pricing.PricingEngine('config/pricing-engine.yaml')
 ### Spec (`specs/order-service.dtrx`)
 
 ```dtrx
-service ecommerce.OrderService('config/order-service.yaml') {
+service ecommerce.OrderService('config/order-service.dcfg') {
     uses PricingEngine;
 
     rdbms db('config/order-service/datasources.dcfg') {
@@ -157,24 +157,30 @@ service ecommerce.OrderService('config/order-service.yaml') {
 }
 ```
 
-### Config (`config/pricing-engine.yaml`)
+### Config (`config/pricing-engine.dcfg`)
 
-```yaml
-development:
-  deployment: container
-  image: myregistry/pricing-engine:dev
-  port: 8080
-  auth:
-    type: apiKey
-    header: X-API-Key
-    secret: PRICING_API_KEY
+```dcfg
+config extern pricing.PricingEngine {
+  profile development as "dev" {
+    deployment = "container";
+    image = "myregistry/pricing-engine:dev";
+    port = 8080;
+    auth {
+      type = "apiKey";
+      header = "X-API-Key";
+      secret = "PRICING_API_KEY";
+    }
+  }
 
-production:
-  deployment: external
-  url: https://pricing.prod.internal/api
-  auth:
-    type: bearer
-    secret: PRICING_BEARER_TOKEN
+  profile production as "prod" {
+    deployment = "external";
+    url = "https://pricing.prod.internal/api";
+    auth {
+      type = "bearer";
+      secret = "PRICING_BEARER_TOKEN";
+    }
+  }
+}
 ```
 
 ### What you build

@@ -13,11 +13,9 @@ Every Datrix application is organized around three top-level blocks:
 include 'common.dtrx';
 include 'order-service.dtrx';
 
-system ecommerce : version('1.0.0') {
-    config('config/system.dcfg');
-    registry('config/registry.yaml');
-    gateway('config/gateway.yaml');
-    observability('config/observability.yaml');
+system ecommerce.Platform('config/system.dcfg') : version('1.0.0') {
+    gateway ecommerce.Gateway;
+    observability ecommerce.Observability;
 }
 ```
 
@@ -37,22 +35,17 @@ Multiple files can contribute to the same service — the compiler merges them a
 A service is the unit of deployment. Everything inside a service block belongs to that service.
 
 ```dtrx
-service ecommerce.OrderService : version('1.0.0') {
-
-    config('config/order-service/config.yaml');
-    registration('config/order-service/registration.yaml');
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
 
     discovery {
         UserService    { loadBalance: roundRobin, healthyOnly: true }
         PaymentService { loadBalance: roundRobin, healthyOnly: true }
     }
 
-    resilience('config/order-service/resilience.yaml');
-
-    rdbms db('config/order-service/datasources.yaml') { ... }
-    cache redis('config/order-service/cache.yaml') { ... }
-    pubsub mq('config/order-service/pubsub.yaml') { ... }
-    queues('config/order-service/queue.yaml') { ... }
+    rdbms db { ... }
+    cache redis { ... }
+    pubsub mq { ... }
+    queues { ... }
 
     rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(db) { ... }
 }
@@ -281,8 +274,8 @@ If both `sqlDb.Product` and `documentStore.Product` exist, bare `Product` is inv
 ## Event-Driven Messaging
 
 ```dtrx
-service ecommerce.OrderService : version('1.0.0') {
-    pubsub mq('config/pubsub.yaml') {
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
+    pubsub mq {
         topic OrderEvents {
             publish OrderCreated(UUID orderId, Money total);
             publish OrderShipped(UUID orderId, DateTime shippedAt);
@@ -314,18 +307,18 @@ Contracts are enforced at the publisher side — fail-fast at `dispatch`, before
 
 ### Serverless deployment boundary
 
-The **`serverless`** block groups **`subscribe`**, **`job`**, HTTP endpoints (`@path`, optional `@name('HandlerKey')`), and **`enqueue`** consumers so their **YAML** can target AWS Lambda, Azure Functions, or the service container per profile — without changing handler syntax. See [Writing Datrix Applications — Serverless](../guide/writing-datrix-applications.md#serverless-blocks) and [Grammar Reference — Serverless](../../datrix-language/docs/reference/datrix-grammar.md#serverless-blocks).
+The **`serverless`** block groups **`subscribe`**, **`job`**, HTTP endpoints (`@path`, optional `@name('HandlerKey')`), and **`enqueue`** consumers so the service `.dcfg` profile can target AWS Lambda, Azure Functions, or the service container without changing handler syntax. See [Writing Datrix Applications — Serverless](../guide/writing-datrix-applications.md#serverless-blocks) and [Grammar Reference — Serverless](../../datrix-language/docs/reference/datrix-grammar.md#serverless-blocks).
 
 ---
 
 ## Queues (task dispatch)
 
-**Point-to-point** work queues: each message is processed by **one** worker (competing consumers), with broker semantics for retries, visibility timeout, and DLQ driven by `queue.yaml` (see [Configuration Guide — Queue Configuration](../guide/configuration-guide.md#queue-configuration)).
+**Point-to-point** work queues: each message is processed by **one** worker (competing consumers), with broker semantics for retries, visibility timeout, and DLQ driven by the owning service `.dcfg` profile (see [Configuration Guide — Queue Configuration](../guide/configuration-guide.md#queue-configuration)).
 
-**Producer** (same service owns `queue.yaml`):
+**Producer** (same service owns the queue declaration and service `.dcfg`):
 
 ```dtrx
-queues('config/order-service/queue.yaml') {
+queues {
     queue ProcessPayment(UUID orderId, Money amount, String currency) {
         ensure amount > 0;
     }
@@ -352,7 +345,7 @@ dispatch ProcessPayment(orderId, amount, currency);
 | | Pub/Sub | Queues |
 |---|---------|--------|
 | Delivery | Every subscriber | Exactly one consumer |
-| Block | `pubsub … { topic … }` | `queues('queue.yaml') { queue … }` |
+| Block | `pubsub … { topic … }` | `queues { queue … }` |
 | Declaration | `publish Event(…)` | `queue Task(…)` |
 | Consumer | `subscribe` / `on Event` (or inside **`serverless`**) | `enqueue Service.Task` at service scope or inside **`serverless`** |
 | Verb | `dispatch Event(…)` | `dispatch Task(…)` |
@@ -364,7 +357,7 @@ Cross-service `enqueue` requires the producing service in `discovery { }` and a 
 ## Caching
 
 ```dtrx
-cache redis('config/cache.yaml') {
+cache redis {
     hash OrderCache on db.Order ttl(30m) {
         UUID orderId : primaryKey;
         String customerName;
@@ -429,7 +422,7 @@ discovery {
     PaymentService { loadBalance: roundRobin, healthyOnly: true }
 }
 
-resilience('config/resilience.yaml');
+// Resilience settings resolve from the service .dcfg profile.
 ```
 
 Service discovery and resilience (circuit breaker, retry, bulkhead) are configured per service. Generators produce the appropriate client-side implementation.
@@ -612,7 +605,7 @@ All parts except `extern service <qualified.Name> { }` are optional:
 | Part | Required | Example |
 |------|----------|---------|
 | Qualified name | Yes | `pricing.PricingEngine` |
-| Config path | No | `'config/pricing-engine.yaml'` |
+| Config path | No | `'config/pricing-engine.dcfg'` |
 | Attributes | No | `version('1.0.0'), description('Pricing service')` |
 | Members | No | structs, enums, rest_api, errors, auth, health |
 
@@ -710,7 +703,7 @@ Structs and enums declared inside an extern service are importable by consuming 
 ### Complete Example
 
 ```dtrx
-extern service pricing.PricingEngine('config/pricing-engine.yaml')
+extern service pricing.PricingEngine('config/pricing-engine.dcfg')
     : version('1.0.0'), description('External pricing service') {
 
     struct PricingRequest {

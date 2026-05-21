@@ -18,5 +18,7 @@ service library.MemberService('config/member-service.dcfg') : version('1.0.0'), 
             // '?' suffix makes address nullable (optional)
             Address? address;
         }
+
     }
+
 }

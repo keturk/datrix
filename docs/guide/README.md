@@ -20,10 +20,9 @@ This guide teaches you how to write production-ready Datrix applications, from b
 
 ### ⚙️ [Configuration Guide](./configuration-guide.md)
 Complete reference for all configuration files:
-- System configuration (`system-config.yaml`)
-- Service configuration (`*-config.yaml`)
-- Datasources configuration (`datasources.yaml`)
-- Infrastructure configuration (pubsub, cache, storage, jobs)
+- System configuration (`config/system.dcfg`)
+- Service configuration (`config/<service>.dcfg`)
+- Infrastructure configuration sections (`rdbms`, `pubsub`, `cache`, `storage`, `queues`, `jobs`)
 - Resilience, discovery, and observability
 - Profiles and environment-specific configuration
 - Platform-specific settings (Docker, Kubernetes, AWS, Azure)
@@ -121,11 +120,14 @@ service example.MyService : version('1.0.0') {
 }
 ```
 
-```yaml
-# YAML configuration files use this syntax
-test:
-  language: python
-  hosting: docker
+```dcfg
+# ConfigDSL files use this syntax
+config system example.System {
+    profile test {
+        language: python
+        deployment { runtime: docker-compose, provider: local }
+    }
+}
 ```
 
 ```python

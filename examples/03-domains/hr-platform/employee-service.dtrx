@@ -93,13 +93,13 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
 
             validate {
                 if (firstName.trim().isEmpty())
-                    ValidationError("First name cannot be empty");
+                ValidationError("First name cannot be empty");
                 if (lastName.trim().isEmpty())
-                    ValidationError("Last name cannot be empty");
+                ValidationError("Last name cannot be empty");
                 if (salary.amount <= 0)
-                    ValidationError("Salary must be positive");
+                ValidationError("Salary must be positive");
                 if (hireDate > DateTime.now())
-                    ValidationError("Hire date cannot be in the future");
+                ValidationError("Hire date cannot be in the future");
             }
 
             afterCreate {
@@ -117,21 +117,26 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
                     } else if (status == EmployeeStatus.Suspended) {
                         Log.warn("Employee suspended", { employeeId: id, employeeNumber: employeeNumber });
                     }
+
                 }
+
                 if (isChanged(department)) {
                     dispatch EmployeeDepartmentChanged(id, employeeNumber, oldValue(department), department);
                     Log.info("Employee department changed", { employeeId: id, oldDept: oldValue(department), newDept: department });
                 }
+
                 if (isChanged(salary)) {
                     dispatch EmployeeSalaryChanged(id, employeeNumber, oldValue(salary), salary);
                     Log.info("Employee salary updated", { employeeId: id, employeeNumber: employeeNumber });
                 }
+
             }
 
             fn terminate(String reason) {
                 if (status == EmployeeStatus.Terminated) {
                     throw ValidationException("Employee is already terminated");
                 }
+
                 status = EmployeeStatus.Terminated;
                 terminationDate = DateTime.now();
                 terminationReason = reason;
@@ -142,6 +147,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
                 if (status != EmployeeStatus.Active) {
                     throw ValidationException("Only active employees can be suspended");
                 }
+
                 status = EmployeeStatus.Suspended;
                 auditNote = reason;
                 this.save();
@@ -151,6 +157,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
                 if (status != EmployeeStatus.Suspended && status != EmployeeStatus.OnLeave) {
                     throw ValidationException("Only suspended or on-leave employees can be reinstated");
                 }
+
                 status = EmployeeStatus.Active;
                 auditNote = "Employee reinstated";
                 this.save();
@@ -160,9 +167,11 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
                 if (status != EmployeeStatus.Active) {
                     throw ValidationException("Only active employees can start leave");
                 }
+
                 status = EmployeeStatus.OnLeave;
                 this.save();
             }
+
         }
 
         // Emergency contact for employees
@@ -175,11 +184,13 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
 
             validate {
                 if (name.trim().isEmpty())
-                    ValidationError("Emergency contact name cannot be empty");
+                ValidationError("Emergency contact name cannot be empty");
                 if (relationship.trim().isEmpty())
-                    ValidationError("Relationship cannot be empty");
+                ValidationError("Relationship cannot be empty");
             }
+
         }
+
     }
 
     pubsub mq {
@@ -190,17 +201,23 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
                 ensure employeeNumber.length > 0;
                 ensure firstName.length > 0;
             }
+
             publish EmployeeStatusChanged(UUID employeeId, String employeeNumber, EmployeeStatus oldStatus, EmployeeStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
+
             publish EmployeeDepartmentChanged(UUID employeeId, String employeeNumber, Department oldDepartment, Department newDepartment) {
                 ensure oldDepartment != newDepartment;
             }
+
             publish EmployeeSalaryChanged(UUID employeeId, String employeeNumber, Money oldSalary, Money newSalary) {
                 ensure oldSalary != newSalary;
             }
+
         }
+
     }
+
     subscribe EmployeeEvents {
         on EmployeeHired(UUID employeeId, String employeeNumber, String firstName, String lastName, String email, Department department, EmploymentType employmentType) {
             Log.info("Employee hired event received", { employeeId: employeeId, employeeNumber: employeeNumber, department: department });
@@ -213,6 +230,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
         on EmployeeDepartmentChanged(UUID employeeId, String employeeNumber, Department oldDepartment, Department newDepartment) {
             Log.info("Employee department changed", { employeeId: employeeId, oldDepartment: oldDepartment, newDepartment: newDepartment });
         }
+
     }
 
     // CQRS block for optimized read queries
@@ -276,6 +294,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
                     view.status = newStatus;
                     view.save();
                 }
+
             }
 
             on EmployeeDepartmentChanged(UUID employeeId, String employeeNumber, Department oldDepartment, Department newDepartment) {
@@ -284,8 +303,11 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
                     view.department = newDepartment;
                     view.save();
                 }
+
             }
+
         }
+
     }
 
     rest_api EmployeeAPI : basePath('/api/v1/employees'), rdbms(employeeDb) {
@@ -299,16 +321,17 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
             if (department != null) {
                 query = employeeDb.Employee.where(department: department);
             }
+
             if (status != null) {
                 query = query.where(status: status);
             }
 
             let Int total = query.count();
             let Array<Employee> employees = query
-                .orderBy(lastName: asc)
-                .offset((page - 1) * perPage)
-                .limit(perPage)
-                .all();
+            .orderBy(lastName: asc)
+            .offset((page - 1) * perPage)
+            .limit(perPage)
+            .all();
 
             return {
                 data: employees,
@@ -320,6 +343,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
                     hasNextPage: page < Math.ceil(total / perPage),
                     hasPrevPage: page > 1
                 }
+
             };
         }
 
@@ -382,18 +406,23 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
                 case EmployeeStatus.Terminated {
                     employee.terminate(request.reason ?? "No reason provided");
                 }
+
                 case EmployeeStatus.Suspended {
                     employee.suspend(request.reason ?? "No reason provided");
                 }
+
                 case EmployeeStatus.Active {
                     employee.reinstate();
                 }
+
                 case EmployeeStatus.OnLeave {
                     employee.startLeave();
                 }
+
                 default {
                     throw ValidationException(#"Invalid status transition to {request.status}");
                 }
+
             }
 
             return employee;
@@ -419,28 +448,28 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
         @path('/:id/emergency-contacts')
         get(UUID id) -> Array<employeeDb.EmergencyContact> {
             return employeeDb.EmergencyContact
-                .where(employeeId: id)
-                .all();
+            .where(employeeId: id)
+            .all();
         }
 
         // Get employees by department
         @path('/by-department/:department')
         get(Department department) -> Array<employeeDb.Employee> {
             return employeeDb.Employee
-                .where(department: department)
-                .where(status: EmployeeStatus.Active)
-                .orderBy(lastName: asc)
-                .all();
+            .where(department: department)
+            .where(status: EmployeeStatus.Active)
+            .orderBy(lastName: asc)
+            .all();
         }
 
         // Get direct reports for a manager
         @path('/:id/reports')
         get(UUID id) -> Array<employeeDb.Employee> {
             return employeeDb.Employee
-                .where(managerId: id)
-                .where(status: EmployeeStatus.Active)
-                .orderBy(lastName: asc)
-                .all();
+            .where(managerId: id)
+            .where(status: EmployeeStatus.Active)
+            .orderBy(lastName: asc)
+            .all();
         }
 
         // CQRS directory view endpoint
@@ -449,6 +478,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
             if (department != null) {
                 return EmployeeDirectoryView.where(department: department).all();
             }
+
             return EmployeeDirectoryView.where(status: EmployeeStatus.Active).all();
         }
 
@@ -462,6 +492,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
         get(String employeeNumber) : internal -> employeeDb.Employee {
             return employeeDb.Employee.where(employeeNumber: employeeNumber).firstOrFail();
         }
+
     }
 
     test("computed fullName concatenates first and last name") {
@@ -504,20 +535,20 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
 
     test("validation rejects non-positive salary") {
         assert throws(
-            () => employeeDb.Employee.create({
-                firstName: "Test",
-                lastName: "User",
-                employeeNumber: "EMP-TEST-003",
-                email: "test.user@test.com",
-                phone: "+15551111111",
-                ssn: "11111111111",
-                dateOfBirth: DateTime.parse("1995-01-01"),
-                employmentType: EmploymentType.FullTime,
-                department: Department.Finance,
-                hireDate: DateTime.parse("2022-01-01"),
-                salary: Money.of(0, "USD")
-            }),
-            ValidationError("Salary must be positive")
+        () => employeeDb.Employee.create({
+            firstName: "Test",
+            lastName: "User",
+            employeeNumber: "EMP-TEST-003",
+            email: "test.user@test.com",
+            phone: "+15551111111",
+            ssn: "11111111111",
+            dateOfBirth: DateTime.parse("1995-01-01"),
+            employmentType: EmploymentType.FullTime,
+            department: Department.Finance,
+            hireDate: DateTime.parse("2022-01-01"),
+            salary: Money.of(0, "USD")
+        }),
+        ValidationError("Salary must be positive")
         );
     }
 
@@ -578,8 +609,8 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
         });
         emp.save();
         assert throws(
-            () => emp.suspend("Test suspension"),
-            ValidationException("Only active employees can be suspended")
+        () => emp.suspend("Test suspension"),
+        ValidationException("Only active employees can be suspended")
         );
     }
 
@@ -707,39 +738,40 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
 
     test("validation rejects empty first name") {
         assert throws(
-            () => employeeDb.Employee.create({
-                firstName: "",
-                lastName: "Wayne",
-                employeeNumber: "EMP-TEST-013",
-                email: "empty.first@test.com",
-                phone: "+15555550013",
-                ssn: "13131313131",
-                dateOfBirth: DateTime.parse("1993-04-01"),
-                employmentType: EmploymentType.FullTime,
-                department: Department.Finance,
-                hireDate: DateTime.parse("2023-01-10"),
-                salary: Money.of(65000, "USD")
-            }),
-            ValidationError("First name cannot be empty")
+        () => employeeDb.Employee.create({
+            firstName: "",
+            lastName: "Wayne",
+            employeeNumber: "EMP-TEST-013",
+            email: "empty.first@test.com",
+            phone: "+15555550013",
+            ssn: "13131313131",
+            dateOfBirth: DateTime.parse("1993-04-01"),
+            employmentType: EmploymentType.FullTime,
+            department: Department.Finance,
+            hireDate: DateTime.parse("2023-01-10"),
+            salary: Money.of(65000, "USD")
+        }),
+        ValidationError("First name cannot be empty")
         );
     }
 
     test("validation rejects future hire date") {
         assert throws(
-            () => employeeDb.Employee.create({
-                firstName: "Kara",
-                lastName: "Danvers",
-                employeeNumber: "EMP-TEST-014",
-                email: "kara.danvers@test.com",
-                phone: "+15555550014",
-                ssn: "14141414141",
-                dateOfBirth: DateTime.parse("1995-09-22"),
-                employmentType: EmploymentType.PartTime,
-                department: Department.Marketing,
-                hireDate: DateTime.parse("2099-12-31"),
-                salary: Money.of(55000, "USD")
-            }),
-            ValidationError("Hire date cannot be in the future")
+        () => employeeDb.Employee.create({
+            firstName: "Kara",
+            lastName: "Danvers",
+            employeeNumber: "EMP-TEST-014",
+            email: "kara.danvers@test.com",
+            phone: "+15555550014",
+            ssn: "14141414141",
+            dateOfBirth: DateTime.parse("1995-09-22"),
+            employmentType: EmploymentType.PartTime,
+            department: Department.Marketing,
+            hireDate: DateTime.parse("2099-12-31"),
+            salary: Money.of(55000, "USD")
+        }),
+        ValidationError("Hire date cannot be in the future")
         );
     }
+
 }

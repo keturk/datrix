@@ -5,6 +5,7 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
     discovery {
         StudentService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     enum CourseStatus {
         Draft : value('draft'),
         Published : value('published'),
@@ -117,15 +118,15 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
             validate {
                 if (title.trim().isEmpty())
-                    ValidationError("Course title cannot be empty");
+                ValidationError("Course title cannot be empty");
                 if (title.length() > 200)
-                    ValidationError("Course title cannot exceed 200 characters");
+                ValidationError("Course title cannot exceed 200 characters");
                 if (description.trim().isEmpty())
-                    ValidationError("Course description cannot be empty");
+                ValidationError("Course description cannot be empty");
                 if (maxEnrollment != null && maxEnrollment <= 0)
-                    ValidationError("Maximum enrollment must be a positive number");
+                ValidationError("Maximum enrollment must be a positive number");
                 if (durationHours != null && durationHours <= 0)
-                    ValidationError("Duration must be a positive number");
+                ValidationError("Duration must be a positive number");
             }
 
             beforeCreate {
@@ -154,6 +155,7 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
                 if (isChanged(currentEnrollment)) {
                     dispatch CourseEnrollmentUpdated(id, currentEnrollment, maxEnrollment);
                 }
+
             }
 
             fn publish() {
@@ -163,6 +165,7 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
                     this.save();
                     Log.info("Course published", { courseId: id, title: title });
                 }
+
             }
 
             fn archive() {
@@ -170,6 +173,7 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
                 this.save();
                 Log.info("Course archived", { courseId: id, title: title });
             }
+
         }
 
         entity CourseModule extends BaseEntity {
@@ -184,10 +188,11 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
             validate {
                 if (title.trim().isEmpty())
-                    ValidationError("Module title cannot be empty");
+                ValidationError("Module title cannot be empty");
                 if (orderIndex < 0)
-                    ValidationError("Order index cannot be negative");
+                ValidationError("Order index cannot be negative");
             }
+
         }
 
         entity Lesson extends BaseEntity {
@@ -205,12 +210,13 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
             validate {
                 if (title.trim().isEmpty())
-                    ValidationError("Lesson title cannot be empty");
+                ValidationError("Lesson title cannot be empty");
                 if (orderIndex < 0)
-                    ValidationError("Order index cannot be negative");
+                ValidationError("Order index cannot be negative");
                 if (durationMinutes < 0)
-                    ValidationError("Duration cannot be negative");
+                ValidationError("Duration cannot be negative");
             }
+
         }
 
         entity CourseRating extends BaseEntity {
@@ -223,7 +229,7 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
             validate {
                 if (rating < 1 || rating > 5)
-                    ValidationError("Rating must be between 1 and 5");
+                ValidationError("Rating must be between 1 and 5");
             }
 
             afterCreate {
@@ -231,8 +237,8 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
                 let Course? course = courseDb.Course.find(courseId);
                 if (course != null) {
                     let Array<CourseRating> ratings = courseDb.CourseRating
-                        .where(courseId: courseId)
-                        .all();
+                    .where(courseId: courseId)
+                    .all();
 
                     let Decimal totalRating = 0;
                     foreach r in ratings {
@@ -243,8 +249,11 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
                     course.ratingCount = ratings.length();
                     course.save();
                 }
+
             }
+
         }
+
     }
 
     storage store {
@@ -259,24 +268,32 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
             publish CourseCreated(UUID courseId, String title, UUID instructorId, DifficultyLevel difficulty) {
                 ensure title.length > 0;
             }
+
             publish CourseStatusChanged(UUID courseId, CourseStatus oldStatus, CourseStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
+
             publish CoursePublished(UUID courseId, String title) {
                 ensure title.length > 0;
             }
+
             publish CourseArchived(UUID courseId);
             publish CourseEnrollmentUpdated(UUID courseId, Int currentEnrollment, Int? maxEnrollment) {
                 ensure currentEnrollment >= 0;
             }
+
             publish ModuleAdded(UUID courseId, UUID moduleId, String title) {
                 ensure title.length > 0;
             }
+
             publish LessonAdded(UUID moduleId, UUID lessonId, String title) {
                 ensure title.length > 0;
             }
+
         }
+
     }
+
     subscribe CourseEvents {
         on CourseCreated(UUID courseId, String title, UUID instructorId, DifficultyLevel difficulty) {
             Log.info("Course created", {
@@ -299,11 +316,13 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
                 if (course != null) {
                     dispatch CoursePublished(courseId, course.title);
                 }
+
             }
 
             if (newStatus == CourseStatus.Archived) {
                 dispatch CourseArchived(courseId);
             }
+
         }
 
         on CourseEnrollmentUpdated(UUID courseId, Int currentEnrollment, Int? maxEnrollment) {
@@ -316,6 +335,7 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
             if (maxEnrollment != null && currentEnrollment >= maxEnrollment) {
                 Log.warn("Course is now full", { courseId: courseId });
             }
+
         }
 
         on CoursePublished(UUID courseId, String title) {
@@ -341,6 +361,7 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
                 title: title
             });
         }
+
     }
 
     rest_api CourseAPI : basePath('/api/v1/courses'), rdbms(courseDb) {
@@ -357,10 +378,10 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
             let Int total = query.count();
             let Array<Course> courses = query
-                .orderBy(createdAt: desc)
-                .offset((page - 1) * cappedPerPage)
-                .limit(cappedPerPage)
-                .all();
+            .orderBy(createdAt: desc)
+            .offset((page - 1) * cappedPerPage)
+            .limit(cappedPerPage)
+            .all();
 
             let Int totalPages = Math.ceil(total / cappedPerPage);
 
@@ -374,6 +395,7 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
                     hasNextPage: page < totalPages,
                     hasPrevPage: page > 1
                 }
+
             };
         }
 
@@ -410,18 +432,23 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
             if (request.title != null) {
                 course.title = request.title;
             }
+
             if (request.description != null) {
                 course.description = request.description;
             }
+
             if (request.difficulty != null) {
                 course.difficulty = request.difficulty;
             }
+
             if (request.maxEnrollment != null) {
                 course.maxEnrollment = request.maxEnrollment;
             }
+
             if (request.durationHours != null) {
                 course.durationHours = request.durationHours;
             }
+
             if (request.tags != null) {
                 course.tags = request.tags;
             }
@@ -460,17 +487,17 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
 
             let JSON courseQuery = courseDb.Course
-                .fulltext(query)
-                .where(status: CourseStatus.Published);
+            .fulltext(query)
+            .where(status: CourseStatus.Published);
 
             if (difficulty != null) {
                 courseQuery = courseQuery.where(difficulty: difficulty);
             }
 
             let Array<Course> courses = courseQuery
-                .offset((page - 1) * cappedPerPage)
-                .limit(cappedPerPage)
-                .all();
+            .offset((page - 1) * cappedPerPage)
+            .limit(cappedPerPage)
+            .all();
 
             let Int total = courseQuery.count();
             let Int totalPages = Math.ceil(total / cappedPerPage);
@@ -485,6 +512,7 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
                     hasNextPage: page < totalPages,
                     hasPrevPage: page > 1
                 }
+
             };
         }
 
@@ -510,9 +538,9 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
         @path('/:id/modules')
         get(UUID id) : public -> Array<courseDb.CourseModule> {
             return courseDb.CourseModule
-                .where(courseId: id)
-                .orderBy(orderIndex: asc)
-                .all();
+            .where(courseId: id)
+            .orderBy(orderIndex: asc)
+            .all();
         }
 
         // Add a lesson to a module
@@ -539,9 +567,9 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
         @path('/modules/:moduleId/lessons')
         get(UUID moduleId) : public -> Array<courseDb.Lesson> {
             return courseDb.Lesson
-                .where(courseModuleId: moduleId)
-                .orderBy(orderIndex: asc)
-                .all();
+            .where(courseModuleId: moduleId)
+            .orderBy(orderIndex: asc)
+            .all();
         }
 
         // Update a lesson
@@ -552,9 +580,11 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
             if (request.title != null) {
                 lesson.title = request.title;
             }
+
             if (request.content != null) {
                 lesson.content = request.content;
             }
+
             if (request.durationMinutes != null) {
                 lesson.durationMinutes = request.durationMinutes;
             }
@@ -571,9 +601,9 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
             // Check if already rated
             let CourseRating? existing = courseDb.CourseRating
-                .where(courseId: id)
-                .where(studentId: studentId)
-                .first();
+            .where(courseId: id)
+            .where(studentId: studentId)
+            .first();
 
             if (existing != null) {
                 throw ValidationException({
@@ -598,11 +628,11 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
         get(UUID id, Int page = 1, Int perPage = 20) : public -> Array<courseDb.CourseRating> {
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             return courseDb.CourseRating
-                .where(courseId: id)
-                .orderBy(createdAt: desc)
-                .offset((page - 1) * cappedPerPage)
-                .limit(cappedPerPage)
-                .all();
+            .where(courseId: id)
+            .orderBy(createdAt: desc)
+            .offset((page - 1) * cappedPerPage)
+            .limit(cappedPerPage)
+            .all();
         }
 
         // Internal endpoint for other services
@@ -635,55 +665,57 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
                 course.currentEnrollment = course.currentEnrollment - 1;
                 course.save();
             }
+
             return course;
         }
+
     }
 
     test("validation rejects empty course title") {
         assert throws(
-            () => courseDb.Course.create({
-                title: "",
-                description: "Test description",
-                difficulty: DifficultyLevel.Beginner,
-                instructorId: uuid()
-            }),
-            ValidationError("Course title cannot be empty")
+        () => courseDb.Course.create({
+            title: "",
+            description: "Test description",
+            difficulty: DifficultyLevel.Beginner,
+            instructorId: uuid()
+        }),
+        ValidationError("Course title cannot be empty")
         );
     }
 
     test("validation rejects empty course description") {
         assert throws(
-            () => courseDb.Course.create({
-                title: "Test Course",
-                description: "",
-                difficulty: DifficultyLevel.Beginner,
-                instructorId: uuid()
-            }),
-            ValidationError("Course description cannot be empty")
+        () => courseDb.Course.create({
+            title: "Test Course",
+            description: "",
+            difficulty: DifficultyLevel.Beginner,
+            instructorId: uuid()
+        }),
+        ValidationError("Course description cannot be empty")
         );
     }
 
     test("validation rejects non-positive maxEnrollment") {
         assert throws(
-            () => courseDb.Course.create({
-                title: "Limited Course",
-                description: "A course with enrollment limit",
-                difficulty: DifficultyLevel.Intermediate,
-                instructorId: uuid(),
-                maxEnrollment: 0
-            }),
-            ValidationError("Maximum enrollment must be a positive number")
+        () => courseDb.Course.create({
+            title: "Limited Course",
+            description: "A course with enrollment limit",
+            difficulty: DifficultyLevel.Intermediate,
+            instructorId: uuid(),
+            maxEnrollment: 0
+        }),
+        ValidationError("Maximum enrollment must be a positive number")
         );
     }
 
     test("validation rejects invalid rating") {
         assert throws(
-            () => courseDb.CourseRating.create({
-                courseId: uuid(),
-                studentId: uuid(),
-                rating: 6
-            }),
-            ValidationError("Rating must be between 1 and 5")
+        () => courseDb.CourseRating.create({
+            courseId: uuid(),
+            studentId: uuid(),
+            rating: 6
+        }),
+        ValidationError("Rating must be between 1 and 5")
         );
     }
 
@@ -754,23 +786,23 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
     test("validation rejects empty module title") {
         assert throws(
-            () => courseDb.CourseModule.create({
-                courseId: uuid(),
-                title: "",
-                orderIndex: 0
-            }),
-            ValidationError("Module title cannot be empty")
+        () => courseDb.CourseModule.create({
+            courseId: uuid(),
+            title: "",
+            orderIndex: 0
+        }),
+        ValidationError("Module title cannot be empty")
         );
     }
 
     test("validation rejects empty lesson title") {
         assert throws(
-            () => courseDb.Lesson.create({
-                courseModuleId: uuid(),
-                title: "",
-                orderIndex: 0
-            }),
-            ValidationError("Lesson title cannot be empty")
+        () => courseDb.Lesson.create({
+            courseModuleId: uuid(),
+            title: "",
+            orderIndex: 0
+        }),
+        ValidationError("Lesson title cannot be empty")
         );
     }
 
@@ -827,14 +859,14 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
     test("validation rejects non-positive durationHours") {
         assert throws(
-            () => courseDb.Course.create({
-                title: "Duration Course",
-                description: "Testing duration validation",
-                difficulty: DifficultyLevel.Advanced,
-                instructorId: uuid(),
-                durationHours: -5.0
-            }),
-            ValidationError("Duration must be a positive number")
+        () => courseDb.Course.create({
+            title: "Duration Course",
+            description: "Testing duration validation",
+            difficulty: DifficultyLevel.Advanced,
+            instructorId: uuid(),
+            durationHours: -5.0
+        }),
+        ValidationError("Duration must be a positive number")
         );
     }
 
@@ -881,46 +913,47 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
     test("validation rejects negative module orderIndex") {
         assert throws(
-            () => courseDb.CourseModule.create({
-                courseId: uuid(),
-                title: "Negative Order Module",
-                orderIndex: -1
-            }),
-            ValidationError("Order index cannot be negative")
+        () => courseDb.CourseModule.create({
+            courseId: uuid(),
+            title: "Negative Order Module",
+            orderIndex: -1
+        }),
+        ValidationError("Order index cannot be negative")
         );
     }
 
     test("validation rejects negative lesson orderIndex") {
         assert throws(
-            () => courseDb.Lesson.create({
-                courseModuleId: uuid(),
-                title: "Negative Order Lesson",
-                orderIndex: -1
-            }),
-            ValidationError("Order index cannot be negative")
+        () => courseDb.Lesson.create({
+            courseModuleId: uuid(),
+            title: "Negative Order Lesson",
+            orderIndex: -1
+        }),
+        ValidationError("Order index cannot be negative")
         );
     }
 
     test("validation rejects negative lesson duration") {
         assert throws(
-            () => courseDb.Lesson.create({
-                courseModuleId: uuid(),
-                title: "Negative Duration Lesson",
-                orderIndex: 1,
-                durationMinutes: -10
-            }),
-            ValidationError("Duration cannot be negative")
+        () => courseDb.Lesson.create({
+            courseModuleId: uuid(),
+            title: "Negative Duration Lesson",
+            orderIndex: 1,
+            durationMinutes: -10
+        }),
+        ValidationError("Duration cannot be negative")
         );
     }
 
     test("validation rejects rating below 1") {
         assert throws(
-            () => courseDb.CourseRating.create({
-                courseId: uuid(),
-                studentId: uuid(),
-                rating: 0
-            }),
-            ValidationError("Rating must be between 1 and 5")
+        () => courseDb.CourseRating.create({
+            courseId: uuid(),
+            studentId: uuid(),
+            rating: 0
+        }),
+        ValidationError("Rating must be between 1 and 5")
         );
     }
+
 }

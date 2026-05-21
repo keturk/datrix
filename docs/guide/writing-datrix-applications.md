@@ -72,19 +72,10 @@ my-project/
 │       ├── user-service.dtrx
 │       ├── order-service.dtrx
 │       └── payment-service.dtrx
-├── config/                        # Configuration files (YAML)
-│   ├── system-config.yaml        # System-level config (language, hosting)
-│   ├── gateway.yaml              # API gateway config
-│   ├── registry.yaml             # Service registry config
-│   ├── observability.yaml        # Observability config
-│   ├── user-service/             # Per-service configs
-│   │   ├── service-config.yaml   # Service deployment config
-│   │   ├── datasources.yaml      # Database/cache/pubsub config
-│   │   ├── registration.yaml     # Service metadata
-│   │   └── resilience.yaml       # Circuit breaker, retry, etc.
-│   └── order-service/
-│       ├── service-config.yaml
-│       └── datasources.yaml
+├── config/                        # ConfigDSL files (.dcfg)
+│   ├── system.dcfg               # System-level profile config
+│   ├── user-service.dcfg         # User service runtime/infrastructure config
+│   └── order-service.dcfg        # Order service runtime/infrastructure config
 └── generated/                     # Generated code (managed by Datrix)
     ├── user-service/
     │   ├── app/                  # Python/TypeScript application code
@@ -99,14 +90,14 @@ my-project/
 | Directory | Purpose | Managed By |
 |-----------|---------|------------|
 | `specs/` | `.dtrx` specification files | You (version controlled) |
-| `config/` | YAML configuration files | You (version controlled) |
+| `config/` | `.dcfg` ConfigDSL files | You (version controlled) |
 | `generated/` | Generated application code | Datrix CLI (overwritten on regeneration) |
 
 > **💡 Tip:** Only edit files in `specs/` and `config/`. Never manually edit `generated/` — your changes will be lost on next generation.
 
 ### Layout used in `examples/`
 
-The official [`examples/`](../../examples/) trees usually place **`system.dtrx` and `*.dtrx` service files at the project root** beside a **`config/`** directory. Paths in `include '…'` and `config('…')` are **relative to the file** that contains them. A nested **`specs/`** layout (as sketched above) is equally valid for larger repos—keep paths consistent.
+The official [`examples/`](../../examples/) trees usually place **`system.dtrx` and `*.dtrx` service files at the project root** beside a **`config/`** directory. Paths in `include '…'` and declaration-level `.dcfg` paths are **relative to the file** that contains them. A nested **`specs/`** layout (as sketched above) is equally valid for larger repos—keep paths consistent.
 
 ---
 
@@ -123,11 +114,9 @@ include 'common/entities.dtrx';
 include 'services/user-service.dtrx';
 include 'services/order-service.dtrx';
 
-system ecommerce.System : version('1.0.0') {
-    config('config/system-config.yaml');
-    registry('config/registry.yaml');
-    gateway('config/gateway.yaml');
-    observability('config/observability.yaml');
+system ecommerce.System('config/system.dcfg') : version('1.0.0') {
+    gateway ecommerce.Gateway;
+    observability ecommerce.Observability;
 }
 ```
 
@@ -154,8 +143,8 @@ Use `from ... import` to reference definitions from modules:
 ```dtrx
 from ecommerce.common import Auditable, BaseEntity, SoftDeletable;
 
-service ecommerce.OrderService : version('1.0.0') {
-    rdbms db('config/datasources.yaml') {
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
+    rdbms db {
         entity Order extends BaseEntity with Auditable {
             // Fields here
         }
@@ -170,41 +159,43 @@ service ecommerce.OrderService : version('1.0.0') {
 The **system block** defines global infrastructure shared by all services.
 
 ```dtrx
-system ecommerce.System : version('1.0.0') {
-    config('config/system-config.yaml');
-    registry('config/registry.yaml');
-    gateway('config/gateway.yaml');
-    observability('config/observability.yaml');
+system ecommerce.System('config/system.dcfg') : version('1.0.0') {
+    gateway ecommerce.Gateway;
+    observability ecommerce.Observability;
 }
 ```
 
 ### System Configuration
 
-Each system attribute points to a YAML configuration file:
+The declaration-level `.dcfg` path points to the system ConfigDSL file:
 
-| Attribute | Config File | Purpose |
-|-----------|-------------|---------|
-| `config()` | `system-config.yaml` | Language, hosting platform, deployment settings |
-| `registry()` | `registry.yaml` | Service discovery/registry (Consul, Eureka, etc.) |
-| `gateway()` | `gateway.yaml` | API gateway (routing, authentication, rate limiting) |
-| `observability()` | `observability.yaml` | Tracing, metrics, logging, alerting |
+| Location | Config File | Purpose |
+|----------|-------------|---------|
+| `system QualifiedName('config/system.dcfg')` | `system.dcfg` | Language, runtime/provider/target, registry, gateway, observability, and shared system settings |
 
-**system-config.yaml example:**
+**system.dcfg example:**
 
-```yaml
-test:
-  language: python         # "python" or "typescript"
-  hosting: docker          # "docker", "kubernetes", "aws", "azure"
-  defaultTimeout: 30000    # Default request timeout (ms)
+```dcfg
+config system ecommerce.System {
+    profile test {
+        language: python
+        deployment {
+            runtime: docker-compose
+            provider: local
+        }
+        defaultTimeout: 30000
+    }
 
-production:
-  language: python
-  hosting: aws
-  region: us-east-1
-  network:
-    vpcId: vpc-abc123
-    appSubnets: [subnet-app-1, subnet-app-2]
-    dataSubnets: [subnet-data-1, subnet-data-2]
+    profile production {
+        language: python
+        deployment {
+            runtime: kubernetes
+            provider: aws
+            target: eks
+        }
+        region: us-east-1
+    }
+}
 ```
 
 > **📖 Reference:** See [Configuration Guide](./configuration-guide.md#system-configuration) for complete system config reference.
@@ -218,13 +209,10 @@ A **service** is the unit of deployment. Everything inside a service block belon
 ### Basic Service
 
 ```dtrx
-service ecommerce.OrderService : version('1.0.0'), description('Order management') {
-    config('config/order-service/service-config.yaml');
-    registration('config/order-service/registration.yaml');
-
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), description('Order management') {
     discovery { }  // Service discovery config
 
-    rdbms db('config/order-service/datasources.yaml') {
+    rdbms db {
         // Entities here
     }
 
@@ -247,10 +235,8 @@ Services support these attributes:
 
 | Block | Config File | Purpose |
 |-------|-------------|---------|
-| `config()` | `service-config.yaml` | Platform, replicas, resources, health checks |
-| `registration()` | `registration.yaml` | Service metadata for registry |
+| Declaration `.dcfg` path | `config/<service>.dcfg` | Platform, replicas, resources, health checks, registration, resilience, and infrastructure settings |
 | `discovery { }` | Inline | Dependencies on other services |
-| `resilience()` | `resilience.yaml` | Circuit breaker, retry policies, bulkhead |
 
 ### Service Discovery
 
@@ -284,7 +270,7 @@ Entities define your data model. Each entity maps to:
 ### Basic Entity
 
 ```dtrx
-rdbms db('config/datasources.yaml') {
+rdbms db {
     entity User {
         UUID id : primaryKey = uuid();
         String(100) name : trim;
@@ -791,8 +777,8 @@ Use a **top-level** `shared QualifiedName { … }` block when **several services
 
 1. Pick a **descriptive** block name (`IngestionEvents`, `ProductCatalogData`).
 2. Place `shared` blocks in the same **`specs/`** tree as services (or `include` them from `system.dtrx`).
-3. Point each infrastructure member at the same style of YAML as services (`pubsub mq('config/shared/…yaml')`, etc.).
-4. In every service that publishes or subscribes across the boundary, add **`uses SharedName : publish | subscribe | readonly | readwrite;`** and operational rows in **`dependencies.yaml`** (see [Configuration guide](./configuration-guide.md)).
+3. Keep infrastructure members pathless in `.dtrx`; their operational settings live in the owning `config shared` `.dcfg`.
+4. In every service that publishes or subscribes across the boundary, add **`uses SharedName : publish | subscribe | readonly | readwrite;`** and the matching dependency settings in the service `.dcfg` (see [Configuration guide](./configuration-guide.md)).
 
 **Generated layout:** shared artifacts land under **`shared/<kebab-name>/…`** next to **`services/<service>/…`** in the codegen output.
 
@@ -805,7 +791,7 @@ Datrix supports publish/subscribe messaging with type-safe events.
 ### Defining Events
 
 ```dtrx
-pubsub mq('config/order-service/pubsub.yaml') {
+pubsub mq {
     topic OrderEvents {
         publish OrderCreated(UUID orderId, Money total, UUID customerId);
         publish OrderShipped(UUID orderId, DateTime shippedAt);
@@ -853,8 +839,8 @@ post cancelOrder(UUID id) -> Order {
 **Same service:**
 
 ```dtrx
-service ecommerce.OrderService : version('1.0.0') {
-    pubsub mq('config/order-service/pubsub.yaml') {
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
+    pubsub mq {
         topic OrderEvents {
             publish OrderCreated(UUID orderId, Money total, UUID customerId);
         }
@@ -873,8 +859,8 @@ service ecommerce.OrderService : version('1.0.0') {
 
 ```dtrx
 // In notification-service.dtrx
-service notification.NotificationService : version('1.0.0') {
-    pubsub mq('config/notification-service/pubsub.yaml') {
+service notification.NotificationService('config/notification-service.dcfg') : version('1.0.0') {
+    pubsub mq {
     }
 
     subscribe ecommerce.OrderService.mq.OrderEvents {
@@ -901,17 +887,15 @@ topic OrderEvents {
 
 ### Serverless blocks
 
-Use one or more **`serverless BlockName('config/...yaml') { … }`** sections when handlers should deploy as **Lambda / Azure Functions** in production but still run **in the service process** locally (`platform: container` in dev/test YAML).
+Use one or more **`serverless BlockName { … }`** sections when handlers should deploy as **Lambda / Azure Functions** in production but still run **in the service process** locally. The selected service `.dcfg` profile controls the deployment target.
 
 **Key concept:** The `serverless` block is a **deployment boundary only**. It contains the same DSL members you would use at service scope (`subscribe`, `job`, HTTP endpoints, `enqueue` consumers) with **identical syntax**. Moving a handler between in-process and serverless deployment is a simple cut-and-paste operation — no code changes required.
 
 #### Complete example
 
 ```dtrx
-service OrderService {
-    config('config/order-service/service-config.yaml')
-
-    rdbms db('config/order-service/rdbms.yaml') {
+service OrderService('config/order-service.dcfg') {
+    rdbms db {
         entity Order {
             Decimal amount
             String currency
@@ -919,7 +903,7 @@ service OrderService {
         }
     }
 
-    pubsub mq('config/order-service/pubsub.yaml') {
+    pubsub mq {
         topic OrderEvents {
             publish OrderPlaced(UUID orderId, Decimal amount);
             publish OrderCancelled(UUID orderId);
@@ -931,14 +915,14 @@ service OrderService {
     }
 
     // This job runs in-process inside the service container
-    jobs('config/order-service/jobs.yaml') {
+    jobs('config/order-service.dcfg') {
         job QuickCleanup {
             // lightweight task, runs alongside the API
         }
     }
 
     // Event handlers deployed as Lambda/Azure Functions
-    serverless eventHandlers('config/order-service/event-handlers.yaml') {
+    serverless eventHandlers {
 
         subscribe mq.OrderEvents {
             on OrderPlaced(UUID orderId, Decimal amount) {
@@ -962,7 +946,7 @@ service OrderService {
     }
 
     // Scheduled tasks — separate config, separate deployment
-    serverless scheduledTasks('config/order-service/scheduled-tasks.yaml') {
+    serverless scheduledTasks {
         job DailyOrderReport {
             #Array<Order> orders = db.Order.where(status: "completed").all();
             Log.info(#"Daily report: {orders.length()} completed orders");
@@ -973,26 +957,31 @@ service OrderService {
 
 #### Configuration
 
-Each `serverless` block references its own config file:
+Serverless handler settings live in the service `.dcfg` profile:
 
-```yaml
-# config/order-service/event-handlers.yaml
-production:
-  platform: lambda              # or: functions (Azure)
+```dcfg
+config service OrderService {
+    profile production {
+        serverless eventHandlers {
+            platform: lambda
+            defaults {
+                timeout: 300
+                memory: 512
+            }
+            handler OrderPlaced {
+                timeout: 60
+                memory: 256
+                reservedConcurrency: 50
+            }
+        }
+    }
 
-  defaults:                     # applied to all handlers
-    timeout: 300
-    memory: 512
-
-  handlers:
-    OrderPlaced:                # matches event handler name
-      timeout: 60
-      memory: 256
-      reservedConcurrency: 50
-    OrderCancelled: {}          # uses defaults
-
-development:
-  platform: container           # runs in-process for local dev
+    profile development {
+        serverless eventHandlers {
+            platform: container
+        }
+    }
+}
 ```
 
 #### Multiple blocks for organization
@@ -1003,21 +992,21 @@ A service can have multiple `serverless` blocks to group handlers by concern:
 - **Scheduled tasks** — separate block, separate config (cron jobs)
 - **Webhooks** — another block for HTTP-triggered handlers
 
-Each block can have different timeout/memory settings or even different platforms per environment.
+Each block can have different timeout/memory settings or even different platforms per profile.
 
 #### Serverless in shared blocks
 
 Shared blocks can also contain serverless handlers for cross-service functions:
 
 ```dtrx
-shared IngestionPipeline {
-    pubsub mq('config/shared/ingestion-pubsub.yaml') {
+shared IngestionPipeline('config/ingestion-pipeline.dcfg') {
+    pubsub mq {
         topic IngestionEvents {
             publish SourceIngested(UUID runId, String source, Integer recordCount);
         }
     }
 
-    serverless ingestionHandlers('config/shared/ingestion-handlers.yaml') {
+    serverless ingestionHandlers {
         subscribe mq.IngestionEvents {
             on SourceIngested(UUID runId, String source, Integer recordCount) {
                 Log.info(#"Ingested {recordCount} records from {source}");
@@ -1035,12 +1024,12 @@ Refactoring is a cut-and-paste operation:
 
 ```dtrx
 // Before: runs in the service container
-jobs('config/jobs.yaml') {
+jobs('config/order-service.dcfg') {
     job DailyReport { ... }    // <-- cut this
 }
 
 // After: deploys as Lambda/Azure Function
-serverless tasks('config/serverless.yaml') {
+serverless tasks {
     job DailyReport { ... }    // <-- paste here, unchanged
 }
 ```
@@ -1055,9 +1044,9 @@ Same for `subscribe` handlers, `enqueue` consumers, and HTTP endpoints.
 
 ## Task queues (point-to-point)
 
-Queues offload **exactly-once consumer** work to workers. Configuration is in **`queue.yaml`** (not `datasources.yaml`). Only the **producing** service adds that file and a `queues('…/queue.yaml') { queue Name(…) { … } }` block.
+Queues offload **exactly-once consumer** work to workers. Queue declarations live in the producing service's `queues { ... }` block; broker settings and worker defaults live in that service's `.dcfg` profile.
 
-1. Add `config/<service>/queue.yaml` with `engine`, `platform`, broker settings, and worker defaults (`visibilityTimeout`, `maxConcurrency`, `workerReplicas`, …). See [Configuration Guide — Queue Configuration](./configuration-guide.md#queue-configuration).
+1. Add queue settings to `config/<service>.dcfg` with `engine`, `platform`, broker settings, and worker defaults (`visibilityTimeout`, `maxConcurrency`, `workerReplicas`, …). See [Configuration Guide — Queue Configuration](./configuration-guide.md#queue-configuration).
 2. Declare queues in DSL; use `dispatch TaskName(args);` from entities, commands, or HTTP handlers (same keyword as pubsub events — **QUE005** ensures the name resolves).
 3. For a **consumer** in another service: add the producer to `discovery { }` and write `enqueue ProducerService.TaskName(…) { … }`. The generator emits a **separate worker entrypoint** (e.g. `python -m …workers.queue_worker`) suitable for its own container/pod.
 
@@ -1074,7 +1063,7 @@ Datrix generates caching code with Redis/Valkey/Memcached.
 Cache entity data with TTL:
 
 ```dtrx
-cache redis('config/order-service/cache.yaml') {
+cache redis {
     hash OrderCache on db.Order ttl(30m) {
         UUID orderId : primaryKey;
         String customerName;
@@ -1103,7 +1092,7 @@ entity Order {
 ### Counters
 
 ```dtrx
-cache redis('config/cache.yaml') {
+cache redis {
     counter OrderViewCount : prefix('order:views');
     counter DailyOrders : prefix('metrics:orders:daily');
 }
@@ -1166,20 +1155,27 @@ job UpdateMetrics interval(5m) {
 Jobs can reference configuration for timeouts and retries:
 
 ```dtrx
-job ProcessPayments cron('0 * * * *') config('config/jobs.yaml') {
+jobs('config/order-service.dcfg') {
+    job ProcessPayments cron('0 * * * *') {
     // Job logic
+    }
 }
 ```
 
-**config/jobs.yaml:**
+**config/order-service.dcfg:**
 
-```yaml
-test:
-  jobs:
-    ProcessPayments:
-      schedule: "0 * * * *"
-      timeout: 5m
-      retry: { maxAttempts: 3, backoff: exponential }
+```dcfg
+config service OrderService {
+    profile test {
+        jobs {
+            ProcessPayments {
+                schedule: "0 * * * *"
+                timeout: 5m
+                retry { maxAttempts: 3, backoff: exponential }
+            }
+        }
+    }
+}
 ```
 
 ---
@@ -1294,7 +1290,7 @@ cqrs {
 Define file/object storage operations (S3-compatible).
 
 ```dtrx
-storage files config('config/storage.yaml') {
+storage files {
     upload(Bytes file, String filename) -> URL;
     download(String key) -> Bytes;
     delete(String key);
@@ -1503,19 +1499,24 @@ service ecommerce.OrderService : version('1.0.0') {
 
 Configure circuit breaker, retry, timeout, and bulkhead patterns:
 
-**config/order-service/resilience.yaml:**
+**config/order-service.dcfg:**
 
-```yaml
-test:
-  circuitBreaker:
-    failureThreshold: 5
-    successThreshold: 2
-    timeout: 60000         # 60 seconds
-
-  retry:
-    maxAttempts: 3
-    backoff:
-      type: exponential
+```dcfg
+config service OrderService {
+    profile test {
+        resilience {
+            circuitBreaker {
+                failureThreshold: 5
+                successThreshold: 2
+                timeout: 60000
+            }
+            retry {
+                maxAttempts: 3
+                backoff { type: exponential }
+            }
+        }
+    }
+}
       initialDelay: 1000   # 1 second
       maxDelay: 10000      # 10 seconds
       multiplier: 2
@@ -1553,7 +1554,7 @@ Extern services are **not** for communication between Datrix-generated services 
 An extern service is a top-level `.dtrx` block that describes the external service's API:
 
 ```dtrx
-extern service pricing.PricingEngine('config/pricing-engine.yaml')
+extern service pricing.PricingEngine('config/pricing-engine.dcfg')
     : version('1.0.0'), description('External pricing engine') {
 
     // Data types used in API calls
@@ -1606,7 +1607,7 @@ Key differences from a regular `service`:
 A Datrix service consumes an extern service with `uses`, just like `shared` blocks:
 
 ```dtrx
-service ecommerce.OrderService('config/order-service.yaml') {
+service ecommerce.OrderService('config/order-service.dcfg') {
     uses PricingEngine;
 
     rest_api OrderAPI : basePath('/api/v1/orders') {
@@ -1620,23 +1621,31 @@ service ecommerce.OrderService('config/order-service.yaml') {
 
 ### Deployment Modes
 
-The extern service's YAML config file specifies how it is deployed:
+The Datrix-owned extern service access .dcfg file specifies how generated services reach or run it:
 
 **Container mode** — Datrix manages the container alongside your services:
 
-```yaml
-deployment: container
-image: myregistry/pricing-engine:1.2.0
-port: 8080
+```dcfg
+config extern pricing.PricingEngine {
+  profile development as "dev" {
+    deployment = "container";
+    image = "myregistry/pricing-engine:1.2.0";
+    port = 8080;
+  }
+}
 ```
 
 This generates Docker Compose entries and Kubernetes manifests for the extern service, including health checks and environment variables.
 
 **External mode** — The service runs somewhere else (cloud, on-premises):
 
-```yaml
-deployment: external
-url: https://pricing.example.com/api
+```dcfg
+config extern pricing.PricingEngine {
+  profile production as "prod" {
+    deployment = "external";
+    url = "https://pricing.example.com/api";
+  }
+}
 ```
 
 No deployment artifacts are generated. Consuming services receive the URL as an environment variable.
@@ -1688,7 +1697,7 @@ Datrix automatically injects these environment variables into consuming services
 
 In Docker Compose, container-mode extern services also get a `depends_on` with `condition: service_healthy`.
 
-> **📖 Reference:** See [Configuration Guide § Extern Service Configuration](./configuration-guide.md#extern-service-configuration) for the complete YAML schema. See [Language Reference § Extern Services](../reference/language-reference.md#extern-services) for the full syntax.
+> **📖 Reference:** See [Configuration Guide § Extern Service Configuration](./configuration-guide.md#extern-service-configuration) for the complete Datrix-owned `.dcfg` access config schema. See [Language Reference § Extern Services](../reference/language-reference.md#extern-services) for the full syntax.
 
 ---
 
@@ -1726,17 +1735,22 @@ entity Order extends BaseEntity with Tenantable {
 
 ### Configuring Tenancy
 
-**config/order-service/service-config.yaml:**
+**config/order-service.dcfg:**
 
-```yaml
-test:
-  platform: compose
-  replicas: 1
-  tenancy:
-    identifier:
-      source: header         # "header", "jwt", or "path"
-      name: X-Tenant-Id      # Header name, JWT claim, or path param
-    enforcement: strict      # "strict" or "relaxed"
+```dcfg
+config service OrderService {
+    profile test {
+        platform: compose
+        replicas: 1
+        tenancy {
+            identifier {
+                source: header
+                name: X-Tenant-Id
+            }
+            enforcement: strict
+        }
+    }
+}
 ```
 
 **Identifier sources:**
@@ -1902,7 +1916,7 @@ service OrderService {
         }
     }
 
-    resilience('config/resilience.yaml');  // Circuit breaker, retry
+    // Circuit breaker and retry settings resolve from config/order-service.dcfg.
 }
 ```
 
@@ -2000,8 +2014,8 @@ post processPayment(String idempotencyKey, Money amount) -> PaymentTransaction {
 
 ```dtrx
 // Order Service
-service ecommerce.OrderService : version('1.0.0') {
-    pubsub mq('config/order-service/pubsub.yaml') {
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
+    pubsub mq {
         topic OrderEvents {
             publish OrderPlaced(UUID orderId, UUID customerId, Money total);
             publish OrderCancelled(UUID orderId);
@@ -2010,8 +2024,8 @@ service ecommerce.OrderService : version('1.0.0') {
 }
 
 // Payment Service
-service ecommerce.PaymentService : version('1.0.0') {
-    pubsub mq('config/payment-service/pubsub.yaml') {
+service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0') {
+    pubsub mq {
     }
 
     subscribe ecommerce.OrderService.mq.OrderEvents {
@@ -2028,8 +2042,8 @@ service ecommerce.PaymentService : version('1.0.0') {
 }
 
 // Inventory Service
-service ecommerce.InventoryService : version('1.0.0') {
-    pubsub mq('config/inventory-service/pubsub.yaml') {
+service ecommerce.InventoryService('config/inventory-service.dcfg') : version('1.0.0') {
+    pubsub mq {
     }
 
     subscribe ecommerce.OrderService.mq.OrderEvents {

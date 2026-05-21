@@ -6,6 +6,7 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
         CourseService { loadBalance: roundRobin, healthyOnly: true }
         StudentService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     enum EnrollmentStatus {
         Pending : value('pending'),
         Active : value('active'),
@@ -95,7 +96,7 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
 
             validate {
                 if (progress < MIN_SCORE || progress > MAX_SCORE)
-                    ValidationError("Progress must be between 0 and 100");
+                ValidationError("Progress must be between 0 and 100");
             }
 
             afterCreate {
@@ -119,6 +120,7 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
                             averageScore: averageScore
                         });
                     }
+
                 }
 
                 if (isChanged(status)) {
@@ -127,24 +129,29 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
                     if (status == EnrollmentStatus.Dropped) {
                         droppedAt = DateTime.now();
                     }
+
                 }
+
             }
 
             fn recalculateAverageScore() {
                 let Array<GradeRecord> allGrades = enrollmentDb.GradeRecord
-                    .where(enrollmentId: id)
-                    .where(status: GradeStatus.Graded)
-                    .all();
+                .where(enrollmentId: id)
+                .where(status: GradeStatus.Graded)
+                .all();
 
                 if (allGrades.length() > 0) {
                     let Decimal totalScore = 0;
                     foreach grade in allGrades {
                         totalScore = totalScore + grade.score;
                     }
+
                     averageScore = totalScore / allGrades.length();
                     gradeCount = allGrades.length();
                 }
+
             }
+
         }
 
         entity GradeRecord extends BaseEntity {
@@ -162,7 +169,7 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
 
             validate {
                 if (score < MIN_SCORE || score > MAX_SCORE)
-                    ValidationError("Score must be between 0 and 100");
+                ValidationError("Score must be between 0 and 100");
             }
 
             afterCreate {
@@ -172,7 +179,9 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
                     enrollment.recalculateAverageScore();
                     enrollment.save();
                 }
+
             }
+
         }
 
         entity EnrollmentActivity extends BaseEntity {
@@ -183,6 +192,7 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
 
             index(enrollmentId, occurredAt);
         }
+
     }
 
     pubsub mq {
@@ -192,20 +202,26 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
             publish EnrollmentStatusChanged(UUID enrollmentId, UUID studentId, UUID courseId, EnrollmentStatus oldStatus, EnrollmentStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
+
             publish ProgressUpdated(UUID enrollmentId, UUID studentId, UUID courseId, Int oldProgress, Int newProgress) {
                 ensure newProgress >= 0;
                 ensure newProgress <= 100;
             }
+
             publish EnrollmentCompleted(UUID enrollmentId, UUID studentId, UUID courseId, Decimal averageScore) {
                 ensure averageScore >= 0;
             }
+
             publish StudentDropped(UUID enrollmentId, UUID studentId, UUID courseId, String? reason);
             publish GradeSubmitted(UUID enrollmentId, UUID moduleId, Decimal score) {
                 ensure score >= 0;
                 ensure score <= 100;
             }
+
         }
+
     }
+
     subscribe EnrollmentEvents {
         on StudentEnrolled(UUID enrollmentId, UUID studentId, UUID courseId) {
             Log.info("Student enrolled in course", {
@@ -259,6 +275,7 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
             } catch (Exception e) {
                 Log.error(#"Failed to decrement enrollment count: {e}");
             }
+
         }
 
         on EnrollmentStatusChanged(UUID enrollmentId, UUID studentId, UUID courseId, EnrollmentStatus oldStatus, EnrollmentStatus newStatus) {
@@ -309,15 +326,17 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
             });
             activity.save();
         }
+
     }
+
     subscribe CourseEvents {
         on CourseArchived(UUID courseId) {
             Log.info("Course archived, expiring active enrollments", { courseId: courseId });
 
             let Array<Enrollment> activeEnrollments = enrollmentDb.Enrollment
-                .where(courseId: courseId)
-                .where(status: EnrollmentStatus.Active)
-                .all();
+            .where(courseId: courseId)
+            .where(status: EnrollmentStatus.Active)
+            .all();
 
             foreach enrollment in activeEnrollments {
                 enrollment.status = EnrollmentStatus.Expired;
@@ -325,9 +344,9 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
             }
 
             let Array<Enrollment> pendingEnrollments = enrollmentDb.Enrollment
-                .where(courseId: courseId)
-                .where(status: EnrollmentStatus.Pending)
-                .all();
+            .where(courseId: courseId)
+            .where(status: EnrollmentStatus.Pending)
+            .all();
 
             foreach enrollment in pendingEnrollments {
                 enrollment.status = EnrollmentStatus.Expired;
@@ -341,11 +360,13 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
                     expiredCount: expiredCount
                 });
             }
+
         }
 
         on CourseStatusChanged(UUID courseId, CourseStatus oldStatus, CourseStatus newStatus) {
             Log.info("Course status changed", { courseId: courseId, oldStatus: oldStatus, newStatus: newStatus });
         }
+
     }
 
     rest_api EnrollmentAPI : basePath('/api/v1/enrollments'), rdbms(enrollmentDb) {
@@ -369,9 +390,9 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
 
             // Check for existing enrollment
             let Enrollment? existing = enrollmentDb.Enrollment
-                .where(studentId: studentId)
-                .where(courseId: request.courseId)
-                .first();
+            .where(studentId: studentId)
+            .where(courseId: request.courseId)
+            .first();
 
             if (existing != null && (existing.status == EnrollmentStatus.Active || existing.status == EnrollmentStatus.Pending)) {
                 throw ValidationException({
@@ -404,10 +425,10 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
 
             let Int total = query.count();
             let Array<Enrollment> enrollments = query
-                .orderBy(enrolledAt: desc)
-                .offset((page - 1) * cappedPerPage)
-                .limit(cappedPerPage)
-                .all();
+            .orderBy(enrolledAt: desc)
+            .offset((page - 1) * cappedPerPage)
+            .limit(cappedPerPage)
+            .all();
 
             let Int totalPages = Math.ceil(total / cappedPerPage);
 
@@ -421,6 +442,7 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
                     hasNextPage: page < totalPages,
                     hasPrevPage: page > 1
                 }
+
             };
         }
 
@@ -501,9 +523,9 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
 
             // Check if grade already exists for this module
             let GradeRecord? existing = enrollmentDb.GradeRecord
-                .where(enrollmentId: id)
-                .where(moduleId: request.moduleId)
-                .first();
+            .where(enrollmentId: id)
+            .where(moduleId: request.moduleId)
+            .first();
 
             if (existing != null) {
                 throw ValidationException({
@@ -540,9 +562,9 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
             }
 
             return enrollmentDb.GradeRecord
-                .where(enrollmentId: id)
-                .orderBy(createdAt: asc)
-                .all();
+            .where(enrollmentId: id)
+            .orderBy(createdAt: asc)
+            .all();
         }
 
         // Get student transcript
@@ -555,9 +577,9 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
             }
 
             return enrollmentDb.Enrollment
-                .where(studentId: studentId)
-                .orderBy(enrolledAt: desc)
-                .all();
+            .where(studentId: studentId)
+            .orderBy(enrolledAt: desc)
+            .all();
         }
 
         // Get enrollments for a specific course (admin)
@@ -573,10 +595,10 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
 
             let Int total = query.count();
             let Array<Enrollment> enrollments = query
-                .orderBy(enrolledAt: desc)
-                .offset((page - 1) * cappedPerPage)
-                .limit(cappedPerPage)
-                .all();
+            .orderBy(enrolledAt: desc)
+            .offset((page - 1) * cappedPerPage)
+            .limit(cappedPerPage)
+            .all();
 
             let Int totalPages = Math.ceil(total / cappedPerPage);
 
@@ -590,6 +612,7 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
                     hasNextPage: page < totalPages,
                     hasPrevPage: page > 1
                 }
+
             };
         }
 
@@ -604,9 +627,9 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
             }
 
             return enrollmentDb.EnrollmentActivity
-                .where(enrollmentId: id)
-                .orderBy(occurredAt: desc)
-                .all();
+            .where(enrollmentId: id)
+            .orderBy(occurredAt: desc)
+            .all();
         }
 
         // Internal endpoint
@@ -614,29 +637,30 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
         get(UUID id) : internal -> enrollmentDb.Enrollment {
             return enrollmentDb.Enrollment.findOrFail(id);
         }
+
     }
 
     test("validation rejects progress out of range") {
         assert throws(
-            () => enrollmentDb.Enrollment.create({
-                studentId: uuid(),
-                courseId: uuid(),
-                status: EnrollmentStatus.Active,
-                progress: 101
-            }),
-            ValidationError(#"Progress must be between {MIN_SCORE} and {MAX_SCORE}")
+        () => enrollmentDb.Enrollment.create({
+            studentId: uuid(),
+            courseId: uuid(),
+            status: EnrollmentStatus.Active,
+            progress: 101
+        }),
+        ValidationError(#"Progress must be between {MIN_SCORE} and {MAX_SCORE}")
         );
     }
 
     test("validation rejects negative progress") {
         assert throws(
-            () => enrollmentDb.Enrollment.create({
-                studentId: uuid(),
-                courseId: uuid(),
-                status: EnrollmentStatus.Active,
-                progress: -1
-            }),
-            ValidationError(#"Progress must be between {MIN_SCORE} and {MAX_SCORE}")
+        () => enrollmentDb.Enrollment.create({
+            studentId: uuid(),
+            courseId: uuid(),
+            status: EnrollmentStatus.Active,
+            progress: -1
+        }),
+        ValidationError(#"Progress must be between {MIN_SCORE} and {MAX_SCORE}")
         );
     }
 
@@ -649,12 +673,12 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
         });
         enrollment.save();
         assert throws(
-            () => enrollmentDb.GradeRecord.create({
-                enrollmentId: enrollment.id,
-                moduleId: uuid(),
-                score: 150.0
-            }),
-            ValidationError(#"Score must be between {MIN_SCORE} and {MAX_SCORE}")
+        () => enrollmentDb.GradeRecord.create({
+            enrollmentId: enrollment.id,
+            moduleId: uuid(),
+            score: 150.0
+        }),
+        ValidationError(#"Score must be between {MIN_SCORE} and {MAX_SCORE}")
         );
     }
 
@@ -775,12 +799,12 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
         });
         enrollment.save();
         assert throws(
-            () => enrollmentDb.GradeRecord.create({
-                enrollmentId: enrollment.id,
-                moduleId: uuid(),
-                score: -10.0
-            }),
-            ValidationError(#"Score must be between {MIN_SCORE} and {MAX_SCORE}")
+        () => enrollmentDb.GradeRecord.create({
+            enrollmentId: enrollment.id,
+            moduleId: uuid(),
+            score: -10.0
+        }),
+        ValidationError(#"Score must be between {MIN_SCORE} and {MAX_SCORE}")
         );
     }
 
@@ -794,4 +818,5 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
         enrollment.save();
         assert enrollment.isCompleted == false;
     }
+
 }

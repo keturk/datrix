@@ -5,6 +5,7 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
     discovery {
         DeviceService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     enum AlertSeverity {
         Info,
         Warning,
@@ -91,6 +92,7 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
 
             index(deviceId, timestamp);
         }
+
     }
 
     rdbms alertDb {
@@ -115,9 +117,9 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
 
             validate {
                 if (condition.trim().isEmpty())
-                    ValidationError("Alert condition cannot be empty");
+                ValidationError("Alert condition cannot be empty");
                 if (message.trim().isEmpty())
-                    ValidationError("Alert message cannot be empty");
+                ValidationError("Alert message cannot be empty");
             }
 
             afterCreate {
@@ -128,6 +130,7 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
                 if (isChanged(status)) {
                     dispatch AlertStatusChanged(id, deviceId, oldValue(status), status);
                 }
+
             }
 
             fn acknowledge(String? acknowledgeNotes) {
@@ -142,6 +145,7 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
                 resolvedAt = DateTime.now();
                 this.save();
             }
+
         }
 
         entity AlertRule extends BaseEntity {
@@ -161,9 +165,9 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
 
             validate {
                 if (metricName.trim().isEmpty())
-                    ValidationError("Metric name cannot be empty");
+                ValidationError("Metric name cannot be empty");
                 if (deviceId == null && deviceGroupId == null)
-                    ValidationError("Alert rule must target either a device or a device group");
+                ValidationError("Alert rule must target either a device or a device group");
             }
 
             fn shouldTrigger(Decimal value) -> Boolean {
@@ -182,7 +186,9 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
                 if (lastTriggeredAt == null) return false;
                 return DateTime.diffInMinutes(lastTriggeredAt, DateTime.now()) < DEFAULT_ALERT_COOLDOWN_MINUTES;
             }
+
         }
+
     }
 
     cache redis {
@@ -206,11 +212,15 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
                 ensure condition.length > 0;
                 ensure message.length > 0;
             }
+
             publish AlertStatusChanged(UUID alertId, UUID deviceId, AlertStatus oldStatus, AlertStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
+
         }
+
     }
+
     subscribe DeviceEvents {
 
         on DeviceRegistered(UUID deviceId, String serialNumber, String name, DeviceType type) {
@@ -225,9 +235,9 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
         on DeviceStatusChanged(UUID deviceId, String serialNumber, DeviceStatus oldStatus, DeviceStatus newStatus) {
             if (newStatus == DeviceStatus.Decommissioned) {
                 let Array<Alert> activeAlerts = alertDb.Alert
-                    .where(deviceId: deviceId)
-                    .where(status: AlertStatus.Active)
-                    .all();
+                .where(deviceId: deviceId)
+                .where(status: AlertStatus.Active)
+                .all();
 
                 foreach alert in activeAlerts {
                     alert.resolve();
@@ -236,11 +246,13 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
                         deviceId: deviceId
                     });
                 }
+
             }
 
             if (newStatus == DeviceStatus.Inactive) {
                 redis.LatestTelemetryCache.delete(deviceId);
             }
+
         }
 
         on DeviceHeartbeat(UUID deviceId, String serialNumber, String firmwareVersion) {
@@ -250,7 +262,9 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
                 firmwareVersion: firmwareVersion
             });
         }
+
     }
+
     subscribe TelemetryEvents {
 
         on TelemetryIngested(UUID deviceId, DateTime timestamp, JSON readings) {
@@ -275,6 +289,7 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
                     message: message
                 });
             }
+
         }
 
         on AlertStatusChanged(UUID alertId, UUID deviceId, AlertStatus oldStatus, AlertStatus newStatus) {
@@ -285,6 +300,7 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
                 newStatus: newStatus
             });
         }
+
     }
 
     rest_api TelemetryAPI : basePath('/api/v1/telemetry'), rdbms(alertDb) {
@@ -342,9 +358,9 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
             }
 
             let JSON? latest = docdb.TelemetryData
-                .where(deviceId: deviceId)
-                .orderBy(timestamp: desc)
-                .first();
+            .where(deviceId: deviceId)
+            .orderBy(timestamp: desc)
+            .first();
 
             if (latest == null) {
                 throw ValidationException({
@@ -371,14 +387,15 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
             if (from != null) {
                 query = query.where(timestamp: gte(from));
             }
+
             if (to != null) {
                 query = query.where(timestamp: lte(to));
             }
 
             return query
-                .orderBy(timestamp: desc)
-                .limit(limit ?? 100)
-                .all();
+            .orderBy(timestamp: desc)
+            .limit(limit ?? 100)
+            .all();
         }
 
         @path('/alerts')
@@ -388,6 +405,7 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
             if (status != null) {
                 query = alertDb.Alert.where(status: status);
             }
+
             if (severity != null) {
                 query = query.where(severity: severity);
             }
@@ -477,19 +495,20 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
         @path('/device/:deviceId/logs')
         get(UUID deviceId, Int? limit) -> Array<JSON> {
             return docdb.DeviceLog
-                .where(deviceId: deviceId)
-                .orderBy(timestamp: desc)
-                .limit(limit ?? 100)
-                .all();
+            .where(deviceId: deviceId)
+            .orderBy(timestamp: desc)
+            .limit(limit ?? 100)
+            .all();
         }
+
     }
 
     jobs('config/telemetry-service.dcfg') {
 
         job CheckAlertRules {
             let Array<AlertRule> rules = alertDb.AlertRule
-                .where(isEnabled: true)
-                .all();
+            .where(isEnabled: true)
+            .all();
 
             let Int alertsTriggered = 0;
 
@@ -507,6 +526,7 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
                     foreach member in members {
                         targetDeviceIds.push(member.id);
                     }
+
                 }
 
                 foreach targetDeviceId in targetDeviceIds {
@@ -534,6 +554,7 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
 
                             alertsTriggered = alertsTriggered + 1;
                         }
+
                     } catch (Exception e) {
                         Log.error("Failed to evaluate alert rule for device", {
                             ruleId: rule.id,
@@ -541,7 +562,9 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
                             error: e.message
                         });
                     }
+
                 }
+
             }
 
             Log.info("Alert rules check completed", { rulesEvaluated: rules.length(), alertsTriggered: alertsTriggered });
@@ -551,8 +574,8 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
             let DateTime oneHourAgo = DateTime.now().subtractHours(1);
 
             let Array<JSON> recentData = docdb.TelemetryData
-                .where(timestamp: gte(oneHourAgo))
-                .all();
+            .where(timestamp: gte(oneHourAgo))
+            .all();
 
             let Int totalReadings = recentData.length();
             let Int uniqueDevices = 0;
@@ -564,6 +587,7 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
                 periodEnd: DateTime.now()
             });
         }
+
     }
 
     test("computed isActive reflects Active alert status") {
@@ -592,13 +616,13 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
 
     test("validation rejects empty alert condition") {
         assert throws(
-            () => alertDb.Alert.create({
-                deviceId: uuid(),
-                severity: AlertSeverity.Warning,
-                condition: "",
-                message: "Test alert"
-            }),
-            ValidationError("Alert condition cannot be empty")
+        () => alertDb.Alert.create({
+            deviceId: uuid(),
+            severity: AlertSeverity.Warning,
+            condition: "",
+            message: "Test alert"
+        }),
+        ValidationError("Alert condition cannot be empty")
         );
     }
 
@@ -615,13 +639,13 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
 
     test("validation rejects rule without device or group") {
         assert throws(
-            () => alertDb.AlertRule.create({
-                metricName: "temperature",
-                operator: ComparisonOperator.GreaterThan,
-                threshold: 50.0,
-                severity: AlertSeverity.Warning
-            }),
-            ValidationError("Alert rule must target either a device or a device group")
+        () => alertDb.AlertRule.create({
+            metricName: "temperature",
+            operator: ComparisonOperator.GreaterThan,
+            threshold: 50.0,
+            severity: AlertSeverity.Warning
+        }),
+        ValidationError("Alert rule must target either a device or a device group")
         );
     }
 
@@ -651,13 +675,13 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
 
     test("validation rejects empty alert message") {
         assert throws(
-            () => alertDb.Alert.create({
-                deviceId: uuid(),
-                severity: AlertSeverity.Error,
-                condition: "humidity > 95",
-                message: ""
-            }),
-            ValidationError("Alert message cannot be empty")
+        () => alertDb.Alert.create({
+            deviceId: uuid(),
+            severity: AlertSeverity.Error,
+            condition: "humidity > 95",
+            message: ""
+        }),
+        ValidationError("Alert message cannot be empty")
         );
     }
 
@@ -760,14 +784,15 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
 
     test("validation rejects empty metric name on rule") {
         assert throws(
-            () => alertDb.AlertRule.create({
-                deviceId: uuid(),
-                metricName: "",
-                operator: ComparisonOperator.GreaterThan,
-                threshold: 100.0,
-                severity: AlertSeverity.Warning
-            }),
-            ValidationError("Metric name cannot be empty")
+        () => alertDb.AlertRule.create({
+            deviceId: uuid(),
+            metricName: "",
+            operator: ComparisonOperator.GreaterThan,
+            threshold: 100.0,
+            severity: AlertSeverity.Warning
+        }),
+        ValidationError("Metric name cannot be empty")
         );
     }
+
 }

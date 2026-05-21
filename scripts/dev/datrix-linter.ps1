@@ -36,9 +36,6 @@
  Enable service/shared .dcfg resolution before semantic checks.
  Disabled by default.
 
-.PARAMETER Format
- Format each discovered system.dtrx in place before linting.
-
 .EXAMPLE
  .\datrix-linter.ps1 examples\01-foundation
  Lint the 01-foundation example project.
@@ -73,10 +70,6 @@ param(
     ,
     [Parameter()]
     [switch]$ResolveConfigs
-
-    ,
-    [Parameter()]
-    [switch]$Format
 
     ,
     [Parameter()]
@@ -150,9 +143,6 @@ try {
     }
     if ($Dbg) {
         $pythonArgs += "--debug"
-    }
-    if ($Format) {
-        $pythonArgs += "--format"
     }
     if ($ResolveConfigs) {
         $pythonArgs += "--resolve-configs"

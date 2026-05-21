@@ -5,6 +5,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
     discovery {
         AccountService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     enum TransactionType {
         Deposit : value('deposit'),
         Withdrawal : value('withdrawal'),
@@ -107,11 +108,11 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
 
             validate {
                 if (amount.amount <= 0)
-                    ValidationError("Transaction amount must be positive");
+                ValidationError("Transaction amount must be positive");
                 if (reference.trim().isEmpty())
-                    ValidationError("Transaction reference cannot be empty");
+                ValidationError("Transaction reference cannot be empty");
                 if (type == TransactionType.Transfer && counterpartyAccountId == null)
-                    ValidationError("Transfer transactions require a counterparty account");
+                ValidationError("Transfer transactions require a counterparty account");
             }
 
             afterCreate {
@@ -128,7 +129,9 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
                     } else if (status == TransactionStatus.Failed) {
                         Log.warn("Transaction failed", { txId: id, reference: reference, reason: failureReason });
                     }
+
                 }
+
             }
 
             fn complete() {
@@ -147,9 +150,11 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
                 if (status != TransactionStatus.Completed) {
                     throw ValidationException("Only completed transactions can be reversed");
                 }
+
                 status = TransactionStatus.Reversed;
                 this.save();
             }
+
         }
 
         // Batch processing entity for bulk operations
@@ -171,7 +176,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
 
             validate {
                 if (transactionCount <= 0)
-                    ValidationError("Batch must contain at least one transaction");
+                ValidationError("Batch must contain at least one transaction");
             }
 
             afterUpdate {
@@ -179,6 +184,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
                     completedAt = DateTime.now();
                     Log.info("Batch completed", { batchId: batchId, success: successCount, failed: failedCount });
                 }
+
             }
 
             fn markCompleted(Int successes, Int failures) {
@@ -191,8 +197,10 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
                 } else {
                     status = BatchStatus.PartiallyCompleted;
                 }
+
                 this.save();
             }
+
         }
 
         // Daily reconciliation summary
@@ -209,9 +217,11 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
 
             validate {
                 if (totalTransactions < 0)
-                    ValidationError("Total transactions cannot be negative");
+                ValidationError("Total transactions cannot be negative");
             }
+
         }
+
     }
 
     pubsub mq {
@@ -223,22 +233,28 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
                 ensure amount > 0;
                 ensure reference.length > 0;
             }
+
             publish TransactionStatusChanged(UUID txId, UUID accountId, TransactionStatus oldStatus, TransactionStatus newStatus, Money amount) {
                 ensure oldStatus != newStatus;
             }
+
             publish TransferCompleted(UUID sourceTxId, UUID destTxId, UUID sourceAccountId, UUID destAccountId, Money amount, String reference) {
                 ensure amount > 0;
             }
+
             publish BatchProcessed(UUID batchId, Int successCount, Int failedCount) {
                 ensure successCount + failedCount > 0;
             }
+
             publish DailyReconciliationCompleted(DateTime date, Int totalTransactions, Boolean isBalanced) {
                 ensure totalTransactions >= 0;
             }
+
         }
 
         // React to account events from AccountService
     }
+
     subscribe AccountEvents {
         on AccountStatusChanged(UUID accountId, String accountNumber, AccountStatus oldStatus, AccountStatus newStatus) {
             Log.info("Account status change received", { accountId: accountId, oldStatus: oldStatus, newStatus: newStatus });
@@ -246,9 +262,9 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
             // If account is frozen or closed, fail all pending transactions
             if (newStatus == AccountStatus.Frozen || newStatus == AccountStatus.Closed) {
                 let Array<Transaction> pendingTxs = txDb.Transaction
-                    .where(accountId: accountId)
-                    .where(status: TransactionStatus.Pending)
-                    .all();
+                .where(accountId: accountId)
+                .where(status: TransactionStatus.Pending)
+                .all();
 
                 foreach tx in pendingTxs {
                     tx.fail(#"Account {accountNumber} is {newStatus}");
@@ -256,8 +272,11 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
 
                 Log.info("Failed pending transactions for account", { accountId: accountId, count: pendingTxs.length() });
             }
+
         }
+
     }
+
     subscribe TransactionEvents {
         on TransactionStatusChanged(UUID txId, UUID accountId, TransactionStatus oldStatus, TransactionStatus newStatus, Money amount) {
             Log.info("Transaction status changed", { txId: txId, oldStatus: oldStatus, newStatus: newStatus });
@@ -281,6 +300,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
         on DailyReconciliationCompleted(DateTime date, Int totalTransactions, Boolean isBalanced) {
             Log.info("Daily reconciliation completed", { date: date, totalTransactions: totalTransactions, isBalanced: isBalanced });
         }
+
     }
 
     rest_api TransactionAPI : basePath('/api/v1/transactions'), rdbms(txDb) {
@@ -294,19 +314,21 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
             if (accountId != null) {
                 query = txDb.Transaction.where(accountId: accountId);
             }
+
             if (type != null) {
                 query = query.where(type: type);
             }
+
             if (status != null) {
                 query = query.where(status: status);
             }
 
             let Int total = query.count();
             let Array<Transaction> transactions = query
-                .orderBy(createdAt: desc)
-                .offset((page - 1) * perPage)
-                .limit(perPage)
-                .all();
+            .orderBy(createdAt: desc)
+            .offset((page - 1) * perPage)
+            .limit(perPage)
+            .all();
 
             return {
                 data: transactions,
@@ -318,6 +340,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
                     hasNextPage: page < Math.ceil(total / perPage),
                     hasPrevPage: page > 1
                 }
+
             };
         }
 
@@ -352,6 +375,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
                     tx.save();
                     tx.complete();
                 }
+
             } catch (Exception e) {
                 tx.fail(#"Processing error: {e}");
                 Log.error("Transaction processing failed", { reference: ref, error: e });
@@ -371,6 +395,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
             if (sourceAccount.status != "active") {
                 throw ValidationException("Source account is not active");
             }
+
             if (destAccount.status != "active") {
                 throw ValidationException("Destination account is not active");
             }
@@ -465,12 +490,14 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
                         tx.save();
                         tx.complete();
                     }
+
                     successes = successes + 1;
                 } catch (Exception e) {
                     tx.fail(#"Batch processing error: {e}");
                     failures = failures + 1;
                     Log.warn("Batch transaction failed", { batchId: batchRef, reference: ref, error: e });
                 }
+
             }
 
             batch.markCompleted(successes, failures);
@@ -490,9 +517,9 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
         @path('/summary/:accountId')
         get(UUID accountId) -> TransactionSummary {
             let Array<Transaction> transactions = txDb.Transaction
-                .where(accountId: accountId)
-                .where(status: TransactionStatus.Completed)
-                .all();
+            .where(accountId: accountId)
+            .where(status: TransactionStatus.Completed)
+            .all();
 
             let Money deposits = Money.of(0, Currency.USD);
             let Money withdrawals = Money.of(0, Currency.USD);
@@ -503,6 +530,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
                 } else if (tx.type == TransactionType.Withdrawal || tx.type == TransactionType.Payment) {
                     withdrawals = withdrawals.add(tx.amount);
                 }
+
             }
 
             return {
@@ -526,11 +554,12 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
         @path('/internal/by-account/:accountId')
         get(UUID accountId) : internal -> Array<txDb.Transaction> {
             return txDb.Transaction
-                .where(accountId: accountId)
-                .orderBy(createdAt: desc)
-                .limit(100)
-                .all();
+            .where(accountId: accountId)
+            .orderBy(createdAt: desc)
+            .limit(100)
+            .all();
         }
+
     }
 
     jobs('config/transaction-service.dcfg') {
@@ -538,10 +567,10 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
         job ReconcileDailyTransactions {
             let DateTime today = DateTime.now();
             let Array<Transaction> dayTransactions = txDb.Transaction
-                .where(status: TransactionStatus.Completed)
-                .where(completedAt: gte(today.startOfDay()))
-                .where(completedAt: lt(today.endOfDay()))
-                .all();
+            .where(status: TransactionStatus.Completed)
+            .where(completedAt: gte(today.startOfDay()))
+            .where(completedAt: lt(today.endOfDay()))
+            .all();
 
             let Money totalDebits = Money.of(0, Currency.USD);
             let Money totalCredits = Money.of(0, Currency.USD);
@@ -552,6 +581,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
                 } else {
                     totalCredits = totalCredits.add(tx.amount);
                 }
+
             }
 
             let Money netAmount = totalCredits.add(totalDebits.multiply(-1));
@@ -571,31 +601,32 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
             dispatch DailyReconciliationCompleted(today, dayTransactions.length(), balanced);
             Log.info("Daily reconciliation completed", { date: today, total: dayTransactions.length(), balanced: balanced });
         }
+
     }
 
     test("validation rejects non-positive transaction amount") {
         assert throws(
-            () => txDb.Transaction.create({
-                accountId: uuid(),
-                type: TransactionType.Deposit,
-                amount: Money.of(0, Currency.USD),
-                currency: Currency.USD,
-                reference: "TXN-TEST-001"
-            }),
-            ValidationError("Transaction amount must be positive")
+        () => txDb.Transaction.create({
+            accountId: uuid(),
+            type: TransactionType.Deposit,
+            amount: Money.of(0, Currency.USD),
+            currency: Currency.USD,
+            reference: "TXN-TEST-001"
+        }),
+        ValidationError("Transaction amount must be positive")
         );
     }
 
     test("validation rejects transfer without counterparty") {
         assert throws(
-            () => txDb.Transaction.create({
-                accountId: uuid(),
-                type: TransactionType.Transfer,
-                amount: Money.of(100, Currency.USD),
-                currency: Currency.USD,
-                reference: "TXN-TEST-002"
-            }),
-            ValidationError("Transfer transactions require a counterparty account")
+        () => txDb.Transaction.create({
+            accountId: uuid(),
+            type: TransactionType.Transfer,
+            amount: Money.of(100, Currency.USD),
+            currency: Currency.USD,
+            reference: "TXN-TEST-002"
+        }),
+        ValidationError("Transfer transactions require a counterparty account")
         );
     }
 
@@ -622,8 +653,8 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
         });
         tx.save();
         assert throws(
-            () => tx.reverse(),
-            ValidationException("Only completed transactions can be reversed")
+        () => tx.reverse(),
+        ValidationException("Only completed transactions can be reversed")
         );
     }
 
@@ -707,14 +738,14 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
 
     test("validation rejects empty reference") {
         assert throws(
-            () => txDb.Transaction.create({
-                accountId: uuid(),
-                type: TransactionType.Deposit,
-                amount: Money.of(100, Currency.USD),
-                currency: Currency.USD,
-                reference: ""
-            }),
-            ValidationError("Transaction reference cannot be empty")
+        () => txDb.Transaction.create({
+            accountId: uuid(),
+            type: TransactionType.Deposit,
+            amount: Money.of(100, Currency.USD),
+            currency: Currency.USD,
+            reference: ""
+        }),
+        ValidationError("Transaction reference cannot be empty")
         );
     }
 
@@ -732,4 +763,5 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
         tx.complete();
         assert emitted(TransactionStatusChanged(tx.id, tx.accountId, TransactionStatus.Pending, TransactionStatus.Completed, tx.amount));
     }
+
 }

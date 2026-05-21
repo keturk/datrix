@@ -24,6 +24,7 @@ module ecommerce.common {
                 inventory = inventory - quantity;
                 return true;
             }
+
             return false;
         }
 
@@ -34,6 +35,7 @@ module ecommerce.common {
         fn hasStock() -> Boolean {
             return inventory > 0;
         }
+
     }
 
     // Trait for price comparison and discount calculation
@@ -50,6 +52,7 @@ module ecommerce.common {
             if (!hasDiscount()) return 0;
             return ((compareAtPrice - price) / compareAtPrice) * 100;
         }
+
     }
 
     struct OrderLineInput {
@@ -74,4 +77,5 @@ module ecommerce.common {
     fn generateTrackingNumber() -> String {
         return #"TRACK-{DateTime.now().format('YYYYMMDD')}-{Random.string(10).toUpperCase()}";
     }
+
 }

@@ -5,6 +5,7 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
     discovery {
         DeviceService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     enum RolloutStatus {
         Planned,
         InProgress,
@@ -63,18 +64,19 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
 
             validate {
                 if (version.trim().isEmpty())
-                    ValidationError("Firmware version cannot be empty");
+                ValidationError("Firmware version cannot be empty");
                 if (fileUrl.trim().isEmpty())
-                    ValidationError("File URL cannot be empty");
+                ValidationError("File URL cannot be empty");
                 if (fileSize <= 0)
-                    ValidationError("File size must be greater than zero");
+                ValidationError("File size must be greater than zero");
                 if (checksum.trim().isEmpty())
-                    ValidationError("Checksum cannot be empty");
+                ValidationError("Checksum cannot be empty");
             }
 
             afterCreate {
                 dispatch FirmwareReleased(id, version, isStable);
             }
+
         }
 
         entity FirmwareRollout extends BaseEntity {
@@ -100,13 +102,14 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
 
             validate {
                 if (totalDevices < 0)
-                    ValidationError("Total devices cannot be negative");
+                ValidationError("Total devices cannot be negative");
             }
 
             afterUpdate {
                 if (isChanged(status)) {
                     dispatch RolloutStatusChanged(id, rolloutCode, oldValue(status), status);
                 }
+
             }
 
             fn start(Int deviceCount) {
@@ -147,6 +150,7 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
                 failedDevices = failedDevices + 1;
                 this.save();
             }
+
         }
 
         entity RolloutLog extends BaseEntity {
@@ -173,7 +177,9 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
                 errorMessage = error;
                 this.save();
             }
+
         }
+
     }
 
     storage store {
@@ -186,13 +192,17 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
             publish FirmwareReleased(UUID firmwareId, String version, Boolean isStable) {
                 ensure version.length > 0;
             }
+
             publish RolloutStatusChanged(UUID rolloutId, String rolloutCode, RolloutStatus oldStatus, RolloutStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
+
             publish DeviceUpdateCompleted(UUID rolloutId, UUID deviceId, String version);
             publish DeviceUpdateFailed(UUID rolloutId, UUID deviceId, String error);
         }
+
     }
+
     subscribe DeviceEvents {
 
         on DeviceRegistered(UUID deviceId, String serialNumber, String name, DeviceType type) {
@@ -212,9 +222,9 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
             });
 
             let Array<RolloutLog> pendingLogs = firmwareDb.RolloutLog
-                .where(deviceId: deviceId)
-                .where(status: DeviceUpdateStatus.Installing)
-                .all();
+            .where(deviceId: deviceId)
+            .where(status: DeviceUpdateStatus.Installing)
+            .all();
 
             foreach log in pendingLogs {
                 log.markCompleted();
@@ -230,8 +240,11 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
                     newVersion: newVersion
                 });
             }
+
         }
+
     }
+
     subscribe FirmwareEvents {
 
         on FirmwareReleased(UUID firmwareId, String version, Boolean isStable) {
@@ -266,6 +279,7 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
                 error: error
             });
         }
+
     }
 
     rest_api FirmwareAPI : basePath('/api/v1/firmware'), rdbms(firmwareDb) {
@@ -275,23 +289,23 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
         @path('/versions/stable')
         get() : public -> Array<firmwareDb.FirmwareVersion> {
             return firmwareDb.FirmwareVersion
-                .where(isStable: true)
-                .orderBy(releasedAt: desc)
-                .all();
+            .where(isStable: true)
+            .orderBy(releasedAt: desc)
+            .all();
         }
 
         @path('/versions/latest')
         get() : public -> firmwareDb.FirmwareVersion {
             return firmwareDb.FirmwareVersion
-                .where(isStable: true)
-                .orderBy(releasedAt: desc)
-                .firstOrFail();
+            .where(isStable: true)
+            .orderBy(releasedAt: desc)
+            .firstOrFail();
         }
 
         post(CreateFirmwareRequest request) : access(admin) -> firmwareDb.FirmwareVersion {
             let FirmwareVersion? existing = firmwareDb.FirmwareVersion
-                .where(version: request.version)
-                .first();
+            .where(version: request.version)
+            .first();
 
             if (existing != null) {
                 throw ValidationException({
@@ -334,9 +348,9 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
             let FirmwareVersion firmware = firmwareDb.FirmwareVersion.findOrFail(request.firmwareVersionId);
 
             let Array<FirmwareRollout> activeRollouts = firmwareDb.FirmwareRollout
-                .where(firmwareVersionId: firmware.id)
-                .whereIn(status: [RolloutStatus.InProgress, RolloutStatus.Planned])
-                .all();
+            .where(firmwareVersionId: firmware.id)
+            .whereIn(status: [RolloutStatus.InProgress, RolloutStatus.Planned])
+            .all();
 
             if (activeRollouts.length() > 0) {
                 throw ValidationException({
@@ -443,29 +457,30 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
 
             return query.orderBy(createdAt: desc).all();
         }
+
     }
 
     jobs('config/firmware-service.dcfg') {
 
         job ProcessRolloutBatch {
             let Array<FirmwareRollout> activeRollouts = firmwareDb.FirmwareRollout
-                .where(status: RolloutStatus.InProgress)
-                .all();
+            .where(status: RolloutStatus.InProgress)
+            .all();
 
             foreach rollout in activeRollouts {
                 let FirmwareVersion firmware = firmwareDb.FirmwareVersion.findOrFail(rollout.firmwareVersionId);
 
                 let Array<RolloutLog> pendingLogs = firmwareDb.RolloutLog
-                    .where(firmwareRolloutId: rollout.id)
-                    .where(status: DeviceUpdateStatus.Pending)
-                    .limit(MAX_BATCH_SIZE)
-                    .all();
+                .where(firmwareRolloutId: rollout.id)
+                .where(status: DeviceUpdateStatus.Pending)
+                .limit(MAX_BATCH_SIZE)
+                .all();
 
                 if (pendingLogs.length() == 0) {
                     let Int remaining = firmwareDb.RolloutLog
-                        .where(firmwareRolloutId: rollout.id)
-                        .whereIn(status: [DeviceUpdateStatus.Downloading, DeviceUpdateStatus.Installing])
-                        .count();
+                    .where(firmwareRolloutId: rollout.id)
+                    .whereIn(status: [DeviceUpdateStatus.Downloading, DeviceUpdateStatus.Installing])
+                    .count();
 
                     if (remaining == 0) {
                         if (rollout.failedDevices > rollout.totalDevices / 2) {
@@ -485,7 +500,9 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
                                 failedDevices: rollout.failedDevices
                             });
                         }
+
                     }
+
                     continue;
                 }
 
@@ -516,6 +533,7 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
                             error: e.message
                         });
                     }
+
                 }
 
                 Log.info("Rollout batch processed", {
@@ -523,7 +541,9 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
                     batchSize: pendingLogs.length()
                 });
             }
+
         }
+
     }
 
     test("computed progressPercent calculates correctly") {
@@ -569,13 +589,13 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
 
     test("validation rejects empty firmware version") {
         assert throws(
-            () => firmwareDb.FirmwareVersion.create({
-                version: "",
-                fileUrl: "https://firmware.test/empty.bin",
-                fileSize: 1024,
-                checksum: "test123"
-            }),
-            ValidationError("Firmware version cannot be empty")
+        () => firmwareDb.FirmwareVersion.create({
+            version: "",
+            fileUrl: "https://firmware.test/empty.bin",
+            fileSize: 1024,
+            checksum: "test123"
+        }),
+        ValidationError("Firmware version cannot be empty")
         );
     }
 
@@ -593,13 +613,13 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
 
     test("validation rejects zero file size") {
         assert throws(
-            () => firmwareDb.FirmwareVersion.create({
-                version: "3.0.0-test",
-                fileUrl: "https://firmware.test/v3.0.0.bin",
-                fileSize: 0,
-                checksum: "empty123"
-            }),
-            ValidationError("File size must be greater than zero")
+        () => firmwareDb.FirmwareVersion.create({
+            version: "3.0.0-test",
+            fileUrl: "https://firmware.test/v3.0.0.bin",
+            fileSize: 0,
+            checksum: "empty123"
+        }),
+        ValidationError("File size must be greater than zero")
         );
     }
 
@@ -688,25 +708,25 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
 
     test("validation rejects empty file URL") {
         assert throws(
-            () => firmwareDb.FirmwareVersion.create({
-                version: "5.0.0-test",
-                fileUrl: "",
-                fileSize: 1024,
-                checksum: "urlhash123"
-            }),
-            ValidationError("File URL cannot be empty")
+        () => firmwareDb.FirmwareVersion.create({
+            version: "5.0.0-test",
+            fileUrl: "",
+            fileSize: 1024,
+            checksum: "urlhash123"
+        }),
+        ValidationError("File URL cannot be empty")
         );
     }
 
     test("validation rejects empty checksum") {
         assert throws(
-            () => firmwareDb.FirmwareVersion.create({
-                version: "5.1.0-test",
-                fileUrl: "https://firmware.test/v5.1.0.bin",
-                fileSize: 2048,
-                checksum: ""
-            }),
-            ValidationError("Checksum cannot be empty")
+        () => firmwareDb.FirmwareVersion.create({
+            version: "5.1.0-test",
+            fileUrl: "https://firmware.test/v5.1.0.bin",
+            fileSize: 2048,
+            checksum: ""
+        }),
+        ValidationError("Checksum cannot be empty")
         );
     }
 
@@ -720,12 +740,12 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
         });
         firmware.save();
         assert throws(
-            () => firmwareDb.FirmwareRollout.create({
-                rolloutCode: "FW-TEST-007",
-                firmwareVersionId: firmware.id,
-                totalDevices: -1
-            }),
-            ValidationError("Total devices cannot be negative")
+        () => firmwareDb.FirmwareRollout.create({
+            rolloutCode: "FW-TEST-007",
+            firmwareVersionId: firmware.id,
+            totalDevices: -1
+        }),
+        ValidationError("Total devices cannot be negative")
         );
     }
 
@@ -833,4 +853,5 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
         rollout.recordFailure();
         assert rollout.failedDevices == 2;
     }
+
 }

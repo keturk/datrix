@@ -32,5 +32,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             // 'index' creates a database index on the foreign key for query performance
             belongsTo Category : index;
         }
+
     }
+
 }

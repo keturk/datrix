@@ -44,6 +44,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             beforeCreate {
                 passwordHash = Auth.hashPassword(passwordHash);
             }
+
         }
 
         entity Book extends BaseEntity {
@@ -64,9 +65,9 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
 
             validate {
                 if (title.trim().isEmpty())
-                    ValidationError("Title cannot be empty");
+                ValidationError("Title cannot be empty");
                 if (publicationYear > DateTime.now().year())
-                    ValidationError("Publication year cannot be in the future");
+                ValidationError("Publication year cannot be in the future");
             }
 
             beforeCreate {
@@ -83,8 +84,11 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
                 if (isChanged(status)) {
                     dispatch IndexBook(id, title, author);
                 }
+
             }
+
         }
+
     }
 
     pubsub mq {
@@ -92,18 +96,24 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             publish BookAdded(UUID bookId, String title) {
                 ensure title.length > 0;
             }
+
             publish BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
+
         }
+
     }
+
     subscribe BookEvents {
         on BookAdded(UUID bookId, String title) {
             Log.info("New book added", { bookId: bookId, title: title });
         }
+
         on BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
             Log.info("Book status changed", { bookId: bookId, oldStatus: oldStatus, newStatus: newStatus });
         }
+
     }
 
     queues {
@@ -120,6 +130,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             ensure recipientEmail.length > 0;
             ensure message.length > 0;
         }
+
     }
 
     struct BookNotifyRequest {
@@ -150,6 +161,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             dispatch SendBookNotification(book.id, request.recipientEmail, request.message);
             return book;
         }
+
     }
 
     test("computed isAvailable is true for Available status") {
@@ -184,14 +196,14 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatValQ" });
         cat.save();
         assert throws(
-            () => bookDb.Book.create({
-                title: "",
-                isbn: "9780000000003",
-                author: "Test Author",
-                publicationYear: 2020,
-                categoryId: cat.id
-            }),
-            ValidationError("Title cannot be empty")
+        () => bookDb.Book.create({
+            title: "",
+            isbn: "9780000000003",
+            author: "Test Author",
+            publicationYear: 2020,
+            categoryId: cat.id
+        }),
+        ValidationError("Title cannot be empty")
         );
     }
 
@@ -199,14 +211,14 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatFutQ" });
         cat.save();
         assert throws(
-            () => bookDb.Book.create({
-                title: "Future Book",
-                isbn: "9780000000004",
-                author: "Test Author",
-                publicationYear: 2099,
-                categoryId: cat.id
-            }),
-            ValidationError("Publication year cannot be in the future")
+        () => bookDb.Book.create({
+            title: "Future Book",
+            isbn: "9780000000004",
+            author: "Test Author",
+            publicationYear: 2099,
+            categoryId: cat.id
+        }),
+        ValidationError("Publication year cannot be in the future")
         );
     }
 
@@ -251,4 +263,5 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         book.save();
         assert dispatched(GenerateBookCover(book.id, book.title));
     }
+
 }

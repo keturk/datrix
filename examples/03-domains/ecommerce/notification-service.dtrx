@@ -3,6 +3,7 @@ service ecommerce.NotificationService('config/notification-service.dcfg') : vers
     discovery {
         ecommerce.OrderService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     rdbms notificationDb {
 
         entity NotificationAudit extends BaseEntity {
@@ -10,6 +11,7 @@ service ecommerce.NotificationService('config/notification-service.dcfg') : vers
             Email recipientEmail;
             String(64) orderNumber;
         }
+
     }
 
     enqueue ecommerce.OrderService.SendOrderConfirmation(UUID orderId, Email customerEmail, String orderNumber) {
@@ -23,6 +25,7 @@ service ecommerce.NotificationService('config/notification-service.dcfg') : vers
                 orderId: orderId,
                 orderNumber: orderNumber
             }
+
         });
 
         let NotificationAudit row = notificationDb.NotificationAudit.create({
@@ -34,4 +37,5 @@ service ecommerce.NotificationService('config/notification-service.dcfg') : vers
 
         Log.info("Order confirmation email queued for delivery", { orderId: orderId });
     }
+
 }

@@ -1,9 +1,9 @@
 
-
 service blog.ContentService('config/content-service.dcfg') : version('1.0.0'), description('content management service') {
     discovery {
         AuthorService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     enum ContentStatus {
         Draft,
         Published,
@@ -26,6 +26,7 @@ service blog.ContentService('config/content-service.dcfg') : version('1.0.0'), d
             Boolean isDraft := status == ContentStatus.Draft;
             index(authorId, status);
         }
+
     }
 
     // Cache block - defines in-memory data structures backed by Redis
@@ -36,10 +37,12 @@ service blog.ContentService('config/content-service.dcfg') : version('1.0.0'), d
             String fullName;
             Boolean isActive;
         }
+
     }
 
     pubsub mq {
     }
+
     subscribe AuthorEvents {
 
         on AuthorRegistered(UUID authorId, Email email, String fullName) {
@@ -62,9 +65,9 @@ service blog.ContentService('config/content-service.dcfg') : version('1.0.0'), d
             // React to cross-service events('config/service.dcfg') : archive posts when author becomes inactive
             if (newStatus == "Suspended" || newStatus == "Inactive") {
                 let Array<Post> publishedPosts = contentDb.Post
-                    .where(authorId: authorId)
-                    .where(status: ContentStatus.Published)
-                    .all();
+                .where(authorId: authorId)
+                .where(status: ContentStatus.Published)
+                .all();
 
                 // 'foreach' iterates over a collection
                 foreach post in publishedPosts {
@@ -79,9 +82,13 @@ service blog.ContentService('config/content-service.dcfg') : version('1.0.0'), d
                         archivedCount: publishedPosts.length()
                     });
                 }
+
             }
+
         }
+
     }
+
     subscribe CommentEvents {
 
         on CommentApproved(UUID commentId, UUID contentId) {
@@ -91,7 +98,9 @@ service blog.ContentService('config/content-service.dcfg') : version('1.0.0'), d
                 post.approvedCommentCount = post.approvedCommentCount + 1;
                 post.save();
             }
+
         }
+
     }
 
     rest_api ContentAPI : basePath("/api/v1/posts"), rdbms(contentDb) {
@@ -130,4 +139,5 @@ service blog.ContentService('config/content-service.dcfg') : version('1.0.0'), d
         post.save();
         assert post.isDraft == false;
     }
+
 }

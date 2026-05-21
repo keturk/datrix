@@ -6,4 +6,5 @@ shared DataExchange('config/data-exchange.dcfg') {
         folder raw_data : path('raw/{tenantId}'), maxSize('100mb');
         folder processed_data : path('processed/{tenantId}'), maxSize('100mb');
     }
+
 }

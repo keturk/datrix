@@ -6,6 +6,7 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
         FleetService { loadBalance: roundRobin, healthyOnly: true }
         ShipmentService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     enum RouteStatus {
         Planned,
         Active,
@@ -73,11 +74,11 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
 
             validate {
                 if (plannedDistance <= 0)
-                    ValidationError("Planned distance must be greater than zero");
+                ValidationError("Planned distance must be greater than zero");
                 if (startLocation.trim().isEmpty())
-                    ValidationError("Start location cannot be empty");
+                ValidationError("Start location cannot be empty");
                 if (endLocation.trim().isEmpty())
-                    ValidationError("End location cannot be empty");
+                ValidationError("End location cannot be empty");
             }
 
             afterCreate {
@@ -88,6 +89,7 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
                 if (isChanged(status)) {
                     dispatch RouteStatusChanged(id, routeCode, oldValue(status), status);
                 }
+
             }
 
             fn calculateDuration() -> Int {
@@ -108,6 +110,7 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
                 actualDistance = distance;
                 this.save();
             }
+
         }
 
         entity RouteStop extends BaseEntity {
@@ -125,9 +128,9 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
 
             validate {
                 if (sequence < 1)
-                    ValidationError("Stop sequence must be at least 1");
+                ValidationError("Stop sequence must be at least 1");
                 if (address.trim().isEmpty())
-                    ValidationError("Stop address cannot be empty");
+                ValidationError("Stop address cannot be empty");
             }
 
             fn markArrived() {
@@ -141,9 +144,12 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
                 if (actualArrival == null) {
                     actualArrival = DateTime.now();
                 }
+
                 this.save();
             }
+
         }
+
     }
 
     cache redis {
@@ -165,18 +171,21 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
             publish RouteStatusChanged(UUID routeId, String routeCode, RouteStatus oldStatus, RouteStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
+
             publish RouteOptimized(UUID routeId, Int totalStops);
             publish StopCompleted(UUID routeId, UUID stopId, UUID shipmentId);
         }
+
     }
+
     subscribe FleetEvents {
 
         on VehicleStatusChanged(UUID vehicleId, String vehicleNumber, VehicleStatus oldStatus, VehicleStatus newStatus) {
             if (newStatus == VehicleStatus.Maintenance || newStatus == VehicleStatus.Retired) {
                 let Array<Route> activeRoutes = routeDb.Route
-                    .where(vehicleId: vehicleId)
-                    .where(status: RouteStatus.Active)
-                    .all();
+                .where(vehicleId: vehicleId)
+                .where(status: RouteStatus.Active)
+                .all();
 
                 foreach route in activeRoutes {
                     Log.warn("Active route affected by vehicle status change", {
@@ -186,7 +195,9 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
                         vehicleStatus: newStatus
                     });
                 }
+
             }
+
         }
 
         on DriverAssigned(UUID vehicleId, UUID driverId, String vehicleNumber) {
@@ -196,7 +207,9 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
                 vehicleNumber: vehicleNumber
             });
         }
+
     }
+
     subscribe RouteEvents {
 
         on RouteCreated(UUID routeId, String routeCode, UUID vehicleId, UUID driverId) {
@@ -221,6 +234,7 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
             } else if (oldStatus == RouteStatus.Active) {
                 redis.ActiveRouteCount.decr("total");
             }
+
         }
 
         on RouteOptimized(UUID routeId, Int totalStops) {
@@ -237,6 +251,7 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
                 shipmentId: shipmentId
             });
         }
+
     }
 
     rest_api RouteAPI : basePath('/api/v1/routes'), rdbms(routeDb) {
@@ -299,9 +314,9 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
         get(UUID id) -> Array<routeDb.RouteStop> {
             let Route route = routeDb.Route.findOrFail(id);
             return routeDb.RouteStop
-                .where(routeId: route.id)
-                .orderBy(sequence: asc)
-                .all();
+            .where(routeId: route.id)
+            .orderBy(sequence: asc)
+            .all();
         }
 
         @path('/:id/start')
@@ -383,9 +398,9 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
             dispatch StopCompleted(route.id, stop.id, stop.shipmentId);
 
             let Int completedStops = routeDb.RouteStop
-                .where(routeId: route.id)
-                .where(status: StopStatus.Completed)
-                .count();
+            .where(routeId: route.id)
+            .where(status: StopStatus.Completed)
+            .count();
             let Int totalStops = routeDb.RouteStop.where(routeId: route.id).count();
 
             redis.ActiveRouteCache.set(route.id, {
@@ -409,9 +424,9 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
         get(UUID id) -> RouteProgress {
             let Route route = routeDb.Route.findOrFail(id);
             let Int completedStops = routeDb.RouteStop
-                .where(routeId: route.id)
-                .where(status: StopStatus.Completed)
-                .count();
+            .where(routeId: route.id)
+            .where(status: StopStatus.Completed)
+            .count();
             let Int totalStops = routeDb.RouteStop.where(routeId: route.id).count();
             let Decimal progress = totalStops > 0 ? (completedStops * 100.0 / totalStops) : 0.0;
 
@@ -445,6 +460,7 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
 
             return query.orderBy(createdAt: desc).limit(20).all();
         }
+
     }
 
     test("computed isActive reflects Active status") {
@@ -464,15 +480,15 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
 
     test("validation rejects zero planned distance") {
         assert throws(
-            () => routeDb.Route.create({
-                routeCode: "RT-TEST-002",
-                vehicleId: uuid(),
-                driverId: uuid(),
-                startLocation: "Origin",
-                endLocation: "Destination",
-                plannedDistance: 0
-            }),
-            ValidationError("Planned distance must be greater than zero")
+        () => routeDb.Route.create({
+            routeCode: "RT-TEST-002",
+            vehicleId: uuid(),
+            driverId: uuid(),
+            startLocation: "Origin",
+            endLocation: "Destination",
+            plannedDistance: 0
+        }),
+        ValidationError("Planned distance must be greater than zero")
         );
     }
 
@@ -500,13 +516,13 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
         });
         route.save();
         assert throws(
-            () => routeDb.RouteStop.create({
-                routeId: route.id,
-                shipmentId: uuid(),
-                address: "123 Main St",
-                sequence: 0
-            }),
-            ValidationError("Stop sequence must be at least 1")
+        () => routeDb.RouteStop.create({
+            routeId: route.id,
+            shipmentId: uuid(),
+            address: "123 Main St",
+            sequence: 0
+        }),
+        ValidationError("Stop sequence must be at least 1")
         );
     }
 
@@ -594,29 +610,29 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
 
     test("validation rejects empty start location") {
         assert throws(
-            () => routeDb.Route.create({
-                routeCode: "RT-TEST-010",
-                vehicleId: uuid(),
-                driverId: uuid(),
-                startLocation: "",
-                endLocation: "Valid End",
-                plannedDistance: 50.00
-            }),
-            ValidationError("Start location cannot be empty")
+        () => routeDb.Route.create({
+            routeCode: "RT-TEST-010",
+            vehicleId: uuid(),
+            driverId: uuid(),
+            startLocation: "",
+            endLocation: "Valid End",
+            plannedDistance: 50.00
+        }),
+        ValidationError("Start location cannot be empty")
         );
     }
 
     test("validation rejects empty end location") {
         assert throws(
-            () => routeDb.Route.create({
-                routeCode: "RT-TEST-011",
-                vehicleId: uuid(),
-                driverId: uuid(),
-                startLocation: "Valid Start",
-                endLocation: "",
-                plannedDistance: 50.00
-            }),
-            ValidationError("End location cannot be empty")
+        () => routeDb.Route.create({
+            routeCode: "RT-TEST-011",
+            vehicleId: uuid(),
+            driverId: uuid(),
+            startLocation: "Valid Start",
+            endLocation: "",
+            plannedDistance: 50.00
+        }),
+        ValidationError("End location cannot be empty")
         );
     }
 
@@ -631,13 +647,13 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
         });
         route.save();
         assert throws(
-            () => routeDb.RouteStop.create({
-                routeId: route.id,
-                shipmentId: uuid(),
-                address: "",
-                sequence: 1
-            }),
-            ValidationError("Stop address cannot be empty")
+        () => routeDb.RouteStop.create({
+            routeId: route.id,
+            shipmentId: uuid(),
+            address: "",
+            sequence: 1
+        }),
+        ValidationError("Stop address cannot be empty")
         );
     }
 
@@ -690,4 +706,5 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
         stop.markCompleted();
         assert stop.status == StopStatus.Completed;
     }
+
 }

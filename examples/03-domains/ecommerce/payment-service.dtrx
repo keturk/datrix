@@ -5,6 +5,7 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
     discovery {
         ecommerce.OrderService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     enum PaymentMethod {
         CreditCard,
         DebitCard,
@@ -86,8 +87,11 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
                     } else if (status == PaymentStatus.Refunded) {
                         dispatch PaymentRefunded(id, orderId, amount);
                     }
+
                 }
+
             }
+
         }
 
         entity Refund extends BaseEntity {
@@ -112,14 +116,19 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
             publish PaymentProcessed(UUID paymentId, UUID orderId, Money amount) {
                 ensure amount > 0;
             }
+
             publish PaymentFailed(UUID paymentId, UUID orderId, String reason) {
                 ensure reason.length > 0;
             }
+
             publish PaymentRefunded(UUID paymentId, UUID orderId, Money amount) {
                 ensure amount > 0;
             }
+
         }
+
     }
+
     subscribe OrderEvents {
 
         on OrderCreated(UUID orderId, String orderNumber, UUID customerId, Money total, UUID reservationId) {
@@ -130,6 +139,7 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
                 reservationId: reservationId
             });
         }
+
     }
 
     enqueue ecommerce.OrderService.ProcessPayment(UUID orderId, Money amount, String currency) {
@@ -181,11 +191,11 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
             let UUID customerId = Auth.user().id;
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             return paymentDb.Payment
-                .where(customerId: customerId)
-                .orderBy(createdAt: desc)
-                .offset((page - 1) * cappedPerPage)
-                .limit(cappedPerPage)
-                .all();
+            .where(customerId: customerId)
+            .orderBy(createdAt: desc)
+            .offset((page - 1) * cappedPerPage)
+            .limit(cappedPerPage)
+            .all();
         }
 
         @path('/process')
@@ -221,6 +231,7 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
                 if (refund.isSuccessful) {
                     totalRefunded = totalRefunded.add(refund.amount);
                 }
+
             }
 
             if (totalRefunded.add(request.amount).amount > payment.amount.amount) {
@@ -246,6 +257,7 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
                     payment.status = PaymentStatus.Refunded;
                     payment.save();
                 }
+
             } else {
                 refund.status = PaymentStatus.Failed;
                 refund.save();
@@ -271,6 +283,7 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
                     payment.gatewayResponse = JSON.stringify(data);
                     payment.save();
                 }
+
             } else if (eventType == "payment_intent.payment_failed") {
                 let String transactionId = data.metadata.transactionId;
                 let Payment? payment = paymentDb.Payment.where(transactionId: transactionId).first();
@@ -281,7 +294,9 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
                     payment.gatewayResponse = JSON.stringify(data);
                     payment.save();
                 }
+
             }
+
         }
 
         fn processRefundViaGateway(paymentDb.Payment payment, paymentDb.Refund refund) -> Boolean {
@@ -301,6 +316,7 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
                     if (!success) {
                         refund.errorMessage = result.error ?? "Stripe refund failed";
                     }
+
                 } else if (payment.method == PaymentMethod.PayPal) {
                     // PayPal gateway requires integrations.payment.provider: paypal in DCFG.
                     // This example profile configures Stripe only; refunds are not executed here.
@@ -323,6 +339,7 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
                 if (success && transactionId != null) {
                     refund.refundTransactionId = transactionId;
                 }
+
             } catch (Exception e) {
                 Log.error("Refund processing error", {
                     paymentId: payment.id,
@@ -334,6 +351,7 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
 
             return success;
         }
+
     }
 
     test("computed isSuccessful reflects Completed status") {
@@ -429,6 +447,7 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
                         orderId: payment.orderId.toString(),
                         customerId: payment.customerId.toString()
                     }
+
                 });
 
                 success = result.success;
@@ -437,6 +456,7 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
                 if (!success) {
                     error = result.error ?? "Stripe charge failed";
                 }
+
             } else if (payment.method == PaymentMethod.PayPal) {
                 // PayPal gateway requires integrations.payment.provider: paypal in DCFG.
                 // This example profile configures Stripe only; charges are not executed here.
@@ -453,6 +473,7 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
             } else {
                 error = #"Unsupported payment method: {payment.method}";
             }
+
         } catch (Exception e) {
             success = false;
             error = #"Payment gateway error: {e.message}";
@@ -474,4 +495,5 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
 
         payment.save();
     }
+
 }

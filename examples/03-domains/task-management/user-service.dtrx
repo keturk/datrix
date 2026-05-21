@@ -57,17 +57,19 @@ service taskapp.UserService('config/user-service.dcfg') : version('1.0.0'), desc
 
             validate {
                 if (username.trim().isEmpty())
-                    ValidationError("Username cannot be empty");
+                ValidationError("Username cannot be empty");
                 if (username.length() < 3)
-                    ValidationError("Username must be at least 3 characters");
+                ValidationError("Username must be at least 3 characters");
                 if (displayName.trim().isEmpty())
-                    ValidationError("Display name cannot be empty");
+                ValidationError("Display name cannot be empty");
             }
 
             afterCreate {
                 Log.info("User created", { userId: id, username: username, role: role });
             }
+
         }
+
     }
 
     rest_api UserAPI : basePath('/api/v1/users'), rdbms(userDb) {
@@ -101,14 +103,17 @@ service taskapp.UserService('config/user-service.dcfg') : version('1.0.0'), desc
             if (request.displayName != null) {
                 user.displayName = request.displayName;
             }
+
             if (request.avatarUrl != null) {
                 user.avatarUrl = request.avatarUrl;
             }
+
             // Only admins can change roles
             if (request.role != null) {
                 if (!Auth.hasRole("admin")) {
                     throw AuthorizationException("Only admins can change user roles");
                 }
+
                 user.role = request.role;
             }
 
@@ -121,16 +126,16 @@ service taskapp.UserService('config/user-service.dcfg') : version('1.0.0'), desc
         get(String query, Int page = 1, Int perPage = 20) : public -> PaginatedUsers {
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             let Array<User> users = userDb.User
-                .fulltext(query)
-                .where(status: UserStatus.Active)
-                .offset((page - 1) * cappedPerPage)
-                .limit(cappedPerPage)
-                .all();
+            .fulltext(query)
+            .where(status: UserStatus.Active)
+            .offset((page - 1) * cappedPerPage)
+            .limit(cappedPerPage)
+            .all();
 
             let Int total = userDb.User
-                .fulltext(query)
-                .where(status: UserStatus.Active)
-                .count();
+            .fulltext(query)
+            .where(status: UserStatus.Active)
+            .count();
 
             let Int totalPages = Math.ceil(total / cappedPerPage);
 
@@ -144,6 +149,7 @@ service taskapp.UserService('config/user-service.dcfg') : version('1.0.0'), desc
                     hasNextPage: page < totalPages,
                     hasPrevPage: page > 1
                 }
+
             };
         }
 
@@ -165,27 +171,28 @@ service taskapp.UserService('config/user-service.dcfg') : version('1.0.0'), desc
         post(Array<UUID> ids) : internal -> Array<userDb.User> {
             return userDb.User.whereIn(id: ids).all();
         }
+
     }
 
     test("validation rejects empty username") {
         assert throws(
-            () => userDb.User.create({
-                username: "",
-                email: "test@example.com",
-                displayName: "Test User"
-            }),
-            ValidationError("Username cannot be empty")
+        () => userDb.User.create({
+            username: "",
+            email: "test@example.com",
+            displayName: "Test User"
+        }),
+        ValidationError("Username cannot be empty")
         );
     }
 
     test("validation rejects short username") {
         assert throws(
-            () => userDb.User.create({
-                username: "ab",
-                email: "test@example.com",
-                displayName: "Test User"
-            }),
-            ValidationError("Username must be at least 3 characters")
+        () => userDb.User.create({
+            username: "ab",
+            email: "test@example.com",
+            displayName: "Test User"
+        }),
+        ValidationError("Username must be at least 3 characters")
         );
     }
 
@@ -258,12 +265,13 @@ service taskapp.UserService('config/user-service.dcfg') : version('1.0.0'), desc
 
     test("validation rejects empty display name") {
         assert throws(
-            () => userDb.User.create({
-                username: "validuser",
-                email: "valid@example.com",
-                displayName: ""
-            }),
-            ValidationError("Display name cannot be empty")
+        () => userDb.User.create({
+            username: "validuser",
+            email: "valid@example.com",
+            displayName: ""
+        }),
+        ValidationError("Display name cannot be empty")
         );
     }
+
 }

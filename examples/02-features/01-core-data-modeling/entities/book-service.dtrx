@@ -27,5 +27,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             String(100) author : trim;
             Int publicationYear;
         }
+
     }
+
 }

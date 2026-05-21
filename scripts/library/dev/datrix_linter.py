@@ -159,20 +159,17 @@ class DatrixLinter:
         strict: bool = False,
         debug: bool = False,
         resolve_configs: bool = False,
-        format_files: bool = False,
         profile: str = "development",
     ) -> None:
         self.strict = strict
         self.debug = debug
         self.resolve_configs = resolve_configs
-        self.format_files = format_files
         self.profile = profile
         self.projects_seen = 0
         self.projects_clean = 0
         self.total_errors = 0
         self.total_warnings = 0
         self.total_parse_errors = 0
-        self.total_formatted = 0
         self._parser: object = None   # TreeSitterParser (lazy)
         self._analyzer: object = None  # SemanticAnalyzer (lazy)
 
@@ -210,17 +207,6 @@ class DatrixLinter:
             # Some resolver failures bubble up as non-ConfigResolutionError exceptions.
             return [str(exc)]
 
-    def _format_entry_point_source(self, entry_point: Path, content: str) -> tuple[str | None, str | None]:
-        """Format a single entry-point file source without resolving includes."""
-        from datrix_common.rendering import DEFAULT_OPTIONS, render
-
-        try:
-            parser = self._get_parser()
-            app = parser.parse_loaded_file(content, entry_point, resolve_includes=False)
-            return render(app, DEFAULT_OPTIONS), None
-        except Exception as exc:
-            return None, str(exc)
-
     def lint_file(self, entry_point: Path) -> FileLintResult:
         """Parse and semantically analyse a single system.dtrx entry point.
 
@@ -249,18 +235,6 @@ class DatrixLinter:
             self.total_parse_errors += 1
             print(f"ERROR {entry_point}: {result.parse_error}")
             return result
-
-        if self.format_files:
-            formatted, format_error = self._format_entry_point_source(entry_point, content)
-            if format_error is not None:
-                self.total_errors += 1
-                result.error_count += 1
-                print(f"ERROR {entry_point} [FMT001] Format failed: {format_error}")
-            elif formatted is not None and formatted != content:
-                entry_point.write_text(formatted, encoding="utf-8")
-                content = formatted
-                self.total_formatted += 1
-                print(f"INFO  {entry_point} [FMT000] Reformatted")
 
         try:
             from datrix_common.errors import ParseError as _ParseError
@@ -351,8 +325,6 @@ class DatrixLinter:
         print(f"Parse errors:         {self.total_parse_errors}")
         print(f"Semantic errors:      {self.total_errors}")
         print(f"Warnings:             {self.total_warnings}")
-        if self.format_files:
-            print(f"Files formatted:      {self.total_formatted}")
         if self.strict:
             print("Mode:                 strict (warnings treated as errors)")
 
@@ -392,11 +364,6 @@ def main() -> int:
         "-a",
         action="store_true",
         help="Scan all datrix* subdirectories in the monorepo root",
-    )
-    parser.add_argument(
-        "--format",
-        action="store_true",
-        help="Format each discovered system.dtrx in place before linting",
     )
     parser.add_argument(
         "--resolve-configs",
@@ -448,7 +415,7 @@ def main() -> int:
     else:
         input_paths = [Path(p) for p in args.paths]
 
-    # ── Discover entry points ──────────────────────────────────────────────
+    # Discover entry points for semantic lint.
     print("Discovering system.dtrx entry points...", flush=True)
     discovered: list[Path] = []
     for p in input_paths:
@@ -473,9 +440,9 @@ def main() -> int:
         strict=args.strict,
         debug=args.debug,
         resolve_configs=args.resolve_configs,
-        format_files=args.format,
         profile=args.profile,
     )
+
     for entry_point in unique_files:
         linter.lint_file(entry_point)
 

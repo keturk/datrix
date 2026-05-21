@@ -62,6 +62,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             beforeCreate {
                 passwordHash = Auth.hashPassword(passwordHash);
             }
+
         }
 
         entity Book extends BaseEntity {
@@ -93,9 +94,9 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             // Custom validation block - runs before create and update operations
             validate {
                 if (title.trim().isEmpty())
-                    ValidationError("Title cannot be empty");
+                ValidationError("Title cannot be empty");
                 if (publicationYear > DateTime.now().year())
-                    ValidationError("Publication year cannot be in the future");
+                ValidationError("Publication year cannot be in the future");
             }
 
             // Lifecycle hook - runs before a new record is persisted
@@ -115,8 +116,11 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
                 if (isChanged(status)) {
                     dispatch BookStatusChanged(id, oldValue(status), status);
                 }
+
             }
+
         }
+
     }
 
     // Pub/sub messaging block - defines event-driven communication
@@ -127,11 +131,15 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             publish BookAdded(UUID bookId, String title) {
                 ensure title.length > 0;
             }
+
             publish BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
+
         }
+
     }
+
     subscribe BookEvents {
         on BookAdded(UUID bookId, String title) {
             Log.info("New book added", { bookId: bookId, title: title });
@@ -142,7 +150,9 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             if (book != null) {
                 Log.info(#"Book '{book.title}' status changed from {oldStatus} to {newStatus}");
             }
+
         }
+
     }
 
     // Cache block - defines an in-memory data store for fast reads
@@ -247,8 +257,8 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatValTitle" });
         cat.save();
         assert throws(
-            () => bookDb.Book.create({ title: "", isbn: "1234567890", author: "Author", publicationYear: 2020, categoryId: cat.id }),
-            ValidationError("Title cannot be empty")
+        () => bookDb.Book.create({ title: "", isbn: "1234567890", author: "Author", publicationYear: 2020, categoryId: cat.id }),
+        ValidationError("Title cannot be empty")
         );
     }
 
@@ -256,8 +266,8 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatValYear" });
         cat.save();
         assert throws(
-            () => bookDb.Book.create({ title: "Future Book", isbn: "1234567890", author: "Author", publicationYear: 20999, categoryId: cat.id }),
-            ValidationError("Publication year cannot be in the future")
+        () => bookDb.Book.create({ title: "Future Book", isbn: "1234567890", author: "Author", publicationYear: 20999, categoryId: cat.id }),
+        ValidationError("Publication year cannot be in the future")
         );
     }
 
@@ -320,4 +330,5 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         book.save();
         assert book.status == BookStatus.Available;
     }
+
 }

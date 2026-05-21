@@ -5,6 +5,7 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
     discovery {
         ListingService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     enum ViewingStatus {
         Scheduled : value('scheduled'),
         Confirmed : value('confirmed'),
@@ -71,11 +72,11 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
 
             validate {
                 if (clientName.trim().isEmpty())
-                    ValidationError("Client name cannot be empty");
+                ValidationError("Client name cannot be empty");
                 if (scheduledAt < DateTime.now())
-                    ValidationError("Viewing must be scheduled in the future");
+                ValidationError("Viewing must be scheduled in the future");
                 if (rating != null && (rating < 1 || rating > 5))
-                    ValidationError("Rating must be between 1 and 5");
+                ValidationError("Rating must be between 1 and 5");
             }
 
             afterCreate {
@@ -94,13 +95,16 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
                     } else if (status == ViewingStatus.NoShow) {
                         Log.warn("Client no-show", { viewingId: id, clientName: clientName });
                     }
+
                 }
+
             }
 
             fn confirm() {
                 if (status != ViewingStatus.Scheduled) {
                     throw ValidationException("Only scheduled viewings can be confirmed");
                 }
+
                 status = ViewingStatus.Confirmed;
                 this.save();
             }
@@ -109,6 +113,7 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
                 if (status != ViewingStatus.Scheduled && status != ViewingStatus.Confirmed) {
                     throw ValidationException("Only scheduled or confirmed viewings can be completed");
                 }
+
                 status = ViewingStatus.Completed;
                 completedAt = DateTime.now();
                 feedback = viewingFeedback;
@@ -120,6 +125,7 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
                 if (status == ViewingStatus.Completed || status == ViewingStatus.Cancelled) {
                     throw ValidationException("Cannot cancel a completed or already cancelled viewing");
                 }
+
                 status = ViewingStatus.Cancelled;
                 cancellationReason = reason;
                 this.save();
@@ -129,10 +135,13 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
                 if (status != ViewingStatus.Scheduled && status != ViewingStatus.Confirmed) {
                     throw ValidationException("Only scheduled or confirmed viewings can be marked as no-show");
                 }
+
                 status = ViewingStatus.NoShow;
                 this.save();
             }
+
         }
+
     }
 
     pubsub mq {
@@ -140,14 +149,16 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
             publish ViewingScheduled(UUID viewingId, UUID listingId, String clientName, String clientEmail, DateTime scheduledAt) {
                 ensure clientName.length > 0;
             }
+
             publish ViewingStatusChanged(UUID viewingId, UUID listingId, ViewingStatus oldStatus, ViewingStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
-        }
 
+        }
 
         // Listen for listing status changes
     }
+
     subscribe ViewingEvents {
         on ViewingScheduled(UUID viewingId, UUID listingId, String clientName, String clientEmail, DateTime scheduledAt) {
             Log.info("Viewing scheduled event received", { viewingId: viewingId, listingId: listingId });
@@ -156,7 +167,9 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
         on ViewingStatusChanged(UUID viewingId, UUID listingId, ViewingStatus oldStatus, ViewingStatus newStatus) {
             Log.info("Viewing status changed", { viewingId: viewingId, oldStatus: oldStatus, newStatus: newStatus });
         }
+
     }
+
     subscribe ListingEvents {
         on ListingStatusChanged(UUID listingId, String listingRef, ListingStatus oldStatus, ListingStatus newStatus) {
             Log.info("Listing status change received", { listingId: listingId, oldStatus: oldStatus, newStatus: newStatus });
@@ -164,14 +177,14 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
             // Cancel all pending viewings if listing is withdrawn or sold
             if (newStatus == ListingStatus.Withdrawn || newStatus == ListingStatus.Sold) {
                 let Array<Viewing> pendingViewings = viewingDb.Viewing
-                    .where(listingId: listingId)
-                    .where(status: ViewingStatus.Scheduled)
-                    .all();
+                .where(listingId: listingId)
+                .where(status: ViewingStatus.Scheduled)
+                .all();
 
                 let Array<Viewing> confirmedViewings = viewingDb.Viewing
-                    .where(listingId: listingId)
-                    .where(status: ViewingStatus.Confirmed)
-                    .all();
+                .where(listingId: listingId)
+                .where(status: ViewingStatus.Confirmed)
+                .all();
 
                 foreach viewing in pendingViewings {
                     viewing.cancel(#"Listing {listingRef} is no longer available ({newStatus})");
@@ -185,8 +198,11 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
                 if (cancelledCount > 0) {
                     Log.info("Cancelled viewings for unavailable listing", { listingId: listingId, count: cancelledCount });
                 }
+
             }
+
         }
+
     }
 
     rest_api ViewingAPI : basePath('/api/v1/viewings'), rdbms(viewingDb) {
@@ -199,16 +215,17 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
             if (listingId != null) {
                 query = viewingDb.Viewing.where(listingId: listingId);
             }
+
             if (status != null) {
                 query = query.where(status: status);
             }
 
             let Int total = query.count();
             let Array<Viewing> viewings = query
-                .orderBy(scheduledAt: asc)
-                .offset((page - 1) * perPage)
-                .limit(perPage)
-                .all();
+            .orderBy(scheduledAt: asc)
+            .offset((page - 1) * perPage)
+            .limit(perPage)
+            .all();
 
             return {
                 data: viewings,
@@ -220,6 +237,7 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
                     hasNextPage: page < Math.ceil(total / perPage),
                     hasPrevPage: page > 1
                 }
+
             };
         }
 
@@ -288,21 +306,22 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
         @path('/by-listing/:listingId')
         get(UUID listingId) -> Array<viewingDb.Viewing> {
             return viewingDb.Viewing
-                .where(listingId: listingId)
-                .orderBy(scheduledAt: asc)
-                .all();
+            .where(listingId: listingId)
+            .orderBy(scheduledAt: asc)
+            .all();
         }
 
         // Get upcoming viewings for an agent
         @path('/by-agent/:agentId/upcoming')
         get(UUID agentId) -> Array<viewingDb.Viewing> {
             return viewingDb.Viewing
-                .where(agentId: agentId)
-                .where(scheduledAt: gte(DateTime.now()))
-                .where(status: ViewingStatus.Confirmed)
-                .orderBy(scheduledAt: asc)
-                .all();
+            .where(agentId: agentId)
+            .where(scheduledAt: gte(DateTime.now()))
+            .where(status: ViewingStatus.Confirmed)
+            .orderBy(scheduledAt: asc)
+            .all();
         }
+
     }
 
     test("computed isPending is true for Scheduled status") {
@@ -319,25 +338,25 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
 
     test("validation rejects past scheduled time") {
         assert throws(
-            () => viewingDb.Viewing.create({
-                listingId: uuid(),
-                clientName: "Jane Smith",
-                clientEmail: "jane@example.com",
-                scheduledAt: DateTime.now().addDays(-1)
-            }),
-            ValidationError("Viewing must be scheduled in the future")
+        () => viewingDb.Viewing.create({
+            listingId: uuid(),
+            clientName: "Jane Smith",
+            clientEmail: "jane@example.com",
+            scheduledAt: DateTime.now().addDays(-1)
+        }),
+        ValidationError("Viewing must be scheduled in the future")
         );
     }
 
     test("validation rejects empty client name") {
         assert throws(
-            () => viewingDb.Viewing.create({
-                listingId: uuid(),
-                clientName: "",
-                clientEmail: "test@example.com",
-                scheduledAt: DateTime.now().addDays(7)
-            }),
-            ValidationError("Client name cannot be empty")
+        () => viewingDb.Viewing.create({
+            listingId: uuid(),
+            clientName: "",
+            clientEmail: "test@example.com",
+            scheduledAt: DateTime.now().addDays(7)
+        }),
+        ValidationError("Client name cannot be empty")
         );
     }
 
@@ -362,8 +381,8 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
         });
         viewing.save();
         assert throws(
-            () => viewing.cancel("No longer interested"),
-            ValidationException("Cannot cancel a completed or already cancelled viewing")
+        () => viewing.cancel("No longer interested"),
+        ValidationException("Cannot cancel a completed or already cancelled viewing")
         );
     }
 
@@ -439,8 +458,8 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
         });
         viewing.save();
         assert throws(
-            () => viewing.confirm(),
-            ValidationException("Only scheduled viewings can be confirmed")
+        () => viewing.confirm(),
+        ValidationException("Only scheduled viewings can be confirmed")
         );
     }
 
@@ -470,8 +489,8 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
         });
         viewing.save();
         assert throws(
-            () => viewing.complete("Test feedback", 3),
-            ValidationException("Only scheduled or confirmed viewings can be completed")
+        () => viewing.complete("Test feedback", 3),
+        ValidationException("Only scheduled or confirmed viewings can be completed")
         );
     }
 
@@ -512,8 +531,8 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
         });
         viewing.save();
         assert throws(
-            () => viewing.markNoShow(),
-            ValidationException("Only scheduled or confirmed viewings can be marked as no-show")
+        () => viewing.markNoShow(),
+        ValidationException("Only scheduled or confirmed viewings can be marked as no-show")
         );
     }
 
@@ -533,14 +552,15 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
 
     test("validation rejects invalid rating above 5") {
         assert throws(
-            () => viewingDb.Viewing.create({
-                listingId: uuid(),
-                clientName: "Oscar Wilde",
-                clientEmail: "oscar@example.com",
-                scheduledAt: DateTime.now().addDays(2),
-                rating: 6
-            }),
-            ValidationError("Rating must be between 1 and 5")
+        () => viewingDb.Viewing.create({
+            listingId: uuid(),
+            clientName: "Oscar Wilde",
+            clientEmail: "oscar@example.com",
+            scheduledAt: DateTime.now().addDays(2),
+            rating: 6
+        }),
+        ValidationError("Rating must be between 1 and 5")
         );
     }
+
 }

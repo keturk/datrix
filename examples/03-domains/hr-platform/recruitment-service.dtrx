@@ -5,6 +5,7 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
     discovery {
         EmployeeService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     enum ApplicationStatus {
         Received : value('received'),
         Screening : value('screening'),
@@ -105,9 +106,9 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
 
             validate {
                 if (title.trim().isEmpty())
-                    ValidationError("Job posting title cannot be empty");
+                ValidationError("Job posting title cannot be empty");
                 if (closingDate != null && closingDate < DateTime.now())
-                    ValidationError("Closing date cannot be in the past");
+                ValidationError("Closing date cannot be in the past");
             }
 
             afterCreate {
@@ -122,13 +123,16 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
                     if (status == PostingStatus.Filled) {
                         Log.info("Job posting filled", { postingId: id, title: title });
                     }
+
                 }
+
             }
 
             fn open() {
                 if (status != PostingStatus.Draft) {
                     throw ValidationException("Only draft postings can be opened");
                 }
+
                 status = PostingStatus.Open;
                 this.save();
             }
@@ -137,6 +141,7 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
                 if (status != PostingStatus.Open) {
                     throw ValidationException("Only open postings can be closed");
                 }
+
                 status = PostingStatus.Closed;
                 this.save();
             }
@@ -145,6 +150,7 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
                 if (status != PostingStatus.Open && status != PostingStatus.Closed) {
                     throw ValidationException("Only open or closed postings can be filled");
                 }
+
                 status = PostingStatus.Filled;
                 filledByApplicationId = applicationId;
                 this.save();
@@ -154,9 +160,11 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
                 if (status == PostingStatus.Filled) {
                     throw ValidationException("Filled postings cannot be cancelled");
                 }
+
                 status = PostingStatus.Cancelled;
                 this.save();
             }
+
         }
 
         // Application entity for tracking candidates
@@ -181,7 +189,7 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
 
             validate {
                 if (candidateName.trim().isEmpty())
-                    ValidationError("Candidate name cannot be empty");
+                ValidationError("Candidate name cannot be empty");
             }
 
             afterCreate {
@@ -198,13 +206,16 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
                     } else if (status == ApplicationStatus.Rejected) {
                         Log.info("Application rejected", { applicationId: id, candidate: candidateName });
                     }
+
                 }
+
             }
 
             fn moveToScreening() {
                 if (status != ApplicationStatus.Received) {
                     throw ValidationException("Only received applications can be moved to screening");
                 }
+
                 status = ApplicationStatus.Screening;
                 this.save();
             }
@@ -213,6 +224,7 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
                 if (status != ApplicationStatus.Screening) {
                     throw ValidationException("Only screened applications can be moved to interview");
                 }
+
                 status = ApplicationStatus.Interview;
                 this.save();
             }
@@ -221,6 +233,7 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
                 if (status != ApplicationStatus.Interview) {
                     throw ValidationException("Only interviewed candidates can receive an offer");
                 }
+
                 status = ApplicationStatus.Offer;
                 this.save();
             }
@@ -229,6 +242,7 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
                 if (status != ApplicationStatus.Offer) {
                     throw ValidationException("Only candidates with an offer can be hired");
                 }
+
                 status = ApplicationStatus.Hired;
                 this.save();
             }
@@ -237,6 +251,7 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
                 if (status == ApplicationStatus.Hired || status == ApplicationStatus.Withdrawn) {
                     throw ValidationException("Cannot reject a hired or withdrawn application");
                 }
+
                 status = ApplicationStatus.Rejected;
                 notes = reason;
                 this.save();
@@ -246,10 +261,13 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
                 if (status == ApplicationStatus.Hired || status == ApplicationStatus.Rejected) {
                     throw ValidationException("Cannot withdraw a hired or rejected application");
                 }
+
                 status = ApplicationStatus.Withdrawn;
                 this.save();
             }
+
         }
+
     }
 
     pubsub mq {
@@ -257,21 +275,27 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
             publish JobPostingCreated(UUID postingId, String title, Department department, Boolean isRemote) {
                 ensure title.length > 0;
             }
+
             publish JobPostingStatusChanged(UUID postingId, String title, PostingStatus oldStatus, PostingStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
+
             publish ApplicationStatusChanged(UUID applicationId, UUID jobPostingId, String candidateName, ApplicationStatus oldStatus, ApplicationStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
+
         }
 
         // Listen to employee events - when an employee is hired, try to close related postings
     }
+
     subscribe EmployeeEvents {
         on EmployeeHired(UUID employeeId, String employeeNumber, String firstName, String lastName, String email, Department department, EmploymentType employmentType) {
             Log.info("New employee hire notification in recruitment", { employeeId: employeeId, department: department });
         }
+
     }
+
     subscribe RecruitmentEvents {
         on JobPostingCreated(UUID postingId, String title, Department department, Boolean isRemote) {
             Log.info("Job posting created", { postingId: postingId, title: title, department: department, isRemote: isRemote });
@@ -298,8 +322,11 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
                 } catch (Exception e) {
                     Log.error("Failed to update posting status after hire", { postingId: jobPostingId, error: e });
                 }
+
             }
+
         }
+
     }
 
     rest_api RecruitmentAPI : basePath('/api/v1/recruitment'), rdbms(recruitDb) {
@@ -313,6 +340,7 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
             if (department != null) {
                 query = recruitDb.JobPosting.where(department: department);
             }
+
             if (status != null) {
                 query = query.where(status: status);
             } else {
@@ -321,10 +349,10 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
 
             let Int total = query.count();
             let Array<JobPosting> postings = query
-                .orderBy(createdAt: desc)
-                .offset((page - 1) * perPage)
-                .limit(perPage)
-                .all();
+            .orderBy(createdAt: desc)
+            .offset((page - 1) * perPage)
+            .limit(perPage)
+            .all();
 
             return {
                 data: postings,
@@ -336,6 +364,7 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
                     hasNextPage: page < Math.ceil(total / perPage),
                     hasPrevPage: page > 1
                 }
+
             };
         }
 
@@ -407,10 +436,10 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
         @path('/postings/search')
         get(String query, Int? limit) : public -> Array<recruitDb.JobPosting> {
             return recruitDb.JobPosting
-                .fulltext(query)
-                .where(status: PostingStatus.Open)
-                .limit(limit ?? 20)
-                .all();
+            .fulltext(query)
+            .where(status: PostingStatus.Open)
+            .limit(limit ?? 20)
+            .all();
         }
 
         // Get posting statistics
@@ -444,9 +473,9 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
 
             // Check for duplicate application
             let Application? existing = recruitDb.Application
-                .where(jobPostingId: request.jobPostingId)
-                .where(candidateEmail: request.candidateEmail)
-                .first();
+            .where(jobPostingId: request.jobPostingId)
+            .where(candidateEmail: request.candidateEmail)
+            .first();
 
             if (existing != null) {
                 throw ValidationException("You have already applied for this position");
@@ -522,6 +551,7 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
             app.reject(request.notes ?? "Application not selected");
             return app;
         }
+
     }
 
     test("computed isOpen is true for Open status") {
@@ -540,15 +570,15 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
 
     test("validation rejects empty posting title") {
         assert throws(
-            () => recruitDb.JobPosting.create({
-                title: "",
-                description: "Test description",
-                department: Department.Marketing,
-                requirements: "Marketing experience",
-                salaryRange: "$80k - $100k",
-                isRemote: false
-            }),
-            ValidationError("Job posting title cannot be empty")
+        () => recruitDb.JobPosting.create({
+            title: "",
+            description: "Test description",
+            department: Department.Marketing,
+            requirements: "Marketing experience",
+            salaryRange: "$80k - $100k",
+            isRemote: false
+        }),
+        ValidationError("Job posting title cannot be empty")
         );
     }
 
@@ -578,12 +608,12 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
         });
         posting.save();
         assert throws(
-            () => recruitDb.Application.create({
-                jobPostingId: posting.id,
-                candidateName: "",
-                candidateEmail: "test@example.com"
-            }),
-            ValidationError("Candidate name cannot be empty")
+        () => recruitDb.Application.create({
+            jobPostingId: posting.id,
+            candidateName: "",
+            candidateEmail: "test@example.com"
+        }),
+        ValidationError("Candidate name cannot be empty")
         );
     }
 
@@ -627,8 +657,8 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
         });
         posting.save();
         assert throws(
-            () => posting.open(),
-            ValidationException("Only draft postings can be opened")
+        () => posting.open(),
+        ValidationException("Only draft postings can be opened")
         );
     }
 
@@ -802,8 +832,8 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
         });
         posting.save();
         assert throws(
-            () => posting.close(),
-            ValidationException("Only open postings can be closed")
+        () => posting.close(),
+        ValidationException("Only open postings can be closed")
         );
     }
 
@@ -819,8 +849,8 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
         });
         posting.save();
         assert throws(
-            () => posting.fill(uuid()),
-            ValidationException("Only open or closed postings can be filled")
+        () => posting.fill(uuid()),
+        ValidationException("Only open or closed postings can be filled")
         );
     }
 
@@ -836,8 +866,8 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
         });
         posting.save();
         assert throws(
-            () => posting.cancel(),
-            ValidationException("Filled postings cannot be cancelled")
+        () => posting.cancel(),
+        ValidationException("Filled postings cannot be cancelled")
         );
     }
 
@@ -920,8 +950,8 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
         });
         app.save();
         assert throws(
-            () => app.moveToScreening(),
-            ValidationException("Only received applications can be moved to screening")
+        () => app.moveToScreening(),
+        ValidationException("Only received applications can be moved to screening")
         );
     }
 
@@ -944,8 +974,8 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
         });
         app.save();
         assert throws(
-            () => app.moveToInterview(),
-            ValidationException("Only screened applications can be moved to interview")
+        () => app.moveToInterview(),
+        ValidationException("Only screened applications can be moved to interview")
         );
     }
 
@@ -968,8 +998,8 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
         });
         app.save();
         assert throws(
-            () => app.extendOffer(),
-            ValidationException("Only interviewed candidates can receive an offer")
+        () => app.extendOffer(),
+        ValidationException("Only interviewed candidates can receive an offer")
         );
     }
 
@@ -992,8 +1022,8 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
         });
         app.save();
         assert throws(
-            () => app.hire(),
-            ValidationException("Only candidates with an offer can be hired")
+        () => app.hire(),
+        ValidationException("Only candidates with an offer can be hired")
         );
     }
 
@@ -1016,8 +1046,8 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
         });
         app.save();
         assert throws(
-            () => app.reject("Changed mind"),
-            ValidationException("Cannot reject a hired or withdrawn application")
+        () => app.reject("Changed mind"),
+        ValidationException("Cannot reject a hired or withdrawn application")
         );
     }
 
@@ -1040,8 +1070,8 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
         });
         app.save();
         assert throws(
-            () => app.withdraw(),
-            ValidationException("Cannot withdraw a hired or rejected application")
+        () => app.withdraw(),
+        ValidationException("Cannot withdraw a hired or rejected application")
         );
     }
 
@@ -1066,4 +1096,5 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
         app.moveToScreening();
         assert emitted(ApplicationStatusChanged(app.id, posting.id, "Reese Novak", ApplicationStatus.Received, ApplicationStatus.Screening));
     }
+
 }

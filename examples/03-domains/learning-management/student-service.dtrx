@@ -60,9 +60,9 @@ service lms.StudentService('config/student-service.dcfg') : version('1.0.0'), de
 
             validate {
                 if (firstName.trim().isEmpty())
-                    ValidationError("First name cannot be empty");
+                ValidationError("First name cannot be empty");
                 if (lastName.trim().isEmpty())
-                    ValidationError("Last name cannot be empty");
+                ValidationError("Last name cannot be empty");
             }
 
             beforeCreate {
@@ -81,8 +81,11 @@ service lms.StudentService('config/student-service.dcfg') : version('1.0.0'), de
                         newStatus: status
                     });
                 }
+
             }
+
         }
+
     }
 
     rest_api StudentAPI : basePath('/api/v1/students'), rdbms(studentDb) {
@@ -110,15 +113,19 @@ service lms.StudentService('config/student-service.dcfg') : version('1.0.0'), de
             if (request.firstName != null) {
                 student.firstName = request.firstName;
             }
+
             if (request.lastName != null) {
                 student.lastName = request.lastName;
             }
+
             if (request.avatarUrl != null) {
                 student.avatarUrl = request.avatarUrl;
             }
+
             if (request.bio != null) {
                 student.bio = request.bio;
             }
+
             if (request.phone != null) {
                 student.phone = request.phone;
             }
@@ -132,16 +139,16 @@ service lms.StudentService('config/student-service.dcfg') : version('1.0.0'), de
         get(String query, Int page = 1, Int perPage = 20) : public -> PaginatedStudents {
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             let Array<Student> students = studentDb.Student
-                .fulltext(query)
-                .where(status: StudentStatus.Active)
-                .offset((page - 1) * cappedPerPage)
-                .limit(cappedPerPage)
-                .all();
+            .fulltext(query)
+            .where(status: StudentStatus.Active)
+            .offset((page - 1) * cappedPerPage)
+            .limit(cappedPerPage)
+            .all();
 
             let Int total = studentDb.Student
-                .fulltext(query)
-                .where(status: StudentStatus.Active)
-                .count();
+            .fulltext(query)
+            .where(status: StudentStatus.Active)
+            .count();
 
             let Int totalPages = Math.ceil(total / cappedPerPage);
 
@@ -155,6 +162,7 @@ service lms.StudentService('config/student-service.dcfg') : version('1.0.0'), de
                     hasNextPage: page < totalPages,
                     hasPrevPage: page > 1
                 }
+
             };
         }
 
@@ -202,27 +210,28 @@ service lms.StudentService('config/student-service.dcfg') : version('1.0.0'), de
         post(Array<UUID> ids) : internal -> Array<studentDb.Student> {
             return studentDb.Student.whereIn(id: ids).all();
         }
+
     }
 
     test("validation rejects empty first name") {
         assert throws(
-            () => studentDb.Student.create({
-                firstName: "",
-                lastName: "Doe",
-                email: "test@example.com"
-            }),
-            ValidationError("First name cannot be empty")
+        () => studentDb.Student.create({
+            firstName: "",
+            lastName: "Doe",
+            email: "test@example.com"
+        }),
+        ValidationError("First name cannot be empty")
         );
     }
 
     test("validation rejects empty last name") {
         assert throws(
-            () => studentDb.Student.create({
-                firstName: "Jane",
-                lastName: "",
-                email: "test@example.com"
-            }),
-            ValidationError("Last name cannot be empty")
+        () => studentDb.Student.create({
+            firstName: "Jane",
+            lastName: "",
+            email: "test@example.com"
+        }),
+        ValidationError("Last name cannot be empty")
         );
     }
 
@@ -303,4 +312,5 @@ service lms.StudentService('config/student-service.dcfg') : version('1.0.0'), de
         student.save();
         assert student.completionRate == 0.0;
     }
+
 }

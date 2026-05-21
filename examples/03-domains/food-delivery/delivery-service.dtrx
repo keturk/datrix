@@ -5,6 +5,7 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
     discovery {
         OrderService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     enum DeliveryStatus {
         Pending,
         Assigned,
@@ -72,17 +73,18 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
 
             validate {
                 if (firstName.trim().isEmpty())
-                    ValidationError("First name cannot be empty");
+                ValidationError("First name cannot be empty");
                 if (lastName.trim().isEmpty())
-                    ValidationError("Last name cannot be empty");
+                ValidationError("Last name cannot be empty");
                 if (totalDeliveries < 0)
-                    ValidationError("Total deliveries cannot be negative");
+                ValidationError("Total deliveries cannot be negative");
             }
 
             afterUpdate {
                 if (isChanged(status)) {
                     dispatch DriverStatusChanged(id, fullName, oldValue(status), status);
                 }
+
             }
 
             fn goOnline() {
@@ -97,6 +99,7 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
                         message: "Cannot go offline while on a delivery"
                     });
                 }
+
                 status = DriverStatus.Offline;
                 this.save();
             }
@@ -111,6 +114,7 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
                 totalDeliveries = totalDeliveries + 1;
                 this.save();
             }
+
         }
 
         entity Delivery extends BaseEntity {
@@ -136,7 +140,7 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
 
             validate {
                 if (pickupAddress.trim().isEmpty())
-                    ValidationError("Pickup address cannot be empty");
+                ValidationError("Pickup address cannot be empty");
             }
 
             afterCreate {
@@ -147,6 +151,7 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
                 if (isChanged(status)) {
                     dispatch DeliveryStatusChanged(id, orderId, oldValue(status), status);
                 }
+
             }
 
             fn assignDriver(UUID assignedDriverId) {
@@ -172,7 +177,9 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
                 deliveredAt = DateTime.now();
                 this.save();
             }
+
         }
+
     }
 
     cache redis {
@@ -194,11 +201,15 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
             publish DeliveryStatusChanged(UUID deliveryId, UUID orderId, DeliveryStatus oldStatus, DeliveryStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
+
             publish DriverStatusChanged(UUID driverId, String driverName, DriverStatus oldStatus, DriverStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
+
         }
+
     }
+
     subscribe OrderEvents {
 
         on OrderPlaced(UUID orderId, String orderNumber, UUID customerId, UUID restaurantId, Money total) {
@@ -230,9 +241,9 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
 
         on OrderCancelled(UUID orderId, String orderNumber, UUID customerId) {
             let Delivery? delivery = deliveryDb.Delivery
-                .where(orderId: orderId)
-                .whereIn(status: [DeliveryStatus.Pending, DeliveryStatus.Assigned])
-                .first();
+            .where(orderId: orderId)
+            .whereIn(status: [DeliveryStatus.Pending, DeliveryStatus.Assigned])
+            .first();
 
             if (delivery != null) {
                 if (delivery.driverId != null) {
@@ -251,13 +262,14 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
                     orderNumber: orderNumber
                 });
             }
+
         }
 
         on OrderReady(UUID orderId, String orderNumber, UUID restaurantId) {
             let Delivery? delivery = deliveryDb.Delivery
-                .where(orderId: orderId)
-                .where(status: DeliveryStatus.Assigned)
-                .first();
+            .where(orderId: orderId)
+            .where(status: DeliveryStatus.Assigned)
+            .first();
 
             if (delivery != null) {
                 delivery.markPickedUp();
@@ -268,8 +280,11 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
                     orderNumber: orderNumber
                 });
             }
+
         }
+
     }
+
     subscribe DeliveryEvents {
 
         on DeliveryStatusChanged(UUID deliveryId, UUID orderId, DeliveryStatus oldStatus, DeliveryStatus newStatus) {
@@ -283,6 +298,7 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
             if (newStatus == DeliveryStatus.Delivered || newStatus == DeliveryStatus.Failed) {
                 redis.ActiveDeliveryCount.decr("total");
             }
+
         }
 
         on DeliveryCreated(UUID deliveryId, String deliveryCode, UUID orderId) {
@@ -292,6 +308,7 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
         on DriverStatusChanged(UUID driverId, String driverName, DriverStatus oldStatus, DriverStatus newStatus) {
             Log.info("Driver status changed", { driverId: driverId, driverName: driverName, oldStatus: oldStatus, newStatus: newStatus });
         }
+
     }
 
     rest_api DeliveryAPI : basePath('/api/v1/deliveries'), rdbms(deliveryDb) {
@@ -405,6 +422,7 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
                     driverLat = location.latitude;
                     driverLng = location.longitude;
                 }
+
             }
 
             return {
@@ -422,9 +440,9 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
         @path('/drivers/available')
         get() -> DriverAvailabilityResponse {
             let Array<DeliveryDriver> drivers = deliveryDb.DeliveryDriver
-                .where(status: DriverStatus.Available)
-                .orderBy(rating: desc)
-                .all();
+            .where(status: DriverStatus.Available)
+            .orderBy(rating: desc)
+            .all();
 
             return {
                 availableDrivers: drivers,
@@ -462,6 +480,7 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
         get(UUID orderId) -> deliveryDb.Delivery {
             return deliveryDb.Delivery.where(orderId: orderId).firstOrFail();
         }
+
     }
 
     test("computed isAvailable reflects Available status") {
@@ -500,13 +519,13 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
 
     test("validation rejects empty first name") {
         assert throws(
-            () => deliveryDb.DeliveryDriver.create({
-                firstName: "",
-                lastName: "Test",
-                phone: "+15551112222",
-                vehicleType: "Bicycle"
-            }),
-            ValidationError("First name cannot be empty")
+        () => deliveryDb.DeliveryDriver.create({
+            firstName: "",
+            lastName: "Test",
+            phone: "+15551112222",
+            vehicleType: "Bicycle"
+        }),
+        ValidationError("First name cannot be empty")
         );
     }
 
@@ -661,13 +680,13 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
 
     test("validation rejects empty pickup address") {
         assert throws(
-            () => deliveryDb.Delivery.create({
-                deliveryCode: "DLV-TEST-007",
-                orderId: uuid(),
-                pickupAddress: "",
-                deliveryAddress: { street: "500 Valley Rd", city: "Springfield", state: "IL", zipCode: "62714" }
-            }),
-            ValidationError("Pickup address cannot be empty")
+        () => deliveryDb.Delivery.create({
+            deliveryCode: "DLV-TEST-007",
+            orderId: uuid(),
+            pickupAddress: "",
+            deliveryAddress: { street: "500 Valley Rd", city: "Springfield", state: "IL", zipCode: "62714" }
+        }),
+        ValidationError("Pickup address cannot be empty")
         );
     }
 
@@ -694,4 +713,5 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
         delivery.save();
         assert emitted(DeliveryStatusChanged(delivery.id, delivery.orderId, DeliveryStatus.Pending, DeliveryStatus.Delivering));
     }
+
 }

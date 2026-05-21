@@ -9,6 +9,7 @@ service library.CacheReaderService('config/cache-reader-service.dcfg') : version
             UUID id : primaryKey = uuid();
             DateTime checkedAt = DateTime.now();
         }
+
     }
 
     rest_api CacheReaderAPI : basePath('/api/v1/cache-reader') {
@@ -16,5 +17,7 @@ service library.CacheReaderService('config/cache-reader-service.dcfg') : version
         get() -> String {
             return "ok";
         }
+
     }
+
 }

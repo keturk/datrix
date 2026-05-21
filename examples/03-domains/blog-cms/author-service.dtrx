@@ -69,13 +69,15 @@ service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), des
                     // 'oldValue(...)' retrieves the previous value before the update
                     dispatch AuthorStatusChanged(id, oldValue(status), status);
                 }
+
             }
 
             // Custom validation block - runs before save
             validate {
                 if (status == AuthorStatus.Active && !isVerified)
-                    ValidationError("Cannot activate unverified author");
+                ValidationError("Cannot activate unverified author");
             }
+
         }
 
         entity AuthorSession extends BaseEntity {
@@ -90,6 +92,7 @@ service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), des
             belongsTo Author : index;
             index(authorId, expiresAt);
         }
+
     }
 
     // Pub/sub messaging block - defines event-driven communication
@@ -99,11 +102,14 @@ service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), des
             publish AuthorRegistered(UUID authorId, Email email, String fullName) {
                 ensure fullName.length > 0;
             }
+
             publish AuthorStatusChanged(UUID authorId, String oldStatus, String newStatus) {
                 ensure oldStatus != newStatus;
                 ensure newStatus.length > 0;
             }
+
         }
+
     }
 
     // Structs define reusable value objects for request/response payloads
@@ -125,7 +131,7 @@ service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), des
             // '#Type' is a type hint for local variables
             let Author? existingAuthor = authorDb.Author.where(email: request.email).first();
             if (existingAuthor != null)
-                throw ValidationException("Email already registered");
+            throw ValidationException("Email already registered");
             let Author author = authorDb.Author.create({
                 email: request.email,
                 passwordHash: Auth.hashPassword(request.password),
@@ -137,6 +143,7 @@ service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), des
             });
             return author;
         }
+
     }
 
     test("computed fullName concatenates first and last name") {
@@ -178,14 +185,14 @@ service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), des
 
     test("validation rejects activating unverified author") {
         assert throws(
-            () => authorDb.Author.create({
-                email: "unverified@example.com",
-                passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
-                firstName: "Unverified",
-                lastName: "Author",
-                status: AuthorStatus.Active
-            }),
-            ValidationError("Cannot activate unverified author")
+        () => authorDb.Author.create({
+            email: "unverified@example.com",
+            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
+            firstName: "Unverified",
+            lastName: "Author",
+            status: AuthorStatus.Active
+        }),
+        ValidationError("Cannot activate unverified author")
         );
     }
 
@@ -239,14 +246,14 @@ service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), des
 
     test("spec: validation rejects Active status for unverified spec.unverified author") {
         assert throws(
-            () => authorDb.Author.create({
-                email: "spec.unverified@example.com",
-                passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
-                firstName: "Unverified",
-                lastName: "Author",
-                status: AuthorStatus.Active
-            }),
-            ValidationError("Cannot activate unverified author")
+        () => authorDb.Author.create({
+            email: "spec.unverified@example.com",
+            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
+            firstName: "Unverified",
+            lastName: "Author",
+            status: AuthorStatus.Active
+        }),
+        ValidationError("Cannot activate unverified author")
         );
     }
 
@@ -310,4 +317,5 @@ service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), des
         author.save();
         assert emitted(AuthorStatusChanged(author.id, AuthorStatus.Pending, AuthorStatus.Active));
     }
+
 }

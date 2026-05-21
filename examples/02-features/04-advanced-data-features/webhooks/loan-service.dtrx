@@ -9,6 +9,7 @@ service library.LoanService('config/loan-service.dcfg') : version('1.0.0'), desc
         BookService { loadBalance: roundRobin, healthyOnly: true }
         MemberService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     enum LoanStatus {
         Active,
         Returned,
@@ -56,9 +57,11 @@ service library.LoanService('config/loan-service.dcfg') : version('1.0.0'), desc
 
             validate {
                 if (key.trim().isEmpty())
-                    ValidationError("Idempotency key cannot be empty");
+                ValidationError("Idempotency key cannot be empty");
             }
+
         }
+
     }
 
     test("computed isOverdue is true when status is Overdue") {
@@ -85,12 +88,12 @@ service library.LoanService('config/loan-service.dcfg') : version('1.0.0'), desc
 
     test("validation rejects empty idempotency key") {
         assert throws(
-            () => loanDb.IdempotencyKey.create({
-                key: "",
-                operation: "create_loan",
-                expiresAt: DateTime.now().addHours(24)
-            }),
-            ValidationError("Idempotency key cannot be empty")
+        () => loanDb.IdempotencyKey.create({
+            key: "",
+            operation: "create_loan",
+            expiresAt: DateTime.now().addHours(24)
+        }),
+        ValidationError("Idempotency key cannot be empty")
         );
     }
 
@@ -115,6 +118,7 @@ service library.LoanService('config/loan-service.dcfg') : version('1.0.0'), desc
                 if (!bookResponse.isAvailable) {
                     throw ValidationException("Book is not available");
                 }
+
                 // Verify the member exists via MemberService internal endpoint
                 MemberService.MemberAPI.get('/internal/:id', request.memberId);
 
@@ -136,6 +140,7 @@ service library.LoanService('config/loan-service.dcfg') : version('1.0.0'), desc
                 Log.error(#"Failed to create loan: {e}");
                 throw e;
             }
+
         }
 
         @path('/member/:memberId')
@@ -158,7 +163,9 @@ service library.LoanService('config/loan-service.dcfg') : version('1.0.0'), desc
                     loan.save();
                     Log.info("Loan marked as overdue via webhook", { loanId: loanId });
                 }
+
             }
+
         }
 
         // Return endpoint marks a loan as returned and records the return time
@@ -177,10 +184,10 @@ service library.LoanService('config/loan-service.dcfg') : version('1.0.0'), desc
             if (idempotencyKey == null) return null;
 
             let IdempotencyKey? existing = loanDb.IdempotencyKey
-                .where(key: idempotencyKey)
-                .where(operation: operation)
-                .where(expiresAt: gt(DateTime.now()))
-                .first();
+            .where(key: idempotencyKey)
+            .where(operation: operation)
+            .where(expiresAt: gt(DateTime.now()))
+            .first();
 
             if (existing != null) {
                 Log.info("Idempotent request detected", { key: idempotencyKey, operation: operation });
@@ -202,5 +209,7 @@ service library.LoanService('config/loan-service.dcfg') : version('1.0.0'), desc
                 expiresAt: DateTime.now().addHours(24)
             });
         }
+
     }
+
 }

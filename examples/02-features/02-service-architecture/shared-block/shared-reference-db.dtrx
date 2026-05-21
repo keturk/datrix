@@ -18,5 +18,7 @@ shared ProductCatalogData('config/product-catalog-data.dcfg') {
             Float weight;
             Int? stockQty;
         }
+
     }
+
 }

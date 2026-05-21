@@ -711,7 +711,18 @@ integrations:
 
 ---
 
+## Diagnostic Output (Planned)
+
+The ConfigDSL compiler does not write YAML config files during normal generation. A planned diagnostic command will print the resolved canonical dictionary for review, testing, and migration verification:
+
+```bash
+datrix config resolve config/order-service.dcfg --profile production --format json
+```
+
+This is useful for inspecting the resolved config without running the full generation pipeline. It does not reintroduce YAML as an authoring or runtime config format.
+
+---
+
 ## See Also
 
 - **[Configuration System Architecture](../../../datrix-common/docs/architecture/config-system.md)** — Config taxonomy, validation, pipeline integration
-- **[Design Document: Config Definition DSL](../../../../design/ARCH-15-config-definition-dsl.md)** — Design rationale and decisions

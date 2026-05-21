@@ -35,6 +35,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             String(100) author;
             BookStatus status = BookStatus.Available;
         }
+
     }
 
     // NoSQL document database block - for schema-flexible analytics data
@@ -52,6 +53,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             // Composite index for querying a user's reading history by time
             index(userId, startedAt);
         }
+
     }
 
     // Cache block - in-memory data store for fast reads
@@ -62,6 +64,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             Int viewCount;
             DateTime lastViewed : server;
         }
+
     }
 
     // Storage block - file/blob storage for media assets
@@ -69,4 +72,5 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         // 'folder' declares a storage location with path, MIME restrictions, and size limit
         folder covers : path('covers/'), allowed(['image/jpeg', 'image/png', 'image/webp']), maxSize('5mb')
     }
+
 }

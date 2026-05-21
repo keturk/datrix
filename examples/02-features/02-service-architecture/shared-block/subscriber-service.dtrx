@@ -16,6 +16,7 @@ service library.AnalysisService('config/analysis-service.dcfg') : version('1.0.0
             DateTime? completedAt;
             Int recordsAnalyzed = 0;
         }
+
     }
 
     subscribe IngestionEvents.mq.IngestionEvents {
@@ -39,6 +40,7 @@ service library.AnalysisService('config/analysis-service.dcfg') : version('1.0.0
         on IngestionFailed(UUID runId, String source, String errorMessage) {
             Log.warn("Ingestion failed -- skipping analysis", { runId: runId, source: source, error: errorMessage });
         }
+
     }
 
     rest_api AnalysisAPI : basePath('/api/v1'), rdbms(analysisDb) {
@@ -47,6 +49,7 @@ service library.AnalysisService('config/analysis-service.dcfg') : version('1.0.0
         get(Int? limit) -> Array<analysisDb.AnalysisRun> {
             return analysisDb.AnalysisRun.orderBy(startedAt: desc).limit(limit ?? 20).all();
         }
+
     }
 
     test("subscribe handler creates AnalysisRun on supplemental event path") {
@@ -57,4 +60,5 @@ service library.AnalysisService('config/analysis-service.dcfg') : version('1.0.0
         });
         assert run.status == AnalysisStatus.Pending;
     }
+
 }

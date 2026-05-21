@@ -7,6 +7,7 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
         MenuService { loadBalance: roundRobin, healthyOnly: true }
         DeliveryService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     enum OrderStatus {
         Placed,
         Confirmed,
@@ -84,9 +85,9 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
 
             validate {
                 if (items.length() == 0)
-                    ValidationError("Order must have at least one item");
+                ValidationError("Order must have at least one item");
                 if (items.length() > MAX_ORDER_ITEMS)
-                    ValidationError("Order cannot have more than 50 items");
+                ValidationError("Order cannot have more than 50 items");
             }
 
             afterCreate {
@@ -104,7 +105,9 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
                     } else if (status == OrderStatus.Ready) {
                         dispatch OrderReady(id, orderNumber, restaurantId);
                     }
+
                 }
+
             }
 
             fn calculateTotals() {
@@ -112,6 +115,7 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
                 foreach item in items {
                     itemsTotal = itemsTotal.add(item.subtotal);
                 }
+
                 subtotal = itemsTotal;
                 tax = subtotal.multiply(0.08);
                 deliveryFee = Money.of(DEFAULT_DELIVERY_FEE, "USD");
@@ -119,6 +123,7 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
                 let Money tipAmount = tip ?? Money.of(0, "USD");
                 total = subtotal.add(tax).add(deliveryFee).add(tipAmount);
             }
+
         }
 
         entity OrderItem extends BaseEntity {
@@ -135,11 +140,13 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
 
             validate {
                 if (quantity <= 0)
-                    ValidationError("Quantity must be greater than zero");
+                ValidationError("Quantity must be greater than zero");
                 if (unitPrice.amount <= 0)
-                    ValidationError("Unit price must be positive");
+                ValidationError("Unit price must be positive");
             }
+
         }
+
     }
 
     cache redis {
@@ -161,14 +168,18 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
                 ensure orderNumber.length > 0;
                 ensure total > 0;
             }
+
             publish OrderStatusChanged(UUID orderId, String orderNumber, OrderStatus oldStatus, OrderStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
+
             publish OrderConfirmed(UUID orderId, String orderNumber, UUID restaurantId, DeliveryAddress deliveryAddress);
             publish OrderCancelled(UUID orderId, String orderNumber, UUID customerId);
             publish OrderReady(UUID orderId, String orderNumber, UUID restaurantId);
         }
+
     }
+
     subscribe OrderEvents {
 
         on OrderStatusChanged(UUID orderId, String orderNumber, OrderStatus oldStatus, OrderStatus newStatus) {
@@ -188,20 +199,23 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
                     estimatedDelivery: cached.estimatedDelivery
                 });
             }
+
         }
 
         on OrderConfirmed(UUID orderId, String orderNumber, UUID restaurantId, DeliveryAddress deliveryAddress) {
             Log.info("Order confirmed", { orderId: orderId, orderNumber: orderNumber, restaurantId: restaurantId });
         }
+
     }
+
     subscribe RestaurantEvents {
 
         on RestaurantStatusChanged(UUID restaurantId, String name, RestaurantStatus oldStatus, RestaurantStatus newStatus) {
             if (newStatus == RestaurantStatus.Closed || newStatus == RestaurantStatus.Suspended) {
                 let Array<Order> activeOrders = orderDb.Order
-                    .where(restaurantId: restaurantId)
-                    .whereIn(status: [OrderStatus.Placed, OrderStatus.Confirmed])
-                    .all();
+                .where(restaurantId: restaurantId)
+                .whereIn(status: [OrderStatus.Placed, OrderStatus.Confirmed])
+                .all();
 
                 foreach order in activeOrders {
                     Log.warn("Restaurant closed with active orders", {
@@ -211,9 +225,13 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
                         restaurantName: name
                     });
                 }
+
             }
+
         }
+
     }
+
     subscribe DeliveryEvents {
 
         on DeliveryStatusChanged(UUID deliveryId, UUID orderId, DeliveryStatus oldStatus, DeliveryStatus newStatus) {
@@ -231,7 +249,9 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
                     deliveryId: deliveryId
                 });
             }
+
         }
+
     }
 
     rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(orderDb) {
@@ -246,10 +266,10 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
 
             let Int total = query.count();
             let Array<Order> orders = query
-                .orderBy(createdAt: desc)
-                .offset((page - 1) * perPage)
-                .limit(perPage)
-                .all();
+            .orderBy(createdAt: desc)
+            .offset((page - 1) * perPage)
+            .limit(perPage)
+            .all();
 
             return {
                 data: orders,
@@ -261,6 +281,7 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
                     hasNextPage: page < Math.ceil(total / perPage),
                     hasPrevPage: page > 1
                 }
+
             };
         }
 
@@ -327,6 +348,7 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
                         specialRequests: item.specialRequests
                     });
                 }
+
             }
 
             order.calculateTotals();
@@ -410,6 +432,7 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
         get(UUID id) : internal -> orderDb.Order {
             return orderDb.Order.findOrFail(id);
         }
+
     }
 
     test("computed canCancel is true for Placed status") {
@@ -460,17 +483,17 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
 
     test("validation rejects order with no items") {
         assert throws(
-            () => orderDb.Order.create({
-                customerId: uuid(),
-                restaurantId: uuid(),
-                orderNumber: "FD-TEST-004",
-                subtotal: Money.of(0, "USD"),
-                tax: Money.of(0, "USD"),
-                deliveryFee: Money.of(4.99, "USD"),
-                total: Money.of(4.99, "USD"),
-                deliveryAddress: { street: "321 Pine Rd", city: "Springfield", state: "IL", zipCode: "62704" }
-            }),
-            ValidationError("Order must have at least one item")
+        () => orderDb.Order.create({
+            customerId: uuid(),
+            restaurantId: uuid(),
+            orderNumber: "FD-TEST-004",
+            subtotal: Money.of(0, "USD"),
+            tax: Money.of(0, "USD"),
+            deliveryFee: Money.of(4.99, "USD"),
+            total: Money.of(4.99, "USD"),
+            deliveryAddress: { street: "321 Pine Rd", city: "Springfield", state: "IL", zipCode: "62704" }
+        }),
+        ValidationError("Order must have at least one item")
         );
     }
 
@@ -598,4 +621,5 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
         order.save();
         assert emitted(OrderCancelled(order.id, "FD-TEST-010", order.customerId));
     }
+
 }

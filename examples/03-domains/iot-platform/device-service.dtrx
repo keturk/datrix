@@ -72,9 +72,9 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
 
             validate {
                 if (name.trim().isEmpty())
-                    ValidationError("Device name cannot be empty");
+                ValidationError("Device name cannot be empty");
                 if (firmwareVersion.trim().isEmpty())
-                    ValidationError("Firmware version cannot be empty");
+                ValidationError("Firmware version cannot be empty");
             }
 
             afterCreate {
@@ -85,9 +85,11 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
                 if (isChanged(status)) {
                     dispatch DeviceStatusChanged(id, serialNumber, oldValue(status), status);
                 }
+
                 if (isChanged(firmwareVersion)) {
                     dispatch DeviceFirmwareUpdated(id, serialNumber, oldValue(firmwareVersion), firmwareVersion);
                 }
+
             }
 
             fn activate() {
@@ -106,6 +108,7 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
                 firmwareVersion = version;
                 this.save();
             }
+
         }
 
         entity DeviceGroup extends BaseEntity {
@@ -116,8 +119,9 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
 
             validate {
                 if (name.trim().isEmpty())
-                    ValidationError("Group name cannot be empty");
+                ValidationError("Group name cannot be empty");
             }
+
         }
 
         entity DeviceGroupMember extends BaseEntity {
@@ -128,6 +132,7 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
 
             index(deviceGroupId, deviceId) : unique;
         }
+
     }
 
     cache redis {
@@ -149,13 +154,17 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
                 ensure serialNumber.length > 0;
                 ensure name.length > 0;
             }
+
             publish DeviceStatusChanged(UUID deviceId, String serialNumber, DeviceStatus oldStatus, DeviceStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
+
             publish DeviceFirmwareUpdated(UUID deviceId, String serialNumber, String oldVersion, String newVersion);
             publish DeviceHeartbeat(UUID deviceId, String serialNumber, String firmwareVersion);
         }
+
     }
+
     subscribe DeviceEvents {
 
         on DeviceRegistered(UUID deviceId, String serialNumber, String name, DeviceType type) {
@@ -187,7 +196,9 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
             } else if (oldStatus == DeviceStatus.Active) {
                 redis.OnlineDeviceCount.decr("total");
             }
+
         }
+
     }
 
     rest_api DeviceAPI : basePath('/api/v1/devices'), rdbms(deviceDb) {
@@ -289,17 +300,17 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
         @path('/by-type/:type')
         get(DeviceType type) -> Array<deviceDb.Device> {
             return deviceDb.Device
-                .where(type: type)
-                .where(status: DeviceStatus.Active)
-                .orderBy(name: asc)
-                .all();
+            .where(type: type)
+            .where(status: DeviceStatus.Active)
+            .orderBy(name: asc)
+            .all();
         }
 
         @path('/by-group/:groupId')
         get(UUID groupId) -> Array<deviceDb.Device> {
             let Array<DeviceGroupMember> members = deviceDb.DeviceGroupMember
-                .where(deviceGroupId: groupId)
-                .all();
+            .where(deviceGroupId: groupId)
+            .all();
             return members.map(m => deviceDb.Device.findOrFail(m.deviceId));
         }
 
@@ -309,9 +320,9 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
             let Device device = deviceDb.Device.findOrFail(request.deviceId);
 
             let DeviceGroupMember? existing = deviceDb.DeviceGroupMember
-                .where(deviceGroupId: groupId)
-                .where(deviceId: request.deviceId)
-                .first();
+            .where(deviceGroupId: groupId)
+            .where(deviceId: request.deviceId)
+            .first();
 
             if (existing != null) {
                 throw ValidationException({
@@ -355,10 +366,11 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
         @path('/by-firmware/:version')
         get(String version) -> Array<deviceDb.Device> {
             return deviceDb.Device
-                .where(firmwareVersion: version)
-                .orderBy(name: asc)
-                .all();
+            .where(firmwareVersion: version)
+            .orderBy(name: asc)
+            .all();
         }
+
     }
 
     test("computed isActive reflects Active status") {
@@ -377,14 +389,14 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
 
     test("validation rejects empty name") {
         assert throws(
-            () => deviceDb.Device.create({
-                serialNumber: "IOT-TEST-002",
-                name: "",
-                type: DeviceType.Sensor,
-                firmwareVersion: "1.0.0",
-                metadata: {}
-            }),
-            ValidationError("Device name cannot be empty")
+        () => deviceDb.Device.create({
+            serialNumber: "IOT-TEST-002",
+            name: "",
+            type: DeviceType.Sensor,
+            firmwareVersion: "1.0.0",
+            metadata: {}
+        }),
+        ValidationError("Device name cannot be empty")
         );
     }
 
@@ -441,14 +453,14 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
 
     test("validation rejects empty firmware version") {
         assert throws(
-            () => deviceDb.Device.create({
-                serialNumber: "IOT-TEST-007",
-                name: "Valid Sensor",
-                type: DeviceType.Sensor,
-                firmwareVersion: "",
-                metadata: {}
-            }),
-            ValidationError("Firmware version cannot be empty")
+        () => deviceDb.Device.create({
+            serialNumber: "IOT-TEST-007",
+            name: "Valid Sensor",
+            type: DeviceType.Sensor,
+            firmwareVersion: "",
+            metadata: {}
+        }),
+        ValidationError("Firmware version cannot be empty")
         );
     }
 
@@ -511,10 +523,11 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
 
     test("validation rejects empty group name") {
         assert throws(
-            () => deviceDb.DeviceGroup.create({
-                name: ""
-            }),
-            ValidationError("Group name cannot be empty")
+        () => deviceDb.DeviceGroup.create({
+            name: ""
+        }),
+        ValidationError("Group name cannot be empty")
         );
     }
+
 }

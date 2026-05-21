@@ -80,5 +80,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             // Enum with explicit values works the same way for field defaults
             BookCondition condition = BookCondition.New;
         }
+
     }
+
 }

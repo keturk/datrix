@@ -447,7 +447,7 @@ entity Order {
 ```dtrx
 // In NotificationService
 service notification.NotificationService : version('1.0.0') {
-    pubsub mq('config/notification-service/pubsub.yaml') {
+    pubsub mq('config/notification-service/pubsub.dcfg') {
     }
 
     subscribe ecommerce.OrderService.mq.OrderEvents {
@@ -490,7 +490,7 @@ service notification.NotificationService : version('1.0.0') {
 ```dtrx
 // Order Service
 service ecommerce.OrderService : version('1.0.0') {
-    pubsub mq('config/order-service/pubsub.yaml') {
+    pubsub mq('config/order-service/pubsub.dcfg') {
         topic OrderEvents {
             publish OrderPlaced(UUID orderId, UUID customerId, List<OrderItem> items);
             publish OrderConfirmed(UUID orderId);
@@ -526,7 +526,7 @@ service ecommerce.OrderService : version('1.0.0') {
 
 // Payment Service
 service ecommerce.PaymentService : version('1.0.0') {
-    pubsub mq('config/payment-service/pubsub.yaml') {
+    pubsub mq('config/payment-service/pubsub.dcfg') {
         topic PaymentEvents {
             publish PaymentSucceeded(UUID orderId, Money amount);
             publish PaymentFailed(UUID orderId, String reason);
@@ -553,7 +553,7 @@ service ecommerce.PaymentService : version('1.0.0') {
 
 // Inventory Service
 service ecommerce.InventoryService : version('1.0.0') {
-    pubsub mq('config/inventory-service/pubsub.yaml') {
+    pubsub mq('config/inventory-service/pubsub.dcfg') {
         topic InventoryEvents {
             publish InventoryReserved(UUID orderId);
             publish InventoryInsufficient(UUID orderId);
@@ -587,7 +587,7 @@ service ecommerce.InventoryService : version('1.0.0') {
 
 **When not to use:** If only **one** service touches a resource, keep the block **inside that service** — shared blocks add cross-service coupling and require explicit **`uses`** on every consumer/producer.
 
-**Operational pairing:** Pair DSL **`uses SharedName : subscribe | publish | readonly | readwrite;`** with **`dependencies('config/dependencies.yaml');`** for URLs, timeouts, and health checks (see [Configuration guide](./configuration-guide.md)).
+**Operational pairing:** Pair DSL **`uses SharedName : subscribe | publish | readonly | readwrite;`** with **`dependencies('config/dependencies.dcfg');`** for URLs, timeouts, and health checks (see [Configuration guide](./configuration-guide.md)).
 
 ---
 
@@ -644,20 +644,20 @@ fn reconstructOrder(UUID orderId) -> Order {
 
 **Problem:** Ingestion, webhooks, or scheduled work must deploy as **Lambda** or **Azure Functions** in production, but developers still want **in-process** execution in dev/test without maintaining two copies of the handler.
 
-**Solution:** Put **`subscribe`**, **`job`**, HTTP endpoints, or **`enqueue`** consumers inside **`serverless BlockName('config/<service>/serverless.yaml') { … }`**. YAML profiles choose **`platform`**: `container` for local parity, `lambda` or `functions` for cloud.
+**Solution:** Put **`subscribe`**, **`job`**, HTTP endpoints, or **`enqueue`** consumers inside **`serverless BlockName('config/<service>/serverless.dcfg') { … }`**. YAML profiles choose **`platform`**: `container` for local parity, `lambda` or `functions` for cloud.
 
 **Example:**
 
 ```dtrx
 service NotificationService {
-    pubsub mq('config/notification-service/pubsub.yaml') {
+    pubsub mq('config/notification-service/pubsub.dcfg') {
         topic UserEvents {
             publish UserRegistered(UUID userId, String email);
         }
     }
 
     // Serverless event handler
-    serverless eventHandlers('config/notification-service/event-handlers.yaml') {
+    serverless eventHandlers('config/notification-service/event-handlers.dcfg') {
         subscribe mq.UserEvents {
             on UserRegistered(UUID userId, String email) {
                 // Send welcome email
@@ -697,9 +697,9 @@ The semantic layer enforces the same reference rules as service-level blocks.
 
 ```dtrx
 shared Analytics {
-    pubsub mq('config/shared/analytics-pubsub.yaml') { ... }
+    pubsub mq('config/shared/analytics-pubsub.dcfg') { ... }
 
-    serverless processors('config/shared/analytics-processors.yaml') {
+    serverless processors('config/shared/analytics-processors.dcfg') {
         subscribe mq.AnalyticsEvents { ... }
     }
 }
@@ -731,7 +731,7 @@ See [Writing Datrix Applications — Serverless blocks](./writing-datrix-applica
 **Solution:** Declare an `extern service` with the tool's API contract. Datrix generates typed clients in every consuming service.
 
 ```dtrx
-extern service pricing.PricingEngine('config/pricing-engine.yaml')
+extern service pricing.PricingEngine('config/pricing-engine.dcfg')
     : version('1.0.0') {
 
     struct PricingRequest {
@@ -774,26 +774,32 @@ service ecommerce.OrderService {
 
 **Problem:** You want to run the extern service locally during development but point to a managed instance in production.
 
-**Solution:** Use profile-keyed config with `container` for dev and `external` for prod:
+**Solution:** Use Datrix-owned access config with `container` for dev and `external` for prod:
 
-```yaml
-# config/pricing-engine.yaml
-development:
-  deployment: container
-  image: pricing-engine:dev
-  port: 8080
-  auth:
-    type: apiKey
-    header: X-API-Key
-    secret: PRICING_API_KEY
+```dcfg
+# config/pricing-engine.dcfg
+config extern pricing.PricingEngine {
+  profile development as "dev" {
+    deployment = "container";
+    image = "pricing-engine:dev";
+    port = 8080;
+    auth {
+      type = "apiKey";
+      header = "X-API-Key";
+      secret = "PRICING_API_KEY";
+    }
+  }
 
-production:
-  deployment: external
-  url: https://pricing.prod.internal/api
-  auth:
-    type: bearer
-    secret: PRICING_BEARER_TOKEN
-  timeout: 60s
+  profile production as "prod" {
+    deployment = "external";
+    url = "https://pricing.prod.internal/api";
+    auth {
+      type = "bearer";
+      secret = "PRICING_BEARER_TOKEN";
+    }
+    timeout = "60s";
+  }
+}
 ```
 
 **Benefits:**
@@ -930,15 +936,20 @@ entity Task extends BaseEntity with Tenantable {
 
 **Config:**
 
-```yaml
-# service-config.yaml
-production:
-  platform: ecs-fargate
-  tenancy:
-    identifier:
-      source: jwt            # Extract from JWT
-      name: organizationId   # Claim name
-    enforcement: strict      # All queries require tenant context
+```dcfg
+# config/project-service.dcfg
+config service ProjectService {
+    profile production {
+        platform: ecs-fargate
+        tenancy {
+            identifier {
+                source: jwt
+                name: organizationId
+            }
+            enforcement: strict
+        }
+    }
+}
 ```
 
 **Generated behavior:**
@@ -1442,22 +1453,27 @@ entity Order {
 
 **Solution:** Use profiles.
 
-```yaml
-# config/system-config.yaml
-test:
-  language: python
-  hosting: docker
-  defaultTimeout: 10000
+```dcfg
+# config/system.dcfg
+config system ecommerce.System {
+    profile test {
+        language: python
+        deployment { runtime: docker-compose, provider: local }
+        defaultTimeout: 10000
+    }
 
-development:
-  language: python
-  hosting: docker
-  defaultTimeout: 30000
+    profile development {
+        language: python
+        deployment { runtime: docker-compose, provider: local }
+        defaultTimeout: 30000
+    }
 
-staging:
-  language: python
-  hosting: aws
-  region: us-east-1
+    profile staging {
+        language: python
+        deployment { runtime: kubernetes, provider: aws, target: eks }
+        region: us-east-1
+    }
+}
   defaultTimeout: 60000
 
 production:

@@ -28,4 +28,5 @@ module finance.common {
     fn formatAmount(Money amount, Currency currency) -> String {
         return #"{currency} {amount.amount}";
     }
+
 }

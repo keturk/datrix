@@ -34,6 +34,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             // Enables natural-language search queries against title, author, and description
             fulltext(title, author, description);
         }
+
     }
 
     // REST API block with a search endpoint using fulltext queries
@@ -47,5 +48,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         get(String query) : public -> Array<bookDb.Book> {
             return bookDb.Book.fulltext(query).all();
         }
+
     }
+
 }

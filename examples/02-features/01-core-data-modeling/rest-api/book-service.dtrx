@@ -44,6 +44,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             BookStatus status = BookStatus.Available;
             BookFormat format = BookFormat.Hardcover;
         }
+
     }
 
     // REST API block - generates CRUD endpoints and custom routes
@@ -52,4 +53,5 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         // 'resource' auto-generates standard CRUD endpoints (list, get, create, update, delete)
         resource bookDb.Book;
     }
+
 }

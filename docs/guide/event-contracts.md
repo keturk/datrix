@@ -31,7 +31,7 @@ Ensure clauses live inside the `publish` event declaration body:
 
 ```datrix
 service ecommerce.OrderService : version('1.0.0') {
-    pubsub mq('config/pubsub.yaml') {
+    pubsub mq('config/pubsub.dcfg') {
         topic OrderEvents {
             publish OrderPlaced(UUID orderId, Decimal totalAmount, Int itemCount) {
                 ensure totalAmount > 0;
@@ -173,7 +173,7 @@ When a **`topic`** lives under **`shared IngestionEvents { pubsub mq('…') { to
 
 ```datrix
 shared IngestionEvents {
-    pubsub mq('config/ingestion-pubsub.yaml') {
+    pubsub mq('config/ingestion-pubsub.dcfg') {
         topic IngestionEvents {
             publish SupplementalSourceIngested(String source, String layer, DateTime timestamp);
         }

@@ -4,6 +4,7 @@ service library.NotificationService('config/notification-service.dcfg') : versio
     discovery {
         library.BookService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     rdbms notifDb {
 
         abstract entity BaseEntity {
@@ -17,6 +18,7 @@ service library.NotificationService('config/notification-service.dcfg') : versio
             Email recipientEmail;
             String(2000) messagePreview;
         }
+
     }
 
     enqueue library.BookService.SendBookNotification(UUID bookId, Email recipientEmail, String message) {
@@ -30,8 +32,10 @@ service library.NotificationService('config/notification-service.dcfg') : versio
                 bookId: bookId,
                 message: message
             }
+
         });
 
         Log.info("Book notification sent", { bookId: bookId, email: recipientEmail });
     }
+
 }

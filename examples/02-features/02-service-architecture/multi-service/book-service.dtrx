@@ -16,5 +16,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             String(20) isbn : regex("^[0-9\\-]{10,13}$");
             String(100) author : trim;
         }
+
     }
+
 }
