@@ -3,7 +3,6 @@ config service library.SharedSessionStoreService {
     port = 8001;
     flavor = "compose";
     replicas = 1;
-
     resources {
       requests {
         cpu = "100m";
@@ -14,12 +13,10 @@ config service library.SharedSessionStoreService {
         memory = "512Mi";
       }
     }
-
     healthCheck {
       path = "/health";
       initialDelay = "10s";
     }
-
     rdbms sessionstoreDb {
       engine = "postgres";
       flavor = "container";
@@ -34,7 +31,15 @@ config service library.SharedSessionStoreService {
       volumePath = "/var/lib/postgresql/data";
       defaultUser = "postgres";
     }
-
+    cache auth_cache {
+      engine = "redis";
+      flavor = "container";
+      host = "localhost";
+      port = 6379;
+      dockerImage = "redis:7-alpine";
+      volumePath = "/data";
+      healthCheckCmd = "redis-cli ping";
+    }
     registration {
       tags = ["api", "library", "v1"];
       meta = {};
@@ -44,7 +49,6 @@ config service library.SharedSessionStoreService {
         interval = "10s";
       }
     }
-
     resilience {
       defaults {
         timeout = "10s";
@@ -59,7 +63,6 @@ config service library.SharedSessionStoreService {
       }
     }
   }
-
 
   profile test as "test" extends base {
     alias env = "TEST";
@@ -77,7 +80,6 @@ config service library.SharedSessionStoreService {
 
     flavor = "ecs-fargate";
     replicas = 2;
-
     replace rdbms sessionstoreDb {
       engine = "postgres";
       flavor = "rds";
@@ -89,7 +91,6 @@ config service library.SharedSessionStoreService {
       syncDriver = "postgresql+psycopg2";
       healthCheckSql = "SELECT 1";
     }
-
     strategy {
       rolling {
         maxUnavailable = "25%";

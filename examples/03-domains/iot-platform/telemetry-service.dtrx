@@ -287,7 +287,7 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
         }
     }
 
-    rest_api TelemetryAPI : basePath('/api/v1/telemetry') {
+    rest_api TelemetryAPI : basePath('/api/v1/telemetry'), rdbms(alertDb) {
 
         @path('/ingest')
         post(IngestTelemetryRequest request) -> JSON {

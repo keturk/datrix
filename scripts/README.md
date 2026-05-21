@@ -90,6 +90,15 @@ See [quick-reference.md](quick-reference.md) for the full conversion table and l
 .\dev\generate.ps1 -TestSet foundation -L python
 ```
 
+### Lint/Format ConfigDSL
+```powershell
+# Check all .dcfg files (no writes)
+.\dev\config-linter.ps1 -All -Check
+
+# Format all .dcfg files
+.\dev\config-linter.ps1 -All
+```
+
 ### Check Git Status
 ```powershell
 # Quick status of all repos

@@ -3,7 +3,6 @@ config service healthcare.MedicalRecordService {
     port = 8001;
     flavor = "compose";
     replicas = 1;
-
     resources {
       requests {
         cpu = "100m";
@@ -14,12 +13,10 @@ config service healthcare.MedicalRecordService {
         memory = "512Mi";
       }
     }
-
     healthCheck {
       path = "/health";
       initialDelay = "10s";
     }
-
     rdbms medicalrecordDb {
       engine = "postgres";
       flavor = "container";
@@ -34,7 +31,50 @@ config service healthcare.MedicalRecordService {
       volumePath = "/var/lib/postgresql/data";
       defaultUser = "postgres";
     }
-
+    rdbms medicalRecordDb {
+      engine = "postgres";
+      flavor = "container";
+      host = "localhost";
+      port = 5432;
+      database = "medicalrecorddb";
+      poolSize = 20;
+      asyncDriver = "postgresql+asyncpg";
+      syncDriver = "postgresql+psycopg2";
+      healthCheckSql = "SELECT 1";
+      dockerImage = "postgres:17-alpine";
+      volumePath = "/var/lib/postgresql/data";
+      defaultUser = "postgres";
+    }
+    cache redis {
+      engine = "redis";
+      flavor = "container";
+      host = "localhost";
+      port = 6379;
+      dockerImage = "redis:7-alpine";
+      volumePath = "/data";
+      healthCheckCmd = "redis-cli ping";
+    }
+    pubsub mq {
+      engine = "kafka";
+      flavor = "container";
+      brokers = ["localhost:9092"];
+      partitions = 3;
+      replicationFactor = 1;
+      retention = "7d";
+      port = 9092;
+      controllerPort = 9093;
+      dockerImage = "confluentinc/cp-kafka:7.6.0";
+      volumePath = "/var/lib/kafka/data";
+    }
+    storage store {
+      provider = "minio";
+      flavor = "minio";
+      endpoint = "http://localhost:9000";
+      bucket = "store";
+      region = "us-east-1";
+      accessKey = "minioadmin";
+      secretKey = "minioadmin";
+    }
     registration {
       tags = ["api", "library", "v1"];
       meta = {};
@@ -44,7 +84,6 @@ config service healthcare.MedicalRecordService {
         interval = "10s";
       }
     }
-
     resilience {
       defaults {
         timeout = "10s";
@@ -59,7 +98,6 @@ config service healthcare.MedicalRecordService {
       }
     }
   }
-
 
   profile test as "test" extends base {
     alias env = "TEST";
@@ -77,7 +115,6 @@ config service healthcare.MedicalRecordService {
 
     flavor = "ecs-fargate";
     replicas = 2;
-
     replace rdbms medicalrecordDb {
       engine = "postgres";
       flavor = "rds";
@@ -89,7 +126,6 @@ config service healthcare.MedicalRecordService {
       syncDriver = "postgresql+psycopg2";
       healthCheckSql = "SELECT 1";
     }
-
     strategy {
       rolling {
         maxUnavailable = "25%";

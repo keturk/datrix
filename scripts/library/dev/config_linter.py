@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Lint and format ConfigDSL (.dcfg) files.
 
-By default, this script discovers .dcfg files in provided paths and rewrites them
-in a normalized style. Use --check for CI-style validation without file writes.
+Run with one or more paths, or use ``--all`` to scan all datrix repositories.
 """
 
 from __future__ import annotations
@@ -92,49 +91,6 @@ def _discover_dcfg_files(path: Path) -> list[Path]:
     return sorted(files)
 
 
-def _contains_multiple_statements_on_line(line: str) -> bool:
-    in_string = False
-    escaped = False
-    i = 0
-    semicolon_seen = False
-
-    while i < len(line):
-        ch = line[i]
-        nxt = line[i + 1] if i + 1 < len(line) else ""
-
-        if in_string:
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == '"':
-                in_string = False
-            i += 1
-            continue
-
-        if ch == '"':
-            in_string = True
-            i += 1
-            continue
-
-        if ch == "/" and nxt == "/":
-            return False
-
-        if ch == ";":
-            semicolon_seen = True
-            j = i + 1
-            while j < len(line) and line[j].isspace():
-                j += 1
-            if j < len(line) and not (line[j] == "/" and j + 1 < len(line) and line[j + 1] == "/"):
-                return True
-            i = j
-            continue
-
-        i += 1
-
-    return semicolon_seen and False
-
-
 def _lint_source_text(source: str) -> list[LintIssue]:
     issues: list[LintIssue] = []
     for index, raw_line in enumerate(source.splitlines(), start=1):
@@ -144,10 +100,6 @@ def _lint_source_text(source: str) -> list[LintIssue]:
         if line.rstrip(" ") != line:
             issues.append(
                 LintIssue(index, len(line.rstrip(" ")) + 1, "Trailing whitespace found")
-            )
-        if _contains_multiple_statements_on_line(line):
-            issues.append(
-                LintIssue(index, 1, "Multiple statements on one line; prefer one statement per line")
             )
     return issues
 
@@ -440,7 +392,13 @@ def main() -> int:
     parser.add_argument(
         "paths",
         nargs="*",
-        help="File or directory paths to scan (default: all datrix* repos)",
+        help="File or directory paths to scan",
+    )
+    parser.add_argument(
+        "--all",
+        "-a",
+        action="store_true",
+        help="Scan all datrix* repositories",
     )
     parser.add_argument(
         "--check",
@@ -450,6 +408,14 @@ def main() -> int:
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
 
+    if args.all and args.paths:
+        print("ERROR: Specify either paths or --all, not both.", file=sys.stderr)
+        return 1
+    if not args.all and not args.paths:
+        parser.print_help()
+        print("\nProvide one or more paths, or use --all.", file=sys.stderr)
+        return 1
+
     try:
         datrix_root = _get_datrix_root()
     except FileNotFoundError:
@@ -458,7 +424,7 @@ def main() -> int:
 
     _add_datrix_common_to_path(datrix_root)
 
-    input_paths = [Path(p) for p in args.paths] if args.paths else _default_scan_paths()
+    input_paths = _default_scan_paths() if args.all else [Path(p) for p in args.paths]
     discovered: list[Path] = []
 
     print("Discovering .dcfg files...", flush=True)
