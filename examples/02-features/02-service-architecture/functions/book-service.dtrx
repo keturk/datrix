@@ -41,6 +41,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             String(100) author : trim;
             Int publicationYear;
         }
+
     }
 
     test("calculateLateFee computes fee based on days overdue") {
@@ -71,5 +72,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             // Call another service-level function to calculate the fee
             return calculateLateFee(days);
         }
+
     }
+
 }

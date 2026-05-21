@@ -64,6 +64,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             // 'index' creates a database index on the foreign key for query performance
             belongsTo Category : index;
         }
+
     }
 
     // REST API block - generates CRUD endpoints and custom routes
@@ -144,4 +145,5 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         book.save();
         assert book.isOldBook == false;
     }
+
 }

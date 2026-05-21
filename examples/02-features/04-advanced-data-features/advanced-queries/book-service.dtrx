@@ -40,6 +40,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             DateTime dueDate;
             DateTime? returnDate;
         }
+
     }
 
     rest_api BookServiceAPI : basePath("/api/v1"), rdbms(bookDb) {
@@ -56,9 +57,9 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         @path('/books/by-price')
         get() : public -> Array<bookDb.Book> {
             return bookDb.Book
-                .where(status: BookStatus.Available)
-                .orderBy(price: asc)
-                .all();
+            .where(status: BookStatus.Available)
+            .orderBy(price: asc)
+            .all();
         }
 
         // '.whereNull(field)' matches records where the field is null
@@ -78,44 +79,44 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         get(Int page, Int pageSize) : public -> Array<bookDb.Book> {
             let Int offset = (page - 1) * pageSize;
             return bookDb.Book
-                .where(status: BookStatus.Available)
-                .orderBy(createdAt: desc)
-                .limit(pageSize)
-                .offset(offset)
-                .all();
+            .where(status: BookStatus.Available)
+            .orderBy(createdAt: desc)
+            .limit(pageSize)
+            .offset(offset)
+            .all();
         }
 
         // Chained query: multiple .where() clauses combine as AND conditions
         @path('/books/search')
         get(String author, Int minYear, Int maxYear) : public -> Array<bookDb.Book> {
             return bookDb.Book
-                .where(author: author)
-                .where(publicationYear: gte(minYear))
-                .where(publicationYear: lte(maxYear))
-                .orderBy(publicationYear: desc)
-                .all();
+            .where(author: author)
+            .where(publicationYear: gte(minYear))
+            .where(publicationYear: lte(maxYear))
+            .orderBy(publicationYear: desc)
+            .all();
         }
 
         // '.fulltext(query)' performs natural-language search on indexed fields
         @path('/books/fulltext')
         get(String query, Int? limit) : public -> Array<bookDb.Book> {
             return bookDb.Book
-                .fulltext(query)
-                .limit(limit ?? 20)
-                .all();
+            .fulltext(query)
+            .limit(limit ?? 20)
+            .all();
         }
 
         // Complex chaining with multiple operators
         @path('/books/advanced-search')
         get(UUID categoryId, Decimal minPrice, Decimal maxPrice, Int? limit) : public -> Array<bookDb.Book> {
             return bookDb.Book
-                .where(categoryId: categoryId)
-                .where(status: BookStatus.Available)
-                .where(price: gte(minPrice))
-                .where(price: lte(maxPrice))
-                .orderBy(price: asc)
-                .limit(limit ?? 50)
-                .all();
+            .where(categoryId: categoryId)
+            .where(status: BookStatus.Available)
+            .where(price: gte(minPrice))
+            .where(price: lte(maxPrice))
+            .orderBy(price: asc)
+            .limit(limit ?? 50)
+            .all();
         }
 
         // '.whereNull()' for finding overdue checkouts (no return date)
@@ -123,20 +124,22 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         @path('/checkouts/overdue')
         get() : public -> Array<bookDb.Checkout> {
             return bookDb.Checkout
-                .whereNull(returnDate)
-                .where(dueDate: lt(DateTime.now()))
-                .orderBy(dueDate: asc)
-                .limit(100)
-                .all();
+            .whereNull(returnDate)
+            .where(dueDate: lt(DateTime.now()))
+            .orderBy(dueDate: asc)
+            .limit(100)
+            .all();
         }
 
         // Count with multiple conditions
         @path('/books/count-by-price-range')
         get(Decimal minPrice, Decimal maxPrice) : public -> Int {
             return bookDb.Book
-                .where(price: gte(minPrice))
-                .where(price: lte(maxPrice))
-                .count();
+            .where(price: gte(minPrice))
+            .where(price: lte(maxPrice))
+            .count();
         }
+
     }
+
 }

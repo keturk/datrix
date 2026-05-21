@@ -22,4 +22,5 @@ module library.common {
     fn formatBookReference(String title, String author, Int year) -> String {
         return #"{author} ({year}). {title}";
     }
+
 }

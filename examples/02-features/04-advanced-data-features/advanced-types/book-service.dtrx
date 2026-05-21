@@ -43,5 +43,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             // '?' suffix makes the field nullable; IPAddress is a semantic type
             IPAddress? lastAccessedFrom;
         }
+
     }
+
 }

@@ -54,13 +54,13 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
 
             validate {
                 if (username.trim().isEmpty())
-                    ValidationError("Username cannot be empty");
+                ValidationError("Username cannot be empty");
                 if (username.length() < 3)
-                    ValidationError("Username must be at least 3 characters");
+                ValidationError("Username must be at least 3 characters");
                 if (username.length() > 50)
-                    ValidationError("Username cannot exceed 50 characters");
+                ValidationError("Username cannot exceed 50 characters");
                 if (bio != null && bio.length() > 500)
-                    ValidationError("Bio cannot exceed 500 characters");
+                ValidationError("Bio cannot exceed 500 characters");
             }
 
             afterCreate {
@@ -76,8 +76,11 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
                     } else if (status == UserStatus.Deactivated) {
                         Log.info("User deactivated", { userId: id, username: username });
                     }
+
                 }
+
             }
+
         }
 
         entity Follow extends BaseEntity {
@@ -90,7 +93,7 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
 
             validate {
                 if (followerId == followeeId)
-                    ValidationError("A user cannot follow themselves");
+                ValidationError("A user cannot follow themselves");
             }
 
             afterCreate {
@@ -110,7 +113,9 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
 
                 dispatch UserFollowed(followerId, followeeId);
             }
+
         }
+
     }
 
     cache redis {
@@ -134,20 +139,27 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
                 ensure username.length > 0;
                 ensure email.length > 0;
             }
+
             publish UserStatusChanged(UUID userId, UserStatus oldStatus, UserStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
+
             publish UserFollowed(UUID followerId, UUID followeeId) {
                 ensure followerId != followeeId;
             }
+
             publish UserUnfollowed(UUID followerId, UUID followeeId) {
                 ensure followerId != followeeId;
             }
+
             publish UserProfileUpdated(UUID userId, String displayName) {
                 ensure displayName.length > 0;
             }
+
         }
+
     }
+
     subscribe UserEvents {
         on UserRegistered(UUID userId, String username, String email) {
             Log.info("New user registered", { userId: userId, username: username });
@@ -181,6 +193,7 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
             Log.info("User profile updated", { userId: userId, displayName: displayName });
             redis.UserProfileCache.delete(userId);
         }
+
     }
 
     rest_api UserAPI : basePath('/api/v1/users'), rdbms(userDb) {
@@ -203,9 +216,11 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
             if (request.displayName != null) {
                 user.displayName = request.displayName;
             }
+
             if (request.bio != null) {
                 user.bio = request.bio;
             }
+
             if (request.avatarUrl != null) {
                 user.avatarUrl = request.avatarUrl;
             }
@@ -233,16 +248,16 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
         get(String query, Int page = 1, Int perPage = 20) : public -> PaginatedUsers {
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             let Array<User> users = userDb.User
-                .fulltext(query)
-                .where(status: UserStatus.Active)
-                .offset((page - 1) * cappedPerPage)
-                .limit(cappedPerPage)
-                .all();
+            .fulltext(query)
+            .where(status: UserStatus.Active)
+            .offset((page - 1) * cappedPerPage)
+            .limit(cappedPerPage)
+            .all();
 
             let Int total = userDb.User
-                .fulltext(query)
-                .where(status: UserStatus.Active)
-                .count();
+            .fulltext(query)
+            .where(status: UserStatus.Active)
+            .count();
 
             return {
                 data: users,
@@ -273,9 +288,9 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
 
             // Check if already following
             let Follow? existing = userDb.Follow
-                .where(followerId: followerId)
-                .where(followeeId: id)
-                .first();
+            .where(followerId: followerId)
+            .where(followeeId: id)
+            .first();
 
             if (existing != null) {
                 throw ValidationException({
@@ -299,9 +314,9 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
             let UUID followerId = Auth.user().id;
 
             let Follow follow = userDb.Follow
-                .where(followerId: followerId)
-                .where(followeeId: id)
-                .firstOrFail();
+            .where(followerId: followerId)
+            .where(followeeId: id)
+            .firstOrFail();
 
             transaction(userDb) {
                 // Decrement counts
@@ -329,11 +344,11 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
         get(UUID id, Int page = 1, Int perPage = 20) : public -> PaginatedUsers {
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             let Array<Follow> follows = userDb.Follow
-                .where(followeeId: id)
-                .orderBy(followedAt: desc)
-                .offset((page - 1) * cappedPerPage)
-                .limit(cappedPerPage)
-                .all();
+            .where(followeeId: id)
+            .orderBy(followedAt: desc)
+            .offset((page - 1) * cappedPerPage)
+            .limit(cappedPerPage)
+            .all();
 
             let Array<User> users = follows.map(f => userDb.User.findOrFail(f.followerId));
             let Int total = userDb.Follow.where(followeeId: id).count();
@@ -349,11 +364,11 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
         get(UUID id, Int page = 1, Int perPage = 20) : public -> PaginatedUsers {
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             let Array<Follow> follows = userDb.Follow
-                .where(followerId: id)
-                .orderBy(followedAt: desc)
-                .offset((page - 1) * cappedPerPage)
-                .limit(cappedPerPage)
-                .all();
+            .where(followerId: id)
+            .orderBy(followedAt: desc)
+            .offset((page - 1) * cappedPerPage)
+            .limit(cappedPerPage)
+            .all();
 
             let Array<User> users = follows.map(f => userDb.User.findOrFail(f.followeeId));
             let Int total = userDb.Follow.where(followerId: id).count();
@@ -375,16 +390,17 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
         post(Array<UUID> ids) : internal -> Array<userDb.User> {
             return userDb.User.whereIn(id: ids).all();
         }
+
     }
 
     test("validation rejects empty username") {
         assert throws(
-            () => userDb.User.create({
-                username: "",
-                email: "test@example.com",
-                displayName: "Test User"
-            }),
-            ValidationError("Username cannot be empty")
+        () => userDb.User.create({
+            username: "",
+            email: "test@example.com",
+            displayName: "Test User"
+        }),
+        ValidationError("Username cannot be empty")
         );
     }
 
@@ -396,11 +412,11 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
         });
         user.save();
         assert throws(
-            () => userDb.Follow.create({
-                followerId: user.id,
-                followeeId: user.id
-            }),
-            ValidationError("A user cannot follow themselves")
+        () => userDb.Follow.create({
+            followerId: user.id,
+            followeeId: user.id
+        }),
+        ValidationError("A user cannot follow themselves")
         );
     }
 
@@ -426,12 +442,12 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
 
     test("validation rejects short username") {
         assert throws(
-            () => userDb.User.create({
-                username: "ab",
-                email: "short@example.com",
-                displayName: "Short User"
-            }),
-            ValidationError("Username must be at least 3 characters")
+        () => userDb.User.create({
+            username: "ab",
+            email: "short@example.com",
+            displayName: "Short User"
+        }),
+        ValidationError("Username must be at least 3 characters")
         );
     }
 
@@ -499,4 +515,5 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
         follow.save();
         assert emitted(UserFollowed(follower.id, followee.id));
     }
+
 }

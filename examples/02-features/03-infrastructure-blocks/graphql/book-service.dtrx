@@ -28,6 +28,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             BookStatus status = BookStatus.Available;
             belongsTo Category : index;
         }
+
     }
 
     pubsub mq {
@@ -35,7 +36,9 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             publish BookAdded(UUID bookId, String title);
             publish BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus);
         }
+
     }
+
     subscribe BookEvents {
         on BookAdded(UUID bookId, String title) {
             Log.info("New book added", { bookId: bookId, title: title });
@@ -44,6 +47,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         on BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
             Log.info("Book status changed", { bookId: bookId, oldStatus: oldStatus, newStatus: newStatus });
         }
+
     }
 
     test("book is created with Available status by default") {
@@ -131,6 +135,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
                 book.status = input.status;
                 dispatch BookStatusChanged(id, oldStatus, input.status);
             }
+
             book.save();
             return book;
         }
@@ -155,4 +160,5 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         // 'dataLoader' batches N+1 queries for efficient related data loading
         dataLoader CategoryLoader : batchBy(categoryId), maxBatchSize(100);
     }
+
 }

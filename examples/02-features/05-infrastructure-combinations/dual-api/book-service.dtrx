@@ -36,6 +36,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             // 'belongsTo' with ':index' creates an indexed foreign key column
             belongsTo Category : index;
         }
+
     }
 
     // REST API block - standard CRUD endpoints for both entities
@@ -75,5 +76,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             let Book foundBook = bookDb.Book.findOrFail(id);
             return foundBook;
         }
+
     }
+
 }

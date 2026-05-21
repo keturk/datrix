@@ -82,13 +82,13 @@ service logistics.ShipmentService('config/shipment-service.dcfg') : version('1.0
 
             validate {
                 if (weight <= 0)
-                    ValidationError("Shipment weight must be greater than zero");
+                ValidationError("Shipment weight must be greater than zero");
                 if (recipientName.trim().isEmpty())
-                    ValidationError("Recipient name cannot be empty");
+                ValidationError("Recipient name cannot be empty");
                 if (origin.trim().isEmpty())
-                    ValidationError("Origin cannot be empty");
+                ValidationError("Origin cannot be empty");
                 if (destination.trim().isEmpty())
-                    ValidationError("Destination cannot be empty");
+                ValidationError("Destination cannot be empty");
             }
 
             afterCreate {
@@ -102,7 +102,9 @@ service logistics.ShipmentService('config/shipment-service.dcfg') : version('1.0
                     if (status == ShipmentStatus.Delivered) {
                         actualDelivery = DateTime.now();
                     }
+
                 }
+
             }
 
             fn markDelivered() {
@@ -115,6 +117,7 @@ service logistics.ShipmentService('config/shipment-service.dcfg') : version('1.0
                 status = ShipmentStatus.Failed;
                 this.save();
             }
+
         }
 
         entity ShipmentEvent extends BaseEntity {
@@ -127,6 +130,7 @@ service logistics.ShipmentService('config/shipment-service.dcfg') : version('1.0
 
             index(shipmentId, timestamp);
         }
+
     }
 
     nosql docdb {
@@ -142,6 +146,7 @@ service logistics.ShipmentService('config/shipment-service.dcfg') : version('1.0
 
             index(trackingNumber, timestamp);
         }
+
     }
 
     cache redis {
@@ -163,11 +168,15 @@ service logistics.ShipmentService('config/shipment-service.dcfg') : version('1.0
                 ensure origin.length > 0;
                 ensure destination.length > 0;
             }
+
             publish ShipmentStatusChanged(UUID shipmentId, String trackingNumber, ShipmentStatus oldStatus, ShipmentStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
+
         }
+
     }
+
     subscribe ShipmentEvents {
 
         on ShipmentStatusChanged(UUID shipmentId, String trackingNumber, ShipmentStatus oldStatus, ShipmentStatus newStatus) {
@@ -189,7 +198,9 @@ service logistics.ShipmentService('config/shipment-service.dcfg') : version('1.0
             } else if (oldStatus == ShipmentStatus.Created && newStatus == ShipmentStatus.PickedUp) {
                 redis.ActiveShipments.incr("total");
             }
+
         }
+
     }
 
     rest_api ShipmentAPI : basePath('/api/v1/shipments'), rdbms(shipmentDb) {
@@ -202,9 +213,9 @@ service logistics.ShipmentService('config/shipment-service.dcfg') : version('1.0
 
             let Shipment shipment = shipmentDb.Shipment.where(trackingNumber: trackingNumber).firstOrFail();
             let Array<ShipmentEvent> events = shipmentDb.ShipmentEvent
-                .where(shipmentId: shipment.id)
-                .orderBy(timestamp: asc)
-                .all();
+            .where(shipmentId: shipment.id)
+            .orderBy(timestamp: asc)
+            .all();
 
             return {
                 trackingNumber: trackingNumber,
@@ -291,17 +302,17 @@ service logistics.ShipmentService('config/shipment-service.dcfg') : version('1.0
         get(UUID id) -> Array<shipmentDb.ShipmentEvent> {
             let Shipment shipment = shipmentDb.Shipment.findOrFail(id);
             return shipmentDb.ShipmentEvent
-                .where(shipmentId: shipment.id)
-                .orderBy(timestamp: asc)
-                .all();
+            .where(shipmentId: shipment.id)
+            .orderBy(timestamp: asc)
+            .all();
         }
 
         @path('/summary')
         get() : internal -> ShipmentSummary {
             let Int total = shipmentDb.Shipment.count();
             let Int inTransit = shipmentDb.Shipment
-                .whereIn(status: [ShipmentStatus.InTransit, ShipmentStatus.OutForDelivery])
-                .count();
+            .whereIn(status: [ShipmentStatus.InTransit, ShipmentStatus.OutForDelivery])
+            .count();
             let Int delivered = shipmentDb.Shipment.where(status: ShipmentStatus.Delivered).count();
             let Int failed = shipmentDb.Shipment.where(status: ShipmentStatus.Failed).count();
 
@@ -312,6 +323,7 @@ service logistics.ShipmentService('config/shipment-service.dcfg') : version('1.0
                 failed: failed
             };
         }
+
     }
 
     test("computed isDelivered reflects Delivered status") {
@@ -333,17 +345,17 @@ service logistics.ShipmentService('config/shipment-service.dcfg') : version('1.0
 
     test("validation rejects zero weight") {
         assert throws(
-            () => shipmentDb.Shipment.create({
-                trackingNumber: "LGS-TEST-002",
-                senderId: uuid(),
-                recipientName: "Jane Doe",
-                recipientAddress: "456 Oak Ave",
-                origin: "Warehouse B",
-                destination: "Customer Location",
-                packageSize: PackageSize.Small,
-                weight: 0
-            }),
-            ValidationError("Shipment weight must be greater than zero")
+        () => shipmentDb.Shipment.create({
+            trackingNumber: "LGS-TEST-002",
+            senderId: uuid(),
+            recipientName: "Jane Doe",
+            recipientAddress: "456 Oak Ave",
+            origin: "Warehouse B",
+            destination: "Customer Location",
+            packageSize: PackageSize.Small,
+            weight: 0
+        }),
+        ValidationError("Shipment weight must be greater than zero")
         );
     }
 
@@ -446,49 +458,49 @@ service logistics.ShipmentService('config/shipment-service.dcfg') : version('1.0
 
     test("validation rejects empty recipient name") {
         assert throws(
-            () => shipmentDb.Shipment.create({
-                trackingNumber: "LGS-TEST-009",
-                senderId: uuid(),
-                recipientName: "",
-                recipientAddress: "123 Street",
-                origin: "Origin A",
-                destination: "Destination B",
-                packageSize: PackageSize.Small,
-                weight: 1.00
-            }),
-            ValidationError("Recipient name cannot be empty")
+        () => shipmentDb.Shipment.create({
+            trackingNumber: "LGS-TEST-009",
+            senderId: uuid(),
+            recipientName: "",
+            recipientAddress: "123 Street",
+            origin: "Origin A",
+            destination: "Destination B",
+            packageSize: PackageSize.Small,
+            weight: 1.00
+        }),
+        ValidationError("Recipient name cannot be empty")
         );
     }
 
     test("validation rejects empty origin") {
         assert throws(
-            () => shipmentDb.Shipment.create({
-                trackingNumber: "LGS-TEST-010",
-                senderId: uuid(),
-                recipientName: "George Hill",
-                recipientAddress: "456 Road",
-                origin: "",
-                destination: "Destination C",
-                packageSize: PackageSize.Medium,
-                weight: 3.00
-            }),
-            ValidationError("Origin cannot be empty")
+        () => shipmentDb.Shipment.create({
+            trackingNumber: "LGS-TEST-010",
+            senderId: uuid(),
+            recipientName: "George Hill",
+            recipientAddress: "456 Road",
+            origin: "",
+            destination: "Destination C",
+            packageSize: PackageSize.Medium,
+            weight: 3.00
+        }),
+        ValidationError("Origin cannot be empty")
         );
     }
 
     test("validation rejects empty destination") {
         assert throws(
-            () => shipmentDb.Shipment.create({
-                trackingNumber: "LGS-TEST-011",
-                senderId: uuid(),
-                recipientName: "Helen Troy",
-                recipientAddress: "789 Path",
-                origin: "Origin D",
-                destination: "",
-                packageSize: PackageSize.Large,
-                weight: 12.00
-            }),
-            ValidationError("Destination cannot be empty")
+        () => shipmentDb.Shipment.create({
+            trackingNumber: "LGS-TEST-011",
+            senderId: uuid(),
+            recipientName: "Helen Troy",
+            recipientAddress: "789 Path",
+            origin: "Origin D",
+            destination: "",
+            packageSize: PackageSize.Large,
+            weight: 12.00
+        }),
+        ValidationError("Destination cannot be empty")
         );
     }
 
@@ -544,4 +556,5 @@ service logistics.ShipmentService('config/shipment-service.dcfg') : version('1.0
         shipment.save();
         assert shipment.isLate == true;
     }
+
 }

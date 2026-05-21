@@ -8,5 +8,7 @@ shared SessionStore('config/session-store.dcfg') {
             String token;
             DateTime expiresAt;
         }
+
     }
+
 }

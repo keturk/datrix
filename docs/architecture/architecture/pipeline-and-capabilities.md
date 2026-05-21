@@ -58,7 +58,7 @@
  ↓
 ┌─────────────────────────────────┐
 │ Config Resolution │
-│ - Parse YAML config files │
+│ - Parse .dcfg config files │
 │ - Select active profile │
 │ - Validate against schemas │
 │ - Attach resolved_config to │
@@ -67,7 +67,7 @@
  ↓
 ┌─────────────────────────────────┐
 │ Same Application, config-bound │
-│ - YAML resolved per profile │
+│ - ConfigDSL resolved per profile │
 │ - resolved_config on blocks │
 │ - Ready for platform validation │
 │ - Generators read-only over AST │
@@ -114,7 +114,7 @@ The `datrix generate` command reads `language` and `deployment` (runtime, provid
 
 CLI mapping: `--skip-validation` is shorthand for `--validation-level none`. `--validation-level` and `--skip-validation` cannot both specify a non-none level (a warning is emitted if they conflict, and `--skip-validation` wins).
 
-**What validation levels never bypass:** `.dtrx` parse validation, YAML config loading and model validation, semantic analysis, and platform compatibility validation. These are pre-generation correctness checks, not post-generation quality checks.
+**What validation levels never bypass:** `.dtrx` parse validation, `.dcfg` config loading and model validation, semantic analysis, and platform compatibility validation. These are pre-generation correctness checks, not post-generation quality checks.
 
 ### Standard library (Stable)
 
@@ -189,10 +189,10 @@ Datrix supports full-text search through two paths: **config-driven** (existing,
 
 ```datrix
 service CatalogService {
-    rdbms db('config/rdbms.yaml') {
+    rdbms db('config/rdbms.dcfg') {
         entity Product { ... }
     }
-    search es('config/search.yaml') {
+    search es('config/search.dcfg') {
         index ProductSearch syncs Product {
             field name : text, boost(3.0), analyzer("standard")
             field description : text, boost(1.0), analyzer("english")
@@ -230,13 +230,13 @@ Datrix supports CDN configuration through `cdn` blocks in services and shared co
 
 ```datrix
 service frontend.WebService : version('1.0.0') {
-    storage mediaStore('config/storage.yaml') {
+    storage mediaStore('config/storage.dcfg') {
         bucket StaticAssets { ... }
         bucket UserUploads { ... }
     }
     rest_api WebAPI : basePath('/api/v1') { ... }
 
-    cdn WebCDN('config/cdn.yaml') {
+    cdn WebCDN('config/cdn.dcfg') {
         origin StaticAssets {
             source: mediaStore.StaticAssets
             cacheTtl: 86400

@@ -278,7 +278,7 @@ Adding a second storage block does not break the API:
 ```datrix
 // Same DSL works for all platforms (excerpt from examples/01-foundation/book-service-base.dtrx)
 service library.BookService : version('1.0.0') {
- rdbms db('config/book-service/datasources.yaml') {
+ rdbms db('config/book-service/datasources.dcfg') {
  abstract entity BaseEntity {
  UUID id : primaryKey, server = uuid();
  DateTime createdAt : server = DateTime.now();
@@ -293,7 +293,7 @@ service library.BookService : version('1.0.0') {
  }
 }
 
-// Platform selection via config (system-config.yaml: language, deployment), not CLI flags:
+// Platform selection via config (system .dcfg: language, deployment), not CLI flags:
 // Set deployment.runtime and deployment.provider in the active profile, then:
 // datrix generate --source system.dtrx --output ./generated
 //
@@ -363,12 +363,12 @@ entity User extends BaseEntity {
 
 **Named Block Syntax:**
 ```datrix
-rdbms db('config/datasources.yaml') { ... }
-nosql docdb('config/nosql.yaml') { ... }
-cache redis('config/cache.yaml') { ... }
-storage store('config/storage.yaml') { ... }
-pubsub mq('config/pubsub.yaml') { ... }
-search es('config/search.yaml') { ... }
+rdbms db('config/datasources.dcfg') { ... }
+nosql docdb('config/nosql.dcfg') { ... }
+cache redis('config/cache.dcfg') { ... }
+storage store('config/storage.dcfg') { ... }
+pubsub mq('config/pubsub.dcfg') { ... }
+search es('config/search.dcfg') { ... }
 ```
 
 **Access Rules:**
@@ -576,7 +576,7 @@ Documentation examples must use current flag syntax. The canonical `datrix gener
 datrix generate --source examples/03-domains/ecommerce/system.dtrx --output generated
 ```
 
-The target language and deployment settings (runtime, provider, target, registry) are read from resolved config in `system-config.yaml`. There are no deployment-affecting CLI overrides — see [architecture-overview.md Decision 6: Deployment Target Contract](architecture-overview.md#decision-6-deployment-target-contract-planned). `--profile` selects the config profile to use.
+The target language and deployment settings (runtime, provider, target, registry) are read from resolved config in the selected system `.dcfg` profile. There are no deployment-affecting CLI overrides — see [architecture-overview.md Decision 6: Deployment Target Contract](architecture-overview.md#decision-6-deployment-target-contract-planned). `--profile` selects the config profile to use.
 
 > **Migration note:** The `--hosting` / `-H` and `--platform` / `-P` flags are being removed. The `--language` / `-L` flag remains for development convenience but deployment dimensions come exclusively from config.
 

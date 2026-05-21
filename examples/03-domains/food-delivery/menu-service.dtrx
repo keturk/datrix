@@ -1,9 +1,9 @@
 
-
 service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'), description('menu and item catalog management service') {
     discovery {
         RestaurantService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     enum ItemAvailability {
         Available,
         SoldOut,
@@ -47,10 +47,11 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
 
             validate {
                 if (name.trim().isEmpty())
-                    ValidationError("Category name cannot be empty");
+                ValidationError("Category name cannot be empty");
                 if (orderIndex < 0)
-                    ValidationError("Order index cannot be negative");
+                ValidationError("Order index cannot be negative");
             }
+
         }
 
         entity MenuItem extends BaseEntity {
@@ -74,11 +75,11 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
 
             validate {
                 if (name.trim().isEmpty())
-                    ValidationError("Item name cannot be empty");
+                ValidationError("Item name cannot be empty");
                 if (price.amount <= 0)
-                    ValidationError("Price must be positive");
+                ValidationError("Price must be positive");
                 if (calories != null && calories < 0)
-                    ValidationError("Calories cannot be negative");
+                ValidationError("Calories cannot be negative");
             }
 
             afterCreate {
@@ -89,11 +90,15 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
                 if (isChanged(availability)) {
                     dispatch MenuItemAvailabilityChanged(id, name, oldValue(availability), availability);
                 }
+
                 if (isChanged(price)) {
                     dispatch MenuItemPriceChanged(id, name, oldValue(price), price);
                 }
+
             }
+
         }
+
     }
 
     cache redis {
@@ -118,30 +123,35 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
             publish MenuItemAdded(UUID itemId, String name, Money price, UUID menuCategoryId) {
                 ensure name.length > 0;
             }
+
             publish MenuItemAvailabilityChanged(UUID itemId, String name, ItemAvailability oldAvailability, ItemAvailability newAvailability) {
                 ensure oldAvailability != newAvailability;
             }
+
             publish MenuItemPriceChanged(UUID itemId, String name, Money oldPrice, Money newPrice);
         }
+
     }
+
     subscribe RestaurantEvents {
 
         on RestaurantStatusChanged(UUID restaurantId, String name, RestaurantStatus oldStatus, RestaurantStatus newStatus) {
             if (newStatus == RestaurantStatus.Suspended || newStatus == RestaurantStatus.Closed) {
                 let Array<MenuCategory> categories = menuDb.MenuCategory
-                    .where(restaurantId: restaurantId)
-                    .all();
+                .where(restaurantId: restaurantId)
+                .all();
 
                 foreach category in categories {
                     let Array<MenuItem> items = menuDb.MenuItem
-                        .where(menuCategoryId: category.id)
-                        .where(availability: ItemAvailability.Available)
-                        .all();
+                    .where(menuCategoryId: category.id)
+                    .where(availability: ItemAvailability.Available)
+                    .all();
 
                     foreach item in items {
                         item.availability = ItemAvailability.SoldOut;
                         item.save();
                     }
+
                 }
 
                 Log.info("Menu items marked as sold out for closed restaurant", {
@@ -149,8 +159,11 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
                     restaurantName: name
                 });
             }
+
         }
+
     }
+
     subscribe MenuEvents {
         on MenuItemAdded(UUID itemId, String name, Money price, UUID menuCategoryId) {
             Log.info("Menu item added", { itemId: itemId, name: name, price: price, menuCategoryId: menuCategoryId });
@@ -163,6 +176,7 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
         on MenuItemPriceChanged(UUID itemId, String name, Money oldPrice, Money newPrice) {
             Log.info("Menu item price changed", { itemId: itemId, name: name, oldPrice: oldPrice, newPrice: newPrice });
         }
+
     }
 
     rest_api MenuAPI : basePath('/api/v1/menus'), rdbms(menuDb) {
@@ -174,27 +188,27 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
         @path('/restaurant/:restaurantId')
         get(UUID restaurantId) : public -> Array<menuDb.MenuCategory> {
             return menuDb.MenuCategory
-                .where(restaurantId: restaurantId)
-                .orderBy(orderIndex: asc)
-                .all();
+            .where(restaurantId: restaurantId)
+            .orderBy(orderIndex: asc)
+            .all();
         }
 
         @path('/category/:menuCategoryId/items')
         get(UUID menuCategoryId) : public -> Array<menuDb.MenuItem> {
             return menuDb.MenuItem
-                .where(menuCategoryId: menuCategoryId)
-                .where(availability: ItemAvailability.Available)
-                .orderBy(name: asc)
-                .all();
+            .where(menuCategoryId: menuCategoryId)
+            .where(availability: ItemAvailability.Available)
+            .orderBy(name: asc)
+            .all();
         }
 
         @path('/search')
         get(String query, Int? limit) : public -> Array<menuDb.MenuItem> {
             return menuDb.MenuItem
-                .fulltext(query)
-                .where(availability: ItemAvailability.Available)
-                .limit(limit ?? 20)
-                .all();
+            .fulltext(query)
+            .where(availability: ItemAvailability.Available)
+            .limit(limit ?? 20)
+            .all();
         }
 
         @path('/items/:id/availability')
@@ -222,19 +236,19 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
         @path('/items/vegetarian')
         get(Int? limit) : public -> Array<menuDb.MenuItem> {
             return menuDb.MenuItem
-                .where(isVegetarian: true)
-                .where(availability: ItemAvailability.Available)
-                .limit(limit ?? 50)
-                .all();
+            .where(isVegetarian: true)
+            .where(availability: ItemAvailability.Available)
+            .limit(limit ?? 50)
+            .all();
         }
 
         @path('/items/vegan')
         get(Int? limit) : public -> Array<menuDb.MenuItem> {
             return menuDb.MenuItem
-                .where(isVegan: true)
-                .where(availability: ItemAvailability.Available)
-                .limit(limit ?? 50)
-                .all();
+            .where(isVegan: true)
+            .where(availability: ItemAvailability.Available)
+            .limit(limit ?? 50)
+            .all();
         }
 
         @path('/internal/items/:id')
@@ -246,6 +260,7 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
         post(Array<UUID> ids) : internal -> Array<menuDb.MenuItem> {
             return menuDb.MenuItem.whereIn(id: ids).all();
         }
+
     }
 
     test("computed isAvailable reflects Available status") {
@@ -273,12 +288,12 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
         });
         category.save();
         assert throws(
-            () => menuDb.MenuItem.create({
-                menuCategoryId: category.id,
-                name: "Bad Price Item",
-                price: Money.of(-5.00, "USD")
-            }),
-            ValidationError("Price must be positive")
+        () => menuDb.MenuItem.create({
+            menuCategoryId: category.id,
+            name: "Bad Price Item",
+            price: Money.of(-5.00, "USD")
+        }),
+        ValidationError("Price must be positive")
         );
     }
 
@@ -323,12 +338,12 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
         });
         category.save();
         assert throws(
-            () => menuDb.MenuItem.create({
-                menuCategoryId: category.id,
-                name: "",
-                price: Money.of(8.00, "USD")
-            }),
-            ValidationError("Item name cannot be empty")
+        () => menuDb.MenuItem.create({
+            menuCategoryId: category.id,
+            name: "",
+            price: Money.of(8.00, "USD")
+        }),
+        ValidationError("Item name cannot be empty")
         );
     }
 
@@ -340,12 +355,12 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
         });
         category.save();
         assert throws(
-            () => menuDb.MenuItem.create({
-                menuCategoryId: category.id,
-                name: "Zero Price Soup",
-                price: Money.of(0, "USD")
-            }),
-            ValidationError("Price must be positive")
+        () => menuDb.MenuItem.create({
+            menuCategoryId: category.id,
+            name: "Zero Price Soup",
+            price: Money.of(0, "USD")
+        }),
+        ValidationError("Price must be positive")
         );
     }
 
@@ -402,4 +417,5 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
         item.save();
         assert emitted(MenuItemPriceChanged(item.id, "Classic Margherita", Money.of(14.00, "USD"), Money.of(16.50, "USD")));
     }
+
 }

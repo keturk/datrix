@@ -10,6 +10,7 @@ service library.ReportService('config/report-service.dcfg') : version('1.0.0'), 
             UUID id : primaryKey = uuid();
             DateTime lastRunAt = DateTime.now();
         }
+
     }
 
     rest_api ReportAPI : basePath('/api/v1') {
@@ -18,5 +19,7 @@ service library.ReportService('config/report-service.dcfg') : version('1.0.0'), 
         get() -> String {
             return "ok";
         }
+
     }
+
 }

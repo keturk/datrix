@@ -6,4 +6,5 @@ module hostdemo.common {
         DateTime createdAt : server = DateTime.now();
         DateTime updatedAt : server = DateTime.now();
     }
+
 }

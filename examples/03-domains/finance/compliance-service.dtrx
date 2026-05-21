@@ -6,6 +6,7 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
         AccountService { loadBalance: roundRobin, healthyOnly: true }
         TransactionService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     enum AlertSeverity {
         Low : value('low'),
         Medium : value('medium'),
@@ -93,7 +94,7 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
 
             validate {
                 if (description.trim().isEmpty())
-                    ValidationError("Alert description cannot be empty");
+                ValidationError("Alert description cannot be empty");
             }
 
             afterCreate {
@@ -107,18 +108,21 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
                 if (severity == AlertSeverity.Critical) {
                     dispatch CriticalAlertRaised(id, accountId, type, description);
                 }
+
             }
 
             afterUpdate {
                 if (isChanged(status)) {
                     dispatch AlertStatusChanged(id, accountId, oldValue(status), status);
                 }
+
             }
 
             fn startReview() {
                 if (status != AlertStatus.Open) {
                     throw ValidationException("Only open alerts can be reviewed");
                 }
+
                 status = AlertStatus.UnderReview;
                 reviewedAt = DateTime.now();
                 this.save();
@@ -128,11 +132,13 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
                 if (status != AlertStatus.UnderReview && status != AlertStatus.Open) {
                     throw ValidationException("Only open or under-review alerts can be resolved");
                 }
+
                 if (falsePositive) {
                     status = AlertStatus.FalsePositive;
                 } else {
                     status = AlertStatus.Resolved;
                 }
+
                 resolution = resolutionNote;
                 resolvedAt = DateTime.now();
                 resolvedBy = userId;
@@ -143,11 +149,13 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
                 if (status == AlertStatus.Resolved || status == AlertStatus.FalsePositive) {
                     throw ValidationException("Resolved alerts cannot be escalated");
                 }
+
                 status = AlertStatus.Escalated;
                 auditNote = reason;
                 escalatedTo = escalateTo;
                 this.save();
             }
+
         }
 
         // Immutable audit trail for all financial entity changes
@@ -168,10 +176,11 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
 
             validate {
                 if (entityType.trim().isEmpty())
-                    ValidationError("Entity type cannot be empty");
+                ValidationError("Entity type cannot be empty");
                 if (action.trim().isEmpty())
-                    ValidationError("Action cannot be empty");
+                ValidationError("Action cannot be empty");
             }
+
         }
 
         // Compliance report entity for periodic regulatory reporting
@@ -192,9 +201,11 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
 
             validate {
                 if (reportType.trim().isEmpty())
-                    ValidationError("Report type cannot be empty");
+                ValidationError("Report type cannot be empty");
             }
+
         }
+
     }
 
     pubsub mq {
@@ -204,18 +215,22 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
             publish CriticalAlertRaised(UUID alertId, UUID accountId, AlertType type, String description) {
                 ensure description.length > 0;
             }
+
             publish AlertStatusChanged(UUID alertId, UUID accountId, AlertStatus oldStatus, AlertStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
+
             publish ComplianceReportGenerated(DateTime reportDate, String reportType, Int totalAlerts) {
                 ensure reportType.length > 0;
             }
+
         }
 
         // Listen to transaction events for compliance monitoring
 
         // Listen to account events for compliance tracking
     }
+
     subscribe TransactionEvents {
         on TransactionCreated(UUID txId, UUID accountId, TransactionType type, Money amount, Currency currency, String reference) {
             Log.info("Transaction received for compliance check", { txId: txId, accountId: accountId, amount: amount });
@@ -258,7 +273,9 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
             });
             audit.save();
         }
+
     }
+
     subscribe AccountEvents {
         on AccountOpened(UUID accountId, String accountNumber, UUID customerId, AccountType type, Currency currency) {
             let AuditTrail audit = complianceDb.AuditTrail.create({
@@ -285,7 +302,9 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
             });
             audit.save();
         }
+
     }
+
     subscribe ComplianceEvents {
         on CriticalAlertRaised(UUID alertId, UUID accountId, AlertType type, String description) {
             Log.warn("Critical compliance alert raised", {
@@ -312,6 +331,7 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
                 totalAlerts: totalAlerts
             });
         }
+
     }
 
     rest_api ComplianceAPI : basePath('/api/v1/compliance'), rdbms(complianceDb) {
@@ -325,19 +345,21 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
             if (severity != null) {
                 query = complianceDb.ComplianceAlert.where(severity: severity);
             }
+
             if (status != null) {
                 query = query.where(status: status);
             }
+
             if (accountId != null) {
                 query = query.where(accountId: accountId);
             }
 
             let Int total = query.count();
             let Array<ComplianceAlert> alerts = query
-                .orderBy(detectedAt: desc)
-                .offset((page - 1) * perPage)
-                .limit(perPage)
-                .all();
+            .orderBy(detectedAt: desc)
+            .offset((page - 1) * perPage)
+            .limit(perPage)
+            .all();
 
             return {
                 data: alerts,
@@ -349,6 +371,7 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
                     hasNextPage: page < Math.ceil(total / perPage),
                     hasPrevPage: page > 1
                 }
+
             };
         }
 
@@ -388,10 +411,10 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
         @path('/audit-trail/:entityType/:entityId')
         get(String entityType, UUID entityId) : access(admin) -> Array<complianceDb.AuditTrail> {
             return complianceDb.AuditTrail
-                .where(entityType: entityType)
-                .where(entityId: entityId)
-                .orderBy(performedAt: desc)
-                .all();
+            .where(entityType: entityType)
+            .where(entityId: entityId)
+            .orderBy(performedAt: desc)
+            .all();
         }
 
         // Get compliance report summary
@@ -419,10 +442,11 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
         @path('/alerts/by-account/:accountId')
         get(UUID accountId) : access(admin) -> Array<complianceDb.ComplianceAlert> {
             return complianceDb.ComplianceAlert
-                .where(accountId: accountId)
-                .orderBy(detectedAt: desc)
-                .all();
+            .where(accountId: accountId)
+            .orderBy(detectedAt: desc)
+            .all();
         }
+
     }
 
     jobs('config/compliance-service.dcfg') {
@@ -430,10 +454,10 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
         job CheckLargeTransactions {
             let DateTime yesterday = DateTime.now().addDays(-1);
             let Array<AuditTrail> recentTxAudits = complianceDb.AuditTrail
-                .where(entityType: "Transaction")
-                .where(action: "created")
-                .where(performedAt: gte(yesterday))
-                .all();
+            .where(entityType: "Transaction")
+            .where(action: "created")
+            .where(performedAt: gte(yesterday))
+            .all();
 
             let Int flagged = 0;
             foreach audit in recentTxAudits {
@@ -441,9 +465,9 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
                 if (txAmount.amount >= LARGE_TRANSACTION_THRESHOLD) {
                     // Check if alert already exists for this transaction
                     let ComplianceAlert? existing = complianceDb.ComplianceAlert
-                        .where(transactionId: audit.entityId)
-                        .where(type: AlertType.LargeTransaction)
-                        .first();
+                    .where(transactionId: audit.entityId)
+                    .where(type: AlertType.LargeTransaction)
+                    .first();
 
                     if (existing == null) {
                         let ComplianceAlert alert = complianceDb.ComplianceAlert.create({
@@ -457,12 +481,15 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
                         alert.save();
                         flagged = flagged + 1;
                     }
+
                 }
+
             }
 
             if (flagged > 0) {
                 Log.warn("Large transaction job found missed alerts", { count: flagged });
             }
+
             Log.info("Large transaction check completed", { reviewed: recentTxAudits.length(), flagged: flagged });
         }
 
@@ -473,9 +500,9 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
             let Array<ComplianceAlert> allAlerts = complianceDb.ComplianceAlert.all();
             let Array<ComplianceAlert> criticalAlerts = allAlerts.filter(a => a.severity == AlertSeverity.Critical);
             let Array<AuditTrail> largeTxAudits = complianceDb.AuditTrail
-                .where(entityType: "Transaction")
-                .where(action: "created")
-                .all();
+            .where(entityType: "Transaction")
+            .where(action: "created")
+            .all();
 
             let Money largeTxTotal = Money.of(0, Currency.USD);
             let Int largeTxCount = 0;
@@ -484,6 +511,7 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
                     largeTxTotal = largeTxTotal.add(audit.changes.amount);
                     largeTxCount = largeTxCount + 1;
                 }
+
             }
 
             let ComplianceReport report = complianceDb.ComplianceReport.create({
@@ -500,12 +528,14 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
                     generatedBy: "system",
                     timestamp: DateTime.now()
                 }
+
             });
             report.save();
 
             dispatch ComplianceReportGenerated(today, "daily_compliance", allAlerts.length());
             Log.info("Compliance report generated", { date: today, totalAlerts: allAlerts.length(), critical: criticalAlerts.length() });
         }
+
     }
 
     test("computed isOpen is true for Open status") {
@@ -534,13 +564,13 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
 
     test("validation rejects empty description") {
         assert throws(
-            () => complianceDb.ComplianceAlert.create({
-                accountId: uuid(),
-                type: AlertType.LargeTransaction,
-                severity: AlertSeverity.Medium,
-                description: ""
-            }),
-            ValidationError("Alert description cannot be empty")
+        () => complianceDb.ComplianceAlert.create({
+            accountId: uuid(),
+            type: AlertType.LargeTransaction,
+            severity: AlertSeverity.Medium,
+            description: ""
+        }),
+        ValidationError("Alert description cannot be empty")
         );
     }
 
@@ -632,4 +662,5 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
         alert.startReview();
         assert emitted(AlertStatusChanged(alert.id, alert.accountId, AlertStatus.Open, AlertStatus.UnderReview));
     }
+
 }

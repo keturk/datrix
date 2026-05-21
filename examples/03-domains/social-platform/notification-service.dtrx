@@ -6,6 +6,7 @@ service social.NotificationService('config/notification-service.dcfg') : version
         UserService { loadBalance: roundRobin, healthyOnly: true }
         PostService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     enum NotificationType {
         Like : value('like'),
         Comment : value('comment'),
@@ -69,7 +70,7 @@ service social.NotificationService('config/notification-service.dcfg') : version
 
             validate {
                 if (title.trim().isEmpty())
-                    ValidationError("Notification title cannot be empty");
+                ValidationError("Notification title cannot be empty");
             }
 
             fn markAsRead() {
@@ -78,7 +79,9 @@ service social.NotificationService('config/notification-service.dcfg') : version
                     readAt = DateTime.now();
                     this.save();
                 }
+
             }
+
         }
 
         entity NotificationPreference extends BaseEntity {
@@ -92,6 +95,7 @@ service social.NotificationService('config/notification-service.dcfg') : version
 
             index(userId);
         }
+
     }
 
     pubsub mq {
@@ -102,8 +106,11 @@ service social.NotificationService('config/notification-service.dcfg') : version
             publish NotificationsBatchRead(UUID userId, Int count) {
                 ensure count > 0;
             }
+
         }
+
     }
+
     subscribe PostEvents {
         on PostPublished(UUID postId, UUID authorId, PostVisibility visibility) {
             Log.info("Creating notification for published post", { postId: postId, authorId: authorId });
@@ -122,8 +129,8 @@ service social.NotificationService('config/notification-service.dcfg') : version
             if (postAuthorId != authorId) {
                 // Check preferences
                 let NotificationPreference? prefs = notificationDb.NotificationPreference
-                    .where(userId: postAuthorId)
-                    .first();
+                .where(userId: postAuthorId)
+                .first();
 
                 if (prefs == null || prefs.commentNotifications) {
                     let Notification notification = notificationDb.Notification.create({
@@ -139,7 +146,9 @@ service social.NotificationService('config/notification-service.dcfg') : version
 
                     dispatch NotificationCreated(notification.id, postAuthorId, NotificationType.Comment);
                 }
+
             }
+
         }
 
         on PostLiked(UUID postId, UUID userId) {
@@ -151,8 +160,8 @@ service social.NotificationService('config/notification-service.dcfg') : version
             // Don't notify yourself
             if (postAuthorId != userId) {
                 let NotificationPreference? prefs = notificationDb.NotificationPreference
-                    .where(userId: postAuthorId)
-                    .first();
+                .where(userId: postAuthorId)
+                .first();
 
                 if (prefs == null || prefs.likeNotifications) {
                     let Notification notification = notificationDb.Notification.create({
@@ -168,9 +177,13 @@ service social.NotificationService('config/notification-service.dcfg') : version
 
                     dispatch NotificationCreated(notification.id, postAuthorId, NotificationType.Like);
                 }
+
             }
+
         }
+
     }
+
     subscribe UserEvents {
         on UserRegistered(UUID userId, String username, String email) {
             Log.info("Creating welcome notification", { userId: userId, username: username });
@@ -198,8 +211,8 @@ service social.NotificationService('config/notification-service.dcfg') : version
             Log.info("Creating follow notification", { followerId: followerId, followeeId: followeeId });
 
             let NotificationPreference? prefs = notificationDb.NotificationPreference
-                .where(userId: followeeId)
-                .first();
+            .where(userId: followeeId)
+            .first();
 
             if (prefs == null || prefs.followNotifications) {
                 // Get the follower's info
@@ -218,6 +231,7 @@ service social.NotificationService('config/notification-service.dcfg') : version
 
                 dispatch NotificationCreated(notification.id, followeeId, NotificationType.Follow);
             }
+
         }
 
         on UserStatusChanged(UUID userId, UserStatus oldStatus, UserStatus newStatus) {
@@ -233,22 +247,27 @@ service social.NotificationService('config/notification-service.dcfg') : version
                 });
                 notification.save();
             }
+
         }
+
     }
+
     subscribe NotificationEvents {
         on NotificationCreated(UUID notificationId, UUID userId, NotificationType type) {
             Log.info("Processing notification delivery", { notificationId: notificationId, userId: userId, type: type });
 
             let NotificationPreference? prefs = notificationDb.NotificationPreference
-                .where(userId: userId)
-                .first();
+            .where(userId: userId)
+            .first();
 
             if (prefs != null && prefs.pushEnabled) {
                 Log.info("Queuing push notification", { notificationId: notificationId, userId: userId });
             }
+
             if (prefs != null && prefs.emailEnabled && type == NotificationType.System) {
                 Log.info("Queuing email notification", { notificationId: notificationId, userId: userId });
             }
+
         }
 
         on NotificationRead(UUID notificationId, UUID userId) {
@@ -258,6 +277,7 @@ service social.NotificationService('config/notification-service.dcfg') : version
         on NotificationsBatchRead(UUID userId, Int count) {
             Log.info("Notifications batch marked as read", { userId: userId, count: count });
         }
+
     }
 
     rest_api NotificationAPI : basePath('/api/v1/notifications'), rdbms(notificationDb) {
@@ -275,15 +295,15 @@ service social.NotificationService('config/notification-service.dcfg') : version
 
             let Int total = query.count();
             let Int unreadCount = notificationDb.Notification
-                .where(userId: userId)
-                .where(read: false)
-                .count();
+            .where(userId: userId)
+            .where(read: false)
+            .count();
 
             let Array<Notification> notifications = query
-                .orderBy(createdAt: desc)
-                .offset((page - 1) * cappedPerPage)
-                .limit(cappedPerPage)
-                .all();
+            .orderBy(createdAt: desc)
+            .offset((page - 1) * cappedPerPage)
+            .limit(cappedPerPage)
+            .all();
 
             return {
                 data: notifications,
@@ -334,6 +354,7 @@ service social.NotificationService('config/notification-service.dcfg') : version
                     notification.markAsRead();
                     updatedCount = updatedCount + 1;
                 }
+
             }
 
             if (updatedCount > 0) {
@@ -348,9 +369,9 @@ service social.NotificationService('config/notification-service.dcfg') : version
         post(MarkAllReadRequest request) -> MarkReadResponse {
             let UUID userId = Auth.user().id;
             let Array<Notification> unread = notificationDb.Notification
-                .where(userId: userId)
-                .where(read: false)
-                .all();
+            .where(userId: userId)
+            .where(read: false)
+            .all();
 
             let Int updatedCount = 0;
             foreach notification in unread {
@@ -370,9 +391,9 @@ service social.NotificationService('config/notification-service.dcfg') : version
         get() -> Int {
             let UUID userId = Auth.user().id;
             return notificationDb.Notification
-                .where(userId: userId)
-                .where(read: false)
-                .count();
+            .where(userId: userId)
+            .where(read: false)
+            .count();
         }
 
         // Get notification preferences
@@ -380,8 +401,8 @@ service social.NotificationService('config/notification-service.dcfg') : version
         get() -> notificationDb.NotificationPreference {
             let UUID userId = Auth.user().id;
             let NotificationPreference? prefs = notificationDb.NotificationPreference
-                .where(userId: userId)
-                .first();
+            .where(userId: userId)
+            .first();
 
             if (prefs == null) {
                 prefs = notificationDb.NotificationPreference.create({
@@ -398,8 +419,8 @@ service social.NotificationService('config/notification-service.dcfg') : version
         put(NotificationPreferences request) -> notificationDb.NotificationPreference {
             let UUID userId = Auth.user().id;
             let NotificationPreference? prefs = notificationDb.NotificationPreference
-                .where(userId: userId)
-                .first();
+            .where(userId: userId)
+            .first();
 
             if (prefs == null) {
                 prefs = notificationDb.NotificationPreference.create({
@@ -430,16 +451,17 @@ service social.NotificationService('config/notification-service.dcfg') : version
 
             notification.delete();
         }
+
     }
 
     test("validation rejects empty notification title") {
         assert throws(
-            () => notificationDb.Notification.create({
-                userId: uuid(),
-                type: NotificationType.System,
-                title: ""
-            }),
-            ValidationError("Notification title cannot be empty")
+        () => notificationDb.Notification.create({
+            userId: uuid(),
+            type: NotificationType.System,
+            title: ""
+        }),
+        ValidationError("Notification title cannot be empty")
         );
     }
 
@@ -533,4 +555,5 @@ service social.NotificationService('config/notification-service.dcfg') : version
         assert prefs.pushEnabled == false;
         assert prefs.likeNotifications == true;
     }
+
 }

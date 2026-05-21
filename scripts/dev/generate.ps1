@@ -384,8 +384,8 @@ function Write-GenerationSummaryToLog {
 
  if ($results.Count -gt 0) {
  $totalProjects = $results[0].Total
- $successCount = ($results | Where-Object { $_.Status -eq 'Success' }).Count
- $failCount = ($results | Where-Object { $_.Status -eq 'Failed' }).Count
+ $successCount = @($results | Where-Object { $_.Status -eq 'Success' }).Count
+ $failCount = @($results | Where-Object { $_.Status -eq 'Failed' }).Count
  # Force array so one failed project does not become scalar (Name would then -join as characters)
  $failedProjects = @(($results | Where-Object { $_.Status -eq 'Failed' }) | ForEach-Object { $_.Name })
 

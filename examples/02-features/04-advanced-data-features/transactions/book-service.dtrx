@@ -79,6 +79,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             beforeCreate {
                 passwordHash = Auth.hashPassword(passwordHash);
             }
+
         }
 
         // Tag entity for categorizing books with multiple labels
@@ -165,19 +166,25 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
                     case BookStatus.Available {
                         return "On Shelf";
                     }
+
                     case BookStatus.CheckedOut {
                         return "Checked Out";
                     }
+
                     case BookStatus.Reserved {
                         return "On Hold";
                     }
+
                     case BookStatus.Maintenance {
                         return "Under Repair";
                     }
+
                     default {
                         return "Unknown";
                     }
+
                 }
+
             }
 
             // Entity function that derives a boolean from the entity's own fields
@@ -193,11 +200,11 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             // Custom validation block - runs before create and update operations
             validate {
                 if (title.trim().isEmpty())
-                    ValidationError("Title cannot be empty");
+                ValidationError("Title cannot be empty");
                 if (publicationYear > DateTime.now().year())
-                    ValidationError("Publication year cannot be in the future");
+                ValidationError("Publication year cannot be in the future");
                 if (price < 0)
-                    ValidationError("Price cannot be negative");
+                ValidationError("Price cannot be negative");
             }
 
             beforeCreate {
@@ -217,10 +224,13 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
                 if (isChanged(status)) {
                     dispatch BookStatusChanged(id, oldValue(status), status);
                 }
+
                 if (isChanged(condition)) {
                     dispatch BookConditionChanged(id, oldValue(condition), condition);
                 }
+
             }
+
         }
 
         entity Review extends BaseEntity {
@@ -232,8 +242,9 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
 
             validate {
                 if (rating < 1 || rating > 5)
-                    ValidationError("Rating must be between 1 and 5");
+                ValidationError("Rating must be between 1 and 5");
             }
+
         }
 
         // Checkout tracks the lifecycle of a book being borrowed
@@ -246,6 +257,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
 
             belongsTo Book : index;
         }
+
     }
 
     // Second rdbms block - a separate database for reporting/analytics
@@ -278,6 +290,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             Int activeMembers = 0;
             DateTime generatedAt : server = DateTime.now();
         }
+
     }
 
     // Pub/sub messaging block - defines event-driven communication
@@ -287,9 +300,11 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             publish BookAdded(UUID bookId, String title) {
                 ensure title.length > 0;
             }
+
             publish BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
+
             publish OverdueBooksProcessed(Int count) {
                 ensure count >= 0;
             }
@@ -297,10 +312,13 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             publish BookConditionChanged(UUID bookId, BookCondition oldCondition, BookCondition newCondition) {
                 ensure oldCondition != newCondition;
             }
+
             publish CheckoutCreated(UUID checkoutId, UUID bookId);
             publish CheckoutReturned(UUID checkoutId, UUID bookId);
         }
+
     }
+
     subscribe BookEvents {
         on BookAdded(UUID bookId, String title) {
             Log.info("New book added", { bookId: bookId, title: title });
@@ -358,6 +376,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         on CheckoutReturned(UUID checkoutId, UUID bookId) {
             Log.info("Checkout returned", { checkoutId: checkoutId, bookId: bookId });
         }
+
     }
 
     // Cache block - defines an in-memory data store for fast reads
@@ -432,7 +451,9 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
                 view.lastUpdated = DateTime.now();
                 view.save();
             }
+
         }
+
     }
 
     // 'jobs' block defines scheduled background tasks
@@ -455,6 +476,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             foreach book in books {
                 Log.info(#"Refreshing cache for book {book.id}");
             }
+
         }
 
         // Job using while loop with continue and break for flow control
@@ -479,6 +501,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
                     Log.warn(#"Overdue checkout: {checkout.id}");
                     processed += 1;
                 }
+
             }
 
             dispatch OverdueBooksProcessed(processed);
@@ -502,6 +525,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
 
             Log.info("Daily stats aggregated", { date: today, checkouts: checkouts.length(), returns: returns.length() });
         }
+
     }
 
     // NoSQL document database block for schema-flexible data
@@ -529,6 +553,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
 
             index(bookId, createdAt);
         }
+
     }
 
     // Storage block - defines file/object storage buckets and folders
@@ -555,9 +580,11 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             if (titleFilter != null) {
                 results = results.filter(b => b.title == titleFilter);
             }
+
             if (authorFilter != null) {
                 results = results.filter(b => b.author == authorFilter);
             }
+
             return results;
         }
 
@@ -568,11 +595,11 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         // '.fulltext(query)' performs natural-language search across fulltext-indexed fields
         get(String query, Int? limit, Int? offset) : public -> Array<catalog.Book> {
             return catalog.Book
-                .fulltext(query)
-                .where(status: BookStatus.Available)
-                .limit(limit ?? 20)
-                .offset(offset ?? 0)
-                .all();
+            .fulltext(query)
+            .where(status: BookStatus.Available)
+            .limit(limit ?? 20)
+            .offset(offset ?? 0)
+            .all();
         }
 
         // Endpoint that delegates to the API-level helper function
@@ -585,11 +612,11 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         @path('/books/by-category/:categoryId')
         get(UUID categoryId, Int? limit) : public -> Array<catalog.Book> {
             return catalog.Book
-                .where(categoryId: categoryId)
-                .where(status: BookStatus.Available)
-                .orderBy(title: asc)
-                .limit(limit ?? 50)
-                .all();
+            .where(categoryId: categoryId)
+            .where(status: BookStatus.Available)
+            .orderBy(title: asc)
+            .limit(limit ?? 50)
+            .all();
         }
 
         @path('/books/bulk')
@@ -603,11 +630,11 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         // 'lt(value)' is a comparison operator: less than
         get() : access(librarian) -> Array<catalog.Checkout> {
             return catalog.Checkout
-                .whereNull(returnDate)
-                .where(dueDate: lt(DateTime.now()))
-                .orderBy(dueDate: asc)
-                .limit(100)
-                .all();
+            .whereNull(returnDate)
+            .where(dueDate: lt(DateTime.now()))
+            .orderBy(dueDate: asc)
+            .limit(100)
+            .all();
         }
 
         @path('/books/count-by-status')
@@ -689,7 +716,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
                 let Book book = catalog.Book.findOrFail(id);
 
                 if (book.status != BookStatus.Available)
-                    ValidationError("Book is not available for checkout");
+                ValidationError("Book is not available for checkout");
 
                 let Checkout checkout = catalog.Checkout.create({
                     bookId: id,
@@ -713,6 +740,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             } finally {
                 Log.info(#"Checkout attempt completed for book {id}");
             }
+
         }
 
         // Return endpoint uses a transaction to atomically update both book and checkout
@@ -721,12 +749,12 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             let Book book = catalog.Book.findOrFail(id);
 
             if (book.status != BookStatus.CheckedOut)
-                ValidationError("Book is not checked out");
+            ValidationError("Book is not checked out");
 
             let Checkout checkout = catalog.Checkout
-                .where(bookId: id)
-                .whereNull(returnDate)
-                .firstOrFail();
+            .where(bookId: id)
+            .whereNull(returnDate)
+            .firstOrFail();
 
             // Transaction ensures both the book status and checkout record update atomically
             transaction(catalog) {
@@ -751,12 +779,15 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
                 case BookCondition.Damaged {
                     book.status = BookStatus.Maintenance;
                 }
+
                 case BookCondition.Poor {
                     Log.warn(#"Book {id} marked as poor condition");
                 }
+
                 default {
                     Log.info(#"Book {id} condition updated to {request.newCondition}");
                 }
+
             }
 
             book.condition = request.newCondition;
@@ -796,6 +827,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         get(DateTime date) : access(librarian) -> reporting.DailyBookStats {
             return reporting.DailyBookStats.where(reportDate: date).firstOrFail();
         }
+
     }
 
     // GraphQL API block - defines a GraphQL schema alongside the REST API
@@ -896,6 +928,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
                 book.status = input.status;
                 dispatch BookStatusChanged(id, oldStatus, input.status);
             }
+
             book.save();
             return book;
         }
@@ -988,8 +1021,8 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         let catalog.Branch br = catalog.Branch.create({ name: "SpecBranchValTitle", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
         assert throws(
-            () => catalog.Book.create({ title: "", isbn: "1234567890", author: "Author", publicationYear: 2020, categoryId: cat.id, branchId: br.id, price: 9.99, metadata: {}, tags: [] }),
-            ValidationError("Title cannot be empty")
+        () => catalog.Book.create({ title: "", isbn: "1234567890", author: "Author", publicationYear: 2020, categoryId: cat.id, branchId: br.id, price: 9.99, metadata: {}, tags: [] }),
+        ValidationError("Title cannot be empty")
         );
     }
 
@@ -999,8 +1032,8 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         let catalog.Branch br = catalog.Branch.create({ name: "SpecBranchValYear", latitude: 40.7128, longitude: -74.0060, country: "US" });
         br.save();
         assert throws(
-            () => catalog.Book.create({ title: "Future Book", isbn: "1234567890", author: "Author", publicationYear: 20999, categoryId: cat.id, branchId: br.id, price: 9.99, metadata: {}, tags: [] }),
-            ValidationError("Publication year cannot be in the future")
+        () => catalog.Book.create({ title: "Future Book", isbn: "1234567890", author: "Author", publicationYear: 20999, categoryId: cat.id, branchId: br.id, price: 9.99, metadata: {}, tags: [] }),
+        ValidationError("Publication year cannot be in the future")
         );
     }
 
@@ -1171,4 +1204,5 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         book.save();
         assert book.canRenew() == false;
     }
+
 }

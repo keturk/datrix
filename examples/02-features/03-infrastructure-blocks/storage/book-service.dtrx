@@ -20,6 +20,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             String(200) title : trim;
             String(100) author : trim;
         }
+
     }
 
     // 'storage' block defines file/blob storage with named folders
@@ -35,4 +36,5 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         // Separate folder for PDF documents with a higher size limit
         folder documents : path('documents/{bookId}'), allowed(['application/pdf']), maxSize('50mb');
     }
+
 }

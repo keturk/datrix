@@ -13,6 +13,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             String(200) title : trim;
             String(100) author : trim;
         }
+
     }
 
     // REST API exposes book data; resilience is applied at the infrastructure level
@@ -20,4 +21,5 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
     rest_api BookServiceAPI : basePath("/api/v1"), rdbms(bookDb) {
         resource bookDb.Book;
     }
+
 }

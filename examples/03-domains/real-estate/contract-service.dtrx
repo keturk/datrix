@@ -5,6 +5,7 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
     discovery {
         ListingService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     enum ContractStatus {
         Draft : value('draft'),
         Pending : value('pending'),
@@ -84,11 +85,11 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
 
             validate {
                 if (contractRef.trim().isEmpty())
-                    ValidationError("Contract reference cannot be empty");
+                ValidationError("Contract reference cannot be empty");
                 if (price <= 0)
-                    ValidationError("Contract price must be positive");
+                ValidationError("Contract price must be positive");
                 if (earnestMoney != null && earnestMoney > price)
-                    ValidationError("Earnest money cannot exceed contract price");
+                ValidationError("Earnest money cannot exceed contract price");
             }
 
             afterCreate {
@@ -109,13 +110,16 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
                         terminatedAt = DateTime.now();
                         Log.warn("Contract terminated", { contractId: id, contractRef: contractRef, reason: terminationReason });
                     }
+
                 }
+
             }
 
             fn sign() {
                 if (status != ContractStatus.Pending) {
                     throw ValidationException("Only pending contracts can be signed");
                 }
+
                 status = ContractStatus.Signed;
                 signedAt = DateTime.now();
                 this.save();
@@ -125,6 +129,7 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
                 if (status != ContractStatus.Signed) {
                     throw ValidationException("Only signed contracts can be activated");
                 }
+
                 status = ContractStatus.Active;
                 activatedAt = DateTime.now();
                 this.save();
@@ -134,6 +139,7 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
                 if (status == ContractStatus.Terminated || status == ContractStatus.Expired) {
                     throw ValidationException("Contract is already terminated or expired");
                 }
+
                 status = ContractStatus.Terminated;
                 terminationReason = reason;
                 terminatedAt = DateTime.now();
@@ -144,9 +150,11 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
                 if (status != ContractStatus.Draft) {
                     throw ValidationException("Only draft contracts can be submitted");
                 }
+
                 status = ContractStatus.Pending;
                 this.save();
             }
+
         }
 
         // Documents attached to contracts
@@ -161,11 +169,13 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
 
             validate {
                 if (documentName.trim().isEmpty())
-                    ValidationError("Document name cannot be empty");
+                ValidationError("Document name cannot be empty");
                 if (documentUrl.trim().isEmpty())
-                    ValidationError("Document URL cannot be empty");
+                ValidationError("Document URL cannot be empty");
             }
+
         }
+
     }
 
     // File storage for contract documents
@@ -181,19 +191,23 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
                 ensure contractRef.length > 0;
                 ensure price > 0;
             }
+
             publish ContractStatusChanged(UUID contractId, String contractRef, UUID listingId, ContractStatus oldStatus, ContractStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
-        }
 
+        }
 
         // Listen to listing events
     }
+
     subscribe ContractEvents {
         on ContractCreated(UUID contractId, String contractRef, UUID listingId, UUID buyerId, UUID sellerId, ContractType contractType, Money price) {
             Log.info("Contract created", { contractId: contractId, contractRef: contractRef, listingId: listingId, contractType: contractType, price: price });
         }
+
     }
+
     subscribe ListingEvents {
         on ListingStatusChanged(UUID listingId, String listingRef, ListingStatus oldStatus, ListingStatus newStatus) {
             Log.info("Listing status change received in contract service", { listingId: listingId, oldStatus: oldStatus, newStatus: newStatus });
@@ -201,14 +215,14 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
             // If listing is withdrawn, terminate any draft or pending contracts
             if (newStatus == ListingStatus.Withdrawn) {
                 let Array<Contract> draftContracts = contractDb.Contract
-                    .where(listingId: listingId)
-                    .where(status: ContractStatus.Draft)
-                    .all();
+                .where(listingId: listingId)
+                .where(status: ContractStatus.Draft)
+                .all();
 
                 let Array<Contract> pendingContracts = contractDb.Contract
-                    .where(listingId: listingId)
-                    .where(status: ContractStatus.Pending)
-                    .all();
+                .where(listingId: listingId)
+                .where(status: ContractStatus.Pending)
+                .all();
 
                 foreach contract in draftContracts {
                     contract.terminate(#"Listing {listingRef} was withdrawn");
@@ -222,9 +236,13 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
                 if (terminatedCount > 0) {
                     Log.info("Terminated contracts for withdrawn listing", { listingId: listingId, count: terminatedCount });
                 }
+
             }
+
         }
+
     }
+
     subscribe ContractEvents {
         on ContractStatusChanged(UUID contractId, String contractRef, UUID listingId, ContractStatus oldStatus, ContractStatus newStatus) {
             Log.info("Contract status changed", { contractId: contractId, oldStatus: oldStatus, newStatus: newStatus });
@@ -237,8 +255,11 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
                 } catch (Exception e) {
                     Log.error("Failed to update listing status", { listingId: listingId, error: e });
                 }
+
             }
+
         }
+
     }
 
     rest_api ContractAPI : basePath('/api/v1/contracts'), rdbms(contractDb) {
@@ -251,16 +272,17 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
             if (status != null) {
                 query = contractDb.Contract.where(status: status);
             }
+
             if (contractType != null) {
                 query = query.where(contractType: contractType);
             }
 
             let Int total = query.count();
             let Array<Contract> contracts = query
-                .orderBy(createdAt: desc)
-                .offset((page - 1) * perPage)
-                .limit(perPage)
-                .all();
+            .orderBy(createdAt: desc)
+            .offset((page - 1) * perPage)
+            .limit(perPage)
+            .all();
 
             return {
                 data: contracts,
@@ -272,6 +294,7 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
                     hasNextPage: page < Math.ceil(total / perPage),
                     hasPrevPage: page > 1
                 }
+
             };
         }
 
@@ -358,37 +381,38 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
         @path('/:id/documents')
         get(UUID id) -> Array<contractDb.ContractDocument> {
             return contractDb.ContractDocument
-                .where(contractId: id)
-                .orderBy(uploadedAt: desc)
-                .all();
+            .where(contractId: id)
+            .orderBy(uploadedAt: desc)
+            .all();
         }
 
         // Get contracts by listing
         @path('/by-listing/:listingId')
         get(UUID listingId) -> Array<contractDb.Contract> {
             return contractDb.Contract
-                .where(listingId: listingId)
-                .orderBy(createdAt: desc)
-                .all();
+            .where(listingId: listingId)
+            .orderBy(createdAt: desc)
+            .all();
         }
 
         // Get contracts by buyer
         @path('/by-buyer/:buyerId')
         get(UUID buyerId) -> Array<contractDb.Contract> {
             return contractDb.Contract
-                .where(buyerId: buyerId)
-                .orderBy(createdAt: desc)
-                .all();
+            .where(buyerId: buyerId)
+            .orderBy(createdAt: desc)
+            .all();
         }
 
         // Get contracts by seller
         @path('/by-seller/:sellerId')
         get(UUID sellerId) -> Array<contractDb.Contract> {
             return contractDb.Contract
-                .where(sellerId: sellerId)
-                .orderBy(createdAt: desc)
-                .all();
+            .where(sellerId: sellerId)
+            .orderBy(createdAt: desc)
+            .all();
         }
+
     }
 
     test("computed isDraft is true for Draft status") {
@@ -407,30 +431,30 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
 
     test("validation rejects non-positive price") {
         assert throws(
-            () => contractDb.Contract.create({
-                contractRef: "CTR-TEST-002",
-                listingId: uuid(),
-                buyerId: uuid(),
-                sellerId: uuid(),
-                contractType: ContractType.Sale,
-                price: Money.of(0, "USD")
-            }),
-            ValidationError("Contract price must be positive")
+        () => contractDb.Contract.create({
+            contractRef: "CTR-TEST-002",
+            listingId: uuid(),
+            buyerId: uuid(),
+            sellerId: uuid(),
+            contractType: ContractType.Sale,
+            price: Money.of(0, "USD")
+        }),
+        ValidationError("Contract price must be positive")
         );
     }
 
     test("validation rejects earnest money exceeding price") {
         assert throws(
-            () => contractDb.Contract.create({
-                contractRef: "CTR-TEST-003",
-                listingId: uuid(),
-                buyerId: uuid(),
-                sellerId: uuid(),
-                contractType: ContractType.Sale,
-                price: Money.of(200000, "USD"),
-                earnestMoney: Money.of(300000, "USD")
-            }),
-            ValidationError("Earnest money cannot exceed contract price")
+        () => contractDb.Contract.create({
+            contractRef: "CTR-TEST-003",
+            listingId: uuid(),
+            buyerId: uuid(),
+            sellerId: uuid(),
+            contractType: ContractType.Sale,
+            price: Money.of(200000, "USD"),
+            earnestMoney: Money.of(300000, "USD")
+        }),
+        ValidationError("Earnest money cannot exceed contract price")
         );
     }
 
@@ -460,8 +484,8 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
         });
         contract.save();
         assert throws(
-            () => contract.sign(),
-            ValidationException("Only pending contracts can be signed")
+        () => contract.sign(),
+        ValidationException("Only pending contracts can be signed")
         );
     }
 
@@ -539,8 +563,8 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
         });
         contract.save();
         assert throws(
-            () => contract.submit(),
-            ValidationException("Only draft contracts can be submitted")
+        () => contract.submit(),
+        ValidationException("Only draft contracts can be submitted")
         );
     }
 
@@ -573,8 +597,8 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
         });
         contract.save();
         assert throws(
-            () => contract.activate(),
-            ValidationException("Only signed contracts can be activated")
+        () => contract.activate(),
+        ValidationException("Only signed contracts can be activated")
         );
     }
 
@@ -609,44 +633,45 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
         });
         contract.save();
         assert throws(
-            () => contract.terminate("Second termination attempt"),
-            ValidationException("Contract is already terminated or expired")
+        () => contract.terminate("Second termination attempt"),
+        ValidationException("Contract is already terminated or expired")
         );
     }
 
     test("validation rejects empty contract reference") {
         assert throws(
-            () => contractDb.Contract.create({
-                contractRef: "",
-                listingId: uuid(),
-                buyerId: uuid(),
-                sellerId: uuid(),
-                contractType: ContractType.Sale,
-                price: Money.of(100000, "USD")
-            }),
-            ValidationError("Contract reference cannot be empty")
+        () => contractDb.Contract.create({
+            contractRef: "",
+            listingId: uuid(),
+            buyerId: uuid(),
+            sellerId: uuid(),
+            contractType: ContractType.Sale,
+            price: Money.of(100000, "USD")
+        }),
+        ValidationError("Contract reference cannot be empty")
         );
     }
 
     test("validation rejects empty document name") {
         assert throws(
-            () => contractDb.ContractDocument.create({
-                contractId: uuid(),
-                documentName: "",
-                documentUrl: "https://docs.test/contract.pdf"
-            }),
-            ValidationError("Document name cannot be empty")
+        () => contractDb.ContractDocument.create({
+            contractId: uuid(),
+            documentName: "",
+            documentUrl: "https://docs.test/contract.pdf"
+        }),
+        ValidationError("Document name cannot be empty")
         );
     }
 
     test("validation rejects empty document URL") {
         assert throws(
-            () => contractDb.ContractDocument.create({
-                contractId: uuid(),
-                documentName: "Purchase Agreement",
-                documentUrl: ""
-            }),
-            ValidationError("Document URL cannot be empty")
+        () => contractDb.ContractDocument.create({
+            contractId: uuid(),
+            documentName: "Purchase Agreement",
+            documentUrl: ""
+        }),
+        ValidationError("Document URL cannot be empty")
         );
     }
+
 }

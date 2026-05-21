@@ -27,7 +27,7 @@ A `test` block is a **service member** (alongside `rdbms`, `rest_api`, `pubsub`,
 
 ```datrix
 service library.BookService : version('1.0.0') {
-    rdbms db('config/book-service/datasources.yaml') {
+    rdbms db('config/book-service/datasources.dcfg') {
         entity Book extends BaseEntity {
             String(200) title;
             DateTime dueDate;

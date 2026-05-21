@@ -1,5 +1,4 @@
 
-
 // Define a service in the 'ecommerce' namespace with version and description
 service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), description('user management service') {
 
@@ -115,11 +114,11 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
 
             validate {
                 if (!Validator.isEmail(email))
-                    ValidationError("Invalid email format");
+                ValidationError("Invalid email format");
                 if (phoneNumber != null && !Validator.isPhone(phoneNumber))
-                    ValidationError("Invalid phone number");
+                ValidationError("Invalid phone number");
                 if (status == UserStatus.Active && !isVerified)
-                    ValidationError("Cannot activate unverified user");
+                ValidationError("Cannot activate unverified user");
             }
 
             beforeUpdate {
@@ -145,8 +144,11 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
                     if (status == UserStatus.Active && isVerified) {
                         dispatch UserVerified(id, email);
                     }
+
                 }
+
             }
+
         }
 
         entity UserSession extends BaseEntity {
@@ -167,8 +169,9 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
 
             validate {
                 if (expiresAt <= createdAt)
-                    ValidationError("Expiry must be after creation");
+                ValidationError("Expiry must be after creation");
             }
+
         }
 
         entity UserPreferences extends BaseEntity {
@@ -203,13 +206,17 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
             publish UserRegistered(UUID userId, Email email, String fullName) {
                 ensure fullName.length > 0;
             }
+
             publish UserVerified(UUID userId, Email email);
             publish UserStatusChanged(UUID userId, UserStatus oldStatus, UserStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
+
             publish UserLoggedIn(UUID userId, DateTime loginAt, String? ipAddress);
         }
+
     }
+
     subscribe UserEvents {
 
         on UserRegistered(UUID userId, Email email, String fullName) {
@@ -227,6 +234,7 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
         on UserLoggedIn(UUID userId, DateTime loginAt, String? ipAddress) {
             Log.info("User logged in", { userId: userId, loginAt: loginAt, ipAddress: ipAddress });
         }
+
     }
 
     // REST API block - generates CRUD endpoints and custom routes
@@ -237,11 +245,11 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
         @path('/register')
         post(RegisterRequest request) : public -> userDb.User {
             if (!Validator.isEmail(request.email))
-                throw ValidationException("Invalid email format");
+            throw ValidationException("Invalid email format");
             if (request.password.length() < 8)
-                throw ValidationException("Password must be at least 8 characters");
+            throw ValidationException("Password must be at least 8 characters");
             if (!Validator.hasLowercase(request.password) || !Validator.hasUppercase(request.password) || !Validator.hasNumbers(request.password))
-                throw ValidationException("Password must contain lowercase, uppercase, and numbers");
+            throw ValidationException("Password must contain lowercase, uppercase, and numbers");
             let User? existing = userDb.User.where(email: request.email).first();
             if (existing != null) {
                 throw ValidationException("Email already registered");
@@ -310,6 +318,7 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
             if (session != null) {
                 session.delete();
             }
+
             redis.SessionCache.delete(token);
         }
 
@@ -367,6 +376,7 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
 
                 sendPasswordResetEmail(user);
             }
+
         }
 
         @path('/reset-password')
@@ -417,6 +427,7 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
         fn generateSessionToken() -> String {
             return #"session_{Random.string(64)}";
         }
+
     }
 
     test("computed fullName concatenates first and last name") {
@@ -445,14 +456,14 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
 
     test("validation rejects activating unverified user") {
         assert throws(
-            () => userDb.User.create({
-                email: "spec.unverified@example.com",
-                passwordHash: hashPassword("Str0ng#TestP@ss9"),
-                firstName: "Unverified",
-                lastName: "User",
-                status: UserStatus.Active
-            }),
-            ValidationError("Cannot activate unverified user")
+        () => userDb.User.create({
+            email: "spec.unverified@example.com",
+            passwordHash: hashPassword("Str0ng#TestP@ss9"),
+            firstName: "Unverified",
+            lastName: "User",
+            status: UserStatus.Active
+        }),
+        ValidationError("Cannot activate unverified user")
         );
     }
 
@@ -517,4 +528,5 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
             data: { token: user.passwordResetToken, fullName: user.fullName }
         });
     }
+
 }

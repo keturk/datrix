@@ -62,5 +62,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             // Composite unique index prevents duplicate Book-Tag pairs
             index(bookId, tagId) : unique;
         }
+
     }
+
 }

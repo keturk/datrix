@@ -40,6 +40,7 @@ service library.MemberService('config/member-service.dcfg') : version('1.0.0'), 
             // #"..." is string interpolation syntax
             String fullName := #"{firstName} {lastName}";
         }
+
     }
 
     test("computed fullName concatenates first and last name") {
@@ -74,5 +75,7 @@ service library.MemberService('config/member-service.dcfg') : version('1.0.0'), 
             let Member member = memberDb.Member.findOrFail(id);
             return { fullName: member.fullName, email: member.email, membershipType: member.membershipType };
         }
+
     }
+
 }

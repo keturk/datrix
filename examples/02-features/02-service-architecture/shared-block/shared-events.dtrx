@@ -7,12 +7,17 @@ shared IngestionEvents('config/ingestion-events.dcfg') {
             publish SupplementalSourceIngested(String source, String layer, DateTime timestamp) {
                 ensure source.length > 0;
             }
+
             publish IngestionCompleted(UUID runId, String source, Int recordsProcessed, DateTime completedAt) {
                 ensure recordsProcessed >= 0;
             }
+
             publish IngestionFailed(UUID runId, String source, String errorMessage) {
                 ensure errorMessage.length > 0;
             }
+
         }
+
     }
+
 }

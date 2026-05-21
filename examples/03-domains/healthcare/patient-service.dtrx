@@ -103,7 +103,7 @@ service healthcare.PatientService('config/patient-service.dcfg') : version('1.0.
             Int age := calculateAge(dateOfBirth);
             Boolean isMinor := age < 18;
             Boolean hasValidInsurance := primaryInsurance != null &&
-                (primaryInsurance.expirationDate == null || primaryInsurance.expirationDate >= Date.now());
+            (primaryInsurance.expirationDate == null || primaryInsurance.expirationDate >= Date.now());
 
             index(firstName, lastName);
             index(dateOfBirth);
@@ -117,6 +117,7 @@ service healthcare.PatientService('config/patient-service.dcfg') : version('1.0.
                 if (mrn == null || mrn.isEmpty()) {
                     mrn = generateMRN();
                 }
+
             }
 
             beforeUpdate {
@@ -148,14 +149,15 @@ service healthcare.PatientService('config/patient-service.dcfg') : version('1.0.
 
             validate {
                 if (email != null && !Validator.isEmail(email))
-                    ValidationError("Invalid email format");
+                ValidationError("Invalid email format");
                 if (phone != null && !Validator.isPhone(phone))
-                    ValidationError("Invalid phone number");
+                ValidationError("Invalid phone number");
                 if (dateOfBirth > Date.now())
-                    ValidationError("Date of birth cannot be in the future");
+                ValidationError("Date of birth cannot be in the future");
                 if (dateOfBirth < Date.now().subtractYears(150))
-                    ValidationError("Invalid date of birth");
+                ValidationError("Invalid date of birth");
             }
+
         }
 
     }
@@ -174,6 +176,7 @@ service healthcare.PatientService('config/patient-service.dcfg') : version('1.0.
             String mrn : key;
             UUID patientId;
         }
+
     }
 
     // Pub/sub messaging block
@@ -183,14 +186,19 @@ service healthcare.PatientService('config/patient-service.dcfg') : version('1.0.
                 ensure mrn.length > 0;
                 ensure fullName.length > 0;
             }
+
             publish PatientStatusChanged(UUID patientId, String mrn, String oldStatus, String newStatus) {
                 ensure oldStatus != newStatus;
             }
+
             publish PatientUpdated(UUID patientId, String mrn, Array<String> changedFields) {
                 ensure changedFields.length() > 0;
             }
+
         }
+
     }
+
     subscribe PatientEvents {
 
         on PatientRegistered(UUID patientId, String mrn, String fullName, Date dateOfBirth) {
@@ -200,6 +208,7 @@ service healthcare.PatientService('config/patient-service.dcfg') : version('1.0.
         on PatientUpdated(UUID patientId, String mrn, Array<String> changedFields) {
             Log.info("Patient updated", { patientId: patientId, mrn: mrn, changedFields: changedFields });
         }
+
     }
 
     test("computed fullName concatenates first and last name") {
@@ -215,25 +224,25 @@ service healthcare.PatientService('config/patient-service.dcfg') : version('1.0.
 
     test("validation rejects future date of birth") {
         assert throws(
-            () => patientDb.Patient.create({
-                firstName: "Future",
-                lastName: "Patient",
-                dateOfBirth: Date.of(2099, 1, 1),
-                gender: Gender.Male
-            }),
-            ValidationError("Date of birth cannot be in the future")
+        () => patientDb.Patient.create({
+            firstName: "Future",
+            lastName: "Patient",
+            dateOfBirth: Date.of(2099, 1, 1),
+            gender: Gender.Male
+        }),
+        ValidationError("Date of birth cannot be in the future")
         );
     }
 
     test("validation rejects impossibly old date of birth") {
         assert throws(
-            () => patientDb.Patient.create({
-                firstName: "Ancient",
-                lastName: "Patient",
-                dateOfBirth: Date.of(1800, 1, 1),
-                gender: Gender.Female
-            }),
-            ValidationError("Invalid date of birth")
+        () => patientDb.Patient.create({
+            firstName: "Ancient",
+            lastName: "Patient",
+            dateOfBirth: Date.of(1800, 1, 1),
+            gender: Gender.Female
+        }),
+        ValidationError("Invalid date of birth")
         );
     }
 
@@ -339,11 +348,11 @@ service healthcare.PatientService('config/patient-service.dcfg') : version('1.0.
 
             let Int total = query.count();
             let Array<Patient> patients = query
-                .orderBy(lastName: asc)
-                .orderBy(firstName: asc)
-                .offset((page - 1) * perPage)
-                .limit(Math.min(perPage, 50))
-                .all();
+            .orderBy(lastName: asc)
+            .orderBy(firstName: asc)
+            .offset((page - 1) * perPage)
+            .limit(Math.min(perPage, 50))
+            .all();
 
             Log.info("Patient list accessed", {
                 action: "patient.list",
@@ -359,6 +368,7 @@ service healthcare.PatientService('config/patient-service.dcfg') : version('1.0.
                     total: total,
                     totalPages: Math.ceil(total / perPage)
                 }
+
             };
         }
 
@@ -495,5 +505,7 @@ service healthcare.PatientService('config/patient-service.dcfg') : version('1.0.
         post(BulkPatientRequest request) : internal -> Array<patientDb.Patient> {
             return patientDb.Patient.whereIn(id: request.ids).all();
         }
+
     }
+
 }

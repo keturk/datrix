@@ -59,6 +59,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             beforeCreate {
                 passwordHash = Auth.hashPassword(passwordHash);
             }
+
         }
 
         // Concrete entity - inherits all fields from BaseEntity and maps to a database table
@@ -100,9 +101,9 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             // Custom validation block - runs before create and update operations
             validate {
                 if (title.trim().isEmpty())
-                    ValidationError("Title cannot be empty");
+                ValidationError("Title cannot be empty");
                 if (publicationYear > DateTime.now().year())
-                    ValidationError("Publication year cannot be in the future");
+                ValidationError("Publication year cannot be in the future");
             }
 
             // Lifecycle hook - runs before a new record is inserted
@@ -124,8 +125,11 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
                     // oldValue() retrieves the previous value of a field before the update
                     dispatch BookStatusChanged(id, oldValue(status), status);
                 }
+
             }
+
         }
+
     }
 
     // Pub/sub messaging block - defines event-driven communication
@@ -137,11 +141,15 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             publish BookAdded(UUID bookId, String title) {
                 ensure title.length > 0;
             }
+
             publish BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
+
         }
+
     }
+
     subscribe BookEvents {
         on BookAdded(UUID bookId, String title) {
             // Log utility for structured logging
@@ -151,6 +159,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         on BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus) {
             Log.info(#"Book {bookId} status changed from {oldStatus} to {newStatus}");
         }
+
     }
 
     // REST API block - generates CRUD endpoints and custom routes
@@ -174,6 +183,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         get(UUID categoryId) : public -> Array<bookDb.Book> {
             return bookDb.Book.where(categoryId: categoryId).all();
         }
+
     }
 
     test("computed displayTitle formats title and year") {
@@ -222,8 +232,8 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatValTitle" });
         cat.save();
         assert throws(
-            () => bookDb.Book.create({ title: "", isbn: "1234567890", author: "Author", publicationYear: 2020, categoryId: cat.id }),
-            ValidationError("Title cannot be empty")
+        () => bookDb.Book.create({ title: "", isbn: "1234567890", author: "Author", publicationYear: 2020, categoryId: cat.id }),
+        ValidationError("Title cannot be empty")
         );
     }
 
@@ -231,8 +241,8 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         let bookDb.Category cat = bookDb.Category.create({ name: "SpecCatValYear" });
         cat.save();
         assert throws(
-            () => bookDb.Book.create({ title: "Future Book", isbn: "1234567890", author: "Author", publicationYear: 20999, categoryId: cat.id }),
-            ValidationError("Publication year cannot be in the future")
+        () => bookDb.Book.create({ title: "Future Book", isbn: "1234567890", author: "Author", publicationYear: 20999, categoryId: cat.id }),
+        ValidationError("Publication year cannot be in the future")
         );
     }
 
@@ -295,4 +305,5 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         book.save();
         assert book.status == BookStatus.Available;
     }
+
 }

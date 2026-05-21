@@ -10,6 +10,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
         ShippingService { loadBalance: roundRobin, healthyOnly: true }
         UserService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     enum OrderStatus {
         Pending,
         PaymentPending,
@@ -86,9 +87,9 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
 
             validate {
                 if (items.length() == 0)
-                    ValidationError("Order must have at least one item");
+                ValidationError("Order must have at least one item");
                 if (items.length() > 50)
-                    ValidationError("Order cannot have more than 50 items");
+                ValidationError("Order cannot have more than 50 items");
             }
 
             afterCreate {
@@ -110,7 +111,9 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
                         // '??' is the null-coalescing operator
                         dispatch OrderCancelled(id, cancellationReason ?? "Cancelled", inventoryReservationId);
                     }
+
                 }
+
             }
 
             fn calculateTotals() {
@@ -118,6 +121,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
                 foreach item in items {
                     itemsTotal = itemsTotal.add(item.total);
                 }
+
                 subtotal = itemsTotal;
 
                 tax = subtotal.multiply(0.08);
@@ -130,6 +134,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
 
                 discount = Money.of(0, Currency.USD);
             }
+
         }
 
         entity OrderItem extends BaseEntity {
@@ -145,12 +150,13 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
 
             validate {
                 if (quantity <= 0)
-                    ValidationError("Quantity must be greater than 0");
+                ValidationError("Quantity must be greater than 0");
                 if (quantity > 100)
-                    ValidationError("Quantity cannot exceed 100 per item");
+                ValidationError("Quantity cannot exceed 100 per item");
                 if (unitPrice.amount < 0)
-                    ValidationError("Unit price cannot be negative");
+                ValidationError("Unit price cannot be negative");
             }
+
         }
 
         // Entity for idempotency key deduplication
@@ -163,8 +169,9 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
 
             validate {
                 if (key.trim().isEmpty())
-                    ValidationError("Idempotency key cannot be empty");
+                ValidationError("Idempotency key cannot be empty");
             }
+
         }
 
     }
@@ -191,23 +198,27 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
                 ensure orderNumber.length > 0;
                 ensure total > 0;
             }
+
             publish OrderConfirmed(UUID orderId, UUID? paymentId, UUID reservationId, Address shippingAddress, Array<JSON> items, Decimal estimatedWeight) {
                 ensure items.length() > 0;
                 ensure estimatedWeight > 0;
             }
+
             publish OrderCancelled(UUID orderId, String reason, UUID reservationId) {
                 ensure reason.length > 0;
             }
+
             publish OrderStatusChanged(UUID orderId, OrderStatus oldStatus, OrderStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
-        }
 
+        }
 
         // React to payment events from another service
 
         // React to shipping events from another service
     }
+
     subscribe OrderEvents {
 
         on OrderStatusChanged(UUID orderId, OrderStatus oldStatus, OrderStatus newStatus) {
@@ -223,8 +234,11 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
                     total: cached.total
                 });
             }
+
         }
+
     }
+
     subscribe PaymentEvents {
 
         on PaymentProcessed(UUID paymentId, UUID orderId, Money amount) {
@@ -265,7 +279,9 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
 
             Log.info("Order refunded after payment refund", { orderId: orderId, paymentId: paymentId, amount: amount });
         }
+
     }
+
     subscribe ShipmentEvents {
 
         on ShipmentCreated(UUID shipmentId, UUID orderId) {
@@ -298,6 +314,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
         on ShipmentFailed(UUID shipmentId, UUID orderId, String reason) {
             Log.warn("Shipment failed for order", { shipmentId: shipmentId, orderId: orderId, reason: reason });
         }
+
     }
 
     queues {
@@ -314,6 +331,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
             ensure amount > 0;
             ensure merchantId.length > 0;
         }
+
     }
 
     rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(orderDb) {
@@ -334,10 +352,10 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
             let Int total = query.count();
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             let Array<Order> orders = query
-                .orderBy(createdAt: desc)
-                .offset((page - 1) * cappedPerPage)
-                .limit(cappedPerPage)
-                .all();
+            .orderBy(createdAt: desc)
+            .offset((page - 1) * cappedPerPage)
+            .limit(cappedPerPage)
+            .all();
 
             return {
                 data: orders,
@@ -349,6 +367,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
                     hasNextPage: page < Math.ceil(total / cappedPerPage),
                     hasPrevPage: page > 1
                 }
+
             };
         }
 
@@ -483,11 +502,11 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
             if (idempotencyKey == null) return null;
 
             let IdempotencyKey? existing = orderDb.IdempotencyKey
-                .where(key: idempotencyKey)
-                .where(operation: operation)
-                // 'gt(DateTime.now())' is a comparison filter: greater than current time
-                .where(expiresAt: gt(DateTime.now()))
-                .first();
+            .where(key: idempotencyKey)
+            .where(operation: operation)
+            // 'gt(DateTime.now())' is a comparison filter: greater than current time
+            .where(expiresAt: gt(DateTime.now()))
+            .first();
 
             if (existing != null) {
                 Log.info("Idempotent request detected", { key: idempotencyKey, operation: operation });
@@ -508,6 +527,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
                 expiresAt: DateTime.now().addHours(24)
             });
         }
+
     }
 
     test("computed canCancel is true for Pending status") {
@@ -543,8 +563,8 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
         });
         order.save();
         assert throws(
-            () => order.save(),
-            ValidationError("Order must have at least one item")
+        () => order.save(),
+        ValidationError("Order must have at least one item")
         );
     }
 
@@ -715,9 +735,10 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
                 unitPrice: Money.of(9.99, Currency.USD)
             });
         }
+
         assert throws(
-            () => order.save(),
-            ValidationError("Order cannot have more than 50 items")
+        () => order.save(),
+        ValidationError("Order cannot have more than 50 items")
         );
     }
 
@@ -725,8 +746,8 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
         job CleanupExpiredIdempotencyKeys {
             let DateTime threshold = DateTime.now().addDays(-1);
             let Array<IdempotencyKey> expired = orderDb.IdempotencyKey
-                .where(expiresAt: lt(threshold))
-                .all();
+            .where(expiresAt: lt(threshold))
+            .all();
 
             let Int count = 0;
             foreach key in expired {
@@ -737,6 +758,9 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
             if (count > 0) {
                 Log.info("Cleaned up expired idempotency keys", { count: count });
             }
+
         }
+
     }
+
 }

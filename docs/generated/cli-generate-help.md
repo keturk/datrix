@@ -41,10 +41,10 @@ Usage: datrix generate [OPTIONS]
 │                                    flyway). Default: raw_sql                │
 │                                    [default: raw_sql]                       │
 │ --language           -L      TEXT  Override target language from            │
-│                                    system-config.yaml. Valid: python,       │
+│                                    system .dcfg profile. Valid: python,     │
 │                                    typescript                               │
 │ --hosting            -H      TEXT  Override hosting platform from           │
-│                                    system-config.yaml. Valid: docker,       │
+│                                    system .dcfg profile. Valid: docker,     │
 │                                    kubernetes, aws, azure                   │
 │ --platform           -P      TEXT  Override service platform for all        │
 │                                    services. Valid: compose, kubernetes,    │

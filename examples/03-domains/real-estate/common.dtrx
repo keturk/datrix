@@ -26,4 +26,5 @@ module realestate.common {
     fn generateContractRef() -> String {
         return #"CTR-{DateTime.now().format('YYYYMMDDHHmmss')}-{Random.string(6).toUpperCase()}";
     }
+
 }

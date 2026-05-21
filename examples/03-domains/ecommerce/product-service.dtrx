@@ -104,11 +104,13 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
                 if (isChanged(inventory)) {
                     dispatch InventoryUpdated(id, oldValue(inventory), inventory);
                 }
+
                 if (isChanged(status)) {
                     // Invalidate cache when status changes
                     redis.ProductCache.delete(#"product:{id}");
                     redis.ProductCache.delete(#"product:slug:{slug}");
                 }
+
             }
 
             // Entity-level methods
@@ -117,12 +119,14 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
                     status = ProductStatus.Active;
                     this.save();
                 }
+
             }
 
             fn discontinue() {
                 status = ProductStatus.Discontinued;
                 this.save();
             }
+
         }
 
         entity InventoryReservation extends BaseEntity {
@@ -137,8 +141,9 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
 
             validate {
                 if (quantity <= 0)
-                    ValidationError("Reservation quantity must be positive");
+                ValidationError("Reservation quantity must be positive");
             }
+
         }
 
     }
@@ -167,17 +172,23 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
                 ensure name.length > 0;
                 ensure price > 0;
             }
+
             publish InventoryUpdated(UUID productId, Int oldQuantity, Int newQuantity) {
                 ensure newQuantity >= 0;
             }
+
             publish InventoryReserved(UUID reservationId, Array<UUID> productIds) {
                 ensure productIds.length() > 0;
             }
+
             publish InventoryReleased(UUID reservationId, String reason) {
                 ensure reason.length > 0;
             }
+
         }
+
     }
+
     subscribe ProductEvents {
 
         on ProductCreated(UUID productId, String name, Money price) {
@@ -195,14 +206,16 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         on InventoryReleased(UUID reservationId, String reason) {
             Log.info("Inventory released", { reservationId: reservationId, reason: reason });
         }
+
     }
+
     subscribe OrderEvents {
 
         on OrderConfirmed(UUID orderId, UUID? paymentId, UUID reservationId, Address shippingAddress, Array<JSON> items, Decimal estimatedWeight) {
             let Array<InventoryReservation> reservations = productDb.InventoryReservation
-                .where(reservationId: reservationId)
-                .where(status: ReservationStatus.Reserved)
-                .all();
+            .where(reservationId: reservationId)
+            .where(status: ReservationStatus.Reserved)
+            .all();
 
             foreach reservation in reservations {
                 reservation.status = ReservationStatus.Confirmed;
@@ -214,9 +227,9 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
 
         on OrderCancelled(UUID orderId, String reason, UUID reservationId) {
             let Array<InventoryReservation> reservations = productDb.InventoryReservation
-                .where(reservationId: reservationId)
-                .where(status: ReservationStatus.Reserved)
-                .all();
+            .where(reservationId: reservationId)
+            .where(status: ReservationStatus.Reserved)
+            .all();
 
             // 'transaction(productDb)' wraps operations in a database transaction
             transaction(productDb) {
@@ -231,11 +244,13 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
                     reservation.status = ReservationStatus.Released;
                     reservation.save();
                 }
+
             }
 
             dispatch InventoryReleased(reservationId, #"Order cancelled: {reason}");
             Log.info("Inventory released for cancelled order", { orderId: orderId, reservationId: reservationId });
         }
+
     }
 
     // NoSQL document database block for unstructured data
@@ -265,6 +280,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
 
             index(productId, eventType, timestamp);
         }
+
     }
 
     // Storage block - defines file upload folders with constraints
@@ -294,21 +310,21 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         @path('/search')
         get(String query, Int? limit, Int? offset) : public -> Array<productDb.Product> {
             return productDb.Product
-                .fulltext(query)
-                .where(status: ProductStatus.Active)
-                .limit(limit ?? 20)
-                .offset(offset ?? 0)
-                .all();
+            .fulltext(query)
+            .where(status: ProductStatus.Active)
+            .limit(limit ?? 20)
+            .offset(offset ?? 0)
+            .all();
         }
 
         @path('/category/:categoryId')
         get(UUID categoryId, Int? limit) : public -> Array<productDb.Product> {
             return productDb.Product
-                .where(categoryId: categoryId)
-                .where(status: ProductStatus.Active)
-                .orderBy(name: asc)
-                .limit(limit ?? 50)
-                .all();
+            .where(categoryId: categoryId)
+            .where(status: ProductStatus.Active)
+            .orderBy(name: asc)
+            .limit(limit ?? 50)
+            .all();
         }
 
         post(CreateProductRequest request) : access(admin) -> productDb.Product {
@@ -372,6 +388,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
                         availableQuantity: product.inventory
                     });
                 }
+
             }
 
             return { allAvailable: allAvailable, items: availability };
@@ -403,6 +420,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
                         status: ReservationStatus.Reserved
                     });
                 }
+
             }
 
             // Lambda expression: '.map(i => i.productId)'
@@ -415,9 +433,9 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         @path('/internal/confirm-reservation')
         post(ConfirmReservationRequest request) : internal -> Void {
             let Array<InventoryReservation> reservations = productDb.InventoryReservation
-                .where(reservationId: request.reservationId)
-                .where(status: ReservationStatus.Reserved)
-                .all();
+            .where(reservationId: request.reservationId)
+            .where(status: ReservationStatus.Reserved)
+            .all();
 
             foreach reservation in reservations {
                 reservation.status = ReservationStatus.Confirmed;
@@ -430,9 +448,9 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         @path('/internal/release-reservation')
         post(ReleaseReservationRequest request) : internal -> Void {
             let Array<InventoryReservation> reservations = productDb.InventoryReservation
-                .where(reservationId: request.reservationId)
-                .where(status: ReservationStatus.Reserved)
-                .all();
+            .where(reservationId: request.reservationId)
+            .where(status: ReservationStatus.Reserved)
+            .all();
 
             transaction(productDb) {
                 foreach reservation in reservations {
@@ -446,6 +464,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
                     reservation.status = ReservationStatus.Released;
                     reservation.save();
                 }
+
             }
 
             dispatch InventoryReleased(request.reservationId, "Released by request");
@@ -462,6 +481,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         post(BulkProductRequest request) : internal -> Array<productDb.Product> {
             return productDb.Product.whereIn(id: request.ids).all();
         }
+
     }
 
     test("validation rejects non-positive reservation quantity") {
@@ -482,12 +502,12 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         });
         product.save();
         assert throws(
-            () => productDb.InventoryReservation.create({
-                productId: product.id,
-                quantity: 0,
-                expiresAt: DateTime.now().addDays(1)
-            }),
-            ValidationError("Reservation quantity must be positive")
+        () => productDb.InventoryReservation.create({
+            productId: product.id,
+            quantity: 0,
+            expiresAt: DateTime.now().addDays(1)
+        }),
+        ValidationError("Reservation quantity must be positive")
         );
     }
 
@@ -560,9 +580,9 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         // Job to release inventory reservations that have expired
         job ReleaseExpiredReservations {
             let Array<InventoryReservation> expired = productDb.InventoryReservation
-                .where(status: ReservationStatus.Reserved)
-                .where(expiresAt: lt(DateTime.now()))
-                .all();
+            .where(status: ReservationStatus.Reserved)
+            .where(expiresAt: lt(DateTime.now()))
+            .all();
 
             let JSON reservationGroups = {};
             foreach reservation in expired {
@@ -570,6 +590,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
                 if (reservationGroups[key] == null) {
                     reservationGroups[key] = [];
                 }
+
                 reservationGroups[key].push(reservation);
             }
 
@@ -589,6 +610,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
                         item.status = ReservationStatus.Expired;
                         item.save();
                     }
+
                 }
 
                 dispatch InventoryReleased(UUID.parse(reservationId), "Expired");
@@ -600,6 +622,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
             if (count > 0) {
                 Log.info("Cleanup complete", { expiredReservations: count });
             }
+
         }
 
         job UpdatePopularProducts {
@@ -613,5 +636,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
 
             Log.info("Updated popular products", { count: products.length() });
         }
+
     }
+
 }

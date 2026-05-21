@@ -32,4 +32,5 @@ module social.common {
             hasPrevPage: page > 1
         };
     }
+
 }

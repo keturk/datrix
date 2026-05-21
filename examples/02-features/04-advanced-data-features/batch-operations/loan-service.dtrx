@@ -9,6 +9,7 @@ service library.LoanService('config/loan-service.dcfg') : version('1.0.0'), desc
         BookService { loadBalance: roundRobin, healthyOnly: true }
         MemberService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     enum LoanStatus {
         Active,
         Returned,
@@ -29,6 +30,7 @@ service library.LoanService('config/loan-service.dcfg') : version('1.0.0'), desc
             // Complex computed expression with logical operators
             Boolean isOverdue := status == LoanStatus.Overdue || (status == LoanStatus.Active && DateTime.now() > dueDate);
         }
+
     }
 
     // Structs define reusable value objects (not database entities)
@@ -74,6 +76,7 @@ service library.LoanService('config/loan-service.dcfg') : version('1.0.0'), desc
                 if (!bookResponse.isAvailable) {
                     throw ValidationException("Book is not available");
                 }
+
                 // Verify the member exists via MemberService internal endpoint
                 MemberService.MemberAPI.get('/internal/:id', request.memberId);
 
@@ -86,16 +89,20 @@ service library.LoanService('config/loan-service.dcfg') : version('1.0.0'), desc
                 transaction(loanDb) {
                     loan.save();
                 }
+
                 return loan;
             } catch (Exception e) {
                 Log.error(#"Failed to create loan: {e}");
                 throw e;
             }
+
         }
 
         @path('/member/:memberId')
         get(UUID memberId) -> Array<loanDb.Loan> {
             return loanDb.Loan.where(memberId: memberId).all();
         }
+
     }
+
 }

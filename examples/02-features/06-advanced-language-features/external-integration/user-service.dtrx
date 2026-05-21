@@ -1,5 +1,4 @@
 
-
 service hostdemo.UserService('config/user-service.dcfg') : version('1.0.0'), description('user accounts') {
     discovery { }
     rdbms usersDb {
@@ -12,7 +11,9 @@ service hostdemo.UserService('config/user-service.dcfg') : version('1.0.0'), des
             beforeCreate {
                 passwordHash = Auth.hashPassword(passwordHash);
             }
+
         }
+
     }
 
     test("beforeCreate hashes password on user creation") {
@@ -30,6 +31,7 @@ service hostdemo.UserService('config/user-service.dcfg') : version('1.0.0'), des
             UUID userId : key;
             String token;
         }
+
     }
 
     pubsub mq {
@@ -37,10 +39,13 @@ service hostdemo.UserService('config/user-service.dcfg') : version('1.0.0'), des
             publish AccountCreated(UUID userId, String email) {
                 ensure email.length > 0;
             }
+
         }
+
     }
 
     rest_api UserAPI : basePath("/api/v1/users"), rdbms(usersDb) {
         resource usersDb.User;
     }
+
 }

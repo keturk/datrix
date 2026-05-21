@@ -5,6 +5,7 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
     discovery {
         UserService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     enum PostVisibility {
         Public : value('public'),
         Private : value('private'),
@@ -78,21 +79,23 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
 
             validate {
                 if (content.trim().isEmpty())
-                    ValidationError("Post content cannot be empty");
+                ValidationError("Post content cannot be empty");
                 if (content.length() > MAX_POST_LENGTH)
-                    ValidationError("Post content cannot exceed 5000 characters");
+                ValidationError("Post content cannot exceed 5000 characters");
             }
 
             beforeCreate {
                 if (status == ContentStatus.Published) {
                     publishedAt = DateTime.now();
                 }
+
             }
 
             afterCreate {
                 if (status == ContentStatus.Published) {
                     dispatch PostPublished(id, authorId, visibility);
                 }
+
             }
 
             afterUpdate {
@@ -100,13 +103,16 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
                     if (status == ContentStatus.Published && publishedAt == null) {
                         publishedAt = DateTime.now();
                     }
+
                     dispatch PostStatusChanged(id, authorId, oldValue(status), status);
                 }
 
                 if (isChanged(content)) {
                     dispatch PostUpdated(id, authorId);
                 }
+
             }
+
         }
 
         entity Comment extends BaseEntity {
@@ -120,9 +126,9 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
 
             validate {
                 if (content.trim().isEmpty())
-                    ValidationError("Comment content cannot be empty");
+                ValidationError("Comment content cannot be empty");
                 if (content.length() > 2000)
-                    ValidationError("Comment cannot exceed 2000 characters");
+                ValidationError("Comment cannot exceed 2000 characters");
             }
 
             afterCreate {
@@ -135,6 +141,7 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
 
                 dispatch CommentAdded(id, postId, authorId);
             }
+
         }
 
         entity Like extends BaseEntity {
@@ -151,7 +158,9 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
                     post.likeCount = post.likeCount + 1;
                     post.save();
                 }
+
             }
+
         }
 
         entity Hashtag extends BaseEntity {
@@ -167,6 +176,7 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
 
             index(postId, hashtagId) : unique;
         }
+
     }
 
     cache redis {
@@ -184,6 +194,7 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
             UUID postId : member;
             Int score;
         }
+
     }
 
     pubsub mq {
@@ -194,12 +205,15 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
             publish PostStatusChanged(UUID postId, UUID authorId, ContentStatus oldStatus, ContentStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
+
             publish PostDeleted(UUID postId, UUID authorId);
             publish CommentAdded(UUID commentId, UUID postId, UUID authorId);
             publish PostLiked(UUID postId, UUID userId);
             publish PostUnliked(UUID postId, UUID userId);
         }
+
     }
+
     subscribe PostEvents {
         on PostPublished(UUID postId, UUID authorId, PostVisibility visibility) {
             Log.info("Post published", { postId: postId, authorId: authorId, visibility: visibility });
@@ -215,6 +229,7 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
                     commentCount: 0
                 });
             }
+
         }
 
         on PostStatusChanged(UUID postId, UUID authorId, ContentStatus oldStatus, ContentStatus newStatus) {
@@ -224,6 +239,7 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
                 redis.PostCache.delete(postId);
                 redis.TrendingPosts.remove(postId);
             }
+
         }
 
         on PostLiked(UUID postId, UUID userId) {
@@ -233,6 +249,7 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
                 let Int score = post.likeCount + post.commentCount * 2;
                 redis.TrendingPosts.add(postId, score);
             }
+
         }
 
         on PostUpdated(UUID postId, UUID authorId) {
@@ -253,8 +270,11 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
                 let Int score = post.likeCount + post.commentCount * 2;
                 redis.TrendingPosts.add(postId, score);
             }
+
         }
+
     }
+
     subscribe UserEvents {
         on UserStatusChanged(UUID userId, UserStatus oldStatus, UserStatus newStatus) {
             Log.info("User status changed, checking posts", { userId: userId, newStatus: newStatus });
@@ -262,9 +282,9 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
             // If user is suspended or deactivated, archive their posts
             if (newStatus == UserStatus.Suspended || newStatus == UserStatus.Deactivated) {
                 let Array<Post> posts = postDb.Post
-                    .where(authorId: userId)
-                    .where(status: ContentStatus.Published)
-                    .all();
+                .where(authorId: userId)
+                .where(status: ContentStatus.Published)
+                .all();
 
                 foreach post in posts {
                     post.status = ContentStatus.Archived;
@@ -273,7 +293,9 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
 
                 Log.info("Archived posts for deactivated user", { userId: userId, count: posts.length() });
             }
+
         }
+
     }
 
     rest_api PostAPI : basePath('/api/v1/posts'), rdbms(postDb) {
@@ -282,17 +304,17 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
         get(Int page = 1, Int perPage = 20) : public -> PaginatedPosts {
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             let Array<Post> posts = postDb.Post
-                .where(visibility: PostVisibility.Public)
-                .where(status: ContentStatus.Published)
-                .orderBy(createdAt: desc)
-                .offset((page - 1) * cappedPerPage)
-                .limit(cappedPerPage)
-                .all();
+            .where(visibility: PostVisibility.Public)
+            .where(status: ContentStatus.Published)
+            .orderBy(createdAt: desc)
+            .offset((page - 1) * cappedPerPage)
+            .limit(cappedPerPage)
+            .all();
 
             let Int total = postDb.Post
-                .where(visibility: PostVisibility.Public)
-                .where(status: ContentStatus.Published)
-                .count();
+            .where(visibility: PostVisibility.Public)
+            .where(status: ContentStatus.Published)
+            .count();
 
             return {
                 data: posts,
@@ -311,6 +333,7 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
                 if (viewerId == null || (viewerId != post.authorId && !Auth.hasRole("admin"))) {
                     throw AuthorizationException("Access denied");
                 }
+
             }
 
             // Increment view count
@@ -350,6 +373,7 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
             if (request.content != null) {
                 post.content = request.content;
             }
+
             if (request.visibility != null) {
                 post.visibility = request.visibility;
             }
@@ -379,19 +403,19 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
         get(UUID authorId, Int page = 1, Int perPage = 20) : public -> PaginatedPosts {
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             let Array<Post> posts = postDb.Post
-                .where(authorId: authorId)
-                .where(status: ContentStatus.Published)
-                .where(visibility: PostVisibility.Public)
-                .orderBy(createdAt: desc)
-                .offset((page - 1) * cappedPerPage)
-                .limit(cappedPerPage)
-                .all();
+            .where(authorId: authorId)
+            .where(status: ContentStatus.Published)
+            .where(visibility: PostVisibility.Public)
+            .orderBy(createdAt: desc)
+            .offset((page - 1) * cappedPerPage)
+            .limit(cappedPerPage)
+            .all();
 
             let Int total = postDb.Post
-                .where(authorId: authorId)
-                .where(status: ContentStatus.Published)
-                .where(visibility: PostVisibility.Public)
-                .count();
+            .where(authorId: authorId)
+            .where(status: ContentStatus.Published)
+            .where(visibility: PostVisibility.Public)
+            .count();
 
             return {
                 data: posts,
@@ -404,18 +428,18 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
         get(String query, Int page = 1, Int perPage = 20) : public -> PaginatedPosts {
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             let Array<Post> posts = postDb.Post
-                .fulltext(query)
-                .where(status: ContentStatus.Published)
-                .where(visibility: PostVisibility.Public)
-                .offset((page - 1) * cappedPerPage)
-                .limit(cappedPerPage)
-                .all();
+            .fulltext(query)
+            .where(status: ContentStatus.Published)
+            .where(visibility: PostVisibility.Public)
+            .offset((page - 1) * cappedPerPage)
+            .limit(cappedPerPage)
+            .all();
 
             let Int total = postDb.Post
-                .fulltext(query)
-                .where(status: ContentStatus.Published)
-                .where(visibility: PostVisibility.Public)
-                .count();
+            .fulltext(query)
+            .where(status: ContentStatus.Published)
+            .where(visibility: PostVisibility.Public)
+            .count();
 
             return {
                 data: posts,
@@ -431,9 +455,9 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
 
             // Check if already liked
             let Like? existing = postDb.Like
-                .where(postId: id)
-                .where(userId: userId)
-                .first();
+            .where(postId: id)
+            .where(userId: userId)
+            .first();
 
             if (existing != null) {
                 throw ValidationException({
@@ -464,9 +488,9 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
             let Post post = postDb.Post.findOrFail(id);
 
             let Like like = postDb.Like
-                .where(postId: id)
-                .where(userId: userId)
-                .firstOrFail();
+            .where(postId: id)
+            .where(userId: userId)
+            .firstOrFail();
 
             transaction(postDb) {
                 like.delete();
@@ -489,11 +513,11 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
             let Post _parentCheck = postDb.Post.findOrFail(id);
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             return postDb.Comment
-                .where(postId: id)
-                .orderBy(createdAt: asc)
-                .offset((page - 1) * cappedPerPage)
-                .limit(cappedPerPage)
-                .all();
+            .where(postId: id)
+            .orderBy(createdAt: asc)
+            .offset((page - 1) * cappedPerPage)
+            .limit(cappedPerPage)
+            .all();
         }
 
         // Add a comment to a post
@@ -525,11 +549,11 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
         get(Int limit = 20) : public -> Array<postDb.Post> {
             let Int cappedLimit = Math.min(limit, MAX_PAGE_SIZE);
             return postDb.Post
-                .where(status: ContentStatus.Published)
-                .where(visibility: PostVisibility.Public)
-                .orderBy(likeCount: desc)
-                .limit(cappedLimit)
-                .all();
+            .where(status: ContentStatus.Published)
+            .where(visibility: PostVisibility.Public)
+            .orderBy(likeCount: desc)
+            .limit(cappedLimit)
+            .all();
         }
 
         // Internal endpoint for other services
@@ -537,17 +561,18 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
         get(UUID id) : internal -> postDb.Post {
             return postDb.Post.findOrFail(id);
         }
+
     }
 
     test("validation rejects empty post content") {
         assert throws(
-            () => postDb.Post.create({
-                authorId: uuid(),
-                content: "",
-                visibility: PostVisibility.Public,
-                status: ContentStatus.Published
-            }),
-            ValidationError("Post content cannot be empty")
+        () => postDb.Post.create({
+            authorId: uuid(),
+            content: "",
+            visibility: PostVisibility.Public,
+            status: ContentStatus.Published
+        }),
+        ValidationError("Post content cannot be empty")
         );
     }
 
@@ -560,12 +585,12 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
         });
         post.save();
         assert throws(
-            () => postDb.Comment.create({
-                postId: post.id,
-                authorId: uuid(),
-                content: ""
-            }),
-            ValidationError("Comment content cannot be empty")
+        () => postDb.Comment.create({
+            postId: post.id,
+            authorId: uuid(),
+            content: ""
+        }),
+        ValidationError("Comment content cannot be empty")
         );
     }
 
@@ -727,12 +752,13 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
         post.save();
         let String longContent = "A".repeat(2001);
         assert throws(
-            () => postDb.Comment.create({
-                postId: post.id,
-                authorId: uuid(),
-                content: longContent
-            }),
-            ValidationError("Comment cannot exceed 2000 characters")
+        () => postDb.Comment.create({
+            postId: post.id,
+            authorId: uuid(),
+            content: longContent
+        }),
+        ValidationError("Comment cannot exceed 2000 characters")
         );
     }
+
 }

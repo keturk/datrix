@@ -24,11 +24,15 @@ service library.DataIngestionService('config/data-ingestion-service.dcfg') : ver
                 if (isChanged(status) && status == IngestionStatus.Completed) {
                     Log.info("ingestion completed", { runId: id, recordsProcessed: recordsProcessed });
                 }
+
                 if (isChanged(status) && status == IngestionStatus.Failed) {
                     Log.warn("ingestion failed", { runId: id, error: errorMessage ?? "" });
                 }
+
             }
+
         }
+
     }
 
     rest_api IngestionAPI : basePath('/api/v1/internal'), rdbms(ingestionDb) {
@@ -41,6 +45,7 @@ service library.DataIngestionService('config/data-ingestion-service.dcfg') : ver
                 startedAt: DateTime.now()
             });
         }
+
     }
 
     test("afterUpdate sets completed status") {
@@ -54,4 +59,5 @@ service library.DataIngestionService('config/data-ingestion-service.dcfg') : ver
         run.save();
         assert run.status == IngestionStatus.Completed;
     }
+
 }

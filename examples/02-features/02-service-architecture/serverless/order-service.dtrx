@@ -4,6 +4,7 @@ service examples.OrderService('config/order-service.dcfg') : version('1.0.0'), d
     discovery {
         examples.OrderService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     rdbms db {
         entity Order {
             UUID id : primaryKey = uuid();
@@ -11,6 +12,7 @@ service examples.OrderService('config/order-service.dcfg') : version('1.0.0'), d
             String currency;
             String status;
         }
+
     }
 
     pubsub mq {
@@ -18,6 +20,7 @@ service examples.OrderService('config/order-service.dcfg') : version('1.0.0'), d
             publish OrderPlaced(UUID orderId, Decimal amount);
             publish OrderCancelled(UUID orderId);
         }
+
     }
 
     queues {
@@ -32,6 +35,7 @@ service examples.OrderService('config/order-service.dcfg') : version('1.0.0'), d
         job QuickCleanup {
             Log.info("Running quick cleanup");
         }
+
     }
 
     serverless eventHandlers {
@@ -43,6 +47,7 @@ service examples.OrderService('config/order-service.dcfg') : version('1.0.0'), d
             on OrderCancelled(UUID orderId) {
                 Log.info(#"Order cancelled: {orderId}");
             }
+
         }
 
         @path('/webhooks/stripe')
@@ -50,17 +55,21 @@ service examples.OrderService('config/order-service.dcfg') : version('1.0.0'), d
         post(JSON payload) -> Void {
             Log.info("Stripe webhook received");
         }
+
     }
 
     serverless scheduledTasks {
         job DailyOrderReport {
             Log.info("Daily order report running");
         }
+
     }
 
     serverless queueWorkers {
         enqueue examples.OrderService.ProcessShipment(UUID orderId) {
             Log.info(#"ProcessShipment worker: {orderId}");
         }
+
     }
+
 }

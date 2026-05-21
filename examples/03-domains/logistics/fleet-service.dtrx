@@ -5,6 +5,7 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
     discovery {
         ShipmentService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     enum VehicleStatus {
         Available,
         InUse,
@@ -71,9 +72,9 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
 
             validate {
                 if (capacity <= 0)
-                    ValidationError("Vehicle capacity must be greater than zero");
+                ValidationError("Vehicle capacity must be greater than zero");
                 if (mileage < 0)
-                    ValidationError("Vehicle mileage cannot be negative");
+                ValidationError("Vehicle mileage cannot be negative");
             }
 
             afterCreate {
@@ -87,7 +88,9 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
                     if (status == VehicleStatus.Maintenance) {
                         lastMaintenanceDate = DateTime.now();
                     }
+
                 }
+
             }
 
             fn assignDriver(UUID driverId) {
@@ -101,6 +104,7 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
                 status = VehicleStatus.Available;
                 this.save();
             }
+
         }
 
         entity Driver extends BaseEntity {
@@ -121,12 +125,13 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
 
             validate {
                 if (firstName.trim().isEmpty())
-                    ValidationError("First name cannot be empty");
+                ValidationError("First name cannot be empty");
                 if (lastName.trim().isEmpty())
-                    ValidationError("Last name cannot be empty");
+                ValidationError("Last name cannot be empty");
                 if (licenseNumber.trim().isEmpty())
-                    ValidationError("License number cannot be empty");
+                ValidationError("License number cannot be empty");
             }
+
         }
 
         entity MaintenanceRecord extends BaseEntity {
@@ -142,9 +147,11 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
 
             validate {
                 if (cost < 0)
-                    ValidationError("Maintenance cost cannot be negative");
+                ValidationError("Maintenance cost cannot be negative");
             }
+
         }
+
     }
 
     cache redis {
@@ -166,10 +173,13 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
             publish VehicleStatusChanged(UUID vehicleId, String vehicleNumber, VehicleStatus oldStatus, VehicleStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
+
             publish DriverAssigned(UUID vehicleId, UUID driverId, String vehicleNumber);
             publish MaintenanceScheduled(UUID vehicleId, String vehicleNumber, DateTime scheduledDate);
         }
+
     }
+
     subscribe ShipmentEvents {
 
         on ShipmentCreated(UUID shipmentId, String trackingNumber, UUID senderId, String origin, String destination) {
@@ -189,8 +199,11 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
                     status: newStatus
                 });
             }
+
         }
+
     }
+
     subscribe FleetEvents {
 
         on VehicleRegistered(UUID vehicleId, String vehicleNumber, VehicleType type) {
@@ -216,6 +229,7 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
             } else if (oldStatus == VehicleStatus.Available) {
                 redis.AvailableVehicleCount.decr("total");
             }
+
         }
 
         on MaintenanceScheduled(UUID vehicleId, String vehicleNumber, DateTime scheduledDate) {
@@ -225,6 +239,7 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
                 scheduledDate: scheduledDate
             });
         }
+
     }
 
     rest_api FleetAPI : basePath('/api/v1/fleet'), rdbms(fleetDb) {
@@ -333,9 +348,9 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
         @path('/drivers/available')
         get() -> Array<fleetDb.Driver> {
             return fleetDb.Driver
-                .where(status: DriverStatus.Available)
-                .orderBy(rating: desc)
-                .all();
+            .where(status: DriverStatus.Available)
+            .orderBy(rating: desc)
+            .all();
         }
 
         @path('/metrics')
@@ -352,14 +367,15 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
                 inMaintenance: inMaintenance
             };
         }
+
     }
 
     jobs('config/fleet-service.dcfg') {
 
         job CheckMaintenanceSchedule {
             let Array<Vehicle> vehicles = fleetDb.Vehicle
-                .where(status: VehicleStatus.Available)
-                .all();
+            .where(status: VehicleStatus.Available)
+            .all();
 
             let Int scheduled = 0;
             foreach vehicle in vehicles {
@@ -382,6 +398,7 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
 
                     scheduled = scheduled + 1;
                 }
+
             }
 
             Log.info("Maintenance check completed", { scheduledCount: scheduled });
@@ -400,6 +417,7 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
                 maintenance: totalMaintenance
             });
         }
+
     }
 
     test("computed needsMaintenance when mileage exceeds threshold") {
@@ -426,13 +444,13 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
 
     test("validation rejects negative capacity") {
         assert throws(
-            () => fleetDb.Vehicle.create({
-                vehicleNumber: "VH-TEST-003",
-                type: VehicleType.Bike,
-                capacity: -100,
-                mileage: 0
-            }),
-            ValidationError("Vehicle capacity must be greater than zero")
+        () => fleetDb.Vehicle.create({
+            vehicleNumber: "VH-TEST-003",
+            type: VehicleType.Bike,
+            capacity: -100,
+            mileage: 0
+        }),
+        ValidationError("Vehicle capacity must be greater than zero")
         );
     }
 
@@ -526,49 +544,49 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
 
     test("validation rejects negative mileage") {
         assert throws(
-            () => fleetDb.Vehicle.create({
-                vehicleNumber: "VH-TEST-011",
-                type: VehicleType.Bike,
-                capacity: 50.00,
-                mileage: -100
-            }),
-            ValidationError("Vehicle mileage cannot be negative")
+        () => fleetDb.Vehicle.create({
+            vehicleNumber: "VH-TEST-011",
+            type: VehicleType.Bike,
+            capacity: 50.00,
+            mileage: -100
+        }),
+        ValidationError("Vehicle mileage cannot be negative")
         );
     }
 
     test("validation rejects empty driver first name") {
         assert throws(
-            () => fleetDb.Driver.create({
-                firstName: "",
-                lastName: "Smith",
-                licenseNumber: "DL-12345",
-                phone: "+15551234567"
-            }),
-            ValidationError("First name cannot be empty")
+        () => fleetDb.Driver.create({
+            firstName: "",
+            lastName: "Smith",
+            licenseNumber: "DL-12345",
+            phone: "+15551234567"
+        }),
+        ValidationError("First name cannot be empty")
         );
     }
 
     test("validation rejects empty driver last name") {
         assert throws(
-            () => fleetDb.Driver.create({
-                firstName: "James",
-                lastName: "",
-                licenseNumber: "DL-67890",
-                phone: "+15559876543"
-            }),
-            ValidationError("Last name cannot be empty")
+        () => fleetDb.Driver.create({
+            firstName: "James",
+            lastName: "",
+            licenseNumber: "DL-67890",
+            phone: "+15559876543"
+        }),
+        ValidationError("Last name cannot be empty")
         );
     }
 
     test("validation rejects empty license number") {
         assert throws(
-            () => fleetDb.Driver.create({
-                firstName: "Robert",
-                lastName: "Jones",
-                licenseNumber: "",
-                phone: "+15555555555"
-            }),
-            ValidationError("License number cannot be empty")
+        () => fleetDb.Driver.create({
+            firstName: "Robert",
+            lastName: "Jones",
+            licenseNumber: "",
+            phone: "+15555555555"
+        }),
+        ValidationError("License number cannot be empty")
         );
     }
 
@@ -604,13 +622,14 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
         });
         vehicle.save();
         assert throws(
-            () => fleetDb.MaintenanceRecord.create({
-                vehicleId: vehicle.id,
-                description: "Oil change",
-                cost: -50.00,
-                scheduledDate: DateTime.now().addDays(7)
-            }),
-            ValidationError("Maintenance cost cannot be negative")
+        () => fleetDb.MaintenanceRecord.create({
+            vehicleId: vehicle.id,
+            description: "Oil change",
+            cost: -50.00,
+            scheduledDate: DateTime.now().addDays(7)
+        }),
+        ValidationError("Maintenance cost cannot be negative")
         );
     }
+
 }

@@ -7,6 +7,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
         PatientService { loadBalance: roundRobin, healthyOnly: true }
         AppointmentService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     // Storage block - defines file upload folders with constraints
     storage store {
         // Path templates with dynamic segments for organized storage
@@ -148,7 +149,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
 
             validate {
                 if (recordDate > DateTime.now())
-                    ValidationError("Record date cannot be in the future");
+                ValidationError("Record date cannot be in the future");
             }
 
             beforeUpdate {
@@ -185,6 +186,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
                 if (status != RecordStatus.Draft) {
                     throw ValidationException("Only draft records can be finalized");
                 }
+
                 status = RecordStatus.Final;
                 this.save();
             }
@@ -193,6 +195,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
                 if (status != RecordStatus.Final) {
                     throw ValidationException("Only final records can be amended");
                 }
+
                 status = RecordStatus.Amended;
                 changeReason = reason;
                 this.save();
@@ -203,6 +206,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
                 changeReason = reason;
                 this.save();
             }
+
         }
 
         entity Prescription extends BaseEntity {
@@ -241,13 +245,13 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
 
             validate {
                 if (quantity <= 0)
-                    ValidationError("Quantity must be positive");
+                ValidationError("Quantity must be positive");
 
                 if (refillsAllowed < 0)
-                    ValidationError("Refills cannot be negative");
+                ValidationError("Refills cannot be negative");
 
                 if (endDate != null && endDate < startDate)
-                    ValidationError("End date must be after start date");
+                ValidationError("End date must be after start date");
             }
 
             afterCreate {
@@ -265,9 +269,11 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
                 if (!hasRefillsRemaining) {
                     throw ValidationException("No refills remaining");
                 }
+
                 if (!isActive) {
                     throw ValidationException("Prescription is not active");
                 }
+
                 refillsUsed = refillsUsed + 1;
                 this.save();
             }
@@ -278,6 +284,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
                 endDate = DateTime.now();
                 this.save();
             }
+
         }
 
         entity Attachment extends BaseEntity {
@@ -290,6 +297,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
             // 'as record' aliases the relationship field name
             belongsTo MedicalRecord as record : index;
         }
+
     }
 
     cache redis {
@@ -304,6 +312,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
         list RecentRecords : prefix('patient:records:'), ttl(1800), maxLength(20) {
             UUID recordId;
         }
+
     }
 
     pubsub mq {
@@ -315,15 +324,17 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
             publish RecordAmended(UUID recordId, UUID patientId, String reason) {
                 ensure reason.length > 0;
             }
+
             publish PrescriptionCreated(UUID prescriptionId, UUID patientId, String medication, String prescriber) {
                 ensure medication.length > 0;
                 ensure prescriber.length > 0;
             }
-        }
 
+        }
 
         // Auto-create draft records when appointments complete
     }
+
     subscribe RecordEvents {
 
         on RecordCreated(UUID recordId, UUID patientId, RecordType type, UUID? providerId) {
@@ -341,7 +352,9 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
         on PrescriptionCreated(UUID prescriptionId, UUID patientId, String medication, String prescriber) {
             Log.info("Prescription created", { prescriptionId: prescriptionId, patientId: patientId, medication: medication, prescriber: prescriber });
         }
+
     }
+
     subscribe AppointmentEvents {
 
         on AppointmentCompleted(UUID appointmentId, UUID patientId, UUID? providerId, String providerName, String type) {
@@ -367,19 +380,20 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
                 providerId: providerId
             });
         }
+
     }
 
     test("validation rejects future record date") {
         assert throws(
-            () => medicalRecordDb.MedicalRecord.create({
-                patientId: uuid(),
-                providerName: "Dr. Spec",
-                type: RecordType.Note,
-                title: "Future Note",
-                content: "Test content",
-                recordDate: DateTime.now().addDays(30)
-            }),
-            ValidationError("Record date cannot be in the future")
+        () => medicalRecordDb.MedicalRecord.create({
+            patientId: uuid(),
+            providerName: "Dr. Spec",
+            type: RecordType.Note,
+            title: "Future Note",
+            content: "Test content",
+            recordDate: DateTime.now().addDays(30)
+        }),
+        ValidationError("Record date cannot be in the future")
         );
     }
 
@@ -638,10 +652,10 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
 
             let Int total = query.count();
             let Array<MedicalRecord> records = query
-                .orderBy(recordDate: desc)
-                .offset((page - 1) * perPage)
-                .limit(Math.min(perPage, 50))
-                .all();
+            .orderBy(recordDate: desc)
+            .offset((page - 1) * perPage)
+            .limit(Math.min(perPage, 50))
+            .all();
 
             Log.info("Records accessed", {
                 patientId: patientId,
@@ -658,6 +672,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
                     total: total,
                     totalPages: Math.ceil(total / perPage)
                 }
+
             };
         }
 
@@ -689,9 +704,11 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
                     if (appointment.patientId != request.patientId) {
                         throw ValidationException("Appointment does not belong to this patient");
                     }
+
                 } catch (Exception e) {
                     throw ValidationException("Invalid appointment ID");
                 }
+
             }
 
             let MedicalRecord record = medicalRecordDb.MedicalRecord.create({
@@ -757,6 +774,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
             if (request.updatedContent != null) {
                 record.content = request.updatedContent;
             }
+
             record.amend(request.reason);
 
             dispatch RecordAmended(record.id, record.patientId, request.reason);
@@ -904,25 +922,25 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
         @path('/patient/:patientId/history')
         get(UUID patientId) -> PatientHistory {
             let Array<MedicalRecord> records = medicalRecordDb.MedicalRecord
-                .where(patientId: patientId)
-                .whereNot(status: RecordStatus.Voided)
-                .orderBy(recordDate: desc)
-                .limit(50)
-                .all();
+            .where(patientId: patientId)
+            .whereNot(status: RecordStatus.Voided)
+            .orderBy(recordDate: desc)
+            .limit(50)
+            .all();
 
             let Array<Prescription> activePrescriptions = medicalRecordDb.Prescription
-                .where(patientId: patientId)
-                .where(status: PrescriptionStatus.Active)
-                .all();
+            .where(patientId: patientId)
+            .where(status: PrescriptionStatus.Active)
+            .all();
 
             let Int totalRecords = medicalRecordDb.MedicalRecord
-                .where(patientId: patientId)
-                .whereNot(status: RecordStatus.Voided)
-                .count();
+            .where(patientId: patientId)
+            .whereNot(status: RecordStatus.Voided)
+            .count();
 
             let Int totalPrescriptions = medicalRecordDb.Prescription
-                .where(patientId: patientId)
-                .count();
+            .where(patientId: patientId)
+            .count();
 
             Log.info("Patient history accessed", {
                 patientId: patientId,
@@ -941,11 +959,11 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
         @path('/internal/patient/:patientId')
         get(UUID patientId) : internal -> Array<medicalRecordDb.MedicalRecord> {
             return medicalRecordDb.MedicalRecord
-                .where(patientId: patientId)
-                .whereNot(status: RecordStatus.Voided)
-                .orderBy(recordDate: desc)
-                .limit(100)
-                .all();
+            .where(patientId: patientId)
+            .whereNot(status: RecordStatus.Voided)
+            .orderBy(recordDate: desc)
+            .limit(100)
+            .all();
         }
 
         @path('/internal/from-appointment')
@@ -965,5 +983,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
                 status: RecordStatus.Draft
             });
         }
+
     }
+
 }

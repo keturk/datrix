@@ -5,6 +5,7 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
     discovery {
         EmployeeService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     enum PayrollStatus {
         Pending : value('pending'),
         Processing : value('processing'),
@@ -80,9 +81,9 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
 
             validate {
                 if (periodStart >= periodEnd)
-                    ValidationError("Period start must be before period end");
+                ValidationError("Period start must be before period end");
                 if (entryCount < 0)
-                    ValidationError("Entry count cannot be negative");
+                ValidationError("Entry count cannot be negative");
             }
 
             afterUpdate {
@@ -94,13 +95,16 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
                     } else if (status == PayrollStatus.Failed) {
                         Log.error("Payroll run failed", { payrollRef: payrollRef, reason: failureReason });
                     }
+
                 }
+
             }
 
             fn startProcessing() {
                 if (status != PayrollStatus.Pending) {
                     throw ValidationException("Only pending payroll runs can be processed");
                 }
+
                 status = PayrollStatus.Processing;
                 this.save();
             }
@@ -109,6 +113,7 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
                 if (status != PayrollStatus.Processing) {
                     throw ValidationException("Only processing payroll runs can be completed");
                 }
+
                 status = PayrollStatus.Completed;
                 processedAt = DateTime.now();
                 this.save();
@@ -119,6 +124,7 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
                 failureReason = reason;
                 this.save();
             }
+
         }
 
         // Individual payroll entry for each employee in a run
@@ -137,18 +143,20 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
 
             validate {
                 if (grossPay.amount <= 0)
-                    ValidationError("Gross pay must be positive");
+                ValidationError("Gross pay must be positive");
                 if (deductions.amount < 0)
-                    ValidationError("Deductions cannot be negative");
+                ValidationError("Deductions cannot be negative");
                 if (hoursWorked < 0)
-                    ValidationError("Hours worked cannot be negative");
+                ValidationError("Hours worked cannot be negative");
             }
 
             afterCreate {
                 // Calculate net pay
                 netPay = grossPay.add(deductions.multiply(-1));
             }
+
         }
+
     }
 
     pubsub mq {
@@ -159,14 +167,16 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
                 ensure payrollRef.length > 0;
                 ensure entryCount > 0;
             }
+
             publish PayStubsGenerated(UUID payrollRunId, String payrollRef, Int count) {
                 ensure count > 0;
             }
-        }
 
+        }
 
         // Listen to employee events for payroll adjustments
     }
+
     subscribe PayrollEvents {
         on PayrollCompleted(UUID payrollRunId, String payrollRef, PayPeriod payPeriod, Money totalGross, Money totalNet, Int entryCount) {
             Log.info("Payroll run completed", { payrollRunId: payrollRunId, payrollRef: payrollRef, payPeriod: payPeriod, totalGross: totalGross, totalNet: totalNet, entryCount: entryCount });
@@ -175,7 +185,9 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
         on PayStubsGenerated(UUID payrollRunId, String payrollRef, Int count) {
             Log.info("Pay stubs generated", { payrollRunId: payrollRunId, payrollRef: payrollRef, count: count });
         }
+
     }
+
     subscribe EmployeeEvents {
         on EmployeeHired(UUID employeeId, String employeeNumber, String firstName, String lastName, String email, Department department, EmploymentType employmentType) {
             Log.info("New employee for payroll", { employeeId: employeeId, employeeNumber: employeeNumber, department: department });
@@ -188,11 +200,13 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
             if (newStatus == EmployeeStatus.Terminated) {
                 Log.warn("Terminated employee may have pending payroll entries", { employeeId: employeeId, employeeNumber: employeeNumber });
             }
+
         }
 
         on EmployeeSalaryChanged(UUID employeeId, String employeeNumber, Money oldSalary, Money newSalary) {
             Log.info("Employee salary change received", { employeeId: employeeId, oldSalary: oldSalary, newSalary: newSalary });
         }
+
     }
 
     rest_api PayrollAPI : basePath('/api/v1/payroll'), rdbms(payrollDb) {
@@ -206,16 +220,17 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
             if (status != null) {
                 query = payrollDb.PayrollRun.where(status: status);
             }
+
             if (payPeriod != null) {
                 query = query.where(payPeriod: payPeriod);
             }
 
             let Int total = query.count();
             let Array<PayrollRun> runs = query
-                .orderBy(periodStart: desc)
-                .offset((page - 1) * perPage)
-                .limit(perPage)
-                .all();
+            .orderBy(periodStart: desc)
+            .offset((page - 1) * perPage)
+            .limit(perPage)
+            .all();
 
             return {
                 data: runs,
@@ -227,6 +242,7 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
                     hasNextPage: page < Math.ceil(total / perPage),
                     hasPrevPage: page > 1
                 }
+
             };
         }
 
@@ -311,8 +327,8 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
                 // Process all entries atomically
                 transaction(payrollDb) {
                     let Array<PayrollEntry> entries = payrollDb.PayrollEntry
-                        .where(payrollRunId: run.id)
-                        .all();
+                    .where(payrollRunId: run.id)
+                    .all();
 
                     foreach entry in entries {
                         // Verify employee is still active
@@ -321,10 +337,12 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
                         if (employee.status == "terminated") {
                             Log.warn("Skipping terminated employee in payroll", { employeeId: entry.employeeId });
                         }
+
                     }
 
                     run.complete();
                 }
+
             } catch (Exception e) {
                 run.fail(#"Processing error: {e}");
                 Log.error("Payroll processing failed", { payrollRef: run.payrollRef, error: e });
@@ -338,18 +356,19 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
         @path('/runs/:id/entries')
         get(UUID id) : access(admin) -> Array<payrollDb.PayrollEntry> {
             return payrollDb.PayrollEntry
-                .where(payrollRunId: id)
-                .all();
+            .where(payrollRunId: id)
+            .all();
         }
 
         // Get payroll history for an employee
         @path('/employee/:employeeId/history')
         get(UUID employeeId) : access(admin) -> Array<payrollDb.PayrollEntry> {
             return payrollDb.PayrollEntry
-                .where(employeeId: employeeId)
-                .orderBy(createdAt: desc)
-                .all();
+            .where(employeeId: employeeId)
+            .orderBy(createdAt: desc)
+            .all();
         }
+
     }
 
     jobs('config/payroll-service.dcfg') {
@@ -357,9 +376,9 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
         job ProcessMonthlyPayroll {
             let DateTime today = DateTime.now();
             let Array<PayrollRun> pendingRuns = payrollDb.PayrollRun
-                .where(status: PayrollStatus.Pending)
-                .where(payPeriod: PayPeriod.Monthly)
-                .all();
+            .where(status: PayrollStatus.Pending)
+            .where(payPeriod: PayPeriod.Monthly)
+            .all();
 
             let Int processed = 0;
             let Int failed = 0;
@@ -370,8 +389,8 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
 
                     transaction(payrollDb) {
                         let Array<PayrollEntry> entries = payrollDb.PayrollEntry
-                            .where(payrollRunId: run.id)
-                            .all();
+                        .where(payrollRunId: run.id)
+                        .all();
 
                         foreach entry in entries {
                             Log.info("Processing payroll entry", { payrollRef: run.payrollRef, employeeId: entry.employeeId });
@@ -386,6 +405,7 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
                     failed = failed + 1;
                     Log.error("Monthly payroll failed for run", { payrollRef: run.payrollRef, error: e });
                 }
+
             }
 
             Log.info("Monthly payroll job completed", { processed: processed, failed: failed });
@@ -394,14 +414,14 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
         // Generate pay stubs after payroll completion
         job GeneratePayStubs {
             let Array<PayrollRun> completedRuns = payrollDb.PayrollRun
-                .where(status: PayrollStatus.Completed)
-                .where(processedAt: gte(DateTime.now().addDays(-1)))
-                .all();
+            .where(status: PayrollStatus.Completed)
+            .where(processedAt: gte(DateTime.now().addDays(-1)))
+            .all();
 
             foreach run in completedRuns {
                 let Array<PayrollEntry> entries = payrollDb.PayrollEntry
-                    .where(payrollRunId: run.id)
-                    .all();
+                .where(payrollRunId: run.id)
+                .all();
 
                 let Int count = 0;
                 foreach entry in entries {
@@ -413,23 +433,26 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
                     dispatch PayStubsGenerated(run.id, run.payrollRef, count);
                     Log.info("Pay stubs generated", { payrollRef: run.payrollRef, count: count });
                 }
+
             }
+
         }
+
     }
 
     test("validation rejects period start after period end") {
         assert throws(
-            () => payrollDb.PayrollRun.create({
-                payrollRef: "PAY-TEST-001",
-                payPeriod: PayPeriod.Monthly,
-                periodStart: DateTime.parse("2024-02-01"),
-                periodEnd: DateTime.parse("2024-01-01"),
-                totalGross: Money.of(50000, "USD"),
-                totalDeductions: Money.of(10000, "USD"),
-                totalNet: Money.of(40000, "USD"),
-                entryCount: 10
-            }),
-            ValidationError("Period start must be before period end")
+        () => payrollDb.PayrollRun.create({
+            payrollRef: "PAY-TEST-001",
+            payPeriod: PayPeriod.Monthly,
+            periodStart: DateTime.parse("2024-02-01"),
+            periodEnd: DateTime.parse("2024-01-01"),
+            totalGross: Money.of(50000, "USD"),
+            totalDeductions: Money.of(10000, "USD"),
+            totalNet: Money.of(40000, "USD"),
+            entryCount: 10
+        }),
+        ValidationError("Period start must be before period end")
         );
     }
 
@@ -446,15 +469,15 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
         });
         run.save();
         assert throws(
-            () => payrollDb.PayrollEntry.create({
-                payrollRunId: run.id,
-                employeeId: uuid(),
-                grossPay: Money.of(0, "USD"),
-                deductions: Money.of(0, "USD"),
-                netPay: Money.of(0, "USD"),
-                hoursWorked: 160
-            }),
-            ValidationError("Gross pay must be positive")
+        () => payrollDb.PayrollEntry.create({
+            payrollRunId: run.id,
+            employeeId: uuid(),
+            grossPay: Money.of(0, "USD"),
+            deductions: Money.of(0, "USD"),
+            netPay: Money.of(0, "USD"),
+            hoursWorked: 160
+        }),
+        ValidationError("Gross pay must be positive")
         );
     }
 
@@ -472,8 +495,8 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
         });
         run.save();
         assert throws(
-            () => run.startProcessing(),
-            ValidationException("Only pending payroll runs can be processed")
+        () => run.startProcessing(),
+        ValidationException("Only pending payroll runs can be processed")
         );
     }
 
@@ -580,17 +603,18 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
 
     test("validation rejects negative entry count") {
         assert throws(
-            () => payrollDb.PayrollRun.create({
-                payrollRef: "PAY-TEST-010",
-                payPeriod: PayPeriod.Monthly,
-                periodStart: DateTime.parse("2024-09-01"),
-                periodEnd: DateTime.parse("2024-09-30"),
-                totalGross: Money.of(50000, "USD"),
-                totalDeductions: Money.of(10000, "USD"),
-                totalNet: Money.of(40000, "USD"),
-                entryCount: -1
-            }),
-            ValidationError("Entry count cannot be negative")
+        () => payrollDb.PayrollRun.create({
+            payrollRef: "PAY-TEST-010",
+            payPeriod: PayPeriod.Monthly,
+            periodStart: DateTime.parse("2024-09-01"),
+            periodEnd: DateTime.parse("2024-09-30"),
+            totalGross: Money.of(50000, "USD"),
+            totalDeductions: Money.of(10000, "USD"),
+            totalNet: Money.of(40000, "USD"),
+            entryCount: -1
+        }),
+        ValidationError("Entry count cannot be negative")
         );
     }
+
 }

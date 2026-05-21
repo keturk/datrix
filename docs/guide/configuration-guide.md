@@ -2,7 +2,7 @@
 
 **Complete reference for Datrix configuration files**
 
-This guide covers all configuration files in Datrix, their structure, options, and how to use profiles for environment-specific settings.
+This guide covers Datrix `.dcfg` ConfigDSL files, their structure, options, and how to use profiles for environment-specific settings.
 
 ---
 
@@ -13,7 +13,7 @@ This guide covers all configuration files in Datrix, their structure, options, a
 3. [Profiles and Environments](#profiles-and-environments)
 4. [System Configuration](#system-configuration)
 5. [Service Configuration](#service-configuration)
-6. [Service dependencies (`dependencies.yaml`)](#service-dependencies-dependenciesyaml)
+6. [Service dependencies (`dependencies` section)](#service-dependencies-dependencies-section)
 7. [Datasources Configuration](#datasources-configuration)
 8. [Service Registration](#service-registration)
 9. [Resilience Configuration](#resilience-configuration)
@@ -1148,7 +1148,7 @@ production:
 
 ```dtrx
 service OrderService {
-    storage files config('config/order-service/storage.yaml') { ... }
+    storage files config('config/order-service/storage.dcfg') { ... }
 }
 ```
 
@@ -1189,7 +1189,7 @@ production:
 **Referenced in:** Job blocks
 
 ```dtrx
-job ProcessOrders cron('0 * * * *') config('config/jobs.yaml') { ... }
+job ProcessOrders cron('0 * * * *') config('config/jobs.dcfg') { ... }
 ```
 
 ### Example
@@ -1227,7 +1227,7 @@ production:
 
 ## Serverless configuration {#serverless-configuration}
 
-**File:** one YAML per `serverless` block (path in the DSL, e.g. `serverless handlers('config/my-service/handlers.yaml')`).
+**File:** one YAML per `serverless` block (path in the DSL, e.g. `serverless handlers('config/my-service/handlers.dcfg')`).
 
 **Resolved in:** infrastructure config resolution (`resolve_infrastructure_configs`) onto **`ServerlessBlock.config`** as the active profile’s **`ServerlessProfileConfig`**.
 
@@ -1243,24 +1243,24 @@ Handler keys match **`on EventName`**, **`job JobName`**, **`@name('X')`** for H
 
 ## Queue Configuration
 
-**File:** `config/<service-name>/queue.yaml`
+**File:** `config/<service-name>.dcfg`
 
-**Referenced in:** `queues('…/queue.yaml') { … }` on a **producing** service only.
+**Referenced in:** `service ServiceName('config/<service-name>.dcfg')` with a **`queues { ... }`** block on a producing service.
 
-`queue.yaml` configures **task-dispatch** brokers (RabbitMQ, SQS, Azure Service Bus, Azure Storage Queue). It is **not** a datasource and does **not** live in `datasources.dcfg`. Services that only **consume** queues via `enqueue OtherService.TaskName { … }` do **not** ship a `queue.yaml`; workers and clients resolve settings from the **producer’s** file.
+The service `.dcfg` queues section configures **task-dispatch** brokers (RabbitMQ, SQS, Azure Service Bus, Azure Storage Queue). It is **not** a datasource. Services that only **consume** queues via `enqueue OtherService.TaskName { … }` do **not** define a `queues` section; workers and clients resolve settings from the **producer’s** `.dcfg`.
 
 ### Profiles and engines
 
 Each profile (`test`, `production`, …) is a `QueueConfig` object:
 
 - **`engine`** (required): `rabbitmq` \| `sqs` \| `service-bus` \| `storage-queue`
-- **`platform`** (required): `container` \| `operator` \| `external` \| `sqs` \| `amazon-mq` \| `service-bus` \| `storage-queue` — must match hosting + engine (see [config-system architecture](../../../datrix-common/docs/architecture/config-system.md#queue-configuration-queueyaml) in datrix-common)
+- **`platform`** (required): `container` \| `operator` \| `external` \| `sqs` \| `amazon-mq` \| `service-bus` \| `storage-queue` — must match hosting + engine (see [config-system architecture](../../../datrix-common/docs/architecture/config-system.md#queue-configuration) in datrix-common)
 
 Connection and ops fields (when required): `host`, `port`, `managementPort`, `defaultUser`, `dockerImage`, `volumePath`, `healthCheckCmd`, `region`, `queuePrefix`, `connectionString`, `sku`.
 
 ### Defaults and overrides
 
-| YAML key | Role |
+| ConfigDSL key | Role |
 |----------|------|
 | `visibilityTimeout` | Seconds before redelivery (default 30) |
 | `maxReceiveCount` | Max deliveries before DLQ routing (default 5) |
@@ -1352,7 +1352,7 @@ production:
 
 ```dtrx
 service OrderService {
-    integrations('config/order-service/integrations.yaml');
+    integrations('config/order-service/integrations.dcfg');
 }
 ```
 
@@ -1399,12 +1399,12 @@ production:
 
 ## Extern Service Configuration
 
-**File:** Path specified in the `extern service` declaration (e.g., `'config/pricing-engine.yaml'`)
+**File:** Path specified in the `extern service` declaration (e.g., `'config/pricing-engine.dcfg'`)
 
 **Referenced in:** Extern service block
 
 ```dtrx
-extern service pricing.PricingEngine('config/pricing-engine.yaml') {
+extern service pricing.PricingEngine('config/pricing-engine.dcfg') {
     // ...
 }
 ```
@@ -1418,64 +1418,76 @@ Each extern service config must declare a `deployment` mode:
 | `container` | Datrix manages the container (Docker Compose / K8s) | `image`, `port` |
 | `external` | Remote URL, not managed by Datrix | `url` |
 
-### Flat Format (Single Profile)
+### Single Profile
 
-Applied to all build profiles:
-
-```yaml
-deployment: container
-image: myregistry/pricing-engine:1.2.0
-port: 8080
-health:
-  path: /health
-  interval: 10s
-  timeout: 5s
-  startPeriod: 40s
-  retries: 3
-auth:
-  type: apiKey
-  header: X-API-Key
-  secret: PRICING_API_KEY
-timeout: 30s
-retry:
-  maxAttempts: 3
-  backoff: exponential
-resources:
-  memory: 512m
-  cpu: "0.5"
-environment:
-  EXTRA_VAR: value
+```dcfg
+config extern pricing.PricingEngine {
+  profile development as "dev" {
+    deployment = "container";
+    image = "myregistry/pricing-engine:1.2.0";
+    port = 8080;
+    health {
+      path = "/health";
+      interval = "10s";
+      timeout = "5s";
+      startPeriod = "40s";
+      retries = 3;
+    }
+    auth {
+      type = "apiKey";
+      header = "X-API-Key";
+      secret = "PRICING_API_KEY";
+    }
+    timeout = "30s";
+    retry {
+      maxAttempts = 3;
+      backoff = "exponential";
+    }
+    resources {
+      memory = "512m";
+      cpu = "0.5";
+    }
+    environment {
+      EXTRA_VAR = "value";
+    }
+  }
+}
 ```
 
-### Profile-Keyed Format
+### Multi-Profile Format
 
 Different config per profile:
 
-```yaml
-development:
-  deployment: container
-  image: pricing-engine:dev
-  port: 8080
-  auth:
-    type: apiKey
-    header: X-API-Key
-    secret: PRICING_API_KEY_DEV
+```dcfg
+config extern pricing.PricingEngine {
+  profile development as "dev" {
+    deployment = "container";
+    image = "pricing-engine:dev";
+    port = 8080;
+    auth {
+      type = "apiKey";
+      header = "X-API-Key";
+      secret = "PRICING_API_KEY_DEV";
+    }
+  }
 
-production:
-  deployment: external
-  url: https://pricing.example.com/api
-  auth:
-    type: bearer
-    secret: PRICING_BEARER_TOKEN
-  timeout: 60s
+  profile production as "prod" {
+    deployment = "external";
+    url = "https://pricing.example.com/api";
+    auth {
+      type = "bearer";
+      secret = "PRICING_BEARER_TOKEN";
+    }
+    timeout = "60s";
+  }
 
-test:
-  deployment: container
-  image: pricing-engine:test
-  port: 8080
+  profile test as "test" {
+    deployment = "container";
+    image = "pricing-engine:test";
+    port = 8080;
+  }
+}
 ```
-
-**Detection:** Flat format is detected when the root object has a `deployment` key. Otherwise, it is treated as profile-keyed.
 
 ### Field Reference
 
@@ -1515,29 +1527,37 @@ test:
 
 A common pattern is to run a local container in development and point to a managed service in production:
 
-```yaml
-development:
-  deployment: container
-  image: myregistry/pricing-engine:dev
-  port: 8080
-  auth:
-    type: apiKey
-    header: X-API-Key
-    secret: PRICING_API_KEY
-  resources:
-    memory: 256m
-    cpu: "0.25"
+```dcfg
+config extern pricing.PricingEngine {
+  profile development as "dev" {
+    deployment = "container";
+    image = "myregistry/pricing-engine:dev";
+    port = 8080;
+    auth {
+      type = "apiKey";
+      header = "X-API-Key";
+      secret = "PRICING_API_KEY";
+    }
+    resources {
+      memory = "256m";
+      cpu = "0.25";
+    }
+  }
 
-production:
-  deployment: external
-  url: https://pricing.prod.internal/api
-  auth:
-    type: bearer
-    secret: PRICING_BEARER_TOKEN
-  timeout: 60s
-  retry:
-    maxAttempts: 5
-    backoff: exponential
+  profile production as "prod" {
+    deployment = "external";
+    url = "https://pricing.prod.internal/api";
+    auth {
+      type = "bearer";
+      secret = "PRICING_BEARER_TOKEN";
+    }
+    timeout = "60s";
+    retry {
+      maxAttempts = 5;
+      backoff = "exponential";
+    }
+  }
+}
 ```
 
 ---
@@ -1546,14 +1566,16 @@ production:
 
 ### Docker Compose (Local)
 
-No additional config file — settings in `system-config.yaml`:
+No additional config file — settings live in the selected system `.dcfg` profile:
 
-```yaml
-base:
-  deployment:
-    runtime: docker-compose
-    provider: local
-  registry: registry.example.com  # Optional: private registry
+```dcfg
+profile base {
+    deployment {
+        runtime: docker-compose
+        provider: local
+    }
+    registry: registry.example.com
+}
 ```
 
 ### Kubernetes (Existing Cluster)
@@ -1766,7 +1788,7 @@ production:
 ### Error: Missing required field
 
 ```
-ConfigValidationError: Field 'language' is required in system-config.yaml profile 'production'
+ConfigValidationError: Field 'language' is required in system .dcfg profile 'production'
 ```
 
 **Fix:** Add the missing field to the profile.
@@ -1795,18 +1817,9 @@ DeploymentValidationError: Service flavor 'compose' is incompatible with deploym
 
 ```
 config/
-├── system-config.yaml              # System configuration
-├── gateway.dcfg                    # API gateway
-├── registry.dcfg                   # Service registry
-├── observability.dcfg              # Observability
-└── <service-name>/
-    ├── service-config.yaml        # Service deployment
-    ├── datasources.dcfg           # Database/cache/pubsub
-    ├── registration.dcfg          # Service metadata
-    ├── resilience.dcfg            # Circuit breaker/retry
-    ├── storage.yaml               # File storage
-    ├── jobs.yaml                  # Job configuration
-    └── integrations.yaml          # External integrations
+├── system.dcfg                     # System profiles: language, deployment, gateway, registry, observability
+├── templates/                      # Optional shared ConfigDSL templates/imports
+└── <service-name>.dcfg             # Service profiles: deployment, infrastructure, dependencies, jobs, queues, integrations
 ```
 
 ---

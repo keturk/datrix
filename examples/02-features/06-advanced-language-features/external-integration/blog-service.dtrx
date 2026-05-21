@@ -1,5 +1,4 @@
 
-
 service hostdemo.BlogService('config/blog-service.dcfg') : version('1.0.0'), description('blog posts and comments') {
     discovery { }
     rdbms blogDb {
@@ -21,6 +20,7 @@ service hostdemo.BlogService('config/blog-service.dcfg') : version('1.0.0'), des
         entity Tag extends BaseEntity {
             String(80) name : unique, trim;
         }
+
     }
 
     cache redis {
@@ -28,6 +28,7 @@ service hostdemo.BlogService('config/blog-service.dcfg') : version('1.0.0'), des
             UUID postId : key;
             Int viewCount;
         }
+
     }
 
     storage media {
@@ -39,8 +40,11 @@ service hostdemo.BlogService('config/blog-service.dcfg') : version('1.0.0'), des
             publish PostPublished(UUID postId, String title) {
                 ensure title.length > 0;
             }
+
         }
+
     }
+
     subscribe BlogEvents {
         on PostPublished(UUID postId, String title) {
             Log.info("Post published", { postId: postId, title: title });
@@ -51,11 +55,14 @@ service hostdemo.BlogService('config/blog-service.dcfg') : version('1.0.0'), des
                 viewCount: 0
             });
         }
+
     }
+
     subscribe UserEvents {
         on AccountCreated(UUID userId, String email) {
             Log.info("cross-service: user registered", { userId: userId });
         }
+
     }
 
     rest_api BlogAPI : basePath("/api/v1/posts"), rdbms(blogDb) {
@@ -63,4 +70,5 @@ service hostdemo.BlogService('config/blog-service.dcfg') : version('1.0.0'), des
         resource blogDb.Comment;
         resource blogDb.Tag;
     }
+
 }

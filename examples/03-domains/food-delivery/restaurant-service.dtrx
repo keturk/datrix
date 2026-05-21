@@ -1,5 +1,4 @@
 
-
 service fooddelivery.RestaurantService('config/restaurant-service.dcfg') : version('1.0.0'), description('restaurant registration and management service') {
     discovery { }
     enum RestaurantStatus {
@@ -57,11 +56,11 @@ service fooddelivery.RestaurantService('config/restaurant-service.dcfg') : versi
 
             validate {
                 if (name.trim().isEmpty())
-                    ValidationError("Restaurant name cannot be empty");
+                ValidationError("Restaurant name cannot be empty");
                 if (cuisineType.trim().isEmpty())
-                    ValidationError("Cuisine type cannot be empty");
+                ValidationError("Cuisine type cannot be empty");
                 if (address.trim().isEmpty())
-                    ValidationError("Address cannot be empty");
+                ValidationError("Address cannot be empty");
             }
 
             afterCreate {
@@ -72,15 +71,17 @@ service fooddelivery.RestaurantService('config/restaurant-service.dcfg') : versi
                 if (isChanged(status)) {
                     dispatch RestaurantStatusChanged(id, name, oldValue(status), status);
                 }
+
                 if (isChanged(rating)) {
                     dispatch RestaurantRatingUpdated(id, name, rating);
                 }
+
             }
 
             fn updateRating() {
                 let Array<RestaurantReview> allReviews = restaurantDb.RestaurantReview
-                    .where(restaurantId: id)
-                    .all();
+                .where(restaurantId: id)
+                .all();
 
                 if (allReviews.length() == 0) {
                     rating = 0.00;
@@ -89,10 +90,13 @@ service fooddelivery.RestaurantService('config/restaurant-service.dcfg') : versi
                     foreach review in allReviews {
                         totalRating = totalRating + review.rating;
                     }
+
                     rating = totalRating / allReviews.length();
                 }
+
                 this.save();
             }
+
         }
 
         entity RestaurantReview extends BaseEntity {
@@ -106,14 +110,16 @@ service fooddelivery.RestaurantService('config/restaurant-service.dcfg') : versi
 
             validate {
                 if (rating < 1 || rating > 5)
-                    ValidationError("Rating must be between 1 and 5");
+                ValidationError("Rating must be between 1 and 5");
             }
 
             afterCreate {
                 let Restaurant restaurant = restaurantDb.Restaurant.findOrFail(restaurantId);
                 restaurant.updateRating();
             }
+
         }
+
     }
 
     cache redis {
@@ -134,12 +140,16 @@ service fooddelivery.RestaurantService('config/restaurant-service.dcfg') : versi
             publish RestaurantRegistered(UUID restaurantId, String name, String cuisineType) {
                 ensure name.length > 0;
             }
+
             publish RestaurantStatusChanged(UUID restaurantId, String name, RestaurantStatus oldStatus, RestaurantStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
+
             publish RestaurantRatingUpdated(UUID restaurantId, String name, Decimal rating);
         }
+
     }
+
     subscribe RestaurantEvents {
 
         on RestaurantRegistered(UUID restaurantId, String name, String cuisineType) {
@@ -174,6 +184,7 @@ service fooddelivery.RestaurantService('config/restaurant-service.dcfg') : versi
                     status: newStatus
                 });
             }
+
         }
 
         on RestaurantRatingUpdated(UUID restaurantId, String name, Decimal rating) {
@@ -188,7 +199,9 @@ service fooddelivery.RestaurantService('config/restaurant-service.dcfg') : versi
                     status: cached.status
                 });
             }
+
         }
+
     }
 
     rest_api RestaurantAPI : basePath('/api/v1/restaurants'), rdbms(restaurantDb) {
@@ -199,30 +212,30 @@ service fooddelivery.RestaurantService('config/restaurant-service.dcfg') : versi
         @path('/search')
         get(String query, Int? limit, Int? offset) : public -> Array<restaurantDb.Restaurant> {
             return restaurantDb.Restaurant
-                .fulltext(query)
-                .where(status: RestaurantStatus.Active)
-                .limit(limit ?? 20)
-                .offset(offset ?? 0)
-                .all();
+            .fulltext(query)
+            .where(status: RestaurantStatus.Active)
+            .limit(limit ?? 20)
+            .offset(offset ?? 0)
+            .all();
         }
 
         @path('/by-cuisine/:cuisineType')
         get(String cuisineType) : public -> Array<restaurantDb.Restaurant> {
             return restaurantDb.Restaurant
-                .where(cuisineType: cuisineType)
-                .where(status: RestaurantStatus.Active)
-                .orderBy(rating: desc)
-                .all();
+            .where(cuisineType: cuisineType)
+            .where(status: RestaurantStatus.Active)
+            .orderBy(rating: desc)
+            .all();
         }
 
         @path('/:id/reviews')
         get(UUID id) : public -> Array<restaurantDb.RestaurantReview> {
             let Restaurant restaurant = restaurantDb.Restaurant.findOrFail(id);
             return restaurantDb.RestaurantReview
-                .where(restaurantId: restaurant.id)
-                .orderBy(createdAt: desc)
-                .limit(50)
-                .all();
+            .where(restaurantId: restaurant.id)
+            .orderBy(createdAt: desc)
+            .limit(50)
+            .all();
         }
 
         @path('/:id/reviews')
@@ -256,6 +269,7 @@ service fooddelivery.RestaurantService('config/restaurant-service.dcfg') : versi
         get(UUID id) : internal -> restaurantDb.Restaurant {
             return restaurantDb.Restaurant.findOrFail(id);
         }
+
     }
 
     test("computed isOpen reflects Active status") {
@@ -282,12 +296,12 @@ service fooddelivery.RestaurantService('config/restaurant-service.dcfg') : versi
         });
         restaurant.save();
         assert throws(
-            () => restaurantDb.RestaurantReview.create({
-                restaurantId: restaurant.id,
-                customerId: uuid(),
-                rating: 6
-            }),
-            ValidationError("Rating must be between 1 and 5")
+        () => restaurantDb.RestaurantReview.create({
+            restaurantId: restaurant.id,
+            customerId: uuid(),
+            rating: 6
+        }),
+        ValidationError("Rating must be between 1 and 5")
         );
     }
 
@@ -331,14 +345,14 @@ service fooddelivery.RestaurantService('config/restaurant-service.dcfg') : versi
 
     test("validation rejects empty restaurant name") {
         assert throws(
-            () => restaurantDb.Restaurant.create({
-                name: "",
-                cuisineType: "Mexican",
-                address: "303 Agave St",
-                phone: "+15555556666",
-                email: "empty@nametest.com"
-            }),
-            ValidationError("Restaurant name cannot be empty")
+        () => restaurantDb.Restaurant.create({
+            name: "",
+            cuisineType: "Mexican",
+            address: "303 Agave St",
+            phone: "+15555556666",
+            email: "empty@nametest.com"
+        }),
+        ValidationError("Restaurant name cannot be empty")
         );
     }
 
@@ -368,4 +382,5 @@ service fooddelivery.RestaurantService('config/restaurant-service.dcfg') : versi
         restaurant.save();
         assert emitted(RestaurantStatusChanged(restaurant.id, "Status Change Diner", RestaurantStatus.PendingApproval, RestaurantStatus.Active));
     }
+
 }

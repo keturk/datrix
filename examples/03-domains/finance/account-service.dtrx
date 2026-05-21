@@ -75,9 +75,9 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
 
             validate {
                 if (firstName.trim().isEmpty())
-                    ValidationError("First name cannot be empty");
+                ValidationError("First name cannot be empty");
                 if (lastName.trim().isEmpty())
-                    ValidationError("Last name cannot be empty");
+                ValidationError("Last name cannot be empty");
             }
 
             afterCreate {
@@ -88,7 +88,9 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
                 if (isChanged(kycStatus)) {
                     Log.info("KYC status changed", { customerId: id, oldStatus: oldValue(kycStatus), newStatus: kycStatus });
                 }
+
             }
+
         }
 
         // Account entity with financial constraints
@@ -114,9 +116,9 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
 
             validate {
                 if (type == AccountType.Savings && balance.amount < 0)
-                    ValidationError("Savings account balance cannot be negative");
+                ValidationError("Savings account balance cannot be negative");
                 if (accountNumber.trim().isEmpty())
-                    ValidationError("Account number cannot be empty");
+                ValidationError("Account number cannot be empty");
             }
 
             afterCreate {
@@ -133,13 +135,16 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
                         closedAt = DateTime.now();
                         Log.info("Account closed", { accountId: id, accountNumber: accountNumber });
                     }
+
                 }
+
             }
 
             fn activate() {
                 if (status != AccountStatus.PendingApproval) {
                     throw ValidationException("Only pending accounts can be activated");
                 }
+
                 status = AccountStatus.Active;
                 this.save();
             }
@@ -148,6 +153,7 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
                 if (status != AccountStatus.Active) {
                     throw ValidationException("Only active accounts can be frozen");
                 }
+
                 status = AccountStatus.Frozen;
                 auditNote = reason;
                 this.save();
@@ -157,6 +163,7 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
                 if (status != AccountStatus.Frozen) {
                     throw ValidationException("Only frozen accounts can be unfrozen");
                 }
+
                 status = AccountStatus.Active;
                 auditNote = "Account unfrozen";
                 this.save();
@@ -166,14 +173,18 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
                 if (status == AccountStatus.Closed) {
                     throw ValidationException("Account is already closed");
                 }
+
                 if (balance.amount != 0) {
                     throw ValidationException(#"Cannot close account with non-zero balance: {balance.amount}");
                 }
+
                 status = AccountStatus.Closed;
                 closureReason = reason;
                 this.save();
             }
+
         }
+
     }
 
     pubsub mq {
@@ -183,11 +194,15 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
             publish AccountOpened(UUID accountId, String accountNumber, UUID customerId, AccountType type, Currency currency) {
                 ensure accountNumber.length > 0;
             }
+
             publish AccountStatusChanged(UUID accountId, String accountNumber, AccountStatus oldStatus, AccountStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
+
         }
+
     }
+
     subscribe AccountEvents {
         on AccountOpened(UUID accountId, String accountNumber, UUID customerId, AccountType type, Currency currency) {
             Log.info("Account opened event received", { accountId: accountId, accountNumber: accountNumber, type: type });
@@ -196,6 +211,7 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
         on AccountStatusChanged(UUID accountId, String accountNumber, AccountStatus oldStatus, AccountStatus newStatus) {
             Log.info("Account status changed", { accountId: accountId, oldStatus: oldStatus, newStatus: newStatus });
         }
+
     }
 
     rest_api AccountAPI : basePath('/api/v1/accounts'), rdbms(accountDb) {
@@ -215,10 +231,10 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
 
             let Int total = query.count();
             let Array<Account> accounts = query
-                .orderBy(createdAt: desc)
-                .offset((page - 1) * perPage)
-                .limit(perPage)
-                .all();
+            .orderBy(createdAt: desc)
+            .offset((page - 1) * perPage)
+            .limit(perPage)
+            .all();
 
             return {
                 data: accounts,
@@ -230,6 +246,7 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
                     hasNextPage: page < Math.ceil(total / perPage),
                     hasPrevPage: page > 1
                 }
+
             };
         }
 
@@ -318,9 +335,9 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
         @path('/by-customer/:customerId')
         get(UUID customerId) -> Array<accountDb.Account> {
             return accountDb.Account
-                .where(customerId: customerId)
-                .orderBy(openedAt: desc)
-                .all();
+            .where(customerId: customerId)
+            .orderBy(openedAt: desc)
+            .all();
         }
 
         // Internal endpoint for cross-service lookups
@@ -333,6 +350,7 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
         get(String accountNumber) : internal -> accountDb.Account {
             return accountDb.Account.where(accountNumber: accountNumber).firstOrFail();
         }
+
     }
 
     test("computed isActive is true for Active status") {
@@ -368,15 +386,15 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
         });
         cust.save();
         assert throws(
-            () => accountDb.Account.create({
-                accountNumber: "ACC-TEST-002",
-                customerId: cust.id,
-                type: AccountType.Savings,
-                status: AccountStatus.Active,
-                balance: Money.of(-100, Currency.USD),
-                currency: Currency.USD
-            }),
-            ValidationError("Savings account balance cannot be negative")
+        () => accountDb.Account.create({
+            accountNumber: "ACC-TEST-002",
+            customerId: cust.id,
+            type: AccountType.Savings,
+            status: AccountStatus.Active,
+            balance: Money.of(-100, Currency.USD),
+            currency: Currency.USD
+        }),
+        ValidationError("Savings account balance cannot be negative")
         );
     }
 
@@ -537,36 +555,37 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
         });
         acct.save();
         assert throws(
-            () => acct.close("Customer requested closure"),
-            ValidationException("Cannot close account with non-zero balance: 500")
+        () => acct.close("Customer requested closure"),
+        ValidationException("Cannot close account with non-zero balance: 500")
         );
     }
 
     test("validation rejects empty first name") {
         assert throws(
-            () => accountDb.Customer.create({
-                firstName: "",
-                lastName: "Williams",
-                email: "empty.first@test.com",
-                ssn: "88899900033",
-                dateOfBirth: DateTime.parse("1993-06-14"),
-                kycStatus: KycStatus.Pending
-            }),
-            ValidationError("First name cannot be empty")
+        () => accountDb.Customer.create({
+            firstName: "",
+            lastName: "Williams",
+            email: "empty.first@test.com",
+            ssn: "88899900033",
+            dateOfBirth: DateTime.parse("1993-06-14"),
+            kycStatus: KycStatus.Pending
+        }),
+        ValidationError("First name cannot be empty")
         );
     }
 
     test("validation rejects empty last name") {
         assert throws(
-            () => accountDb.Customer.create({
-                firstName: "Hannah",
-                lastName: "",
-                email: "empty.last@test.com",
-                ssn: "99900011144",
-                dateOfBirth: DateTime.parse("1987-02-08"),
-                kycStatus: KycStatus.Pending
-            }),
-            ValidationError("Last name cannot be empty")
+        () => accountDb.Customer.create({
+            firstName: "Hannah",
+            lastName: "",
+            email: "empty.last@test.com",
+            ssn: "99900011144",
+            dateOfBirth: DateTime.parse("1987-02-08"),
+            kycStatus: KycStatus.Pending
+        }),
+        ValidationError("Last name cannot be empty")
         );
     }
+
 }

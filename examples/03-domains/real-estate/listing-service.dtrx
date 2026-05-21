@@ -104,15 +104,15 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
 
             validate {
                 if (title.trim().isEmpty())
-                    ValidationError("Listing title cannot be empty");
+                ValidationError("Listing title cannot be empty");
                 if (bedrooms < 0)
-                    ValidationError("Bedrooms cannot be negative");
+                ValidationError("Bedrooms cannot be negative");
                 if (bathrooms < 0)
-                    ValidationError("Bathrooms cannot be negative");
+                ValidationError("Bathrooms cannot be negative");
                 if (squareFeet <= 0)
-                    ValidationError("Square feet must be positive");
+                ValidationError("Square feet must be positive");
                 if (yearBuilt != null && yearBuilt > DateTime.now().year())
-                    ValidationError("Year built cannot be in the future");
+                ValidationError("Year built cannot be in the future");
             }
 
             afterCreate {
@@ -128,16 +128,20 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
                     } else if (status == ListingStatus.Withdrawn) {
                         Log.info("Listing withdrawn", { listingId: id, listingRef: listingRef });
                     }
+
                 }
+
                 if (isChanged(price)) {
                     dispatch ListingPriceChanged(id, listingRef, oldValue(price), price);
                 }
+
             }
 
             fn activate() {
                 if (status != ListingStatus.Draft) {
                     throw ValidationException("Only draft listings can be activated");
                 }
+
                 status = ListingStatus.Active;
                 this.save();
             }
@@ -146,6 +150,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
                 if (status != ListingStatus.Active) {
                     throw ValidationException("Only active listings can be placed under contract");
                 }
+
                 status = ListingStatus.UnderContract;
                 this.save();
             }
@@ -154,6 +159,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
                 if (status != ListingStatus.UnderContract) {
                     throw ValidationException("Only listings under contract can be marked as sold");
                 }
+
                 status = ListingStatus.Sold;
                 this.save();
             }
@@ -162,9 +168,11 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
                 if (status == ListingStatus.Sold) {
                     throw ValidationException("Sold listings cannot be withdrawn");
                 }
+
                 status = ListingStatus.Withdrawn;
                 this.save();
             }
+
         }
 
         // Images associated with a listing
@@ -180,10 +188,11 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
 
             validate {
                 if (url.trim().isEmpty())
-                    ValidationError("Image URL cannot be empty");
+                ValidationError("Image URL cannot be empty");
                 if (orderIndex < 0)
-                    ValidationError("Order index cannot be negative");
+                ValidationError("Order index cannot be negative");
             }
+
         }
 
         // Property features (e.g., "Pool: Yes", "Garage: 2-car")
@@ -197,11 +206,13 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
 
             validate {
                 if (featureName.trim().isEmpty())
-                    ValidationError("Feature name cannot be empty");
+                ValidationError("Feature name cannot be empty");
                 if (featureValue.trim().isEmpty())
-                    ValidationError("Feature value cannot be empty");
+                ValidationError("Feature value cannot be empty");
             }
+
         }
+
     }
 
     // File storage for property photos and documents
@@ -218,14 +229,19 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
                 ensure title.length > 0;
                 ensure price > 0;
             }
+
             publish ListingStatusChanged(UUID listingId, String listingRef, ListingStatus oldStatus, ListingStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
+
             publish ListingPriceChanged(UUID listingId, String listingRef, Money oldPrice, Money newPrice) {
                 ensure oldPrice != newPrice;
             }
+
         }
+
     }
+
     subscribe ListingEvents {
         on ListingCreated(UUID listingId, String listingRef, String title, PropertyType propertyType, Money price, String city, String state) {
             Log.info("New listing created", { listingId: listingId, listingRef: listingRef, city: city, state: state });
@@ -238,6 +254,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
         on ListingPriceChanged(UUID listingId, String listingRef, Money oldPrice, Money newPrice) {
             Log.info("Listing price changed", { listingId: listingId, listingRef: listingRef, oldPrice: oldPrice, newPrice: newPrice });
         }
+
     }
 
     rest_api ListingAPI : basePath('/api/v1/listings'), rdbms(listingDb) {
@@ -253,16 +270,17 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
             } else {
                 query = listingDb.Listing.where(status: ListingStatus.Active);
             }
+
             if (propertyType != null) {
                 query = query.where(propertyType: propertyType);
             }
 
             let Int total = query.count();
             let Array<Listing> listings = query
-                .orderBy(createdAt: desc)
-                .offset((page - 1) * perPage)
-                .limit(perPage)
-                .all();
+            .orderBy(createdAt: desc)
+            .offset((page - 1) * perPage)
+            .limit(perPage)
+            .all();
 
             return {
                 data: listings,
@@ -274,6 +292,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
                     hasNextPage: page < Math.ceil(total / perPage),
                     hasPrevPage: page > 1
                 }
+
             };
         }
 
@@ -343,34 +362,34 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
         @path('/search')
         get(String query, Int? limit, Int? offset) : public -> Array<listingDb.Listing> {
             return listingDb.Listing
-                .fulltext(query)
-                .where(status: ListingStatus.Active)
-                .limit(limit ?? 20)
-                .offset(offset ?? 0)
-                .all();
+            .fulltext(query)
+            .where(status: ListingStatus.Active)
+            .limit(limit ?? 20)
+            .offset(offset ?? 0)
+            .all();
         }
 
         // Search by city
         @path('/by-city/:city')
         get(String city, Int? limit) : public -> Array<listingDb.Listing> {
             return listingDb.Listing
-                .where(city: city)
-                .where(status: ListingStatus.Active)
-                .orderBy(price: asc)
-                .limit(limit ?? 50)
-                .all();
+            .where(city: city)
+            .where(status: ListingStatus.Active)
+            .orderBy(price: asc)
+            .limit(limit ?? 50)
+            .all();
         }
 
         // Filter by price range
         @path('/by-price')
         get(Money minPrice, Money maxPrice, Int? limit) : public -> Array<listingDb.Listing> {
             return listingDb.Listing
-                .where(status: ListingStatus.Active)
-                .where(price: gte(minPrice))
-                .where(price: lte(maxPrice))
-                .orderBy(price: asc)
-                .limit(limit ?? 50)
-                .all();
+            .where(status: ListingStatus.Active)
+            .where(price: gte(minPrice))
+            .where(price: lte(maxPrice))
+            .orderBy(price: asc)
+            .limit(limit ?? 50)
+            .all();
         }
 
         // Add an image to a listing
@@ -409,17 +428,17 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
         @path('/:id/images')
         get(UUID id) : public -> Array<listingDb.ListingImage> {
             return listingDb.ListingImage
-                .where(listingId: id)
-                .orderBy(orderIndex: asc)
-                .all();
+            .where(listingId: id)
+            .orderBy(orderIndex: asc)
+            .all();
         }
 
         // Get listing features
         @path('/:id/features')
         get(UUID id) : public -> Array<listingDb.ListingFeature> {
             return listingDb.ListingFeature
-                .where(listingId: id)
-                .all();
+            .where(listingId: id)
+            .all();
         }
 
         // Internal endpoint for cross-service lookups
@@ -443,6 +462,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
             listing.markSold();
             return listing;
         }
+
     }
 
     test("computed isAvailable is true for Active status") {
@@ -487,41 +507,41 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
 
     test("validation rejects empty title") {
         assert throws(
-            () => listingDb.Listing.create({
-                title: "",
-                description: "Test listing",
-                listingRef: "LST-TEST-003",
-                propertyType: PropertyType.House,
-                price: Money.of(100000, "USD"),
-                bedrooms: 2,
-                bathrooms: 1,
-                squareFeet: 1000,
-                address: "789 Elm Street",
-                city: "Austin",
-                state: "TX",
-                zipCode: "78703"
-            }),
-            ValidationError("Listing title cannot be empty")
+        () => listingDb.Listing.create({
+            title: "",
+            description: "Test listing",
+            listingRef: "LST-TEST-003",
+            propertyType: PropertyType.House,
+            price: Money.of(100000, "USD"),
+            bedrooms: 2,
+            bathrooms: 1,
+            squareFeet: 1000,
+            address: "789 Elm Street",
+            city: "Austin",
+            state: "TX",
+            zipCode: "78703"
+        }),
+        ValidationError("Listing title cannot be empty")
         );
     }
 
     test("validation rejects negative bedrooms") {
         assert throws(
-            () => listingDb.Listing.create({
-                title: "Invalid Listing",
-                description: "Test listing with negative bedrooms",
-                listingRef: "LST-TEST-004",
-                propertyType: PropertyType.Apartment,
-                price: Money.of(150000, "USD"),
-                bedrooms: -1,
-                bathrooms: 1,
-                squareFeet: 800,
-                address: "321 Pine Road",
-                city: "Austin",
-                state: "TX",
-                zipCode: "78704"
-            }),
-            ValidationError("Bedrooms cannot be negative")
+        () => listingDb.Listing.create({
+            title: "Invalid Listing",
+            description: "Test listing with negative bedrooms",
+            listingRef: "LST-TEST-004",
+            propertyType: PropertyType.Apartment,
+            price: Money.of(150000, "USD"),
+            bedrooms: -1,
+            bathrooms: 1,
+            squareFeet: 800,
+            address: "321 Pine Road",
+            city: "Austin",
+            state: "TX",
+            zipCode: "78704"
+        }),
+        ValidationError("Bedrooms cannot be negative")
         );
     }
 
@@ -563,8 +583,8 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
         });
         listing.save();
         assert throws(
-            () => listing.activate(),
-            ValidationException("Only draft listings can be activated")
+        () => listing.activate(),
+        ValidationException("Only draft listings can be activated")
         );
     }
 
@@ -590,41 +610,41 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
 
     test("validation rejects non-positive square feet") {
         assert throws(
-            () => listingDb.Listing.create({
-                title: "Zero SqFt Listing",
-                description: "Invalid square footage",
-                listingRef: "LST-TEST-008",
-                propertyType: PropertyType.Condo,
-                price: Money.of(100000, "USD"),
-                bedrooms: 1,
-                bathrooms: 1,
-                squareFeet: 0,
-                address: "222 Zero Ave",
-                city: "Austin",
-                state: "TX",
-                zipCode: "78705"
-            }),
-            ValidationError("Square feet must be positive")
+        () => listingDb.Listing.create({
+            title: "Zero SqFt Listing",
+            description: "Invalid square footage",
+            listingRef: "LST-TEST-008",
+            propertyType: PropertyType.Condo,
+            price: Money.of(100000, "USD"),
+            bedrooms: 1,
+            bathrooms: 1,
+            squareFeet: 0,
+            address: "222 Zero Ave",
+            city: "Austin",
+            state: "TX",
+            zipCode: "78705"
+        }),
+        ValidationError("Square feet must be positive")
         );
     }
 
     test("validation rejects negative bathrooms") {
         assert throws(
-            () => listingDb.Listing.create({
-                title: "Negative Bath Listing",
-                description: "Invalid bathrooms count",
-                listingRef: "LST-TEST-009",
-                propertyType: PropertyType.Apartment,
-                price: Money.of(120000, "USD"),
-                bedrooms: 2,
-                bathrooms: -1,
-                squareFeet: 900,
-                address: "333 Bath Road",
-                city: "Austin",
-                state: "TX",
-                zipCode: "78706"
-            }),
-            ValidationError("Bathrooms cannot be negative")
+        () => listingDb.Listing.create({
+            title: "Negative Bath Listing",
+            description: "Invalid bathrooms count",
+            listingRef: "LST-TEST-009",
+            propertyType: PropertyType.Apartment,
+            price: Money.of(120000, "USD"),
+            bedrooms: 2,
+            bathrooms: -1,
+            squareFeet: 900,
+            address: "333 Bath Road",
+            city: "Austin",
+            state: "TX",
+            zipCode: "78706"
+        }),
+        ValidationError("Bathrooms cannot be negative")
         );
     }
 
@@ -646,8 +666,8 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
         });
         listing.save();
         assert throws(
-            () => listing.markUnderContract(),
-            ValidationException("Only active listings can be placed under contract")
+        () => listing.markUnderContract(),
+        ValidationException("Only active listings can be placed under contract")
         );
     }
 
@@ -669,8 +689,8 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
         });
         listing.save();
         assert throws(
-            () => listing.markSold(),
-            ValidationException("Only listings under contract can be marked as sold")
+        () => listing.markSold(),
+        ValidationException("Only listings under contract can be marked as sold")
         );
     }
 
@@ -692,8 +712,8 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
         });
         listing.save();
         assert throws(
-            () => listing.withdraw(),
-            ValidationException("Sold listings cannot be withdrawn")
+        () => listing.withdraw(),
+        ValidationException("Sold listings cannot be withdrawn")
         );
     }
 
@@ -743,45 +763,46 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
 
     test("validation rejects empty image URL") {
         assert throws(
-            () => listingDb.ListingImage.create({
-                listingId: uuid(),
-                url: "",
-                orderIndex: 0
-            }),
-            ValidationError("Image URL cannot be empty")
+        () => listingDb.ListingImage.create({
+            listingId: uuid(),
+            url: "",
+            orderIndex: 0
+        }),
+        ValidationError("Image URL cannot be empty")
         );
     }
 
     test("validation rejects negative image orderIndex") {
         assert throws(
-            () => listingDb.ListingImage.create({
-                listingId: uuid(),
-                url: "https://images.test/photo.jpg",
-                orderIndex: -1
-            }),
-            ValidationError("Order index cannot be negative")
+        () => listingDb.ListingImage.create({
+            listingId: uuid(),
+            url: "https://images.test/photo.jpg",
+            orderIndex: -1
+        }),
+        ValidationError("Order index cannot be negative")
         );
     }
 
     test("validation rejects empty feature name") {
         assert throws(
-            () => listingDb.ListingFeature.create({
-                listingId: uuid(),
-                featureName: "",
-                featureValue: "Yes"
-            }),
-            ValidationError("Feature name cannot be empty")
+        () => listingDb.ListingFeature.create({
+            listingId: uuid(),
+            featureName: "",
+            featureValue: "Yes"
+        }),
+        ValidationError("Feature name cannot be empty")
         );
     }
 
     test("validation rejects empty feature value") {
         assert throws(
-            () => listingDb.ListingFeature.create({
-                listingId: uuid(),
-                featureName: "Pool",
-                featureValue: ""
-            }),
-            ValidationError("Feature value cannot be empty")
+        () => listingDb.ListingFeature.create({
+            listingId: uuid(),
+            featureName: "Pool",
+            featureValue: ""
+        }),
+        ValidationError("Feature value cannot be empty")
         );
     }
+
 }

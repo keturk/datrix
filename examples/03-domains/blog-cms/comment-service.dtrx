@@ -1,10 +1,10 @@
 
-
 service blog.CommentService('config/comment-service.dcfg') : version('1.0.0'), description('comment management service') {
     // discovery block declares dependencies on other services
     discovery {
         ContentService { loadBalance: roundRobin, healthyOnly: true }
     }
+
     enum CommentStatus {
         Pending,
         Approved,
@@ -40,14 +40,18 @@ service blog.CommentService('config/comment-service.dcfg') : version('1.0.0'), d
                 if (isChanged(status) && status == CommentStatus.Approved) {
                     dispatch CommentApproved(id, contentId);
                 }
+
             }
+
         }
+
     }
 
     pubsub mq {
         topic CommentEvents {
             publish CommentApproved(UUID commentId, UUID contentId);
         }
+
     }
 
     rest_api CommentAPI : basePath("/api/v1/comments"), rdbms(commentDb) {
@@ -57,6 +61,7 @@ service blog.CommentService('config/comment-service.dcfg') : version('1.0.0'), d
         get(UUID contentId, CommentStatus? status) : public -> Array<commentDb.Comment> {
             return commentDb.Comment.where(contentId: contentId).all();
         }
+
     }
 
     test("computed isApproved reflects Approved status") {
@@ -144,4 +149,5 @@ service blog.CommentService('config/comment-service.dcfg') : version('1.0.0'), d
         comment.save();
         assert emitted(CommentApproved(comment.id, comment.contentId));
     }
+
 }

@@ -30,4 +30,5 @@ module hr.common {
     fn generatePayrollRef() -> String {
         return #"PAY-{DateTime.now().format('YYYYMMDDHHmmss')}-{Random.string(4).toUpperCase()}";
     }
+
 }

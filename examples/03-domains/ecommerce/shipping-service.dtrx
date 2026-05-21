@@ -115,7 +115,9 @@ service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0
                     } else if (status == ShipmentStatus.Failed) {
                         dispatch ShipmentFailed(id, orderId, failureReason ?? "Delivery failed");
                     }
+
                 }
+
             }
 
             fn calculateDaysInTransit() -> Int {
@@ -134,6 +136,7 @@ service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0
                 failureReason = reason;
                 this.save();
             }
+
         }
 
         // Event log entity for shipment tracking history
@@ -154,6 +157,7 @@ service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0
 
             belongsTo Shipment : index;
         }
+
     }
 
     cache redis {
@@ -172,14 +176,17 @@ service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0
             publish ShipmentDispatched(UUID shipmentId, UUID orderId, String trackingNumber) {
                 ensure trackingNumber.length > 0;
             }
+
             publish ShipmentDelivered(UUID shipmentId, UUID orderId, DateTime deliveredAt);
             publish ShipmentFailed(UUID shipmentId, UUID orderId, String reason) {
                 ensure reason.length > 0;
             }
+
         }
 
         // React to order confirmation by automatically creating shipments
     }
+
     subscribe OrderEvents {
 
         on OrderConfirmed(UUID orderId, UUID? paymentId, UUID reservationId, Address shippingAddress, Array<JSON> items, Decimal estimatedWeight) {
@@ -223,6 +230,7 @@ service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0
                 trackingNumber: shipment.trackingNumber
             });
         }
+
     }
 
     rest_api ShippingAPI : basePath('/api/v1/shipments'), rdbms(shippingDb) {
@@ -241,9 +249,9 @@ service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0
 
             let Shipment shipment = shippingDb.Shipment.where(trackingNumber: trackingNumber).firstOrFail();
             let Array<ShipmentEvent> events = shippingDb.ShipmentEvent
-                .where(shipmentId: shipment.id)
-                .orderBy(timestamp: asc)
-                .all();
+            .where(shipmentId: shipment.id)
+            .orderBy(timestamp: asc)
+            .all();
 
             redis.ShipmentCache.set(trackingNumber, {
                 trackingNumber: trackingNumber,
@@ -356,6 +364,7 @@ service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0
                 if (request.status == ShipmentStatus.Delivered) {
                     shipment.actualDelivery = DateTime.now();
                 }
+
                 shipment.save();
             }
 
@@ -418,6 +427,7 @@ service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0
                 if (newStatus == ShipmentStatus.Delivered) {
                     shipment.actualDelivery = DateTime.now();
                 }
+
                 shipment.save();
             }
 
@@ -449,6 +459,7 @@ service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0
             if (eventType == "DE") return ShipmentStatus.Failed;
             return ShipmentStatus.InTransit;
         }
+
     }
 
     test("computed isDelivered reflects Delivered status") {
@@ -544,9 +555,9 @@ service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0
         // Periodically sync tracking info from carrier APIs
         job SyncCarrierTracking {
             let Array<Shipment> activeShipments = shippingDb.Shipment
-                .whereIn(status: [ShipmentStatus.PickedUp, ShipmentStatus.InTransit, ShipmentStatus.OutForDelivery])
-                .where(createdAt: gt(DateTime.now().subtractDays(30)))
-                .all();
+            .whereIn(status: [ShipmentStatus.PickedUp, ShipmentStatus.InTransit, ShipmentStatus.OutForDelivery])
+            .where(createdAt: gt(DateTime.now().subtractDays(30)))
+            .all();
 
             foreach shipment in activeShipments {
                 try {
@@ -555,6 +566,7 @@ service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0
                     } else if (shipment.carrier == ShippingCarrier.UPS) {
                         syncUPSTracking(shipment);
                     }
+
                 } catch (Exception e) {
                     Log.error("Failed to sync tracking", {
                         shipmentId: shipment.id,
@@ -562,10 +574,12 @@ service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0
                         error: e.message
                     });
                 }
+
             }
 
             Log.info("Carrier tracking sync complete", { count: activeShipments.length() });
         }
+
     }
 
     // Service-level carrier selection logic
@@ -573,9 +587,11 @@ service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0
         if (destination.country != "US") {
             return ShippingCarrier.FedEx;
         }
+
         if (weight > 70) {
             return ShippingCarrier.UPS;
         }
+
         return ShippingCarrier.USPS;
     }
 
@@ -606,4 +622,5 @@ service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0
     fn syncUPSTracking(shippingDb.Shipment shipment) {
         Log.debug("Syncing UPS tracking", { trackingNumber: shipment.trackingNumber });
     }
+
 }
