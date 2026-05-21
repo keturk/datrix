@@ -1,4 +1,4 @@
-# E-commerce Platform
+﻿# E-commerce Platform
 
 A complete e-commerce platform with product catalog, shopping cart, orders, payments, and shipping.
 
@@ -51,7 +51,7 @@ A complete e-commerce platform with product catalog, shopping cart, orders, paym
 
 - Product catalog with categories, variants, and inventory tracking
 - Inventory reservation system with TTL for cart holds
-- Order workflow (pending → paid → shipped → delivered)
+- Order workflow (pending â†’ paid â†’ shipped â†’ delivered)
 - Distributed transactions using two-phase reservation
 - Multiple payment provider support with idempotency
 - Shipping rate calculation and carrier integration
@@ -70,52 +70,34 @@ datrix generate examples/02-domains/ecommerce/system.dtrx -l typescript -p kuber
 
 ## Files
 
-```
-ecommerce/
-├── system.dtrx                 # Entry point - system configuration
-├── common.dtrx                 # Shared types (Money, Address, Currency, etc.)
-├── user-service.dtrx           # User accounts and authentication
-├── product-service.dtrx        # Product catalog and inventory
-├── order-service.dtrx          # Orders and transaction orchestration
-├── payment-service.dtrx        # Payment processing
-├── shipping-service.dtrx       # Shipping and tracking
-└── config/
-    ├── config.yaml             # Application configuration
-    ├── discovery.yaml          # Service discovery (Consul/Kubernetes)
-    ├── gateway.yaml            # API gateway (JWT, rate limits, CORS)
-    ├── observability.yaml      # Metrics, tracing, logging
-    ├── user-service/
-    │   ├── datasources.yaml    # PostgreSQL, Redis, Kafka
-    │   ├── resilience.yaml     # Timeouts, retries, circuit breakers
-    │   ├── registration.yaml   # Service registration
-    ├── product-service/
-    │   └── ...
-    ├── order-service/
-    │   └── ...
-    ├── payment-service/
-    │   └── ...
-    └── shipping-service/
-        └── ...
-```
+config/ contains the ConfigDSL files referenced by system.dtrx and each service:
+    - config/notification-service.dcfg
+    - config/order-service.dcfg
+    - config/payment-service.dcfg
+    - config/product-service.dcfg
+    - config/shipping-service.dcfg
+    - config/system.dcfg
+    - config/user-service.dcfg
 
 ## Architecture
 
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Gateway   │────▶│ UserService │────▶│  PostgreSQL │
-└─────────────┘     └─────────────┘     └─────────────┘
-       │                   │
-       │            ┌──────▼──────┐
-       │            │    Kafka    │
-       │            └──────┬──────┘
-       │                   │
-       ▼                   ▼
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│OrderService │────▶│PaymentSvc   │────▶│ShippingService│
-└─────────────┘     └─────────────┘     └─────────────┘
-       │                   │                   │
-       ▼                   ▼                   ▼
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  PostgreSQL │     │  PostgreSQL │     │  PostgreSQL │
-└─────────────┘     └─────────────┘     └─────────────┘
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”     â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”     â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚   Gateway   â”‚â”€â”€â”€â”€â–¶â”‚ UserService â”‚â”€â”€â”€â”€â–¶â”‚  PostgreSQL â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜     â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜     â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+       â”‚                   â”‚
+       â”‚            â”Œâ”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”
+       â”‚            â”‚    Kafka    â”‚
+       â”‚            â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”˜
+       â”‚                   â”‚
+       â–¼                   â–¼
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”     â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”     â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚OrderService â”‚â”€â”€â”€â”€â–¶â”‚PaymentSvc   â”‚â”€â”€â”€â”€â–¶â”‚ShippingServiceâ”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜     â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜     â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+       â”‚                   â”‚                   â”‚
+       â–¼                   â–¼                   â–¼
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”     â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”     â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚  PostgreSQL â”‚     â”‚  PostgreSQL â”‚     â”‚  PostgreSQL â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜     â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜     â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 ```
+

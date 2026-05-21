@@ -69,14 +69,14 @@ All examples demonstrate:
 ```datrix
 from ecommerce.common import BaseEntity, Address;
 
-service ecommerce.OrderService : version('1.0.0') {
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
     // service configuration...
 }
 ```
 
 ### 2. Base Entity Pattern
 ```datrix
-rdbms bookDb('config/datasources.yaml') {
+rdbms bookDb {
     abstract entity BaseEntity {
         UUID id : primaryKey = uuid();
         DateTime createdAt = DateTime.now();
@@ -92,7 +92,7 @@ rdbms bookDb('config/datasources.yaml') {
 
 ### 3. Service Discovery
 ```datrix
-service ecommerce.OrderService : version('1.0.0') {
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
     discovery {
         ProductService { loadBalance: roundRobin, healthyOnly: true }
         PaymentService { loadBalance: roundRobin, healthyOnly: true }
@@ -102,8 +102,8 @@ service ecommerce.OrderService : version('1.0.0') {
 
 ### 4. Event-Driven Communication
 ```datrix
-service library.BookService : version('1.0.0') {
-    pubsub mq('config/pubsub.yaml') {
+service library.BookService('config/book-service.dcfg') : version('1.0.0') {
+    pubsub mq {
         topic BookEvents {
             publish BookAdded(UUID bookId, String title);
             publish BookStatusChanged(UUID bookId, BookStatus oldStatus, BookStatus newStatus);
@@ -146,7 +146,7 @@ rest_api BookAPI : basePath("/api/v1/books") {
 
 ### 7. Computed Fields
 ```datrix
-// Inside rdbms bookDb('config/datasources.yaml') { }
+// Inside rdbms bookDb { }
 entity Book extends BaseEntity {
     String(200) title : trim;
     Int publicationYear;
@@ -161,7 +161,7 @@ entity Book extends BaseEntity {
 
 ### 8. Lifecycle Hooks
 ```datrix
-// Inside rdbms bookDb('config/datasources.yaml') { }
+// Inside rdbms bookDb { }
 entity Book extends BaseEntity {
     String(50)? catalogNumber;
     BookStatus status;
@@ -193,9 +193,10 @@ example-name/
 ├── service-1.dtrx           # First microservice
 ├── service-2.dtrx           # Second microservice
 ├── service-3.dtrx           # Third microservice
-└── config/                  # YAML configuration files
-    ├── registry.yaml
-    └── gateway.yaml
+└── config/                  # ConfigDSL files
+    ├── system.dcfg
+    ├── service-1.dcfg
+    └── service-2.dcfg
 ```
 
 ### Entry Point Pattern
@@ -208,11 +209,8 @@ include 'user-service.dtrx';
 include 'product-service.dtrx';
 include 'order-service.dtrx';
 
-system ecommerce : version('1.0.0') {
-    registry('config/registry.yaml');
-    gateway('config/gateway.yaml');
-    observability('config/observability.yaml');
-    config('config/config.yaml');
+system ecommerce.System('config/system.dcfg') : version('1.0.0') {
+    // services reference their own config/*.dcfg files
 }
 ```
 
@@ -231,7 +229,7 @@ The parser will:
 1. Start from `system.dtrx`
 2. Follow all `include` statements recursively
 3. Collect all services from included files
-4. Load YAML configuration from the `config/` directory
+4. Load ConfigDSL configuration from the referenced `.dcfg` files
 5. Validate the `system { }` block and resolve references
 
 ## Usage
@@ -255,12 +253,12 @@ When adding or changing examples in this repository:
 1. Follow the existing structure and patterns
 2. Create a `system.dtrx` entry point file with:
    - `include` statements for all service files
-   - `system { }` block with YAML configuration references
-3. Create a `config/` directory with YAML configuration files
+   - `system Name('config/system.dcfg') { }` block
+3. Create a `config/` directory with `.dcfg` configuration files
 4. Use consistent naming conventions
 5. Add `discovery { }` blocks for service-to-service communication
 6. Include authentication/authorization where appropriate
-7. Add `pubsub mq('path') { }` blocks for event-driven communication
+7. Add `pubsub mq { }` blocks for event-driven communication
 
 ## Related Documentation
 

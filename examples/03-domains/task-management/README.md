@@ -1,4 +1,4 @@
-# Task Management
+﻿# Task Management
 
 A project and task management system for team collaboration.
 
@@ -46,7 +46,7 @@ A project and task management system for team collaboration.
 - Milestone tracking with target dates
 - Task creation with title, description, and priority
 - Task assignment to team members
-- Status workflow (todo → in progress → review → done)
+- Status workflow (todo â†’ in progress â†’ review â†’ done)
 - Due date tracking with overdue detection
 - Labels and categories for task organization
 - Event-driven assignment notifications
@@ -64,23 +64,9 @@ datrix generate examples/02-domains/task-management/system.dtrx -l typescript -p
 
 ## Files
 
-```
-task-management/
-├── system.dtrx                 # Entry point - system configuration
-├── user-service.dtrx           # Team member management
-├── project-service.dtrx        # Project and milestone management
-├── task-service.dtrx           # Task tracking and assignments
-└── config/
-    ├── config.yaml             # Application configuration
-    ├── discovery.yaml          # Service discovery (Consul/Kubernetes)
-    ├── gateway.yaml            # API gateway (JWT, rate limits, CORS)
-    ├── observability.yaml      # Metrics, tracing, logging
-    ├── user-service/
-    │   ├── datasources.yaml    # PostgreSQL, Redis, Kafka
-    │   ├── resilience.yaml     # Timeouts, retries, circuit breakers
-    │   ├── registration.yaml   # Service registration
-    ├── project-service/
-    │   └── ...
-    └── task-service/
-        └── ...
-```
+config/ contains the ConfigDSL files referenced by system.dtrx and each service:
+    - config/project-service.dcfg
+    - config/system.dcfg
+    - config/task-service.dcfg
+    - config/user-service.dcfg
+
