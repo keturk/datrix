@@ -1,4 +1,4 @@
-# Social Platform
+﻿# Social Platform
 
 A social networking platform with user profiles, posts, and notifications.
 
@@ -63,23 +63,9 @@ datrix generate examples/02-domains/social-platform/system.dtrx -l typescript -p
 
 ## Files
 
-```
-social-platform/
-├── system.dtrx                     # Entry point - system configuration
-├── user-service.dtrx               # User profiles and connections
-├── post-service.dtrx               # Posts, comments, and interactions
-├── notification-service.dtrx       # Notification delivery
-└── config/
-    ├── config.yaml                 # Application configuration
-    ├── discovery.yaml              # Service discovery (Consul/Kubernetes)
-    ├── gateway.yaml                # API gateway (JWT, rate limits, CORS)
-    ├── observability.yaml          # Metrics, tracing, logging
-    ├── user-service/
-    │   ├── datasources.yaml        # PostgreSQL, Redis, Kafka
-    │   ├── resilience.yaml         # Timeouts, retries, circuit breakers
-    │   ├── registration.yaml       # Service registration
-    ├── post-service/
-    │   └── ...
-    └── notification-service/
-        └── ...
-```
+config/ contains the ConfigDSL files referenced by system.dtrx and each service:
+    - config/notification-service.dcfg
+    - config/post-service.dcfg
+    - config/system.dcfg
+    - config/user-service.dcfg
+

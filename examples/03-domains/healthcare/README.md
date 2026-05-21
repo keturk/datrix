@@ -1,4 +1,4 @@
-# Healthcare System
+﻿# Healthcare System
 
 A healthcare management system for patient records, appointments, and medical history.
 
@@ -43,7 +43,7 @@ A healthcare management system for patient records, appointments, and medical hi
 - Patient demographics with contact information
 - Medical record number (MRN) generation
 - Appointment scheduling with provider availability
-- Appointment status workflow (scheduled → confirmed → completed)
+- Appointment status workflow (scheduled â†’ confirmed â†’ completed)
 - Medical record history with diagnoses and treatments
 - Provider assignment and referral tracking
 - Appointment reminders via events
@@ -61,25 +61,9 @@ datrix generate examples/02-domains/healthcare/system.dtrx -l typescript -p kube
 
 ## Files
 
-```
-healthcare/
-├── system.dtrx                     # Entry point - system configuration
-├── common.dtrx                     # Shared healthcare types
-├── patient-service.dtrx            # Patient management
-├── appointment-service.dtrx        # Scheduling and availability
-├── medical-record-service.dtrx     # Medical records and history
-└── config/
-    ├── config.yaml                 # Application configuration
-    ├── discovery.yaml              # Service discovery (Consul/Kubernetes)
-    ├── gateway.yaml                # API gateway (JWT, rate limits, CORS)
-    ├── observability.yaml          # Metrics, tracing, logging
-    ├── patient-service/
-    │   ├── datasources.yaml        # PostgreSQL, Redis, Kafka
-    │   ├── resilience.yaml         # Timeouts, retries, circuit breakers
-    │   ├── registration.yaml       # Service registration
-    ├── appointment-service/
-    │   ├── integrations.yaml       # External calendar/notification services
-    │   └── ...
-    └── medical-record-service/
-        └── ...
-```
+config/ contains the ConfigDSL files referenced by system.dtrx and each service:
+    - config/appointment-service.dcfg
+    - config/medical-record-service.dcfg
+    - config/patient-service.dcfg
+    - config/system.dcfg
+

@@ -1,4 +1,4 @@
-# Learning Management System
+﻿# Learning Management System
 
 An educational platform for online courses, student enrollment, and progress tracking.
 
@@ -62,23 +62,9 @@ datrix generate examples/02-domains/learning-management/system.dtrx -l typescrip
 
 ## Files
 
-```
-learning-management/
-├── system.dtrx                 # Entry point - system configuration
-├── course-service.dtrx         # Course and content management
-├── enrollment-service.dtrx     # Enrollment and progress tracking
-├── student-service.dtrx        # Student profiles and achievements
-└── config/
-    ├── config.yaml             # Application configuration
-    ├── discovery.yaml          # Service discovery (Consul/Kubernetes)
-    ├── gateway.yaml            # API gateway (JWT, rate limits, CORS)
-    ├── observability.yaml      # Metrics, tracing, logging
-    ├── course-service/
-    │   ├── datasources.yaml    # PostgreSQL, Redis, Kafka
-    │   ├── resilience.yaml     # Timeouts, retries, circuit breakers
-    │   ├── registration.yaml   # Service registration
-    ├── enrollment-service/
-    │   └── ...
-    └── student-service/
-        └── ...
-```
+config/ contains the ConfigDSL files referenced by system.dtrx and each service:
+    - config/course-service.dcfg
+    - config/enrollment-service.dcfg
+    - config/student-service.dcfg
+    - config/system.dcfg
+

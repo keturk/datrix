@@ -1,4 +1,4 @@
-# Blog CMS
+﻿# Blog CMS
 
 A content management system for blogs and articles with author management, content publishing, and commenting.
 
@@ -60,24 +60,9 @@ datrix generate examples/02-domains/blog-cms/system.dtrx -l typescript -p kubern
 
 ## Files
 
-```
-blog-cms/
-├── system.dtrx                 # Entry point - system configuration
-├── author-service.dtrx         # Author profiles and authentication
-├── content-service.dtrx        # Articles, categories, and publishing
-├── comment-service.dtrx        # Comments and moderation
-└── config/
-    ├── config.yaml             # Application configuration
-    ├── discovery.yaml          # Service discovery (Consul/Kubernetes)
-    ├── gateway.yaml            # API gateway (JWT, rate limits, CORS)
-    ├── observability.yaml      # Metrics, tracing, logging
-    ├── author-service/
-    │   ├── datasources.yaml    # PostgreSQL, Redis, Kafka
-    │   ├── resilience.yaml     # Timeouts, retries, circuit breakers
-    │   ├── integrations.yaml   # External service configs
-    │   ├── registration.yaml   # Service registration
-    ├── content-service/
-    │   └── ...
-    └── comment-service/
-        └── ...
-```
+config/ contains the ConfigDSL files referenced by system.dtrx and each service:
+    - config/author-service.dcfg
+    - config/comment-service.dcfg
+    - config/content-service.dcfg
+    - config/system.dcfg
+
