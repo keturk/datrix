@@ -1,5 +1,6 @@
 ---
 description: Phased fix execution discipline — Understand, Fix, Verify with runaway detection
+model: sonnet
 disable-model-invocation: true
 ---
 

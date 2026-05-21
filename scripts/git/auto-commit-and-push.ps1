@@ -95,7 +95,7 @@ Use the exact format and message style from /commit-and-push skill documentation
 # Invoke Claude Code in CLI mode with --print for non-interactive execution
 # The prompt is passed as the final argument
 Set-Location $workspaceRoot
-$claudeOutput = & claude --print $claudePrompt 2>&1
+$claudeOutput = & claude --print --model sonnet $claudePrompt 2>&1
 $claudeExitCode = $LASTEXITCODE
 
 if ($claudeExitCode -ne 0) {

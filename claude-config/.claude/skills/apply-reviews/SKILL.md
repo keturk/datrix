@@ -1,3 +1,7 @@
+---
+model: sonnet
+---
+
 # Apply Reviews Skill
 
 Read review artifacts from Tier 1 (local) and/or Tier 2 (Codex), group findings by task file and severity, apply fixes, and mark applied findings to prevent double-application on re-runs.

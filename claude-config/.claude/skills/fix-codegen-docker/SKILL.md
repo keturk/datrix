@@ -1,5 +1,6 @@
 ---
 description: Diagnose and fix datrix-codegen-docker test failures, errors, and warnings from structured test results
+model: sonnet
 ---
 
 # Fix Codegen Docker

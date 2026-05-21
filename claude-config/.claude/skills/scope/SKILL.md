@@ -1,5 +1,6 @@
 ---
 description: Anchor a session with explicit scope constraints — language, generator, files to read first
+model: sonnet
 disable-model-invocation: true
 ---
 

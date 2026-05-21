@@ -1,5 +1,6 @@
 ---
 description: Diagnose and fix datrix-language test failures, errors, and warnings from structured test results
+model: sonnet
 ---
 
 # Fix Language

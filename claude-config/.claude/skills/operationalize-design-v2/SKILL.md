@@ -1,3 +1,7 @@
+---
+model: opus
+---
+
 # Skill: Operationalize Design v2
 
 **Version:** 2.0

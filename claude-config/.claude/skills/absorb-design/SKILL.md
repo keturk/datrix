@@ -1,5 +1,6 @@
 ---
 description: Absorb a design document into existing docs across all repos, preserving the source
+model: sonnet
 disable-model-invocation: true
 ---
 

@@ -1,5 +1,6 @@
 ---
 description: Execute implementation tasks from task files — read, implement, verify, mark complete
+model: opus
 disable-model-invocation: true
 delegation-strategy:
   phases:

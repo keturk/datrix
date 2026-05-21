@@ -1,5 +1,6 @@
 ---
 description: Logic map reference — query, add, and maintain canonical implementation markers
+model: sonnet
 disable-model-invocation: true
 ---
 

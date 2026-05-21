@@ -1,3 +1,7 @@
+---
+model: opus
+---
+
 # Generate Tasks Skill
 
 Generate structured task files from a design document for AI agent execution across Datrix repositories.

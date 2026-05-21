@@ -1,3 +1,7 @@
+---
+model: sonnet
+---
+
 # Checkpoint Debugging Skill
 
 Structured debugging workflow that fixes issues one at a time with explicit checkpoints between each fix. Designed for sessions with multiple bugs or large-scale refactoring verification.

@@ -1,5 +1,6 @@
 ---
 description: Delegate tasks to background agents with two-stage review and model selection
+model: haiku
 disable-model-invocation: true
 ---
 
