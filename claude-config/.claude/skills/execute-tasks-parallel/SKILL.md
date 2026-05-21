@@ -1,5 +1,6 @@
 ---
 description: Execute multiple tasks in parallel — evaluate all tasks for blockers, then delegate each to a separate agent
+model: opus
 disable-model-invocation: true
 delegation-strategy:
   phases:

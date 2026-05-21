@@ -1,5 +1,6 @@
 ---
 description: Look up canonical Datrix module import paths
+model: sonnet
 disable-model-invocation: true
 ---
 

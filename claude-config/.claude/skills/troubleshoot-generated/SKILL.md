@@ -1,3 +1,7 @@
+---
+model: opus
+---
+
 # Troubleshoot Generated Code Skill
 
 Diagnose failures in generated code tests, trace errors back to Datrix codegen sources (templates, generators, .dtrx files), and produce a detailed timestamped situation report under `d:\datrix\issues`.

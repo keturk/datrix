@@ -1,3 +1,7 @@
+---
+model: sonnet
+---
+
 # Complexity Reducer Skill
 
 Reduce cognitive and cyclomatic complexity in Python functions using Radon and cognitive_complexity analysis.

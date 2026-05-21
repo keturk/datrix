@@ -1,5 +1,6 @@
 ---
 description: Diagnose generated code test failures, trace to codegen root causes, implement fixes, and verify
+model: opus
 delegation-strategy:
   phases:
     - name: "log_parsing"

@@ -1,3 +1,7 @@
+---
+model: opus
+---
+
 # Operationalize Design Document
 
 End-to-end pipeline that takes a design document and produces: resolved decisions, updated architecture docs, implementation tasks, and cleanup — collapsing what previously took multiple sessions into a single orchestrated workflow.

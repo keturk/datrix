@@ -1,5 +1,6 @@
 ---
 description: Review generated code against Datrix quality standards and submission checklist
+model: sonnet
 disable-model-invocation: true
 ---
 

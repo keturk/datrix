@@ -1,3 +1,7 @@
+---
+model: opus
+---
+
 # Evaluate Generated Service Skill
 
 Perform a **deep, comprehensive evaluation** of a **single service** from a `.dtrx` application, comparing the service's DSL source against its generated output. This skill performs full semantic verification, completeness checking, and deployment readiness assessment for one service.

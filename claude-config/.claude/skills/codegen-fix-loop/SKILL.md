@@ -1,3 +1,7 @@
+---
+model: opus
+---
+
 # Self-Correcting Codegen Fix Loop
 
 Iterative fix loop that makes a change to a generator/template, runs targeted tests, analyzes failures, adjusts, and repeats until green — with a hard iteration limit to prevent spirals.

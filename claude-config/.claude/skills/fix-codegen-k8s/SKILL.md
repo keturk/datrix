@@ -1,5 +1,6 @@
 ---
 description: Diagnose and fix datrix-codegen-k8s test failures, errors, and warnings from structured test results
+model: sonnet
 ---
 
 # Fix Codegen K8s

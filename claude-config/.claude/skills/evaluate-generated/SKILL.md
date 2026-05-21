@@ -1,3 +1,7 @@
+---
+model: opus
+---
+
 # Evaluate Generated Code Skill (Quick Mode)
 
 Perform a **fast, project-level evaluation** of a `.dtrx` application's generated output. This skill creates a timestamped evaluation directory, performs manifest-based completeness checking at the project level, and generates individual service evaluation prompts for deep-dive analysis.

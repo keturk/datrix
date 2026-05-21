@@ -1,3 +1,7 @@
+---
+model: sonnet
+---
+
 # Fix Test Failures Skill
 
 Systematically fix test failures one at a time with verification between each fix. Prevents cascading regressions from batch-fixing and ensures each fix is verified green before moving on.

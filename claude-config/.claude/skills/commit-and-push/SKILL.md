@@ -1,3 +1,7 @@
+---
+model: sonnet
+---
+
 # Commit and Push
 
 Inspect all Datrix repos for uncommitted changes, build detailed commit messages, write `commit-messages.json`, and run the commit-and-push script.
