@@ -322,3 +322,45 @@ Gateway configuration can also be specified entirely in `gateway.yaml` (profile-
 **Application-level awareness:** When behind a managed gateway, language generators (Python, TypeScript) emit trusted-proxy middleware so services correctly handle `X-Forwarded-For` and API key headers injected by the gateway. Application-level API key validation is omitted when gateway-level API key enforcement is enabled.
 
 **Backward compatibility with NGINX:** When `type: nginx` (or no gateway type specified), the existing NGINX generation path in `datrix-codegen-docker` runs unchanged. The managed gateway is opt-in.
+
+### Geo Spatial Operations (Planned — GEO-01)
+
+Datrix supports spatial types and PostGIS spatial queries through the `geo` extension. The `geo` extension separates concerns across three namespaces: `Geo.*` (standard library coordinate math, always available), `GeoShape.*` (value-level shape operations, extension required), and `GeoSql.*` (SQL query expressions lowered to PostGIS, extension required).
+
+**DSL syntax:**
+
+```datrix
+system ecommerce.System : version('1.0.0') {
+    use extension geo;
+}
+
+service ecommerce.WarehouseService('config/warehouse.dcfg') {
+    rdbms db('config/rdbms.dcfg') {
+        entity Warehouse {
+            Text name
+            Geometry boundary
+            Geometry centerPoint
+        }
+    }
+    rest_api WarehouseAPI : basePath('/api/v1') {
+        get nearbyWarehouses(Number lat, Number lng, Number radiusNm) -> Warehouse[] {
+            return Warehouse
+                .where(GeoSql.withinDistanceNm(centerPoint, lat, lng, radiusNm))
+                .orderBy(GeoSql.distanceNm(centerPoint, lat, lng))
+                .all();
+        }
+    }
+}
+```
+
+**Key features:**
+
+- **Spatial types:** `Geometry` (WKT) and `Geography` (EWKT) with SRID 4326, mapped to GeoAlchemy2 columns for Python and `geometry`/`geography` DDL for SQL
+- **Automatic GiST indexes:** Every `Geometry` / `Geography` entity field receives a `USING GIST` index automatically
+- **GeoSql SQL lowering:** `GeoSql.*` predicates and scalar expressions lower to PostGIS functions (`ST_Contains`, `ST_DWithin`, `ST_Distance`, `ST_Area`, `ST_Centroid`) with geodetic semantics
+- **GeoShape value-level ops:** `GeoShape.*` provides Shapely-backed (Python) and Turf.js-backed (TypeScript) runtime geometry operations (containsPoint, area, centroid, WKT/GeoJSON conversion)
+- **Semantic validation:** `Geometry`, `Geography`, `GeoShape`, and `GeoSql` require `use extension geo;`; `GeoSql.*` is valid only in entity query expression contexts
+- **Per-service dependency detection:** Geo dependencies (GeoAlchemy2, Shapely, PostGIS, Turf.js) are added only to services that actually use geo features
+- **OpenAPI format metadata:** `format: wkt` for `Geometry`, `format: ewkt` for `Geography`
+
+See the [geo extension reference](../../../../datrix-extensions/docs/geo-extension.md) for the full namespace contract, type mappings, and SQL lowering details.
