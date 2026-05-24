@@ -1,0 +1,128 @@
+
+from cityservices.common import ZoningType;
+
+// Manages city districts and zoning areas with polygon boundaries
+// Demonstrates: GeoSql.containsPoint, GeoSql.area, GeoSql.centroid, GeoShape.area, GeoShape.toGeoJson
+service cityservices.DistrictService('config/district-service.dcfg') : version('1.0.0'), description('district and zoning management with spatial boundaries') {
+
+    discovery { }
+
+    rdbms districtDb {
+
+        // City district with a polygon boundary
+        // Geometry fields produce PostGIS spatial columns with automatic GiST indexes
+        entity District extends BaseEntity {
+            String(200) name : trim;
+            String(20) code : unique, trim;
+            Geometry boundary;
+            Int population : min(0) = 0;
+            Text? description;
+
+            index(name);
+
+            afterCreate {
+                dispatch DistrictCreated(id, name, code);
+            }
+        }
+
+        // Zoning classification area within the city
+        entity ZoningArea extends BaseEntity {
+            String(200) name : trim;
+            String(20) zoneCode : unique, trim;
+            ZoningType type;
+            Geometry boundary;
+            Text? regulations;
+
+            belongsTo District : index;
+            index(type);
+
+            afterCreate {
+                dispatch ZoningAreaCreated(id, name, zoneCode, type);
+            }
+        }
+    }
+
+    cache redis {
+        hash DistrictCache : prefix('district:'), ttl(3600) {
+            UUID districtId : key;
+            String name;
+            String code;
+        }
+    }
+
+    pubsub mq {
+        topic DistrictEvents {
+            publish DistrictCreated(UUID districtId, String name, String code) {
+                ensure name.length > 0;
+            }
+            publish ZoningAreaCreated(UUID zoningAreaId, String name, String zoneCode, ZoningType type) {
+                ensure name.length > 0;
+            }
+        }
+    }
+
+    subscribe DistrictEvents {
+        on DistrictCreated(UUID districtId, String name, String code) {
+            redis.DistrictCache.set(districtId, { name: name, code: code });
+            Log.info("District created", { districtId: districtId, name: name });
+        }
+    }
+
+    rest_api DistrictAPI : basePath('/api/v1/districts'), rdbms(districtDb) {
+
+        resource districtDb.District : only(list, get), public;
+        resource districtDb.District : only(create, update, delete), access(admin);
+
+        // Find the district that contains a given lat/lng point
+        // GeoSql.containsPoint() lowers to PostGIS ST_Contains
+        @path('/for-location')
+        get(Number lat, Number lng) : public -> districtDb.District {
+            return districtDb.District
+                .where(GeoSql.containsPoint(boundary, lat, lng))
+                .firstOrFail();
+        }
+
+        // Find zoning areas that cover a given lat/lng point
+        @path('/zoning/for-location')
+        get(Number lat, Number lng) : public -> Array<districtDb.ZoningArea> {
+            return districtDb.ZoningArea
+                .where(GeoSql.containsPoint(boundary, lat, lng))
+                .all();
+        }
+
+        // Get a district boundary as GeoJSON for map rendering
+        // Demonstrates GeoShape.toGeoJson() for value-level geometry conversion
+        @path('/:districtId/boundary-geojson')
+        get(UUID districtId) : public -> JSON {
+            let District district = districtDb.District.findOrFail(districtId);
+            let String geojson = GeoShape.toGeoJson(district.boundary);
+            return { geojson: geojson };
+        }
+
+        // Get computed spatial metrics for a district
+        // Demonstrates GeoShape.area() for value-level area computation
+        @path('/:districtId/spatial-info')
+        get(UUID districtId) : public -> JSON {
+            let District district = districtDb.District.findOrFail(districtId);
+            let Number areaSqMeters = GeoShape.area(district.boundary);
+            let Geometry centroid = GeoShape.centroid(district.boundary);
+            let String geojson = GeoShape.toGeoJson(district.boundary);
+            return {
+                districtId: district.id,
+                name: district.name,
+                areaSqMeters: areaSqMeters,
+                centroid: centroid,
+                boundaryGeoJson: geojson
+            };
+        }
+
+        // List districts ordered by area (SQL-level spatial scalar)
+        // GeoSql.area() lowers to PostGIS ST_Area
+        @path('/by-area')
+        get() : public -> Array<districtDb.District> {
+            return districtDb.District
+                .orderBy(GeoSql.area(boundary), desc)
+                .all();
+        }
+    }
+}

@@ -1,5 +1,6 @@
 
-from social.common import MAX_PAGE_SIZE, paginate;
+from datrix.foundation import MAX_PAGE_SIZE;
+from social.common import paginate;
 
 service social.NotificationService('config/notification-service.dcfg') : version('1.0.0'), description('notification delivery and management service') {
     discovery {

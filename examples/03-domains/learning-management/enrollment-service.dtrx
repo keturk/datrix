@@ -1,5 +1,6 @@
 
-from lms.common import MAX_PAGE_SIZE, MAX_SCORE, MIN_SCORE, PASSING_SCORE;
+from datrix.foundation import MAX_PAGE_SIZE;
+from lms.common import MAX_SCORE, MIN_SCORE, PASSING_SCORE;
 
 service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0'), description('enrollment and academic progress tracking service') {
     discovery {

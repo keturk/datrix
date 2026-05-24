@@ -323,7 +323,7 @@ Gateway configuration can also be specified entirely in `gateway.yaml` (profile-
 
 **Backward compatibility with NGINX:** When `type: nginx` (or no gateway type specified), the existing NGINX generation path in `datrix-codegen-docker` runs unchanged. The managed gateway is opt-in.
 
-### Geo Spatial Operations (Planned — GEO-01)
+### Geo Spatial Operations (Stable)
 
 Datrix supports spatial types and PostGIS spatial queries through the `geo` extension. The `geo` extension separates concerns across three namespaces: `Geo.*` (standard library coordinate math, always available), `GeoShape.*` (value-level shape operations, extension required), and `GeoSql.*` (SQL query expressions lowered to PostGIS, extension required).
 

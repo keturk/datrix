@@ -1,18 +1,18 @@
 ---
-description: Absorb a design document into existing docs across all repos, preserving the source
+description: Absorb a design document into existing docs across all repos, replace all references, and delete the source
 model: sonnet
 disable-model-invocation: true
 ---
 
 # Absorb Design Document
 
-Transfer all knowledge from a design document into the appropriate existing documentation files across all 14 repo doc folders, preserving the original document as historical reference. No tasks, no decisions — purely a knowledge-transfer operation.
+Transfer all knowledge from a design document into the appropriate existing documentation files across all 14 repo doc folders, replace all references to the source file, and delete it. No tasks, no decisions — purely a knowledge-transfer operation.
 
 ## When to Use
 
 - A design document has been approved and needs its content distributed to official docs
 - User says "absorb", "distribute this doc", or "merge this into our docs"
-- User wants to eliminate a standalone design doc by folding it into the canonical docs
+- User wants to eliminate a standalone design doc by folding it into the canonical docs (this is the default — source is deleted after transfer)
 - After `/operationalize-design` if only the doc-transfer + cleanup phases are needed
 
 ## How to Invoke
@@ -29,7 +29,7 @@ With options:
 
 DOCUMENT: d:\datrix\datrix\docs\designs\some-design.md
 DRY RUN: true
-KEEP SOURCE: true
+KEEP SOURCE: true   # Override: do NOT delete the source after transfer
 ```
 
 ## Prereqs
@@ -41,7 +41,7 @@ Read first: CLAUDE.md, MEMORY.md. Also read the design document itself in full b
 |-----------|----------|-------------|
 | DOCUMENT | Yes | Path to the design document to absorb |
 | DRY RUN | No | If `true`, produce the transfer plan but do not write any files |
-| DELETE SOURCE | No | If `true`, delete the source document after transfer (default: preserve) |
+| KEEP SOURCE | No | If `true`, preserve the source document after transfer (default: delete source and replace all references) |
 
 ## Target Documentation Folders
 
@@ -189,32 +189,48 @@ WAIT for user decision.
 
 ---
 
-### Phase 4: Cleanup — Preserve the Source Document
+### Phase 4: Cleanup — Replace References and Delete the Source
 
-**Goal:** Preserve the design document as historical reference.
+**Goal:** Remove every reference to the design document across the repo and delete it.
 
-1. **If DELETE SOURCE is true** → delete the original design document
-2. **Otherwise** → preserve the design document and report completion
-3. **If the design document is tracked in any index or README** → update references to indicate content is now in official docs
+1. **Search for all references** to the source document across the entire `d:\datrix` tree:
+   - File paths (exact and relative variants, forward- and back-slash)
+   - Document title / ID (e.g. `ARCH-16`, the filename stem)
+   - Grep all `.md`, `.py`, `.ts`, `.json`, `.yaml`, `.toml` files
+2. **Replace or remove each reference:**
+   - If a reference points readers to the design doc for details → replace with a pointer to the target doc(s) where the content now lives
+   - If a reference is a backlog/index entry → remove the line entirely
+   - If a reference is in CLAUDE.md or MEMORY.md → update or remove as appropriate
+3. **If KEEP SOURCE is true** → preserve the source document and skip deletion
+4. **Otherwise (default)** → delete the source design document
+5. **Verify** — re-grep for the document path and ID to confirm zero remaining references
 
 **End-of-phase output:**
 
 ```
 CLEANUP:
 
-Source preserved: {path}
-References updated in:
-- {index/readme path} (if any)
+References found: {N}
+References replaced:
+- {file} — replaced pointer to {new target}
+References removed:
+- {file} — removed backlog/index entry
+
+Source deleted: {path}
+Remaining references: 0
 ```
 
-Or, if DELETE SOURCE was set:
+Or, if KEEP SOURCE was set:
 
 ```
 CLEANUP:
 
-Source deleted: {path}
-References removed from:
-- {index/readme path} (if any)
+References found: {N}
+References updated:
+- {file} — {action taken}
+
+Source preserved: {path}
+Remaining references: 0 (all updated to point to new locations)
 ```
 
 ---
@@ -229,7 +245,8 @@ Knowledge units transferred: {N}
 Knowledge units skipped: {N} (with reasons)
 Files modified: {N}
 Files created: {M}
-Source document: PRESERVED / DELETED (if DELETE SOURCE flag used)
+References replaced/removed: {N}
+Source document: DELETED / PRESERVED (if KEEP SOURCE flag used)
 
 Modified files:
 - {path 1}
@@ -243,7 +260,8 @@ Modified files:
 - **NO dumping content at the end of a file** — place content in the correct section
 - **NO creating new standalone docs when existing docs cover the topic** — integrate, don't fragment
 - **NO preserving the source document's structure in the target** — adapt to the target's style
-- **NO deleting the source document** (unless DELETE SOURCE flag is explicitly set)
+- **NO preserving the source document** (unless KEEP SOURCE flag is explicitly set) — the default is to delete after transfer
+- **NO leaving dangling references** to the deleted source — grep the entire repo and replace/remove every mention
 - **NO transferring implementation details into docs** — those belong in code
 - **NO duplicating content across multiple targets** — each unit goes to exactly one place
 - **NO skipping content silently** — every skipped unit must be reported with a reason

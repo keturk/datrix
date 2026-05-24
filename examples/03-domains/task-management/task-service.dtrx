@@ -1,5 +1,6 @@
 
-from taskapp.common import Priority, MAX_PAGE_SIZE, MAX_TITLE_LENGTH;
+from datrix.foundation import MAX_PAGE_SIZE;
+from taskapp.common import Priority, MAX_TITLE_LENGTH;
 
 service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), description('task tracking and workflow management service') {
     discovery {

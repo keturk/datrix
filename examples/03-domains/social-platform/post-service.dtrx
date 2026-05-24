@@ -1,5 +1,6 @@
 
-from social.common import ContentStatus, MAX_PAGE_SIZE, MAX_POST_LENGTH, paginate;
+from datrix.foundation import MAX_PAGE_SIZE;
+from social.common import ContentStatus, MAX_POST_LENGTH, paginate;
 
 service social.PostService('config/post-service.dcfg') : version('1.0.0'), description('post and content management service') {
     discovery {
