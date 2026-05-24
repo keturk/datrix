@@ -36,6 +36,7 @@ Focused feature examples organized into categories, each demonstrating a specifi
 - **03-infrastructure-blocks** — Events/pubsub, cache, CQRS, background jobs, storage
 - **04-advanced-data-features** — Advanced cache, queries, transactions, batch operations
 - **05-infrastructure-combinations** — Multi-database, multi-infrastructure setups
+- **04-extensions** — Extension features (geo spatial types and PostGIS operations)
 - **06-advanced-language-features** — Structs, integrations, advanced flow control, external integration
 
 ---
@@ -47,6 +48,7 @@ Complete domain implementations demonstrating real-world microservices architect
 | Domain | Description |
 |--------|-------------|
 | [blog-cms](03-domains/blog-cms/) | Content management platform with authors, articles, and comments |
+| [city-services](03-domains/city-services/) | City services platform with spatial operations using the geo extension |
 | [ecommerce](03-domains/ecommerce/) | E-commerce platform with orders, payments, and shipping |
 | [finance](03-domains/finance/) | Financial services platform |
 | [food-delivery](03-domains/food-delivery/) | Food delivery service |

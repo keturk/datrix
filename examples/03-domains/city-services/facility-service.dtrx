@@ -1,0 +1,162 @@
+
+from cityservices.common import FacilityType, ZoningType;
+
+// Manages public facilities (point locations) and parks (polygon boundaries)
+// Demonstrates: GeoSql.withinDistanceMeters, GeoSql.distanceMeters, GeoSql.containsPoint, GeoSql.area, GeoShape.centroid
+service cityservices.FacilityService('config/facility-service.dcfg') : version('1.0.0'), description('public facility and park management with spatial queries') {
+
+    discovery { }
+
+    rdbms facilityDb {
+
+        // Public facility with a point location (library, fire station, etc.)
+        entity Facility extends BaseEntity {
+            String(200) name : trim;
+            String(20) facilityCode : unique, trim;
+            FacilityType type;
+            Geometry location;
+            String(300) address : trim;
+            String(100) city : trim, index;
+            String(20) phone : trim;
+            Boolean isOperational = true;
+
+            index(type);
+            index(type, isOperational);
+
+            afterCreate {
+                dispatch FacilityCreated(id, name, facilityCode, type);
+            }
+
+            afterUpdate {
+                if (isChanged(isOperational)) {
+                    dispatch FacilityStatusChanged(id, facilityCode, isOperational);
+                }
+            }
+        }
+
+        // City park with a polygon boundary and a point entrance location
+        entity Park extends BaseEntity {
+            String(200) name : trim;
+            String(20) parkCode : unique, trim;
+            Geometry boundary;
+            Geometry entrance;
+            Boolean isOpen = true;
+            Text? amenities;
+
+            index(isOpen);
+
+            afterCreate {
+                dispatch ParkCreated(id, name, parkCode);
+            }
+        }
+    }
+
+    cache redis {
+        hash FacilityCache : prefix('facility:'), ttl(3600) {
+            UUID facilityId : key;
+            String name;
+            String facilityCode;
+            String type;
+            Boolean isOperational;
+        }
+    }
+
+    pubsub mq {
+        topic FacilityEvents {
+            publish FacilityCreated(UUID facilityId, String name, String facilityCode, FacilityType type) {
+                ensure name.length > 0;
+            }
+            publish FacilityStatusChanged(UUID facilityId, String facilityCode, Boolean isOperational);
+            publish ParkCreated(UUID parkId, String name, String parkCode) {
+                ensure name.length > 0;
+            }
+        }
+    }
+
+    subscribe FacilityEvents {
+        on FacilityCreated(UUID facilityId, String name, String facilityCode, FacilityType type) {
+            redis.FacilityCache.set(facilityId, {
+                name: name,
+                facilityCode: facilityCode,
+                type: type.value(),
+                isOperational: true
+            });
+            Log.info("Facility created", { facilityId: facilityId, name: name, type: type });
+        }
+
+        on FacilityStatusChanged(UUID facilityId, String facilityCode, Boolean isOperational) {
+            Log.info("Facility status changed", { facilityId: facilityId, isOperational: isOperational });
+        }
+    }
+
+    // Subscribe to district events for cross-service awareness
+    subscribe DistrictEvents {
+        on DistrictCreated(UUID districtId, String name, String code) {
+            Log.info("New district registered", { districtId: districtId, name: name });
+        }
+
+        on ZoningAreaCreated(UUID zoningAreaId, String name, String zoneCode, ZoningType type) {
+            Log.info("Zoning area registered", { zoningAreaId: zoningAreaId, zoneCode: zoneCode, type: type });
+        }
+    }
+
+    rest_api FacilityAPI : basePath('/api/v1/facilities'), rdbms(facilityDb) {
+
+        resource facilityDb.Facility : only(list, get), public;
+        resource facilityDb.Facility : only(create, update, delete), access(admin);
+
+        // Find operational facilities within a radius of a lat/lng point, ordered by distance
+        // GeoSql.withinDistanceMeters() lowers to PostGIS ST_DWithin with geography cast
+        // GeoSql.distanceMeters() lowers to PostGIS ST_Distance for ordering
+        @path('/nearby')
+        get(Number lat, Number lng, Number radiusMeters, FacilityType? type) : public -> Array<facilityDb.Facility> {
+            let JSON query = facilityDb.Facility
+                .where(isOperational: true)
+                .where(GeoSql.withinDistanceMeters(location, lat, lng, radiusMeters))
+                .orderBy(GeoSql.distanceMeters(location, lat, lng));
+
+            if (type != null) {
+                query = query.where(type: type);
+            }
+
+            return query.all();
+        }
+
+        // Find parks whose boundary contains a given lat/lng point
+        // GeoSql.containsPoint() lowers to PostGIS ST_Contains
+        @path('/parks/containing')
+        get(Number lat, Number lng) : public -> Array<facilityDb.Park> {
+            return facilityDb.Park
+                .where(isOpen: true)
+                .where(GeoSql.containsPoint(boundary, lat, lng))
+                .all();
+        }
+
+        // Get spatial details for a specific park
+        // Demonstrates GeoShape.centroid() for value-level centroid computation
+        // and GeoShape.area() for value-level area computation
+        @path('/parks/:parkId/details')
+        get(UUID parkId) : public -> JSON {
+            let Park park = facilityDb.Park.findOrFail(parkId);
+            let Geometry centroid = GeoShape.centroid(park.boundary);
+            let Number areaSqMeters = GeoShape.area(park.boundary);
+            return {
+                parkId: park.id,
+                name: park.name,
+                centroid: centroid,
+                areaSqMeters: areaSqMeters,
+                isOpen: park.isOpen
+            };
+        }
+
+        // List parks ordered by area (largest first)
+        // GeoSql.area() as SQL-level scalar expression for ordering
+        @path('/parks/by-area')
+        get() : public -> Array<facilityDb.Park> {
+            return facilityDb.Park
+                .where(isOpen: true)
+                .orderBy(GeoSql.area(boundary), desc)
+                .all();
+        }
+    }
+}

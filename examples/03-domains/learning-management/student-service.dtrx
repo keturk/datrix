@@ -1,5 +1,5 @@
 
-from lms.common import MAX_PAGE_SIZE;
+from datrix.foundation import MAX_PAGE_SIZE;
 
 service lms.StudentService('config/student-service.dcfg') : version('1.0.0'), description('student profile and account management service') {
     discovery { }

@@ -1,0 +1,49 @@
+
+// Shared module for city services domain
+module cityservices.common {
+
+    // Types of public facilities managed by the city
+    enum FacilityType {
+        Library : value('library'),
+        FireStation : value('fire_station'),
+        PoliceStation : value('police_station'),
+        CommunityCenter : value('community_center'),
+        Hospital : value('hospital')
+    }
+
+    // Zoning classifications for land use
+    enum ZoningType {
+        Residential : value('residential'),
+        Commercial : value('commercial'),
+        Industrial : value('industrial'),
+        MixedUse : value('mixed_use'),
+        GreenSpace : value('green_space')
+    }
+
+    // Priority levels for citizen service requests
+    enum RequestPriority {
+        Low : value('low'),
+        Medium : value('medium'),
+        High : value('high'),
+        Critical : value('critical')
+    }
+
+    // Lifecycle status of a service request
+    enum RequestStatus {
+        Open : value('open'),
+        Assigned : value('assigned'),
+        InProgress : value('in_progress'),
+        Resolved : value('resolved'),
+        Closed : value('closed')
+    }
+
+    // Generate a unique request tracking number
+    fn generateRequestNumber() -> String {
+        return #"SR-{DateTime.now().format('YYYYMMDDHHmmss')}-{Random.string(6).toUpperCase()}";
+    }
+
+    // Generate a unique district code
+    fn generateDistrictCode() -> String {
+        return #"DST-{Random.string(4).toUpperCase()}";
+    }
+}

@@ -1,5 +1,6 @@
 
-from social.common import ContentStatus, MAX_PAGE_SIZE, paginate;
+from datrix.foundation import MAX_PAGE_SIZE;
+from social.common import ContentStatus, paginate;
 
 service social.UserService('config/user-service.dcfg') : version('1.0.0'), description('user management and social graph service') {
     discovery { }

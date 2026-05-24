@@ -1,0 +1,98 @@
+
+// Feature: Geo extension - spatial types and PostGIS spatial operations
+// Demonstrates Geometry/Geography fields, GeoSql.* for SQL queries, and GeoShape.* for value-level operations
+service warehouse.WarehouseService('config/warehouse-service.dcfg') : version('1.0.0'), description('Warehouse management with geo-spatial operations') {
+
+    // Service infrastructure configuration
+    discovery { }                                              // Service discovery (auto-configured)
+
+    // Relational database block for warehouse entities with spatial data
+    rdbms warehouseDb {
+
+        // Abstract base entity with standard audit fields
+        abstract entity BaseEntity {
+            UUID id : primaryKey, server = uuid();
+            DateTime createdAt : server = DateTime.now();
+            DateTime updatedAt : server = DateTime.now();
+        }
+
+        // Warehouse entity with spatial boundary and center point
+        // Geometry fields are WKT strings at API boundaries and spatial columns in PostgreSQL
+        // Automatic GiST indexes are created for all Geometry/Geography fields
+        entity Warehouse extends BaseEntity {
+            // Basic warehouse info
+            String(200) name : trim;
+            String(100) code : unique, trim;
+
+            // Geometry fields for spatial operations
+            // 'boundary' defines the warehouse polygon area
+            Geometry boundary;
+
+            // 'centerPoint' is the warehouse center location
+            Geometry centerPoint;
+
+            // Capacity info
+            Int capacitySquareMeters;
+        }
+
+        // DeliveryZone entity with coverage area
+        entity DeliveryZone extends BaseEntity {
+            String(200) name : trim;
+            String(50) zoneCode : unique, trim;
+
+            // Geometry field for the delivery coverage area polygon
+            Geometry coverageArea;
+
+            // Delivery radius in nautical miles
+            Number radiusNm;
+        }
+
+    }
+
+    // REST API demonstrating geo extension query capabilities
+    rest_api WarehouseAPI : basePath('/api/v1'), rdbms(warehouseDb) {
+
+        // Find warehouses that contain a specific lat/lng point in their boundary
+        // GeoSql.containsPoint() lowers to PostGIS ST_Contains with point construction
+        @path('/warehouses/containing')
+        get(Number lat, Number lng) : public -> Array<warehouseDb.Warehouse> {
+            return warehouseDb.Warehouse
+                .where(GeoSql.containsPoint(boundary, lat, lng))
+                .all();
+        }
+
+        // Find warehouses within a specified radius from a lat/lng point
+        // GeoSql.withinDistanceNm() lowers to PostGIS ST_DWithin with geography cast
+        // GeoSql.distanceNm() computes geodetic distance in nautical miles for ordering
+        @path('/warehouses/nearby')
+        get(Number lat, Number lng, Number radiusNm) : public -> Array<warehouseDb.Warehouse> {
+            return warehouseDb.Warehouse
+                .where(GeoSql.withinDistanceNm(centerPoint, lat, lng, radiusNm))
+                .orderBy(GeoSql.distanceNm(centerPoint, lat, lng))
+                .all();
+        }
+
+        // Find delivery zones covering a specific point
+        @path('/delivery-zones/for-location')
+        get(Number lat, Number lng) : public -> Array<warehouseDb.DeliveryZone> {
+            return warehouseDb.DeliveryZone
+                .where(GeoSql.containsPoint(coverageArea, lat, lng))
+                .all();
+        }
+
+        // Get warehouse details with computed area
+        // GeoSql.area() computes PostGIS ST_Area in square meters as a scalar expression
+        @path('/warehouses/:warehouseId/area')
+        get(UUID warehouseId) : public -> warehouseDb.Warehouse {
+            let Warehouse warehouse = warehouseDb.Warehouse.findOrFail(warehouseId);
+
+            // GeoShape.area() is a value-level operation using the geometry value
+            // This demonstrates value-level vs SQL-level geo operations
+            let Number computedArea = GeoShape.area(warehouse.boundary);
+
+            return warehouse;
+        }
+
+    }
+
+}

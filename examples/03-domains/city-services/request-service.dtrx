@@ -1,0 +1,173 @@
+
+from cityservices.common import FacilityType, RequestPriority, RequestStatus, generateRequestNumber;
+
+// Manages citizen service requests with spatial location context
+// Demonstrates: GeoSql.withinDistanceMeters, GeoSql.distanceMeters, GeoShape.fromGeoJson, GeoShape.containsPoint
+service cityservices.RequestService('config/request-service.dcfg') : version('1.0.0'), description('citizen service request management with location-aware queries') {
+
+    discovery { }
+
+    rdbms requestDb {
+
+        // Citizen service request reported at a specific location
+        entity ServiceRequest extends BaseEntity {
+            String(30) requestNumber : unique;
+            String(200) title : trim;
+            Text description;
+            RequestPriority priority = RequestPriority.Medium;
+            RequestStatus status = RequestStatus.Open;
+            Geometry location;
+            String(300)? address;
+            UUID? assignedDistrictId : index;
+            UUID? assignedFacilityId : index;
+
+            index(status);
+            index(priority, status);
+            fulltext(title, description);
+
+            validate {
+                if (title.trim().isEmpty())
+                    ValidationError("Request title cannot be empty");
+            }
+
+            beforeCreate {
+                requestNumber = generateRequestNumber();
+            }
+
+            afterCreate {
+                dispatch RequestCreated(id, requestNumber, title, priority);
+            }
+
+            afterUpdate {
+                if (isChanged(status)) {
+                    dispatch RequestStatusChanged(id, requestNumber, oldValue(status), status);
+                }
+            }
+
+            fn assign(UUID districtId) {
+                assignedDistrictId = districtId;
+                status = RequestStatus.Assigned;
+                this.save();
+            }
+
+            fn resolve() {
+                if (status != RequestStatus.InProgress) {
+                    throw ValidationException("Only in-progress requests can be resolved");
+                }
+                status = RequestStatus.Resolved;
+                this.save();
+            }
+        }
+    }
+
+    pubsub mq {
+        topic RequestEvents {
+            publish RequestCreated(UUID requestId, String requestNumber, String title, RequestPriority priority) {
+                ensure title.length > 0;
+            }
+            publish RequestStatusChanged(UUID requestId, String requestNumber, RequestStatus oldStatus, RequestStatus newStatus) {
+                ensure oldStatus != newStatus;
+            }
+        }
+    }
+
+    subscribe RequestEvents {
+        on RequestCreated(UUID requestId, String requestNumber, String title, RequestPriority priority) {
+            Log.info("Service request created", { requestId: requestId, requestNumber: requestNumber, priority: priority });
+        }
+
+        on RequestStatusChanged(UUID requestId, String requestNumber, RequestStatus oldStatus, RequestStatus newStatus) {
+            Log.info("Request status changed", { requestId: requestId, from: oldStatus, to: newStatus });
+        }
+    }
+
+    // Subscribe to district events for auto-assignment context
+    subscribe DistrictEvents {
+        on DistrictCreated(UUID districtId, String name, String code) {
+            Log.info("District available for request routing", { districtId: districtId, code: code });
+        }
+    }
+
+    // Subscribe to facility events for nearest-facility awareness
+    subscribe FacilityEvents {
+        on FacilityCreated(UUID facilityId, String name, String facilityCode, FacilityType type) {
+            Log.info("Facility available for request assignment", { facilityId: facilityId, type: type });
+        }
+
+        on ParkCreated(UUID parkId, String name, String parkCode) {
+            Log.info("Park available for request context", { parkId: parkId, parkCode: parkCode });
+        }
+    }
+
+    struct CreateServiceRequestInput {
+        String title;
+        Text description;
+        RequestPriority priority;
+        String locationGeoJson;
+    }
+
+    struct AssignRequestInput {
+        UUID districtId;
+    }
+
+    rest_api RequestAPI : basePath('/api/v1/requests'), rdbms(requestDb) {
+
+        resource requestDb.ServiceRequest : only(list, get), public;
+        resource requestDb.ServiceRequest : only(delete), access(admin);
+
+        // Find open service requests near a given location
+        // GeoSql.withinDistanceMeters() lowers to PostGIS ST_DWithin
+        // GeoSql.distanceMeters() lowers to PostGIS ST_Distance for ordering
+        @path('/nearby')
+        get(Number lat, Number lng, Number radiusMeters) : public -> Array<requestDb.ServiceRequest> {
+            return requestDb.ServiceRequest
+                .where(status: RequestStatus.Open)
+                .where(GeoSql.withinDistanceMeters(location, lat, lng, radiusMeters))
+                .orderBy(GeoSql.distanceMeters(location, lat, lng))
+                .all();
+        }
+
+        // Create a service request with location from GeoJSON input
+        // GeoShape.fromGeoJson() converts a GeoJSON point string to WKT Geometry
+        @path('/')
+        post(CreateServiceRequestInput input) : public -> requestDb.ServiceRequest {
+            let Geometry locationGeometry = GeoShape.fromGeoJson(input.locationGeoJson);
+
+            let ServiceRequest request = requestDb.ServiceRequest.create({
+                title: input.title,
+                description: input.description,
+                priority: input.priority,
+                location: locationGeometry
+            });
+            request.save();
+
+            dispatch RequestCreated(request.id, request.requestNumber, request.title, request.priority);
+            return request;
+        }
+
+        // Check if a service request falls within a given boundary polygon
+        // GeoShape.containsPoint() is a value-level containment check
+        @path('/:requestId/check-boundary')
+        get(UUID requestId, String boundaryWkt) : internal -> JSON {
+            let ServiceRequest request = requestDb.ServiceRequest.findOrFail(requestId);
+            let String requestWkt = GeoShape.toWkt(request.location);
+            let Geometry boundaryGeometry = GeoShape.fromWkt(boundaryWkt);
+
+            // Value-level containment check — not a SQL operation
+            let Boolean isInside = GeoShape.containsPoint(boundaryGeometry, 0, 0);
+
+            return {
+                requestId: request.id,
+                isInsideBoundary: isInside
+            };
+        }
+
+        // Assign a request to a district
+        @path('/:requestId/assign')
+        post(UUID requestId, AssignRequestInput input) : access(admin) -> requestDb.ServiceRequest {
+            let ServiceRequest request = requestDb.ServiceRequest.findOrFail(requestId);
+            request.assign(input.districtId);
+            return request;
+        }
+    }
+}

@@ -1,5 +1,5 @@
 
-from taskapp.common import MAX_PAGE_SIZE;
+from datrix.foundation import MAX_PAGE_SIZE;
 
 service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0'), description('project and team management service') {
     discovery {
