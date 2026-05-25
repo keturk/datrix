@@ -68,8 +68,8 @@ graph TD
  CGC --> D[datrix-codegen-python]
  CGC --> E[datrix-codegen-typescript]
  A --> F[datrix-codegen-sql]
- A --> G[datrix-codegen-docker]
- A --> H[datrix-codegen-k8s]
+ CGC --> G[datrix-codegen-docker]
+ CGC --> H[datrix-codegen-k8s]
  A --> I[datrix-codegen-aws]
  A --> J[datrix-codegen-azure]
  B --> K[datrix-cli]
@@ -88,10 +88,10 @@ graph TD
 - **datrix-common** (no dependencies) — Foundation and generation framework (AST model, type system, semantic analysis, standard library resources + loader protocols, config resolution, plugin protocols, generation framework). Does **not** import `datrix-language` — parser and stdlib-loader implementations are injected via protocols.
 - **datrix-language** (depends on datrix-common) — Parser + CST-to-AST transformers, implements `ParserProtocol` and `StdlibParserProtocol` defined in datrix-common
 - **datrix-extensions** (depends on datrix-common) — Optional domain packs; **not** required by `datrix-cli` or generators unless you declare `use extension` and install the pack
-- **datrix-codegen-common** (depends on datrix-common) — Shared codegen intelligence: profile-driven transpiler, language-agnostic algorithms, context models, field analysis, parity checking. Consumed only by language codegen packages.
+- **datrix-codegen-common** (depends on datrix-common) — Shared codegen intelligence: profile-driven transpiler, language-agnostic algorithms, context models, field analysis, parity checking, shared Grafana dashboard builder. Consumed by language codegen packages and platform generators that emit Grafana dashboards (Docker, Kubernetes).
 - **Language Code Generators** (depend on datrix-codegen-common, which depends on datrix-common) — Python, TypeScript
 - **Other Code Generators** (depend on datrix-common) — SQL, component
-- **Platform Generators** (depend on datrix-common) — Docker, Kubernetes, AWS, Azure
+- **Platform Generators** — Docker and Kubernetes depend on datrix-codegen-common (for shared dashboard builder); AWS and Azure depend on datrix-common only (they use platform-native dashboard builders)
 - **datrix-cli** (depends on datrix-common, datrix-language; owns `GenerationPipeline` orchestration; discovers generator plugins dynamically)
 
 **Import boundary enforcement:** The dependency edges above are enforced by automated tooling — see [Import Boundaries](../../datrix-common/docs/architecture/import-boundaries.md) for the full rule table and scanner usage.

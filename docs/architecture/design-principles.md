@@ -36,6 +36,10 @@ Datrix is built on proven software engineering principles that ensure:
 
 **Example (rate limit preconditions):** Both rate limiting templates (`middleware_rate_limit.py.j2` for per-route and `rate_limit_dependency.py.j2` for plan-based) raise `HTTPException` **503** when `app.state.redis` is missing and rate limiting is not disabled, and **429** when the limit is exceeded. Both respect `DISABLE_RATE_LIMIT` env var for testing — the only intentional bypass path.
 
+**Example (required-body validation):** `RequiredBodyValidator` in `datrix_common.semantic.validators.required_body` rejects callable declarations (service functions, entity functions, lifecycle hooks, CQRS handlers, job handlers, validate blocks, trait functions) that have no body at compile time with `BODY001` diagnostics — rather than allowing empty bodies to reach code generation and emit runtime `NotImplementedError` / `throw new Error` stubs. REST endpoints and test specs are excluded (empty endpoints return valid default responses; empty tests are placeholders). This validator runs as part of domain validation (semantic analysis phase 13) and guarantees that generated code is fully functional without runtime stubs.
+
+**Example (generated-output stub guard):** A shared guard in `datrix_codegen_common` scans generated file objects for forbidden runtime stub patterns (`raise NotImplementedError`, `throw new Error(…not implemented…)`) before output is accepted. Each language generator entrypoint invokes the guard so stubs cannot reach generated output even if a validation gap exists. Allowlisting is narrow and pattern-specific (e.g., the Windows `except NotImplementedError` signal-handler idiom).
+
 **Benefits:**
 - ✅ Cannot continue with invalid state
 - ✅ Error includes helpful suggestions
@@ -520,11 +524,11 @@ If a genDSL compiler needs intermediate structures, they stay in process memory 
 
 ---
 
-### 2. No Dead Code
+### 2. No Dead Code, No Runtime Stubs
 
-**Principle:** Only generate code that will be used.
+**Principle:** Only generate code that will be used. Generated code must be fully functional — never emit `raise NotImplementedError` or `throw new Error("...not implemented")` stubs.
 
-**Application:** Only code that is used is generated. Utilities (e.g. case conversion) are emitted only when the Application requires them. The codebase does not generate unused helpers "just in case."
+**Application:** Only code that is used is generated. Utilities (e.g. case conversion) are emitted only when the Application requires them. The codebase does not generate unused helpers "just in case." Callable declarations that require an implementation body (service functions, entity functions, lifecycle hooks, CQRS handlers, job handlers, validate blocks) are validated at compile time; empty bodies produce `BODY001` errors. Generator fallback paths use internal assertions (indicating a framework bug) rather than user-facing runtime stubs. A shared generated-output guard scans all generated files before output is accepted, ensuring no runtime stub patterns slip through.
 
 ---
 
