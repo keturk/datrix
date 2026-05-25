@@ -790,3 +790,50 @@ transaction {
     db.Inventory.decrementStock(order.items);
 }
 ```
+
+---
+
+## Required Implementation Bodies
+
+Certain declaration types **require** a non-empty implementation body. If you declare one of these without a body, the Datrix compiler rejects it at compile time with a `BODY001` error — no code is generated.
+
+| Declaration type | Body required? | Rationale |
+|-----------------|----------------|-----------|
+| Service function | Yes | A declared function with no body has no purpose |
+| Module function | Yes | Same as service function |
+| Entity function | Yes | Same as service function |
+| Struct function | Yes | Same as service function |
+| Trait function | Yes | Trait functions merge into executable entity behavior |
+| Lifecycle hook | Yes | Declaring a hook with no body is nonsensical |
+| Trait hook | Yes | Trait hooks merge into lifecycle hook behavior |
+| Validate block | Yes | Declaring validation with no rules is nonsensical |
+| CQRS command handler | Yes | A command that does nothing is an error |
+| CQRS query handler | Yes | A query that returns nothing is an error |
+| CQRS projection handler | Yes | A projection handler must explicitly react to the event |
+| Job handler | Yes | A scheduled job with no action is an error |
+| REST endpoint | No | Empty endpoints return default responses (valid) |
+| GraphQL resolver | No | Empty resolvers return null (valid for nullable fields) |
+| Test spec | No | Empty tests are placeholders (acceptable) |
+| Computed field | N/A | Expression-based, not body-based |
+
+### What counts as empty
+
+A body is empty if it contains **zero statements**. A body containing any legal statement — even a single no-op — is non-empty and passes validation.
+
+### Error format
+
+```
+Error: Function 'calculateTotal' is declared without a body.
+  All function declarations must include an implementation.
+  Add a body block or remove the declaration until it is implemented.
+  Code: BODY001
+  Location: order_service.dtrx:42
+```
+
+### Exempt declarations
+
+**REST endpoints** with empty bodies are valid — the framework returns an empty response without executing user logic. **GraphQL resolvers** with empty bodies return `null`, which is valid for nullable fields. **Test specs** with empty bodies are acceptable placeholders.
+
+### Intentional no-ops
+
+If a declaration genuinely needs to do nothing (for example, a CQRS projection handler that intentionally ignores an event), you must provide an explicit legal body with valid behavior — such as a logging statement or metric emission. Empty bodies are never valid for required-body declarations.
