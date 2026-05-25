@@ -228,6 +228,40 @@ service CatalogService {
 
 **`fulltext()` entity modifier** remains for database-native full-text indexes (PostgreSQL GIN / MySQL FULLTEXT). The `search` block targets external search engines with relevance scoring, faceted search, autocomplete, and multi-entity indexes — a different performance tier.
 
+### ArcGIS FeatureServer Integration (Planned)
+
+Datrix supports first-class ArcGIS FeatureServer paged ingestion through the `arcgisFeatureLayer` integration kind. This replaces ad-hoc HTTP API client usage for ArcGIS FeatureServer layers with a target-neutral contract that generates pagination, geometry normalization, checksum computation, and archive handling.
+
+**Config shape (`.dcfg`):**
+
+```dcfg
+integrations layerName {
+    kind = "arcgisFeatureLayer";
+    baseUrl = "https://services2.arcgis.com/.../FeatureServer/0";
+    objectIdField = "OBJECTID";
+    outSR = 4326;
+    pageSize = 1000;
+    where = "1=1";
+    archiveMode = "changed";
+    outFields = ["OBJECTID", "NAME", "STATUS"];
+    rateLimit { requestsPerSecond = 2.0; burstAllowed = 5; backoffStrategy = "exponential"; }
+    retry { maxAttempts = 3; initialDelayMs = 1000; maxDelayMs = 10000; retryOn = [429, 500, 502, 503, 504]; }
+    timeout { connectMs = 10000; readMs = 60000; }
+}
+```
+
+**Config model:** `ArcGisFeatureLayerIntegrationConfig` in `datrix_common.config.integrations.models` with fields: `kind` (literal `"arcgisFeatureLayer"`), `base_url`, `object_id_field` (optional), `out_sr` (default 4326), `page_size` (optional positive int), `where` (default `"1=1"`), `out_fields` (required non-empty list), `watermark_field` (optional), `archive_mode` (enum: `manifest | changed | full | failureOnly`, default `changed`), `geometry` (default `true`), plus shared `rate_limit`, `retry`, `timeout`, `monitoring`.
+
+**Runtime query contract:** Generated code performs: (1) metadata fetch (`GET {baseUrl}?f=json` for `maxRecordCount` and `objectIdField`), (2) paged `/query` calls with `resultOffset`/`resultRecordCount`, `orderByFields=<objectIdField> ASC`, and explicit field list, (3) stop when no features or `exceededTransferLimit` is false with fewer results than page size, (4) per-feature attribute normalization, geometry conversion (ArcGIS polyline to GeoJSON), SHA-256 checksum computation from canonical JSON, and (5) idempotent upsert of changed features using stable source key.
+
+**Refresh modes:** `incremental` (checksum comparison baseline, optional watermark narrowing) and `reconcile` (full layer scan, stale record detection).
+
+**Archive modes:** `manifest` (run metadata only), `changed` (manifest + changed/failed records, default), `full` (manifest + all fetched pages), `failureOnly` (manifest + failed records on error).
+
+**Multi-language lowering:** Python and TypeScript generators emit target-native ArcGIS client modules under `integrations/` with: httpx/fetch-based HTTP client, retry/rate-limit settings, metadata request, page iteration, geometry normalization, and checksum generation. No ArcGIS SDK dependency — generated code uses standard HTTP clients.
+
+**Failure behavior:** ArcGIS response errors, missing object ID metadata, missing feature arrays, or repeated page cursors fail the ingestion run. Silent partial refresh is invalid.
+
 ### CDN / Content Delivery (Beta)
 
 Datrix supports CDN configuration through `cdn` blocks in services and shared containers. A `cdn` block declares a CDN distribution with named origins, cache behaviors, and optional custom domains.

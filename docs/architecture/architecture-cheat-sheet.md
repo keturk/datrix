@@ -99,6 +99,7 @@ Contract-only declarations for external libraries/tools that Datrix does not gen
 - GraphQL DataLoaders, rate limiting (gateway + per-route Redis), RFC 7807 errors
 - Prometheus metrics, Grafana dashboards, cAdvisor, alert rules
 - Multi-service NGINX gateway (upstreams, health aliases, CORS, rate limit zones)
+- ArcGIS FeatureServer paged ingestion (`arcgisFeatureLayer` integration kind): metadata-aware pagination, deterministic checksums, watermark optimization, archive/refresh modes
 
 ## DSL grammar snapshot (`.dtrx`)
 
