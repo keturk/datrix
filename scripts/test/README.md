@@ -398,6 +398,379 @@ With structured output, an agent investigating generated test failures follows t
 
 This replaces the previous workflow of reading the summary log, then each per-service log (~150 lines each), then manually grouping errors across services and projects.
 
+### Deploy Test Structured Output
+
+Deploy tests verify that generated projects build, deploy, and pass spec/integration tests against real Docker containers. After each project's deploy tests complete, `run_complete.py` post-processes raw test data (failures.json, JUnit XML, Jest JSON, Docker logs, deploy-test-output.log) into structured result directories under each generated project's `.test_results/`:
+
+```
+{project}/.test_results/
+  deploy-test-20260503-210903/
+    index.json                       # Machine-readable index (agent reads this FIRST)
+    summary.txt                      # Human-readable summary (< 60 lines)
+    full.log                         # Combined execution log
+    environment.json                 # Toolchain metadata
+    docker-logs/                     # Per-container logs (unchanged)
+      library_book_service.log
+      library_book_service-book-db-db.log
+      ...
+    services/
+      library_book_service/
+        spec/
+          junit.xml                  # (Python) pytest JUnit XML for spec tests
+          jest-results.json          # (TypeScript) Jest JSON for spec tests
+        integration/
+          junit-project.xml          # (Python) project-level integration tests
+          junit-service.xml          # (Python) per-service integration tests
+          jest-results.json          # (TypeScript) Jest JSON for integration tests
+    failures/                        # One file per unique test failure (logic only)
+      001-library_book_service-spec-AssertionError-book_validation.txt
+      ...
+    errors/                          # Infrastructure/lifecycle errors
+      001-docker-up-container-unhealthy.txt
+      002-health-check-timeout-library_book_service.txt
+      ...
+```
+
+**`index.json`** is always generated (even for passing runs). **`failures/`** and **`errors/`** directories are only created when there are actual failures or errors.
+
+#### Deploy Test Phases
+
+Deploy tests progress through distinct phases. Failures at each phase have different characteristics:
+
+| Phase | What happens | Failure output |
+|-------|-------------|---------------|
+| **docker-build** | `docker compose build` | Exit code + build output in `full.log` |
+| **docker-up** | `docker compose up -d` + wait for healthy | Exit code + container logs in `docker-logs/` |
+| **health-check** | HTTP health check per service | Timeout/error in `full.log` + container logs |
+| **db-connectivity** | Database URL resolution + connection test | Error in `full.log` |
+| **spec-tests** | pytest/Jest spec tests per service | `failures.json` + JUnit XML / Jest JSON |
+| **integration-tests** | pytest/Jest integration tests | `failures.json` + JUnit XML / Jest JSON |
+
+The `index.json` captures which phase failed, enabling agents to immediately distinguish Docker lifecycle issues from test failures.
+
+#### Example summary.txt (Infrastructure Failure)
+
+```
+cache deploy test results (Python)
+2026-05-03 21:10:03 | Duration: 120.5s
+
+RESULT: FAILED at docker-up phase
+
+.dtrx source: datrix/examples/02-features/03-infrastructure-blocks/cache/system.dtrx
+
+PHASES:
+  ✓ docker-build    13.2s
+  ✗ docker-up       75.0s  → ContainerUnhealthy: library-book-service is unhealthy
+  - health-check    (skipped)
+  - db-connectivity (skipped)
+  - spec-tests      (skipped)
+  - integration     (skipped)
+
+ERRORS:
+  [docker-up] ContainerUnhealthy: dependency failed to start: container library-book-service is unhealthy
+    Container log: docker-logs/library-book-service.log
+    Probable template: docker-compose.yml.j2
+
+SERVICE STATUS:
+  ✗ library_book_service  port:8000  docker:unhealthy  tests:skipped
+```
+
+#### Example summary.txt (Test Failures)
+
+```
+01-foundation deploy test results (Python)
+2026-05-03 21:09:03 | Duration: 87.3s
+
+RESULT: FAILED at integration-tests phase (17 passed, 2 failed)
+
+.dtrx source: datrix/examples/01-foundation/system.dtrx
+
+PHASES:
+  ✓ docker-build    13.2s
+  ✓ docker-up       60.0s
+  ✓ health-check     0.5s
+  ✓ db-connectivity   0.2s
+  ✓ spec-tests        3.5s  (all passed)
+  ✗ integration      10.0s  (17 passed, 2 failed)
+
+FAILURE CLUSTERS:
+  [1 logic failure] AssertionError: assert * == response.status_code
+    Probable template: test_service.py.j2
+
+  [1 transient failure] ConnectionResetError: *
+    (transient — likely infrastructure flakiness, not a codegen bug)
+
+SERVICE STATUS:
+  ✓ library_book_service  port:8000  docker:healthy  spec:passed  integration:FAILED (2)
+```
+
+#### Individual Error Files
+
+**Infrastructure error:** `errors/001-docker-up-container-unhealthy.txt`
+
+```
+PHASE: docker-up
+ERROR: ContainerUnhealthy
+MESSAGE: dependency failed to start: container library-book-service is unhealthy
+
+--- Relevant Container ---
+library-book-service
+
+--- Container Log Excerpt ---
+(last 50 lines of docker-logs/library-book-service.log)
+INFO library_book_service.main application_starting service=library_book_service
+ERROR library_book_service.cache.redis_client redis_connection_failed host=library-book-service-cache port=6379
+ERROR library_book_service.main startup_failed error=Cannot connect to Redis at library-book-service-cache:6379
+...
+
+--- Generated Files ---
+docker-compose.yml
+library_book_service/Dockerfile
+
+--- Codegen Hint ---
+Probable template: docker-compose.yml.j2
+Probable generator: DockerComposeGenerator
+.dtrx source: datrix/examples/02-features/03-infrastructure-blocks/cache/system.dtrx
+```
+
+**Test failure:** `failures/001-library_book_service-integration-AssertionError-test_create_book.txt`
+
+```
+SERVICE: library_book_service
+PHASE: integration-tests
+TEST: tests/test_library_book_service.py::TestLibraryBookServiceService::test_create_book
+FAILURE TYPE: logic
+ERROR: AssertionError: assert 201 == response.status_code, got 400
+
+--- Traceback ---
+tests/test_library_book_service.py:42: in test_create_book
+    assert response.status_code == 201, f"Expected 201, got {response.status_code}"
+AssertionError: assert 201 == response.status_code, got 400
+
+--- Generated File ---
+tests/test_library_book_service.py
+
+--- Codegen Hint ---
+Probable template: test_service.py.j2
+Probable generator: IntegrationTestGenerator
+.dtrx source: datrix/examples/01-foundation/system.dtrx
+```
+
+#### Cross-Project Aggregate Index (Deploy Tests)
+
+After all projects are tested, `run_complete.py` produces a cross-project aggregate at the `.generated` level:
+
+```
+.generated/.test_results/
+  deploy-tests-20260503-210903/
+    aggregate-index.json             # Cross-project index (agent reads this FIRST)
+    aggregate-summary.txt            # Human-readable cross-project summary
+    full.log                         # Full orchestration log
+```
+
+**`aggregate-summary.txt`** example:
+
+```
+Generated Project Deploy Tests — Cross-Project Summary
+2026-05-03 21:30:16 | Python/Docker
+
+RESULT: 10/12 projects passed (180 tests passed, 2 failed)
+
+INFRASTRUCTURE FAILURES (1 project):
+  ✗ cache  → docker-up: ContainerUnhealthy (library-book-service)
+    Probable template: docker-compose.yml.j2
+
+LOGIC FAILURES (1 project):
+  ✗ 01-foundation  → integration: AssertionError: assert * == response.status_code
+    Probable template: test_service.py.j2
+
+TRANSIENT FAILURES:
+  ✗ 01-foundation  → integration: ConnectionResetError (1 test)
+
+PASSED PROJECTS (10):
+  ✓ entities            20 passed
+  ✓ authentication      18 passed
+  ✓ rest-api            18 passed
+  ...
+```
+
+#### Per-Project index.json Schema (Deploy Tests)
+
+```json
+{
+  "schema_version": 1,
+  "project": "python/docker/02-features/03-infrastructure-blocks/cache",
+  "project_path": "D:\\datrix\\.generated\\python\\docker\\02-features\\03-infrastructure-blocks\\cache",
+  "language": "python",
+  "platform": "docker",
+  "example": "02-features/03-infrastructure-blocks/cache",
+  "dtrx_source": "datrix/examples/02-features/03-infrastructure-blocks/cache/system.dtrx",
+  "timestamp": "2026-05-03T21:10:03",
+  "duration_seconds": 120.5,
+  "result": "FAILED",
+  "failed_phase": "docker-up",
+  "phases": {
+    "docker-build": { "result": "PASSED", "duration_seconds": 13.2 },
+    "docker-up": {
+      "result": "FAILED",
+      "duration_seconds": 75.0,
+      "error_message": "dependency failed to start: container library-book-service is unhealthy",
+      "relevant_containers": ["library-book-service"]
+    },
+    "health-check": { "result": "SKIPPED" },
+    "db-connectivity": { "result": "SKIPPED" },
+    "spec-tests": { "result": "SKIPPED" },
+    "integration-tests": { "result": "SKIPPED" }
+  },
+  "services": [
+    {
+      "name": "library_book_service",
+      "port": 8000,
+      "docker_healthy": false,
+      "health_check_passed": false,
+      "db_connectivity_passed": false,
+      "spec_result": "SKIPPED",
+      "integration_result": "SKIPPED",
+      "counts": { "passed": 0, "failed": 0, "errors": 0, "skipped": 0 }
+    }
+  ],
+  "failures": [],
+  "errors": [
+    {
+      "id": 1,
+      "phase": "docker-up",
+      "error_type": "ContainerUnhealthy",
+      "error_message": "dependency failed to start: container library-book-service is unhealthy",
+      "container": "library-book-service",
+      "docker_log_file": "docker-logs/library-book-service.log",
+      "log_file": "errors/001-docker-up-container-unhealthy.txt",
+      "generated_file": "docker-compose.yml",
+      "codegen_hint": {
+        "probable_template": "docker-compose.yml.j2",
+        "probable_generator": "DockerComposeGenerator"
+      }
+    }
+  ],
+  "failure_clusters": [],
+  "error_clusters": [
+    {
+      "cluster_id": 1,
+      "pattern": "ContainerUnhealthy: * is unhealthy",
+      "phase": "docker-up",
+      "count": 1,
+      "services_affected": ["library_book_service"],
+      "error_ids": [1],
+      "representative_error_id": 1,
+      "codegen_hint": {
+        "probable_template": "docker-compose.yml.j2",
+        "probable_generator": "DockerComposeGenerator"
+      }
+    }
+  ]
+}
+```
+
+Key fields:
+- **`failed_phase`**: The first phase that failed. Allows the agent to immediately know whether this is a Docker lifecycle issue or a test issue.
+- **`relevant_containers`**: For Docker lifecycle errors, which containers are involved. The agent reads only these docker log files.
+- **`failure_type`**: `"transient"` (infrastructure issues like connection resets, timeouts) or `"logic"` (actual bugs). Agents focus on `"logic"` failures for codegen fixes.
+- **`phases`**: Ordered progression. Later phases are `SKIPPED` if an earlier phase failed.
+
+#### Cross-Project aggregate-index.json Schema (Deploy Tests)
+
+```json
+{
+  "schema_version": 1,
+  "timestamp": "2026-05-03T21:30:16",
+  "language": "python",
+  "platform": "docker",
+  "total_projects": 12,
+  "projects_passed": 10,
+  "projects_failed": 2,
+  "total_counts": {
+    "passed": 180,
+    "failed": 2,
+    "errors": 0,
+    "skipped": 0,
+    "infrastructure_failures": 1
+  },
+  "failed_projects": [
+    {
+      "project": "python/docker/02-features/03-infrastructure-blocks/cache",
+      "example": "02-features/03-infrastructure-blocks/cache",
+      "result_dir": "D:\\datrix\\.generated\\python\\docker\\02-features\\03-infrastructure-blocks\\cache\\.test_results\\deploy-test-20260503-210903",
+      "failed_phase": "docker-up",
+      "counts": { "passed": 0, "failed": 0, "errors": 0 },
+      "top_cluster_pattern": "ContainerUnhealthy: * is unhealthy"
+    },
+    {
+      "project": "python/docker/01-foundation",
+      "example": "01-foundation",
+      "result_dir": "D:\\datrix\\.generated\\python\\docker\\01-foundation\\.test_results\\deploy-test-20260503-210903",
+      "failed_phase": "integration-tests",
+      "counts": { "passed": 17, "failed": 2, "errors": 0 },
+      "top_cluster_pattern": "AssertionError: assert * == response.status_code"
+    }
+  ],
+  "cross_project_clusters": [
+    {
+      "cluster_id": 1,
+      "pattern": "ContainerUnhealthy: * is unhealthy",
+      "phase": "docker-up",
+      "failure_type": "infrastructure",
+      "projects_affected": ["02-features/03-infrastructure-blocks/cache"],
+      "total_errors": 1,
+      "codegen_hint": {
+        "probable_template": "docker-compose.yml.j2",
+        "probable_generator": "DockerComposeGenerator"
+      },
+      "representative_project": "02-features/03-infrastructure-blocks/cache"
+    },
+    {
+      "cluster_id": 2,
+      "pattern": "AssertionError: assert * == response.status_code",
+      "phase": "integration-tests",
+      "failure_type": "logic",
+      "projects_affected": ["01-foundation"],
+      "total_errors": 1,
+      "codegen_hint": {
+        "probable_template": "test_service.py.j2",
+        "probable_generator": "IntegrationTestGenerator"
+      },
+      "representative_project": "01-foundation"
+    }
+  ]
+}
+```
+
+Key fields:
+- **`infrastructure_failures`**: Count of projects that failed in Docker lifecycle phases (never reached tests). Distinct from test-level failures.
+- **`failed_phase`**: Per project, the phase that failed. Enables quick scanning: "3 projects failed at docker-up, 2 at integration-tests."
+- **`failure_type`**: At the cluster level, distinguishes `"infrastructure"` (Docker lifecycle), `"logic"` (codegen bug), and `"transient"` (environment flakiness). Agents prioritize `"logic"` clusters.
+
+#### Transient Error Patterns
+
+Python deploy tests classify failures as `"transient"` (infrastructure/environment issues) or `"logic"` (actual bugs) at runtime. TypeScript failures are classified during post-processing. The transient patterns are defined in `datrix/scripts/library/shared/deploy_test_log_writer.py` as `TRANSIENT_ERROR_PATTERNS` and include:
+
+- Connection-related: `ConnectionResetError`, `ConnectionDoesNotExistError`, `connection was closed in the middle of operation`
+- Network/DNS: `getaddrinfo failed`, `Name or service not known`, `Temporary failure in name resolution`
+- Timeout: `timeout`, `timed out`
+- Database: `server closed the connection unexpectedly`, `connection to server * closed unexpectedly`
+- Infrastructure: `Cannot connect to`, `Connection refused`, `No route to host`
+
+Agents skip transient failures when investigating codegen bugs, as they indicate environment issues rather than code generation problems.
+
+#### Agent Workflow (Deploy Tests)
+
+With structured output, an agent investigating generated deploy test failures follows this workflow:
+
+1. Read `aggregate-index.json` — see all failed projects, phases, cross-project clusters, codegen hints
+2. Read representative project's `index.json` — full phase breakdown, service status, error/failure clusters
+3. Read `errors/001-....txt` or `failures/001-....txt` (~30 lines) — understand the error with relevant container log excerpt
+4. Fix root cause in template/generator — re-run — read new `aggregate-index.json`
+
+This replaces the previous workflow of reading deploy-test-summary.log (minimal detail), deploy-test-output.log (~200 lines), failures.json (flat list), and guessing which of 10-20 docker container logs (~100KB total) to read.
+
 ## status-tests.ps1
 
 Shows a summary of test status across projects.
