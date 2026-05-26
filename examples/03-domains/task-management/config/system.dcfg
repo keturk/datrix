@@ -26,7 +26,7 @@ config system taskapp.System {
       }
       auth {
         jwt {
-          algorithm = "HS256";
+          algorithm = "RS256";
           issuer = "library";
           expiresIn = 86400;
           exclude = ["/health", "publicRoutes"];

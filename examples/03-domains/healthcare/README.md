@@ -34,7 +34,7 @@ A healthcare management system for patient records, appointments, and medical hi
 - **JSON logging** - Structured logs with audit trail
 
 ### API Gateway
-- **JWT authentication** (HS256)
+- **JWT authentication** (RS256)
 - **Rate limiting** per endpoint
 - **CORS** configuration
 

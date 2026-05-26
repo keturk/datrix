@@ -34,7 +34,7 @@ A content management system for blogs and articles with author management, conte
 - **JSON logging** - Structured logs
 
 ### API Gateway
-- **JWT authentication** (HS256)
+- **JWT authentication** (RS256)
 - **Rate limiting** per endpoint
 - **CORS** configuration
 
