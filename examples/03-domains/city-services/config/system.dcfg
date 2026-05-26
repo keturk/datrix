@@ -26,7 +26,7 @@ config system cityservices {
       }
       auth {
         jwt {
-          algorithm = "HS256";
+          algorithm = "RS256";
           issuer = "cityservices";
           expiresIn = 86400;
           exclude = ["/health", "publicRoutes"];

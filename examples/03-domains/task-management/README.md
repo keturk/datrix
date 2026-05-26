@@ -34,7 +34,7 @@ A project and task management system for team collaboration.
 - **JSON logging** - Structured logs
 
 ### API Gateway
-- **JWT authentication** (HS256)
+- **JWT authentication** (RS256)
 - **Rate limiting** per endpoint
 - **CORS** configuration
 

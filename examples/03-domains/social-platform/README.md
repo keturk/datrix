@@ -34,7 +34,7 @@ A social networking platform with user profiles, posts, and notifications.
 - **JSON logging** - Structured logs
 
 ### API Gateway
-- **JWT authentication** (HS256)
+- **JWT authentication** (RS256)
 - **Rate limiting** per user and endpoint
 - **CORS** configuration
 

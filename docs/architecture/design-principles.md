@@ -40,6 +40,8 @@ Datrix is built on proven software engineering principles that ensure:
 
 **Example (generated-output stub guard):** A shared guard in `datrix_codegen_common` scans generated file objects for forbidden runtime stub patterns (`raise NotImplementedError`, `throw new Error(…not implemented…)`) before output is accepted. Each language generator entrypoint invokes the guard so stubs cannot reach generated output even if a validation gap exists. Allowlisting is narrow and pattern-specific (e.g., the Windows `except NotImplementedError` signal-handler idiom).
 
+**Example (transpiler identifier resolution):** The transpiler resolves all identifiers through a single-path architecture: a Stage 1-2 pipeline (`NameResolver` → `QueryExpander`) builds a resolution table keyed by AST node ID, and Stage 3 (code emitters) consults that table exclusively. When the table marks an identifier as `"unresolved"`, emit-time raises an explicit error with context instead of silently retrying through fallback lookups. All identifier categories (entities, views, enums, constants, module functions, async API functions, storage blocks, integration clients, service dependencies, cache blocks, builtin categories, entity methods, local variables) must be resolvable through data in `TranspileContext` before the pipeline runs — no silent retry paths exist. This eliminates dual-path bugs where resolution logic could drift between the pipeline and a fallback.
+
 **Benefits:**
 - ✅ Cannot continue with invalid state
 - ✅ Error includes helpful suggestions

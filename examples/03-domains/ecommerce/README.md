@@ -43,7 +43,7 @@ A complete e-commerce platform with product catalog, shopping cart, orders, paym
 - **JSON logging** - Structured logs with trace correlation
 
 ### API Gateway
-- **JWT authentication** (HS256)
+- **JWT authentication** (RS256)
 - **Rate limiting** per API and user
 - **CORS** configuration for web clients
 
