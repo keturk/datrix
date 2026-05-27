@@ -149,7 +149,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             powershell_exe,
             run_complete_ps1,
             cwd,
-            ("-All", "-Skip1", "-Skip2", "-L", lang),
+            ("-All", "-Skip1", "-Skip2", "-L", lang, "-Platform", "docker-compose/local"),
         )
         record(rc_code)
 
