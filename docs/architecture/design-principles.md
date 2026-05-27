@@ -380,7 +380,8 @@ search es('config/search.dcfg') { ... }
 **Access Rules:**
 - **Inside the same block:** Bare names (e.g., `belongsTo Author`, `extends BaseEntity`)
 - **Outside the block:** Use `blockname.Thing` (e.g., `resource db.Book`, `db.User.findOrFail(id)`, `redis.SessionCache.set(...)`)
-- **Enums, structs, constants:** Live at service level (directly inside `service { }`), always bare names
+- **Service-level enums, structs, constants:** Live directly inside `service { }`, always bare names
+- **Block-level enums:** Enums declared inside a block are block-scoped — visible by bare name only within that block. Cross-block usage requires qualified name (`blockName.EnumName`). Same enum name in different blocks is valid (different scopes, no collision).
 - **Transactions:** Explicitly name the block they scope: `transaction(db) { ... }`
 
 ---

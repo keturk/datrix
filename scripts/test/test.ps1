@@ -52,8 +52,18 @@
 .PARAMETER Keyword
  Run tests matching keyword expression (-k option).
 
+.PARAMETER Rerun
+ Re-run tests only for projects whose latest timestamped test log reports a failure.
+ Scans all projects, reads each project's .test_results directory, and runs tests
+ only for those whose most recent run has failed or errored. Projects with no
+ previous test results are skipped.
+
 .PARAMETER Dbg
  Enable debug logging (DEBUG level instead of INFO).
+
+.EXAMPLE
+ .\test.ps1 -Rerun
+ Re-run tests only for projects whose latest test log reports failures.
 
 .EXAMPLE
  .\test.ps1 datrix-common
@@ -99,6 +109,7 @@ param(
  [string[]]$Projects,
 
  [switch]$All,
+ [switch]$Rerun,
  [switch]$Coverage,
  [switch]$VerboseOutput,
  [switch]$NoSave,
@@ -148,6 +159,59 @@ function Invoke-Cleanup {
  Disable-DatrixVenv
 }
 
+# Helper: determine whether a project's latest test run reported failures.
+# Returns $true if latest run failed/errored, $false if it passed or has no results.
+function Test-ProjectLatestRunFailed {
+ param(
+  [string]$ProjectName,
+  [string]$DatrixRoot
+ )
+
+ $testResultsDir = Join-Path (Join-Path $DatrixRoot $ProjectName) ".test_results"
+ if (-not (Test-Path $testResultsDir -PathType Container)) {
+  return $false
+ }
+
+ # Prefer new directory format: test-results-YYYYMMDD-HHMMSS/
+ $latestDir = Get-ChildItem -Path $testResultsDir -Directory -Filter "test-results-*" |
+  Sort-Object LastWriteTime -Descending |
+  Select-Object -First 1
+
+ if ($latestDir) {
+  $indexJsonPath = Join-Path $latestDir.FullName "index.json"
+  if (Test-Path $indexJsonPath) {
+   try {
+    $indexData = Get-Content $indexJsonPath -Raw | ConvertFrom-Json
+    if ($indexData.result -eq "FAILED") { return $true }
+    if (($indexData.counts.failed -gt 0) -or ($indexData.counts.error -gt 0)) { return $true }
+    return $false
+   } catch {
+    # Fall through to full.log check
+   }
+  }
+  # Fallback: parse full.log for failed count
+  $fullLogPath = Join-Path $latestDir.FullName "full.log"
+  if (Test-Path $fullLogPath) {
+   $content = Get-Content $fullLogPath -Raw
+   if ($content -match '\b\d+\s+failed\b') { return $true }
+   return $false
+  }
+ }
+
+ # Legacy: flat log files test-results-*.log
+ $latestLog = Get-ChildItem -Path $testResultsDir -Filter "test-results-*.log" |
+  Sort-Object LastWriteTime -Descending |
+  Select-Object -First 1
+
+ if ($latestLog) {
+  $content = Get-Content $latestLog.FullName -Raw
+  if ($content -match '\b\d+\s+failed\b' -or $content -match '\b\d+\s+error\b') { return $true }
+  return $false
+ }
+
+ return $false
+}
+
 # Register cleanup on script exit
 Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
 
@@ -160,14 +224,37 @@ try {
  $projectsToTest = @()
 
  if ($All) {
- $projectsToTest = Get-DatrixTestablePackageNames -WorkspaceRoot $datrixWorkspaceRoot
- if ($projectsToTest.Count -eq 0) {
- Write-Host "ERROR: No Datrix projects found in: $datrixWorkspaceRoot" -ForegroundColor Red
- Write-Host ""
- Write-Host "Please ensure Datrix projects are located in the Datrix workspace root directory." -ForegroundColor Yellow
- exit 1
- }
- Write-Host "Running tests for all projects: $($projectsToTest -join ', ')" -ForegroundColor Cyan
+  $projectsToTest = Get-DatrixTestablePackageNames -WorkspaceRoot $datrixWorkspaceRoot
+  if ($projectsToTest.Count -eq 0) {
+  Write-Host "ERROR: No Datrix projects found in: $datrixWorkspaceRoot" -ForegroundColor Red
+  Write-Host ""
+  Write-Host "Please ensure Datrix projects are located in the Datrix workspace root directory." -ForegroundColor Yellow
+  exit 1
+  }
+  Write-Host "Running tests for all projects: $($projectsToTest -join ', ')" -ForegroundColor Cyan
+ } elseif ($Rerun) {
+  $allProjects = Get-DatrixTestablePackageNames -WorkspaceRoot $datrixWorkspaceRoot
+  if ($allProjects.Count -eq 0) {
+  Write-Host "ERROR: No Datrix projects found in: $datrixWorkspaceRoot" -ForegroundColor Red
+  exit 1
+  }
+  Write-Host "Checking latest test results for all projects..." -ForegroundColor Cyan
+  $projectsToTest = @()
+  foreach ($p in $allProjects) {
+  if (Test-ProjectLatestRunFailed -ProjectName $p -DatrixRoot $datrixRoot) {
+   Write-Host "  [FAIL] $p - queued for re-run" -ForegroundColor Yellow
+   $projectsToTest += $p
+  } else {
+   Write-Host "  [OK]   $p - latest run passed or no results, skipping" -ForegroundColor DarkGray
+  }
+  }
+  if ($projectsToTest.Count -eq 0) {
+  Write-Host ""
+  Write-Host "No projects with failing latest test runs found. Nothing to re-run." -ForegroundColor Green
+  exit 0
+  }
+  Write-Host ""
+  Write-Host "Re-running tests for $($projectsToTest.Count) project(s): $($projectsToTest -join ', ')" -ForegroundColor Cyan
  } elseif ($Projects.Count -gt 0) {
  # Normalize project inputs (convert paths to project names if needed)
  $normalizedProjects = $Projects | ForEach-Object { ConvertTo-DatrixProjectName -ProjectInput $_ }
@@ -192,16 +279,18 @@ try {
  Write-Host ""
  Write-Host "Usage:" -ForegroundColor Yellow
  Write-Host " .\test.ps1 <project-name> [options]" -ForegroundColor Cyan
- Write-Host " .\test.ps1 <folder-path> [options]" -ForegroundColor Cyan
- Write-Host " .\test.ps1 -All [options]" -ForegroundColor Cyan
+  Write-Host " .\test.ps1 <folder-path> [options]" -ForegroundColor Cyan
+  Write-Host " .\test.ps1 -All [options]" -ForegroundColor Cyan
+  Write-Host " .\test.ps1 -Rerun [options]" -ForegroundColor Cyan
  Write-Host ""
  Write-Host "Examples:" -ForegroundColor Yellow
  Write-Host " .\test.ps1 datrix-common" -ForegroundColor Cyan
  Write-Host " .\test.ps1 .\datrix-common\" -ForegroundColor Cyan
  Write-Host " .\test.ps1 datrix-common datrix-language" -ForegroundColor Cyan
  Write-Host " .\test.ps1 .\datrix-common\ .\datrix-language\" -ForegroundColor Cyan
- Write-Host " .\test.ps1 -All" -ForegroundColor Cyan
- Write-Host " .\test.ps1 datrix-common -Coverage -VerboseOutput" -ForegroundColor Cyan
+  Write-Host " .\test.ps1 -All" -ForegroundColor Cyan
+  Write-Host " .\test.ps1 -Rerun" -ForegroundColor Cyan
+  Write-Host " .\test.ps1 datrix-common -Coverage -VerboseOutput" -ForegroundColor Cyan
  Write-Host " .\test.ps1 datrix-common -Unit" -ForegroundColor Cyan
  Write-Host " .\test.ps1 -All -Fast" -ForegroundColor Cyan
  Write-Host " .\test.ps1 datrix-common -Specific `"tests/unit/test_parser.py`"" -ForegroundColor Cyan
