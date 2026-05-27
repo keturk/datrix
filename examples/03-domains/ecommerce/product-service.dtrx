@@ -256,8 +256,8 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
     // NoSQL document database block for unstructured data
     nosql docdb {
 
-        // 'collection' defines a document store (like MongoDB collections)
-        collection ProductReview {
+        // 'entity' defines a document store (like MongoDB collections)
+        entity ProductReview {
             UUID productId : index;
             UUID userId : index;
             Int rating;
@@ -272,7 +272,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
             index(userId, createdAt);
         }
 
-        collection ProductAnalytics {
+        entity ProductAnalytics {
             UUID productId : index;
             String eventType;
             JSON payload;

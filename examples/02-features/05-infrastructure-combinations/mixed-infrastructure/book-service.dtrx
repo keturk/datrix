@@ -41,8 +41,8 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
     // NoSQL document database block - for schema-flexible analytics data
     nosql analytics {
 
-        // 'collection' defines a document store for reading history
-        collection ReadingHistory {
+        // 'entity' defines a document store for reading history
+        entity ReadingHistory {
             UUID userId : index;
             UUID bookId : index;
             DateTime startedAt : server = DateTime.now();
