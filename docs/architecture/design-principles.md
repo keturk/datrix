@@ -42,6 +42,8 @@ Datrix is built on proven software engineering principles that ensure:
 
 **Example (transpiler identifier resolution):** The transpiler resolves all identifiers through a single-path architecture: a Stage 1-2 pipeline (`NameResolver` → `QueryExpander`) builds a resolution table keyed by AST node ID, and Stage 3 (code emitters) consults that table exclusively. When the table marks an identifier as `"unresolved"`, emit-time raises an explicit error with context instead of silently retrying through fallback lookups. All identifier categories (entities, views, enums, constants, module functions, async API functions, storage blocks, integration clients, service dependencies, cache blocks, builtin categories, entity methods, local variables) must be resolvable through data in `TranspileContext` before the pipeline runs — no silent retry paths exist. This eliminates dual-path bugs where resolution logic could drift between the pipeline and a fallback.
 
+**Example (no silent unknown members):** REST API, CQRS View, and Struct transformers raise `TransformError` for unknown member types instead of silently dropping them. This ensures typos or unsupported syntax are caught immediately with a clear error message listing valid member types for that construct.
+
 **Benefits:**
 - ✅ Cannot continue with invalid state
 - ✅ Error includes helpful suggestions
@@ -267,6 +269,53 @@ Adding a second storage block does not break the API:
 ---
 
 ## Language Design Principles
+
+### 0. Uniform Language Consistency
+
+**Principle:** Datrix DSL is a full-fledged language with uniform scoping rules. If a construct (enum, alert, hook, index, validation) is valid in one block, it should be valid in all analogous blocks unless there is a concrete technical reason to exclude it.
+
+**Why:**
+- Predictable learning curve — features work the same way everywhere
+- Avoids accidental asymmetry from isolated implementation
+- Enables composition patterns (traits contribute indexes/validations/hooks regardless of storage backend)
+- Treats all infrastructure blocks uniformly
+
+**Application:**
+- **Hooks:** Traits and entities use the same lifecycle hook syntax (`beforeCreate`, `afterCreate`, etc.)
+- **Indexes and validations:** Traits can declare indexes and validation blocks that compose into entities
+- **Enums:** All infrastructure blocks support block-scoped enum declarations with qualified cross-block access
+- **Alerts:** All infrastructure blocks support alert declarations via `AlertableMixin`
+- **Audit modifiers:** All data/stateful blocks (rdbms, nosql, cache, pubsub, storage, queues, cdn, jobs) support block-level audit syntax
+- **NoSQL parity:** NoSQL blocks support `entity`, `abstract_entity`, `trait`, `enum`, `alert` — same as RDBMS
+
+**Example:**
+```datrix
+trait Searchable {
+    String(500) description;
+    String(50) category;
+
+    index(category);  // Trait indexes compose into entities
+    index(category, description);
+
+    validate {
+        if (description.length < 10)
+            ValidationError("Description too short");
+    }
+}
+
+nosql analytics('config.dcfg') {
+    // NoSQL supports traits, abstract entities, enums — same as RDBMS
+    trait Timestamped {
+        DateTime createdAt = DateTime.now();
+        beforeCreate { this.createdAt = DateTime.now(); }
+    }
+
+    entity UserActivity with Timestamped, Searchable {
+        UUID userId : index;
+        JSON payload;
+    }
+}
+```
 
 ### Contextual keywords and server-managed fields
 

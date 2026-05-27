@@ -448,11 +448,24 @@ def step2_generate(
 
     cmd: list[str] = [pwsh_exe, "-File", str(script_path)]
 
+    # Parse platform into runtime and provider (format: "runtime/provider" e.g. "docker-compose/local")
+    runtime = None
+    provider = None
+    if platform and "/" in platform:
+        parts = platform.split("/", 1)
+        runtime = parts[0]
+        provider = parts[1]
+    elif platform:
+        runtime = platform  # If no slash, treat entire value as runtime
+
     if all_examples:
         print_step(2, "Generate Examples")
         cmd.append("-All")
         cmd.extend(["-Language", language])
-        cmd.extend(["-Platform", platform])
+        if runtime:
+            cmd.extend(["-Runtime", runtime])
+        if provider:
+            cmd.extend(["-Provider", provider])
         if test_set != "all":
             cmd.extend(["-TestSet", test_set])
     else:
@@ -471,7 +484,10 @@ def step2_generate(
 
         cmd.extend([str(source_file), str(output_dir)])
         cmd.extend(["-Language", language])
-        cmd.extend(["-Platform", platform])
+        if runtime:
+            cmd.extend(["-Runtime", runtime])
+        if provider:
+            cmd.extend(["-Provider", provider])
 
     if hosting:
         cmd.extend(["-Hosting", hosting])
@@ -2746,9 +2762,8 @@ Examples:
     "-Platform",
     "--platform",
     dest="platform",
-    default="docker",
-    choices=["docker", "kubernetes", "k8s"],
-    help="Target platform (default: docker). Options: docker, kubernetes, k8s"
+    default="docker-compose/local",
+    help="Target platform (default: docker-compose/local). Common values: docker-compose/local, kubernetes/existing, etc."
     )
     parser.add_argument(
     "-Hosting",

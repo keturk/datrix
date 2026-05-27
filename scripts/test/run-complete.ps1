@@ -25,8 +25,8 @@
  Can be abbreviated as -L.
 
 .PARAMETER Platform
- Target platform for output path derivation (default: docker).
- The actual platform used for generation is read from config/system-config.yaml.
+ Target platform for output path derivation (default: docker-compose/local).
+ Should match the runtime/provider used during generation (e.g., docker-compose/local, kubernetes/existing).
  Can be abbreviated as -P.
 
 .PARAMETER TestSet
@@ -74,7 +74,7 @@
  Runs the complete workflow; output path is derived by run_complete.py from test-projects.json.
 
 .EXAMPLE
- .\run-complete.ps1 "examples/02-features/01-core-data-modeling/entities/system.dtrx" ".generated/python/docker/02-features/01-core-data-modeling/entities" -L python
+ .\run-complete.ps1 "examples/02-features/01-core-data-modeling/entities/system.dtrx" ".generated/python/docker-compose/local/02-features/01-core-data-modeling/entities" -L python
  Runs the complete workflow with explicit output path.
 
 .EXAMPLE
@@ -137,8 +137,7 @@ param(
 
  [Parameter()]
  [Alias("P")]
- [ValidateSet("docker", "kubernetes", "k8s")]
- [string]$Platform = "docker",
+ [string]$Platform = "docker-compose/local",
 
  [Parameter()]
  [Alias("H")]
