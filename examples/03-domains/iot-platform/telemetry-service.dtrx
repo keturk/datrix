@@ -70,7 +70,7 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
 
     nosql docdb {
 
-        collection TelemetryData {
+        entity TelemetryData {
             UUID deviceId : index;
             DateTime timestamp = DateTime.now();
             Decimal(6, 2)? temperature;
@@ -83,7 +83,7 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
             index(deviceId, timestamp);
         }
 
-        collection DeviceLog {
+        entity DeviceLog {
             UUID deviceId : index;
             String(20) level;
             Text message;

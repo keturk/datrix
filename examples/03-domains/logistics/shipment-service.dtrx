@@ -135,7 +135,7 @@ service logistics.ShipmentService('config/shipment-service.dcfg') : version('1.0
 
     nosql docdb {
 
-        collection ShipmentTracking {
+        entity ShipmentTracking {
             String(50) trackingNumber : index;
             Decimal(10, 6) latitude;
             Decimal(10, 6) longitude;

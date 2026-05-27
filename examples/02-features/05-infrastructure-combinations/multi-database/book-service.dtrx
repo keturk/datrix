@@ -591,8 +591,8 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
     // Unlike rdbms entities, collections store documents without rigid table schemas
     nosql docdb {
 
-        // 'collection' defines a document collection (analogous to a table in NoSQL)
-        collection ReadingActivity {
+        // 'entity' defines a document collection (analogous to a table in NoSQL)
+        entity ReadingActivity {
             UUID bookId : index;
             UUID memberId : index;
             String action;
@@ -605,7 +605,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             index(memberId, timestamp);
         }
 
-        collection BookRating {
+        entity BookRating {
             UUID bookId : index;
             UUID memberId : index;
             Int rating;
