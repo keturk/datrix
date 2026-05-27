@@ -16,6 +16,7 @@ The script will automatically:
 """
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -454,6 +455,74 @@ def install_dependencies(
  return all_success
 
 
+def get_latest_test_result_status(project_root: Path) -> str | None:
+    """Return the status of the project's most recent test run.
+
+    Reads the latest timestamped directory (or legacy flat log) under
+    ``project_root/.test_results/`` and returns ``"PASSED"``, ``"FAILED"``,
+    or ``None`` when no previous results are found.
+    """
+    test_results_dir = project_root / ".test_results"
+    if not test_results_dir.exists():
+        return None
+
+    # New directory format: test-results-YYYYMMDD-HHMMSS/
+    run_dirs = sorted(
+        [d for d in test_results_dir.iterdir() if d.is_dir() and d.name.startswith("test-results-")],
+        key=lambda d: d.name,
+        reverse=True,
+    )
+    if run_dirs:
+        latest_dir = run_dirs[0]
+        index_json = latest_dir / "index.json"
+        if index_json.exists():
+            try:
+                with open(index_json, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                result = data.get("result")
+                if result in ("PASSED", "FAILED"):
+                    return result
+                counts = data.get("counts", {})
+                if counts.get("failed", 0) > 0 or counts.get("error", 0) > 0:
+                    return "FAILED"
+                return "PASSED"
+            except Exception:
+                pass
+        # Fallback: scan full.log for pytest summary line
+        full_log = latest_dir / "full.log"
+        if full_log.exists():
+            try:
+                content = full_log.read_text(encoding="utf-8", errors="replace")
+                if re.search(r"\b\d+\s+failed\b", content):
+                    return "FAILED"
+                if re.search(r"\b\d+\s+passed\b", content):
+                    return "PASSED"
+            except Exception:
+                pass
+
+    # Legacy flat log files: test-results-*.log
+    legacy_logs = sorted(
+        [
+            f
+            for f in test_results_dir.iterdir()
+            if f.is_file() and f.name.startswith("test-results-") and f.suffix == ".log"
+        ],
+        key=lambda f: f.name,
+        reverse=True,
+    )
+    if legacy_logs:
+        try:
+            content = legacy_logs[0].read_text(encoding="utf-8", errors="replace")
+            if re.search(r"\b\d+\s+failed\b", content) or re.search(r"\b\d+\s+error\b", content):
+                return "FAILED"
+            if re.search(r"\b\d+\s+passed\b", content):
+                return "PASSED"
+        except Exception:
+            pass
+
+    return None
+
+
 def main() -> int:
  parser = argparse.ArgumentParser(
  description="Run tests for a Datrix project (excluding benchmark tests)",
@@ -492,6 +561,14 @@ Note: This script should be called from test.ps1, which handles virtual environm
  parser.add_argument("--specific", type=str, help="Run specific test file or pattern")
  parser.add_argument("-k", "--keyword", type=str, help="Run tests matching keyword expression")
  parser.add_argument("--debug", action="store_true", help="Enable debug logging (DEBUG level instead of INFO)")
+ parser.add_argument(
+  "--rerun",
+  action="store_true",
+  help=(
+   "Only run tests if the project's latest timestamped test log reports a failure. "
+   "If the last run passed (or no previous results exist), the project is skipped."
+  ),
+ )
 
  args = parser.parse_args()
 
@@ -521,6 +598,17 @@ Note: This script should be called from test.ps1, which handles virtual environm
 
  if args.verbose:
   print(f"Found project '{args.project_name}' at: {project_root}")
+
+ # --rerun guard: skip this project if its latest test run already passed.
+ if args.rerun:
+  status = get_latest_test_result_status(project_root)
+  if status == "PASSED":
+   print(f"[SKIP] {args.project_name}: latest test run passed — skipping re-run.")
+   return 0
+  elif status is None:
+   print(f"[RERUN] {args.project_name}: no previous test results found — running tests.")
+  else:
+   print(f"[RERUN] {args.project_name}: latest test run reported failures — running tests.")
 
  # Get Python executable (use common venv at D:\\datrix\\.venv where all projects are installed in editable mode)
  python_exe = get_venv_python()
