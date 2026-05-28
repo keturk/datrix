@@ -48,8 +48,15 @@ if (-not (Test-Path $workspaceRoot)) {
     Write-Error "Workspace root not found: $workspaceRoot"
 }
 
-# Check if Claude Code CLI is available
-$claudeCmd = Get-Command 'claude' -ErrorAction SilentlyContinue
+# Check if Claude Code CLI is available. Prefer native/cmd shims on Windows so
+# PowerShell execution policy does not block the npm-generated claude.ps1 shim.
+$claudeCmd = Get-Command 'claude.cmd' -ErrorAction SilentlyContinue
+if (-not $claudeCmd) {
+    $claudeCmd = Get-Command 'claude.exe' -ErrorAction SilentlyContinue
+}
+if (-not $claudeCmd) {
+    $claudeCmd = Get-Command 'claude' -ErrorAction SilentlyContinue
+}
 if (-not $claudeCmd) {
     Write-Error @"
 Claude Code CLI not found in PATH.
@@ -82,9 +89,9 @@ Analyze all Datrix repositories for uncommitted changes and generate commit-mess
 
 Follow the /commit-and-push skill workflow exactly:
 
-1. Scan for changes in all repos under D:\datrix (use git status --porcelain)
+1. Scan for changes in all repos under $workspaceRoot (use git status --porcelain)
 2. For each dirty repo, inspect diffs (git diff, git diff --cached, git diff --stat)
-3. Generate D:\datrix\commit-messages.json with detailed commit messages
+3. Generate $MessagesPath with detailed commit messages
 4. Report which repos have changes
 
 DO NOT run the commit-and-push.ps1 script - only generate the JSON file.
@@ -92,21 +99,38 @@ DO NOT run the commit-and-push.ps1 script - only generate the JSON file.
 Use the exact format and message style from /commit-and-push skill documentation.
 "@
 
-# Invoke Claude Code in CLI mode with --print for non-interactive execution
-# The prompt is passed as the final argument
+# Invoke Claude Code in CLI mode with -p for non-interactive execution.
+# Stream output so permission/tool failures are visible while the process runs.
 Set-Location $workspaceRoot
-$claudeOutput = & claude --print --model sonnet $claudePrompt 2>&1
+$env:NO_COLOR = "1"
+$claudeArgs = @(
+    '-p', $claudePrompt,
+    '--model', 'sonnet',
+    '--permission-mode', 'acceptEdits',
+    '--allowedTools',
+        'Read',
+        'Glob',
+        'Grep',
+        'Write',
+        'Edit',
+        'MultiEdit',
+        'Bash(git:*)',
+    '--add-dir', $workspaceRoot
+)
+
+$claudeOutput = @()
+& $claudeCmd.Source @claudeArgs 2>&1 | Tee-Object -Variable claudeOutput
 $claudeExitCode = $LASTEXITCODE
 
 if ($claudeExitCode -ne 0) {
     Write-Host "Claude Code CLI failed with exit code: $claudeExitCode" -ForegroundColor Red
     Write-Host "Output:" -ForegroundColor Red
-    Write-Host $claudeOutput
+    Write-Host ($claudeOutput -join "`n")
     throw "Claude Code CLI invocation failed"
 }
 
 Write-Host "Claude Code output:" -ForegroundColor Gray
-Write-Host $claudeOutput
+Write-Host ($claudeOutput -join "`n")
 Write-Host ""
 
 # Step 2: Verify commit-messages.json was created
