@@ -22,7 +22,7 @@ config service library.LoanService {
       flavor = "container";
       host = "localhost";
       port = 5432;
-      database = "library_books";
+      database = "library_loans";
       poolSize = 20;
       asyncDriver = "postgresql+asyncpg";
       syncDriver = "postgresql+psycopg2";
@@ -75,7 +75,7 @@ config service library.LoanService {
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");
-      database = "library_books";
+      database = "library_loans";
       poolSize = 40;
       ssl = true;
       asyncDriver = "postgresql+asyncpg";
