@@ -316,8 +316,53 @@ After generating all task files, verify:
 14. **Migration coverage check:** Count the numbered steps in the design's migration/rollout section. Count the migration tasks generated. If the second number is less than the first, tasks are missing. Every "convert X", "migrate Y", "create Z" step needs a task.
 15. **Dual-path coverage check:** If the design introduces a new path alongside an old one, verify that migration tasks exist to convert old test fixtures, examples, and configs to the new format. Without these, the new path is untested dead code.
 16. **Cross-repo coverage check:** Tasks span all affected repos, not just the primary package. If the design changes `datrix-common` but examples live in `datrix`, migration tasks exist in `datrix`.
+17. **Dependencies document validation:**
+    - Verify the dependencies document includes ALL tasks from the phase
+    - Verify each task appears in exactly one group
+    - Verify group ordering respects dependencies (no task depends on a task in a later group)
+    - Verify tasks within each group are truly parallelizable (no direct or transitive dependencies between them)
+    - Verify file paths are absolute Windows-style paths with backslashes
 
-### Step 7: Report Summary and Dependency Graph
+### Step 7: Generate Task Dependencies Document
+
+Create a concise dependencies document at `d:\datrix\datrix\.tasks\phase-{NN}\dependencies.md` with the following format:
+
+```
+Group 1
+
+D:\datrix\{repo}\.tasks\phase-{NN}\task-{NN}-{TT}-{slug}.md
+D:\datrix\{repo}\.tasks\phase-{NN}\task-{NN}-{TT}-{slug}.md
+
+Group 2
+
+D:\datrix\{repo}\.tasks\phase-{NN}\task-{NN}-{TT}-{slug}.md
+D:\datrix\{repo}\.tasks\phase-{NN}\task-{NN}-{TT}-{slug}.md
+D:\datrix\{repo}\.tasks\phase-{NN}\task-{NN}-{TT}-{slug}.md
+
+Group 3
+
+D:\datrix\{repo}\.tasks\phase-{NN}\task-{NN}-{TT}-{slug}.md
+...
+```
+
+**Format rules:**
+1. Each group starts with "Group N" (no blank line before the first group)
+2. Blank line after the group header
+3. List absolute task file paths (Windows-style with backslashes), one per line
+4. Blank line between groups (after the last task path, before the next "Group N")
+5. Tasks within a group can run in parallel
+6. Group ordering reflects execution order — Group 1 has no dependencies, Group 2 depends only on Group 1 tasks, etc.
+
+**Dependency resolution algorithm:**
+1. Start with all tasks that have no dependencies → Group 1
+2. For each subsequent group N:
+   - Include tasks whose dependencies are ALL satisfied by groups 1 through N-1
+   - Tasks within the same group have no dependency chain between them (parallelizable)
+3. Continue until all tasks are assigned to a group
+
+The dependencies document provides a concise execution plan for task orchestration tools like `/task-orchestrator`.
+
+### Step 8: Report Summary and Dependency Graph
 
 Print a summary table (grouped by category) followed by a dependency graph:
 
@@ -357,6 +402,8 @@ Parallelizable groups (tasks within a group can run concurrently):
   Group 3: {NN}-{TT}, {NN}-{TT}          (after Group 2 — verification, by different agent)
   Group 4: {NN}-{TT}                      (after Group 3 — docs)
   Group 5: {NN}-{TT}, {NN}-{TT}          (after all package tasks — quality gates)
+
+Dependencies document: datrix/.tasks/phase-{NN}/dependencies.md
 ```
 
 The dependency graph must:
@@ -364,6 +411,7 @@ The dependency graph must:
 2. Identify which tasks can run in parallel (share no dependency chain)
 3. Present parallelizable groups in execution order — Group 1 has no dependencies, Group 2 depends only on Group 1 tasks, etc.
 4. Be consistent with the "Depends on" field inside each task file
+5. Match the groups written to the dependencies document in Step 7
 
 ## Task Completion Protocol
 

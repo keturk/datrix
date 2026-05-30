@@ -237,147 +237,24 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
    - Do NOT set `run_in_background: true`
 
    **Agent prompt template:**
+
+   Read `d:\datrix\datrix\claude-config\.claude\agent-templates\task-implementation-agent.md` and substitute `{task_path}` with the actual task file path.
+
+   **Additional context to prepend:**
    ```
    You are executing a SINGLE task from a parallel batch. Your scope is LIMITED to this one task only.
-
-   TASK FILE: {task_path}
 
    IMPORTANT: You implement code AND run ONLY targeted tests for your task.
    Do NOT run the full test suite — the orchestrator runs it once after ALL agents
    complete, to avoid N parallel full-suite executions.
-
-   Your workflow:
-   1. Understand: Read task file and all referenced files
-   2. Implement: Apply code changes per specification
-   3. Self-check: Anti-stub checks + self-contradiction check
-   4. Run targeted tests: ONLY the tests listed in the task's "## Targeted Tests" section
-   5. Fix targeted test failures (max 3 attempts)
-   6. Return: Report implementation + targeted test results to orchestrator
-
-   CRITICAL RULES:
-   - Read and follow ALL rules in d:\datrix\.claude\CLAUDE.md
-   - Stay within this task's scope — do NOT modify files outside this task
-   - Run ONLY targeted tests from the task's "## Targeted Tests" section
-   - Do NOT run the full test suite (no `test.ps1 {package}` without -Specific flag)
-   - If the task has NO targeted tests section → skip test execution, report "no_targeted_tests"
-   - If you encounter ambiguities, STOP IMMEDIATELY and return with status NEEDS_CONTEXT
-     listing your questions. Do NOT guess or block — the orchestrator will relay your
-     questions to the user and resume you with answers.
-   - Mark the task IMPLEMENTED when code changes are complete, self-checks pass, and targeted tests pass
-   - Mark the task FAILED if targeted tests still fail after 3 attempts
-   - Mark the task BLOCKED if you cannot implement (see STUCK protocol)
-
-   STUCK PROTOCOL — report, don't fake it:
-   - If implementation hits unexpected complexity, mark BLOCKED — do NOT write stubs
-   - Writing `pass`, `NotImplementedError`, empty method bodies, or trivial stubs
-     is WORSE than reporting BLOCKED
-   - A BLOCKED task with a clear explanation is a success
-   - A fake-completed task with stubs is a failure that wastes future sessions
-   - Partial completion is NOT completion:
-     - If the task says "delete old path, use new path" and you keep both → BLOCKED
-     - If a dependency has NotImplementedError and you work around it → BLOCKED
-     - If you write a checker whose checks always return true → BLOCKED
-
-   --- STEP 1: UNDERSTAND (Read Only — No Edits) ---
-
-   - Read task file completely
-   - Read ALL files listed in "Files to Review Before Starting"
-   - Read existing code in files to be modified
-   - Search for existing functions/utilities (DRY principle)
-   - If ambiguities found → STOP and return NEEDS_CONTEXT with your questions
-
-   --- STEP 2: IMPLEMENT (Write Code) ---
-
-   - Create/modify files as specified in task
-   - Follow all code skeletons, type hints, patterns from task file
-   - Apply full type hints
-   - Use standard logging: `logger = logging.getLogger(__name__)`, %-style formatting
-   - Use Jinja2 templates + formatter for code generation (NO raw string concatenation)
-   - Delete replaced functionality completely (no dead code, no backward-compatibility wrappers)
-   - Check for logic map markers before modifying code
-
-   Anti-patterns to AVOID:
-   - NO dict.get(key, None) — raise explicit errors
-   - NO type_map.get(t, "Any") — raise on unknown types
-   - NO bare except: pass
-   - NO # TODO / pass / NotImplementedError in production code
-   - NO -> T | None error returns
-   - NO mocks/fakes in tests
-   - NO stub implementations that satisfy type checkers but do nothing
-
-   --- STEP 3: SELF-CHECK ---
-
-   Anti-stub check — for each file in "Files to Create", confirm:
-   - File exists on disk
-   - File has >10 lines of non-comment, non-import code
-   - No `pass` in function/method bodies
-   - No `NotImplementedError` in production code
-   - No `# TODO` or `# FIXME` markers
-   - No always-true checks that make validators functionally useless
-   - No legacy code paths kept when the task requires replacement
-   If ANY check fails → fix the code or mark BLOCKED
-
-   Test quality check (code review only):
-   - Tests must NOT assert NotImplementedError on production paths
-   - Tests must prove the feature works, not just that code doesn't crash
-   - If task requires "X replaces Y", tests must prove X works AND Y is gone
-
-   Self-contradiction check:
-   Re-read the task acceptance criteria. Would your "How Solved" contain:
-   "remains unchanged", "legacy", "future migration", "not yet wired",
-   "partial", "workaround", "dual path", "both old and new"?
-   If YES → task is NOT complete. Mark BLOCKED.
-
-   --- STEP 4: RUN TARGETED TESTS ---
-
-   Run tests listed in the task's "## Targeted Tests" section:
-   ```
-   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{test-path}"
    ```
 
-   **YOU MUST RUN TARGETED TESTS YOURSELF.**
-   - If the task has NO "## Targeted Tests" section → report "no_targeted_tests": true
-   - Run each targeted test command and capture the output
-   - If targeted tests fail → attempt to fix (max 3 attempts)
-   - Do NOT run the full test suite (no `test.ps1 {package}` without -Specific flag)
-   - The orchestrator runs the full test suite once after ALL agents complete
-
-   --- STEP 5: RETURN RESULTS ---
-
-   Do NOT update the task file title yet (the orchestrator does this after full-suite verification).
-   Add a "## Implementation Notes" section to the task file with:
-   - Files created/modified with summaries
-   - Design decisions made
-   - Line counts for created files
-   - Targeted test results (if run)
-
-   Return a JSON report:
-   {
-     "task_id": "{task_id}",
-     "task_path": "{task_path}",
-     "status": "IMPLEMENTED" | "BLOCKED" | "NEEDS_CONTEXT",
-     "implementation_results": {
-       "files_created": [...],
-       "files_modified": [...],
-       "design_decisions": [...]
-     },
-     "self_check": {
-       "anti_stub_check_passed": true,
-       "test_quality_check_passed": true,
-       "self_contradiction_check_passed": true,
-       "file_line_counts": {"file_path": N, ...}
-     },
-     "targeted_tests": {
-       "ran": true,
-       "no_targeted_tests": false,
-       "test_commands": ["powershell -File ..."],
-       "passed": true,
-       "fix_attempts": 0
-     },
-     "questions": [],
-     "errors": []
-   }
-   ```
+   **See the template file for:**
+   - Complete workflow steps (UNDERSTAND → IMPLEMENT → SELF-CHECK → RUN TARGETED TESTS → RETURN RESULTS)
+   - Anti-patterns to avoid
+   - Self-check protocol
+   - STUCK protocol
+   - JSON result format
 
 2. **Spawn all agents in parallel** using a single message with multiple Task tool calls (all foreground, `max_turns: 40`)
 

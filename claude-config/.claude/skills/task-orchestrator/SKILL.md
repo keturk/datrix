@@ -80,24 +80,41 @@ Accept task paths in these formats:
 
 If a PHASE directory is given, use Glob to find all `task-*.md` files in that directory.
 
-### 1b. Read All Task Files
+### 1b. Read Task Metadata
 
-For each task file:
+**Optimization:** If a phase directory contains `dependencies.md`, use it instead of reading all task files.
 
-1. **Read the file completely**
-2. **Extract metadata:**
+For each phase directory:
+
+1. **Check for pre-computed dependencies:**
+   ```
+   If file exists: {phase_dir}/dependencies.md
+      Read it as JSON
+      Parse to extract: task_id, task_path, title, is_completed, package, dependencies, category
+      Skip reading individual task files for this phase
+   Else:
+      Read all task-*.md files in the phase directory
+      Extract metadata from each file (see below)
+   ```
+
+   See `d:\datrix\datrix\claude-config\.claude\agent-templates\dependencies-format.md` for the dependencies.md JSON schema.
+
+2. **Metadata extraction (when reading task files manually):**
    - `task_id` — from filename (e.g., `task-07-01` from `task-07-01-base-class.md`)
    - `title` — from `# Task {NN}-{TT}: {Title}` heading
    - `is_completed` — title starts with `# COMPLETED:`
    - `package` — from `**Package:**` field
    - `dependencies` — from `**Depends on:**` field (list of task ID slugs, or "None")
    - `category` — from header (Implementation / Tests / Documentation / Quality Gate / Verification)
-   - `targeted_tests` — from `## Targeted Tests` section (test commands)
+
+3. **Skip completed tasks** — if `is_completed == true`, exclude from execution but keep in the graph (dependencies of other tasks may reference them)
+
+4. **Read additional metadata when spawning agents:**
+   When spawning an agent for a task, read the full task file to extract:
+   - `targeted_tests` — from `## Targeted Tests` section
    - `files_to_review` — from `## Files to Review Before Starting`
    - `files_to_create` — from `## Files to Create`
    - `files_to_modify` — paths extracted from task body
-
-3. **Skip completed tasks** — if `is_completed == true`, exclude from execution but keep in the graph (dependencies of other tasks may reference them)
 
 ### 1c. Validate
 
@@ -266,122 +283,19 @@ For each sub-group, spawn agents in a **single message** (multiple Task tool cal
 - Do NOT set `run_in_background: true`
 - `description: "Implement task: {task_id}"`
 
-**Agent prompt template (self-contained — agent receives ONLY this):**
+**Agent prompt template:**
 
-```
-You are executing a SINGLE task from an automated orchestration run. Your scope is LIMITED to this one task.
+Read `d:\datrix\datrix\claude-config\.claude\agent-templates\task-implementation-agent.md` and substitute `{task_path}` with the actual task file path. The template contains:
+- Standard workflow (UNDERSTAND → IMPLEMENT → SELF-CHECK → RUN TARGETED TESTS → RETURN RESULTS)
+- Anti-patterns to avoid
+- Self-check protocol (anti-stub check, test quality check, self-contradiction check)
+- STUCK protocol (report BLOCKED instead of faking completion)
+- JSON result format
 
-TASK FILE: {task_path}
-
-Read the task file at the path above. It contains everything you need: files to review, files to create, code skeletons, success criteria, and targeted tests.
-
-## Your Workflow
-
-### 1. UNDERSTAND (Read Only — No Edits)
-
-- Read the task file completely
-- Read ALL files listed in "Files to Review Before Starting"
-- Read existing code in files to be modified
-- Search for existing functions/utilities to reuse (DRY principle)
-- Check logic map markers in d:/datrix/.logic-map/markers.db before modifying marked code
-- If ambiguities found → STOP immediately and return with status NEEDS_CONTEXT listing your questions
-
-### 2. IMPLEMENT (Write Code)
-
-- Create/modify files as specified in the task
-- Follow all code skeletons, type hints, patterns from the task file
-- Apply full type hints on all functions (`mypy --strict` must pass)
-- Use standard logging: `logger = logging.getLogger(__name__)`, %-style formatting
-- Use Jinja2 templates + formatter for code generation (NO raw string concatenation)
-- Delete replaced functionality completely (no dead code, no backward-compat wrappers)
-- Named constants only — no magic numbers or strings
-
-Anti-patterns to AVOID:
-- NO dict.get(key, None) — raise explicit errors on missing keys
-- NO type_map.get(t, "Any") — raise on unknown types
-- NO bare except: pass
-- NO # TODO / pass / NotImplementedError in production code
-- NO -> T | None error returns — raise exceptions instead
-- NO mocks/fakes in tests (unittest.mock, SimpleNamespace, MagicMock all banned)
-- NO stub implementations that satisfy type checkers but do nothing
-- NO git restore/checkout/reset/stash/revert
-
-### 3. SELF-CHECK
-
-Anti-stub check — for each file in "Files to Create", confirm:
-- File exists on disk
-- File has >10 lines of non-comment, non-import code
-- No `pass` in function/method bodies
-- No `NotImplementedError` in production code
-- No `# TODO` or `# FIXME` markers
-- No always-true checks that make validators functionally useless
-- No legacy code paths kept when the task requires replacement
-If ANY check fails → fix the code or mark BLOCKED.
-
-Test quality check:
-- Tests must NOT assert NotImplementedError on production paths
-- Tests must prove the feature works, not just that code doesn't crash
-- If task requires "X replaces Y", tests must prove X works AND Y is gone
-
-Self-contradiction check:
-Re-read the task acceptance criteria. Would your "How Solved" narrative contain:
-"remains unchanged", "legacy", "future migration", "not yet wired",
-"partial", "workaround", "dual path", "both old and new"?
-If YES → task is NOT complete. Mark BLOCKED.
-
-### 4. RUN TARGETED TESTS
-
-Run ONLY the tests listed in the task's "## Targeted Tests" section:
-```
-powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{test-path}"
-```
-Include VERIFIED_AGAINST_QUICK_REFERENCE in the Bash tool description.
-
-- If the task has NO "## Targeted Tests" section → report no_targeted_tests: true
-- If targeted tests fail → attempt to fix (max 3 attempts)
-- Do NOT run the full test suite — the orchestrator handles that after the wave
-
-### 5. RETURN RESULTS
-
-Do NOT update the task file title (the orchestrator marks completion after full-suite verification).
-
-Add a "## Implementation Notes" section at the end of the task file with:
-- Files created/modified with summaries
-- Design decisions made
-- Line counts for created files
-- Targeted test results (if run)
-
-Return a JSON report as the LAST thing in your output:
-
-```json
-{
-  "task_id": "{task_id}",
-  "task_path": "{task_path}",
-  "status": "IMPLEMENTED | BLOCKED | NEEDS_CONTEXT | FAILED",
-  "files_created": ["path1", "path2"],
-  "files_modified": ["path3"],
-  "targeted_tests": {
-    "ran": true,
-    "passed": true,
-    "no_targeted_tests": false,
-    "fix_attempts": 0
-  },
-  "questions": [],
-  "errors": []
-}
-```
-
-## STUCK PROTOCOL — report, don't fake it
-
-- If implementation hits unexpected complexity → mark BLOCKED, do NOT write stubs
-- Writing pass, NotImplementedError, empty bodies, or trivial stubs is WORSE than reporting BLOCKED
-- A BLOCKED task with a clear explanation is a success
-- A fake-completed task with stubs is a failure that wastes future sessions
-- Partial completion is NOT completion:
-  - If the task says "delete old path, use new path" and you keep both → BLOCKED
-  - If a dependency has NotImplementedError and you work around it → BLOCKED
-  - If you write a checker whose checks always return true → BLOCKED
-```
+**Template substitutions:**
+- `{task_path}` → actual task file path
+- `{task_id}` → task identifier (e.g., "task-34-01")
+- `{package-name}` → package name from task metadata
 
 Wait for all agents in the sub-group to complete before spawning the next sub-group.
 
