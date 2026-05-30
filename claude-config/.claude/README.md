@@ -21,6 +21,7 @@ This directory configures Claude Code for the Datrix project. `CLAUDE.md` define
 | `/troubleshoot-and-fix` | Autonomous diagnose → fix → verify pipeline | Interactive |
 | `/codegen-fix-loop` | Self-correcting iterative fix loop with hard limits | Interactive |
 | `/operationalize-design` | Design doc → decisions → docs → tasks → cleanup | Interactive |
+| `/task-orchestrator` | Fully automated multi-wave task execution with dependency analysis | Interactive |
 
 **Mode** — *Reference* skills are read-only prompts injected into context. *Interactive* skills run multi-phase workflows that read and (in some cases) write files.
 
@@ -164,6 +165,19 @@ End-to-end design document pipeline: audit → resolve decisions → update docs
 
 **Key constraints:** No tasks without resolved ambiguities. No deleting before transfer verified. Every decision needs codebase evidence. Every task needs acceptance criteria.
 
+### `/task-orchestrator`
+
+Fully automated multi-wave task orchestrator. Accepts a set of tasks (individual files, multiple files, or entire phase directories), analyzes dependencies, groups tasks into execution waves via topological sort, and executes each wave with parallel agents. Runs test suites automatically between waves — no human intervention except on task failure.
+
+**Workflow:**
+1. Read all tasks, build dependency DAG, detect cycles
+2. Topological sort into waves (phase-sequential: all tasks in phase N complete before phase N+1)
+3. For each wave: implement (max 3 parallel agents) → targeted tests → full suite → fix loop → mark complete
+4. Checkpoint after each wave, advance automatically
+5. Pause and ask user on task failure (after 3 fix attempts)
+
+**Key difference from `/execute-tasks-parallel`:** Dependency-aware grouping, automated test execution, automatic wave advancement, and multi-phase sequential ordering. No human intervention between waves.
+
 ---
 
 ## Skill Delegation Architecture
@@ -281,4 +295,5 @@ Skills that support delegation (planned):
     troubleshoot-and-fix/SKILL.md
     codegen-fix-loop/SKILL.md
     operationalize-design/SKILL.md
+    task-orchestrator/SKILL.md
 ```

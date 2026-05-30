@@ -309,6 +309,30 @@ Provider generators augment runtime output unless the runtime is provider-native
 
 ---
 
+### Decision 7: Extension Naming — PostGIS Split (Planned)
+
+**Rationale:**
+- The current `geo` extension is semantically a PostGIS pack: it owns `Geometry`, `Geography`, `GeoSql`, PostGIS database extension validation, PostGIS migration templates, and PostGIS/geometry runtime dependencies
+- Raster helpers (tile grid calculation, GeoTIFF parsing) are database-independent operations that should not inherit PostGIS infrastructure or dependency behavior
+- A single `geo` name conflates two distinct concerns: PostGIS-coupled spatial types and database-independent geospatial computation
+
+**Result:**
+- The existing PostGIS-backed extension is renamed from `geo` to **`postgis`** with no backward compatibility alias
+- The `geo` name is reclaimed for a new generic, database-independent geospatial extension providing raster and tile helpers (`GeoTile`, `GeoTiff`)
+- Existing DSL projects that declare `use extension geo;` for PostGIS behavior must update to `use extension postgis;`
+- The `DatrixExtension` protocol gains a **`value_struct_definitions()`** surface so extensions can contribute named struct types (e.g., `GeoBounds`, `GeoTileSpec`, `GeoElevationGrid`) in addition to scalars and builtin objects
+
+**Extension ownership after split:**
+
+| Extension | DSL declaration | Provides |
+| --- | --- | --- |
+| `postgis` | `use extension postgis;` | `Geometry`, `Geography` spatial types, `GeoShape.*` value-level ops, `GeoSql.*` SQL expressions, PostGIS database extension, geoalchemy2/shapely/turf dependencies |
+| `geo` | `use extension geo;` | `GeoTile.*` tile grid operations, `GeoTiff.*` raster parsing, `GeoBounds`/`GeoTileSpec`/`GeoElevationGrid` value structs (Python helpers only in Phase 1; TypeScript fails loudly until helper support is added) |
+
+**Core `Geo.*` stdlib** (distance, tile coordinate math) remains unaffected — it is always available without any extension declaration.
+
+---
+
 ## Installation
 
 ```bash

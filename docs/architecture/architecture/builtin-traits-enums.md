@@ -52,6 +52,27 @@ Each codegen package maps `Seed.*` calls to language-native implementations via 
 
 Domain extension packs can register additional seed builtins via their `builtin_objects()` method on `DatrixExtension`, following the same pattern used by other extension builtins.
 
+### Builtin Objects (Geospatial — Extension-Provided, Planned)
+
+The generic **`geo`** extension (activated with `use extension geo;`) provides raster and tile builtin objects:
+
+| Object | Methods | Purpose |
+|--------|---------|---------|
+| **GeoTile** | `GeoTile.gridForBounds(minLon, minLat, maxLon, maxLat, tileSizeDeg, pixelWidth, pixelHeight)` | Split a geographic bounding box into a grid of tile descriptors. Returns `Array<GeoTileSpec>`. Pure computation (no I/O, no dependencies). |
+| **GeoTiff** | `GeoTiff.parseElevationGrid(data, bounds, resolutionM)` | Parse GeoTIFF binary data into an elevation grid. Returns `GeoElevationGrid`. Local computation using Python `struct` module (no external dependencies). Phase 1: uncompressed, single-band float32/int16 only. |
+
+**Extension value structs** (registered via `geo` extension, available as DSL types when `use extension geo;` is declared):
+
+| Struct | Fields | Purpose |
+|--------|--------|---------|
+| **GeoBounds** | `Number minLon, minLat, maxLon, maxLat` | Geographic bounding box |
+| **GeoTileSpec** | `String tileId, bbox, imageSize; GeoBounds bounds; Int pixelWidth, pixelHeight; Number resolutionM` | Tile descriptor for raster download |
+| **GeoElevationGrid** | `Int width, height; Array<Number> values; Number noDataValue` | Parsed elevation raster data |
+
+These raster builtins are distinct from the **`postgis`** extension (`GeoShape.*`, `GeoSql.*`) which provides PostGIS-coupled spatial operations. The core **`Geo.*`** stdlib (distance, tile coordinates) requires no extension.
+
+**Language support:** Python helpers are provided in Phase 1. TypeScript generation fails loudly for `GeoTile.*` and `GeoTiff.*` until TypeScript helper implementations are added.
+
 ### How It Works
 
 1. Builtin traits and enums are **defined in Datrix DSL** in `datrix-language/src/datrix_language/builtins/builtins.dtrx`. `datrix_language.builtins.loader` parses that file once (with `inject_builtins=False` to avoid recursion), caches the module, and returns **deep copies** for injection.
