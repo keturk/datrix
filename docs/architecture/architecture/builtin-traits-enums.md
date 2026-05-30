@@ -38,6 +38,20 @@ Datrix provides a catalog of **ten builtin traits** and **two builtin enums** th
 
 `Timezone` is used as a parameter to `DateTime.now()` and `DateTime.fromTimestamp()`. When omitted, both default to `Timezone.UTC`. There is no `Timezone.server()` — server-local time is an anti-pattern for generated code.
 
+### Builtin Objects (Reference Data)
+
+| Object | Methods | Purpose |
+|--------|---------|---------|
+| **Seed** | `Seed.countries()`, `Seed.subdivisions(String?)`, `Seed.currencies()`, `Seed.timezones()`, `Seed.languages()`, `Seed.mimeTypes()`, `Seed.httpStatusCodes()` | Framework-maintained reference datasets for seeding and runtime validation. |
+
+`Seed` functions return `Array<Object>` and are usable in both `.dseed` seed declarations and `.dtrx` application code. In seed declarations, they populate reference tables (e.g., `Country from Seed.countries()`). In application code, they provide canonical datasets for runtime validation (e.g., checking a country code against `Seed.countries()`).
+
+Canonical data lives in `datrix-common/src/datrix_common/builtins/data/` as JSON files (ISO 3166 countries, ISO 3166-2 subdivisions, ISO 4217 currencies, IANA timezones, ISO 639 languages). Data is loaded lazily on first access and updated with each Datrix release.
+
+Each codegen package maps `Seed.*` calls to language-native implementations via its `BuiltinMethodMapper`. Generated services include an embedded helper module (`_seed_data.py` / `seed-data.ts`) containing frozen reference data loaded at import time — no runtime I/O.
+
+Domain extension packs can register additional seed builtins via their `builtin_objects()` method on `DatrixExtension`, following the same pattern used by other extension builtins.
+
 ### How It Works
 
 1. Builtin traits and enums are **defined in Datrix DSL** in `datrix-language/src/datrix_language/builtins/builtins.dtrx`. `datrix_language.builtins.loader` parses that file once (with `inject_builtins=False` to avoid recursion), caches the module, and returns **deep copies** for injection.

@@ -266,4 +266,5 @@ Modified files:
 - **NO duplicating content across multiple targets** — each unit goes to exactly one place
 - **NO skipping content silently** — every skipped unit must be reported with a reason
 - **NO modifying code files** — this skill only touches documentation files
+- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

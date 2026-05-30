@@ -178,4 +178,5 @@ Final test results: {pass count}/{total count} passing
 - **NO cross-language fixes** — confirm Python vs TypeScript scope first
 - **NO scope creep** — don't fix unrelated issues discovered during investigation
 - **NO mechanical grep-and-replace** — understand the root cause, don't just pattern-match symptoms
+- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

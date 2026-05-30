@@ -337,4 +337,5 @@ If investigation reveals the root cause is in a different project, do NOT fix it
 - **NO fixing generated output** — always fix generator/template source
 - **NO cross-package fixes** — activate the other project's fix skill instead
 - **NO running full suite after each fix** — verify individual tests first
+- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

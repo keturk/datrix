@@ -77,3 +77,8 @@ DEFAULT_TIMEOUT_SECONDS = 30
 if status == HTTP_OK:
     timeout = DEFAULT_TIMEOUT_SECONDS
 ```
+
+## Anti-Patterns
+
+- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
+- **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

@@ -636,6 +636,7 @@ PROMPT_FILE: D:\datrix\eval\{timestamp}-{project}\service-{service-name}.prompt.
 - **Do NOT read all config YAMLs** -- only system-level configs
 - **Do NOT verify entity completeness** -- service-level concern
 - **Do NOT detect dead code at service level** -- service-level concern
+- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)
 
 This skill is FAST and LIGHTWEIGHT. It creates the evaluation structure and delegates deep work to `/evaluate-generated-service`.

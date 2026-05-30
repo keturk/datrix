@@ -722,3 +722,9 @@ powershell -File d:\datrix\datrix\scripts\test\status-tests.ps1
 # Compile check (syntax + imports)
 powershell -File d:\datrix\datrix\scripts\dev\compile.ps1 datrix-codegen-python
 ```
+
+## Anti-Patterns
+
+- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
+- **NO debug scatter** — zero temporary logging statements
+- **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

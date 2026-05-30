@@ -548,6 +548,7 @@ Next steps:
 - **NO implementation tasks without corresponding test tasks** — every implementation needs tests
 - **NO implementation tasks without corresponding verification tasks** — every implementation needs independent verification by a different agent
 - **NO skipping documentation tasks** — if a design changes architecture, APIs, or extensions, the relevant repo docs must be updated
+- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
 - **NO design document path references in task files** — when operationalizing, tasks must inline design content because Phase 5 deletes the source document
 - **NO tasks without targeted tests** — every implementation and test task must have a `## Targeted Tests` section specifying which tests to run for focused verification
 - **NO missing quality gates** — every package with 2+ code tasks must have a quality gate task as the final dependency

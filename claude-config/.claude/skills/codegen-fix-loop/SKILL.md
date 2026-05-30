@@ -191,4 +191,5 @@ Debug artifacts: CLEAN
 - **NO cross-package changes** — stay within PACKAGE boundary
 - **NO reverting to try the same thing again** — if you revert, the NEXT attempt must be different
 - **NO guessing at the fix** — each iteration's rationale must reference specific code or error output
+- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

@@ -111,4 +111,5 @@ After the script completes, report:
 - Do NOT use conventional-commit prefixes (`feat:`, `fix:`, `chore:`) in subject lines
 - Do NOT write vague commit messages like "update files" or "various changes" — be specific about what changed
 - Do NOT skip the diff inspection step — commit message quality depends on understanding the changes
+- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)
