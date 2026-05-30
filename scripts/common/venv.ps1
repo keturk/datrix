@@ -127,6 +127,33 @@ function Get-DatrixPackageLockPath {
  return Join-Path $datrixRoot ".venv-package.lock"
 }
 
+function Get-DatrixPythonCachePrefix {
+ <#
+ .SYNOPSIS
+ Get the shared Python bytecode cache directory for Datrix scripts.
+ #>
+ $datrixRoot = Get-DatrixRoot
+ return Join-Path $datrixRoot ".pycache-verify"
+}
+
+function Set-DatrixPythonCachePrefix {
+ <#
+ .SYNOPSIS
+ Redirect Python bytecode emitted by Datrix script wrappers out of source trees.
+ .NOTES
+ Respects an existing PYTHONPYCACHEPREFIX set by the caller.
+ #>
+ if ($null -ne $env:PYTHONPYCACHEPREFIX -and -not [string]::IsNullOrWhiteSpace($env:PYTHONPYCACHEPREFIX)) {
+  return
+ }
+
+ $cachePrefix = Get-DatrixPythonCachePrefix
+ if (-not (Test-Path -LiteralPath $cachePrefix)) {
+  $null = New-Item -ItemType Directory -Path $cachePrefix -Force
+ }
+ $env:PYTHONPYCACHEPREFIX = $cachePrefix
+}
+
 # Acquire package installation lock
 function Enter-DatrixPackageLock {
  <#
@@ -685,6 +712,8 @@ function Ensure-DatrixVenv {
  return $false
  }
 
+ Set-DatrixPythonCachePrefix
+
  $venvPath = Get-DatrixVenvPath
 
  # Check if venv exists, create if not
@@ -1082,6 +1111,8 @@ function Ensure-DatrixPackagesInstalled {
  [switch]$SkipIfInstalled,
  [switch]$Offline
  )
+
+ Set-DatrixPythonCachePrefix
 
  $isOffline = $Offline -or (Test-DatrixOfflineMode)
 

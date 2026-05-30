@@ -7,6 +7,7 @@ and reports test statistics.
 """
 
 import json
+import importlib.util
 import logging
 import re
 import sys
@@ -17,12 +18,24 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
-# Add library directory to sys.path to import from shared
+# Add library directory to sys.path to import local script modules
 library_dir = Path(__file__).parent.parent
 if library_dir.exists() and str(library_dir) not in sys.path:
   sys.path.insert(0, str(library_dir))
 
-from shared.venv import get_datrix_root
+
+def _load_get_datrix_root():
+ """Load get_datrix_root from shared/venv.py without importing shared.__init__."""
+ venv_module_path = library_dir / "shared" / "venv.py"
+ spec = importlib.util.spec_from_file_location("_status_tests_shared_venv", venv_module_path)
+ if spec is None or spec.loader is None:
+  raise ImportError(f"Could not load module spec from {venv_module_path}")
+ module = importlib.util.module_from_spec(spec)
+ spec.loader.exec_module(module)
+ return module.get_datrix_root
+
+
+get_datrix_root = _load_get_datrix_root()
 
 
 # ANSI color codes
@@ -71,6 +84,7 @@ class TestResult:
  timestamp: str
  log_file: str
  phases: dict # {'Parallel': PhaseResult, 'Serial': PhaseResult, 'Tests': PhaseResult}
+ progress_percent: Optional[int] = None
 
 
 # Retired packages (merged into datrix-common); excluded from status report.
@@ -416,6 +430,24 @@ def _extract_timestamp(lines: List[str], log_file_name: str) -> str:
  return ""
 
 
+def _extract_progress_percent(lines: List[str]) -> Optional[int]:
+ """Extract latest pytest progress percent from lines like '[gw1] [ 42%] PASSED ...'."""
+ last_percent: Optional[int] = None
+ pattern = re.compile(r'\[\s*(\d{1,3})%\]')
+
+ for line in lines:
+  match = pattern.search(line)
+  if match:
+   try:
+    pct = int(match.group(1))
+   except ValueError:
+    continue
+   if 0 <= pct <= 100:
+    last_percent = pct
+
+ return last_percent
+
+
 def _build_phases(phase_statuses: dict, phase_counts: dict) -> dict:
  """Build PhaseResult objects from parsed statuses and counts."""
  phases = {}
@@ -489,6 +521,7 @@ def parse_pytest_summary(log_file: Path) -> TestResult:
     timestamp="",
     log_file=str(log_file),
     phases={},
+    progress_percent=None,
    )
 
  # Project path: full.log sits inside run_dir inside .test_results inside project
@@ -500,6 +533,7 @@ def parse_pytest_summary(log_file: Path) -> TestResult:
  phases: dict = {}
  totals = {'passed': 0, 'failed': 0, 'errors': 0, 'skipped': 0, 'warnings': 0}
  timestamp = ""
+ progress_percent: Optional[int] = None
 
  try:
   with open(log_file, 'r', encoding='utf-8') as f:
@@ -511,6 +545,7 @@ def parse_pytest_summary(log_file: Path) -> TestResult:
    log_name_for_ts = log_file.parent.name
 
   timestamp = _extract_timestamp(lines, log_name_for_ts)
+  progress_percent = _extract_progress_percent(lines)
   phase_statuses = _parse_phase_statuses(lines)
   phase_counts = _parse_phase_counts(lines)
   phases = _build_phases(phase_statuses, phase_counts)
@@ -537,6 +572,7 @@ def parse_pytest_summary(log_file: Path) -> TestResult:
  timestamp=timestamp,
  log_file=str(log_file),
  phases=phases,
+  progress_percent=progress_percent,
  )
 
 
@@ -623,6 +659,8 @@ def _format_result_row(result: TestResult, name_width: int, use_colors: bool) ->
  sym = _status_symbol(result.status, use_colors)
  pw = _PHASE_COL_WIDTH
  phase_cells = [_phase_cell(result.phases.get(p), pw, use_colors) for p in _PHASE_NAMES]
+ if result.status == "UNKNOWN" and result.progress_percent is not None and result.phases.get('Tests') is None:
+  phase_cells[2] = _colorize(f"{result.progress_percent}%".center(pw), Colors.CYAN, use_colors)
  ts = result.timestamp.split(' ')[1] if ' ' in result.timestamp else result.timestamp
  return (
  f"{sym} {result.project_name:<{name_width}} "

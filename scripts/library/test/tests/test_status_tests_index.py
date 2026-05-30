@@ -12,6 +12,8 @@ if str(_library_dir) not in sys.path:
     sys.path.insert(0, str(_library_dir))
 
 from test.status_tests import (
+    TestResult,
+    _format_result_row,
     _read_index_json,
     find_latest_log_file,
     parse_pytest_summary,
@@ -246,3 +248,47 @@ def test_parse_pytest_summary_full_log_in_directory(tmp_path: Path) -> None:
     assert result.status == "PASSED"
     assert result.total_passed == 15
     assert result.project_name == "datrix-example"
+
+
+def test_parse_pytest_summary_extracts_progress_for_running_log(tmp_path: Path) -> None:
+    """When pytest is still running, progress percent is parsed from xdist output lines."""
+    run_dir = _make_run_dir(tmp_path)
+    full_log = _write_full_log(
+        run_dir,
+        """
+Phase 1: Parallel tests (excluding serial)
+[gw2] [  7%] PASSED tests/test_a.py::test_one
+[gw1] [ 37%] PASSED tests/test_b.py::test_two
+""".strip() + "\n",
+    )
+
+    result = parse_pytest_summary(full_log)
+
+    assert result.status == "UNKNOWN"
+    assert result.progress_percent == 37
+
+
+def test_format_result_row_shows_progress_in_tests_column_for_unknown() -> None:
+    """UNKNOWN rows with progress show percentage in the Tests column."""
+
+    row = _format_result_row(
+        TestResult(
+            project_path="D:/tmp/datrix-example",
+            project_name="datrix-example",
+            status="UNKNOWN",
+            total_passed=0,
+            total_failed=0,
+            total_errors=0,
+            total_skipped=0,
+            total_warnings=0,
+            timestamp="",
+            log_file="",
+            phases={},
+            progress_percent=42,
+        ),
+        name_width=len("datrix-example"),
+        use_colors=False,
+    )
+
+    assert "42%" in row
+
