@@ -25,6 +25,37 @@ $script:DatrixPackageLockFile = $null
 # This ensures the lock file is removed even if the script is interrupted
 $script:DatrixLockCleanupRegistered = $false
 
+function Test-DatrixVenvVerbose {
+ $raw = $env:DATRIX_VENV_VERBOSE
+ if ($null -eq $raw -or [string]::IsNullOrWhiteSpace($raw)) {
+ return $false
+ }
+ $t = $raw.Trim().ToLowerInvariant()
+ return ($t -eq "1") -or ($t -eq "true") -or ($t -eq "yes")
+}
+
+function Write-DatrixVenvInfo {
+ param(
+ [AllowEmptyString()]
+ [string]$Message = "",
+ [ConsoleColor]$ForegroundColor = [ConsoleColor]::White
+ )
+
+ if (Test-DatrixVenvVerbose) {
+ Write-Host $Message -ForegroundColor $ForegroundColor
+ }
+}
+
+function Write-DatrixVenvWarning {
+ param(
+ [string]$Message
+ )
+
+ if (Test-DatrixVenvVerbose) {
+ Write-Warning $Message
+ }
+}
+
 function Register-DatrixLockCleanup {
  if ($script:DatrixLockCleanupRegistered) {
  return
@@ -127,7 +158,7 @@ function Enter-DatrixPackageLock {
  # Check for timeout
  $elapsed = ((Get-Date) - $startTime).TotalSeconds
  if ($elapsed -gt $TimeoutSeconds) {
- Write-Warning "Timeout waiting for package lock after $TimeoutSeconds seconds"
+ Write-DatrixVenvWarning "Timeout waiting for package lock after $TimeoutSeconds seconds"
  return $false
  }
 
@@ -142,24 +173,24 @@ function Enter-DatrixPackageLock {
 
  # Check if lock is stale (process died or took too long)
  if ($lockAge -gt $StaleSeconds) {
- Write-Host "Removing stale package lock (age: $([int]$lockAge)s, pid: $lockPid)" -ForegroundColor Yellow
+ Write-DatrixVenvInfo "Removing stale package lock (age: $([int]$lockAge)s, pid: $lockPid)" -ForegroundColor Yellow
  Remove-Item -Path $lockPath -Force -ErrorAction SilentlyContinue
  }
  # Check if locking process is still running
  elseif (-not (Get-Process -Id $lockPid -ErrorAction SilentlyContinue)) {
- Write-Host "Removing orphaned package lock (pid $lockPid no longer running)" -ForegroundColor Yellow
+ Write-DatrixVenvInfo "Removing orphaned package lock (pid $lockPid no longer running)" -ForegroundColor Yellow
  Remove-Item -Path $lockPath -Force -ErrorAction SilentlyContinue
  }
  else {
  # Lock is held by another active process - wait
  $waitTime = [int]$elapsed
- Write-Host "Waiting for package lock (held by pid $lockPid for $([int]$lockAge)s, waited ${waitTime}s)..." -ForegroundColor Cyan
+ Write-DatrixVenvInfo "Waiting for package lock (held by pid $lockPid for $([int]$lockAge)s, waited ${waitTime}s)..." -ForegroundColor Cyan
  Start-Sleep -Seconds 2
  continue
  }
  } catch {
  # Corrupted lock file - remove it
- Write-Host "Removing corrupted package lock file" -ForegroundColor Yellow
+ Write-DatrixVenvInfo "Removing corrupted package lock file" -ForegroundColor Yellow
  Remove-Item -Path $lockPath -Force -ErrorAction SilentlyContinue
  }
  }
@@ -190,14 +221,14 @@ function Enter-DatrixPackageLock {
  # Lock acquired successfully
  $script:DatrixPackageLockHeld = $true
  $script:DatrixPackageLockFile = $lockPath
- Write-Host "Package lock acquired (pid: $currentPid)" -ForegroundColor Green
+ Write-DatrixVenvInfo "Package lock acquired (pid: $currentPid)" -ForegroundColor Green
  return $true
  } catch [System.IO.IOException] {
  # File already exists (race condition) - retry
  Start-Sleep -Milliseconds 500
  continue
  } catch {
- Write-Warning "Error acquiring package lock: $_"
+ Write-DatrixVenvWarning "Error acquiring package lock: $_"
  Start-Sleep -Seconds 1
  continue
  }
@@ -223,7 +254,7 @@ function Exit-DatrixPackageLock {
  $lockData = $lockContent | ConvertFrom-Json -ErrorAction Stop
  if ($lockData.pid -eq $PID) {
  Remove-Item -Path $lockPath -Force -ErrorAction SilentlyContinue
- Write-Host "Package lock released (pid: $PID)" -ForegroundColor Green
+ Write-DatrixVenvInfo "Package lock released (pid: $PID)" -ForegroundColor Green
  }
  } catch {
  # Error reading lock - try to remove anyway if it's ours
@@ -269,17 +300,17 @@ function New-DatrixVenv {
  $datrixRoot = Get-DatrixRoot
 
  if ((Test-DatrixVenvExists) -and (-not $Force)) {
- Write-Host "Virtual environment already exists at: $venvPath" -ForegroundColor Green
+ Write-DatrixVenvInfo "Virtual environment already exists at: $venvPath" -ForegroundColor Green
  return $true
  }
 
  if ($Force -and (Test-Path $venvPath)) {
- Write-Host "Removing existing virtual environment..." -ForegroundColor Yellow
+ Write-DatrixVenvInfo "Removing existing virtual environment..." -ForegroundColor Yellow
  Remove-Item -Recurse -Force $venvPath
  }
 
- Write-Host "Creating virtual environment at: $venvPath" -ForegroundColor Cyan
- Write-Host ""
+ Write-DatrixVenvInfo "Creating virtual environment at: $venvPath" -ForegroundColor Cyan
+ Write-DatrixVenvInfo ""
 
  # Create venv
  $result = & python -m venv $venvPath
@@ -288,7 +319,7 @@ function New-DatrixVenv {
  return $false
  }
 
- Write-Host "Virtual environment created successfully" -ForegroundColor Green
+ Write-DatrixVenvInfo "Virtual environment created successfully" -ForegroundColor Green
  return $true
 }
 
@@ -306,14 +337,14 @@ function Enable-DatrixVenv {
  return $false
  }
 
- Write-Host "Activating virtual environment: $venvPath" -ForegroundColor Cyan
+ Write-DatrixVenvInfo "Activating virtual environment: $venvPath" -ForegroundColor Cyan
  & $activateScript
 
  if ($env:VIRTUAL_ENV) {
- Write-Host "Virtual environment activated: $env:VIRTUAL_ENV" -ForegroundColor Green
+ Write-DatrixVenvInfo "Virtual environment activated: $env:VIRTUAL_ENV" -ForegroundColor Green
  return $true
  } else {
- Write-Warning "Virtual environment activation may have failed"
+ Write-DatrixVenvWarning "Virtual environment activation may have failed"
  return $false
  }
 }
@@ -325,7 +356,7 @@ function Disable-DatrixVenv {
  Deactivate the current virtual environment.
  #>
  if ($env:VIRTUAL_ENV) {
- Write-Host "Deactivating virtual environment..." -ForegroundColor Cyan
+ Write-DatrixVenvInfo "Deactivating virtual environment..." -ForegroundColor Cyan
  try {
  if (Get-Command deactivate -ErrorAction SilentlyContinue) {
  deactivate
@@ -392,7 +423,7 @@ function Install-DatrixPackage {
  Remove-CorruptedPipPackages
 
  try {
- Write-Host "Installing $PackageName in editable mode..." -ForegroundColor Cyan
+ Write-DatrixVenvInfo "Installing $PackageName in editable mode..." -ForegroundColor Cyan
 
  # Ensure build dependencies are available (required for --no-build-isolation)
  $oldErrorActionPreference = $ErrorActionPreference
@@ -404,7 +435,7 @@ function Install-DatrixPackage {
  $ErrorActionPreference = $oldErrorActionPreference
 
  if (-not $setuptoolsInstalled -or -not $wheelInstalled) {
- Write-Host "Installing build dependencies (setuptools, wheel)..." -ForegroundColor Cyan
+ Write-DatrixVenvInfo "Installing build dependencies (setuptools, wheel)..." -ForegroundColor Cyan
  & pip install --upgrade setuptools wheel 2>&1 | Out-Null
  if ($LASTEXITCODE -ne 0) {
  Write-Error "Failed to install build dependencies (setuptools, wheel)"
@@ -440,28 +471,10 @@ function Install-DatrixPackage {
  # Capture all output first
  # Use explicit cache directory and let TMPDIR control build directory
  $pipOutput = & pip install --cache-dir $pipCacheDir --no-build-isolation -e $packagePath 2>&1
- # Display filtered output
- $pipOutput | ForEach-Object {
- $line = $_
- # Filter out non-fatal warnings for display
- if ($line -notmatch "WARNING: Failed to remove contents in a temporary directory" -and
- $line -notmatch "WARNING: Ignoring invalid distribution") {
- Write-Output $line
- }
- }
  } else {
  # Capture all output first
  # Use explicit cache directory and let TMPDIR control build directory
  $pipOutput = & pip install --cache-dir $pipCacheDir --no-build-isolation -e "$packagePath[dev]" 2>&1
- # Display filtered output
- $pipOutput | ForEach-Object {
- $line = $_
- # Filter out non-fatal warnings for display
- if ($line -notmatch "WARNING: Failed to remove contents in a temporary directory" -and
- $line -notmatch "WARNING: Ignoring invalid distribution") {
- Write-Output $line
- }
- }
  }
  } catch {
  # Ignore warnings that are caught as exceptions
@@ -527,9 +540,9 @@ function Install-DatrixPackage {
  } elseif ($pipSucceeded) {
  # Pip succeeded but import failed - still treat as success
  # This can happen if the module has optional import-time dependencies
- Write-Host "Note: pip installed $PackageName but import test failed:" -ForegroundColor Yellow
- Write-Host ($importError | Out-String) -ForegroundColor Yellow
- Write-Host "Continuing since pip reported success." -ForegroundColor Yellow
+ Write-DatrixVenvInfo "Note: pip installed $PackageName but import test failed:" -ForegroundColor Yellow
+ Write-DatrixVenvInfo ($importError | Out-String) -ForegroundColor Yellow
+ Write-DatrixVenvInfo "Continuing since pip reported success." -ForegroundColor Yellow
  $packageInstalled = $true
  }
  }
@@ -537,7 +550,7 @@ function Install-DatrixPackage {
  # The key check is whether pip succeeded or the package is importable
  # pip exit codes can be unreliable on Windows (temp cleanup issues)
  if ($packageInstalled) {
- Write-Host "$PackageName installed successfully" -ForegroundColor Green
+ Write-DatrixVenvInfo "$PackageName installed successfully" -ForegroundColor Green
  # Update marker file to record successful installation
  $markerDir = Join-Path $venvPath ".datrix-markers"
  if (-not (Test-Path $markerDir)) {
@@ -676,15 +689,15 @@ function Ensure-DatrixVenv {
 
  # Check if venv exists, create if not
  if (-not (Test-DatrixVenvExists)) {
- Write-Host "Virtual environment not found at: $venvPath" -ForegroundColor Yellow
- Write-Host "Creating virtual environment..." -ForegroundColor Cyan
- Write-Host ""
+ Write-DatrixVenvInfo "Virtual environment not found at: $venvPath" -ForegroundColor Yellow
+ Write-DatrixVenvInfo "Creating virtual environment..." -ForegroundColor Cyan
+ Write-DatrixVenvInfo ""
 
  $created = New-DatrixVenv
  if (-not $created) {
  return $false
  }
- Write-Host ""
+ Write-DatrixVenvInfo ""
  }
 
  # Activate venv if not already active
@@ -696,15 +709,15 @@ function Ensure-DatrixVenv {
  } else {
  # Check if the active venv is the Datrix venv
  if ($env:VIRTUAL_ENV -ne $venvPath) {
- Write-Host "Different virtual environment is active: $env:VIRTUAL_ENV" -ForegroundColor Yellow
- Write-Host "Switching to Datrix virtual environment..." -ForegroundColor Cyan
+ Write-DatrixVenvInfo "Different virtual environment is active: $env:VIRTUAL_ENV" -ForegroundColor Yellow
+ Write-DatrixVenvInfo "Switching to Datrix virtual environment..." -ForegroundColor Cyan
  Disable-DatrixVenv
  $activated = Enable-DatrixVenv
  if (-not $activated) {
  return $false
  }
  } else {
- Write-Host "Using active virtual environment: $env:VIRTUAL_ENV" -ForegroundColor Green
+ Write-DatrixVenvInfo "Using active virtual environment: $env:VIRTUAL_ENV" -ForegroundColor Green
  }
  }
 
@@ -899,9 +912,9 @@ function Remove-CorruptedPipPackages {
  foreach ($dir in $corruptedDirs) {
  try {
  Remove-Item -Recurse -Force $dir.FullName -ErrorAction Stop
- Write-Host "Removed corrupted package directory: $($dir.Name)" -ForegroundColor Yellow
+ Write-DatrixVenvInfo "Removed corrupted package directory: $($dir.Name)" -ForegroundColor Yellow
  } catch {
- Write-Warning "Could not remove corrupted directory: $($dir.FullName)"
+ Write-DatrixVenvWarning "Could not remove corrupted directory: $($dir.FullName)"
  }
  }
  }
@@ -980,30 +993,30 @@ function Repair-BrokenEditableInstalls {
  }
 
  # Broken state detected: markers exist but editable installs are missing
- Write-Host ""
- Write-Host "========================================" -ForegroundColor Yellow
- Write-Host "DETECTED: Broken editable installs" -ForegroundColor Yellow
- Write-Host "========================================" -ForegroundColor Yellow
- Write-Host "Markers exist but .pth files are missing." -ForegroundColor Yellow
- Write-Host "This can happen due to interrupted pip operations." -ForegroundColor Yellow
- Write-Host ""
- Write-Host "Initiating automatic repair..." -ForegroundColor Cyan
+ Write-DatrixVenvInfo ""
+ Write-DatrixVenvInfo "========================================" -ForegroundColor Yellow
+ Write-DatrixVenvInfo "DETECTED: Broken editable installs" -ForegroundColor Yellow
+ Write-DatrixVenvInfo "========================================" -ForegroundColor Yellow
+ Write-DatrixVenvInfo "Markers exist but .pth files are missing." -ForegroundColor Yellow
+ Write-DatrixVenvInfo "This can happen due to interrupted pip operations." -ForegroundColor Yellow
+ Write-DatrixVenvInfo ""
+ Write-DatrixVenvInfo "Initiating automatic repair..." -ForegroundColor Cyan
 
  # Wait before attempting repair (allows any pending file operations to complete)
- Write-Host "Waiting $RetryDelaySeconds seconds before repair..." -ForegroundColor Cyan
+ Write-DatrixVenvInfo "Waiting $RetryDelaySeconds seconds before repair..." -ForegroundColor Cyan
  Start-Sleep -Seconds $RetryDelaySeconds
 
  # Remove all marker files to force reinstallation
- Write-Host "Removing stale marker files..." -ForegroundColor Cyan
+ Write-DatrixVenvInfo "Removing stale marker files..." -ForegroundColor Cyan
  try {
  Remove-Item -Path (Join-Path $markerDir "*.marker") -Force -ErrorAction Stop
- Write-Host "Marker files removed successfully." -ForegroundColor Green
+ Write-DatrixVenvInfo "Marker files removed successfully." -ForegroundColor Green
  } catch {
- Write-Warning "Could not remove all marker files: $_"
+ Write-DatrixVenvWarning "Could not remove all marker files: $_"
  # Try to remove the entire marker directory
  try {
  Remove-Item -Recurse -Force $markerDir -ErrorAction Stop
- Write-Host "Marker directory removed." -ForegroundColor Green
+ Write-DatrixVenvInfo "Marker directory removed." -ForegroundColor Green
  } catch {
  Write-Error "Failed to remove marker directory: $_"
  return $false
@@ -1013,10 +1026,10 @@ function Repair-BrokenEditableInstalls {
  # Clean up any corrupted pip packages
  Remove-CorruptedPipPackages
 
- Write-Host ""
- Write-Host "Repair preparation complete. Packages will be reinstalled." -ForegroundColor Green
- Write-Host "========================================" -ForegroundColor Yellow
- Write-Host ""
+ Write-DatrixVenvInfo ""
+ Write-DatrixVenvInfo "Repair preparation complete. Packages will be reinstalled." -ForegroundColor Green
+ Write-DatrixVenvInfo "========================================" -ForegroundColor Yellow
+ Write-DatrixVenvInfo ""
 
  return $true
 }
@@ -1114,7 +1127,7 @@ function Ensure-DatrixPackagesInstalled {
  return $false
  }
 
- Write-Host "Offline mode: Datrix packages and CLI verified (no pip)." -ForegroundColor Green
+ Write-DatrixVenvInfo "Offline mode: Datrix packages and CLI verified (no pip)." -ForegroundColor Green
  return $true
  }
 
@@ -1142,7 +1155,7 @@ function Ensure-DatrixPackagesInstalled {
  if ($LASTEXITCODE -ne 0) {
  $allImportable = $false
  $ErrorActionPreference = $oldErrorActionPreference
- Write-Host "Package '$package' is not importable" -ForegroundColor Yellow
+ Write-DatrixVenvInfo "Package '$package' is not importable" -ForegroundColor Yellow
  $ErrorActionPreference = "SilentlyContinue"
  break
  }
@@ -1150,7 +1163,7 @@ function Ensure-DatrixPackagesInstalled {
  if (Test-PackageNeedsReinstall -PackageName $package) {
  $anyNeedsReinstall = $true
  $ErrorActionPreference = $oldErrorActionPreference
- Write-Host "Package '$package' has changed pyproject.toml or source files" -ForegroundColor Yellow
+ Write-DatrixVenvInfo "Package '$package' has changed pyproject.toml or source files" -ForegroundColor Yellow
  $ErrorActionPreference = "SilentlyContinue"
  }
  }
@@ -1161,14 +1174,14 @@ function Ensure-DatrixPackagesInstalled {
  }
 
  if ($allImportable -and -not $anyNeedsReinstall) {
- Write-Host "All packages are importable and up-to-date, skipping reinstall (SkipIfInstalled mode)" -ForegroundColor Green
+ Write-DatrixVenvInfo "All packages are importable and up-to-date, skipping reinstall (SkipIfInstalled mode)" -ForegroundColor Green
  return $true
  }
  # If not all importable or some need reinstall, fall through to normal installation
  if (-not $allImportable) {
- Write-Host "Some packages are not importable, proceeding with installation..." -ForegroundColor Yellow
+ Write-DatrixVenvInfo "Some packages are not importable, proceeding with installation..." -ForegroundColor Yellow
  } elseif ($anyNeedsReinstall) {
- Write-Host "Some packages have changed, proceeding with installation..." -ForegroundColor Yellow
+ Write-DatrixVenvInfo "Some packages have changed, proceeding with installation..." -ForegroundColor Yellow
  }
  }
 
@@ -1198,7 +1211,7 @@ function Ensure-DatrixPackagesInstalled {
  $needsReinstall = $Force -or (Test-PackageNeedsReinstall -PackageName $package)
 
  if ($needsReinstall) {
- Write-Host "Package '$package' needs reinstallation (source files changed)" -ForegroundColor Yellow
+ Write-DatrixVenvInfo "Package '$package' needs reinstallation (source files changed)" -ForegroundColor Yellow
 
  # Retry logic for transient failures
  $maxInstallRetries = 2
@@ -1207,7 +1220,7 @@ function Ensure-DatrixPackagesInstalled {
 
  while (-not $success -and $installRetry -lt $maxInstallRetries) {
  if ($installRetry -gt 0) {
- Write-Host "Retrying installation of '$package' (attempt $($installRetry + 1)/$maxInstallRetries)..." -ForegroundColor Yellow
+ Write-DatrixVenvInfo "Retrying installation of '$package' (attempt $($installRetry + 1)/$maxInstallRetries)..." -ForegroundColor Yellow
  Start-Sleep -Seconds 2
  }
 
@@ -1226,8 +1239,8 @@ function Ensure-DatrixPackagesInstalled {
  }
 
  if ($reinstalled.Count -gt 0) {
- Write-Host ""
- Write-Host "Reinstalled $($reinstalled.Count) package(s): $($reinstalled -join ', ')" -ForegroundColor Green
+ Write-DatrixVenvInfo ""
+ Write-DatrixVenvInfo "Reinstalled $($reinstalled.Count) package(s): $($reinstalled -join ', ')" -ForegroundColor Green
  }
 
  return $true
