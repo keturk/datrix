@@ -428,3 +428,8 @@ If design doc has unresolved open questions:
 3. **Review unavailable:** Ollama down, verify graceful degradation
 4. **Parse failures:** Models return text but not valid JSON, verify exit code 2 and retry offer
 5. **Prerequisites mode:** Design doc with open questions, verify clean exit
+
+## Anti-Patterns
+
+- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
+- **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

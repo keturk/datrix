@@ -22,16 +22,19 @@ The project is split into **thirteen** installable packages (twelve core toolcha
 - **Protocols:** `ParserProtocol`, `StdlibParserProtocol`, `LanguageHooks`, `LanguageRuntimeSpec`, `GeneratorPlugin`, `PlatformPlugin` — all protocol definitions that enable dependency inversion across packages
 - **Transpiler:** Staged DSL-to-source pipeline shared across language packages — **`NameResolver`** (Stage 1) and **`QueryExpander`** (Stage 2) in **datrix-common** produce **`ResolutionTable`** / query-annotation side-tables; each **`LanguageTranspiler`** subclass (Stage 3) consumes those tables and returns **`TranspileResult`**. Configuration is a frozen **`TranspileContext`**; per-file sibling-flow state lives in **`FileScope`** / **`PythonFileScope`** / **`TypeScriptFileScope`**. Expression and statement work uses **`ExpressionVisitor`** / **`StatementVisitor`** and **`node.accept()`**; call targets use **`CallTargetEmitter`** and **`dispatch_call()`**. See [datrix-common — Transpiler architecture](../../../../datrix-common/docs/architecture.md#transpiler-architecture-staged-pipeline), [code-generation.md — Consolidated generator infrastructure](../../../../datrix-common/docs/architecture/code-generation.md#consolidated-generator-infrastructure), and [datrix-common-api — Transpiler modules](../../../../datrix-common/docs/datrix-common-api.md#transpiler-modules).
 - **Shared:** Rendering utilities, error classes, configuration models, shared utilities
+- **Seed builtins:** `Seed` builtin object with framework-maintained reference datasets (countries, subdivisions, currencies, timezones, languages); canonical data in `builtins/data/` as JSON; SeedDSL AST model classes for parsed seed declarations
+- **Seed config:** ConfigDSL schema extensions for component-scoped seed policy (category enablement, tenant distribution, hash policy)
 
 **Dependencies:** None (zero dependencies on other Datrix packages). All parser and stdlib-loader functionality is injected via protocols at runtime.
 
 ---
 
 #### 2. datrix-language
-**Purpose:** Parser and CST-to-AST transformers for .dtrx files
+**Purpose:** Parser and CST-to-AST transformers for .dtrx, .dcfg, and .dseed files
 
 **Responsibilities:**
 - Parsing .dtrx files (Tree-sitter grammar, lexer, parser)
+- Parsing .dseed files (SeedDSL — seed declarations, tabular data, registry, `@ref`/`@lookup`/`@uuid`/`@hash`/`@json`/`@geo` constructs)
 - Implements `ParserProtocol` and `StdlibParserProtocol` (defined in `datrix-common`) — provides the concrete `TreeSitterParser` used by CLI and stdlib loader
 - Shipped **builtins** `.dtrx` definitions under `src/datrix_language/builtins/` (injected at parse time)
 - CST-to-AST transformers that produce `Application` objects (defined in `datrix-common`)
@@ -58,6 +61,7 @@ The project is split into **thirteen** installable packages (twelve core toolcha
 - **Field analysis:** Reusable entity/field analysis (lookup methods, cascade checks, sortable/filterable classification, lifecycle hooks)
 - **Micro-generator pattern:** `MicroGenerator[TContext]` ABC for language-specific rendering from shared context
 - **Parity checking:** `validate_profile_completeness()`, `verify_micro_generator_parity()`, `validate_builtin_parity()` — automated cross-language feature verification
+- **Seed orchestration:** SeedDSL-backed orchestration across RDBMS, NoSQL, and Storage targets — semantic validation, dependency graph construction, target writer interfaces, and component-scoped seed policy resolution (replaces the obsolete YAML-driven `SeedOrchestrator`)
 
 **Dependencies:**
 - `datrix-common` (AST model, type system, transpiler base, generation framework)
@@ -74,13 +78,13 @@ These are **specialized extensions** of the generation framework in `datrix-comm
 Generates platform-agnostic components: documentation (README, API reference, architecture), configuration (Alembic, pytest, coverage), scripts (entrypoint, dev scripts), and shared templates (Mermaid diagrams)
 
 #### 5. datrix-codegen-python
-Generates Python code (FastAPI, Django, Flask)
+Generates Python code (FastAPI, Django, Flask). Includes SeedDSL-backed seed runner generation with SQLAlchemy Core dialect DML for RDBMS, motor/pymongo for NoSQL, and provider SDK for Storage targets. Extends `PythonBuiltinMethodMapper` with `Seed.*` method mappings.
 
 #### 6. datrix-codegen-typescript
-Generates TypeScript code (Express, NestJS, Next.js)
+Generates TypeScript code (Express, NestJS, Next.js). Includes SeedDSL-backed seed runner generation with MikroORM/SQL driver for RDBMS, Mongo driver for NoSQL, and AWS/Azure SDK for Storage targets. Extends `TsBuiltinMethodMapper` with `Seed.*` method mappings.
 
 #### 7. datrix-codegen-sql
-Generates SQL DDL (PostgreSQL, MySQL)
+Generates SQL DDL (PostgreSQL, MySQL). Extends `SQLDialect` protocol with seed-specific DML primitives (`seed_upsert_sql()`) for multi-engine upsert semantics: PostgreSQL `ON CONFLICT ... DO NOTHING/UPDATE`, MySQL `INSERT IGNORE` / `ON DUPLICATE KEY UPDATE`.
 
 **Dependencies (language generators):**
 - `datrix-codegen-common` (shared transpiler, algorithms, context models, field analysis)
@@ -103,10 +107,10 @@ Generate infrastructure and deployment configurations. Under the [Deployment Tar
 Provider generators augment runtime output when selected alongside Docker or Kubernetes. For `runtime: kubernetes, provider: azure`, the K8s generator still produces Kubernetes manifests; the Azure generator adds AKS/ACR/identity/networking/managed-service integration.
 
 #### 8. datrix-codegen-docker
-Generates Dockerfiles and docker-compose.yml, including optional **job worker** services for Python services with jobs, **Elasticsearch** infrastructure plus index-init containers when search integration and searchable fields are present, **Varnish** cache proxy containers when `cdn` blocks are configured (simulates edge caching for local development), **PgBouncer** containers when `connectionPooler.enabled: true` on RDBMS blocks (one PgBouncer container per consolidated database, with health check and dependency wiring), and **Kong Gateway** containers with declarative config when `gateway.type` is `managed` or `kong` (rate-limiting, key-auth, and proxy-cache plugins)
+Generates Dockerfiles and docker-compose.yml, including optional **job worker** services for Python services with jobs, **Elasticsearch** infrastructure plus index-init containers when search integration and searchable fields are present, **Varnish** cache proxy containers when `cdn` blocks are configured (simulates edge caching for local development), **PgBouncer** containers when `connectionPooler.enabled: true` on RDBMS blocks (one PgBouncer container per consolidated database, with health check and dependency wiring), **Kong Gateway** containers with declarative config when `gateway.type` is `managed` or `kong` (rate-limiting, key-auth, and proxy-cache plugins), and **seed services** that run profile-gated seed scripts after migration completion (production profiles run reference data only by default)
 
 #### 9. datrix-codegen-k8s
-Generates Kubernetes manifests (Deployment, Service, etc.) including Elasticsearch StatefulSets, headless Services, and search index init Jobs when `search` blocks are present, PgBouncer Deployment + ClusterIP Service + ConfigMap when `connectionPooler.enabled: true` on RDBMS blocks, and Kong Ingress Controller CRDs (KongPlugin resources for rate-limiting, key-auth) with annotated Ingress when `gateway.type` is `managed` or `kong`
+Generates Kubernetes manifests (Deployment, Service, etc.) including Elasticsearch StatefulSets, headless Services, and search index init Jobs when `search` blocks are present, PgBouncer Deployment + ClusterIP Service + ConfigMap when `connectionPooler.enabled: true` on RDBMS blocks, Kong Ingress Controller CRDs (KongPlugin resources for rate-limiting, key-auth) with annotated Ingress when `gateway.type` is `managed` or `kong`, and **seed Jobs** that run profile-gated seed scripts after schema initialization and migrations (alongside existing Kafka/RabbitMQ/search init Jobs)
 
 #### 10. datrix-codegen-aws
 Generates AWS infrastructure (CDK, CloudFormation) including VPC, ECS Fargate, RDS, ElastiCache, SNS/SQS, MSK (Kafka), Amazon MQ (RabbitMQ), DynamoDB, Amazon DocumentDB (MongoDB), S3, ALB, Amazon OpenSearch Service domains, CloudFront CDN distributions (with OAC for S3 origins, custom domains, and SSL certificates), RDS Proxy resources when `connectionPooler.enabled: true` on RDBMS blocks, API Gateway (REST API or HTTP API) with usage plans, API keys, response caching, WAF Web ACL, VPC Link + NLB, and custom domains when `gateway.type` is `managed`, and AWS Cloud Map service discovery (private DNS namespace + ECS service registration for internal service-to-service communication)
@@ -122,10 +126,12 @@ Generates Azure infrastructure (Bicep, ARM templates) including Container Apps, 
 ### CLI (1)
 
 #### 12. datrix-cli
-Command-line interface for code generation
+Command-line interface for code generation and seed management
 
 **Responsibilities:**
 - **Pipeline orchestration** — owns `GenerationPipeline` (parse → analyze → generate → format → write), the full end-to-end orchestrator that coordinates parsing, semantic analysis, config resolution, generator execution, file writing, and post-processing hooks. Constructs `TreeSitterParser` and stdlib loader from `datrix-language` and injects them into the pipeline stages.
+- **Seed execution** — `datrix seed` command family: `--profile`, `--category`, `--dry-run`, `--reset` (non-prod), `--warm-cache`, `--rebuild-views`. Production safety: `datrix seed --profile prod` runs only reference data by default; baseline and volume categories are rejected unless overridden with `--force`.
+- **Seed capture** — `datrix seed capture` reverse-engineers existing database state into `.dseed` declarations with tenant-scoped introspection, secret redaction, and natural-key inference.
 - Plugin discovery
 - Linting and formatting
 - Progress reporting

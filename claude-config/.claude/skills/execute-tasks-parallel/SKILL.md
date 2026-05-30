@@ -742,3 +742,9 @@ Use `/execute-tasks` instead if:
 - Tasks modify the same files
 - You want to see tasks complete one-by-one for learning/debugging
 - Integration issues are expected and need careful incremental testing
+
+## Anti-Patterns
+
+- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
+- **NO debug scatter** — zero temporary logging statements
+- **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

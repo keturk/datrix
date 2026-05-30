@@ -58,3 +58,8 @@ def canonical_function(...):
 - When modifying a marked function, **update the marker** if behavior changes
 - When deleting marked code, **remove the marker**
 - After changes, rebuild: `powershell -File "d:/datrix/datrix/scripts/dev/logic-map.ps1" -All`
+
+## Anti-Patterns
+
+- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
+- **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

@@ -82,3 +82,8 @@ Options:
 ```
 
 **WAIT for user decision. Do NOT silently expand scope.**
+
+## Anti-Patterns
+
+- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
+- **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

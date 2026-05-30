@@ -208,6 +208,7 @@ Key module paths:
 - **Platform-specific DSLs:** Do NOT use `@AzureCosmosDB(...)` -- keep generators generic
 - **Implicit or "magic" logic:** Make all behavior explicit and documented
 - **Over-engineering:** Do NOT add unnecessary abstractions or feature flags
+- **Workarounds:** Do NOT steer around issues or paper over them — fix the root cause or STOP and report (CLAUDE.md rule)
 - **Mocks/fakes in tests:** Do NOT use `MagicMock`, `Mock`, `patch`, `SimpleNamespace`, or any fake stand-in — use real objects, `.dtrx` fixtures, and factories from `datrix_common.testing`
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)
 

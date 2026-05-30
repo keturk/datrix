@@ -1,6 +1,6 @@
 # Claude Code Rules for Datrix
 
-**On-demand skills:** `/imports`, `/logic-map`, `/fix`, `/fix-issue`, `/codegen-review`, `/fix-tests`, `/scope`, `/checkpoint-debug`, `/troubleshoot-and-fix`, `/codegen-fix-loop`, `/operationalize-design`, `/operationalize-design-v2`, `/execute-tasks`, `/execute-tasks-parallel`, `/absorb-design`, `/commit-and-push`, `/evaluate-generated`, `/evaluate-generated-service`, `/fix-cli`, `/fix-common`, `/fix-extensions`, `/fix-language`, `/fix-codegen-{aws,azure,common,component,docker,k8s,python,sql,typescript}`.
+**On-demand skills:** `/imports`, `/logic-map`, `/fix`, `/fix-issue`, `/fix-bug-report`, `/codegen-review`, `/fix-tests`, `/scope`, `/checkpoint-debug`, `/troubleshoot-and-fix`, `/codegen-fix-loop`, `/operationalize-design`, `/operationalize-design-v2`, `/execute-tasks`, `/execute-tasks-parallel`, `/absorb-design`, `/commit-and-push`, `/evaluate-generated`, `/evaluate-generated-service`, `/fix-cli`, `/fix-common`, `/fix-extensions`, `/fix-language`, `/fix-codegen-{aws,azure,common,component,docker,k8s,python,sql,typescript}`.
 
 ## Core Principles
 
@@ -56,6 +56,10 @@ Query `d:/datrix/.logic-map/markers.db` before implementing significant new logi
 ## Code Standards
 
 Type hints on all fns; `mypy --strict` must pass. No `Any` (exception: Pydantic `@model_validator(mode="before")` data param). Logging: `logging.getLogger(__name__)`, %-style. Cognitive complexity ≤15; max 3 nesting; early returns. DRY — search existing fns first. Named constants only. Error msgs: what went wrong + expected + valid options + fix suggestion. Testing: real objects only, no `unittest.mock`/`SimpleNamespace`/fakes; guidelines in `datrix-common/docs/contributing/test-guidelines/`.
+
+## No Workarounds
+
+This is production software. When you encounter an issue, fix it properly. Do not steer around it. Do not sweep it under the rug. No band-aid patches, no "good enough for now", no conditional guards that hide a broken code path. If something is wrong, trace it to the root cause and fix it there. If the root cause is outside your current scope, STOP and report it — do not paper over it with a workaround that lets the build pass while the underlying problem festers. A workaround is technical debt with interest.
 
 ## Anti-Patterns
 

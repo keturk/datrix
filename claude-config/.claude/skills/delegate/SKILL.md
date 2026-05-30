@@ -52,3 +52,8 @@ Do not combine stages. Spec issues mask quality issues and vice versa.
 | BLOCKED | Assess: provide context, break down task, or escalate to user |
 
 Never force retry without changing inputs.
+
+## Anti-Patterns
+
+- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
+- **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

@@ -771,3 +771,9 @@ Completed:
 Failed (if any):
 - Task {NN}-{TT}: {Title} — {why}
 ```
+
+## Anti-Patterns
+
+- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
+- **NO debug scatter** — zero temporary logging statements
+- **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

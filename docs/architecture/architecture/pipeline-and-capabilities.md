@@ -9,12 +9,13 @@
 ### Pipeline Flow (Illustrative)
 
 ```
-.dtrx Source Files
+.dtrx + .dcfg + .dseed Source Files
  ↓
 ┌─────────────────────────────────┐
 │ Parser (datrix-language) │
 │ - Lexical analysis │
 │ - Syntax parsing (Tree-sitter) │
+│ - .dtrx, .dcfg, .dseed formats │
 └─────────────────────────────────┘
  ↓
 ┌─────────────────────────────────┐
@@ -71,6 +72,7 @@
 │ - resolved_config on blocks │
 │ - Ready for platform validation │
 │ - Generators read-only over AST │
+│ - Seed declarations attached   │
 └─────────────────────────────────┘
  ↓
 ┌─────────────────────────────────┐
@@ -93,6 +95,11 @@
 └─────────────────────────────────┘
  ↓
 Generated Application
+  - Service source code
+  - Database migrations
+  - Docker / K8s manifests
+  - Seed scripts (profile-gated,
+    multi-target, cross-component)
 ```
 
 The `datrix generate` command reads `language` and `deployment` (runtime, provider, target, registry) from resolved config. Deployment-affecting CLI overrides (`--hosting`, `--platform`) are being removed — see [Decision 6: Deployment Target Contract](../architecture-overview.md#decision-6-deployment-target-contract-planned). The pipeline validates deployment dimensions (runtime/provider/target/service-flavor/infrastructure-flavor) before generation starts.

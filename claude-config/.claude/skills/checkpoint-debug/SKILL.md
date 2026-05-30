@@ -149,4 +149,5 @@ Issues unresolved: {N} (see details above)
 - **NO scope creep** — if you discover a new issue during a fix, log it as a new item, don't chase it
 - **NO assumption-driven fixes** — read the code at every checkpoint
 - **NO skipping checkpoints** — every fix gets Understand → Fix → Verify
+- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

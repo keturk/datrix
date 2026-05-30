@@ -173,6 +173,7 @@ Next Steps:
 - **No double-application:** Always check markers before applying
 - **No silent skips:** Report why findings were skipped
 - **No guessing:** If suggested_fix is ambiguous, skip and report (don't guess intent)
+- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)
 
 ## Success Criteria

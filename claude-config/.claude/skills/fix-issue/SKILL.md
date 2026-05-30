@@ -244,4 +244,5 @@ Recommend: [continue / revert and rethink / split into smaller tasks]
 - **NO running full test suites for each issue** — verify only affected tests
 - **NO committing changes** — user decides when to commit
 - **NO fabricating file locations** — if Root Cause Analysis says "exact file TBD", search for it first
+- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

@@ -598,6 +598,7 @@ On abort, report what was fixed, what failed, and what remains.
 - **NO debug scatter** — zero temporary logging
 - **NO cross-language fixes** — stay in the declared scope (Python or TypeScript)
 - **NO running full test suite after each fix** — verify originally-failing tests only, run full suite AFTER all fixes
+- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)
 
 ### Best Practices
@@ -950,4 +951,5 @@ On abort, write a partial issue report to `d:\datrix\issues\` documenting what w
 - **NO guessing** — read the code at every phase boundary
 - **NO skipping regeneration** — always verify the fix produces correct output
 - **NO batch-fixing** — one root cause at a time with verification
+- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

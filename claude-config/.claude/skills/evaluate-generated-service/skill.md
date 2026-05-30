@@ -885,6 +885,7 @@ Key module paths (adjust based on affected package):
 - **Default type mappings:** Do NOT use `type_map.get(t, "Any")` -- raise on unknown types
 - **String-based code generation:** Do NOT use `code += f"class {name}:"` -- use Jinja2 templates
 - **Placeholder code:** Do NOT use `# TODO` / `pass` -- implement completely
+- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)
 
 ## Success Criteria
@@ -1149,6 +1150,7 @@ Summary:
 - **Do NOT count inherited fields as "missing"** -- fields come from parent entity via `extends`
 - **Do NOT flag trait fields as "missing"** -- fields injected by `with TraitName` are provided by the trait
 - **Do NOT flag user_files as "missing"** -- files listed under `user_files` in manifests are scaffolded (overwrite=False) and may not exist
+- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
 - **Do NOT run specification tests** -- semantic verification is code review (reading), not execution
 - **Do NOT verify business logic correctness** -- only verify transpilation correctness
 - **Do NOT flag stylistic choices as semantic issues** -- only flag transpilation bugs
