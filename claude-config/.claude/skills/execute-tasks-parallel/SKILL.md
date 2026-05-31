@@ -9,7 +9,7 @@ delegation-strategy:
       parallelizable: false
       description: "Read all task files, validate dependencies, identify blockers"
     - name: "spawn_agents"
-      model: "sonnet"
+      model: "opus"
       parallelizable: false
       description: "Spawn one agent per task to implement code changes and run targeted tests"
     - name: "verify_and_gate"
@@ -277,7 +277,7 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
 
 ### Model Selection
 
-- Use `model: "sonnet"` for code implementation tasks
+- Use `model: "opus"` for code implementation tasks
 - Use `model: "haiku"` for documentation-only tasks
 
 ### Output Format

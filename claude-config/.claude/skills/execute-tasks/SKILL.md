@@ -9,7 +9,7 @@ delegation-strategy:
       parallelizable: false
       description: "Read task files, validate dependencies, identify quality gates"
     - name: "implement"
-      model: "sonnet"
+      model: "opus"
       parallelizable: false
       description: "Apply code changes per task specification"
     - name: "verify"
