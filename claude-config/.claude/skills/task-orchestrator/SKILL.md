@@ -28,7 +28,28 @@ Fully automated multi-wave task orchestrator. Accepts a set of tasks (individual
 
 ## How to Invoke
 
-Individual tasks:
+**Most common usage — entire phase (recommended):**
+```
+/task-orchestrator
+
+PHASE: 36
+```
+Or with full path:
+```
+/task-orchestrator
+
+PHASE: d:\datrix\datrix\.tasks\phase-36\
+```
+
+**Note:** When you provide a PHASE (not individual task files), the orchestrator will automatically discover all tasks by:
+1. First checking for `d:\datrix\datrix\.tasks\phase-{NN}\dependencies.md` (if it exists, uses that)
+2. Otherwise, globbing for `task-*.md` files across all package directories in that phase
+
+You DO NOT need to provide the list of tasks — the orchestrator discovers them automatically.
+
+---
+
+Individual tasks (less common):
 ```
 /task-orchestrator
 
@@ -39,20 +60,19 @@ d:\datrix\datrix-common\.tasks\phase-07\task-07-03-formatter.md
 d:\datrix\datrix-common\.tasks\phase-07\task-07-04-integration.md
 ```
 
-Entire phase:
-```
-/task-orchestrator
-
-PHASE: d:\datrix\datrix-common\.tasks\phase-07\
-```
-
 Multiple phases:
 ```
 /task-orchestrator
 
+PHASES: 34, 35, 36
+```
+Or with full paths:
+```
+/task-orchestrator
+
 PHASES:
-d:\datrix\datrix-common\.tasks\phase-07\
-d:\datrix\datrix-common\.tasks\phase-08\
+d:\datrix\datrix\.tasks\phase-34\
+d:\datrix\datrix\.tasks\phase-35\
 ```
 
 ## Prereqs
@@ -78,26 +98,46 @@ Accept task paths in these formats:
 - **PHASE:** single directory path — glob for `task-*.md` files within it
 - **PHASES:** newline-separated list of directory paths — glob for `task-*.md` in each
 
-If a PHASE directory is given, use Glob to find all `task-*.md` files in that directory.
+**Important:** When a PHASE is provided (not individual tasks), ALWAYS check for a consolidated dependencies.md file at `d:\datrix\datrix\.tasks\phase-{NN}\dependencies.md` BEFORE reading individual task files. This file contains pre-computed task metadata and dependencies.
+
+If a PHASE directory is given:
+1. Extract the phase number from the directory path (e.g., "36" from `phase-36`)
+2. Check if `d:\datrix\datrix\.tasks\phase-{NN}\dependencies.md` exists
+3. If it exists, use it (see step 1b)
+4. If it doesn't exist, use Glob to find all `task-*.md` files in that directory
 
 ### 1b. Read Task Metadata
 
-**Optimization:** If a phase directory contains `dependencies.md`, use it instead of reading all task files.
+**IMPORTANT:** The orchestrator automatically discovers tasks when a PHASE is provided. The user does NOT need to provide a list of task files.
 
-For each phase directory:
+**Discovery process for each phase:**
 
-1. **Check for pre-computed dependencies:**
-   ```
-   If file exists: {phase_dir}/dependencies.md
-      Read it as JSON
-      Parse to extract: task_id, task_path, title, is_completed, package, dependencies, category
-      Skip reading individual task files for this phase
-   Else:
-      Read all task-*.md files in the phase directory
-      Extract metadata from each file (see below)
-   ```
+1. **First, check for consolidated dependencies file:**
+   - Location: `d:\datrix\datrix\.tasks\phase-{NN}\dependencies.md`
+   - This is a phase-level file (NOT in individual package directories)
+   - If it exists:
+     - Try to parse it as JSON (new format with full metadata)
+     - If JSON parsing succeeds: extract task_id, task_path, title, is_completed, package, dependencies, category
+     - If JSON parsing fails (simple text format): parse as line-separated task paths grouped by "Group N" headers
+       - Extract task paths from each group
+       - Groups represent dependency waves (Group 1 = no dependencies, Group 2 = depends on Group 1, etc.)
+       - Still need to read task files to get full metadata (title, package, category, is_completed)
+       - Use group numbers to infer dependency structure
+   - Skip reading for dependency graph construction if JSON format is used
 
-   See `d:\datrix\datrix\claude-config\.claude\agent-templates\dependencies-format.md` for the dependencies.md JSON schema.
+2. **If dependencies.md doesn't exist, fall back to discovering tasks across packages:**
+   - Glob for `task-*.md` files in:
+     - `d:\datrix\datrix-common\.tasks\phase-{NN}\`
+     - `d:\datrix\datrix-codegen-python\.tasks\phase-{NN}\`
+     - `d:\datrix\datrix-codegen-aws\.tasks\phase-{NN}\`
+     - `d:\datrix\datrix-extensions\.tasks\phase-{NN}\`
+     - `d:\datrix\datrix-projects\.tasks\phase-{NN}\`
+     - etc. (all packages with `.tasks` directories)
+   - Read each task file to extract metadata (see below)
+
+**Dependencies.md schema:**
+
+See `d:\datrix\datrix\claude-config\.claude\agent-templates\dependencies-format.md` for the JSON schema.
 
 2. **Metadata extraction (when reading task files manually):**
    - `task_id` — from filename (e.g., `task-07-01` from `task-07-01-base-class.md`)

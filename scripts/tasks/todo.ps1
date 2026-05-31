@@ -19,15 +19,67 @@ $ErrorActionPreference = "Stop"
 # Find all datrix projects
 $projects = Get-ChildItem -Path $BaseDir -Directory | Where-Object { $_.Name -like "datrix*" }
 
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Incomplete Tasks and Bugs Summary" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host ""
-
 $allIncompleteTasks = @()
 $allIncompleteBugs = @()
 $totalTaskCount = 0
 $totalBugCount = 0
+
+# Build a phase status index across all datrix projects so root phase dependencies
+# can reflect incomplete state even when the phase folder only contains dependencies.md.
+function Build-PhaseTaskStatusIndex {
+ param(
+ [string[]]$TasksRoots
+ )
+
+ $index = @{}
+
+ foreach ($tasksRoot in $TasksRoots) {
+ if (-not (Test-Path $tasksRoot)) {
+ continue
+ }
+
+ $phaseFolders = Get-ChildItem -Path $tasksRoot -Directory -Filter "phase-*" -ErrorAction SilentlyContinue
+ if ($null -eq $phaseFolders) {
+ continue
+ }
+ if ($phaseFolders -isnot [System.Array]) {
+ $phaseFolders = @($phaseFolders)
+ }
+
+ foreach ($phaseFolder in $phaseFolders) {
+ if (-not $index.ContainsKey($phaseFolder.Name)) {
+ $index[$phaseFolder.Name] = @{ Total = 0; Completed = 0 }
+ }
+
+ $taskFiles = Get-ChildItem -Path $phaseFolder.FullName -Filter "task-*.md" -Recurse -File -ErrorAction SilentlyContinue
+ if ($null -eq $taskFiles) {
+ continue
+ }
+ if ($taskFiles -isnot [System.Array]) {
+ $taskFiles = @($taskFiles)
+ }
+
+ foreach ($taskFile in $taskFiles) {
+ try {
+ $content = Get-Content -Path $taskFile.FullName -Raw -ErrorAction Stop
+ $firstHeading = Get-FirstMarkdownHeading -Content $content
+ if ([string]::IsNullOrWhiteSpace($firstHeading)) {
+ continue
+ }
+
+ $index[$phaseFolder.Name].Total++
+ if ($firstHeading -match '^COMPLETED:\s+') {
+ $index[$phaseFolder.Name].Completed++
+ }
+ } catch {
+ continue
+ }
+ }
+ }
+ }
+
+ return $index
+}
 
 # Function to process tasks folder
 function Process-TasksFolder {
@@ -189,9 +241,128 @@ function Process-BugsFolder {
  }
 }
 
+# Function to process phase dependencies
+function Process-PhaseDependencies {
+ param(
+ [string]$PhasesBasePath,
+ [string]$BasePath,
+ [string]$ProjectName,
+ [hashtable]$PhaseTaskStatusIndex,
+ [string]$Filter = ""
+ )
+
+ if (-not (Test-Path $PhasesBasePath)) {
+ return
+ }
+
+ # Find all phase-* folders
+ $phaseFolders = Get-ChildItem -Path $PhasesBasePath -Directory -Filter "phase-*" -ErrorAction SilentlyContinue
+
+ if ($null -eq $phaseFolders) {
+ return
+ }
+ if ($phaseFolders -isnot [System.Array]) {
+ $phaseFolders = @($phaseFolders)
+ }
+ if ($phaseFolders.Count -eq 0) {
+ return
+ }
+
+ $incompletePhaseDependencies = @()
+
+ foreach ($phaseFolder in $phaseFolders) {
+ $dependenciesFile = Join-Path $phaseFolder.FullName "dependencies.md"
+
+ if (-not (Test-Path $dependenciesFile)) {
+ continue
+ }
+
+ # Find all task-*.md files in this phase (including nested folders)
+ $taskFiles = Get-ChildItem -Path $phaseFolder.FullName -Filter "task-*.md" -Recurse -File -ErrorAction SilentlyContinue
+
+ $uncompletedCount = 0
+ $totalCount = 0
+
+ if ($null -ne $taskFiles) {
+ if ($taskFiles -isnot [System.Array]) {
+ $taskFiles = @($taskFiles)
+ }
+
+ foreach ($taskFile in $taskFiles) {
+ try {
+ $content = Get-Content -Path $taskFile.FullName -Raw -ErrorAction Stop
+ $firstHeading = Get-FirstMarkdownHeading -Content $content
+
+ if ($null -ne $firstHeading) {
+ $totalCount++
+
+ # Check if it's NOT completed (doesn't start with "COMPLETED: ")
+ if ($firstHeading -notmatch '^COMPLETED:\s+') {
+ $uncompletedCount++
+ }
+ }
+ } catch {
+ # Skip files that can't be read
+ continue
+ }
+ }
+ }
+
+ # If no local tasks were found, fall back to cross-project phase status.
+ if ($totalCount -eq 0 -and $null -ne $PhaseTaskStatusIndex -and $PhaseTaskStatusIndex.ContainsKey($phaseFolder.Name)) {
+ $totalCount = [int]$PhaseTaskStatusIndex[$phaseFolder.Name].Total
+ $uncompletedCount = $totalCount - [int]$PhaseTaskStatusIndex[$phaseFolder.Name].Completed
+ }
+
+ # If there are any uncompleted tasks, show the dependencies
+ if ($uncompletedCount -gt 0) {
+ $relativePath = $dependenciesFile.Substring($BasePath.Length + 1)
+ if (Test-ItemMatchesFilter -FileName (Split-Path -Leaf $dependenciesFile) -Title $phaseFolder.Name -Filter $Filter) {
+ $incompletePhaseDependencies += @{
+ PhaseFolder = $phaseFolder.Name
+ DependenciesFile = $relativePath
+ FullPath = $dependenciesFile
+ UncompletedTaskCount = $uncompletedCount
+ TotalTaskCount = $totalCount
+ }
+ }
+ }
+ }
+
+ if ($incompletePhaseDependencies.Count -gt 0) {
+ # Check if we already have an entry for this project
+ $existingProject = $null
+ foreach ($projectData in $script:allIncompleteTasks) {
+ if ($projectData.Project -eq $ProjectName) {
+ $existingProject = $projectData
+ break
+ }
+ }
+
+ if ($null -ne $existingProject) {
+ # Add to existing project
+ $existingProject.PhaseDependencies = $incompletePhaseDependencies
+ } else {
+ # Create new project entry
+ $script:allIncompleteTasks += @{
+ Project = $ProjectName
+ PhaseDependencies = $incompletePhaseDependencies
+ Tasks = @()
+ }
+ }
+ }
+}
+
 # Process root .tasks folder
 $rootTasksFolder = Join-Path $BaseDir ".tasks"
+$phaseTasksRoots = @($rootTasksFolder)
+foreach ($project in $projects) {
+ $phaseTasksRoots += (Join-Path $project.FullName ".tasks")
+}
+$phaseTaskStatusIndex = Build-PhaseTaskStatusIndex -TasksRoots $phaseTasksRoots
+
 Process-TasksFolder -TasksFolderPath $rootTasksFolder -ProjectName "(root)" -BasePath $BaseDir -Filter $Filter
+Process-PhaseDependencies -PhasesBasePath $rootTasksFolder -BasePath $BaseDir -ProjectName "(root)" -PhaseTaskStatusIndex $phaseTaskStatusIndex -Filter $Filter
 
 # Process root .bugs folder
 $rootBugsFolder = Join-Path $BaseDir ".bugs"
@@ -201,7 +372,8 @@ Process-BugsFolder -BugsFolderPath $rootBugsFolder -ProjectName "(root)" -BasePa
 foreach ($project in $projects) {
  $tasksFolder = Join-Path $project.FullName ".tasks"
  Process-TasksFolder -TasksFolderPath $tasksFolder -ProjectName $project.Name -BasePath $project.FullName -Filter $Filter
- 
+ Process-PhaseDependencies -PhasesBasePath $tasksFolder -BasePath $project.FullName -ProjectName $project.Name -PhaseTaskStatusIndex $phaseTaskStatusIndex -Filter $Filter
+
  $bugsFolder = Join-Path $project.FullName ".bugs"
  Process-BugsFolder -BugsFolderPath $bugsFolder -ProjectName $project.Name -BasePath $project.FullName -Filter $Filter
 }
@@ -212,18 +384,35 @@ if ($allIncompleteTasks.Count -gt 0) {
  Write-Host "Incomplete Tasks" -ForegroundColor Cyan
  Write-Host "========================================" -ForegroundColor Cyan
  Write-Host ""
- 
  foreach ($projectData in $allIncompleteTasks) {
  Write-Host "=== $($projectData.Project) ===" -ForegroundColor Cyan
- 
+
+ # Display phase dependencies first if they exist
+ if ($null -ne $projectData.PhaseDependencies -and $projectData.PhaseDependencies.Count -gt 0) {
+ foreach ($phaseDep in $projectData.PhaseDependencies) {
+ Write-Host "   $($phaseDep.FullPath)" -ForegroundColor White
+ if ($null -ne $phaseDep.TotalTaskCount) {
+ Write-Host "   Phase: $($phaseDep.PhaseFolder) | Incomplete Tasks: $($phaseDep.UncompletedTaskCount)/$($phaseDep.TotalTaskCount)" -ForegroundColor Gray
+ } else {
+ Write-Host "   Phase: $($phaseDep.PhaseFolder)" -ForegroundColor Gray
+ }
+ }
+ if ($projectData.Tasks.Count -gt 0) {
+ Write-Host ""
+ }
+ }
+
+ # Display regular tasks
+ if ($null -ne $projectData.Tasks -and $projectData.Tasks.Count -gt 0) {
  foreach ($task in $projectData.Tasks) {
- Write-Host " $($task.FullPath)" -ForegroundColor White
- Write-Host " Title: $($task.Title)" -ForegroundColor Gray
+ Write-Host "   $($task.FullPath)" -ForegroundColor White
+ Write-Host "   Title: $($task.Title)" -ForegroundColor Gray
  if ($task.Warning) {
- Write-Host " Warning: $($task.Warning)" -ForegroundColor Yellow
+ Write-Host "   Warning: $($task.Warning)" -ForegroundColor Yellow
  }
  }
- 
+ }
+
  Write-Host ""
  }
 }
@@ -265,4 +454,3 @@ if ($totalTaskCount -eq 0 -and $totalBugCount -eq 0) {
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-exit 0
