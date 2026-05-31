@@ -309,7 +309,7 @@ Provider generators augment runtime output unless the runtime is provider-native
 
 ---
 
-### Decision 7: Extension Naming — PostGIS Split (Planned)
+### Decision 7: Extension Naming — PostGIS Split
 
 **Rationale:**
 - The current `geo` extension is semantically a PostGIS pack: it owns `Geometry`, `Geography`, `GeoSql`, PostGIS database extension validation, PostGIS migration templates, and PostGIS/geometry runtime dependencies

@@ -147,14 +147,14 @@ Command-line interface for code generation and seed management
 ### Extension packs (optional)
 
 #### 13. datrix-extensions
-Optional package of **domain extension** entry points registered under the `datrix.extensions` group. Each pack contributes language-agnostic scalar definitions, builtin objects, value struct definitions (planned), database extension names, extra dependency hints, and optional template directories. **Language-specific type mappings** live in `datrix-codegen-python`, `datrix-codegen-typescript`, `datrix-codegen-sql`, not in the extension pack (split ownership).
+Optional package of **domain extension** entry points registered under the `datrix.extensions` group. Each pack contributes language-agnostic scalar definitions, builtin objects, and value struct definitions via the **`value_struct_definitions()`** surface on the `DatrixExtension` protocol, database extension names, extra dependency hints, and optional template directories. **Language-specific type mappings** live in `datrix-codegen-python`, `datrix-codegen-typescript`, `datrix-codegen-sql`, not in the extension pack (split ownership).
 
 **Current extensions:**
 
 | Entry point | Logical name | Purpose |
 |-------------|-------------|---------|
-| `postgis` | `postgis` | PostGIS spatial types (`Geometry`, `Geography`), `GeoShape.*` value-level ops, `GeoSql.*` SQL expressions, PostGIS database extension, geoalchemy2/shapely/turf dependencies (planned rename from `geo`) |
-| `geo` | `geo` | Database-independent geospatial raster/tile builtins (`GeoTile.*`, `GeoTiff.*`), value structs (`GeoBounds`, `GeoTileSpec`, `GeoElevationGrid`), Python helper implementations (planned) |
+| `postgis` | `postgis` | PostGIS spatial types (`Geometry`, `Geography`), `GeoShape.*` value-level ops, `GeoSql.*` SQL expressions, PostGIS database extension, geoalchemy2/shapely/turf dependencies |
+| `geo` | `geo` | Database-independent geospatial raster/tile builtins (`GeoTile.*`, `GeoTiff.*`), value structs (`GeoBounds`, `GeoTileSpec`, `GeoElevationGrid`), Python helper implementations |
 
 **Dependencies:**
 - `datrix-common` (protocols, types)
