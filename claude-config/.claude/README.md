@@ -9,19 +9,29 @@ This directory configures Claude Code for the Datrix project. `CLAUDE.md` define
 | `/imports` | Look up canonical module import paths | Reference |
 | `/logic-map` | Query and maintain implementation markers in `markers.db` | Reference |
 | `/fix` | Phased fix workflow with confidence gates | Reference |
+| `/fix-issue` | Fix issues from structured issue reports with Root Cause Analysis | Interactive |
+| `/fix-bug-report` | Analyze project bug reports, classify, fix root causes, and update reports | Interactive |
 | `/codegen-review` | Submission checklist, repo rules, code examples | Reference |
 | `/complexity-reducer` | Refactor functions exceeding cognitive complexity 15 | Interactive |
 | `/delegate` | Dispatch work to background agents with two-stage review | Interactive |
 | `/evaluate-generated` | Compare `.dtrx` source against generated output | Interactive |
+| `/evaluate-generated-service` | Service-level evaluation of generated code | Interactive |
 | `/generate-tasks` | Break design documents into implementable task files | Interactive |
 | `/troubleshoot-generated` | Diagnose generated code test failures | Interactive |
 | `/fix-tests` | Fix test failures one at a time with verification | Interactive |
+| `/apply-reviews` | Apply review artifacts from Tier 1 (local) and Tier 2 (Codex) | Interactive |
 | `/scope` | Anchor session with language/file/directory constraints | Reference |
 | `/checkpoint-debug` | Structured multi-bug debugging with checkpoints | Interactive |
 | `/troubleshoot-and-fix` | Autonomous diagnose → fix → verify pipeline | Interactive |
 | `/codegen-fix-loop` | Self-correcting iterative fix loop with hard limits | Interactive |
 | `/operationalize-design` | Design doc → decisions → docs → tasks → cleanup | Interactive |
+| `/operationalize-design-v2` | Production-grade design operationalization with review | Interactive |
+| `/execute-tasks` | Execute tasks one at a time with verification | Interactive |
+| `/execute-tasks-parallel` | Execute independent tasks in parallel (no dependency analysis) | Interactive |
 | `/task-orchestrator` | Fully automated multi-wave task execution with dependency analysis | Interactive |
+| `/absorb-design` | Absorb completed design documents into memory | Interactive |
+| `/commit-and-push` | Git commit and push workflow | Interactive |
+| `/premortem` | Premortem analysis for plans, launches, products, hires, strategies | Interactive |
 
 **Mode** — *Reference* skills are read-only prompts injected into context. *Interactive* skills run multi-phase workflows that read and (in some cases) write files.
 
@@ -178,6 +188,78 @@ Fully automated multi-wave task orchestrator. Accepts a set of tasks (individual
 
 **Key difference from `/execute-tasks-parallel`:** Dependency-aware grouping, automated test execution, automatic wave advancement, and multi-phase sequential ordering. No human intervention between waves.
 
+### `/fix-issue`
+
+Fix issues from structured issue reports with Root Cause Analysis and Recommended Fix. Reads issue report, implements the recommended fix, verifies with tests, and updates the report with resolution.
+
+**Workflow:** Understand → Implement Fix → Verify → Update Report
+
+### `/fix-bug-report`
+
+Analyze structured bug reports from project repositories (e.g., CurvAero), classify each bug as an app-definition fix or generator-level fix, implement the appropriate changes, and update each bug report with the resolution.
+
+**Phases:** Triage → Fix → Update → Report
+
+**Workflow reference:** `D:\datrix\datrix-projects\curvaero\claude\fix-bug-report.md`
+
+### `/evaluate-generated-service`
+
+Service-level evaluation of generated code against `.dtrx` source definitions. Focused on service-level concerns rather than full project evaluation.
+
+### `/apply-reviews`
+
+Apply review artifacts from Tier 1 (local) and Tier 2 (Codex) to task files. Reads review findings, groups by task and severity, applies fixes automatically, and marks applied findings to prevent double-application.
+
+**Workflow:**
+1. Discover review artifacts (`*.review.local.json`, `phase-{NN}.review.codex.json`)
+2. Group findings by task and severity (blocking → major → minor → nit)
+3. Apply fixes per task (highest severity first)
+4. Handle phase-level findings (dependency cycles, etc.)
+5. Write `.review.applied.json` markers
+
+**Key features:** Never double-applies findings, skips unfixable findings requiring design decisions, preserves task file structure.
+
+### `/operationalize-design-v2`
+
+Production-grade design operationalization with review. Enhanced version of `/operationalize-design` with additional quality gates and review steps.
+
+### `/execute-tasks`
+
+Execute implementation tasks one at a time with verification. Simpler than `/execute-tasks-parallel` and `/task-orchestrator`, suitable for small task sets (1-3 tasks) where you want to see progress one task at a time.
+
+### `/execute-tasks-parallel`
+
+Execute independent tasks in parallel without dependency analysis. Suitable for 2-4 independent tasks with no cross-dependencies. Simpler and lower cost than `/task-orchestrator`.
+
+**When to use:** Small sets of independent tasks where you don't need dependency analysis or automated wave advancement.
+
+**When NOT to use:** Tasks with dependencies (use `/task-orchestrator`), single tasks (use `/execute-tasks`).
+
+### `/absorb-design`
+
+Absorb completed design documents into project memory. After implementing a design doc, this skill extracts key decisions, patterns, and constraints and adds them to the project's memory system.
+
+### `/commit-and-push`
+
+Git commit and push workflow. Creates commits following project conventions and pushes to remote repository.
+
+### `/premortem`
+
+Runs a premortem on plans, launches, products, hires, strategies, or decisions. Uses "prospective hindsight" to identify failure modes before they happen by assuming the plan already failed and working backward to explain why.
+
+**Method:** Based on Gary Klein's premortem technique (published in Harvard Business Review). The brain shifts into narrative mode and generates far more specific, creative, honest reasons when you say "this already failed, tell me why" instead of "what could go wrong?"
+
+**Phases (delegated to specialized agents):**
+1. Context gathering — what, who, success criteria
+2. Raw premortem — generate exhaustive list of failure reasons
+3. Deep analysis (parallel) — one agent per failure reason analyzes: failure story, underlying assumption, early warning signs
+4. Synthesis — most likely failure, most dangerous failure, hidden assumption, revised plan, pre-launch checklist
+5. Report generation — visual HTML report + markdown transcript
+
+**Output:** `premortem-report-[timestamp].html` (visual, scannable) + `premortem-transcript-[timestamp].md` (complete analysis)
+
+**Delegation strategy:** Uses multi-phase delegation with parallel deep analysis agents (up to 9 concurrent) for efficiency.
+
 ---
 
 ## Skill Delegation Architecture
@@ -253,11 +335,12 @@ For each task:
 
 ### Delegation-Enabled Skills
 
-Skills that support delegation (planned):
+Skills that support delegation:
 
 - `/execute-tasks` — Parallel baseline capture and verification
+- `/execute-tasks-parallel` — Parallel task implementation without dependency analysis
 - `/troubleshoot-and-fix` — Parallel log parsing and regeneration
-- `/operationalize-design` — Parallel task file generation
+- `/premortem` — Parallel deep analysis agents (up to 9 concurrent) for failure scenario analysis
 
 ### Implementation Details
 
@@ -277,23 +360,57 @@ Skills that support delegation (planned):
 .claude/
   CLAUDE.md                             # Project rules and standards
   README.md                             # This file
+  MEMORY.md                             # Project memory and context
   settings.json                         # Shared settings
   settings.local.json                   # Local sandbox permissions
+  hooks/
+    validate-script-invocation.py       # Hook to validate PowerShell script usage
+  docs/
+    delegation-metrics-spec.md          # Metrics for delegation performance
+    phase-orchestrator-spec.md          # Phase orchestrator specification
+    skill-authoring-guide-delegation.md # Guide for authoring delegated skills
+    skill-delegation-schema.md          # Schema for delegation metadata
+  agent-templates/
+    dependencies-format.md              # Task dependencies file format
+    task-implementation-agent.md        # Template for task implementation agents
   skills/
     imports/SKILL.md
     logic-map/SKILL.md
     fix/SKILL.md
+    fix-issue/SKILL.md
+    fix-bug-report/SKILL.md
+    fix-tests/SKILL.md
+    fix-cli/SKILL.md
+    fix-common/SKILL.md
+    fix-extensions/SKILL.md
+    fix-language/SKILL.md
+    fix-codegen-aws/SKILL.md
+    fix-codegen-azure/SKILL.md
+    fix-codegen-common/SKILL.md
+    fix-codegen-component/SKILL.md
+    fix-codegen-docker/SKILL.md
+    fix-codegen-k8s/SKILL.md
+    fix-codegen-python/SKILL.md
+    fix-codegen-sql/SKILL.md
+    fix-codegen-typescript/SKILL.md
     codegen-review/SKILL.md
+    codegen-fix-loop/SKILL.md
     complexity-reducer/SKILL.md
     delegate/SKILL.md
     evaluate-generated/SKILL.md
+    evaluate-generated-service/skill.md
     generate-tasks/SKILL.md
-    troubleshoot-generated/SKILL.md
-    fix-tests/SKILL.md
+    troubleshoot-generated/skill.md
+    troubleshoot-and-fix/skill.md
+    apply-reviews/SKILL.md
     scope/SKILL.md
     checkpoint-debug/SKILL.md
-    troubleshoot-and-fix/SKILL.md
-    codegen-fix-loop/SKILL.md
     operationalize-design/SKILL.md
+    operationalize-design-v2/SKILL.md
+    execute-tasks/skill.md
+    execute-tasks-parallel/skill.md
     task-orchestrator/SKILL.md
+    absorb-design/SKILL.md
+    commit-and-push/SKILL.md
+    premortem/SKILL.md
 ```
