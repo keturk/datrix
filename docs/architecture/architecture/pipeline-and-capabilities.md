@@ -406,8 +406,8 @@ service ecommerce.WarehouseService('config/warehouse.dcfg') {
 - **Automatic GiST indexes:** Every `Geometry` / `Geography` entity field receives a `USING GIST` index automatically
 - **GeoSql SQL lowering:** `GeoSql.*` predicates and scalar expressions lower to PostGIS functions (`ST_Contains`, `ST_DWithin`, `ST_Distance`, `ST_Area`, `ST_Centroid`) with geodetic semantics
 - **GeoShape value-level ops:** `GeoShape.*` provides Shapely-backed (Python) and Turf.js-backed (TypeScript) runtime geometry operations (containsPoint, area, centroid, WKT/GeoJSON conversion)
-- **Semantic validation:** `Geometry`, `Geography`, `GeoShape`, and `GeoSql` require `use extension geo;`; `GeoSql.*` is valid only in entity query expression contexts
+- **Semantic validation:** `Geometry`, `Geography`, `GeoShape`, and `GeoSql` require `use extension postgis;`; `GeoSql.*` is valid only in entity query expression contexts
 - **Per-service dependency detection:** Geo dependencies (GeoAlchemy2, Shapely, PostGIS, Turf.js) are added only to services that actually use geo features
 - **OpenAPI format metadata:** `format: wkt` for `Geometry`, `format: ewkt` for `Geography`
 
-See the [geo extension reference](../../../../datrix-extensions/docs/geo-extension.md) for the full namespace contract, type mappings, and SQL lowering details.
+See the [PostGIS extension reference](../../../../datrix-extensions/docs/postgis-extension.md) for the full namespace contract, type mappings, and SQL lowering details. For raster/tile operations, see the [geo raster extension reference](../../../../datrix-extensions/docs/geo-raster-extension.md).
