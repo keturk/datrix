@@ -52,7 +52,7 @@ Each codegen package maps `Seed.*` calls to language-native implementations via 
 
 Domain extension packs can register additional seed builtins via their `builtin_objects()` method on `DatrixExtension`, following the same pattern used by other extension builtins.
 
-### Builtin Objects (Geospatial — Extension-Provided, Planned)
+### Builtin Objects (Geospatial — Extension-Provided)
 
 The generic **`geo`** extension (activated with `use extension geo;`) provides raster and tile builtin objects:
 

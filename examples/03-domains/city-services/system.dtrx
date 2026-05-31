@@ -4,5 +4,5 @@ include 'facility-service.dtrx';
 include 'request-service.dtrx';
 
 system cityservices('config/system.dcfg') : version('1.0.0') {
-    use extension geo;
+    use extension postgis;
 }

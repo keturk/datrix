@@ -70,7 +70,7 @@ Orchestration: `StagePipeline` in **datrix-common** runs Stages 1–2 and config
 ## Domain extensions
 
 - **DSL:** `use extension <name>;` inside `system { }` (stored on `app.extension_directives`).
-- **Protocol `DatrixExtension` (seven surfaces):** properties `name`, `version`; methods `scalar_definitions()`, `builtin_objects()`, `db_extensions()`, `extra_dependencies()`, `template_dirs()` (`datrix_common.plugin.extension`).
+- **Protocol `DatrixExtension` (eight surfaces):** properties `name`, `version`; methods `scalar_definitions()`, `builtin_objects()`, `value_struct_definitions()`, `db_extensions()`, `extra_dependencies()`, `template_dirs()` (`datrix_common.plugin.extension`).
 - **Discovery:** `PluginRegistry.discover_extensions()`; load declared names: `load_declared_extensions(declared)`.
 - **Types:** `TypeRegistry.load_extensions(extensions)` when callers register pack scalars.
 - **Declared names in codegen:** `declared_extension_names(app)` → passed into `LanguageGenerator` / resolvers.

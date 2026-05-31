@@ -1,5 +1,5 @@
 include 'warehouse-service.dtrx';
 
 system warehouse.System('config/system.dcfg') : version('1.0.0') {
-    use extension geo;
+    use extension postgis;
 }

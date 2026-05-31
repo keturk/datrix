@@ -26,8 +26,9 @@ This guide covers Datrix `.dcfg` ConfigDSL files, their structure, options, and 
 16. [Integrations Configuration](#integrations-configuration)
 17. [Extern Service Configuration](#extern-service-configuration)
 18. [Platform-Specific Configuration](#platform-specific-configuration)
-19. [Environment Variables](#environment-variables)
-20. [Secrets Management](#secrets-management)
+19. [Seed Configuration](#seed-configuration)
+20. [Environment Variables](#environment-variables)
+22. [Secrets Management](#secrets-management)
 
 ---
 
@@ -1639,6 +1640,50 @@ production:
   identity:
     type: system-assigned        # system-assigned or user-assigned
 ```
+
+---
+
+## Seed Configuration
+
+Seed configuration controls which seed categories are active per profile and how seed data is managed. Seed data declarations live in `.dseed` files (see [Seed Data Guidelines](./seed-data-guidelines.md)); configuration policies live in `.dcfg`.
+
+### System-Level Seed Defaults
+
+Override the default category-to-profile mapping in `system.dcfg`:
+
+```dcfg
+config system ecommerce.System {
+  base {
+    seed {
+      categories {
+        reference = ["dev", "test", "stg", "prod"];
+        baseline  = ["dev", "test", "stg"];
+        volume    = ["stg"];
+      }
+    }
+  }
+}
+```
+
+### Default Category Mapping
+
+Without explicit configuration, these defaults apply:
+
+| Category | Default Profiles |
+|----------|-----------------|
+| `reference` | all (dev, test, stg, prod) |
+| `baseline` | dev, test, stg |
+| `volume` | stg |
+
+### Production Safety
+
+Production profiles run **only reference data** by default. Baseline and volume categories are rejected unless explicitly overridden with `--force` on the CLI. `--reset` is never allowed on production.
+
+### Component-Scoped Seed Policy
+
+Seed policy can be configured per target component (`rdbms`, `nosql`, or `storage`) rather than at the service level. Global defaults in `system.dcfg` apply unless overridden by component-specific settings.
+
+For the full SeedDSL syntax and authoring guidelines, see [Seed Data Guidelines](./seed-data-guidelines.md) and [SeedDSL Syntax Reference](../../../datrix-language/docs/reference/seed-dsl-syntax-reference.md).
 
 ---
 

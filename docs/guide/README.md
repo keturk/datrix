@@ -32,7 +32,17 @@ Index of **repository** examples under [`examples/`](../../examples/) (feature e
 - Feature series (library system): entities → APIs → events → CQRS, GraphQL, jobs, and more
 - Domain folders: blog-cms, ecommerce, healthcare, learning-management, social-platform, task-management
 
-### 📋 [Event Contracts](./event-contracts.md)
+### [Seed Data Guidelines](./seed-data-guidelines.md)
+How to declare, manage, and deploy seed data:
+- SeedDSL file format (`.dseed`) and declaration syntax
+- Reference data, baseline data, and volume data categories
+- Profile-aware seeding and production safety
+- Field selection rules, trait-specific seeding, type-specific patterns
+- Cross-service dependency resolution and seed registries
+- Deployment integration (Docker Compose and Kubernetes)
+- Seed capture from existing databases
+
+### [Event Contracts](./event-contracts.md)
 How to use `ensure` clauses on `publish` events to enforce value-level invariants on event payloads:
 - Problem: structurally valid but semantically broken payloads
 - `ensure` clause syntax inside event declarations
@@ -68,6 +78,7 @@ Proven patterns for common scenarios:
 - Caching → [Writing Datrix Applications § Caching](./writing-datrix-applications.md#caching)
 - Jobs → [Writing Datrix Applications § Background Jobs](./writing-datrix-applications.md#background-jobs)
 - CQRS → [Writing Datrix Applications § CQRS](./writing-datrix-applications.md#cqrs)
+- Seed Data → [Seed Data Guidelines](./seed-data-guidelines.md) (reference data, baseline, volume)
 
 **Configuring deployment?**
 - [Configuration Guide § System Configuration](./configuration-guide.md#system-configuration)
@@ -84,6 +95,7 @@ Proven patterns for common scenarios:
 - [Field Attributes](../../../datrix-language/docs/reference/field-attributes.md) — All field modifiers
 - [Decorators](../../../datrix-language/docs/reference/datrix-decorators.md) — Function and entity decorators
 - [Built-in Objects](../../../datrix-language/docs/reference/datrix-builtins.md) — Available utility functions
+- [SeedDSL Syntax](../../../datrix-language/docs/reference/seed-dsl-syntax-reference.md) — `.dseed` file format and constructs
 
 **Architecture & Design**
 - [Architecture Overview](../architecture/architecture-overview.md) — System pipeline and structure

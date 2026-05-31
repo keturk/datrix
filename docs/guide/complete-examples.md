@@ -205,7 +205,98 @@ For `OrderService`, Datrix generates:
 
 ---
 
-## 6. Patterns illustrated in examples
+## 6. Profile-aware data seeding
+
+A multi-service e-commerce platform demonstrating reference data, baseline data, and cross-service seed coordination.
+
+### Component architecture
+
+```
+shared common.SharedLookups
+  lookupDb                 -> Country, Currency, Timezone
+
+service ecommerce.AuthService
+  authDb                   -> Organization, User, ApiKey
+
+service ecommerce.BillingService
+  billingDb                -> Plan, BillingAccount, Subscription
+
+service ecommerce.CatalogService
+  catalogDb                -> Category, Brand, Product, ProductVariant
+  productImages            -> product image objects
+```
+
+### Seed registry (`seed/system.dseed`)
+
+```dseed
+registry {
+  "seed:acme-org"          = @uuid("acme-org");
+  "seed:acme-admin"        = @uuid("acme-admin");
+  "seed:acme-billing"      = @uuid("acme-billing");
+  "seed:product-laptop"    = @uuid("product-laptop");
+}
+
+seed shared common.SharedLookups {
+  rdbms lookupDb {
+    reference {
+      Country from Seed.countries();
+      Currency from Seed.currencies();
+      Timezone from Seed.timezones();
+    }
+  }
+}
+```
+
+### Service seeds (`seed/billing-service.dseed`)
+
+```dseed
+seed service ecommerce.BillingService {
+  rdbms billingDb {
+    reference {
+      Plan table on(tier) {
+        name,          tier,          rateLimitRpm, dailyQuota;
+        "Free",        "Free",        60,           10000;
+        "Pro",         "Pro",         600,          250000;
+        "Enterprise",  "Enterprise",  5000,         5000000;
+      }
+    }
+
+    baseline {
+      BillingAccount table {
+        id,                         organizationId;
+        @ref("seed:acme-billing"),  @ref("seed:acme-org");
+      }
+
+      Subscription table {
+        billingAccountId,           planId,                         status;
+        @ref("seed:acme-billing"),  @lookup(Plan, { tier: "Pro" }), "Active";
+      }
+    }
+  }
+}
+```
+
+### Execution
+
+```bash
+# Generate seed scripts for staging
+datrix generate --profile stg
+
+# Run seed scripts (reference + baseline for staging)
+datrix seed --profile stg
+
+# Production: reference data only (safe by default)
+datrix seed --profile prod --category reference
+
+# Preview without executing
+datrix seed --profile dev --dry-run
+```
+
+For the full SeedDSL syntax and guidelines, see [Seed Data Guidelines](./seed-data-guidelines.md).
+
+---
+
+## 7. Patterns illustrated in examples
 
 Cross-cutting patterns are documented in [`examples/README.md`](../../examples/README.md): named `rdbms` / `cache` / `pubsub` blocks, `discovery`, internal REST routes, `resource` + `access`, computed fields, lifecycle hooks, and imports between services/modules.
 
