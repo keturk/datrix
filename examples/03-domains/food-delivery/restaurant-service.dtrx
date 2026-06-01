@@ -265,7 +265,7 @@ service fooddelivery.RestaurantService('config/restaurant-service.dcfg') : versi
             return review;
         }
 
-        @path('/internal/:id')
+        @path('/service/:id')
         get(UUID id) : hidden -> restaurantDb.Restaurant {
             return restaurantDb.Restaurant.findOrFail(id);
         }

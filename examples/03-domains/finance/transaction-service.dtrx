@@ -551,7 +551,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
         }
 
         // Internal endpoint for cross-service lookups
-        @path('/internal/by-account/:accountId')
+        @path('/service/by-account/:accountId')
         get(UUID accountId) : hidden -> Array<txDb.Transaction> {
             return txDb.Transaction
             .where(accountId: accountId)

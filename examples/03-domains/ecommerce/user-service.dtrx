@@ -404,12 +404,12 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
         }
 
         // @internal marks endpoints as internal-only, not exposed through the API gateway
-        @path('/internal/:id')
+        @path('/service/:id')
         get(UUID id) : hidden -> userDb.User {
             return userDb.User.findOrFail(id);
         }
 
-        @path('/internal/validate-session')
+        @path('/service/validate-session')
         post(ValidateSessionRequest request) : hidden -> SessionValidationResponse {
             let UserSession? session = userDb.UserSession.where(token: request.token).first();
 

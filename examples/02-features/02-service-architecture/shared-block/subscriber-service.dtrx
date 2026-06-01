@@ -45,7 +45,6 @@ service library.AnalysisService('config/analysis-service.dcfg') : version('1.0.0
 
     rest_api AnalysisAPI : basePath('/api/v1'), rdbms(analysisDb) {
         @path('/analysis/runs')
-        @authorize(roles: ['Admin'])
         get(Int? limit) -> Array<analysisDb.AnalysisRun> {
             return analysisDb.AnalysisRun.orderBy(startedAt: desc).limit(limit ?? 20).all();
         }
