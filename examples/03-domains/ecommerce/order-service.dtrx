@@ -476,7 +476,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
             return order;
         }
 
-        @path('/internal/:id')
+        @path('/service/:id')
         get(UUID id) : hidden -> orderDb.Order {
             return orderDb.Order.findOrFail(id);
         }

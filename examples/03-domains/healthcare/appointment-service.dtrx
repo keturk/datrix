@@ -713,12 +713,12 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
             return slots;
         }
 
-        @path('/internal/:id')
+        @path('/service/:id')
         get(UUID id) : hidden -> appointmentDb.Appointment {
             return appointmentDb.Appointment.findOrFail(id);
         }
 
-        @path('/internal/patient/:patientId')
+        @path('/service/patient/:patientId')
         get(UUID patientId) : hidden -> Array<appointmentDb.Appointment> {
             return appointmentDb.Appointment
             .where(patientId: patientId)

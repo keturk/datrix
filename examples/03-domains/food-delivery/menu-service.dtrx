@@ -251,12 +251,12 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
             .all();
         }
 
-        @path('/internal/items/:id')
+        @path('/service/items/:id')
         get(UUID id) : hidden -> menuDb.MenuItem {
             return menuDb.MenuItem.findOrFail(id);
         }
 
-        @path('/internal/items')
+        @path('/service/items')
         post(Array<UUID> ids) : hidden -> Array<menuDb.MenuItem> {
             return menuDb.MenuItem.whereIn(id: ids).all();
         }

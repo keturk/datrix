@@ -428,7 +428,7 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
             return query.orderBy(createdAt: desc).limit(50).all();
         }
 
-        @path('/internal/:id')
+        @path('/service/:id')
         get(UUID id) : hidden -> orderDb.Order {
             return orderDb.Order.findOrFail(id);
         }

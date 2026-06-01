@@ -485,23 +485,23 @@ service healthcare.PatientService('config/patient-service.dcfg') : version('1.0.
         }
 
         // Internal endpoints for cross-service communication
-        @path('/internal/:id')
+        @path('/service/:id')
         get(UUID id) : hidden -> patientDb.Patient {
             return patientDb.Patient.findOrFail(id);
         }
 
-        @path('/internal/mrn/:mrn')
+        @path('/service/mrn/:mrn')
         get(String mrn) : hidden -> patientDb.Patient {
             return patientDb.Patient.where(mrn: mrn).firstOrFail();
         }
 
-        @path('/internal/validate')
+        @path('/service/validate')
         post(ValidatePatientRequest request) : hidden -> Boolean {
             let Patient? patient = patientDb.Patient.find(request.patientId);
             return patient != null && patient.status == PatientStatus.Active;
         }
 
-        @path('/internal/bulk')
+        @path('/service/bulk')
         post(BulkPatientRequest request) : hidden -> Array<patientDb.Patient> {
             return patientDb.Patient.whereIn(id: request.ids).all();
         }

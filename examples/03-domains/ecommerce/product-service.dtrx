@@ -367,7 +367,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         }
 
         // Internal endpoints for cross-service communication
-        @path('/internal/check-availability')
+        @path('/service/check-availability')
         post(CheckAvailabilityRequest request) : hidden -> AvailabilityResponse {
             let Array<AvailabilityItem> availability = [];
             let Boolean allAvailable = true;
@@ -394,7 +394,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
             return { allAvailable: allAvailable, items: availability };
         }
 
-        @path('/internal/reserve-inventory')
+        @path('/service/reserve-inventory')
         post(ReserveInventoryRequest request) : hidden -> ReservationResponse {
             transaction(productDb) {
                 foreach item in request.items {
@@ -430,7 +430,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
             return { success: true, reservationId: request.reservationId };
         }
 
-        @path('/internal/confirm-reservation')
+        @path('/service/confirm-reservation')
         post(ConfirmReservationRequest request) : hidden -> Void {
             let Array<InventoryReservation> reservations = productDb.InventoryReservation
             .where(reservationId: request.reservationId)
@@ -445,7 +445,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
             Log.info("Inventory reservation confirmed", { reservationId: request.reservationId });
         }
 
-        @path('/internal/release-reservation')
+        @path('/service/release-reservation')
         post(ReleaseReservationRequest request) : hidden -> Void {
             let Array<InventoryReservation> reservations = productDb.InventoryReservation
             .where(reservationId: request.reservationId)
@@ -471,13 +471,13 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
             Log.info("Inventory reservation released", { reservationId: request.reservationId });
         }
 
-        @path('/internal/:id')
+        @path('/service/:id')
         get(UUID id) : hidden -> productDb.Product {
             return productDb.Product.findOrFail(id);
         }
 
         // 'whereIn(...)' filters by a set of values
-        @path('/internal/bulk')
+        @path('/service/bulk')
         post(BulkProductRequest request) : hidden -> Array<productDb.Product> {
             return productDb.Product.whereIn(id: request.ids).all();
         }
