@@ -96,7 +96,9 @@
  ↓
 Generated Application
   - Service source code
-  - Database migrations
+  - Database migrations (incremental,
+    append-only revision chain per
+    RDBMS block UUID)
   - Docker / K8s manifests
   - Seed scripts (profile-gated,
     multi-target, cross-component)

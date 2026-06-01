@@ -92,9 +92,23 @@ Contract-only declarations for external libraries/tools that Datrix does not gen
 - **AST:** `ExternService` in `datrix_common.datrix_model.extern_service`, registered on `Application.extern_services`
 - **`uses` resolution order:** shared block → extern service → regular service
 
+## RDBMS Migration Contract
+
+Incremental, language-neutral, UUID-scoped. State lives under `{app_dir}/.datrix/rdbms-migrations/{rdbms_id}/`:
+- `schema.json` — canonical schema snapshot (target-language/engine agnostic)
+- `ledger.json` — ordered revision chain with database-agnostic canonical operations
+
+Key rules:
+- Every `RdbmsConfig` requires `id: UUID` in ConfigDSL
+- Migration revisions are immutable once generated (append-only)
+- Destructive changes are generation errors (no override)
+- `RdbmsMigrationAdapter` protocol in `datrix-codegen-common` — Python/Alembic, TypeScript/MikroORM, SQL are adapters
+- Shared-owned RDBMS migrations use `SharedPaths.rdbms_dir`, one apply unit per `rdbms_id`
+- `GeneratedFile.retention = "append_only"` protects historical migration files from manifest cleanup
+
 ## Key Capabilities
 
-- Background jobs (APScheduler), Alembic migrations, seed data
+- Background jobs (APScheduler), incremental RDBMS migrations (Alembic/MikroORM adapters), seed data
 - Elasticsearch integration, inter-service HTTP auth (shared secret), JWT gateway
 - GraphQL DataLoaders, rate limiting (gateway + per-route Redis), RFC 7807 errors
 - Prometheus metrics, Grafana dashboards, cAdvisor, alert rules

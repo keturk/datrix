@@ -248,6 +248,7 @@ function Process-PhaseDependencies {
  [string]$BasePath,
  [string]$ProjectName,
  [hashtable]$PhaseTaskStatusIndex,
+ [string[]]$AllTasksRoots = @(),
  [string]$Filter = ""
  )
 
@@ -309,23 +310,61 @@ function Process-PhaseDependencies {
  }
 
  # If no local tasks were found, fall back to cross-project phase status.
+ $usedCrossProjectFallback = $false
  if ($totalCount -eq 0 -and $null -ne $PhaseTaskStatusIndex -and $PhaseTaskStatusIndex.ContainsKey($phaseFolder.Name)) {
  $totalCount = [int]$PhaseTaskStatusIndex[$phaseFolder.Name].Total
  $uncompletedCount = $totalCount - [int]$PhaseTaskStatusIndex[$phaseFolder.Name].Completed
+ $usedCrossProjectFallback = $true
  }
 
  # If there are any uncompleted tasks, show the dependencies
  if ($uncompletedCount -gt 0) {
- $relativePath = $dependenciesFile.Substring($BasePath.Length + 1)
- if (Test-ItemMatchesFilter -FileName (Split-Path -Leaf $dependenciesFile) -Title $phaseFolder.Name -Filter $Filter) {
- $incompletePhaseDependencies += @{
- PhaseFolder = $phaseFolder.Name
- DependenciesFile = $relativePath
- FullPath = $dependenciesFile
- UncompletedTaskCount = $uncompletedCount
- TotalTaskCount = $totalCount
- }
- }
+  $relativePath = $dependenciesFile.Substring($BasePath.Length + 1)
+
+  # Match filter against: dependencies filename, phase folder name, OR any task file in this phase
+  $filterMatched = Test-ItemMatchesFilter -FileName (Split-Path -Leaf $dependenciesFile) -Title $phaseFolder.Name -Filter $Filter
+  if (-not $filterMatched -and -not [string]::IsNullOrWhiteSpace($Filter)) {
+   # Determine which folders to scan for task files
+   $foldersToScan = @($phaseFolder.FullName)
+   if ($usedCrossProjectFallback -and $AllTasksRoots.Count -gt 0) {
+    # Also scan the same-named phase folder in all other project task roots
+    foreach ($root in $AllTasksRoots) {
+     $crossPhaseFolder = Join-Path $root $phaseFolder.Name
+     if ((Test-Path $crossPhaseFolder) -and $crossPhaseFolder -ne $phaseFolder.FullName) {
+      $foldersToScan += $crossPhaseFolder
+     }
+    }
+   }
+
+   foreach ($folderToScan in $foldersToScan) {
+    $phaseTaskFiles = Get-ChildItem -Path $folderToScan -Filter "task-*.md" -Recurse -File -ErrorAction SilentlyContinue
+    if ($null -ne $phaseTaskFiles) {
+     if ($phaseTaskFiles -isnot [System.Array]) { $phaseTaskFiles = @($phaseTaskFiles) }
+     foreach ($ptf in $phaseTaskFiles) {
+      try {
+       $ptContent = Get-Content -Path $ptf.FullName -Raw -ErrorAction Stop
+       $ptTitle = Get-FirstMarkdownHeading -Content $ptContent
+       if ($null -eq $ptTitle) { $ptTitle = "" }
+       if (Test-ItemMatchesFilter -FileName $ptf.Name -Title $ptTitle -Filter $Filter) {
+        $filterMatched = $true
+        break
+       }
+      } catch { }
+     }
+    }
+    if ($filterMatched) { break }
+   }
+  }
+
+  if ($filterMatched) {
+   $incompletePhaseDependencies += @{
+    PhaseFolder = $phaseFolder.Name
+    DependenciesFile = $relativePath
+    FullPath = $dependenciesFile
+    UncompletedTaskCount = $uncompletedCount
+    TotalTaskCount = $totalCount
+   }
+  }
  }
  }
 
@@ -362,7 +401,7 @@ foreach ($project in $projects) {
 $phaseTaskStatusIndex = Build-PhaseTaskStatusIndex -TasksRoots $phaseTasksRoots
 
 Process-TasksFolder -TasksFolderPath $rootTasksFolder -ProjectName "(root)" -BasePath $BaseDir -Filter $Filter
-Process-PhaseDependencies -PhasesBasePath $rootTasksFolder -BasePath $BaseDir -ProjectName "(root)" -PhaseTaskStatusIndex $phaseTaskStatusIndex -Filter $Filter
+Process-PhaseDependencies -PhasesBasePath $rootTasksFolder -BasePath $BaseDir -ProjectName "(root)" -PhaseTaskStatusIndex $phaseTaskStatusIndex -AllTasksRoots $phaseTasksRoots -Filter $Filter
 
 # Process root .bugs folder
 $rootBugsFolder = Join-Path $BaseDir ".bugs"
@@ -372,7 +411,7 @@ Process-BugsFolder -BugsFolderPath $rootBugsFolder -ProjectName "(root)" -BasePa
 foreach ($project in $projects) {
  $tasksFolder = Join-Path $project.FullName ".tasks"
  Process-TasksFolder -TasksFolderPath $tasksFolder -ProjectName $project.Name -BasePath $project.FullName -Filter $Filter
- Process-PhaseDependencies -PhasesBasePath $tasksFolder -BasePath $project.FullName -ProjectName $project.Name -PhaseTaskStatusIndex $phaseTaskStatusIndex -Filter $Filter
+ Process-PhaseDependencies -PhasesBasePath $tasksFolder -BasePath $project.FullName -ProjectName $project.Name -PhaseTaskStatusIndex $phaseTaskStatusIndex -AllTasksRoots $phaseTasksRoots -Filter $Filter
 
  $bugsFolder = Join-Path $project.FullName ".bugs"
  Process-BugsFolder -BugsFolderPath $bugsFolder -ProjectName $project.Name -BasePath $project.FullName -Filter $Filter
