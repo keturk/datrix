@@ -552,7 +552,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
 
         // Internal endpoint for cross-service lookups
         @path('/internal/by-account/:accountId')
-        get(UUID accountId) : internal -> Array<txDb.Transaction> {
+        get(UUID accountId) : hidden -> Array<txDb.Transaction> {
             return txDb.Transaction
             .where(accountId: accountId)
             .orderBy(createdAt: desc)

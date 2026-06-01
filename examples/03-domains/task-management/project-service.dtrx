@@ -396,7 +396,7 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
 
         // Internal endpoint for other services
         @path('/internal/:id')
-        get(UUID id) : internal -> projectDb.Project {
+        get(UUID id) : hidden -> projectDb.Project {
             return projectDb.Project.findOrFail(id);
         }
 

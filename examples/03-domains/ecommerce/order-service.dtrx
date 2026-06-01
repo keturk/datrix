@@ -477,12 +477,12 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/internal/:id')
-        get(UUID id) : internal -> orderDb.Order {
+        get(UUID id) : hidden -> orderDb.Order {
             return orderDb.Order.findOrFail(id);
         }
 
         @path('/:id/confirm-payment')
-        post(UUID id, ConfirmPaymentRequest request) : internal -> orderDb.Order {
+        post(UUID id, ConfirmPaymentRequest request) : hidden -> orderDb.Order {
             let Order order = orderDb.Order.findOrFail(id);
             order.paymentId = request.paymentId;
             order.status = OrderStatus.Confirmed;
@@ -491,7 +491,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/:id/update-shipment')
-        post(UUID id, UpdateShipmentRequest request) : internal -> orderDb.Order {
+        post(UUID id, UpdateShipmentRequest request) : hidden -> orderDb.Order {
             let Order order = orderDb.Order.findOrFail(id);
             order.shipmentId = request.shipmentId;
             order.save();

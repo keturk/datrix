@@ -270,7 +270,7 @@ service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0
             };
         }
 
-        post(CreateShipmentRequest request) : internal -> shippingDb.Shipment {
+        post(CreateShipmentRequest request) : hidden -> shippingDb.Shipment {
             let ShippingCarrier carrier = selectCarrier(request.destination, request.weight);
             let DateTime estimatedDelivery = calculateEstimatedDelivery(carrier, request.destination);
 

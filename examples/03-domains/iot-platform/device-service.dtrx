@@ -347,7 +347,7 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
         }
 
         @path('/summary')
-        get() : internal -> DeviceSummary {
+        get() : hidden -> DeviceSummary {
             let Int total = deviceDb.Device.count();
             let Int active = deviceDb.Device.where(status: DeviceStatus.Active).count();
             let Int inactive = deviceDb.Device.where(status: DeviceStatus.Inactive).count();
