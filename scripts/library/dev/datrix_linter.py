@@ -351,7 +351,7 @@ def main() -> int:
             "Examples:\n"
             "  datrix_linter.py examples/01-foundation\n"
             "  datrix_linter.py --all\n"
-            "  datrix_linter.py datrix-projects/curvaero/datrix-app/system.dtrx --strict\n"
+            "  datrix_linter.py datrix-projects/curvaero/curvaero-backend/system.dtrx --strict\n"
         ),
     )
     parser.add_argument(

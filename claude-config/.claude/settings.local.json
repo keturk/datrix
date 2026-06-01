@@ -30,7 +30,7 @@
       "Bash(/tmp/process_clusters.py:*)",
       "Bash(Select-String -Pattern \"ERROR|Failed|Successful\")",
       "Bash(Select-Object -Last 20)",
-      "Read(//d/datrix/datrix-projects/curvaero/datrix-app/config/**)",
+      "Read(//d/datrix/datrix-projects/curvaero/curvaero-backend/config/**)",
       "Bash(__NEW_LINE_6c8094ccbe69039e__ echo \"=== utils/job_helpers.py ===\")",
       "Bash(__NEW_LINE_828fdbc29a078a16__ echo \"=== utils/resources.py ===\")",
       "Bash(__NEW_LINE_4f44f86180efbe77__ echo \"=== utils/provider_helpers.py ===\")",
