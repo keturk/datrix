@@ -429,7 +429,7 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
         }
 
         @path('/service/:id')
-        get(UUID id) : hidden -> orderDb.Order {
+        get(UUID id) : access(Service), hidden -> orderDb.Order {
             return orderDb.Order.findOrFail(id);
         }
 

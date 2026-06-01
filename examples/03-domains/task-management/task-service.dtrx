@@ -660,7 +660,7 @@ service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), desc
 
         // Internal endpoint
         @path('/service/:id')
-        get(UUID id) : hidden -> taskDb.Task {
+        get(UUID id) : access(Service), hidden -> taskDb.Task {
             return taskDb.Task.findOrFail(id);
         }
 

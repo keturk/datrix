@@ -342,12 +342,12 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
 
         // Internal endpoint for cross-service lookups
         @path('/service/:id')
-        get(UUID id) : hidden -> accountDb.Account {
+        get(UUID id) : access(Service), hidden -> accountDb.Account {
             return accountDb.Account.findOrFail(id);
         }
 
         @path('/service/by-number/:accountNumber')
-        get(String accountNumber) : hidden -> accountDb.Account {
+        get(String accountNumber) : access(Service), hidden -> accountDb.Account {
             return accountDb.Account.where(accountNumber: accountNumber).firstOrFail();
         }
 

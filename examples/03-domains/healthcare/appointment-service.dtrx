@@ -714,12 +714,12 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
         }
 
         @path('/service/:id')
-        get(UUID id) : hidden -> appointmentDb.Appointment {
+        get(UUID id) : access(Service), hidden -> appointmentDb.Appointment {
             return appointmentDb.Appointment.findOrFail(id);
         }
 
         @path('/service/patient/:patientId')
-        get(UUID patientId) : hidden -> Array<appointmentDb.Appointment> {
+        get(UUID patientId) : access(Service), hidden -> Array<appointmentDb.Appointment> {
             return appointmentDb.Appointment
             .where(patientId: patientId)
             .orderBy(scheduledAt: desc)

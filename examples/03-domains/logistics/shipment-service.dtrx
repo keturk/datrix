@@ -308,7 +308,7 @@ service logistics.ShipmentService('config/shipment-service.dcfg') : version('1.0
         }
 
         @path('/summary')
-        get() : hidden -> ShipmentSummary {
+        get() : access(Service), hidden -> ShipmentSummary {
             let Int total = shipmentDb.Shipment.count();
             let Int inTransit = shipmentDb.Shipment
             .whereIn(status: [ShipmentStatus.InTransit, ShipmentStatus.OutForDelivery])

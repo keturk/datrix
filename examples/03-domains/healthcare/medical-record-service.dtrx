@@ -957,7 +957,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
         }
 
         @path('/service/patient/:patientId')
-        get(UUID patientId) : hidden -> Array<medicalRecordDb.MedicalRecord> {
+        get(UUID patientId) : access(Service), hidden -> Array<medicalRecordDb.MedicalRecord> {
             return medicalRecordDb.MedicalRecord
             .where(patientId: patientId)
             .whereNot(status: RecordStatus.Voided)
@@ -967,7 +967,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
         }
 
         @path('/service/from-appointment')
-        post(CreateRecordFromAppointmentRequest request) : hidden -> medicalRecordDb.MedicalRecord {
+        post(CreateRecordFromAppointmentRequest request) : access(Service), hidden -> medicalRecordDb.MedicalRecord {
             // Cross-service call to get appointment details
             let JSON appointment = AppointmentService.AppointmentAPI.get('/internal/:id', request.appointmentId);
 

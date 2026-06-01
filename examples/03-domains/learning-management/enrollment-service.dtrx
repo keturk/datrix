@@ -635,7 +635,7 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
 
         // Internal endpoint
         @path('/service/:id')
-        get(UUID id) : hidden -> enrollmentDb.Enrollment {
+        get(UUID id) : access(Service), hidden -> enrollmentDb.Enrollment {
             return enrollmentDb.Enrollment.findOrFail(id);
         }
 

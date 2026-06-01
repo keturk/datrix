@@ -148,7 +148,7 @@ service cityservices.RequestService('config/request-service.dcfg') : version('1.
         // Check if a service request falls within a given boundary polygon
         // GeoShape.containsPoint() is a value-level containment check
         @path('/:requestId/check-boundary')
-        get(UUID requestId, String boundaryWkt) : hidden -> JSON {
+        get(UUID requestId, String boundaryWkt) : access(Service), hidden -> JSON {
             let ServiceRequest request = requestDb.ServiceRequest.findOrFail(requestId);
             let String requestWkt = GeoShape.toWkt(request.location);
             let Geometry boundaryGeometry = GeoShape.fromWkt(boundaryWkt);

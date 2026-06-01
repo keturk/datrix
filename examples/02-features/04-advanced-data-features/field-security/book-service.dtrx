@@ -645,7 +645,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
 
         @path('/books/bulk')
         // '.whereIn(field: array)' matches records where field is in the given list
-        post(Array<UUID> ids) : hidden -> Array<catalog.Book> {
+        post(Array<UUID> ids) : access(Service), hidden -> Array<catalog.Book> {
             return catalog.Book.whereIn(id: ids).all();
         }
 
@@ -823,14 +823,14 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         // @timeout sets a maximum response time for the endpoint
         @timeout(ms: 5000)
         @path('/books/internal/:id')
-        get(UUID id) : hidden -> catalog.Book {
+        get(UUID id) : access(Service), hidden -> catalog.Book {
             return catalog.Book.findOrFail(id);
         }
 
         // Internal endpoint returning a struct instead of a full entity
         @timeout(ms: 5000)
         @path('/books/internal/availability/:id')
-        get(UUID id) : hidden -> BookAvailabilityResponse {
+        get(UUID id) : access(Service), hidden -> BookAvailabilityResponse {
             let Book book = catalog.Book.findOrFail(id);
             return { available: book.isAvailable };
         }

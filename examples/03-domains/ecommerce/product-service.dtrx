@@ -368,7 +368,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
 
         // Internal endpoints for cross-service communication
         @path('/service/check-availability')
-        post(CheckAvailabilityRequest request) : hidden -> AvailabilityResponse {
+        post(CheckAvailabilityRequest request) : access(Service), hidden -> AvailabilityResponse {
             let Array<AvailabilityItem> availability = [];
             let Boolean allAvailable = true;
 
@@ -395,7 +395,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         }
 
         @path('/service/reserve-inventory')
-        post(ReserveInventoryRequest request) : hidden -> ReservationResponse {
+        post(ReserveInventoryRequest request) : access(Service), hidden -> ReservationResponse {
             transaction(productDb) {
                 foreach item in request.items {
                     let Product product = productDb.Product.findOrFail(item.productId);
@@ -431,7 +431,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         }
 
         @path('/service/confirm-reservation')
-        post(ConfirmReservationRequest request) : hidden -> Void {
+        post(ConfirmReservationRequest request) : access(Service), hidden -> Void {
             let Array<InventoryReservation> reservations = productDb.InventoryReservation
             .where(reservationId: request.reservationId)
             .where(status: ReservationStatus.Reserved)
@@ -446,7 +446,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         }
 
         @path('/service/release-reservation')
-        post(ReleaseReservationRequest request) : hidden -> Void {
+        post(ReleaseReservationRequest request) : access(Service), hidden -> Void {
             let Array<InventoryReservation> reservations = productDb.InventoryReservation
             .where(reservationId: request.reservationId)
             .where(status: ReservationStatus.Reserved)
@@ -472,13 +472,13 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         }
 
         @path('/service/:id')
-        get(UUID id) : hidden -> productDb.Product {
+        get(UUID id) : access(Service), hidden -> productDb.Product {
             return productDb.Product.findOrFail(id);
         }
 
         // 'whereIn(...)' filters by a set of values
         @path('/service/bulk')
-        post(BulkProductRequest request) : hidden -> Array<productDb.Product> {
+        post(BulkProductRequest request) : access(Service), hidden -> Array<productDb.Product> {
             return productDb.Product.whereIn(id: request.ids).all();
         }
 
