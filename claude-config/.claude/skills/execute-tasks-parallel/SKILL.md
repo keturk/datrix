@@ -55,8 +55,18 @@ Execute all tasks in a phase:
 PHASE: d:\datrix\datrix-common\.tasks\phase-05\
 ```
 
-## Prereqs
-Read first: CLAUDE.md, MEMORY.md, `datrix-common/docs/contributing/ai-agent-rules.md`.
+## Documentation Quick Reference
+
+For complete documentation index with "When to use" guidance, see [doc_index.md](../../../../../datrix/docs/doc_index.md).
+
+**Essential reads (MANDATORY before starting):**
+- [ai-agent-rules.md](../../../../../datrix-common/docs/contributing/ai-agent-rules.md) → Core rules, STOP AND THINK principle
+- [architecture-overview.md](../../../../../datrix/docs/architecture/architecture-overview.md) → System architecture
+- [design-principles.md](../../../../../datrix/docs/architecture/design-principles.md) → Design philosophy
+
+**Quick refs:**
+- [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md)
+- [design-principles-cheat-sheet.md](../../../../../datrix/docs/architecture/design-principles-cheat-sheet.md)
 
 ### Project Structure
 Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}`.
