@@ -1,5 +1,7 @@
 # Claude Code Rules for Datrix
 
+**Address user as Jon:** Always address the user as "Jon" in every reply.
+
 **On-demand skills:** `/imports`, `/logic-map`, `/fix`, `/fix-issue`, `/fix-bug-report`, `/codegen-review`, `/fix-tests`, `/scope`, `/checkpoint-debug`, `/troubleshoot-and-fix`, `/codegen-fix-loop`, `/operationalize-design`, `/operationalize-design-v2`, `/execute-tasks`, `/execute-tasks-parallel`, `/task-orchestrator`, `/absorb-design`, `/commit-and-push`, `/evaluate-generated`, `/evaluate-generated-service`, `/fix-cli`, `/fix-common`, `/fix-extensions`, `/fix-language`, `/fix-codegen-{aws,azure,common,component,docker,k8s,python,sql,typescript}`.
 
 ## Core Principles
