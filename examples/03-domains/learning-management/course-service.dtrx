@@ -637,20 +637,20 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
         // Internal endpoint for other services
         @path('/service/:id')
-        get(UUID id) : hidden -> courseDb.Course {
+        get(UUID id) : access(Service), hidden -> courseDb.Course {
             return courseDb.Course.findOrFail(id);
         }
 
         // Internal endpoint to check enrollment availability
         @path('/service/:id/can-enroll')
-        get(UUID id) : hidden -> Boolean {
+        get(UUID id) : access(Service), hidden -> Boolean {
             let Course course = courseDb.Course.findOrFail(id);
             return course.canEnroll;
         }
 
         // Internal endpoint to increment enrollment count
         @path('/service/:id/increment-enrollment')
-        post(UUID id) : hidden -> courseDb.Course {
+        post(UUID id) : access(Service), hidden -> courseDb.Course {
             let Course course = courseDb.Course.findOrFail(id);
             course.currentEnrollment = course.currentEnrollment + 1;
             course.save();
@@ -659,7 +659,7 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
         // Internal endpoint to decrement enrollment count
         @path('/service/:id/decrement-enrollment')
-        post(UUID id) : hidden -> courseDb.Course {
+        post(UUID id) : access(Service), hidden -> courseDb.Course {
             let Course course = courseDb.Course.findOrFail(id);
             if (course.currentEnrollment > 0) {
                 course.currentEnrollment = course.currentEnrollment - 1;
