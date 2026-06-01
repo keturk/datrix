@@ -800,7 +800,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         // 'internal' restricts this endpoint to service-to-service calls only
         // Internal endpoints are not exposed through the API gateway
         @path('/books/internal/:id')
-        get(UUID id) : internal -> catalog.Book {
+        get(UUID id) : hidden -> catalog.Book {
             return catalog.Book.findOrFail(id);
         }
 
@@ -808,7 +808,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         @timeout(ms: 5000)
         // Internal endpoint returning a struct instead of a full entity
         @path('/books/internal/availability/:id')
-        get(UUID id) : internal -> BookAvailabilityResponse {
+        get(UUID id) : hidden -> BookAvailabilityResponse {
             let Book book = catalog.Book.findOrFail(id);
             return { available: book.isAvailable };
         }

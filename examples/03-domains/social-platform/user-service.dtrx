@@ -382,13 +382,13 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
 
         // Internal endpoint for other services
         @path('/internal/:id')
-        get(UUID id) : internal -> userDb.User {
+        get(UUID id) : hidden -> userDb.User {
             return userDb.User.findOrFail(id);
         }
 
         // Internal endpoint to get multiple users
         @path('/internal/bulk')
-        post(Array<UUID> ids) : internal -> Array<userDb.User> {
+        post(Array<UUID> ids) : hidden -> Array<userDb.User> {
             return userDb.User.whereIn(id: ids).all();
         }
 

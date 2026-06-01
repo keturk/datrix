@@ -443,13 +443,13 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
 
         // Internal endpoint for cross-service lookups
         @path('/internal/:id')
-        get(UUID id) : internal -> listingDb.Listing {
+        get(UUID id) : hidden -> listingDb.Listing {
             return listingDb.Listing.findOrFail(id);
         }
 
         // Internal: mark listing as under contract
         @path('/internal/:id/under-contract')
-        put(UUID id) : internal -> listingDb.Listing {
+        put(UUID id) : hidden -> listingDb.Listing {
             let Listing listing = listingDb.Listing.findOrFail(id);
             listing.markUnderContract();
             return listing;
@@ -457,7 +457,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
 
         // Internal: mark listing as sold
         @path('/internal/:id/sold')
-        put(UUID id) : internal -> listingDb.Listing {
+        put(UUID id) : hidden -> listingDb.Listing {
             let Listing listing = listingDb.Listing.findOrFail(id);
             listing.markSold();
             return listing;

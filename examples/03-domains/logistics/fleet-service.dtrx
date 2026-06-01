@@ -354,7 +354,7 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/metrics')
-        get() : internal -> VehicleMetrics {
+        get() : hidden -> VehicleMetrics {
             let Int total = fleetDb.Vehicle.count();
             let Int available = fleetDb.Vehicle.where(status: VehicleStatus.Available).count();
             let Int inUse = fleetDb.Vehicle.where(status: VehicleStatus.InUse).count();
