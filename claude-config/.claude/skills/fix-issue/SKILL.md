@@ -22,8 +22,18 @@ The argument is the absolute path to an issue markdown file.
 
 Process issues sequentially — complete one before starting the next.
 
-## Prereqs
-Read first: CLAUDE.md, MEMORY.md, `datrix-common/docs/contributing/ai-agent-rules.md` + `test-guidelines/`.
+## Documentation Quick Reference
+
+For complete documentation index with "When to use" guidance, see [doc_index.md](../../../../../datrix/docs/doc_index.md).
+
+**Essential reads (MANDATORY before starting):**
+- MEMORY.md
+- [ai-agent-rules.md](../../../../../datrix-common/docs/contributing/ai-agent-rules.md) → Core rules, STOP AND THINK principle
+- [test-guidelines/](../../../../../datrix-common/docs/contributing/test-guidelines/) → Unit, integration, E2E test standards
+
+**Quick refs:**
+- [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md)
+- [design-principles-cheat-sheet.md](../../../../../datrix/docs/architecture/design-principles-cheat-sheet.md)
 
 ---
 

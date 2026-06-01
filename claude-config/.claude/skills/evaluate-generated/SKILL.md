@@ -60,8 +60,18 @@ When only one path is given, the skill **must ask for the other**. Both SOURCE a
 
 **For deep semantic verification of individual services**, run the generated prompt files using `/evaluate-generated-service`.
 
-## Prereqs
-Read first: CLAUDE.md, MEMORY.md, `datrix-common/docs/contributing/ai-agent-rules.md`, architecture docs.
+## Documentation Quick Reference
+
+For complete documentation index with "When to use" guidance, see [doc_index.md](../../../../../datrix/docs/doc_index.md).
+
+**Essential reads (MANDATORY before starting):**
+- [ai-agent-rules.md](../../../../../datrix-common/docs/contributing/ai-agent-rules.md) → Core rules, STOP AND THINK principle
+- [architecture-overview.md](../../../../../datrix/docs/architecture/architecture-overview.md) → System architecture
+- [design-principles.md](../../../../../datrix/docs/architecture/design-principles.md) → Design philosophy
+
+**Quick refs:**
+- [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md)
+- [design-principles-cheat-sheet.md](../../../../../datrix/docs/architecture/design-principles-cheat-sheet.md)
 
 ### Project Structure
 Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}`.
