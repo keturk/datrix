@@ -18,6 +18,7 @@ config service logistics.ShipmentService {
       initialDelay = "10s";
     }
     rdbms shipmentDb {
+      id = "d4ad0bd7-4011-45bc-84ee-7176ff80d9d2";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -103,6 +104,7 @@ config service logistics.ShipmentService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms shipmentDb {
+      id = "d4ad0bd7-4011-45bc-84ee-7176ff80d9d2";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

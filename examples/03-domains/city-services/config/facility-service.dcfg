@@ -18,6 +18,7 @@ config service cityservices.FacilityService {
       initialDelay = "10s";
     }
     rdbms facilityDb {
+      id = "c4ad569c-c10c-46bd-a4a7-cb62bd9904d5";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -93,6 +94,7 @@ config service cityservices.FacilityService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms facilityDb {
+      id = "c4ad569c-c10c-46bd-a4a7-cb62bd9904d5";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

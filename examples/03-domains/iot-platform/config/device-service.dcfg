@@ -18,6 +18,7 @@ config service iot.DeviceService {
       initialDelay = "10s";
     }
     rdbms deviceDb {
+      id = "4470fcab-5ee1-4798-a3f1-e83517f4b03c";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -93,6 +94,7 @@ config service iot.DeviceService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms deviceDb {
+      id = "4470fcab-5ee1-4798-a3f1-e83517f4b03c";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

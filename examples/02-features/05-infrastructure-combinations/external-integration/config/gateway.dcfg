@@ -18,6 +18,7 @@ config service library.GatewayService {
       initialDelay = "10s";
     }
     rdbms gatewayDb {
+      id = "4565f666-c79b-4bd5-bfea-e401fe39a4a7";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -72,6 +73,7 @@ config service library.GatewayService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms gatewayDb {
+      id = "4565f666-c79b-4bd5-bfea-e401fe39a4a7";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

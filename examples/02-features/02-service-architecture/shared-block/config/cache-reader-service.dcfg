@@ -18,6 +18,7 @@ config service library.CacheReaderService {
       initialDelay = "10s";
     }
     rdbms cachereaderDb {
+      id = "1558ce49-e26b-4cb5-aa84-1818c8e4b298";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -32,6 +33,7 @@ config service library.CacheReaderService {
       defaultUser = "postgres";
     }
     rdbms readerMeta {
+      id = "18d84064-f981-4b47-9335-d7a8d0d9885e";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -86,6 +88,7 @@ config service library.CacheReaderService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms cachereaderDb {
+      id = "1558ce49-e26b-4cb5-aa84-1818c8e4b298";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

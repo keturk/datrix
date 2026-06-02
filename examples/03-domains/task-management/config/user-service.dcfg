@@ -18,6 +18,7 @@ config service taskapp.UserService {
       initialDelay = "10s";
     }
     rdbms userDb {
+      id = "485176ee-4001-47ec-b9a6-53807941b2fa";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -72,6 +73,7 @@ config service taskapp.UserService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms userDb {
+      id = "485176ee-4001-47ec-b9a6-53807941b2fa";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

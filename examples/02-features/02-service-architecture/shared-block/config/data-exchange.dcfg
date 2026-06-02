@@ -18,6 +18,7 @@ config service library.SharedDataExchangeService {
       initialDelay = "10s";
     }
     rdbms dataexchangeDb {
+      id = "4ec7a356-a6cf-4a63-b26a-9dcbb8395553";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -81,6 +82,7 @@ config service library.SharedDataExchangeService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms dataexchangeDb {
+      id = "4ec7a356-a6cf-4a63-b26a-9dcbb8395553";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

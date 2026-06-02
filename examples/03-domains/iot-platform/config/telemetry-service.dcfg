@@ -18,6 +18,7 @@ config service iot.TelemetryService {
       initialDelay = "10s";
     }
     rdbms telemetryDb {
+      id = "be0da3e4-c98c-431e-9039-1df8c9f99471";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -32,6 +33,7 @@ config service iot.TelemetryService {
       defaultUser = "postgres";
     }
     rdbms alertDb {
+      id = "91cd45cf-1c81-4096-8388-2753f0700b41";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -129,6 +131,7 @@ config service iot.TelemetryService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms telemetryDb {
+      id = "be0da3e4-c98c-431e-9039-1df8c9f99471";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

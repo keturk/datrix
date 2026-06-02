@@ -18,6 +18,7 @@ config service library.LoanService {
       initialDelay = "10s";
     }
     rdbms loanDb {
+      id = "69a210f0-72b3-4ea4-a176-86e2f8813dc2";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -72,6 +73,7 @@ config service library.LoanService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms loanDb {
+      id = "69a210f0-72b3-4ea4-a176-86e2f8813dc2";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

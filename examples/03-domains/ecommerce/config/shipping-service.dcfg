@@ -18,6 +18,7 @@ config service ecommerce.ShippingService {
       initialDelay = "10s";
     }
     rdbms shippingDb {
+      id = "b2d05363-b3d0-4061-81da-20d9d4ed826d";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -101,6 +102,7 @@ config service ecommerce.ShippingService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms shippingDb {
+      id = "b2d05363-b3d0-4061-81da-20d9d4ed826d";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

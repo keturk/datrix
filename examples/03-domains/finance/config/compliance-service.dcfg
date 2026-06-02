@@ -18,6 +18,7 @@ config service finance.ComplianceService {
       initialDelay = "10s";
     }
     rdbms complianceDb {
+      id = "11c99334-4634-4934-a5ba-7432e6a980ce";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -96,6 +97,7 @@ config service finance.ComplianceService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms complianceDb {
+      id = "11c99334-4634-4934-a5ba-7432e6a980ce";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

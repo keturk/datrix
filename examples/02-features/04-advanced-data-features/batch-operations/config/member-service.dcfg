@@ -18,6 +18,7 @@ config service library.MemberService {
       initialDelay = "10s";
     }
     rdbms memberDb {
+      id = "68b923dc-45b1-448a-b136-bbc247cdb7f9";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -72,6 +73,7 @@ config service library.MemberService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms memberDb {
+      id = "68b923dc-45b1-448a-b136-bbc247cdb7f9";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

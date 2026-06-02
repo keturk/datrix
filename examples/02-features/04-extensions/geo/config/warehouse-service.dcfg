@@ -18,6 +18,7 @@ config service warehouse.WarehouseService {
       initialDelay = "10s";
     }
     rdbms warehouseDb {
+      id = "fdf73b11-5ea8-437a-b6ef-0a6ab56ddf61";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -72,6 +73,7 @@ config service warehouse.WarehouseService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms warehouseDb {
+      id = "fdf73b11-5ea8-437a-b6ef-0a6ab56ddf61";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

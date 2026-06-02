@@ -18,6 +18,7 @@ config service ecommerce.OrderService {
       initialDelay = "10s";
     }
     rdbms orderDb {
+      id = "5e1f5fca-1f9c-4cec-b43b-7d069bd7a02d";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -112,6 +113,7 @@ config service ecommerce.OrderService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms orderDb {
+      id = "5e1f5fca-1f9c-4cec-b43b-7d069bd7a02d";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

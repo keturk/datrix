@@ -18,6 +18,7 @@ config service realestate.ContractService {
       initialDelay = "10s";
     }
     rdbms contractDb {
+      id = "5fca26be-a863-4fcf-a9c3-026d72a0f9dc";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -93,6 +94,7 @@ config service realestate.ContractService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms contractDb {
+      id = "5fca26be-a863-4fcf-a9c3-026d72a0f9dc";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

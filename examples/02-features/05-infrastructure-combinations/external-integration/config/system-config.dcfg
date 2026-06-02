@@ -18,6 +18,7 @@ config service library.SystemConfigService {
       initialDelay = "10s";
     }
     rdbms systemconfigDb {
+      id = "035e8dad-5b46-4408-90e4-16da42f1370d";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -72,6 +73,7 @@ config service library.SystemConfigService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms systemconfigDb {
+      id = "035e8dad-5b46-4408-90e4-16da42f1370d";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

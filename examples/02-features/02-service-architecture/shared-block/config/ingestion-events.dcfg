@@ -18,6 +18,7 @@ config service library.IngestionEventsService {
       initialDelay = "10s";
     }
     rdbms ingestioneventsDb {
+      id = "64bd3fdc-1625-4375-8bad-22c2e82e0d26";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -84,6 +85,7 @@ config service library.IngestionEventsService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms ingestioneventsDb {
+      id = "64bd3fdc-1625-4375-8bad-22c2e82e0d26";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

@@ -18,6 +18,7 @@ config service iot.FirmwareService {
       initialDelay = "10s";
     }
     rdbms firmwareDb {
+      id = "032c3352-0126-40ff-817a-57ede0421f74";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -101,6 +102,7 @@ config service iot.FirmwareService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms firmwareDb {
+      id = "032c3352-0126-40ff-817a-57ede0421f74";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

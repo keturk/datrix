@@ -18,6 +18,7 @@ config service examples.OrderService {
       initialDelay = "10s";
     }
     rdbms orderDb {
+      id = "54d9da12-68d2-4ae6-bfe4-6129f36c767b";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -32,6 +33,7 @@ config service examples.OrderService {
       defaultUser = "postgres";
     }
     rdbms db {
+      id = "1c96cd95-92e9-4643-8298-6a4f7bb70850";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -106,6 +108,7 @@ config service examples.OrderService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms orderDb {
+      id = "54d9da12-68d2-4ae6-bfe4-6129f36c767b";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

@@ -18,6 +18,7 @@ config service cityservices.RequestService {
       initialDelay = "10s";
     }
     rdbms requestDb {
+      id = "53beeb14-ffa8-4396-99de-9cc88438250a";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -84,6 +85,7 @@ config service cityservices.RequestService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms requestDb {
+      id = "53beeb14-ffa8-4396-99de-9cc88438250a";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

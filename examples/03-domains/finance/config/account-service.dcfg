@@ -18,6 +18,7 @@ config service finance.AccountService {
       initialDelay = "10s";
     }
     rdbms accountDb {
+      id = "e35d42d1-b104-4438-a1ac-00c9ad13042e";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -84,6 +85,7 @@ config service finance.AccountService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms accountDb {
+      id = "e35d42d1-b104-4438-a1ac-00c9ad13042e";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

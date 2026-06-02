@@ -18,6 +18,7 @@ config service healthcare.MedicalRecordService {
       initialDelay = "10s";
     }
     rdbms medicalrecordDb {
+      id = "ee3a460f-5430-4d4e-b1a6-d3b82b457b97";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -32,6 +33,7 @@ config service healthcare.MedicalRecordService {
       defaultUser = "postgres";
     }
     rdbms medicalRecordDb {
+      id = "c5effd71-cdbc-4850-880e-670494a879e1";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -116,6 +118,7 @@ config service healthcare.MedicalRecordService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms medicalrecordDb {
+      id = "ee3a460f-5430-4d4e-b1a6-d3b82b457b97";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");
