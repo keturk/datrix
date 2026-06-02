@@ -18,6 +18,7 @@ config service social.UserService {
       initialDelay = "10s";
     }
     rdbms userDb {
+      id = "e72ac75f-838d-4b82-98d6-4b3022fbd57f";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -93,6 +94,7 @@ config service social.UserService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms userDb {
+      id = "e72ac75f-838d-4b82-98d6-4b3022fbd57f";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

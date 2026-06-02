@@ -18,6 +18,7 @@ config service library.SharedSessionStoreService {
       initialDelay = "10s";
     }
     rdbms sessionstoreDb {
+      id = "297e70f7-6536-4c70-be03-d6cdf94f0e83";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -81,6 +82,7 @@ config service library.SharedSessionStoreService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms sessionstoreDb {
+      id = "297e70f7-6536-4c70-be03-d6cdf94f0e83";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

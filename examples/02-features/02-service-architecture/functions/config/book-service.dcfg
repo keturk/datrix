@@ -18,6 +18,7 @@ config service library.BookService {
       initialDelay = "10s";
     }
     rdbms bookDb {
+      id = "87b188be-7351-4730-ba4f-f80c48cca44d";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -72,6 +73,7 @@ config service library.BookService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms bookDb {
+      id = "87b188be-7351-4730-ba4f-f80c48cca44d";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

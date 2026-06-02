@@ -18,6 +18,7 @@ config service blog.AuthorService {
       initialDelay = "10s";
     }
     rdbms authorDb {
+      id = "33ba48db-1923-49dd-8bf6-24dcb512991c";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -84,6 +85,7 @@ config service blog.AuthorService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms authorDb {
+      id = "33ba48db-1923-49dd-8bf6-24dcb512991c";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

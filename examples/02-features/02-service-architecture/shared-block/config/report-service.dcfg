@@ -18,6 +18,7 @@ config service library.ReportServiceService {
       initialDelay = "10s";
     }
     rdbms reportDb {
+      id = "0da3e38a-3eeb-436a-bbfe-171571863672";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -32,6 +33,7 @@ config service library.ReportServiceService {
       defaultUser = "postgres";
     }
     rdbms reportMeta {
+      id = "34c7c9d8-411e-4d46-a2fc-0b4e692f51e1";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -86,6 +88,7 @@ config service library.ReportServiceService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms reportDb {
+      id = "0da3e38a-3eeb-436a-bbfe-171571863672";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

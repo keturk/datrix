@@ -18,6 +18,7 @@ config service fooddelivery.MenuService {
       initialDelay = "10s";
     }
     rdbms menuDb {
+      id = "64272da0-74ef-481f-807b-186c76319624";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -102,6 +103,7 @@ config service fooddelivery.MenuService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms menuDb {
+      id = "64272da0-74ef-481f-807b-186c76319624";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

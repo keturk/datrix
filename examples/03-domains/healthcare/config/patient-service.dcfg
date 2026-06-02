@@ -18,6 +18,7 @@ config service healthcare.PatientService {
       initialDelay = "10s";
     }
     rdbms patientDb {
+      id = "ab433f97-eeb1-48b9-a761-573d2efe2cf3";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -93,6 +94,7 @@ config service healthcare.PatientService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms patientDb {
+      id = "ab433f97-eeb1-48b9-a761-573d2efe2cf3";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

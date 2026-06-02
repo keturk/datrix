@@ -18,6 +18,7 @@ config service library.ProductCatalogDataService {
       initialDelay = "10s";
     }
     rdbms productcatalogdataDb {
+      id = "c39da840-3354-43e7-ab5e-0d97ca704aab";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -32,6 +33,7 @@ config service library.ProductCatalogDataService {
       defaultUser = "postgres";
     }
     rdbms catalog_db {
+      id = "30a46eb8-fa40-4088-be5f-44d1909e846d";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -86,6 +88,7 @@ config service library.ProductCatalogDataService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms productcatalogdataDb {
+      id = "c39da840-3354-43e7-ab5e-0d97ca704aab";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

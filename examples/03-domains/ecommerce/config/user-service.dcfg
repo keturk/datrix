@@ -18,6 +18,7 @@ config service ecommerce.UserService {
       initialDelay = "10s";
     }
     rdbms userDb {
+      id = "7b1b4bfd-288a-4152-afb4-1272464aa557";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -93,6 +94,7 @@ config service ecommerce.UserService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms userDb {
+      id = "7b1b4bfd-288a-4152-afb4-1272464aa557";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

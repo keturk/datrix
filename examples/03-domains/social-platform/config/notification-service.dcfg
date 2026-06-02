@@ -18,6 +18,7 @@ config service social.NotificationService {
       initialDelay = "10s";
     }
     rdbms notificationDb {
+      id = "16c55322-03bc-48df-bc01-fcbc02d6804f";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -84,6 +85,7 @@ config service social.NotificationService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms notificationDb {
+      id = "16c55322-03bc-48df-bc01-fcbc02d6804f";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

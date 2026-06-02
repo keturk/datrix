@@ -18,6 +18,7 @@ config service ecommerce.NotificationService {
       initialDelay = "10s";
     }
     rdbms notificationDb {
+      id = "64704790-5f82-4b4e-8d2b-0dbc989dfd3f";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -72,6 +73,7 @@ config service ecommerce.NotificationService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms notificationDb {
+      id = "64704790-5f82-4b4e-8d2b-0dbc989dfd3f";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

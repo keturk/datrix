@@ -18,6 +18,7 @@ config service hostdemo.BlogService {
       initialDelay = "10s";
     }
     rdbms blogDb {
+      id = "0cd3a0fa-7286-4c1c-9c51-2a6df494abca";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -102,6 +103,7 @@ config service hostdemo.BlogService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms blogDb {
+      id = "0cd3a0fa-7286-4c1c-9c51-2a6df494abca";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

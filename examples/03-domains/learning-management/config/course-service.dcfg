@@ -18,6 +18,7 @@ config service lms.CourseService {
       initialDelay = "10s";
     }
     rdbms courseDb {
+      id = "527b2359-65a0-4bf9-9a9b-489123df12bb";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -93,6 +94,7 @@ config service lms.CourseService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms courseDb {
+      id = "527b2359-65a0-4bf9-9a9b-489123df12bb";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

@@ -18,6 +18,7 @@ config service library.IngestionPipelineService {
       initialDelay = "10s";
     }
     rdbms ingestionpipelineDb {
+      id = "249c86b0-e87e-4e1c-bcc9-5ad29a109860";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -93,6 +94,7 @@ config service library.IngestionPipelineService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms ingestionpipelineDb {
+      id = "249c86b0-e87e-4e1c-bcc9-5ad29a109860";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

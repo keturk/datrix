@@ -18,6 +18,7 @@ config service finance.TransactionService {
       initialDelay = "10s";
     }
     rdbms transactionDb {
+      id = "2aabd4d1-7569-4bca-a105-9fff7bf76c91";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -32,6 +33,7 @@ config service finance.TransactionService {
       defaultUser = "postgres";
     }
     rdbms txDb {
+      id = "e7a32ff5-31a4-45e0-9da1-cbc729391840";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -106,6 +108,7 @@ config service finance.TransactionService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms transactionDb {
+      id = "2aabd4d1-7569-4bca-a105-9fff7bf76c91";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

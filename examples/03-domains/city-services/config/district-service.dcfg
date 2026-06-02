@@ -18,6 +18,7 @@ config service cityservices.DistrictService {
       initialDelay = "10s";
     }
     rdbms districtDb {
+      id = "f4c6cf3e-c0de-432c-8fcb-7cf9831d29f5";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -93,6 +94,7 @@ config service cityservices.DistrictService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms districtDb {
+      id = "f4c6cf3e-c0de-432c-8fcb-7cf9831d29f5";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

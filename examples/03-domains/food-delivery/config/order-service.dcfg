@@ -18,6 +18,7 @@ config service fooddelivery.OrderService {
       initialDelay = "10s";
     }
     rdbms orderDb {
+      id = "8ecce4c7-ee2f-4df1-b849-6f60b40ff190";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -93,6 +94,7 @@ config service fooddelivery.OrderService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms orderDb {
+      id = "8ecce4c7-ee2f-4df1-b849-6f60b40ff190";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

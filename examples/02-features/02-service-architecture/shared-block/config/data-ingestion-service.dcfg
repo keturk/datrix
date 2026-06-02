@@ -18,6 +18,7 @@ config service library.DataIngestionServiceService {
       initialDelay = "10s";
     }
     rdbms dataingestionDb {
+      id = "87594311-9f93-41b7-8658-0beb8dc2ac8b";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -32,6 +33,7 @@ config service library.DataIngestionServiceService {
       defaultUser = "postgres";
     }
     rdbms ingestionDb {
+      id = "db99f400-b5a2-4960-ae4e-9027271e91fa";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -86,6 +88,7 @@ config service library.DataIngestionServiceService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms dataingestionDb {
+      id = "87594311-9f93-41b7-8658-0beb8dc2ac8b";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

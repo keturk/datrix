@@ -18,6 +18,7 @@ config service blog.CommentService {
       initialDelay = "10s";
     }
     rdbms commentDb {
+      id = "81d40d83-89ba-403b-a16c-bbf6cf343e44";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -84,6 +85,7 @@ config service blog.CommentService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms commentDb {
+      id = "81d40d83-89ba-403b-a16c-bbf6cf343e44";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

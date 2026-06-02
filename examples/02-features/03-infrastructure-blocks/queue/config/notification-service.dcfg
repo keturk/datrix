@@ -18,6 +18,7 @@ config service library.NotificationService {
       initialDelay = "10s";
     }
     rdbms notificationDb {
+      id = "48622ef7-3a2d-4c49-b796-6a1c2a073ca9";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -32,6 +33,7 @@ config service library.NotificationService {
       defaultUser = "postgres";
     }
     rdbms notifDb {
+      id = "44583e12-8a55-4286-a583-5401bab5ee65";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -86,6 +88,7 @@ config service library.NotificationService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms notificationDb {
+      id = "48622ef7-3a2d-4c49-b796-6a1c2a073ca9";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

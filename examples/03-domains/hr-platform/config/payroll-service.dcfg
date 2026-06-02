@@ -18,6 +18,7 @@ config service hr.PayrollService {
       initialDelay = "10s";
     }
     rdbms payrollDb {
+      id = "128c9bef-31a0-4d10-99c5-8a4ebdbd521e";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -96,6 +97,7 @@ config service hr.PayrollService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms payrollDb {
+      id = "128c9bef-31a0-4d10-99c5-8a4ebdbd521e";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

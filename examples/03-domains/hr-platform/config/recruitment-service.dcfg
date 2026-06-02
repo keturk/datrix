@@ -18,6 +18,7 @@ config service hr.RecruitmentService {
       initialDelay = "10s";
     }
     rdbms recruitmentDb {
+      id = "d9786fc0-8756-426d-8aac-d7163719b65f";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -32,6 +33,7 @@ config service hr.RecruitmentService {
       defaultUser = "postgres";
     }
     rdbms recruitDb {
+      id = "bead71b2-c396-4505-b5ab-8dcf410a9cb9";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -98,6 +100,7 @@ config service hr.RecruitmentService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms recruitmentDb {
+      id = "d9786fc0-8756-426d-8aac-d7163719b65f";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");

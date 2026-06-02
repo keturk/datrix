@@ -18,6 +18,7 @@ config service logistics.FleetService {
       initialDelay = "10s";
     }
     rdbms fleetDb {
+      id = "2608bce9-a131-415e-ac48-585f41543390";
       engine = "postgres";
       flavor = "container";
       host = "localhost";
@@ -105,6 +106,7 @@ config service logistics.FleetService {
     flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms fleetDb {
+      id = "2608bce9-a131-415e-ac48-585f41543390";
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");
