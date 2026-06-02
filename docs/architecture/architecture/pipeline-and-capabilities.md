@@ -324,6 +324,77 @@ service frontend.WebService : version('1.0.0') {
 
 **Custom domains and SSL:** When `customDomain` is set in CDN config, the platform generators provision SSL certificates automatically — ACM certificates in `us-east-1` for CloudFront (with DNS validation), or Front Door managed certificates for Azure.
 
+### Serverless Block Code Generation (Planned)
+
+Datrix supports serverless deployment of handler logic through `serverless` blocks declared inside services. A serverless block groups four member types — subscriptions, jobs, endpoints, and enqueue consumers — into independently deployable serverless functions. The serverless block determines deployment target; member types reuse the same AST types as service-level handlers.
+
+**DSL syntax:**
+
+```datrix
+service examples.OrderService('config/order-service.dcfg') {
+    rdbms db('config/rdbms.dcfg') { ... }
+    pubsub mq('config/pubsub.dcfg') { ... }
+
+    serverless eventHandlers {
+        subscribe mq.OrderEvents {
+            on OrderPlaced(UUID orderId, Decimal amount) { ... }
+            on OrderCancelled(UUID orderId) { ... }
+        }
+
+        @path('/webhooks/stripe')
+        @name('StripeWebhook')
+        post(JSON payload) -> Void { ... }
+    }
+
+    serverless scheduledTasks {
+        job DailyOrderReport { ... }
+    }
+
+    serverless queueWorkers {
+        enqueue examples.OrderService.ProcessShipment(UUID orderId) { ... }
+    }
+}
+```
+
+**One function per executable handler (D1):** Each executable handler becomes an independently deployable unit with its own timeout, memory, and concurrency settings. Handler identity is normalized to `snake_case` from the handler's name, `@name` decorator, or structural identity. Collision validation rejects duplicate identities within a block (SLS004).
+
+**Two-layer generation (D2):** Application-layer generators produce two artifacts per handler: (a) a platform-agnostic business logic handler module, and (b) a platform-specific entry point adapter (Lambda handler, Azure Functions `__init__.py` + `function.json`, or container runner). The handler module is identical across platforms.
+
+**Generated file layout (Python, `platform=lambda`):**
+```
+{service_root}/serverless/{block_snake}/
+    handlers/
+        {handler_snake}.py          # Business logic (platform-agnostic)
+    lambda_adapters/
+        {handler_snake}.py          # AWS Lambda entry point
+```
+
+**Config resolution chain (D3):** Schedule and retry resolve from `service.config.jobs.jobs[job_name]` (shared jobs config). Platform execution settings (timeout, memory, concurrency, plan_sku, runtime_version) resolve from `ServerlessProfileConfig.defaults` plus per-handler overrides in `ServerlessProfileConfig.handlers`. Missing job schedule config fails generation with a diagnostic (SLS006).
+
+**Shared ServerlessBlockPlan (D6):** A frozen `ServerlessBlockPlan` context model in `datrix-codegen-common` is computed once from the resolved `ServerlessBlock` + `ServerlessProfileConfig`. All infrastructure generators consume this plan rather than independently parsing AST + config.
+
+**ServerlessOrchestrator (D9):** `ServerlessOrchestrator(DomainOrchestrator)` owns all handler modules and adapters for members inside `ServerlessBlock`, including jobs. `JobsOrchestrator` handles only service-level/in-process jobs.
+
+**Multi-platform infrastructure generation:**
+
+| Platform | Status | Compute Resource | Trigger Resources |
+|----------|--------|-----------------|-------------------|
+| AWS | Planned | Lambda functions (CDK) | API Gateway HTTP API, EventBridge Scheduler, SNS/SQS triggers |
+| Azure | Planned | Function App (Bicep) | HTTP trigger, Timer trigger, Service Bus/Event Grid triggers |
+| Docker Compose | Planned | Separate container services | APScheduler, uvicorn, consumer loops |
+| Kubernetes | Planned | CronJob, Deployment + Service | Schedule, consumer process, HTTP server |
+| Component | Planned | (support metadata only) | Env vars, README documentation |
+
+**Platform compatibility (D8):** `ServerlessProfileConfig.platform` determines the programming model: `lambda` (AWS only), `functions` (Azure only), `container` (all providers). Incompatible platform/provider combinations fail generation before partial artifacts are rendered.
+
+**Semantic validation rules:**
+- SLS004: Handler identity uniqueness across executable handlers within a block
+- SLS005: Handler config references validate against actual handler identities
+- SLS006: Job inside serverless block requires schedule config entry
+- SLS007: Shared-owned serverless blocks are rejected
+
+**Service-owned only (D7):** Serverless blocks are generated only when declared inside a service. Shared containers do not own deployable serverless blocks.
+
 ### Managed API Gateway (Stable)
 
 Datrix supports managed API gateway infrastructure through a `gateway` block at the application level and a unified `gateway.yaml` configuration. When `type: managed` (or `type: kong` / `type: traefik`), platform generators emit cloud-managed or self-hosted API gateway resources with throttling, API keys, usage plans, request validation, response caching, WAF integration, and custom domain/TLS management.
