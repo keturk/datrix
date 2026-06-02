@@ -42,7 +42,8 @@
       "Bash(__NEW_LINE_100e09a4ea61eb22__ echo \"=== config/codegen_context.py ===\")",
       "Bash(__NEW_LINE_dd717acaad66740c__ echo \"=== builtins ===\")",
       "Bash(__NEW_LINE_c13f1f4663c8e48a__ echo \"\")",
-      "Bash(__NEW_LINE_2b58132ea9fb91d6__ echo \"\")"
+      "Bash(__NEW_LINE_2b58132ea9fb91d6__ echo \"\")",
+      "WebFetch(domain:mapdirect-fdep.opendata.arcgis.com)"
     ],
     "additionalDirectories": [
       "d:\\datrix\\$repo\\tests",
