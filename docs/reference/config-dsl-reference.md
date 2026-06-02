@@ -454,6 +454,55 @@ cache orderCache {
 
 ---
 
+## RDBMS Migration Identity
+
+Every `rdbms` block must declare an `id` field containing a UUID string. This UUID is the canonical migration identity used by the incremental RDBMS migration system to track schema snapshots and revision history.
+
+**Inline example:**
+
+```dcfg
+rdbms orderDb {
+  id = "8b7d0a8e-4b97-46df-8f3a-40df4f65be54";
+  engine = postgres;
+  flavor = container;
+  database = "ecommerce_orders";
+  schema = "orders";
+}
+```
+
+**Template example:**
+
+```dcfg
+template postgresContainer(id, database, schema) {
+  id = id;
+  engine = postgres;
+  flavor = container;
+  database = database;
+  schema = schema;
+}
+
+rdbms orderDb from postgresContainer(
+  id: "8b7d0a8e-4b97-46df-8f3a-40df4f65be54",
+  database: ecommerce_orders,
+  schema: orders
+);
+```
+
+**Validation rules:**
+
+- Every resolved `rdbms` block must have `id`; generation fails if missing
+- `id` must be a valid UUID string
+- Within each resolved profile, IDs must be globally unique across all service-owned and shared-owned RDBMS blocks
+- When the same owner-qualified RDBMS block appears in multiple profiles, it must resolve to the same `id` in every profile
+- The `id` survives profile, engine, platform, owner, and block-alias changes — it is the durable logical storage contract identity
+- Changing an `id` for a block that has existing migration state is a generation error
+
+The `id` is not affected by changes to resolved database engine, profile, platform, output directory, connection host, database name, schema name, owner container, or block alias. Migration state under `{app_dir}/.datrix/rdbms-migrations/{rdbms_id}/` is keyed solely by this UUID.
+
+Use `datrix migrations init-rdbms-ids --app <app-dir>` to add missing `id` fields to existing RDBMS blocks. See [migrations CLI commands](../../../datrix-cli/docs/commands/migrations.md) and [RDBMS migration decisions](../architecture/rdbms-migration-decisions.md).
+
+---
+
 ## Syntax Rules
 
 ### General

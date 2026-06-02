@@ -352,7 +352,7 @@ Provider generators augment runtime output unless the runtime is provider-native
 
 **State ownership:** The migration orchestrator owns snapshot/ledger lifecycle. Adapters render target-native files from `MigrationState` but do not load, write, or allocate revision IDs. Canonical state (`schema.json`, `ledger.json`) lives under the application source folder and is target-language/platform/engine agnostic.
 
-**Design reference:** [Design 008: Incremental RDBMS Schema Migrations](../../../design/008-incremental-rdbms-schema-migrations.md)
+**Reference:** [RDBMS Migration Decisions (D1-D23)](rdbms-migration-decisions.md) | [Migration API](../../../datrix-common/docs/architecture/migration.md) | [Adapter Protocol](../../../datrix-codegen-common/docs/migration-adapter.md)
 
 ---
 
