@@ -65,6 +65,14 @@ This skill executes five phases. Each phase builds on the previous.
 - Do NOT generate partial deliverables and wait for approval
 - User invoked this skill to run the full pipeline — execute it completely
 
+**Minimalistic outputs:**
+- All skill outputs (phase reports, summaries, generated artifacts) must be lean and data-dense
+- No decorative headers, horizontal rules, or markdown formatting in console output
+- No "Next steps" sections — the user knows what to do
+- No category breakdowns that repeat information already in task files or dependencies.md
+- No dependency graphs in console output — that data lives in dependencies.md
+- One line per data point. If it fits on one line, don't use three
+
 ---
 
 ### Phase 1: Analysis — Audit the Design Document
@@ -93,19 +101,13 @@ This phase is COMPLETE when:
 - [ ] Dependencies identified
 - [ ] Output matches the format below exactly
 
-**End-of-phase output:**
+**End-of-phase output (keep it lean — data only, no decoration):**
 
 ```
-ANALYSIS COMPLETE:
-
-Design: {title}
-Scope: {packages affected — ALL of them, not just the primary}
-Open questions: {N}
-Decision points: {N}
-Content overlap with existing docs: {N} conflicts
-Dependencies: {list}
-Migration steps identified: {N} (from design's migration/rollout section)
-Dual-implementation risk: {YES/NO — describe if YES}
+ANALYSIS: {title}
+Scope: {packages}
+Open questions: {N}, Decision points: {N}, Conflicts: {N}
+Migration steps: {N}, Dual-impl risk: {YES/NO}
 ```
 
 ## Phase 1 Self-Check
@@ -160,22 +162,13 @@ This phase is COMPLETE when:
 - [ ] Confidence level assigned to each decision
 - [ ] Output matches the format below exactly
 
-**End-of-phase output:**
+**End-of-phase output (lean — one line per decision):**
 
 ```
-DECISIONS:
+DECISIONS: {N} total (HIGH: {n}, MEDIUM: {n}, LOW: {n})
 
-1. {Decision title}
-   Decision: {what was decided}
-   Rationale: {why}
-   Confidence: HIGH
-   Evidence: {file:line or architectural principle}
-
-2. {Decision title}
-   Decision: {what was decided}
-   Rationale: {why}
-   Confidence: MEDIUM — flagged for review
-   Evidence: {what was found}
+1. {title}: {decision} [HIGH]
+2. {title}: {decision} [MEDIUM — flagged]
 ```
 
 ## Phase 2 Self-Check
@@ -231,18 +224,13 @@ This phase is COMPLETE when:
 - [ ] Target docs match existing doc style and structure
 - [ ] Output matches the format below exactly
 
-**End-of-phase output:**
+**End-of-phase output (lean — path + action only):**
 
 ```
-DOCUMENTATION UPDATED:
+DOCS UPDATED: {N} files, {N} sections transferred, {N} conflicts resolved
 
-Files modified:
-1. {target-doc-path} — Added: {section title} ({N} lines)
-2. {target-doc-path} — Updated: {section title} ({N} lines changed)
-3. {target-doc-path} — Created: {new file} ({N} lines)
-
-Content transferred: {N} sections from design document
-Conflicts resolved: {N}
+{path} — {action}
+{path} — {action}
 ```
 
 ## Phase 3 Self-Check
@@ -401,7 +389,7 @@ If you deviated: STOP and explain the deviation to the user.
 
    **CRITICAL:** The first H1 heading MUST be `# Task {NN}-{TT}: {Title}` (e.g., `# Task 39-01: Remove Dead Code in TypeScript Relationship Generation`). The `todo.ps1` script parses this heading to display tasks.
 
-5. Report dependency graph with parallelizable groups
+5. Generate the dependencies document following generate-tasks Step 7 format exactly — group numbers and absolute task file paths only, no headers, tables, inventories, or prose. See `d:\datrix\.claude\skills\generate-tasks\SKILL.md` Step 7 for the exact format.
 
 ## Phase 4 Completion Gate
 
@@ -414,44 +402,25 @@ This phase is COMPLETE when:
 - [ ] ALL quality gate tasks generated (one per package with 2+ code tasks)
 - [ ] Tasks span ALL affected repos (not just the primary package)
 - [ ] Every task file is self-contained (no design doc references)
-- [ ] Dependency graph created showing parallelizable groups
+- [ ] Dependencies document (`dependencies.md`) created with lean format: group numbers and absolute paths only — no headers, tables, inventories, dependency text blocks, or prose
 - [ ] Output lists ALL task file paths (not "23 tasks remaining")
 - [ ] No dual-implementation gap: if the design introduces a new path, migration tasks ensure the new path is exercised by tests/examples
 
 If any task is described but not generated: Phase 4 is NOT complete.
 
-**End-of-phase output:**
+**End-of-phase output (lean — counts + paths + pointer to dependencies.md):**
 
 ```
-TASKS GENERATED:
+TASKS: phase {NN}, {N} total ({N} impl, {N} test, {N} verify, {N} migration, {N} docs, {N} QG)
 
-Phase: {NN}
-Tasks: {N} total across {M} repos
-  Implementation: {N}
-  Test: {N}
-  Verification: {N}
-  Migration: {N}
-  Documentation: {N}
-  Quality Gate: {N}
+{task-path}
+{task-path}
+...
 
-d:\datrix\datrix-common\.tasks\phase-{NN}\task-{NN}-01-add-orchestrator.md
-d:\datrix\datrix-common\.tasks\phase-{NN}\task-{NN}-02-add-orchestrator-tests.md
-d:\datrix\datrix-codegen-python\.tasks\phase-{NN}\task-{NN}-03-python-pipeline.md
-d:\datrix\datrix-codegen-python\.tasks\phase-{NN}\task-{NN}-04-python-pipeline-tests.md
-d:\datrix\datrix-common\.tasks\phase-{NN}\task-{NN}-05-verify-orchestrator.md
-d:\datrix\datrix-codegen-python\.tasks\phase-{NN}\task-{NN}-06-verify-python-pipeline.md
-d:\datrix\datrix-common\.tasks\phase-{NN}\task-{NN}-07-update-architecture-docs.md
-d:\datrix\datrix-codegen-python\.tasks\phase-{NN}\task-{NN}-08-update-codegen-docs.md
-d:\datrix\datrix-common\.tasks\phase-{NN}\task-{NN}-09-quality-gate-datrix-common.md
-d:\datrix\datrix-codegen-python\.tasks\phase-{NN}\task-{NN}-10-quality-gate-datrix-codegen-python.md
-
-Dependency graph:
-  Group 1 (parallel): tasks 01, 03           [implementation]
-  Group 2 (after group 1): tasks 02, 04      [tests]
-  Group 3 (after group 2): tasks 05, 06      [verification — different agent]
-  Group 4 (after group 3): tasks 07, 08      [docs]
-  Group 5 (after all): tasks 09, 10          [quality gates]
+Dependencies: datrix\.tasks\phase-{NN}\dependencies.md
 ```
+
+Do NOT duplicate the dependency graph in console output — it is already in `dependencies.md`.
 
 ## Phase 4 Self-Check
 
@@ -492,16 +461,10 @@ This phase is COMPLETE when:
 - [ ] Design document preserved on filesystem
 - [ ] Output matches the format below exactly
 
-**End-of-phase output:**
+**End-of-phase output (lean):**
 
 ```
-CLEANUP:
-
-Design document preserved: {path}
-All content transferred to:
-- {doc 1}
-- {doc 2}
-- Task files in phase {NN}
+CLEANUP: design preserved at {path}, all content transferred
 ```
 
 ## Phase 5 Self-Check
@@ -518,32 +481,15 @@ If you deviated: STOP and explain the deviation to the user.
 
 ## Final Summary
 
-After all phases complete:
+After all phases complete (lean — no "next steps" padding, user knows what to do):
 
 ```
-OPERATIONALIZATION COMPLETE
-
-Design: {title}
-Decisions made: {N} (HIGH: {n}, MEDIUM: {n}, flagged for review: {n})
-Docs updated: {N} files
-Tasks generated: {N} tasks in phase {NN}
-  Implementation: {N}
-  Test: {N}
-  Verification: {N}
-  Migration: {N}
-  Documentation: {N}
-  Quality Gate: {N}
-Design document: PRESERVED at {path}
-
-Medium-confidence decisions to review:
-- {decision 1} — {rationale summary}
-
-Next steps:
-1. Review medium-confidence decisions above
-2. Begin implementation with task group 1: {task list}
-3. Run test tasks after corresponding implementation tasks
-4. Complete documentation tasks
-5. Run quality gate tasks last to verify full-suite integration
+DONE: {title}
+Decisions: {N} (review: {MEDIUM decision titles, if any})
+Docs: {N} files updated
+Tasks: {N} in phase {NN}
+Dependencies: datrix\.tasks\phase-{NN}\dependencies.md
+Design: preserved at {path}
 ```
 
 ## Anti-Patterns
@@ -559,6 +505,7 @@ Next steps:
 - **NO implementation tasks without corresponding verification tasks** — every implementation needs independent verification by a different agent
 - **NO skipping documentation tasks** — if a design changes architecture, APIs, or extensions, the relevant repo docs must be updated
 - **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
+- **NO bloated dependencies.md** — the dependencies document is for AI agent consumption only; it contains group numbers and absolute task file paths, nothing else. No markdown headers, tables, task inventories, dependency text blocks, category labels, or prose. See generate-tasks Step 7 for the exact format.
 - **NO design document path references in task files** — when operationalizing, tasks must inline design content because Phase 5 deletes the source document
 - **NO tasks without targeted tests** — every implementation and test task must have a `## Targeted Tests` section specifying which tests to run for focused verification
 - **NO missing quality gates** — every package with 2+ code tasks must have a quality gate task as the final dependency

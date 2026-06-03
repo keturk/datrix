@@ -60,6 +60,10 @@ For complete documentation index with "When to use" guidance, see [doc_index.md]
 - Ollama endpoint `http://10.94.0.100:11434` (Tier 1 reviewer)
 - Codex CLI (Tier 2 reviewer, only if `--codex-gate` specified)
 
+## Output Principle
+
+All skill outputs (phase reports, summaries, generated artifacts) must be lean and data-dense. No decorative headers, horizontal rules, or markdown formatting in console output. No "Next steps" sections. No category breakdowns that repeat information already in task files or dependencies.md. No dependency graphs in console output — that data lives in dependencies.md. One line per data point. If it fits on one line, don't use three.
+
 ## Workflow
 
 ### Phase 1: Task Generation (Same as v1)
@@ -76,13 +80,11 @@ For complete documentation index with "When to use" guidance, see [doc_index.md]
    - One task per significant deliverable
    - Include all standard task sections (Files to Create, Implementation Steps, Test Plan, etc.)
    - **CRITICAL:** All file paths in generated task files MUST be absolute paths (e.g., `d:\datrix\datrix\docs\...`), never relative paths
+   - **CRITICAL:** Generate `dependencies.md` following generate-tasks Step 7 format exactly — group numbers and absolute task file paths only, no headers, tables, inventories, dependency text blocks, or prose. This file is for AI agent consumption, not humans.
 
-3. **Initial report**
+3. **Initial report (lean)**
    ```
-   Task generation complete:
-   - 8 tasks created across 3 repos
-   - Phase: 05
-   - Next: Running Tier 1 review...
+   TASKS: phase {NN}, {N} tasks across {M} repos. Running Tier 1 review...
    ```
 
 ### Phase 2: Tier 1 Review Loop (NEW)
@@ -312,53 +314,19 @@ For complete documentation index with "When to use" guidance, see [doc_index.md]
 
 ### Phase 5: Final Report
 
-17. **Generate review summary**
+17. **Generate review summary (lean — data only, no padding)**
 
     ```
-    ✓ Operationalization complete for phase-05
-
-    Task Generation:
-    - 8 tasks created across 3 repos (datrix-common, datrix-cli, datrix)
-    - 0 prerequisites identified
-
-    Tier 1 Review (deepseek-r1:32b @ Ollama):
-    - Initial: 12 findings (3 blocking, 5 major, 4 minor)
-    - Applied fixes to 8 findings
-    - Verification: 4 findings (0 blocking, 0 major, 4 minor)
-    - Final: PASS
-    - Wall time: 6m 23s
-
-    Tier 2 Review (GPT-5.x-codex @ Codex CLI):
-    - Phase gate: 2 findings (0 blocking, 2 major)
-      * Cross-task: Task-05-02 depends on Task-05-06 (cycle risk)
-      * Missing: No integration test task for end-to-end workflow
-    - Applied fixes
-    - Verification: PASS
-    - Wall time: 2m 47s
-
-    Documentation:
-    - Updated: datrix/docs/architecture/pipeline-and-capabilities.md
-    - Updated: datrix-common/docs/contributing/ai-agent-rules.md
-    - Preserved: design/TASK_REVIEW_SYSTEM_DESIGN.md (content absorbed into docs)
-
-    Tasks ready for execution at:
-    - d:\datrix\datrix-common\.tasks\phase-05\
-    - d:\datrix\datrix-cli\.tasks\phase-05\
-    - d:\datrix\datrix\.tasks\phase-05\
-
-    Next: Run /execute-tasks --phase 05 to implement
+    DONE: phase {NN}, {N} tasks across {M} repos
+    Tier 1: {PASS|DEGRADED|FAILED} ({N} findings, {N} fixed)
+    Tier 2: {PASS|SKIPPED|FAILED} ({N} findings, {N} fixed)
+    Docs: {N} files updated
+    Dependencies: datrix\.tasks\phase-{NN}\dependencies.md
+    Design: preserved at {path}
     ```
 
-    **If parse failures occurred**, include in the summary:
-    ```
-    Tier 1 Review:
-    - Parse failures: {N}/{total} tasks (models returned text but not valid JSON)
-    - Raw responses: .review-debug/ directories
-    - Final: DEGRADED (review data incomplete)
-    ```
-
-    Do NOT report "PASS" when parse failures occurred. Use "DEGRADED" or "FAILED"
-    to make it clear the review was not fully successful.
+    If parse failures occurred, use "DEGRADED" not "PASS".
+    Do NOT add "Next steps" — the user knows what to do.
 
 18. **Exit successfully**
 
@@ -444,5 +412,6 @@ If design doc has unresolved open questions:
 
 ## Anti-Patterns
 
+- **NO bloated dependencies.md** — the dependencies document is for AI agent consumption only; it contains group numbers and absolute task file paths, nothing else. No markdown headers, tables, task inventories, dependency text blocks, category labels, or prose. See generate-tasks Step 7 for the exact format.
 - **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

@@ -65,6 +65,37 @@ config service examples.OrderService {
           schedule = "0 * * * *";
           timeout = "300s";
         }
+        DailyOrderReport {
+          schedule = "0 6 * * *";
+          timeout = "600s";
+        }
+      }
+    }
+    serverless eventHandlers {
+      flavor = "container";
+      defaults {
+        timeout = 300;
+        memory = 512;
+      }
+      handlers {
+      }
+    }
+    serverless scheduledTasks {
+      flavor = "container";
+      defaults {
+        timeout = 600;
+        memory = 512;
+      }
+      handlers {
+      }
+    }
+    serverless queueWorkers {
+      flavor = "container";
+      defaults {
+        timeout = 300;
+        memory = 512;
+      }
+      handlers {
       }
     }
     registration {

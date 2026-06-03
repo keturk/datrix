@@ -1,0 +1,821 @@
+{
+  "block": {
+    "name": "taskDb"
+  },
+  "container": {
+    "kind": "service",
+    "name": "taskapp.TaskService"
+  },
+  "cqrs_views": {},
+  "entities": {
+    "Task": {
+      "fields": {
+        "actualHours": {
+          "column_name": "actual_hours",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": 6,
+            "scale": 2
+          },
+          "type": {
+            "constraints": {
+              "precision": 6,
+              "scale": 2
+            },
+            "kind": "scalar",
+            "name": "Decimal",
+            "values": []
+          }
+        },
+        "assigneeId": {
+          "column_name": "assignee_id",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "commentCount": {
+          "column_name": "comment_count",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "0"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Integer",
+            "values": []
+          }
+        },
+        "completedAt": {
+          "column_name": "completed_at",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "completedSubtaskCount": {
+          "column_name": "completed_subtask_count",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "0"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Integer",
+            "values": []
+          }
+        },
+        "createdAt": {
+          "column_name": "created_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000001BDC65B2B30>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "description": {
+          "column_name": "description",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Text",
+            "values": []
+          }
+        },
+        "dueDate": {
+          "column_name": "due_date",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "estimatedHours": {
+          "column_name": "estimated_hours",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": 6,
+            "scale": 2
+          },
+          "type": {
+            "constraints": {
+              "precision": 6,
+              "scale": 2
+            },
+            "kind": "scalar",
+            "name": "Decimal",
+            "values": []
+          }
+        },
+        "id": {
+          "column_name": "id",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000001BDC658FF50>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": true,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "label": {
+          "column_name": "label",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "enum",
+            "name": "TaskLabel",
+            "values": [
+              "Bug",
+              "Feature",
+              "Improvement",
+              "Documentation",
+              "Chore"
+            ]
+          }
+        },
+        "parentTaskId": {
+          "column_name": "parent_task_id",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "priority": {
+          "column_name": "priority",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "<abc.PropertyAccessNode object at 0x000001BDC5EEF8C0>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "enum",
+            "name": "Priority",
+            "values": [
+              "Low",
+              "Medium",
+              "High",
+              "Critical"
+            ]
+          }
+        },
+        "projectId": {
+          "column_name": "project_id",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "reporterId": {
+          "column_name": "reporter_id",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "startedAt": {
+          "column_name": "started_at",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "status": {
+          "column_name": "status",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "<abc.PropertyAccessNode object at 0x000001BDC5EEFE70>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "enum",
+            "name": "TaskStatus",
+            "values": [
+              "Todo",
+              "InProgress",
+              "InReview",
+              "Done",
+              "Cancelled"
+            ]
+          }
+        },
+        "subtaskCount": {
+          "column_name": "subtask_count",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "0"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Integer",
+            "values": []
+          }
+        },
+        "taskNumber": {
+          "column_name": "task_number",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": 20,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 20
+            },
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "title": {
+          "column_name": "title",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": 200,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 200
+            },
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "updatedAt": {
+          "column_name": "updated_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000001BDC65B2DD0>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        }
+      },
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "project_id",
+            "status"
+          ],
+          "unique": false
+        },
+        {
+          "columns": [
+            "project_id",
+            "assignee_id"
+          ],
+          "unique": false
+        },
+        {
+          "columns": [
+            "project_id",
+            "priority"
+          ],
+          "unique": false
+        },
+        {
+          "columns": [
+            "status",
+            "due_date"
+          ],
+          "unique": false
+        },
+        {
+          "columns": [
+            "assignee_id",
+            "status"
+          ],
+          "unique": false
+        },
+        {
+          "columns": [
+            "title",
+            "description"
+          ],
+          "unique": false
+        }
+      ],
+      "table_name": "tasks",
+      "table_options": {}
+    },
+    "TaskComment": {
+      "fields": {
+        "authorId": {
+          "column_name": "author_id",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "content": {
+          "column_name": "content",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Text",
+            "values": []
+          }
+        },
+        "createdAt": {
+          "column_name": "created_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000001BDC65B2B30>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "id": {
+          "column_name": "id",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000001BDC658FF50>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": true,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "taskId": {
+          "column_name": "task_id",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "updatedAt": {
+          "column_name": "updated_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000001BDC65B2DD0>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        }
+      },
+      "foreign_keys": [
+        {
+          "columns": [
+            "task_id"
+          ],
+          "on_delete": "restrict",
+          "on_update": "restrict",
+          "referred_columns": [
+            "id"
+          ],
+          "referred_table": "tasks"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "task_id",
+            "created_at"
+          ],
+          "unique": false
+        }
+      ],
+      "table_name": "task_comments",
+      "table_options": {}
+    },
+    "TaskDependency": {
+      "fields": {
+        "createdAt": {
+          "column_name": "created_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000001BDC65B2B30>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "dependsOnTaskId": {
+          "column_name": "depends_on_task_id",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "id": {
+          "column_name": "id",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000001BDC658FF50>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": true,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "taskId": {
+          "column_name": "task_id",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "updatedAt": {
+          "column_name": "updated_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000001BDC65B2DD0>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        }
+      },
+      "foreign_keys": [
+        {
+          "columns": [
+            "task_id"
+          ],
+          "on_delete": "restrict",
+          "on_update": "restrict",
+          "referred_columns": [
+            "id"
+          ],
+          "referred_table": "tasks"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "task_id",
+            "depends_on_task_id"
+          ],
+          "unique": true
+        }
+      ],
+      "table_name": "task_dependencies",
+      "table_options": {}
+    }
+  },
+  "enums": [
+    {
+      "database_name": "priority",
+      "name": "Priority",
+      "values": [
+        "Low",
+        "Medium",
+        "High",
+        "Critical"
+      ]
+    },
+    {
+      "database_name": "task_label",
+      "name": "TaskLabel",
+      "values": [
+        "Bug",
+        "Feature",
+        "Improvement",
+        "Documentation",
+        "Chore"
+      ]
+    },
+    {
+      "database_name": "task_status",
+      "name": "TaskStatus",
+      "values": [
+        "Todo",
+        "InProgress",
+        "InReview",
+        "Done",
+        "Cancelled"
+      ]
+    }
+  ],
+  "format": "datrix.rdbms.schema",
+  "latest_revision": "0001_initial",
+  "rdbms_id": "5972ef83-21f9-45a3-831c-8d7e6cdf29e7",
+  "schema_hash": "5efb7b9cfd8e4944740c4a22bc2cdebed5563399e3317cf6ca2104b9a6b5589d",
+  "service": {
+    "name": "taskapp.TaskService",
+    "version": "1.0.0"
+  },
+  "version": 1
+}

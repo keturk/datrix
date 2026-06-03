@@ -128,34 +128,14 @@ Codex findings with `target: "phase-{NN}"` (e.g., dependency cycles) may affect 
 
 ### Step 5: Report Summary
 
-Print summary table:
+Print lean summary — applied count + skipped count, then only list skipped findings (applied is the default):
 
 ```
-Apply Reviews — Phase {NN}
-
-Review Sources:
-  - Tier 1 (local): {N} artifacts loaded
-  - Tier 2 (Codex): {1 artifact / not available}
-
-Task Fixes:
-  task-43-01-foo.md: 2 findings applied (1 blocking, 1 major)
-  task-43-02-bar.md: 1 finding applied (1 major)
-  task-43-05-baz.md: 1 finding skipped (F-003: ambiguous requirement)
-
-Phase-Level Fixes:
-  Dependency cycle (C-001): 2 tasks updated (task-43-02, task-43-05)
-
-Skipped Findings:
-  task-43-03-qux.md: F-005 (cannot auto-fix: requires design decision)
-    Reason: Design must choose between in-memory cache or Redis
-
-Total: 3 findings applied, 1 skipped
-
-Next Steps:
-  1. Review applied changes manually
-  2. Run re-review: python d:/datrix/datrix/scripts/library/review/review.py --phase {NN} --verify
-  3. If re-review passes, proceed to execution: /execute-tasks
+REVIEWS: phase {NN} — {N} applied, {N} skipped
+Skipped: {task}: {finding-id} — {reason}  (only if any)
 ```
+
+Do NOT add "Next Steps" — the user knows what to do.
 
 ## Important Rules
 
@@ -191,62 +171,11 @@ Next Steps:
 
 **User:** "Apply reviews to phase 43"
 
-**Assistant:**
-
-Step 1: Discovering review artifacts...
-- Found 11 Tier 1 artifacts (*.review.local.json)
-- Found 1 Tier 2 artifact (phase-43.review.codex.json)
-
-Step 2: Grouping findings by task...
-- 5 findings across 3 tasks
-
-Step 3: Applying fixes...
-
-*Applying to task-43-01-foo.md (2 findings):*
-- F-001 (blocking): Missing ## Targeted Tests section → Added section
-- F-002 (major): Anti-pattern dict.get(key, None) → Replaced with explicit KeyError
-
-*Applying to task-43-02-bar.md (1 finding):*
-- F-003 (major): No test coverage for EntityValidator → Added test task reference
-
-*Skipping task-43-03-baz.md (1 finding):*
-- F-005 (major): Cannot auto-fix - requires design decision
-
-Step 4: Handling phase-level findings...
-
-*Applying C-001 (dependency cycle):*
-- Affected tasks: task-43-02, task-43-05
-- Fix: Removed task-43-02 from task-43-05 dependencies
-
-Step 5: Writing markers...
-- task-43-01-foo.md.review.applied.json (2 findings)
-- task-43-02-bar.md.review.applied.json (1 finding + C-001)
-- task-43-05-baz.md.review.applied.json (C-001)
+**Assistant:** Discovers 11 Tier 1 + 1 Tier 2 artifacts, groups 5 findings across 3 tasks, applies fixes in severity order, writes markers.
 
 ```
-Apply Reviews — Phase 43
-
-Review Sources:
-  - Tier 1 (local): 11 artifacts loaded
-  - Tier 2 (Codex): 1 artifact loaded
-
-Task Fixes:
-  task-43-01-foo.md: 2 findings applied (1 blocking, 1 major)
-  task-43-02-bar.md: 1 finding applied (1 major)
-
-Phase-Level Fixes:
-  Dependency cycle (C-001): 2 tasks updated (task-43-02, task-43-05)
-
-Skipped Findings:
-  task-43-03-baz.md: F-005 (cannot auto-fix: requires design decision)
-    Reason: Design must choose between in-memory cache or Redis
-
-Total: 4 findings applied, 1 skipped
-
-Next Steps:
-  1. Review applied changes manually
-  2. Run re-review: python d:/datrix/datrix/scripts/library/review/review.py --phase 43 --verify
-  3. If re-review passes, proceed to execution
+REVIEWS: phase 43 — 4 applied, 1 skipped
+Skipped: task-43-03-baz.md: F-005 — requires design decision (in-memory cache vs Redis)
 ```
 
 ## Finding-Specific Fix Patterns

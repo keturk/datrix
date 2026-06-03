@@ -1,0 +1,95 @@
+config service examples.IngestionService {
+  base {
+    port = 8002;
+    flavor = "compose";
+    replicas = 1;
+    resources {
+      requests {
+        cpu = "100m";
+        memory = "256Mi";
+      }
+      limits {
+        cpu = "500m";
+        memory = "512Mi";
+      }
+    }
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    pubsub mq {
+      engine = "kafka";
+      flavor = "container";
+      brokers = ["localhost:9092"];
+      partitions = 3;
+      replicationFactor = 1;
+      retention = "7d";
+      port = 9092;
+      controllerPort = 9093;
+      dockerImage = "confluentinc/cp-kafka:7.6.0";
+      volumePath = "/var/lib/kafka/data";
+    }
+    jobs {
+      jobs {
+        WeeklyDataPull {
+          schedule = "0 3 * * 0";
+          timeout = "1h";
+        }
+      }
+    }
+    serverless ingestionHandlers {
+      flavor = "container";
+      defaults {
+        timeout = 300;
+        memory = 512;
+      }
+      handlers {
+      }
+    }
+    registration {
+      tags = ["api", "ingestion", "v1"];
+      meta = {};
+      healthCheck {
+        type = "http";
+        path = "/health";
+        interval = "10s";
+      }
+    }
+    resilience {
+      defaults {
+        timeout = "10s";
+        retry {
+          maxAttempts = 2;
+          backoff {
+            type = "exponential";
+            initial = "100ms";
+            multiplier = 2;
+          }
+        }
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+
+    flavor = "ecs-fargate";
+    replicas = 2;
+    strategy {
+      rolling {
+        maxUnavailable = "25%";
+      }
+    }
+  }
+}

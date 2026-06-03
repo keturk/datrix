@@ -251,45 +251,17 @@ For each wave, check if any two tasks modify the same file:
 
 Use **TodoWrite** to create the wave execution plan (one todo per wave).
 
-Output the execution plan to the user:
+Output a lean execution plan — task IDs + wave assignments, no per-task dependency annotations:
 
 ```
-EXECUTION PLAN — /task-orchestrator
+PLAN: {N} tasks, {W} waves, {P} phases
 
-Total tasks: 35 (5 already completed, 30 to execute)
-Phases: 2 (phase-34, phase-35)
-Waves: 7
+Wave 1 ({N}): task-34-01, task-34-02, task-34-03
+Wave 2 ({N}): task-34-06, task-34-07
+...
+Wave {W} ({N}): task-35-05
 
-=== Phase 34 ===
-
-Wave 1 (5 tasks, no dependencies):
-  - task-34-01: Base Class Definition [datrix-common]
-  - task-34-02: Template Loader [datrix-common]
-  - task-34-03: Type Mapper [datrix-codegen-python]
-  - task-34-04: Error Handler [datrix-common]
-  - task-34-05: Config Parser [datrix-common]
-
-Wave 2 (4 tasks, depends on wave 1):
-  - task-34-06: Generator Pipeline [datrix-codegen-python] → depends on 34-01, 34-03
-  - task-34-07: Template Engine [datrix-common] → depends on 34-02
-  - task-34-08: Validation Framework [datrix-common] → depends on 34-04
-  - task-34-09: Config Integration [datrix-common] → depends on 34-05
-
-Wave 3 (3 tasks):
-  ...
-
---- PHASE BOUNDARY (phase 34 must complete before phase 35 starts) ---
-
-=== Phase 35 ===
-
-Wave 5 (3 tasks):
-  - task-35-01: Extended Generator [datrix-codegen-python] → depends on 34-06
-  ...
-
-Packages affected: datrix-common, datrix-codegen-python
-Max parallel agents per sub-batch: 3
-
-Starting execution...
+Executing...
 ```
 
 Do NOT wait for user confirmation — proceed directly to execution. The plan is informational.
@@ -441,37 +413,13 @@ For each successfully verified task in this wave:
 
 #### 3h. Wave Checkpoint
 
-Emit a checkpoint report and update TodoWrite:
+Emit a lean checkpoint and update TodoWrite:
 
 ```
-CHECKPOINT — Wave {N}/{total_waves}
-Status: COMPLETED
-Tasks in wave: {total}
-  Completed: {count}
-  Failed: {count}
-  Skipped: {count} (dependency on failed task)
-
-Test results:
-  {package}: {passed}/{total} passing
-
-Completed tasks:
-  - task-07-01: Base Class Definition
-  - task-07-02: Template Loader
-
-Failed tasks (if any):
-  - task-07-03: Type Mapper — test_type_mapping failed after 3 attempts
-
-Skipped tasks (if any):
-  - task-07-06: Generator Pipeline — depends on failed task-07-03
-
-Proceeding to Wave {N+1}...
+Wave {N}/{total}: {completed} done, {failed} failed, {skipped} skipped | {package}: {passed}/{total} passing
 ```
 
-If this wave was the last wave in a phase and the next wave is in a new phase, add:
-```
---- PHASE BOUNDARY ---
-Phase {NN} complete. Starting Phase {MM}...
-```
+If failed or skipped tasks exist, list only those (one ID per line). Do NOT list completed tasks — success is the default.
 
 Mark the wave's todo as completed in TodoWrite.
 
@@ -479,43 +427,16 @@ Mark the wave's todo as completed in TodoWrite.
 
 ## Step 4: Final Report
 
-After all waves are executed (or execution is halted by user):
+After all waves are executed (or execution is halted by user), emit a lean report:
 
 ```
-EXECUTION COMPLETE — /task-orchestrator
-
-Overall Status: {COMPLETED | PARTIAL | HALTED}
-
-Summary:
-  Total tasks provided: {N}
-  Already completed (skipped): {N}
-  Executed: {N}
-  Completed successfully: {N}
-  Failed: {N}
-  Skipped (dependency on failed): {N}
-
-Waves executed: {N}/{total_waves}
-
-Per-wave summary:
-  Wave 1: {completed}/{total} completed
-  Wave 2: {completed}/{total} completed ({failed} failed, {skipped} skipped)
-  ...
-
-Test results per package:
-  datrix-common: {passed}/{total} passing
-  datrix-codegen-python: {passed}/{total} passing
-
-Completed tasks:
-  - task-07-01: Base Class Definition
-  - task-07-02: Template Loader
-  ...
-
-Failed tasks (require manual attention):
-  - task-07-03: Type Mapper — {failure reason}
-
-Skipped tasks (blocked by failed dependencies):
-  - task-07-06: Generator Pipeline — depends on task-07-03
+DONE: {COMPLETED|PARTIAL|HALTED} — {completed}/{total} tasks, {waves_executed}/{total_waves} waves
+Tests: {package}: {passed}/{total} | {package}: {passed}/{total}
+Failed: {task-id} — {reason}  (only if any)
+Skipped: {task-id} — blocked by {dep}  (only if any)
 ```
+
+Do NOT list completed tasks — success is the default. Only list failures and skips.
 
 ---
 

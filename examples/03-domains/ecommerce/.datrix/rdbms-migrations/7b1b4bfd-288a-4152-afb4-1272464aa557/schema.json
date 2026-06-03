@@ -1,0 +1,851 @@
+{
+  "block": {
+    "name": "userDb"
+  },
+  "container": {
+    "kind": "service",
+    "name": "ecommerce.UserService"
+  },
+  "cqrs_views": {},
+  "entities": {
+    "User": {
+      "fields": {
+        "billingAddress": {
+          "column_name": "billing_address",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "JSON",
+            "values": []
+          }
+        },
+        "createdAt": {
+          "column_name": "created_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x0000020F7A388980>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "email": {
+          "column_name": "email",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Email",
+            "values": []
+          },
+          "unique": true
+        },
+        "emailVerificationToken": {
+          "column_name": "email_verification_token",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "emailVerifiedAt": {
+          "column_name": "email_verified_at",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "firstName": {
+          "column_name": "first_name",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": 100,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 100
+            },
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "id": {
+          "column_name": "id",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x0000020F7A3556A0>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": true,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "lastLoginAt": {
+          "column_name": "last_login_at",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "lastName": {
+          "column_name": "last_name",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": 100,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 100
+            },
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "passwordHash": {
+          "column_name": "password_hash",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Password",
+            "values": []
+          }
+        },
+        "passwordResetExpiry": {
+          "column_name": "password_reset_expiry",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "passwordResetToken": {
+          "column_name": "password_reset_token",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "phoneNumber": {
+          "column_name": "phone_number",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Phone",
+            "values": []
+          }
+        },
+        "role": {
+          "column_name": "role",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "<abc.PropertyAccessNode object at 0x0000020F79A00670>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "enum",
+            "name": "UserRole",
+            "values": [
+              "Customer",
+              "Admin",
+              "Support"
+            ]
+          }
+        },
+        "shippingAddress": {
+          "column_name": "shipping_address",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "JSON",
+            "values": []
+          }
+        },
+        "status": {
+          "column_name": "status",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "<abc.PropertyAccessNode object at 0x0000020F79A00830>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "enum",
+            "name": "UserStatus",
+            "values": [
+              "Active",
+              "Inactive",
+              "Suspended",
+              "Pending"
+            ]
+          }
+        },
+        "updatedAt": {
+          "column_name": "updated_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x0000020F7A388FA0>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        }
+      },
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "status",
+            "role"
+          ],
+          "unique": false
+        },
+        {
+          "columns": [
+            "email"
+          ],
+          "unique": false
+        }
+      ],
+      "table_name": "users",
+      "table_options": {}
+    },
+    "UserPreferences": {
+      "fields": {
+        "createdAt": {
+          "column_name": "created_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x0000020F7A388980>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "emailNotifications": {
+          "column_name": "email_notifications",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "True"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Boolean",
+            "values": []
+          }
+        },
+        "id": {
+          "column_name": "id",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x0000020F7A3556A0>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": true,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "language": {
+          "column_name": "language",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "en"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": 10,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 10
+            },
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "preferences": {
+          "column_name": "preferences",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "JSON",
+            "values": []
+          }
+        },
+        "smsNotifications": {
+          "column_name": "sms_notifications",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "False"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Boolean",
+            "values": []
+          }
+        },
+        "timezone": {
+          "column_name": "timezone",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "UTC"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": 50,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 50
+            },
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "updatedAt": {
+          "column_name": "updated_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x0000020F7A388FA0>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "userId": {
+          "column_name": "user_id",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        }
+      },
+      "foreign_keys": [
+        {
+          "columns": [
+            "user_id"
+          ],
+          "on_delete": "restrict",
+          "on_update": "restrict",
+          "referred_columns": [
+            "id"
+          ],
+          "referred_table": "users"
+        }
+      ],
+      "indexes": [],
+      "table_name": "user_preferences",
+      "table_options": {}
+    },
+    "UserSession": {
+      "fields": {
+        "createdAt": {
+          "column_name": "created_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x0000020F7A388980>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "deviceName": {
+          "column_name": "device_name",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": 500,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 500
+            },
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "expiresAt": {
+          "column_name": "expires_at",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "id": {
+          "column_name": "id",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x0000020F7A3556A0>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": true,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "ipAddress": {
+          "column_name": "ip_address",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "IPAddress",
+            "values": []
+          }
+        },
+        "lastActivityAt": {
+          "column_name": "last_activity_at",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "token": {
+          "column_name": "token",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": 255,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 255
+            },
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          },
+          "unique": true
+        },
+        "updatedAt": {
+          "column_name": "updated_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x0000020F7A388FA0>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "userAgent": {
+          "column_name": "user_agent",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": 255,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 255
+            },
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "userId": {
+          "column_name": "user_id",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        }
+      },
+      "foreign_keys": [
+        {
+          "columns": [
+            "user_id"
+          ],
+          "on_delete": "restrict",
+          "on_update": "restrict",
+          "referred_columns": [
+            "id"
+          ],
+          "referred_table": "users"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "user_id",
+            "expires_at"
+          ],
+          "unique": false
+        },
+        {
+          "columns": [
+            "token"
+          ],
+          "unique": false
+        }
+      ],
+      "table_name": "user_sessions",
+      "table_options": {}
+    }
+  },
+  "enums": [
+    {
+      "database_name": "user_role",
+      "name": "UserRole",
+      "values": [
+        "Customer",
+        "Admin",
+        "Support"
+      ]
+    },
+    {
+      "database_name": "user_status",
+      "name": "UserStatus",
+      "values": [
+        "Active",
+        "Inactive",
+        "Suspended",
+        "Pending"
+      ]
+    }
+  ],
+  "format": "datrix.rdbms.schema",
+  "latest_revision": "0001_initial",
+  "rdbms_id": "7b1b4bfd-288a-4152-afb4-1272464aa557",
+  "schema_hash": "2b2cc7433ebcc11d19632f549afc5bf72caaf8bac89b28aaa19527e21a75d283",
+  "service": {
+    "name": "ecommerce.UserService",
+    "version": "1.0.0"
+  },
+  "version": 1
+}

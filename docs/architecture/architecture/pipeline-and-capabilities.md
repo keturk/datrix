@@ -324,7 +324,7 @@ service frontend.WebService : version('1.0.0') {
 
 **Custom domains and SSL:** When `customDomain` is set in CDN config, the platform generators provision SSL certificates automatically — ACM certificates in `us-east-1` for CloudFront (with DNS validation), or Front Door managed certificates for Azure.
 
-### Serverless Block Code Generation (Planned)
+### Serverless Block Code Generation (Stable)
 
 Datrix supports serverless deployment of handler logic through `serverless` blocks declared inside services. A serverless block groups four member types — subscriptions, jobs, endpoints, and enqueue consumers — into independently deployable serverless functions. The serverless block determines deployment target; member types reuse the same AST types as service-level handlers.
 
@@ -379,11 +379,11 @@ service examples.OrderService('config/order-service.dcfg') {
 
 | Platform | Status | Compute Resource | Trigger Resources |
 |----------|--------|-----------------|-------------------|
-| AWS | Planned | Lambda functions (CDK) | API Gateway HTTP API, EventBridge Scheduler, SNS/SQS triggers |
-| Azure | Planned | Function App (Bicep) | HTTP trigger, Timer trigger, Service Bus/Event Grid triggers |
-| Docker Compose | Planned | Separate container services | APScheduler, uvicorn, consumer loops |
-| Kubernetes | Planned | CronJob, Deployment + Service | Schedule, consumer process, HTTP server |
-| Component | Planned | (support metadata only) | Env vars, README documentation |
+| AWS | Stable | Lambda functions (CDK) | API Gateway HTTP API, EventBridge Scheduler, SNS/SQS triggers |
+| Azure | Stable | Function App (Bicep) | HTTP trigger, Timer trigger, Service Bus/Event Grid triggers |
+| Docker Compose | Stable | Separate container services | APScheduler, uvicorn, consumer loops |
+| Kubernetes | Stable | CronJob, Deployment + Service | Schedule, consumer process, HTTP server |
+| Component | Stable | (support metadata only) | Env vars, README documentation |
 
 **Platform compatibility (D8):** `ServerlessProfileConfig.platform` determines the programming model: `lambda` (AWS only), `functions` (Azure only), `container` (all providers). Incompatible platform/provider combinations fail generation before partial artifacts are rendered.
 

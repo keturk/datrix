@@ -35,6 +35,10 @@ The user provides:
 3. **Phase filter** (optional) — Generate tasks for a specific phase only
 4. **Section filter** (optional) — Focus on specific sections of the design document
 
+## Output Principle
+
+All skill outputs (summaries, generated artifacts like dependencies.md) must be lean and data-dense. No decorative headers, horizontal rules, or verbose markdown formatting in console output. No "Next steps" sections. No dependency graphs in console output — that data lives in dependencies.md. One line per data point. If it fits on one line, don't use three.
+
 ## Workflow
 
 When invoked, follow these steps:
@@ -362,56 +366,24 @@ D:\datrix\{repo}\.tasks\phase-{NN}\task-{NN}-{TT}-{slug}.md
 
 The dependencies document provides a concise execution plan for task orchestration tools like `/task-orchestrator`.
 
-### Step 8: Report Summary and Dependency Graph
+### Step 8: Report Summary
 
-Print a summary table (grouped by category) followed by a dependency graph:
+Print a lean summary — counts + task paths + pointer to dependencies.md. Do NOT duplicate the dependency graph in console output (it is already in `dependencies.md`).
 
 ```
-Phase {NN} — {Phase Title}
+Phase {NN}: {N} tasks ({N} impl, {N} test, {N} verify, {N} migration, {N} docs, {N} QG)
 
-  Implementation:
-    {repo}/.tasks/phase-{NN}/task-{NN}-{TT}-{slug}.md — {Title}
-    {repo}/.tasks/phase-{NN}/task-{NN}-{TT}-{slug}.md — {Title}
+{task-path}
+{task-path}
+...
 
-  Tests:
-    {repo}/.tasks/phase-{NN}/task-{NN}-{TT}-{slug}.md — {Title}
-
-  Verification:
-    {repo}/.tasks/phase-{NN}/task-{NN}-{TT}-verify-{slug}.md — Verify {Feature} Implementation
-
-  Documentation:
-    {repo}/.tasks/phase-{NN}/task-{NN}-{TT}-{slug}.md — {Title}
-
-  Quality Gates:
-    {repo}/.tasks/phase-{NN}/task-{NN}-{TT}-quality-gate-{package}.md — Quality Gate -- {package-name}
-
-Task Dependencies:
-  {NN}-{TT} {Title}
-    └── depends on: (none — can start immediately)
-  {NN}-{TT} {Title}
-    └── depends on: {NN}-{TT}
-  {NN}-{TT} {Title}
-    └── depends on: {NN}-{TT}, {NN}-{TT}
-  {NN}-{TT} Quality Gate -- {package-name}
-    └── depends on: {NN}-{TT}, {NN}-{TT}, {NN}-{TT}  (all {package} tasks)
-  ...
-
-Parallelizable groups (tasks within a group can run concurrently):
-  Group 1: {NN}-{TT}, {NN}-{TT}          (no dependencies — implementation)
-  Group 2: {NN}-{TT}, {NN}-{TT}          (after Group 1 — tests)
-  Group 3: {NN}-{TT}, {NN}-{TT}          (after Group 2 — verification, by different agent)
-  Group 4: {NN}-{TT}                      (after Group 3 — docs)
-  Group 5: {NN}-{TT}, {NN}-{TT}          (after all package tasks — quality gates)
-
-Dependencies document: datrix/.tasks/phase-{NN}/dependencies.md
+Dependencies: datrix\.tasks\phase-{NN}\dependencies.md
 ```
 
-The dependency graph must:
-1. List every task with its direct dependencies
-2. Identify which tasks can run in parallel (share no dependency chain)
-3. Present parallelizable groups in execution order — Group 1 has no dependencies, Group 2 depends only on Group 1 tasks, etc.
-4. Be consistent with the "Depends on" field inside each task file
-5. Match the groups written to the dependencies document in Step 7
+The summary must:
+1. List every task file path (absolute)
+2. Be consistent with the "Depends on" field inside each task file
+3. Match the groups written to the dependencies document in Step 7
 
 ## Task Completion Protocol
 
@@ -718,3 +690,4 @@ When creating tasks, point agents to relevant example `.dtrx` files:
 11. **Migration steps are tasks, not aspirations.** If the design's migration section says "convert X to Y", generate a task for it. Do not defer migration to "future work" unless the design explicitly says so.
 12. **Tasks span all affected repos.** Do not limit task generation to a single package. If the design changes `datrix-common` but examples live in `datrix` and project configs live in `datrix-projects`, generate tasks in all three repos.
 13. **No untested new paths.** If the design introduces a new subsystem alongside an old one, generate migration tasks that convert existing test fixtures, examples, and configs to use the new path. Without these, the new code compiles but nothing exercises it end-to-end.
+14. **No bloated outputs.** dependencies.md contains group numbers and absolute paths only — no headers, tables, or prose. Console summaries are data-dense one-liners — no dependency graphs (already in dependencies.md), no "Next steps", no category breakdowns.

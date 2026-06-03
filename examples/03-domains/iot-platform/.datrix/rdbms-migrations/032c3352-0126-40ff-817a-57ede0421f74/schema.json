@@ -1,0 +1,777 @@
+{
+  "block": {
+    "name": "firmwareDb"
+  },
+  "container": {
+    "kind": "service",
+    "name": "iot.FirmwareService"
+  },
+  "cqrs_views": {},
+  "entities": {
+    "FirmwareRollout": {
+      "fields": {
+        "completedAt": {
+          "column_name": "completed_at",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "createdAt": {
+          "column_name": "created_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000002214D9D0210>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "failedDevices": {
+          "column_name": "failed_devices",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "0"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Integer",
+            "values": []
+          }
+        },
+        "firmwareVersionId": {
+          "column_name": "firmware_version_id",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "id": {
+          "column_name": "id",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000002214D9D3310>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": true,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "rolloutCode": {
+          "column_name": "rollout_code",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": 30,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 30
+            },
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          },
+          "unique": true
+        },
+        "startedAt": {
+          "column_name": "started_at",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "status": {
+          "column_name": "status",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "<abc.PropertyAccessNode object at 0x000002214CE1D010>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "enum",
+            "name": "RolloutStatus",
+            "values": [
+              "Planned",
+              "InProgress",
+              "Paused",
+              "Completed",
+              "Failed",
+              "Cancelled"
+            ]
+          }
+        },
+        "targetDeviceGroupId": {
+          "column_name": "target_device_group_id",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "totalDevices": {
+          "column_name": "total_devices",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "0"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Integer",
+            "values": []
+          }
+        },
+        "updatedAt": {
+          "column_name": "updated_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000002214D9D10F0>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "updatedDevices": {
+          "column_name": "updated_devices",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "0"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Integer",
+            "values": []
+          }
+        }
+      },
+      "foreign_keys": [
+        {
+          "columns": [
+            "firmware_version_id"
+          ],
+          "on_delete": "restrict",
+          "on_update": "restrict",
+          "referred_columns": [
+            "id"
+          ],
+          "referred_table": "firmware_versions"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "status"
+          ],
+          "unique": false
+        },
+        {
+          "columns": [
+            "firmware_version_id",
+            "status"
+          ],
+          "unique": false
+        }
+      ],
+      "table_name": "firmware_rollouts",
+      "table_options": {}
+    },
+    "FirmwareVersion": {
+      "fields": {
+        "checksum": {
+          "column_name": "checksum",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": 64,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 64
+            },
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "createdAt": {
+          "column_name": "created_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000002214D9D0210>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "fileSize": {
+          "column_name": "file_size",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Integer",
+            "values": []
+          }
+        },
+        "fileUrl": {
+          "column_name": "file_url",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": 500,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 500
+            },
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "id": {
+          "column_name": "id",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000002214D9D3310>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": true,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "isStable": {
+          "column_name": "is_stable",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "False"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Boolean",
+            "values": []
+          }
+        },
+        "releaseNotes": {
+          "column_name": "release_notes",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Text",
+            "values": []
+          }
+        },
+        "releasedAt": {
+          "column_name": "released_at",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "<abc.CallNode object at 0x000002214CE1FCB0>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "updatedAt": {
+          "column_name": "updated_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000002214D9D10F0>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "version": {
+          "column_name": "version",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": 50,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 50
+            },
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          },
+          "unique": true
+        }
+      },
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "version"
+          ],
+          "unique": false
+        },
+        {
+          "columns": [
+            "is_stable"
+          ],
+          "unique": false
+        }
+      ],
+      "table_name": "firmware_versions",
+      "table_options": {}
+    },
+    "RolloutLog": {
+      "fields": {
+        "completedAt": {
+          "column_name": "completed_at",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "createdAt": {
+          "column_name": "created_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000002214D9D0210>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "deviceId": {
+          "column_name": "device_id",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "errorMessage": {
+          "column_name": "error_message",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Text",
+            "values": []
+          }
+        },
+        "firmwareRolloutId": {
+          "column_name": "firmware_rollout_id",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "id": {
+          "column_name": "id",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000002214D9D3310>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": true,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "startedAt": {
+          "column_name": "started_at",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "status": {
+          "column_name": "status",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "enum",
+            "name": "DeviceUpdateStatus",
+            "values": [
+              "Pending",
+              "Downloading",
+              "Installing",
+              "Completed",
+              "Failed"
+            ]
+          }
+        },
+        "updatedAt": {
+          "column_name": "updated_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000002214D9D10F0>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        }
+      },
+      "foreign_keys": [
+        {
+          "columns": [
+            "firmware_rollout_id"
+          ],
+          "on_delete": "restrict",
+          "on_update": "restrict",
+          "referred_columns": [
+            "id"
+          ],
+          "referred_table": "firmware_rollouts"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "firmware_rollout_id",
+            "device_id"
+          ],
+          "unique": true
+        },
+        {
+          "columns": [
+            "firmware_rollout_id",
+            "status"
+          ],
+          "unique": false
+        }
+      ],
+      "table_name": "rollout_logs",
+      "table_options": {}
+    }
+  },
+  "enums": [
+    {
+      "database_name": "device_update_status",
+      "name": "DeviceUpdateStatus",
+      "values": [
+        "Pending",
+        "Downloading",
+        "Installing",
+        "Completed",
+        "Failed"
+      ]
+    },
+    {
+      "database_name": "rollout_status",
+      "name": "RolloutStatus",
+      "values": [
+        "Planned",
+        "InProgress",
+        "Paused",
+        "Completed",
+        "Failed",
+        "Cancelled"
+      ]
+    }
+  ],
+  "format": "datrix.rdbms.schema",
+  "latest_revision": "0001_initial",
+  "rdbms_id": "032c3352-0126-40ff-817a-57ede0421f74",
+  "schema_hash": "e52699d352aaa8b699dae9bd9b94c7aa3109e685b1d793fbd8ee2cbe8d67cf34",
+  "service": {
+    "name": "iot.FirmwareService",
+    "version": "1.0.0"
+  },
+  "version": 1
+}
