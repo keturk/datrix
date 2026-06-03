@@ -29,6 +29,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
         DateTime hireDate;
         Money salary;
         UUID? managerId;
+        String? password;
     }
 
     struct UpdateEmployeeRequest {
@@ -77,6 +78,8 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
             Money salary : encrypted;
             UUID? managerId : index;
             String(500)? terminationReason;
+            Password? passwordHash;
+            String? emailVerificationToken;
 
             // Computed fields
             String fullName := #"{firstName} {lastName}";
@@ -374,8 +377,14 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
                 department: request.department,
                 hireDate: request.hireDate,
                 salary: request.salary,
-                managerId: request.managerId
+                managerId: request.managerId,
+                emailVerificationToken: generateToken()
             });
+
+            if (request.password != null) {
+                employee.passwordHash = hashPassword(request.password);
+            }
+
             employee.save();
 
             return employee;

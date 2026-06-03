@@ -1,7 +1,7 @@
 {
   "format": "datrix.rdbms.ledger",
-  "hash": "bbd6eee3b84053b6f79a842b139326ca930d6608d2849d5d0b8afdc3fb077ad0",
-  "latest_revision": "0001_initial",
+  "hash": "9a153fcb7486b542aee1eceba86bea655c86595098448147635339639f2b090d",
+  "latest_revision": "0002_add_email_and_1_more",
   "rdbms_id": "ab433f97-eeb1-48b9-a761-573d2efe2cf3",
   "revisions": [
     {
@@ -20,6 +20,31 @@
       "schema_hash_after": "04b5f115ccc9fdda6b7a999b1db92c959ac6a9b3308721a4a7dc91d8eb1aed72",
       "schema_hash_before": "",
       "sequence": 1
+    },
+    {
+      "classification": "safe",
+      "created_at": "2026-06-03T06:38:31.514674+00:00",
+      "operations": [
+        {
+          "details": {
+            "entity": "Patient",
+            "field": "emailVerificationToken"
+          },
+          "op": "add_column"
+        },
+        {
+          "details": {
+            "entity": "Patient",
+            "field": "passwordHash"
+          },
+          "op": "add_column"
+        }
+      ],
+      "previous_revision": "0001_initial",
+      "revision": "0002_add_email_and_1_more",
+      "schema_hash_after": "ad5583918266f980e7d011b50b1ef0e3f2f3197863eac4521754bf19599d7e87",
+      "schema_hash_before": "04b5f115ccc9fdda6b7a999b1db92c959ac6a9b3308721a4a7dc91d8eb1aed72",
+      "sequence": 2
     }
   ],
   "version": 1

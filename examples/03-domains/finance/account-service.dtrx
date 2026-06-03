@@ -66,6 +66,8 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
             DateTime dateOfBirth : sensitive;
             KycStatus kycStatus = KycStatus.Pending;
             String(500)? address;
+            Password? passwordHash;
+            String? emailVerificationToken;
 
             // Computed field for display name
             String fullName := #"{firstName} {lastName}";
@@ -81,6 +83,7 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
             }
 
             afterCreate {
+                emailVerificationToken = generateToken();
                 Log.info("Customer created", { customerId: id, kycStatus: kycStatus });
             }
 

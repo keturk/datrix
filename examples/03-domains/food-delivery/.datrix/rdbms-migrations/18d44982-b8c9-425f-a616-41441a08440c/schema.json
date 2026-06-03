@@ -10,6 +10,24 @@
   "entities": {
     "Delivery": {
       "fields": {
+        "accessToken": {
+          "column_name": "access_token",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
         "assignedAt": {
           "column_name": "assigned_at",
           "default": null,
@@ -33,7 +51,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000026FEECCDA20>"
+            "value": "<abc.CallNode object at 0x000001D6683CDEF0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -166,7 +184,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000026FEED101A0>"
+            "value": "<abc.CallNode object at 0x000001D668410050>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -244,7 +262,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x0000026FEDF2ABA0>"
+            "value": "<abc.PropertyAccessNode object at 0x000001D66762AAC0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -273,7 +291,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000026FEECBFEE0>"
+            "value": "<abc.CallNode object at 0x000001D6683CE190>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -329,7 +347,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000026FEECCDA20>"
+            "value": "<abc.CallNode object at 0x000001D6683CDEF0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -413,7 +431,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000026FEED101A0>"
+            "value": "<abc.CallNode object at 0x000001D668410050>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -498,7 +516,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x0000026FEDF0FCB0>"
+            "value": "<abc.PropertyAccessNode object at 0x000001D667613AF0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -546,7 +564,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000026FEECBFEE0>"
+            "value": "<abc.CallNode object at 0x000001D6683CE190>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -627,9 +645,9 @@
     }
   ],
   "format": "datrix.rdbms.schema",
-  "latest_revision": "0001_initial",
+  "latest_revision": "0002_add_access_token",
   "rdbms_id": "18d44982-b8c9-425f-a616-41441a08440c",
-  "schema_hash": "32c7511b8c1eaa899a50e0a0dc6ba45c60792f64346e20b6c28e2c3f64208d7b",
+  "schema_hash": "54fe2490f115525aed9496e42c505459f92a9fa80aec4953dae3a2ef9c281408",
   "service": {
     "name": "fooddelivery.DeliveryService",
     "version": "1.0.0"

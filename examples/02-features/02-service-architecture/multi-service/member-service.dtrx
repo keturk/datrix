@@ -17,8 +17,19 @@ service library.MemberService('config/member-service.dcfg') : version('1.0.0'), 
             Email email : unique;
             // '?' suffix makes address nullable (optional)
             Address? address;
+            // Email verification token issued on registration
+            String? emailVerificationToken;
+
+            afterCreate {
+                emailVerificationToken = generateToken();
+            }
         }
 
+    }
+
+    // MemberService exposes its own API surface (separate from BookService)
+    rest_api MemberAPI : basePath("/api/v1/members"), rdbms(memberDb) {
+        resource memberDb.Member;
     }
 
 }

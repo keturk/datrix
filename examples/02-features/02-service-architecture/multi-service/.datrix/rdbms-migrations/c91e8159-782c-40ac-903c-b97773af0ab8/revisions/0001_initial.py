@@ -55,6 +55,11 @@ def upgrade() -> None:
             sa.JSON(),
             nullable=True,
         ),
+        sa.Column(
+            "email_verification_token",
+            sa.String(),
+            nullable=True,
+        ),
     )
 
 

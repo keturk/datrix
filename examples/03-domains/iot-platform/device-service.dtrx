@@ -60,6 +60,7 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
             String(200)? location;
             Array<String> tags = [];
             JSON metadata;
+            String? deviceToken;
 
             Boolean isOnline := lastSeenAt != null && DateTime.diffInSeconds(lastSeenAt, DateTime.now()) < HEARTBEAT_TIMEOUT_SECONDS;
             Boolean isActive := status == DeviceStatus.Active;
@@ -78,6 +79,7 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
             }
 
             afterCreate {
+                deviceToken = generateToken();
                 dispatch DeviceRegistered(id, serialNumber, name, type);
             }
 

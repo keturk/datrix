@@ -161,7 +161,13 @@ if ($messages -isnot [PSCustomObject]) {
     Write-Error "Generated commit-messages.json root must be a JSON object."
 }
 
-$repoCount = @($messages.PSObject.Properties).Count
+# Count repos to commit, mirroring commit-and-push.ps1's two accepted schemas:
+#  rich -> length of commits[]; flat -> number of top-level keys.
+if ($null -ne $messages.commits) {
+    $repoCount = @($messages.commits).Count
+} else {
+    $repoCount = @($messages.PSObject.Properties).Count
+}
 Write-Host "commit-messages.json generated successfully with $repoCount repo(s)" -ForegroundColor Green
 Write-Host ""
 

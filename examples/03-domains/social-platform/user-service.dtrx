@@ -28,6 +28,7 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
         String(100)? displayName;
         String(500)? bio;
         Url? avatarUrl;
+        String? password;
     }
 
     rdbms userDb {
@@ -43,6 +44,8 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
             Int followingCount = 0;
             Int postCount = 0;
             DateTime? lastActiveAt;
+            Password? passwordHash;
+            String? emailVerificationToken;
 
             // Computed fields
             Boolean isActive := status == UserStatus.Active;
@@ -65,6 +68,7 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
             }
 
             afterCreate {
+                emailVerificationToken = generateToken();
                 dispatch UserRegistered(id, username, email);
             }
 
@@ -224,6 +228,10 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
 
             if (request.avatarUrl != null) {
                 user.avatarUrl = request.avatarUrl;
+            }
+
+            if (request.password != null) {
+                user.passwordHash = hashPassword(request.password);
             }
 
             user.save();

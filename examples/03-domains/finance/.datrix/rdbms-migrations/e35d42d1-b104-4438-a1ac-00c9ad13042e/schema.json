@@ -112,7 +112,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000247E8F28830>"
+            "value": "<abc.CallNode object at 0x0000018740C18BB0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -177,7 +177,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000247E8F01C50>"
+            "value": "<abc.CallNode object at 0x0000018740BF5FD0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -199,7 +199,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.CallNode object at 0x00000247E8206F90>"
+            "value": "<abc.CallNode object at 0x000001873FEFB460>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -239,7 +239,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x00000247E8206C10>"
+            "value": "<abc.PropertyAccessNode object at 0x000001873FEFB0E0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -289,7 +289,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000247E8F28AD0>"
+            "value": "<abc.CallNode object at 0x0000018740C18E50>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -372,7 +372,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000247E8F28830>"
+            "value": "<abc.CallNode object at 0x0000018740C18BB0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -426,6 +426,24 @@
           },
           "unique": true
         },
+        "emailVerificationToken": {
+          "column_name": "email_verification_token",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
         "firstName": {
           "column_name": "first_name",
           "default": null,
@@ -451,7 +469,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000247E8F01C50>"
+            "value": "<abc.CallNode object at 0x0000018740BF5FD0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -473,7 +491,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x00000247E8204830>"
+            "value": "<abc.PropertyAccessNode object at 0x000001873FEF89F0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -512,6 +530,24 @@
             },
             "kind": "scalar",
             "name": "String",
+            "values": []
+          }
+        },
+        "passwordHash": {
+          "column_name": "password_hash",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Password",
             "values": []
           }
         },
@@ -558,7 +594,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000247E8F28AD0>"
+            "value": "<abc.CallNode object at 0x0000018740C18E50>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -640,9 +676,9 @@
     }
   ],
   "format": "datrix.rdbms.schema",
-  "latest_revision": "0001_initial",
+  "latest_revision": "0002_add_email_and_1_more",
   "rdbms_id": "e35d42d1-b104-4438-a1ac-00c9ad13042e",
-  "schema_hash": "9693672f08da66345eecdb9aad01b1932390b135eded40d7eb1e35e2ae4b34cd",
+  "schema_hash": "8b6371bc38a2b29a882ba446af09e5404fee2608211b057ec5cfda545f0f3008",
   "service": {
     "name": "finance.AccountService",
     "version": "1.0.0"

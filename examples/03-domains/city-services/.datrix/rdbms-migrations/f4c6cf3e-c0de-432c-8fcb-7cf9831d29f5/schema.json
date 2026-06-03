@@ -10,6 +10,24 @@
   "entities": {
     "District": {
       "fields": {
+        "accessToken": {
+          "column_name": "access_token",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
         "boundary": {
           "column_name": "boundary",
           "default": null,
@@ -54,7 +72,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000200AFDD1860>"
+            "value": "<abc.CallNode object at 0x000001C5CFB5E0B0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -94,7 +112,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000200AFDA6C80>"
+            "value": "<abc.CallNode object at 0x000001C5CFB3B4D0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -158,7 +176,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000200AFDD1B00>"
+            "value": "<abc.CallNode object at 0x000001C5CFB5E350>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -213,7 +231,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000200AFDD1860>"
+            "value": "<abc.CallNode object at 0x000001C5CFB5E0B0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -253,7 +271,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000200AFDA6C80>"
+            "value": "<abc.CallNode object at 0x000001C5CFB3B4D0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -337,7 +355,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000200AFDD1B00>"
+            "value": "<abc.CallNode object at 0x000001C5CFB5E350>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -415,9 +433,9 @@
     }
   ],
   "format": "datrix.rdbms.schema",
-  "latest_revision": "0001_initial",
+  "latest_revision": "0002_add_access_token",
   "rdbms_id": "f4c6cf3e-c0de-432c-8fcb-7cf9831d29f5",
-  "schema_hash": "f8d9084a422c3320c3f80718efa91d2b9f07f42058dad6115d8c1f2fd5f32831",
+  "schema_hash": "e9d6c721b9ef70a71b333bcab5165238807475a13cae5aca669923a8401cb391",
   "service": {
     "name": "cityservices.DistrictService",
     "version": "1.0.0"

@@ -116,6 +116,7 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
             UUID? currentVehicleId;
             Decimal(3, 2) rating = 5.00;
             Int totalTrips = 0;
+            String? accessToken;
 
             Boolean isAvailable := status == DriverStatus.Available;
             String fullName := #"{firstName} {lastName}";
@@ -130,6 +131,10 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
                 ValidationError("Last name cannot be empty");
                 if (licenseNumber.trim().isEmpty())
                 ValidationError("License number cannot be empty");
+            }
+
+            afterCreate {
+                accessToken = generateToken();
             }
 
         }

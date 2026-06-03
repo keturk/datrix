@@ -10,6 +10,12 @@ service library.MemberService('config/member-service.dcfg') : version('1.0.0'), 
         entity Member extends BaseEntity {
             String(100) name : trim;
             Email email : unique;
+            // Email verification token issued on registration
+            String? emailVerificationToken;
+
+            afterCreate {
+                emailVerificationToken = generateToken();
+            }
         }
 
     }

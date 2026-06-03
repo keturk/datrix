@@ -45,7 +45,8 @@
       "Bash(__NEW_LINE_2b58132ea9fb91d6__ echo \"\")",
       "WebFetch(domain:mapdirect-fdep.opendata.arcgis.com)",
       "PowerShell(git -C d:\\\\datrix\\\\datrix diff --stat 2>&1)",
-      "PowerShell(head -50)"
+      "PowerShell(head -50)",
+      "PowerShell(Get-ChildItem -Path d:\\\\datrix\\\\ -Directory | Where-Object { $_.Name -match 'packages|codegen' })"
     ],
     "additionalDirectories": [
       "d:\\datrix\\$repo\\tests",
