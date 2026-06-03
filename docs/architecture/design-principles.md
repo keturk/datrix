@@ -529,6 +529,32 @@ Enable packs in **`system.dtrx`** with `use extension <name>;` (not YAML). Exhau
 
 ---
 
+### 9. Baseline Observability From Provisioned Resources
+
+**Principle:** Baseline alarms, alerts, and recording rules are derived from infrastructure the target generator actually provisions. They are separate from user-declared DSL alert declarations and must not require users to manually define basic availability and saturation alerts.
+
+**Why:**
+- Users should not need to manually declare every CPU, memory, and queue-depth alarm
+- Baseline observability must track what is actually provisioned, not what might be provisioned
+- User-declared alerts remain distinct (custom thresholds, custom metrics) and must not collide with baseline alerts in names or tags
+
+**Application:** Each infrastructure generator (AWS, Azure, K8s) inspects the resource plans it produces and emits a baseline set of alarms/alerts/recording rules for provisioned resources. Baseline alerts use conservative default thresholds defined in source constants. User-declared `AlertDeclaration`s from the DSL remain a separate codepath with distinct naming.
+
+---
+
+### 10. Hardening Defaults Must Be Explicit
+
+**Principle:** Network policies, PDBs, DLQs, retries, alarms, and baseline probes that can change deployment behavior must be generated from explicit, documented defaults with opt-out or override hooks where the platform already has a configuration surface.
+
+**Why:**
+- Silent deployment-behavior changes break existing workflows
+- Explicit defaults are discoverable and auditable
+- Override hooks allow teams to tune without forking generators
+
+**Application:** When a generator adds a new behavior-changing resource (e.g., Docker network segmentation, K8s PodDisruptionBudget, EventBridge DLQ), the default values are defined as named constants in source code and documented in the package architecture docs. Where the platform config model already has a relevant field, the default flows through that config surface so users can override it.
+
+---
+
 ## Code Generation Principles
 
 ### No Derived Artifacts (Planned)

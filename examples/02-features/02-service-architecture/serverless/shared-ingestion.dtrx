@@ -1,5 +1,6 @@
 
-// Shared ingestion pipeline with serverless handlers (cross-service boundary).
+// Shared ingestion pipeline: reusable pubsub topics and storage declarations.
+// Serverless handlers are service-owned — see IngestionService below.
 shared IngestionPipeline('config/ingestion-pipeline.dcfg') {
     pubsub mq {
         topic IngestionEvents {
@@ -12,8 +13,17 @@ shared IngestionPipeline('config/ingestion-pipeline.dcfg') {
         folder landing : path('ingestion/{runId}'), maxSize('50mb');
     }
 
+}
+
+// Service-owned serverless handlers consuming shared ingestion events.
+// Demonstrates cross-service subscribe from a serverless block (Design 007 D7).
+service examples.IngestionService('config/ingestion-service.dcfg') : version('1.0.0'), description('Serverless demo — ingestion handlers') {
+    discovery {
+        examples.IngestionService { loadBalance: roundRobin, healthyOnly: true }
+    }
+
     serverless ingestionHandlers {
-        subscribe mq.IngestionEvents {
+        subscribe IngestionPipeline.mq.IngestionEvents {
             on SourceIngested(UUID runId, String source, Integer recordCount) {
                 Log.info(#"Ingested {recordCount} records from {source}");
             }

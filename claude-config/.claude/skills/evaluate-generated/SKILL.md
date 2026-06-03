@@ -394,72 +394,11 @@ If no warnings: "None identified at project level."
 
 ---
 
-## Service Evaluation Prompts Generated
+## Service Prompt Files
 
-Individual service evaluation prompt files have been generated in this directory. To perform deep semantic verification of a specific service, run:
-
-```
-/evaluate-generated-service
-
-PROMPT_FILE: {EVAL_DIR}/service-{service-name}.prompt.md
-```
-
-**Generated Prompt Files:**
 - [{service-1}.prompt.md]({EVAL_DIR}/service-{service-1}.prompt.md)
 - [{service-2}.prompt.md]({EVAL_DIR}/service-{service-2}.prompt.md)
 - ...
-
-**To evaluate all services in parallel**, spawn multiple `/evaluate-generated-service` agents concurrently or run them sequentially.
-
----
-
-## Observations
-
-- This is a quick, manifest-based evaluation. It does NOT perform:
-  - Deep file-by-file scanning
-  - Semantic verification of transpiled code
-  - Service-level infrastructure verification (databases, cache, brokers)
-  - Entity completeness checking
-  - Dead code detection at service level
-
-For comprehensive evaluation, run the generated service evaluation prompts.
-
----
-
-## How to Proceed
-
-### Option 1: Evaluate All Services (Parallel)
-
-For large projects, evaluate services in parallel:
-
-1. Spawn {N} Task agents (one per service)
-2. Each runs `/evaluate-generated-service` with its prompt file
-3. Collect reports from `{EVAL_DIR}/service-{service-name}-evaluation.md`
-
-### Option 2: Evaluate Specific Services
-
-For targeted investigation:
-
-1. Identify services of interest from the inventory above
-2. Run `/evaluate-generated-service` with the corresponding prompt file
-3. Review service-level report
-
-### Option 3: Fix Blockers First
-
-If critical blockers are present:
-
-1. Address blockers at the generator level (see blocker descriptions)
-2. Regenerate the project
-3. Re-run this quick evaluation
-
----
-
-## Generation Metadata
-
-- **Generated At:** {timestamp from manifests}
-- **Evaluation At:** {current timestamp}
-- **Evaluation Mode:** Quick (project-level)
-- **Deep Evaluation Required:** Yes (use `/evaluate-generated-service` for each service)
 ```
 
 ---
@@ -588,53 +527,15 @@ For each service in the service inventory:
 
 ### Phase 7: Confirm Completion
 
-Present summary to user:
+Emit lean summary:
 
 ```
-Project evaluation complete (quick mode).
-
-Evaluation directory: {EVAL_DIR}
-
-Summary:
-- Project Readiness: {READY/NOT READY}
-- Services Defined: {N}
-- Services Generated: {N}
-- Services Missing: {N}
-- Critical Blockers: {N}
-- Warnings: {N}
-
-Reports generated:
-- Project quick report: {EVAL_DIR}/project-evaluation-quick.md
-- Service evaluation prompts: {N} files in {EVAL_DIR}/
-
-Next steps:
-1. Review project-level quick report
-2. Run `/evaluate-generated-service` with prompt files for deep service-level analysis
-3. For parallel evaluation, spawn multiple agents with different prompt files
-
-Example:
-/evaluate-generated-service
-
-PROMPT_FILE: {EVAL_DIR}/service-aviation-data-service.prompt.md
+EVAL: {READY|NOT READY} — {N}/{M} services, {blockers} blockers, {warnings} warnings
+Report: {EVAL_DIR}/project-evaluation-quick.md
+Prompts: {N} files in {EVAL_DIR}/
 ```
 
----
-
-## Service Evaluation Prompt Files
-
-After this skill completes, the evaluation directory will contain:
-
-- `project-evaluation-quick.md` -- Project-level overview
-- `service-{service-1}.prompt.md` -- Prompt for service 1 deep evaluation
-- `service-{service-2}.prompt.md` -- Prompt for service 2 deep evaluation
-- ... (one per service)
-
-To evaluate a service deeply, use:
-```
-/evaluate-generated-service
-
-PROMPT_FILE: D:\datrix\eval\{timestamp}-{project}\service-{service-name}.prompt.md
-```
+Do NOT add "Next steps" or invocation examples — the user knows what to do.
 
 ---
 
@@ -660,27 +561,3 @@ This skill is FAST and LIGHTWEIGHT. It creates the evaluation structure and dele
 powershell -File "d:/datrix/datrix/scripts/dev/syntax-checker.ps1" "{system.dtrx}"
 ```
 
----
-
-## Comparison: Old vs New
-
-**Old `/evaluate-generated` (full mode):**
-- Deep, single-pass evaluation
-- Reads all .dtrx files, all configs, all generated files
-- Performs semantic verification
-- Generates one comprehensive report
-- **Problem:** Doesn't scale to 30+ service projects (context overflow, slow)
-
-**New `/evaluate-generated` (quick mode):**
-- Fast, project-level evaluation
-- Reads only system.dtrx, system configs, manifests
-- No deep file scanning, no semantic verification
-- Generates quick project report + service prompt files
-- **Benefit:** Scales to any project size, delegates deep work to `/evaluate-generated-service`
-
-**New `/evaluate-generated-service`:**
-- Deep, service-specific evaluation
-- Reads one service .dtrx, its configs, its generated files
-- Full semantic verification for that service
-- Generates detailed service report
-- **Benefit:** Focused, fits in context, can be run in parallel for multiple services

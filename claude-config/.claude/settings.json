@@ -1,4 +1,16 @@
 {
+  "permissions": {
+    "allow": [
+      "PowerShell(powershell -File \"d:/datrix/datrix/scripts/dev/generate.ps1\" -Domains -L python)",
+      "PowerShell(git -C d:\\\\datrix\\\\datrix-codegen-python diff --stat 2>&1)",
+      "PowerShell(git -C d:\\\\datrix\\\\datrix-codegen-aws diff --stat 2>&1)",
+      "PowerShell(git -C d:\\\\datrix\\\\datrix-codegen-azure diff --stat 2>&1)",
+      "PowerShell(git -C d:\\\\datrix\\\\datrix-codegen-docker diff --stat 2>&1)",
+      "PowerShell(git -C d:\\\\datrix\\\\datrix-codegen-k8s diff --stat 2>&1)",
+      "PowerShell(git -C d:\\\\datrix\\\\datrix-codegen-typescript diff --stat 2>&1)",
+      "PowerShell(git -C d:\\\\datrix\\\\datrix-language diff --stat 2>&1)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {

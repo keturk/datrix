@@ -43,7 +43,9 @@
       "Bash(__NEW_LINE_dd717acaad66740c__ echo \"=== builtins ===\")",
       "Bash(__NEW_LINE_c13f1f4663c8e48a__ echo \"\")",
       "Bash(__NEW_LINE_2b58132ea9fb91d6__ echo \"\")",
-      "WebFetch(domain:mapdirect-fdep.opendata.arcgis.com)"
+      "WebFetch(domain:mapdirect-fdep.opendata.arcgis.com)",
+      "PowerShell(git -C d:\\\\datrix\\\\datrix diff --stat 2>&1)",
+      "PowerShell(head -50)"
     ],
     "additionalDirectories": [
       "d:\\datrix\\$repo\\tests",
