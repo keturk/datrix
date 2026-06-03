@@ -191,7 +191,7 @@ graph TD
 
 ---
 
-### Decision 5: Generator Definition DSL (Planned)
+### Decision 5: Generator Definition DSL (Implemented)
 
 **Rationale:**
 - Generator implementations encode structure (file declarations, iteration patterns, feature gates, semantic requirements) as imperative Python — registries, class constructors, context builders, and template rendering paths
