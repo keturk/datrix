@@ -46,7 +46,10 @@
       "WebFetch(domain:mapdirect-fdep.opendata.arcgis.com)",
       "PowerShell(git -C d:\\\\datrix\\\\datrix diff --stat 2>&1)",
       "PowerShell(head -50)",
-      "PowerShell(Get-ChildItem -Path d:\\\\datrix\\\\ -Directory | Where-Object { $_.Name -match 'packages|codegen' })"
+      "PowerShell(Get-ChildItem -Path d:\\\\datrix\\\\ -Directory | Where-Object { $_.Name -match 'packages|codegen' })",
+      "PowerShell(powershell -File \"d:/datrix/datrix/scripts/dev/syntax-checker.ps1\" \"d:/datrix/datrix-codegen-python/tests/fixtures/block-qualified-api-resource.dtrx\")",
+      "PowerShell(powershell -File \"d:/datrix/datrix/scripts/dev/syntax-checker.ps1\")",
+      "PowerShell(findstr -V \"\")"
     ],
     "additionalDirectories": [
       "d:\\datrix\\$repo\\tests",
