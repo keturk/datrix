@@ -1,7 +1,7 @@
 {
   "format": "datrix.rdbms.ledger",
-  "hash": "85b7318a731e2a3f237b863bb85bdd8952eb26790f423a19c5cfbe3966ca8dd8",
-  "latest_revision": "0001_initial",
+  "hash": "ed3e0d77f6988013f0b4e4e8c52def13da290ff4be9a32ec9db06df3677b1812",
+  "latest_revision": "0002_add_access_token",
   "rdbms_id": "2608bce9-a131-415e-ac48-585f41543390",
   "revisions": [
     {
@@ -20,6 +20,24 @@
       "schema_hash_after": "220e0208e9a81af584333a26c4b0651e1844cf4e1273d81324d8e6007a2b89e3",
       "schema_hash_before": "",
       "sequence": 1
+    },
+    {
+      "classification": "safe",
+      "created_at": "2026-06-03T06:39:05.974880+00:00",
+      "operations": [
+        {
+          "details": {
+            "entity": "Driver",
+            "field": "accessToken"
+          },
+          "op": "add_column"
+        }
+      ],
+      "previous_revision": "0001_initial",
+      "revision": "0002_add_access_token",
+      "schema_hash_after": "59b28cba03b5891dd004ce6638091cfc8356d401e93e0572b9fc0a963767cb71",
+      "schema_hash_before": "220e0208e9a81af584333a26c4b0651e1844cf4e1273d81324d8e6007a2b89e3",
+      "sequence": 2
     }
   ],
   "version": 1

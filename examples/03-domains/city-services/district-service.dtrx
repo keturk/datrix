@@ -17,10 +17,12 @@ service cityservices.DistrictService('config/district-service.dcfg') : version('
             Geometry boundary;
             Int population : min(0) = 0;
             Text? description;
+            String? accessToken;
 
             index(name);
 
             afterCreate {
+                accessToken = generateToken();
                 dispatch DistrictCreated(id, name, code);
             }
         }

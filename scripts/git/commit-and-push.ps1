@@ -10,7 +10,11 @@
 
 .PARAMETER MessagesPath
  Optional. Path to the JSON file. Default: commit-messages.json (relative to current directory).
- Format: { "datrix": "message", "datrix-common": "message", ... }
+ Accepts either schema:
+   Flat: { "datrix": "message", "datrix-common": "message", ... }
+   Rich: { "commits": [ { "repo": "datrix", "message": "..." }, ... ], ... }
+ In the rich schema, sibling metadata keys (generated, workspace,
+ repositoriesClean, etc.) are ignored; only the commits[] entries drive commits.
 
 .EXAMPLE
  .\commit-and-push.ps1
@@ -48,6 +52,31 @@ if ($messages -isnot [PSCustomObject]) {
  Write-Error "Messages file root must be a JSON object (repo name -> message)."
 }
 
+# Normalize to a flat { repoName -> message } map. Two schemas are accepted:
+#  1. Flat:  { "datrix": "msg", "datrix-common": "msg", ... }
+#  2. Rich:  { "commits": [ { "repo": "datrix", "message": "msg" }, ... ], ... }
+#            (the rich schema also carries metadata keys like "generated",
+#             "workspace", "repositoriesClean" that must NOT be treated as repos)
+$repoMessages = [ordered]@{}
+if ($null -ne $messages.commits) {
+ if ($messages.commits -isnot [System.Collections.IEnumerable] -or $messages.commits -is [string]) {
+ Write-Error "Messages file has a 'commits' key but it is not an array."
+ }
+ foreach ($entry in $messages.commits) {
+ if ([string]::IsNullOrWhiteSpace($entry.repo)) {
+ Write-Error "A 'commits' entry is missing a 'repo' name."
+ }
+ if ([string]::IsNullOrWhiteSpace($entry.message)) {
+ Write-Error "Commit entry for repo '$($entry.repo)' is missing a 'message'."
+ }
+ $repoMessages[$entry.repo] = $entry.message
+ }
+} else {
+ foreach ($prop in $messages.PSObject.Properties) {
+ $repoMessages[$prop.Name] = $prop.Value
+ }
+}
+
 # Navigate to workspace root and load repo list (common is under scripts, one level up from git)
 $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 $scriptsDir = Join-Path $scriptPath ".."
@@ -65,7 +94,7 @@ git config --global user.email "kercan@outlook.com"
 git config --global user.name "Kamil Ercan Turkarslan"
 
 # Ensure every repo key in the JSON exists in the workspace (fail fast)
-$messageKeys = @($messages.PSObject.Properties | ForEach-Object { $_.Name })
+$messageKeys = @($repoMessages.Keys)
 $existingNames = @($repoPaths | ForEach-Object { Split-Path -Leaf $_ })
 foreach ($key in $messageKeys) {
  if ($key -notin $existingNames) {
@@ -88,10 +117,9 @@ foreach ($repoPath in $repoPaths) {
 }
 
 # Commit and push only repos that have a message in the JSON
-# Use .$repoName (not .PSObject.Properties[$repoName]); bracket index by name does not work on PSCustomObject
 foreach ($repoPath in $repoPaths) {
  $repoName = Split-Path -Leaf $repoPath
- $message = $messages.$repoName
+ $message = $repoMessages[$repoName]
  if (-not $message) {
  Write-Host "${repoName}: no message in file, skipping" -ForegroundColor Yellow
  continue

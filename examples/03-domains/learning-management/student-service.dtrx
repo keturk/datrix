@@ -20,6 +20,7 @@ service lms.StudentService('config/student-service.dcfg') : version('1.0.0'), de
         String lastName;
         Email email;
         DateTime? dateOfBirth;
+        String? password;
     }
 
     struct UpdateStudentRequest {
@@ -46,6 +47,8 @@ service lms.StudentService('config/student-service.dcfg') : version('1.0.0'), de
             Int courseCount = 0;
             Int completedCourseCount = 0;
             Decimal(5, 2) gpa = 0.00;
+            Password? passwordHash;
+            String? emailVerificationToken;
 
             // Computed fields
             String fullName := #"{firstName} {lastName}";
@@ -99,8 +102,12 @@ service lms.StudentService('config/student-service.dcfg') : version('1.0.0'), de
                 lastName: request.lastName,
                 email: request.email,
                 dateOfBirth: request.dateOfBirth,
-                status: StudentStatus.Active
+                status: StudentStatus.Active,
+                emailVerificationToken: generateToken()
             });
+            if (request.password != null) {
+                student.passwordHash = hashPassword(request.password);
+            }
             student.save();
             return student;
         }

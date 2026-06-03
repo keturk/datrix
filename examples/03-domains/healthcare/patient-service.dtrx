@@ -38,6 +38,7 @@ service healthcare.PatientService('config/patient-service.dcfg') : version('1.0.
         Address? address;
         EmergencyContact? emergencyContact;
         InsuranceInfo? primaryInsurance;
+        String? password;
     }
 
     struct UpdatePatientRequest {
@@ -95,6 +96,9 @@ service healthcare.PatientService('config/patient-service.dcfg') : version('1.0.
             // 'encrypted, sensitive' marks fields for encryption at rest and access logging
             String(11)? ssn : encrypted, sensitive;
             String(50)? driversLicense;
+
+            Password? passwordHash;
+            String? emailVerificationToken;
 
             // Computed fields (':=') derived at runtime, not stored in the database
             String fullName := #"{firstName} {lastName}";
@@ -422,8 +426,13 @@ service healthcare.PatientService('config/patient-service.dcfg') : version('1.0.
                 address: request.address,
                 emergencyContact: request.emergencyContact,
                 primaryInsurance: request.primaryInsurance,
-                status: PatientStatus.Active
+                status: PatientStatus.Active,
+                emailVerificationToken: generateToken()
             });
+
+            if (request.password != null) {
+                patient.passwordHash = hashPassword(request.password);
+            }
 
             redis.PatientCache.set(patient.id, {
                 patientId: patient.id,

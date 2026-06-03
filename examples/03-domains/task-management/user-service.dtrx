@@ -26,6 +26,7 @@ service taskapp.UserService('config/user-service.dcfg') : version('1.0.0'), desc
         Email email;
         String displayName;
         UserRole role;
+        String? password;
     }
 
     struct UpdateUserRequest {
@@ -42,6 +43,8 @@ service taskapp.UserService('config/user-service.dcfg') : version('1.0.0'), desc
             String(100) displayName : trim;
             UserRole role = UserRole.Member;
             UserStatus status = UserStatus.Active;
+            Password? passwordHash;
+            String? emailVerificationToken;
             Url? avatarUrl;
             DateTime? lastLoginAt;
 
@@ -83,8 +86,14 @@ service taskapp.UserService('config/user-service.dcfg') : version('1.0.0'), desc
                 email: request.email,
                 displayName: request.displayName,
                 role: request.role,
-                status: UserStatus.Active
+                status: UserStatus.Active,
+                emailVerificationToken: generateToken()
             });
+
+            if (request.password != null) {
+                user.passwordHash = hashPassword(request.password);
+            }
+
             user.save();
             return user;
         }

@@ -70,6 +70,7 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
             DateTime? activatedAt;
             DateTime? terminatedAt;
             String(1000)? terminationReason;
+            String? accessToken;
 
             // Computed fields
             Boolean isDraft := status == ContractStatus.Draft;
@@ -93,6 +94,7 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
             }
 
             afterCreate {
+                accessToken = generateToken();
                 dispatch ContractCreated(id, contractRef, listingId, buyerId, sellerId, contractType, price);
             }
 
