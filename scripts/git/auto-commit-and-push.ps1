@@ -83,20 +83,51 @@ if (Test-Path $MessagesPath) {
     Remove-Item -LiteralPath $MessagesPath -Force
 }
 
-# Build the prompt for Claude
+# Build the prompt for Claude.
+# The schema below is REQUIRED, not advisory: commit-and-push.ps1 reads each
+# commits[] entry's "repo" and "message". An entry without a usable message
+# (no "message", and no "subject") aborts the whole run. The prompt pins the
+# exact shape and a concrete example so generation is deterministic.
 $claudePrompt = @"
 Analyze all Datrix repositories for uncommitted changes and generate commit-messages.json.
 
-Follow the /commit-and-push skill workflow exactly:
+Follow the /commit-and-push skill workflow:
 
-1. Scan for changes in all repos under $workspaceRoot (use git status --porcelain)
+1. Scan for changes in all repos under $workspaceRoot (use: git status --porcelain)
 2. For each dirty repo, inspect diffs (git diff, git diff --cached, git diff --stat)
-3. Generate $MessagesPath with detailed commit messages
-4. Report which repos have changes
+   so the commit message accurately describes what changed and why.
+3. Write the JSON file to: $MessagesPath
+4. Report which repos have changes and which are clean.
 
 DO NOT run the commit-and-push.ps1 script - only generate the JSON file.
 
-Use the exact format and message style from /commit-and-push skill documentation.
+REQUIRED JSON SCHEMA - the file MUST be a single JSON object with a "commits"
+array. Every entry MUST have a non-empty "repo" (the repo directory name) and a
+non-empty "message" (the full commit message, with \n for line breaks). Include
+ONLY repos that have uncommitted changes. Do not invent other field names for the
+message - the consuming script reads "message". Extra sibling/metadata keys are
+ignored by the script, so keep the file minimal.
+
+Exact shape to produce:
+
+{
+  "commits": [
+    {
+      "repo": "datrix-common",
+      "message": "Add transpiler context for DB session injection\n\n- context.py: add known_db_service_function_sessions mapping\n- scope.py: add in_lambda_body depth counter"
+    },
+    {
+      "repo": "datrix-language",
+      "message": "Resolve bare resource/batch entity refs to rest_api default RDBMS\n\n- api_transformer.py: accept the owning rest_api's declared default block"
+    }
+  ]
+}
+
+Message style:
+- No conventional-commit prefix (no feat:/fix:/chore:) in the first line.
+- First line: a clear, specific summary of what the commit does.
+- Then a blank line (\n\n), then per-file or per-path bullet notes.
+- Be specific - never "update files" or "various changes".
 "@
 
 # Invoke Claude Code in CLI mode with -p for non-interactive execution.
