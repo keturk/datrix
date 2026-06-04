@@ -33,7 +33,7 @@ Focused feature examples organized into categories, each demonstrating a specifi
 
 - **01-core-data-modeling** — Entities, enums, computed fields, relationships, REST APIs
 - **02-service-architecture** — Multiple services, dependencies, internal endpoints
-- **03-infrastructure-blocks** — Events/pubsub, cache, CQRS, background jobs, storage
+- **03-infrastructure-blocks** — Events/pubsub, cache, CQRS, background jobs, storage, runtime config store
 - **04-advanced-data-features** — Advanced cache, queries, transactions, batch operations
 - **05-infrastructure-combinations** — Multi-database, multi-infrastructure setups
 - **04-extensions** — Extension features (geo spatial types and PostGIS operations)
