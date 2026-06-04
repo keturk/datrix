@@ -270,7 +270,7 @@ Do NOT wait for user confirmation — proceed directly to execution. The plan is
 
 ## Step 3: Wave Execution Loop
 
-Execute each wave sequentially. Within each wave, execute tasks in parallel (up to 3 agents at a time).
+Execute each wave sequentially. Within each wave, execute tasks in parallel (up to 5 agents at a time).
 
 ### State Tracking
 
@@ -293,9 +293,9 @@ Before executing a wave, check if any task in this wave depends on a `failed_tas
 
 #### 3b. Spawn Implementation Agents
 
-Batch tasks in the wave into sub-groups of **3** (max parallel agents).
+Batch tasks in the wave into sub-groups of **5** (max parallel agents).
 
-For each sub-group, spawn agents in a **single message** (multiple Task tool calls, all foreground):
+For each sub-group, spawn agents in a **single message** (multiple Task tool calls, all foreground — up to 5):
 
 **Task tool parameters:**
 - `subagent_type: "general-purpose"`
@@ -332,6 +332,8 @@ For each returned agent:
 Emit a brief progress report after all agents in the sub-group complete.
 
 #### 3d. Run Full Test Suite Per Package
+
+**HARD RULE — never run a test suite mid-group.** Do NOT invoke `test.ps1` until EVERY task in the wave (all parallel sub-groups) has finished implementing. No per-task, per-sub-group, or partial-wave test runs. The full suite is the wave's single test gate, and it runs exactly once here after the whole parallel group is complete.
 
 After ALL tasks in the wave have been implemented (all sub-groups done):
 

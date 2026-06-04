@@ -1,0 +1,72 @@
+
+// CatalogService manages the product catalog. The system ConfigDSL attaches a
+// runtime configStore (feature flags + rate-limit tuning) so behaviour can be
+// changed without redeploying this service.
+service shop.CatalogService('config/catalog-service.dcfg') : version('1.0.0'), description('product catalog service') {
+    discovery { }
+
+    enum ProductStatus {
+        Draft,
+        Active,
+        Discontinued
+    }
+
+    rdbms catalogDb {
+
+        abstract entity BaseEntity {
+            UUID id : primaryKey, server = uuid();
+            DateTime createdAt : server = DateTime.now();
+            DateTime updatedAt : server = DateTime.now();
+        }
+
+        entity Product extends BaseEntity {
+            String(200) name : trim;
+            String(64) sku : unique, trim;
+            Decimal(10, 2) price = 0.0;
+            ProductStatus status = ProductStatus.Draft;
+            String(1000)? description;
+
+            Boolean isAvailable := status == ProductStatus.Active;
+
+            validate {
+                if (name.trim().isEmpty())
+                ValidationError("Product name cannot be empty");
+                if (price < 0.0)
+                ValidationError("Product price cannot be negative");
+            }
+        }
+
+    }
+
+    rest_api CatalogServiceAPI : basePath("/api/v1"), rdbms(catalogDb) {
+        resource catalogDb.Product : only(list, get), public;
+        resource catalogDb.Product : only(create, update, delete), access(admin);
+
+        @path('/products/search')
+        get(String query) : public -> Array<catalogDb.Product> {
+            return catalogDb.Product.where(name: query).all();
+        }
+    }
+
+    test("computed isAvailable is true for Active status") {
+        let catalogDb.Product product = catalogDb.Product.create({
+            name: "Wireless Mouse",
+            sku: "SKU-MOUSE-001",
+            price: 24.99,
+            status: ProductStatus.Active
+        });
+        product.save();
+        assert product.isAvailable == true;
+    }
+
+    test("validation rejects empty name") {
+        assert throws(
+        () => catalogDb.Product.create({
+            name: "",
+            sku: "SKU-EMPTY-001",
+            price: 9.99
+        }),
+        ValidationError("Product name cannot be empty")
+        );
+    }
+}

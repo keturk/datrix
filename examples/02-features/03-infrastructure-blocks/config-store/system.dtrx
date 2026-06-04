@@ -1,0 +1,4 @@
+include 'catalog-service.dtrx';
+
+system shop.System('config/system.dcfg') : version('1.0.0') {
+}

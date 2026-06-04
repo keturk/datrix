@@ -1,0 +1,68 @@
+config service shop.CatalogService {
+  base {
+    port = 8000;
+    flavor = "compose";
+    replicas = 1;
+    resources {
+      requests {
+        cpu = "100m";
+        memory = "256Mi";
+      }
+      limits {
+        cpu = "500m";
+        memory = "512Mi";
+      }
+    }
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms catalogDb {
+      id = "d2d038d8-743d-40ab-a396-fb38b0ae1ada";
+      engine = "postgres";
+      flavor = "container";
+      host = "localhost";
+      port = 5432;
+      database = "shop_catalog";
+      poolSize = 20;
+      asyncDriver = "postgresql+asyncpg";
+      syncDriver = "postgresql+psycopg2";
+      healthCheckSql = "SELECT 1";
+      dockerImage = "postgres:17-alpine";
+      volumePath = "/var/lib/postgresql/data";
+      defaultUser = "postgres";
+    }
+    registration {
+      tags = ["api", "shop", "v1"];
+      meta = {};
+      healthCheck {
+        type = "http";
+        path = "/health";
+        interval = "10s";
+      }
+    }
+    resilience {
+      defaults {
+        timeout = "10s";
+        retry {
+          maxAttempts = 2;
+          backoff {
+            type = "exponential";
+            initial = "100ms";
+            multiplier = 2;
+          }
+        }
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+}
