@@ -417,8 +417,8 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
     // Commands mutate state; queries read from optimized views
     cqrs {
         // 'view' defines a read-optimized data model for queries
-        // 'refreshOn(events...)' automatically refreshes the view when listed events occur
-        view BookCatalogView : refreshOn(BookAdded, BookStatusChanged) {
+        // The view is kept in sync by the projection event handlers below
+        view BookCatalogView {
             UUID id : primaryKey, server;
             String title;
             String author;

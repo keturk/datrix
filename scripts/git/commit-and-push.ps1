@@ -13,7 +13,9 @@
  Accepts either schema:
    Flat: { "datrix": "message", "datrix-common": "message", ... }
    Rich: { "commits": [ { "repo": "datrix", "message": "..." }, ... ], ... }
- In the rich schema, sibling metadata keys (generated, workspace,
+ In the rich schema, each commit entry may supply the message either as a single
+ "message" field, or as a structured "subject" + "body" pair (the body is appended
+ after a blank line). Sibling metadata keys (generated, workspace, summary, files,
  repositoriesClean, etc.) are ignored; only the commits[] entries drive commits.
 
 .EXAMPLE
@@ -55,8 +57,11 @@ if ($messages -isnot [PSCustomObject]) {
 # Normalize to a flat { repoName -> message } map. Two schemas are accepted:
 #  1. Flat:  { "datrix": "msg", "datrix-common": "msg", ... }
 #  2. Rich:  { "commits": [ { "repo": "datrix", "message": "msg" }, ... ], ... }
-#            (the rich schema also carries metadata keys like "generated",
-#             "workspace", "repositoriesClean" that must NOT be treated as repos)
+#            Each rich entry may instead carry "subject" + "body" (the body is
+#            appended after a blank line) — this is the structure the Claude
+#            generator emits. The rich schema also carries metadata keys like
+#            "generated", "summary", "files", "repositoriesClean" that must NOT
+#            be treated as repos.
 $repoMessages = [ordered]@{}
 if ($null -ne $messages.commits) {
  if ($messages.commits -isnot [System.Collections.IEnumerable] -or $messages.commits -is [string]) {
@@ -66,10 +71,25 @@ if ($null -ne $messages.commits) {
  if ([string]::IsNullOrWhiteSpace($entry.repo)) {
  Write-Error "A 'commits' entry is missing a 'repo' name."
  }
- if ([string]::IsNullOrWhiteSpace($entry.message)) {
- Write-Error "Commit entry for repo '$($entry.repo)' is missing a 'message'."
+ # Resolve the commit message: prefer an explicit 'message' field, else
+ # synthesize it from a structured 'subject' + 'body' pair (the rich schema
+ # the Claude generator emits). Body is appended after a blank line.
+ $entryMessage = $entry.message
+ if ([string]::IsNullOrWhiteSpace($entryMessage)) {
+ $subject = $entry.subject
+ $body = $entry.body
+ if (-not [string]::IsNullOrWhiteSpace($subject)) {
+ if (-not [string]::IsNullOrWhiteSpace($body)) {
+ $entryMessage = "$subject`n`n$body"
+ } else {
+ $entryMessage = $subject
  }
- $repoMessages[$entry.repo] = $entry.message
+ }
+ }
+ if ([string]::IsNullOrWhiteSpace($entryMessage)) {
+ Write-Error "Commit entry for repo '$($entry.repo)' is missing a 'message' (or a 'subject'/'body' pair)."
+ }
+ $repoMessages[$entry.repo] = $entryMessage
  }
 } else {
  foreach ($prop in $messages.PSObject.Properties) {
