@@ -49,7 +49,11 @@
       "PowerShell(Get-ChildItem -Path d:\\\\datrix\\\\ -Directory | Where-Object { $_.Name -match 'packages|codegen' })",
       "PowerShell(powershell -File \"d:/datrix/datrix/scripts/dev/syntax-checker.ps1\" \"d:/datrix/datrix-codegen-python/tests/fixtures/block-qualified-api-resource.dtrx\")",
       "PowerShell(powershell -File \"d:/datrix/datrix/scripts/dev/syntax-checker.ps1\")",
-      "PowerShell(findstr -V \"\")"
+      "PowerShell(findstr -V \"\")",
+      "PowerShell(git -C d:\\\\datrix\\\\datrix diff --stat)",
+      "PowerShell(git -C d:\\\\datrix\\\\datrix diff)",
+      "PowerShell(git -C d:\\\\datrix\\\\datrix-codegen-common diff --stat)",
+      "PowerShell(git -C d:\\\\datrix\\\\datrix-codegen-common diff)"
     ],
     "additionalDirectories": [
       "d:\\datrix\\$repo\\tests",

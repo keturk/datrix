@@ -23,7 +23,7 @@ config service library.MemberService {
       flavor = "container";
       host = "localhost";
       port = 5432;
-      database = "library_books";
+      database = "library_members";
       poolSize = 20;
       asyncDriver = "postgresql+asyncpg";
       syncDriver = "postgresql+psycopg2";
@@ -77,7 +77,7 @@ config service library.MemberService {
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");
-      database = "library_books";
+      database = "library_members";
       poolSize = 40;
       ssl = true;
       asyncDriver = "postgresql+asyncpg";
