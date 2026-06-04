@@ -11,7 +11,8 @@
       "PowerShell(git -C d:\\\\datrix\\\\datrix-language diff --stat 2>&1)",
       "PowerShell($out = powershell -File \"d:/datrix/datrix/scripts/test/test-single.ps1\" \"tests/unit/test_baseline_alerts.py\" -Project datrix-codegen-azure; $out | Select-String -Pattern \"FAILED|AssertionError|passed|failed|error\" | Select-Object -First 40)",
       "PowerShell(powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-python -Keyword \"custom_endpoint_tenantable\" -NoSave)",
-      "Read(//d/datrix/**)"
+      "Read(//d/datrix/**)",
+      "PowerShell(& \"d:/datrix/datrix/scripts/test/test-single.ps1\" \"tests/unit/generators/test_common_struct_generation.py\" -Project datrix-codegen-python -Verbose)"
     ]
   },
   "hooks": {

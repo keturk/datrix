@@ -28,7 +28,8 @@ This guide covers Datrix `.dcfg` ConfigDSL files, their structure, options, and 
 18. [Platform-Specific Configuration](#platform-specific-configuration)
 19. [Seed Configuration](#seed-configuration)
 20. [Environment Variables](#environment-variables)
-22. [Secrets Management](#secrets-management)
+21. [Secrets Management](#secrets-management)
+22. [Runtime Config Store](#runtime-config-store)
 
 ---
 
@@ -1736,6 +1737,77 @@ production:
 - Fetches secrets at runtime
 - Caches secrets with TTL
 - Automatic rotation support
+
+---
+
+## Runtime Config Store
+
+The `configStore` section in a **system** ConfigDSL profile enables a runtime-mutable configuration plane — feature flags, kill switches, rate-limit tuning, and per-environment overrides — without rebuilding or redeploying services.
+
+**Key traits:**
+- **Additive and gated:** services receive a generated runtime client only when `configStore` is declared; apps without it produce byte-equivalent output (no client files, no env vars, no infrastructure).
+- **Non-sensitive values only:** keys hold typed scalar values and *references* to secrets, never raw secret values.
+- **Typed, grouped profiles:** `freeform` profiles accept any scalar type; `featureFlag` profiles are Boolean-only and render to provider-native feature-flag shapes.
+
+**Supported engines:**
+
+| Engine | Platform | Runtime target |
+|--------|----------|---------------|
+| `appconfig` | `managed` | AWS provider |
+| `app-configuration` | `managed` | Azure provider |
+| `consul` | `container` | Docker / Kubernetes (Datrix-provisioned) |
+| `consul` | `external` | Any (connect to existing backend) |
+
+### Minimal example
+
+```dcfg
+config system ecommerce.System {
+  profile production as "prod" {
+    language = python;
+    deployment {
+      runtime = kubernetes;
+      provider = aws;
+    }
+
+    configStore {
+      engine = appconfig;
+      platform = managed;
+      applicationName = "ecommerce-api";
+      environment = "prod";
+      pollingIntervalSeconds = 60;
+      failOpen = true;
+
+      profiles {
+        featureFlags {
+          kind = featureFlag;
+          keys {
+            enableCheckoutV2 { type = Boolean; default = false; }
+          }
+        }
+
+        rateLimits {
+          kind = freeform;
+          keys {
+            ordersPerMinute {
+              type = Integer;
+              default = 100;
+              constraints { min = 1; max = 10000; }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Generated services receive a `RemoteConfigClient` (Python or TypeScript) that polls the configured engine, caches values locally, and exposes typed accessors (`get_bool`, `get_int`, `get_float`, `get_string`, `get_secret_ref`).
+
+**Full reference:** [Config Store Schema Reference](../../../datrix-common/docs/config-store.md) — schema, enums, validation rules, engine compatibility matrix, and examples.
+
+**Language client docs:**
+- Python: [Runtime Config Client](../../../datrix-codegen-python/docs/runtime-config-client.md)
+- TypeScript: [Runtime Config Client](../../../datrix-codegen-typescript/docs/runtime-config-client.md)
 
 ---
 
