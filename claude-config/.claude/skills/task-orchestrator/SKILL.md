@@ -318,6 +318,12 @@ Read `d:\datrix\datrix\claude-config\.claude\agent-templates\task-implementation
 - `{task_id}` → task identifier (e.g., "task-34-01")
 - `{package-name}` → package name from task metadata
 
+**Quality-gate tasks — suppress the agent's full-suite run.** A `**Category:** Quality Gate` task file lists "Run full test suite (`test.ps1 {package-name}`)" as a verification step, and its `## Targeted Tests` scope is the full suite. That run is redundant here: step 3d runs the full suite for this package as the authoritative wave gate after the agent returns. So when spawning a quality-gate agent, append this directive to its prompt:
+
+> The orchestrator runs the full test suite (`test.ps1 {package-name}`) as the authoritative wave gate immediately after you return. Do NOT run `test.ps1` yourself — skip Verification Step 1 / the `## Targeted Tests` full-suite command. Perform ONLY the non-test verification: the static red-flag scans (stubs / `TODO` / `pass` / `NotImplementedError`, over-broad IAM, legacy/dual paths, gating/byte-equivalence) and the "How Solved" self-contradiction checks. Report those findings in your JSON result; the orchestrator owns the pass/fail test verdict.
+
+This removes the duplicate suite run while preserving both the gate's static-analysis value (agent) and an independent test verdict (orchestrator).
+
 Wait for all agents in the sub-group to complete before spawning the next sub-group.
 
 #### 3c. Collect Agent Results
@@ -346,18 +352,29 @@ After ALL tasks in the wave have been implemented (all sub-groups done):
 
    Include `VERIFIED_AGAINST_QUICK_REFERENCE` in the Bash tool description.
 
-3. Parse the test output:
-   - Total tests, passed, failed
-   - List of failing test names + error messages
+   This run is the orchestrator's **authoritative, independent** gate — it is run here regardless of any result an agent self-reported, including in a quality-gate wave. (The redundant *agent-side* suite run is suppressed at spawn time — see 3b.) Do not skip it or substitute an agent's self-reported numbers.
 
-4. If ALL tests pass → proceed to 3f (mark complete)
-5. If tests fail → proceed to 3e (attribute & fix)
+3. **Read the canonical result from `index.json`, not the console.** `test.ps1` saves a timestamped folder under `{package}/.test_results/test-results-*/` and prints its path on the final console lines. Read that folder's `index.json` — it is the machine-readable source of truth. Do NOT eyeball-parse stdout. Extract:
+   - `result` — `"PASSED"` or `"FAILED"`
+   - `counts.passed`, `counts.failed`, **`counts.error`**, `counts.skipped`, `counts.xfailed`, `counts.xpassed`
+   - From `full.log` in the same folder: the failing test node IDs **and** the erroring module/collection paths (errors have no per-test node ID — they are reported at module level)
+
+4. **Decide the gate. The gate is GREEN only when `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0`.** Treat **errors exactly like failures** — a pytest *error* (collection / import / fixture / setup failure) means tests never ran, which is a worse outcome than an assertion failure, not a passable one. Never read `failed` alone: a run with `failed == 0` but `error > 0` is RED, not green.
+   - Gate GREEN → proceed to 3f (mark complete)
+   - Gate RED (any `failed` or `error`) → proceed to 3e (attribute & fix)
+   - If `index.json` is missing or unparseable → the run did not complete cleanly; treat as a **test infrastructure failure** (see Error Recovery), do not infer a pass from stdout.
 
 #### 3e. Attribute Failures and Fix Loop
 
-For each test failure from the full suite:
+Process **both** red outcomes from `counts`: assertion **failures** (`counts.failed`) and **errors** (`counts.error`). They are attributed and fixed the same way, with one difference in how you locate them:
+- A **failure** has a per-test node ID (`tests/...::test_x`) — fix the code under test.
+- An **error** is reported at module/collection level with no per-test node ID (e.g. an `ImportError`, a fixture error, a syntax error that breaks collection). Read `full.log` for the ERRORS section, attribute by the **erroring module/file path**, and fix the import/fixture/syntax root cause. An error often hides many tests that never ran — resolving it can change the pass count substantially, so always re-run after fixing one.
 
-1. **Attribute:** Cross-reference the failing test file against `files_created` and `files_modified` from tasks in this wave
+For each failing test **and each erroring module** from the full suite:
+
+1. **Attribute:** Cross-reference the failing test file / erroring module against `files_created` and `files_modified` from tasks in this wave.
+   - **Quality-gate / integration waves:** when the failing wave is a quality-gate wave (the gate task itself creates no files), the failure is almost always a *cross-task integration* failure introduced by an earlier wave's task in the **same package and phase**. Widen attribution to the `files_created`/`files_modified` of ALL completed tasks for that package across this run, not just the current wave. Attribute to the task whose changed files best match the failing test/code, and apply the fix within that task's scope.
+   - If no task's files match the failing test (failure is in pre-existing, untouched code) → classify as **pre-existing**, do not fix, note it in the checkpoint, and treat it as a non-blocking failure per the gate's "or only pre-existing failures remain" success criterion.
 2. **Read:** Read the failing test and the code it tests
 3. **Fix:** Modify the code (stay within the attributed task's scope)
 4. **Verify:** Re-run the specific failing test:
