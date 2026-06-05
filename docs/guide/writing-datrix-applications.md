@@ -743,6 +743,46 @@ rest_api OrderAPI : basePath('/api/v1/orders') {
 }
 ```
 
+### Calling Another Service's Endpoints
+
+A Datrix service calls another service's REST endpoint as a **typed RPC** — never by building a path string. Two rules govern the surface:
+
+1. **Cross-service callability is bound to `access(Service)`.** A custom endpoint is callable from a peer if and only if it is marked `access(Service)`, and a service-facing custom endpoint **must** carry a name (placed right after the HTTP method, like a function name). External-facing endpoints (`public`, `access(authenticated)`, role-gated) carry no cross-service name and cannot be invoked as an RPC — so a peer can never reach a user-facing endpoint and bypass its end-user authorization. Resource (auto-CRUD) operations are cross-service-callable only when that operation is declared `access(Service)`.
+2. **You call by identity, not by route.** The cross-service identity is `(HTTP method, name)`. Endpoint names are noun/resource phrases (the verb is the method), and the route (`@path`) is a deployment detail callers never see.
+
+**Provider — name and expose a service-facing endpoint:**
+
+```dtrx
+rest_api ProductAPI : basePath('/api/v1'), rdbms(db) {
+
+    // External, user-facing: no name, not cross-service-callable
+    @path('/products/sku/:sku')
+    get(String sku) -> db.Product { ... }
+
+    // Service-facing: access(Service) ⇒ a name is mandatory; callable as
+    //   ProductService.ProductAPI.get.productBySku(sku)
+    @path('/service/products/sku/:sku')
+    get productBySku(String sku) : access(Service), hidden -> db.Product { ... }
+
+    // Idempotent read — opts the call into bounded, breaker-aware retry
+    @path('/service/products/nearby')
+    get productsInWarehouse(UUID warehouseId) : access(Service), idempotent -> List<db.Product> { ... }
+}
+```
+
+**Consumer — call by method + name, with typed arguments:**
+
+```dtrx
+let Product p           = ProductService.ProductAPI.get.productBySku(sku);
+let List<Product> stock = ProductService.ProductAPI.get.productsInWarehouse(warehouseId);
+
+// Resource (auto-CRUD) endpoints address block + database + entity + operation:
+let Product one         = ProductService.ProductAPI.db.Product.get(id);
+let List<Product> all   = ProductService.ProductAPI.db.Product.list(limit: 20);
+```
+
+The call requires a matching `uses ProductService;` / discovery dependency. Arguments are checked against the provider endpoint's declared parameters (positional first, named after) at generation time — a typo, an undeclared dependency, an unresolved endpoint, an argument type mismatch, or a target that is not `access(Service)` is a generation error, not a runtime 404/422/500. The call's static type is the provider's declared return type, decoded into a generated, validated response struct (only `-> JSON` endpoints stay untyped), so no defensive shape-checking is needed. The old string-path (`Service.Api.get('/route', ...)`), interpolated-path, and pathless positional call forms are removed.
+
 ### Query Parameters
 
 Generated list endpoints support:
@@ -1532,6 +1572,52 @@ config service OrderService {
 ```
 
 > **📖 Reference:** See [Configuration Guide § Resilience](./configuration-guide.md#resilience-configuration) for complete resilience config options.
+
+### Dependency Resilience Policy
+
+Resilience is a property of the **dependency**, declared once and applied everywhere — Datrix never synthesizes timeout/breaker/bulkhead values and never auto-classifies an operation as safe to degrade. A `dependencyPolicy` section under `resilience` declares, per dependency kind (`cache`, `rdbms`, `pubsub`, `objectStorage`, `service`, `extern`), its availability, health severity, and operation-level failure behavior. The safe baseline is authored **once at the application level** in a `defaults` block; an individual dependency overrides only where it differs.
+
+```dcfg
+resilience {
+  dependencyPolicy {
+    defaults {
+      // Recommended service-call values, opted into by name (always visible in config)
+      service from standardServicePolicy();
+
+      cache {
+        availability = "required"; health = "ready";
+        operations {
+          read   { onFailure = "fallback"; fallback = "sourceOfTruth"; }
+          write  { onFailure = "raise"; }
+          delete { onFailure = "warn"; }
+        }
+      }
+    }
+
+    // Override the app-level baseline for one dependency only where it differs
+    service ProductService { timeout = 3000; bulkhead { maxConcurrent = 400; } }
+  }
+}
+```
+
+Key rules:
+
+- **Declared once, inherited.** One `defaults { service from standardServicePolicy(); }` covers every `service` dependency at once; a per-service block overrides the baseline only where one dependency differs.
+- **Uncovered is an error.** A policy-managed operation (e.g. a rate-limit counter, an auth-session cache write), or a `service` dependency that has inter-service calls, left uncovered at every level fails generation with `RESILIENCE_POLICY_REQUIRED` — nothing is invented to fill the gap.
+- **Degrade only where it is correct.** A cache write may degrade without failing the route only when it is known to run *after* the source-of-truth commit; a rate-limit counter does not fail open by default; authorization/session cache deletion does not silently fail unless stale cache cannot authorize.
+- **Typed calls route through resilient clients.** Every typed inter-service call (see [Calling Another Service's Endpoints](#calling-another-services-endpoints)) goes through a generated per-dependency resilient client driven by this policy. Timeout, circuit breaker, and bulkhead are non-amplifying and stay on; **retry is off by default** and is enabled only when the provider endpoint is marked `idempotent` (an HTTP `GET` is *not* assumed idempotent), bounded by a retry budget and suppressed while the breaker is open.
+
+### Liveness, Readiness, and Health
+
+Generated services expose three distinct probes rather than one conflated `/health`:
+
+| Endpoint | Reports |
+|----------|---------|
+| `/live` | Process liveness only |
+| `/ready` | All `required` dependencies usable — returns 503 when a required dependency is down |
+| `/health` | Detailed per-dependency report, including `degraded` optional dependencies |
+
+A dependency declared `health = "degraded"` keeps `/ready` green while `/health` reports `degraded`, unless you set `readyOnDegraded = false` to make it a readiness blocker for guarded rollouts. Deployment probes (Docker healthcheck, Kubernetes liveness/readiness/startup) point at `/ready`.
 
 ---
 
