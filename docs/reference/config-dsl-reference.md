@@ -503,6 +503,44 @@ Use `datrix migrations init-rdbms-ids --app <app-dir>` to add missing `id` field
 
 ---
 
+## Drift Policy Selector
+
+The drift policy selector controls whether database drift detection and reconciliation is required in an environment. It is **additive, gated, and defaults to off** — a project that does not declare it produces byte-identical generation output.
+
+**Declaration:**
+
+```dcfg
+profile production as "prod" extends base {
+  driftPolicy {
+    mode = "guard";
+  }
+}
+
+profile staging as "stg" extends base {
+  driftPolicy {
+    mode = "reconcile";
+  }
+}
+```
+
+**Modes:**
+
+| Mode | Behavior | Use Case |
+|------|----------|----------|
+| `off` (default) | No drift workflow required. Drift detection and reconciliation commands remain available for manual use. | Development and non-critical environments. |
+| `guard` | Production guard mode. Drift detection is required before deploying; reconciliation verbs refuse execution. Use this to ensure live database state matches expected schema. | Production environments. |
+| `reconcile` | Pre-production mode. Reconciliation verbs are available. Allows auto-reconciliation via `datrix migrations reconcile --adopt` or `--to-desired`. | Staging, QA, and development environments. |
+
+**Important Notes:**
+
+- **Additive and gated:** The absence of `driftPolicy` (or an unspecified `mode`) defaults to `off`. When `off`, no workflow machinery is required; existing applications continue unchanged.
+- **No database connectivity:** The drift policy selector never grants Datrix database connectivity. It controls only whether exported live snapshots are required for the guard/reconcile workflow. Credentials, connection strings, and hostnames remain in the deployment environment.
+- **Requires live snapshot export:** When `guard` or `reconcile` is active, the environment must export a live database snapshot (via an environment-side exporter or CLI tool) before drift detection or reconciliation can run.
+
+**See also:** [Decision D29 — Drift as a Production Guard and Pre-Prod Reconcile Path](../architecture/rdbms-migration-decisions.md#d29-drift-is-a-production-guard-and-a-pre-prod-reconcile-path) and [Database Drift Reconciliation Guide](../../guide/database-drift-reconciliation.md).
+
+---
+
 ## Syntax Rules
 
 ### General

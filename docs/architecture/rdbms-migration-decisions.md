@@ -124,6 +124,36 @@ Generated deployment applies migrations forward only. Adapters render rollback b
 
 ---
 
+## Database Drift Detection & Reconciliation (D24–D29)
+
+The migration engine is purely source-driven: every revision diffs a **recorded** baseline (`schema.json`) against a **desired** snapshot built from the AST. It is blind to the **live** database. When a database is changed out-of-band (manual hotfix, restored backup, partially-applied migration, parallel environment), the recorded baseline `R`, the live schema `L`, and the desired schema `D` silently diverge; the engine plans `R → D` and collides with a database already at `L`. The following decisions add the ability to *see* drift (`diff(R, L)`) and *reconcile* it, without making generation require database access. The load-bearing insight: **a live database is just a third source of an `RdbmsSchemaSnapshot`** — once a live snapshot is produced, the existing diff → classify → allocate → ledger pipeline is reusable unchanged.
+
+## D24: The Live Database Is a Third Snapshot Source; Datrix Never Connects To It
+
+An environment-side exporter (running where the database is reachable) reflects the live catalog into an `RdbmsSchemaSnapshot` artifact (`live-schema-snapshot.json`). Datrix-side `drift`/`reconcile` commands **import that artifact** and perform all diff/classify/reconcile work offline. Datrix generation and reconciliation never open a database connection, accept a connection string, or handle credentials — those stay in the deployment environment. Drift is `differ.diff(R, L)`; convergence is `differ.diff(L, D)` — no new diff algorithm and no new change taxonomy are introduced.
+
+## D25: Comparison Requires One Shared Canonicalization Layer
+
+A live catalog and a source AST describe the same schema differently (implicit PK indexes, backing FK indexes, default-literal formatting, type aliases such as `VARCHAR(255)` vs `String(255)`, identifier casing, index column ordering). Both the source-built and the imported live snapshot pass through one shared canonicalization layer before diffing, or drift detection drowns in false positives. Equivalent schemas must canonicalize to zero drift.
+
+## D26: Adopted Revisions Are a Distinct Classification and Ledger Operation
+
+Reconciliation never edits a frozen revision or rewrites the ledger hash chain — it **appends**. Adopting drift introduces a new ledger classification `"adopted"` (not an overloaded `"baseline"` with a `source` marker) and a new explicit non-DDL canonical operation `adopt_live_schema`, and bumps the ledger schema version. An adopted revision records an auditable schema-hash transition ("at revision N we observed reality had drifted to `L` and adopted it"); its operation details are metadata only (`strategy`, `live_snapshot_hash`, `schema_hash_after`) and must not force destructive observed drift (e.g. a dropped column) into canonical DDL operations, which the ledger intentionally rejects.
+
+## D27: Reality Can Be Recorded; Data Loss Cannot Be Generated
+
+Two operations are not conflated. **Adopt** *records* what the database already is (`R := L`) — documenting an observed drop is stating fact, so it is safe even when the observed drift is destructive; it runs no DDL. **Converge** *generates DDL* to move the database from `L` to `D` and is gated by `change_policy` exactly as source-driven migrations are — `blocked` stays blocked, and no flag suppresses destructive-DDL classification (this honors the existing `change_policy` anti-pattern). Renames are not inferred (inherits D20).
+
+## D28: Live Snapshot Alignment Is Recorded Separately From Adapter Alignment
+
+Reconciliation records that Datrix imported a live snapshot and used it against a canonical revision in a separate file `.datrix/generated-output-state/{rdbms_id}/live-snapshot-alignment.json`, a sibling of the `adapter-alignment.json` precedent (D9) — never overloading it. The record is format/versioned and includes at least `rdbms_id`, `revision`, `schema_hash`, `live_snapshot_hash`, `strategy`, and `recorded_at`. It must not store credentials, connection strings, hostnames, or other deployment secrets.
+
+## D29: Drift Is a Production Guard and a Pre-Prod Reconcile Path
+
+A per-environment policy selector (default off) splits behavior. **Production** treats drift as a guard: export a live snapshot in the target environment, run `detect_drift` offline against it, and refuse (or loudly warn) when `L` ≠ expected — never auto-reconcile. **Pre-prod** gains the reconcile verbs and the recommended loop (fix generator → regenerate → export live snapshot → `drift --live-snapshot` → `reconcile --adopt` or `--to-desired`). The selector controls whether exported live snapshots are required for the guard/reconcile workflow; it never grants Datrix database connectivity. First-implementation reflector scope is Postgres, MySQL, and MariaDB, with MariaDB routed through the MySQL-family reflector and reverse type map unless real MariaDB catalog tests prove a branch is required (inherits the SQL dialect's MariaDB→MySQL mapping).
+
+---
+
 ## See Also
 
 - [Architecture Overview — Decision 8](architecture-overview.md#decision-8-incremental-rdbms-schema-migrations) — Rationale and summary
