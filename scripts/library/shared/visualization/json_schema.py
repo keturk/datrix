@@ -411,6 +411,8 @@ def build_openapi_spec(service: "Service", rest_api: "RestApi", app: "Applicatio
     paths: dict[str, dict[str, object]] = {}
 
     for endpoint in rest_api.endpoints.values():
+        if endpoint.is_hidden:
+            continue
         path = endpoint.full_path or endpoint.path or "/"
         method = endpoint.method.lower()
 

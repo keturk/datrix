@@ -8,7 +8,7 @@ This guide teaches you how to write production-ready Datrix applications, from b
 
 ## Guide Contents
 
-### 📘 [Writing Datrix Applications](./writing-datrix-applications.md)
+### [Writing Datrix Applications](./writing-datrix-applications.md)
 **Start here.** The main guide covering:
 - Project structure and setup
 - Writing `.dtrx` specification files
@@ -18,7 +18,7 @@ This guide teaches you how to write production-ready Datrix applications, from b
 - Computed fields, validation, and lifecycle hooks
 - Best practices for structuring your application
 
-### ⚙️ [Configuration Guide](./configuration-guide.md)
+### [Configuration Guide](./configuration-guide.md)
 Complete reference for all configuration files:
 - System configuration (`config/system.dcfg`)
 - Service configuration (`config/<service>.dcfg`)
@@ -27,7 +27,7 @@ Complete reference for all configuration files:
 - Profiles and environment-specific configuration
 - Platform-specific settings (Docker, Kubernetes, AWS, Azure)
 
-### 💡 [Complete Examples](./complete-examples.md)
+### [Complete Examples](./complete-examples.md)
 Index of **repository** examples under [`examples/`](../../examples/) (feature examples + domain apps), plus short pattern notes:
 - Feature series (library system): entities → APIs → events → CQRS, GraphQL, jobs, and more
 - Domain folders: blog-cms, ecommerce, healthcare, learning-management, social-platform, task-management
@@ -51,7 +51,15 @@ How to use `ensure` clauses on `publish` events to enforce value-level invariant
 - Static analysis (CTR001-CTR003) and runtime assertions
 - Design decisions and rationale
 
-### ���� [Patterns and Best Practices](./patterns-and-best-practices.md)
+### [Database Drift Reconciliation](./database-drift-reconciliation.md)
+How to detect and reconcile schema drift in non-ephemeral database environments:
+- The problem: recorded vs. live vs. desired schema divergence in shared environments
+- Export live snapshots and detect drift offline (no database connection)
+- Reconcile with `--adopt` (keep reality) or `--to-desired` (generate DDL)
+- Configure guard mode for production safety and reconcile mode for pre-prod flexibility
+- Decision D29 and the complete drift/reconcile workflow
+
+### [Patterns and Best Practices](./patterns-and-best-practices.md)
 Proven patterns for common scenarios:
 - Multi-tenancy implementation
 - Soft delete and auditing
@@ -79,6 +87,7 @@ Proven patterns for common scenarios:
 - Jobs → [Writing Datrix Applications § Background Jobs](./writing-datrix-applications.md#background-jobs)
 - CQRS → [Writing Datrix Applications § CQRS](./writing-datrix-applications.md#cqrs)
 - Seed Data → [Seed Data Guidelines](./seed-data-guidelines.md) (reference data, baseline, volume)
+- Database Drift → [Database Drift Reconciliation](./database-drift-reconciliation.md) (guard vs reconcile modes)
 
 **Configuring deployment?**
 - [Configuration Guide § System Configuration](./configuration-guide.md#system-configuration)
@@ -150,11 +159,11 @@ def example_function() -> str:
 
 **Callouts**
 
-> **💡 Tip:** Helpful hints and best practices
+> **Tip:** Helpful hints and best practices
 
-> **⚠️ Warning:** Important caveats and things to watch out for
+> **Warning:** Important caveats and things to watch out for
 
-> **📖 Reference:** Links to detailed documentation
+> **Reference:** Links to detailed documentation
 
 **File Paths**
 - `.dtrx` files live in `specs/` directory
