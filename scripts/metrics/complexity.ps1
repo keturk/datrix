@@ -44,6 +44,27 @@
  Maximum number of Ollama retry attempts per violation (default: 3). Use with -Fix.
  On each retry, the LLM receives feedback about why the previous attempt failed.
 
+.PARAMETER OllamaUrl
+ Ollama server URL used for -Fix/-FixAll.
+
+.PARAMETER Model
+ Ollama model used for -Fix/-FixAll. Default: qwen3-coder:30b-ctx32k.
+
+.PARAMETER OllamaTimeout
+ Ollama request timeout in seconds for each refactor attempt. Default: 180.
+
+.PARAMETER OllamaNumPredict
+ Maximum generated tokens per refactor attempt. Default: 4096.
+
+.PARAMETER OllamaTemperature
+ Sampling temperature for refactor attempts. Default: 0.1.
+
+.PARAMETER OllamaKeepAlive
+ How long Ollama should keep the model loaded between refactor attempts. Default: 10m.
+
+.PARAMETER MaxContextChars
+ Maximum file-context characters included in each prompt. The target function is always sent in full. Default: 8000.
+
 .PARAMETER StopOnError
  Stop on first project failure instead of continuing.
 
@@ -92,6 +113,13 @@ param(
  [switch]$FixAll,
  [switch]$Test,
  [int]$MaxRetries = 3,
+ [string]$OllamaUrl = "http://10.94.0.100:11434",
+ [string]$Model = "qwen3-coder:30b-ctx32k",
+ [int]$OllamaTimeout = 180,
+ [int]$OllamaNumPredict = 4096,
+ [double]$OllamaTemperature = 0.1,
+ [string]$OllamaKeepAlive = "10m",
+ [int]$MaxContextChars = 8000,
  [switch]$StopOnError,
  [switch]$VerboseOutput,
  [switch]$Dbg
@@ -174,6 +202,9 @@ try {
  Write-Host " -FixAll Fix ALL violations (implies -Fix), continue after each success" -ForegroundColor Gray
  Write-Host " -Test Run pytest after fix; revert if tests fail (use with -Fix/-FixAll)" -ForegroundColor Gray
  Write-Host " -MaxRetries Max Ollama retry attempts per violation (default: 3, use with -Fix)" -ForegroundColor Gray
+ Write-Host " -Model Ollama model for fixes (default: qwen3-coder:30b-ctx32k)" -ForegroundColor Gray
+ Write-Host " -OllamaNumPredict Max generated tokens per attempt (default: 4096)" -ForegroundColor Gray
+ Write-Host " -MaxContextChars Max file-context chars per prompt (default: 8000)" -ForegroundColor Gray
  Write-Host " -All Run for all datrix-* projects" -ForegroundColor Gray
  Write-Host " -StopOnError Stop on first project failure" -ForegroundColor Gray
  Write-Host " -VerboseOutput Verbose output from the check script" -ForegroundColor Gray
@@ -258,6 +289,13 @@ try {
    $projectArgs += "--fix"
    if ($FixAll) { $projectArgs += "--fix-all" }
    if ($MaxRetries -ne 3) { $projectArgs += "--max-retries", $MaxRetries }
+   $projectArgs += "--ollama-url", $OllamaUrl
+   $projectArgs += "--model", $Model
+   $projectArgs += "--ollama-timeout", $OllamaTimeout
+   $projectArgs += "--ollama-num-predict", $OllamaNumPredict
+   $projectArgs += "--ollama-temperature", $OllamaTemperature
+   $projectArgs += "--ollama-keep-alive", $OllamaKeepAlive
+   $projectArgs += "--max-context-chars", $MaxContextChars
  }
  if ($Test) { $projectArgs += "--test" }
 
@@ -267,7 +305,11 @@ try {
  if ($exitCode -eq 0) {
  $results[$project] = $true
  Write-Host ""
+ if ($Fix) {
+ Write-Host "[DONE] Complexity fix operation completed for $project" -ForegroundColor Green
+ } else {
  Write-Host "[PASS] Complexity ($Mode) passed for $project" -ForegroundColor Green
+ }
  } else {
  $results[$project] = $false
  Write-Host ""
@@ -288,13 +330,21 @@ try {
  $failed = ($results.Values | Where-Object { $_ -eq $false }).Count
 
  foreach ($p in ($results.Keys | Sort-Object)) {
+ if ($Fix) {
+ $status = if ($results[$p]) { "[DONE]" } else { "[FAIL]" }
+ } else {
  $status = if ($results[$p]) { "[PASS]" } else { "[FAIL]" }
+ }
  $color = if ($results[$p]) { "Green" } else { "Red" }
  Write-Host " $status : $p" -ForegroundColor $color
  }
 
  Write-Host ""
+ if ($Fix) {
+ Write-Host "Total: $totalProjects | Completed: $passed | Failed: $failed" -ForegroundColor Cyan
+ } else {
  Write-Host "Total: $totalProjects | Passed: $passed | Failed: $failed" -ForegroundColor Cyan
+ }
 
  if ($failed -gt 0) { exit 1 }
  exit 0

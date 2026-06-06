@@ -44,22 +44,26 @@ def call_ollama(
     ollama_url: str = OLLAMA_DEFAULT_URL,
     ollama_model: str = OLLAMA_DEFAULT_MODEL,
     timeout: int = OLLAMA_TIMEOUT_SECONDS,
+    num_predict: int = OLLAMA_DEFAULT_NUM_PREDICT,
+    temperature: float = 0.3,
+    keep_alive: str | None = None,
 ) -> str | None:
     """POST to Ollama /api/chat endpoint. Returns response text or None on error."""
-    payload = json.dumps(
-        {
-            "model": ollama_model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "stream": False,
-            "options": {
-                "temperature": 0.3,
-                "num_predict": OLLAMA_DEFAULT_NUM_PREDICT,
-            },
-        }
-    ).encode("utf-8")
+    body = {
+        "model": ollama_model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "stream": False,
+        "options": {
+            "temperature": temperature,
+            "num_predict": num_predict,
+        },
+    }
+    if keep_alive:
+        body["keep_alive"] = keep_alive
+    payload = json.dumps(body).encode("utf-8")
 
     req = urllib.request.Request(
         f"{ollama_url}/api/chat",
