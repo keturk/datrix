@@ -28,12 +28,37 @@
 .PARAMETER VerboseOutput
  Verbose output.
 
+.PARAMETER LlmRefactorPlan
+ Add an advisory local LLM refactor plan for duplicate-code groups.
+
+.PARAMETER LlmLimit
+ Maximum duplicate groups to include in the advisory LLM refactor plan. Default: 20.
+
+.PARAMETER OllamaUrl
+ Ollama server URL for advisory LLM refactor plan.
+
+.PARAMETER LlmModel
+ Local LLM model for advisory refactor plan.
+
+.PARAMETER LlmTimeout
+ Ollama request timeout in seconds for advisory refactor plan.
+
+.PARAMETER LlmNumPredict
+ Ollama max generated tokens for advisory refactor plan.
+
+.PARAMETER LlmTemperature
+ Ollama temperature for advisory refactor plan.
+
+.PARAMETER LlmKeepAlive
+ Ollama keep_alive value for advisory refactor plan.
+
 .EXAMPLE
  .\duplicate.ps1 datrix-common
  .\duplicate.ps1 datrix-common -MinLines 6
  .\duplicate.ps1 datrix-common -Tests
  .\duplicate.ps1 -All
  .\duplicate.ps1 -Mono
+ .\duplicate.ps1 -Mono -LlmRefactorPlan -LlmLimit 10
 #>
 
 [CmdletBinding()]
@@ -46,7 +71,15 @@ param(
  [int]$MinLines = 4,
  [switch]$Tests,
  [switch]$StopOnError,
- [switch]$VerboseOutput
+ [switch]$VerboseOutput,
+ [switch]$LlmRefactorPlan,
+ [int]$LlmLimit = 20,
+ [string]$OllamaUrl = "http://10.94.0.100:11434",
+ [string]$LlmModel = "qwen3-coder:30b-ctx32k",
+ [int]$LlmTimeout = 180,
+ [int]$LlmNumPredict = 4096,
+ [double]$LlmTemperature = 0.1,
+ [string]$LlmKeepAlive = "10m"
 )
 
 $ErrorActionPreference = "Stop"
@@ -140,6 +173,18 @@ try {
  $projectArgs += $MinLines
  if ($Tests) { $projectArgs += "--tests" }
  if ($VerboseOutput) { $projectArgs += "--verbose" }
+ if ($LlmRefactorPlan) {
+ $projectArgs += @(
+ "--llm-refactor-plan",
+ "--llm-limit", $LlmLimit,
+ "--ollama-url", $OllamaUrl,
+ "--llm-model", $LlmModel,
+ "--llm-timeout", $LlmTimeout,
+ "--llm-num-predict", $LlmNumPredict,
+ "--llm-temperature", $LlmTemperature,
+ "--llm-keep-alive", $LlmKeepAlive
+ )
+ }
 
  & python @projectArgs
  $results["mono"] = ($LASTEXITCODE -eq 0)
@@ -155,6 +200,18 @@ try {
  )
  if ($Tests) { $projectArgs += "--tests" }
  if ($VerboseOutput) { $projectArgs += "--verbose" }
+ if ($LlmRefactorPlan) {
+ $projectArgs += @(
+ "--llm-refactor-plan",
+ "--llm-limit", $LlmLimit,
+ "--ollama-url", $OllamaUrl,
+ "--llm-model", $LlmModel,
+ "--llm-timeout", $LlmTimeout,
+ "--llm-num-predict", $LlmNumPredict,
+ "--llm-temperature", $LlmTemperature,
+ "--llm-keep-alive", $LlmKeepAlive
+ )
+ }
 
  & python @projectArgs
  $results[$project] = ($LASTEXITCODE -eq 0)

@@ -26,6 +26,15 @@ import sys
 from pathlib import Path
 from typing import NamedTuple
 
+_LIBRARY_DIR = Path(__file__).resolve().parent.parent
+if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
+    sys.path.insert(0, str(_LIBRARY_DIR))
+
+from shared.ollama_utils import (  # noqa: E402
+    OLLAMA_DEFAULT_URL,
+    call_ollama as _call_ollama,
+)
+
 # Default exclude for Pass 1 (src only): exclude tests and cache
 EXCLUDE_SRC_ONLY = "*\\tests\\*,*\\test\\*,*__pycache__*,*.git*"
 # Pass 2 (src + tests): exclude only cache
@@ -34,6 +43,12 @@ EXCLUDE_SRC_AND_TESTS = "*__pycache__*,*.git*"
 # Include functions/classes/methods: Vulture reports them at 60% confidence (variables at 100%).
 DEFAULT_MIN_CONFIDENCE = 60
 DATRIX_PREFIX = "datrix-"
+DEFAULT_LLM_MODEL = "qwen3-coder:30b-ctx32k"
+DEFAULT_LLM_TIMEOUT_SECONDS = 180
+DEFAULT_LLM_NUM_PREDICT = 4096
+DEFAULT_LLM_TEMPERATURE = 0.1
+DEFAULT_LLM_KEEP_ALIVE = "10m"
+DEFAULT_LLM_FINDING_LIMIT = 30
 
 # Vulture output line: path:line: message (N% confidence)
 # Path may contain colons on Windows (e.g. C:\...). Symbol in message: unused type 'name'
@@ -383,6 +398,132 @@ def _run_vulture(
     return findings, result.returncode
 
 
+def _read_source_excerpt(file_path: str, line: int, radius: int = 4) -> str:
+    """Return a small source excerpt around a finding line."""
+    try:
+        lines = Path(file_path).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+    start = max(1, line - radius)
+    end = min(len(lines), line + radius)
+    excerpt_lines: list[str] = []
+    for idx in range(start, end + 1):
+        marker = ">" if idx == line else " "
+        excerpt_lines.append(f"{marker} {idx}: {lines[idx - 1]}")
+    return "\n".join(excerpt_lines)
+
+
+def _finding_priority(category: str, finding: Finding) -> tuple[int, int, str]:
+    """Sort likely-actionable findings before noisy lower-value findings."""
+    category_rank = 0 if category == "never_referenced" else 1
+    kind_rank = {
+        "class": 0,
+        "function": 1,
+        "method": 2,
+        "property": 3,
+        "attribute": 4,
+        "variable": 5,
+        "import": 6,
+        "unreachable_code": 7,
+    }.get(finding.kind, 8)
+    return (category_rank, kind_rank, f"{finding.file}:{finding.line}:{finding.symbol}")
+
+
+def _collect_llm_review_items(
+    by_project: dict[str, dict[str, list[Finding]]],
+    limit: int,
+) -> list[tuple[str, str, Finding]]:
+    """Collect a bounded, prioritized list of findings for advisory LLM review."""
+    items: list[tuple[str, str, Finding]] = []
+    for project, data in by_project.items():
+        for category in ("never_referenced", "only_referenced_by_tests"):
+            for finding in data[category]:
+                items.append((project, category, finding))
+    items.sort(key=lambda item: _finding_priority(item[1], item[2]))
+    return items[: max(0, limit)]
+
+
+def _build_llm_review_prompt(
+    by_project: dict[str, dict[str, list[Finding]]],
+    limit: int,
+) -> str:
+    """Build a compact prompt from deterministic Vulture evidence."""
+    items = _collect_llm_review_items(by_project, limit)
+    parts: list[str] = [
+        "Review these deterministic Vulture dead-code findings for Datrix.",
+        "",
+        "Classify each item into exactly one category:",
+        "- safe removal candidate",
+        "- likely entry-point/reflection false positive",
+        "- test-only utility",
+        "- needs whitelist",
+        "",
+        "Rules:",
+        "- Advisory only: never say to delete automatically.",
+        "- Base recommendations only on the evidence shown.",
+        "- Prefer concise rationale grounded in file path, symbol kind, naming, decorators, or source excerpt.",
+        "- When evidence is insufficient, use 'needs whitelist' only if the likely action is whitelisting; otherwise choose the closest matching category and say what should be inspected before action.",
+        "",
+        "Return markdown with:",
+        "1. Overall triage summary.",
+        "2. A table with columns: project, category, symbol, classification, rationale, recommended next action.",
+        "",
+        "Findings:",
+    ]
+    if not items:
+        parts.append("No findings.")
+        return "\n".join(parts)
+
+    for index, (project, category, finding) in enumerate(items, start=1):
+        parts.extend([
+            "",
+            f"### Finding {index}",
+            f"project: {project}",
+            f"deterministic_category: {category}",
+            f"file: {finding.file}",
+            f"line: {finding.line}",
+            f"kind: {finding.kind}",
+            f"symbol: {finding.symbol}",
+            f"message: {finding.message}",
+            f"confidence: {finding.confidence}",
+        ])
+        excerpt = _read_source_excerpt(finding.file, finding.line)
+        if excerpt:
+            parts.extend(["source_excerpt:", "```python", excerpt, "```"])
+    return "\n".join(parts)
+
+
+def _run_llm_review(
+    by_project: dict[str, dict[str, list[Finding]]],
+    limit: int,
+    ollama_url: str,
+    model: str,
+    timeout_seconds: int,
+    num_predict: int,
+    temperature: float,
+    keep_alive: str,
+) -> str:
+    """Run advisory local LLM review over a bounded set of dead-code findings."""
+    prompt = _build_llm_review_prompt(by_project, limit)
+    system_prompt = (
+        "You are reviewing deterministic dead-code findings. You do not delete code, "
+        "edit files, or override Vulture. You produce advisory markdown only."
+    )
+    response = _call_ollama(
+        system_prompt,
+        prompt,
+        ollama_url=ollama_url,
+        ollama_model=model,
+        timeout=timeout_seconds,
+        num_predict=num_predict,
+        temperature=temperature,
+        keep_alive=keep_alive,
+    )
+    if response is None:
+        return "LLM review failed: Ollama returned no response."
+    return response.strip()
+
+
 def _collect_paths(
     packages: dict[str, Path],
     include_tests: bool,
@@ -410,6 +551,14 @@ def run_report(
     output_format: str,
     verbose: bool,
     raw: bool = False,
+    llm_review: bool = False,
+    llm_limit: int = DEFAULT_LLM_FINDING_LIMIT,
+    ollama_url: str = OLLAMA_DEFAULT_URL,
+    llm_model: str = DEFAULT_LLM_MODEL,
+    llm_timeout_seconds: int = DEFAULT_LLM_TIMEOUT_SECONDS,
+    llm_num_predict: int = DEFAULT_LLM_NUM_PREDICT,
+    llm_temperature: float = DEFAULT_LLM_TEMPERATURE,
+    llm_keep_alive: str = DEFAULT_LLM_KEEP_ALIVE,
 ) -> int:
     """Run two-pass Vulture, classify, and print report. Returns 0 on success."""
     packages = _discover_packages(workspace_root)
@@ -512,6 +661,24 @@ def run_report(
         for kind in ("never_referenced", "only_referenced_by_tests"):
             by_project[proj][kind].sort(key=lambda x: (x.file, x.line))
 
+    llm_review_text = ""
+    if llm_review:
+        if verbose:
+            print(
+                f"Running local LLM review for top {llm_limit} dead-code finding(s)...",
+                file=sys.stderr,
+            )
+        llm_review_text = _run_llm_review(
+            by_project,
+            llm_limit,
+            ollama_url,
+            llm_model,
+            llm_timeout_seconds,
+            llm_num_predict,
+            llm_temperature,
+            llm_keep_alive,
+        )
+
     if output_format == "json":
         out: dict[str, object] = {
             "filtered_count": total_filtered if not raw else 0,
@@ -543,6 +710,13 @@ def run_report(
                 for proj, data in by_project.items()
             },
         }
+        if llm_review:
+            out["llm_review"] = {
+                "advisory": True,
+                "model": llm_model,
+                "limit": llm_limit,
+                "review": llm_review_text,
+            }
         print(json.dumps(out, indent=2))
         return 0
 
@@ -591,6 +765,11 @@ def run_report(
     if not raw and total_filtered > 0:
         print(f"\n---\nFiltered {total_filtered} known false positives. Use --raw to see all.")
 
+    if llm_review:
+        print("\n---\n## Local LLM Advisory Review\n")
+        print("This section is advisory only. It does not change deterministic Vulture findings or authorize deletion.\n")
+        print(llm_review_text)
+
     return 0
 
 
@@ -635,6 +814,58 @@ def main() -> int:
         action="store_true",
         help="Disable false-positive filters (show all Vulture findings).",
     )
+    parser.add_argument(
+        "--llm-review",
+        action="store_true",
+        help="Add an advisory local LLM review for top dead-code findings.",
+    )
+    parser.add_argument(
+        "--llm-limit",
+        type=int,
+        default=DEFAULT_LLM_FINDING_LIMIT,
+        metavar="N",
+        help=f"Maximum findings to include in LLM review (default: {DEFAULT_LLM_FINDING_LIMIT}).",
+    )
+    parser.add_argument(
+        "--ollama-url",
+        type=str,
+        default=OLLAMA_DEFAULT_URL,
+        help=f"Ollama server URL (default: {OLLAMA_DEFAULT_URL}).",
+    )
+    parser.add_argument(
+        "--llm-model",
+        type=str,
+        default=DEFAULT_LLM_MODEL,
+        help=f"Local LLM model for advisory review (default: {DEFAULT_LLM_MODEL}).",
+    )
+    parser.add_argument(
+        "--llm-timeout",
+        type=int,
+        default=DEFAULT_LLM_TIMEOUT_SECONDS,
+        metavar="SECONDS",
+        help=f"Ollama request timeout for LLM review (default: {DEFAULT_LLM_TIMEOUT_SECONDS}).",
+    )
+    parser.add_argument(
+        "--llm-num-predict",
+        type=int,
+        default=DEFAULT_LLM_NUM_PREDICT,
+        metavar="N",
+        help=f"Ollama max generated tokens for LLM review (default: {DEFAULT_LLM_NUM_PREDICT}).",
+    )
+    parser.add_argument(
+        "--llm-temperature",
+        type=float,
+        default=DEFAULT_LLM_TEMPERATURE,
+        metavar="FLOAT",
+        help=f"Ollama temperature for LLM review (default: {DEFAULT_LLM_TEMPERATURE}).",
+    )
+    parser.add_argument(
+        "--llm-keep-alive",
+        type=str,
+        default=DEFAULT_LLM_KEEP_ALIVE,
+        metavar="DURATION",
+        help=f"Ollama keep_alive for LLM review (default: {DEFAULT_LLM_KEEP_ALIVE}).",
+    )
 
     args = parser.parse_args()
     workspace_root = args.workspace_root.resolve()
@@ -670,6 +901,14 @@ def main() -> int:
         args.output,
         args.verbose,
         raw=args.raw,
+        llm_review=args.llm_review,
+        llm_limit=args.llm_limit,
+        ollama_url=args.ollama_url,
+        llm_model=args.llm_model,
+        llm_timeout_seconds=args.llm_timeout,
+        llm_num_predict=args.llm_num_predict,
+        llm_temperature=args.llm_temperature,
+        llm_keep_alive=args.llm_keep_alive,
     )
 
 

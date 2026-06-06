@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import ast
 import hashlib
+import subprocess
 import sys
 import textwrap
 from pathlib import Path
@@ -34,16 +35,12 @@ if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
 from shared.ollama_utils import (  # noqa: E402
-    OLLAMA_DEFAULT_MODEL,
-    OLLAMA_DEFAULT_NUM_PREDICT,
     OLLAMA_DEFAULT_URL,
     OLLAMA_MAX_FIX_RETRIES,
-    OLLAMA_TIMEOUT_SECONDS,
     apply_and_verify_on_disk as _apply_and_verify_on_disk_shared,
     call_ollama as _call_ollama_raw,
     detect_indent as _detect_indent,
     extract_file_context as _extract_file_context,
-    normalize_indentation,
     parse_ollama_response,
     run_ruff_check as _run_ruff_check_shared,
     run_pytest as _run_pytest_shared,
@@ -68,6 +65,12 @@ except ImportError:
 
 DEFAULT_MAX_COMPLEXITY = 15
 DEFAULT_IGNORE_DIRS = ("tests", "test", "__pycache__", ".git")
+DEFAULT_COMPLEXITY_OLLAMA_MODEL = "qwen3-coder:30b-ctx32k"
+DEFAULT_COMPLEXITY_OLLAMA_NUM_PREDICT = 4096
+DEFAULT_COMPLEXITY_OLLAMA_TIMEOUT_SECONDS = 180
+DEFAULT_COMPLEXITY_OLLAMA_TEMPERATURE = 0.1
+DEFAULT_COMPLEXITY_CONTEXT_CHARS = 8000
+DEFAULT_COMPLEXITY_OLLAMA_KEEP_ALIVE = "10m"
 
 # Blocks excluded from cognitive check (path_substring, function_name).
 EXCLUDED_COGNITIVE_BLOCKS: list[tuple[str, str]] = [
@@ -407,9 +410,15 @@ def _build_system_prompt(complexity_type: str) -> str:
         "Output rules:\n"
         "- Return ONLY valid Python code inside a single ```python code fence\n"
         "- No explanations, no comments about the changes, no markdown outside the fence\n"
+        "- Return only the replacement function block plus any extracted helpers; "
+        "never include the surrounding class or module\n"
         "- Preserve the original indentation level\n"
+        "- Every returned top-level `def` line must use the original base indentation; "
+        "do not dedent below it\n"
         "- If extracting helpers, place them BEFORE the main function at the same "
-        "indentation level"
+        "indentation level\n"
+        "- Every returned function, including extracted helpers, must individually "
+        "satisfy the target complexity limit"
     )
 
 
@@ -481,11 +490,73 @@ def _validate_fix_inmemory(
     return True, None, complexities
 
 
+def _normalize_replacement_block(source: str, target_indent: str) -> str:
+    """Normalize a returned replacement block to the original function indentation."""
+    dedented = textwrap.dedent(source).strip("\n")
+    if not dedented:
+        return ""
+    dedented = _format_replacement_block_with_ruff(dedented)
+    return textwrap.indent(dedented, target_indent, lambda line: bool(line.strip()))
+
+
+def _format_replacement_block_with_ruff(dedented_source: str) -> str:
+    """Best-effort Ruff formatting for a syntactically valid replacement fragment."""
+    try:
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "ruff",
+                "format",
+                "--stdin-filename",
+                "complexity_fix_fragment.py",
+                "-",
+            ],
+            input=dedented_source,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return dedented_source
+    if result.returncode != 0 or not result.stdout.strip():
+        return dedented_source
+    return result.stdout.strip("\n")
+
+
+def _validate_replacement_shape(
+    fixed_source: str,
+    func_name: str,
+) -> str | None:
+    """Reject replacement shapes that cannot safely replace one function block."""
+    try:
+        tree = ast.parse(textwrap.dedent(fixed_source))
+    except SyntaxError as e:
+        return f"Syntax error in replacement block before insertion: {e}"
+
+    top_level_defs = [
+        node for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+    top_level_classes = [node for node in tree.body if isinstance(node, ast.ClassDef)]
+    if top_level_classes:
+        return (
+            "Replacement includes a class wrapper. Return only helper functions/methods "
+            "and the target function block, not the surrounding class."
+        )
+    if not any(node.name == func_name for node in top_level_defs):
+        return f"Replacement does not include target function `{func_name}`."
+    return None
+
+
 def _build_retry_feedback(
     complexity_type: str,
     complexities: list[tuple[str, int]],
     max_complexity: int,
     validation_error: str | None = None,
+    failed_source: str | None = None,
 ) -> str:
     """Build feedback for the LLM when a fix attempt failed."""
     parts: list[str] = []
@@ -497,10 +568,28 @@ def _build_retry_feedback(
                 f"Function `{name}` still has {complexity_type} complexity "
                 f"{value} (must be <= {max_complexity})."
             )
+            parts.append(
+                f"If `{name}` is an extracted helper, split that helper into smaller "
+                "helpers too. Do not replace one complex function with one complex helper."
+            )
+    if validation_error and "unindent does not match" in validation_error:
+        parts.append(
+            "Fix indentation by returning one complete replacement block. Every top-level "
+            "`def` in the replacement must start at the same base indentation as the "
+            "original function; only nested function bodies should be indented further."
+        )
     parts.append(
         "Try a different approach: extract more helpers, use early returns, "
         "replace conditionals with dispatch dicts, or flatten nesting further."
     )
+    if failed_source:
+        parts.append(
+            "Previous replacement that failed validation. Use it only to understand "
+            "what to fix; return a complete corrected replacement, not a patch:"
+        )
+        parts.append("```python")
+        parts.append(_truncate_prompt_context(failed_source, 12000))
+        parts.append("```")
     return "\n".join(parts)
 
 
@@ -521,6 +610,28 @@ def _build_disk_error_feedback(disk_error: str) -> str:
     )
 
 
+def _truncate_prompt_context(file_context: str, max_context_chars: int) -> str:
+    """Keep LLM context bounded; function source is always sent separately."""
+    if max_context_chars <= 0 or not file_context:
+        return ""
+    if len(file_context) <= max_context_chars:
+        return file_context
+    return (
+        file_context[:max_context_chars].rstrip()
+        + "\n\n# Context truncated to fit the local LLM prompt budget."
+    )
+
+
+def _effective_num_predict(function_source: str, configured_num_predict: int) -> int:
+    """Increase output budget only for large functions likely to need helpers."""
+    line_count = len(function_source.splitlines())
+    if line_count >= 180:
+        return max(configured_num_predict, 12288)
+    if line_count >= 100:
+        return max(configured_num_predict, 8192)
+    return configured_num_predict
+
+
 def call_ollama(
     function_source: str,
     func_name: str,
@@ -529,6 +640,10 @@ def call_ollama(
     max_complexity: int,
     ollama_url: str,
     model: str,
+    timeout_seconds: int,
+    num_predict: int,
+    temperature: float,
+    keep_alive: str,
     file_context: str = "",
     retry_feedback: str | None = None,
 ) -> str:
@@ -550,6 +665,12 @@ def call_ollama(
         "placed BEFORE the main function\n"
         "- If the function is a class method (has `self` parameter), extracted "
         "helpers should also be methods with a `self` parameter\n"
+        f"- Every returned function/helper must have {complexity_type} complexity "
+        f"<= {max_complexity}; do not leave complexity concentrated in one helper\n"
+        "- All returned top-level def lines must use the same base indentation as "
+        "the original function; do not dedent below that base indentation\n"
+        "- Return only the replacement function block plus any extracted helpers; "
+        "do not include the surrounding class or unrelated methods\n"
         "- Preserve all type annotations\n"
         "- Return ONLY Python code inside a single ```python code fence"
     )
@@ -560,6 +681,10 @@ def call_ollama(
 
     response = _call_ollama_raw(
         system_prompt, user_prompt, ollama_url, model,
+        timeout=timeout_seconds,
+        num_predict=_effective_num_predict(function_source, num_predict),
+        temperature=temperature,
+        keep_alive=keep_alive,
     )
     if response is None:
         raise RuntimeError(
@@ -582,27 +707,36 @@ def _attempt_single_ollama_fix(
     max_complexity: int,
     ollama_url: str,
     model: str,
+    timeout_seconds: int,
+    num_predict: int,
+    temperature: float,
+    keep_alive: str,
     file_context: str,
     original_indent: str,
     lines: list[str],
     start: int,
     end: int,
     retry_feedback: str | None,
-) -> tuple[str | None, str | None, list[tuple[str, int]]]:
+) -> tuple[str | None, str | None, list[tuple[str, int]], str]:
     """Run one Ollama attempt and validate in-memory.
 
-    Returns (new_content_or_none, error_message_or_none, complexities).
+    Returns (new_content_or_none, error_message_or_none, complexities, fixed_source).
     On Ollama connection errors, raises RuntimeError.
     """
     fixed_source = call_ollama(
         func_source, func_name, comp_type, complexity,
         max_complexity, ollama_url, model,
+        timeout_seconds, num_predict, temperature, keep_alive,
         file_context=file_context,
         retry_feedback=retry_feedback,
     )
-    fixed_source = normalize_indentation(fixed_source, original_indent)
+    fixed_source = _normalize_replacement_block(fixed_source, original_indent)
     if not fixed_source.endswith("\n"):
         fixed_source += "\n"
+
+    shape_error = _validate_replacement_shape(fixed_source, func_name)
+    if shape_error:
+        return None, shape_error, [], fixed_source
 
     new_lines = lines[: start - 1] + [fixed_source] + lines[end:]
     new_content = "".join(new_lines)
@@ -611,8 +745,8 @@ def _attempt_single_ollama_fix(
         new_content, fixed_source, comp_type, max_complexity,
     )
     if not passed:
-        return None, error_msg, complexities
-    return new_content, None, complexities
+        return None, error_msg, complexities, fixed_source
+    return new_content, None, complexities, fixed_source
 
 
 def _attempt_fix_violation(
@@ -625,6 +759,11 @@ def _attempt_fix_violation(
     max_complexity: int,
     ollama_url: str,
     model: str,
+    timeout_seconds: int,
+    num_predict: int,
+    temperature: float,
+    keep_alive: str,
+    max_context_chars: int,
     verbose: bool,
     unit_tests: bool,
     project_root: Path,
@@ -645,7 +784,10 @@ def _attempt_fix_violation(
     start, end = get_function_line_range(node)
     func_source = "".join(lines[start - 1 : end])
     original_indent = _detect_indent(func_source)
-    file_context = _extract_file_context(source, func_name, lineno)
+    file_context = _truncate_prompt_context(
+        _extract_file_context(source, func_name, lineno),
+        max_context_chars,
+    )
 
     print(
         f"\nFixing: {file_path}:{lineno} {func_name} "
@@ -664,9 +806,10 @@ def _attempt_fix_violation(
         print(f"  Sending to Ollama ({model})...", file=sys.stderr)
 
         try:
-            new_content, error_msg, complexities = _attempt_single_ollama_fix(
+            new_content, error_msg, complexities, failed_source = _attempt_single_ollama_fix(
                 func_source, func_name, comp_type, complexity, max_complexity,
-                ollama_url, model, file_context, original_indent,
+                ollama_url, model, timeout_seconds, num_predict, temperature,
+                keep_alive, file_context, original_indent,
                 lines, start, end, retry_feedback,
             )
         except RuntimeError as e:
@@ -678,6 +821,7 @@ def _attempt_fix_violation(
             if attempt < max_retries:
                 retry_feedback = _build_retry_feedback(
                     comp_type, complexities, max_complexity, error_msg,
+                    failed_source=failed_source,
                 )
                 continue
             print(f"  All {max_retries} attempt(s) failed.", file=sys.stderr)
@@ -806,6 +950,11 @@ def run_fix(
     ignore_path_contains_all: tuple[str, ...] | None,
     ollama_url: str,
     model: str,
+    timeout_seconds: int,
+    num_predict: int,
+    temperature: float,
+    keep_alive: str,
+    max_context_chars: int,
     unit_tests: bool = False,
     max_retries: int = OLLAMA_MAX_FIX_RETRIES,
     fix_all: bool = False,
@@ -846,7 +995,10 @@ def run_fix(
 
         if _attempt_fix_violation(
             file_path, source, func_name, lineno, complexity, comp_type,
-            max_complexity, ollama_url, model, verbose, unit_tests,
+            max_complexity, ollama_url, model,
+            timeout_seconds, num_predict, temperature, keep_alive,
+            max_context_chars,
+            verbose, unit_tests,
             project_root, max_retries,
         ):
             fixed_count += 1
@@ -872,7 +1024,10 @@ def run_fix(
                 continue
             if _attempt_fix_violation(
                 file_path, source, func_name, lineno, complexity, comp_type,
-                max_complexity, ollama_url, model, verbose, unit_tests,
+                max_complexity, ollama_url, model,
+                timeout_seconds, num_predict, temperature, keep_alive,
+                max_context_chars,
+                verbose, unit_tests,
                 project_root, max_retries,
             ):
                 fixed_count += 1
@@ -1077,8 +1232,59 @@ def main() -> int:
     parser.add_argument(
     "--model",
     type=str,
-    default=OLLAMA_DEFAULT_MODEL,
-    help=f"Ollama model name (default: {OLLAMA_DEFAULT_MODEL}).",
+    default=DEFAULT_COMPLEXITY_OLLAMA_MODEL,
+    help=f"Ollama model name (default: {DEFAULT_COMPLEXITY_OLLAMA_MODEL}).",
+    )
+    parser.add_argument(
+    "--ollama-timeout",
+    type=int,
+    default=DEFAULT_COMPLEXITY_OLLAMA_TIMEOUT_SECONDS,
+    metavar="SECONDS",
+    help=(
+        "Ollama request timeout in seconds "
+        f"(default: {DEFAULT_COMPLEXITY_OLLAMA_TIMEOUT_SECONDS})."
+    ),
+    )
+    parser.add_argument(
+    "--ollama-num-predict",
+    type=int,
+    default=DEFAULT_COMPLEXITY_OLLAMA_NUM_PREDICT,
+    metavar="N",
+    help=(
+        "Ollama max generated tokens per refactor attempt "
+        f"(default: {DEFAULT_COMPLEXITY_OLLAMA_NUM_PREDICT})."
+    ),
+    )
+    parser.add_argument(
+    "--ollama-temperature",
+    type=float,
+    default=DEFAULT_COMPLEXITY_OLLAMA_TEMPERATURE,
+    metavar="FLOAT",
+    help=(
+        "Ollama sampling temperature "
+        f"(default: {DEFAULT_COMPLEXITY_OLLAMA_TEMPERATURE})."
+    ),
+    )
+    parser.add_argument(
+    "--ollama-keep-alive",
+    type=str,
+    default=DEFAULT_COMPLEXITY_OLLAMA_KEEP_ALIVE,
+    metavar="DURATION",
+    help=(
+        "How long Ollama should keep the model loaded between attempts "
+        f"(default: {DEFAULT_COMPLEXITY_OLLAMA_KEEP_ALIVE})."
+    ),
+    )
+    parser.add_argument(
+    "--max-context-chars",
+    type=int,
+    default=DEFAULT_COMPLEXITY_CONTEXT_CHARS,
+    metavar="N",
+    help=(
+        "Maximum file-context characters to include in each LLM prompt; "
+        "the target function is always included in full "
+        f"(default: {DEFAULT_COMPLEXITY_CONTEXT_CHARS})."
+    ),
     )
     parser.add_argument(
     "--test",
@@ -1125,6 +1331,11 @@ def main() -> int:
             ignore_path_contains_all=ignore_path_contains_all,
             ollama_url=args.ollama_url,
             model=args.model,
+            timeout_seconds=args.ollama_timeout,
+            num_predict=args.ollama_num_predict,
+            temperature=args.ollama_temperature,
+            keep_alive=args.ollama_keep_alive,
+            max_context_chars=args.max_context_chars,
             unit_tests=args.test,
             max_retries=args.max_retries,
             fix_all=args.fix_all,
