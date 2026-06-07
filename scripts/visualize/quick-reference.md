@@ -19,7 +19,7 @@ Runs all visualization and documentation scripts for a project: diagrams, schema
 | **Custom test set** | `.\visualize\all-reports.ps1 -TestSet features-core` | Named test set |
 | **Debug** | `.\visualize\all-reports.ps1 -All -Dbg` | Debug logging |
 
-**Parameters:** `-Source` (positional 0), `-All`, `-Domains`, `-TestSet` (default: all), `-Dbg`
+**Parameters:** `-Source` (positional 0), `-All`, `-Domains`, `-TestSet` (default: all), `-Profile` (config profile, default: test), `-Dbg`
 
 ---
 
@@ -37,9 +37,10 @@ Generates Mermaid diagrams from `.dtrx` source files. Produces ERD, service map,
 | **Foundation only** | `.\visualize\visualize.ps1 -TestSet foundation` | Batch: foundation examples |
 | **Domains only** | `.\visualize\visualize.ps1 -Domains` | Batch: domain examples |
 | **Custom test set** | `.\visualize\visualize.ps1 -TestSet features-core` | Named test set |
+| **Non-test profile** | `.\visualize\visualize.ps1 <source.dtrx> -Profile production` | Use non-default config profile |
 | **Debug** | `.\visualize\visualize.ps1 -All -Dbg` | Debug logging |
 
-**Parameters:** `-Source` (positional 0), `-All`, `-Domains`, `-TestSet` (default: all), `-Type` (erd\|service-map\|event-flow\|api-catalog\|cqrs-flow\|inheritance\|infrastructure\|system-context\|all, default: all), `-Service`, `-Format` (md\|mmd, default: md), `-Dbg`
+**Parameters:** `-Source` (positional 0), `-All`, `-Domains`, `-TestSet` (default: all), `-Type` (erd\|service-map\|event-flow\|api-catalog\|cqrs-flow\|inheritance\|infrastructure\|system-context\|all, default: all), `-Service`, `-Format` (md\|mmd, default: md), `-Profile` (config profile, default: test), `-Dbg`
 
 ---
 

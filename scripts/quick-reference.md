@@ -40,7 +40,7 @@ Read the category-specific file for the script you need:
 
 | Category | File | Scripts |
 |----------|------|---------|
-| **Testing** | [test/quick-reference.md](test/quick-reference.md) | test.ps1, run-complete.ps1, dual-target.ps1, test-single.ps1, compare-tests.ps1, cleanup.ps1, status-*.ps1 |
+| **Testing** | [test/quick-reference.md](test/quick-reference.md) | test.ps1, run-complete.ps1, dual-target.ps1, test-single.ps1, mypy.ps1, compare-tests.ps1, cleanup.ps1, status-*.ps1 |
 | **Development** | [dev/quick-reference.md](dev/quick-reference.md) | generate.ps1, syntax-checker.ps1, config-linter.ps1, compile.ps1, libcst.ps1, semgrep.ps1, ast-grep.ps1, audit.ps1, check-docs.ps1, generate-doc-fragments.ps1, cleanup-temps.ps1, ... |
 | **Git** | [git/quick-reference.md](git/quick-reference.md) | status.ps1, pull.ps1, auto-commit-and-push.ps1, commit-and-push.ps1, l-commit-and-push.ps1 |
 | **Metrics** | [metrics/quick-reference.md](metrics/quick-reference.md) | complexity.ps1, ruff.ps1, bandit.ps1, vulture.ps1, coverage.ps1, test-gen.ps1, duplicate.ps1, loc.ps1, ... |
