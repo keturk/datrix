@@ -364,7 +364,7 @@ function Write-GenerationSummaryToLog {
  }
 
  # Match result lines: [N/M] project-name: Success|Failed OR [N/M] Failed: project-name (exception path)
- $resultPatternNormal = '^\s*\[(\d+)/(\d+)\]\s+(.+?):\s+(Success|Failed)\s*\r?$'
+ $resultPatternNormal = '^.*\[(\d+)/(\d+)\]\s+(.+?):\s+(Success|Failed)\s*\r?$'
  $resultPatternFailedAlt = '^\s*\[(\d+)/(\d+)\]\s+Failed:\s+(.+?)\s*\r?$'
  $results = @()
  for ($i = 0; $i -lt $lines.Count; $i++) {

@@ -356,13 +356,13 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         // 'internal' restricts this endpoint to service-to-service calls only
         // Internal endpoints are not exposed through the API gateway
         @path('/books/internal/:id')
-        get(UUID id) : access(Service), hidden -> bookDb.Book {
+        get bookByIdInternal(UUID id) : access(Service), hidden, idempotent -> bookDb.Book {
             return bookDb.Book.findOrFail(id);
         }
 
         // Internal endpoint returning a struct instead of a full entity
         @path('/books/internal/availability/:id')
-        get(UUID id) : access(Service), hidden -> BookAvailabilityResponse {
+        get bookAvailabilityByIdInternal(UUID id) : access(Service), hidden, idempotent -> BookAvailabilityResponse {
             let Book book = bookDb.Book.findOrFail(id);
             return { available: book.isAvailable };
         }

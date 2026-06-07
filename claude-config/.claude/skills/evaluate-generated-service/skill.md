@@ -1,5 +1,5 @@
 ---
-model: opus
+model: claude-sonnet-4-6
 ---
 
 # Evaluate Generated Service Skill

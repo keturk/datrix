@@ -347,7 +347,7 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
             let UUID authorId = Auth.user().id;
 
             // Verify user exists and is active via UserService
-            let JSON user = UserService.UserAPI.get(#"/internal/{authorId}");
+            let User user = UserService.UserAPI.get.userByIdInternal(authorId);
 
             let Post post = postDb.Post.create({
                 authorId: authorId,
@@ -559,7 +559,7 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
 
         // Internal endpoint for other services
         @path('/service/:id')
-        get(UUID id) : access(Service), hidden -> postDb.Post {
+        get postByIdInternal(UUID id) : access(Service), hidden, idempotent -> postDb.Post {
             return postDb.Post.findOrFail(id);
         }
 

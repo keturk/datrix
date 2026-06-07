@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import json
 import os
 import re
 import sys
@@ -28,6 +29,7 @@ library_dir = Path(__file__).resolve().parent.parent
 if library_dir.exists() and str(library_dir) not in sys.path:
     sys.path.insert(0, str(library_dir))
 
+from shared.ollama_utils import OLLAMA_DEFAULT_URL, call_ollama as _call_ollama
 from shared.venv import get_datrix_root
 
 # Patterns for placeholder scan (path -> list of (line_no, line_text))
@@ -37,6 +39,12 @@ PATTERN_TEST_PLACEHOLDER = re.compile(r"#\s*Test\s+fixtures\s+placeholder", re.I
 
 # Path substrings that are allowlisted (intentional placeholders; excluded from --fail-on-placeholders)
 ALLOWLIST_PATH_SUBSTRINGS = ("db/base.py", "_microservice_helpers.py")
+DEFAULT_LLM_MODEL = "qwen3-coder:30b-ctx32k"
+DEFAULT_LLM_TIMEOUT_SECONDS = 180
+DEFAULT_LLM_NUM_PREDICT = 4096
+DEFAULT_LLM_TEMPERATURE = 0.1
+DEFAULT_LLM_KEEP_ALIVE = "10m"
+DEFAULT_LLM_FINDING_LIMIT = 30
 
 
 def _path_is_allowlisted(path_str: str) -> bool:
@@ -141,6 +149,96 @@ def write_report(
                 f.write("\n")
 
 
+def _build_llm_audit_prompt(
+    root: Path,
+    syntax_errors: list[tuple[str, int, str]],
+    actionable_hits: dict[str, list[tuple[int, str]]],
+    allowlisted_hits: dict[str, list[tuple[int, str]]],
+    limit: int,
+) -> str:
+    """Build a compact advisory prompt from deterministic generated-code audit findings."""
+    syntax_items = [
+        {"file": path, "line": line, "message": msg}
+        for path, line, msg in sorted(syntax_errors)[:limit]
+    ]
+    placeholder_items: list[dict[str, object]] = []
+    for path in sorted(actionable_hits.keys()):
+        for line_no, line in actionable_hits[path]:
+            if len(placeholder_items) >= limit:
+                break
+            placeholder_items.append({"file": path, "line": line_no, "content": line})
+        if len(placeholder_items) >= limit:
+            break
+
+    return "\n".join([
+        "Review this deterministic generated-code audit result for Datrix.",
+        "",
+        "For each cluster or finding type, infer:",
+        "- probable generator/template or generated area to inspect",
+        "- whether placeholder is intentional, stale, or actionable",
+        "- suggested next inspection path",
+        "",
+        "Guardrails:",
+        "- Advisory only. Do not edit files.",
+        "- Deterministic syntax/placeholder audit owns pass/fail.",
+        "- If evidence is insufficient, say what local source should be inspected.",
+        "",
+        "Return markdown with a concise triage summary and prioritized next steps.",
+        "",
+        json.dumps(
+            {
+                "generated_root": str(root),
+                "syntax_error_count": len(syntax_errors),
+                "actionable_placeholder_file_count": len(actionable_hits),
+                "allowlisted_placeholder_file_count": len(allowlisted_hits),
+                "syntax_errors": syntax_items,
+                "actionable_placeholders": placeholder_items,
+                "allowlisted_sample": [
+                    {"file": path, "hits": len(hits)}
+                    for path, hits in sorted(allowlisted_hits.items())[:10]
+                ],
+            },
+            indent=2,
+        ),
+    ])
+
+
+def _run_llm_audit_triage(
+    root: Path,
+    syntax_errors: list[tuple[str, int, str]],
+    actionable_hits: dict[str, list[tuple[int, str]]],
+    allowlisted_hits: dict[str, list[tuple[int, str]]],
+    limit: int,
+    ollama_url: str,
+    model: str,
+    timeout_seconds: int,
+    num_predict: int,
+    temperature: float,
+    keep_alive: str,
+) -> str:
+    """Run advisory local LLM triage over generated-code audit findings."""
+    prompt = _build_llm_audit_prompt(
+        root,
+        syntax_errors,
+        actionable_hits,
+        allowlisted_hits,
+        limit,
+    )
+    response = _call_ollama(
+        "You are a Datrix generated-code audit triage assistant. You produce advisory markdown only.",
+        prompt,
+        ollama_url=ollama_url,
+        ollama_model=model,
+        timeout=timeout_seconds,
+        num_predict=num_predict,
+        temperature=temperature,
+        keep_alive=keep_alive,
+    )
+    if response is None:
+        return "LLM audit triage failed: Ollama returned no response."
+    return response.strip()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Audit generated Python code for placeholders and syntax errors."
@@ -173,6 +271,14 @@ def main() -> int:
         action="store_true",
         help="Exit with non-zero if any placeholder patterns found",
     )
+    parser.add_argument("--llm-triage", action="store_true", help="Append advisory local LLM triage for audit findings")
+    parser.add_argument("--llm-limit", type=int, default=DEFAULT_LLM_FINDING_LIMIT, help=f"Maximum findings to include in LLM triage (default: {DEFAULT_LLM_FINDING_LIMIT})")
+    parser.add_argument("--ollama-url", default=OLLAMA_DEFAULT_URL, help=f"Ollama server URL (default: {OLLAMA_DEFAULT_URL})")
+    parser.add_argument("--llm-model", default=DEFAULT_LLM_MODEL, help=f"Local LLM model (default: {DEFAULT_LLM_MODEL})")
+    parser.add_argument("--llm-timeout", type=int, default=DEFAULT_LLM_TIMEOUT_SECONDS, help=f"Ollama timeout seconds (default: {DEFAULT_LLM_TIMEOUT_SECONDS})")
+    parser.add_argument("--llm-num-predict", type=int, default=DEFAULT_LLM_NUM_PREDICT, help=f"Ollama max generated tokens (default: {DEFAULT_LLM_NUM_PREDICT})")
+    parser.add_argument("--llm-temperature", type=float, default=DEFAULT_LLM_TEMPERATURE, help=f"Ollama temperature (default: {DEFAULT_LLM_TEMPERATURE})")
+    parser.add_argument("--llm-keep-alive", default=DEFAULT_LLM_KEEP_ALIVE, help=f"Ollama keep_alive (default: {DEFAULT_LLM_KEEP_ALIVE})")
     args = parser.parse_args()
 
     try:
@@ -215,6 +321,32 @@ def main() -> int:
             root,
         )
         print(f"Report written: {report_path}")
+
+    if args.llm_triage:
+        llm_text = _run_llm_audit_triage(
+            root,
+            syntax_errors,
+            actionable_hits,
+            allowlisted_hits,
+            args.llm_limit,
+            args.ollama_url,
+            args.llm_model,
+            args.llm_timeout,
+            args.llm_num_predict,
+            args.llm_temperature,
+            args.llm_keep_alive,
+        )
+        llm_section = (
+            "\n\n---\n\n## Local LLM Advisory Audit Triage\n\n"
+            "This section is advisory only. Deterministic syntax and placeholder checks own pass/fail.\n\n"
+            + llm_text
+            + "\n"
+        )
+        if args.report:
+            with open(report_path, "a", encoding="utf-8") as f:
+                f.write(llm_section)
+        else:
+            print(llm_section)
 
     if args.fail_on_syntax and syntax_errors:
         return 2

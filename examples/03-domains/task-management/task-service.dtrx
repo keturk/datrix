@@ -242,7 +242,7 @@ service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), desc
             // Update project task counts when task is completed
             if (newStatus == TaskStatus.Done) {
                 try {
-                    let JSON project = ProjectService.ProjectAPI.get(#"/internal/{projectId}");
+                    let Project project = ProjectService.ProjectAPI.get.projectByIdInternal(projectId);
                     Log.info("Task completed for project", { projectId: projectId, taskId: taskId });
                 } catch (Exception e) {
                     Log.error(#"Failed to update project counts: {e}");
@@ -418,11 +418,11 @@ service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), desc
             let UUID reporterId = Auth.user().id;
 
             // Verify project exists
-            let JSON project = ProjectService.ProjectAPI.get(#"/internal/{request.projectId}");
+            let Project project = ProjectService.ProjectAPI.get.projectByIdInternal(request.projectId);
 
             // Verify assignee if provided
             if (request.assigneeId != null) {
-                let JSON assignee = UserService.UserAPI.get(#"/internal/{request.assigneeId}");
+                let User assignee = UserService.UserAPI.get.userByIdInternal(request.assigneeId);
             }
 
             let Task task = taskDb.Task.create({
@@ -507,7 +507,7 @@ service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), desc
             let Task task = taskDb.Task.findOrFail(id);
 
             // Verify assignee exists
-            let JSON assignee = UserService.UserAPI.get(#"/internal/{request.assigneeId}");
+            let User assignee = UserService.UserAPI.get.userByIdInternal(request.assigneeId);
 
             task.assigneeId = request.assigneeId;
             task.save();
@@ -660,7 +660,7 @@ service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), desc
 
         // Internal endpoint
         @path('/service/:id')
-        get(UUID id) : access(Service), hidden -> taskDb.Task {
+        get taskByIdInternal(UUID id) : access(Service), hidden, idempotent -> taskDb.Task {
             return taskDb.Task.findOrFail(id);
         }
 

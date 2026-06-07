@@ -93,6 +93,14 @@ config service ecommerce.OrderService {
           }
         }
       }
+      dependencyPolicy {
+        defaults {
+          service {
+            availability = "required";
+            health = "ready";
+          }
+        }
+      }
     }
   }
 

@@ -1,6 +1,6 @@
 ---
 description: Analyze project bug reports, classify as app-definition or generator-level, fix root causes, and update reports with resolution
-model: opus
+model: claude-sonnet-4-6
 ---
 
 # Fix Bug Report

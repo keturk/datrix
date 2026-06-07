@@ -522,7 +522,7 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
                 if (rule.deviceId != null) {
                     targetDeviceIds.push(rule.deviceId);
                 } else if (rule.deviceGroupId != null) {
-                    let Array<JSON> members = DeviceService.DeviceAPI.get('/by-group/:groupId', rule.deviceGroupId);
+                    let Array<Device> members = DeviceService.DeviceAPI.get.devicesByGroup(rule.deviceGroupId);
                     foreach member in members {
                         targetDeviceIds.push(member.id);
                     }

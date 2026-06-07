@@ -36,6 +36,30 @@
 .PARAMETER Dbg
  Enable debug logging.
 
+.PARAMETER LlmSummary
+ Append an advisory local LLM triage summary.
+
+.PARAMETER LlmLimit
+ Maximum failure groups to include in the advisory LLM summary. Default: 10.
+
+.PARAMETER OllamaUrl
+ Ollama server URL for advisory LLM summary.
+
+.PARAMETER LlmModel
+ Local LLM model for advisory summary.
+
+.PARAMETER LlmTimeout
+ Ollama request timeout in seconds for advisory summary.
+
+.PARAMETER LlmNumPredict
+ Ollama max generated tokens for advisory summary.
+
+.PARAMETER LlmTemperature
+ Ollama temperature for advisory summary.
+
+.PARAMETER LlmKeepAlive
+ Ollama keep_alive value for advisory summary.
+
 .EXAMPLE
  .\triage-failures.ps1 "D:\datrix\.generated\.results\generate-results-20260503-172334.log"
  Parse generation log and group failures.
@@ -62,7 +86,31 @@ param(
  [string]$OutputFile = "",
 
  [Parameter()]
- [switch]$Dbg
+ [switch]$Dbg,
+
+ [Parameter()]
+ [switch]$LlmSummary,
+
+ [Parameter()]
+ [int]$LlmLimit = 10,
+
+ [Parameter()]
+ [string]$OllamaUrl = "http://10.94.0.100:11434",
+
+ [Parameter()]
+ [string]$LlmModel = "qwen3-coder:30b-ctx32k",
+
+ [Parameter()]
+ [int]$LlmTimeout = 180,
+
+ [Parameter()]
+ [int]$LlmNumPredict = 4096,
+
+ [Parameter()]
+ [double]$LlmTemperature = 0.1,
+
+ [Parameter()]
+ [string]$LlmKeepAlive = "10m"
 )
 
 # Error handling - ensure cleanup on exit
@@ -119,6 +167,18 @@ try {
  if ($Format) { $pythonArgs += "--format"; $pythonArgs += $Format }
  if ($OutputFile) { $pythonArgs += "--output"; $pythonArgs += $OutputFile }
  if ($Dbg) { $pythonArgs += "--debug" }
+ if ($LlmSummary) {
+  $pythonArgs += @(
+   "--llm-summary",
+   "--llm-limit", $LlmLimit,
+   "--ollama-url", $OllamaUrl,
+   "--llm-model", $LlmModel,
+   "--llm-timeout", $LlmTimeout,
+   "--llm-num-predict", $LlmNumPredict,
+   "--llm-temperature", $LlmTemperature,
+   "--llm-keep-alive", $LlmKeepAlive
+  )
+ }
 
  # Run the Python script
  & $pythonExe @pythonArgs

@@ -517,7 +517,7 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
 
         post(ScheduleAppointmentRequest request) -> appointmentDb.Appointment {
             // Cross-service call to validate the patient exists and is active
-            let Boolean patientValid = PatientService.PatientAPI.post('/internal/validate', { patientId: request.patientId });
+            let Boolean patientValid = PatientService.PatientAPI.post.validatePatient({ patientId: request.patientId });
             if (!patientValid) {
                 throw ValidationException("Patient not found or inactive");
             }
@@ -714,12 +714,12 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
         }
 
         @path('/service/:id')
-        get(UUID id) : access(Service), hidden -> appointmentDb.Appointment {
+        get appointmentByIdInternal(UUID id) : access(Service), hidden, idempotent -> appointmentDb.Appointment {
             return appointmentDb.Appointment.findOrFail(id);
         }
 
         @path('/service/patient/:patientId')
-        get(UUID patientId) : access(Service), hidden -> Array<appointmentDb.Appointment> {
+        get appointmentsByPatientInternal(UUID patientId) : access(Service), hidden, idempotent -> Array<appointmentDb.Appointment> {
             return appointmentDb.Appointment
             .where(patientId: patientId)
             .orderBy(scheduledAt: desc)
@@ -730,7 +730,7 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
         // Cross-service call in a helper function
         fn sendAppointmentConfirmation(appointmentDb.Appointment appointment) {
             try {
-                let JSON patient = PatientService.PatientAPI.get('/internal/:id', appointment.patientId);
+                let Patient patient = PatientService.PatientAPI.get.patientByIdInternal(appointment.patientId);
 
                 if (patient.email != null) {
                     Email.send({
@@ -759,7 +759,7 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
 
         fn sendCancellationNotification(appointmentDb.Appointment appointment) {
             try {
-                let JSON patient = PatientService.PatientAPI.get('/internal/:id', appointment.patientId);
+                let Patient patient = PatientService.PatientAPI.get.patientByIdInternal(appointment.patientId);
 
                 if (patient.email != null) {
                     Email.send({
@@ -805,7 +805,7 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
             let Int sentCount = 0;
             foreach appointment in upcomingAppointments {
                 try {
-                    let JSON patient = PatientService.PatientAPI.get('/internal/:id', appointment.patientId);
+                    let Patient patient = PatientService.PatientAPI.get.patientByIdInternal(appointment.patientId);
 
                     if (patient.email != null) {
                         Email.send({

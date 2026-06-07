@@ -297,7 +297,7 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
             // Create individual entries
             foreach entry in request.entries {
                 // Look up employee department for reporting
-                let JSON employee = EmployeeService.EmployeeAPI.get(#"/internal/{entry.employeeId}");
+                let Employee employee = EmployeeService.EmployeeAPI.get.employeeByIdInternal(entry.employeeId);
 
                 let Money netPay = entry.grossPay.add(entry.deductions.multiply(-1));
 
@@ -332,7 +332,7 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
 
                     foreach entry in entries {
                         // Verify employee is still active
-                        let JSON employee = EmployeeService.EmployeeAPI.get(#"/internal/{entry.employeeId}");
+                        let Employee employee = EmployeeService.EmployeeAPI.get.employeeByIdInternal(entry.employeeId);
 
                         if (employee.status == "terminated") {
                             Log.warn("Skipping terminated employee in payroll", { employeeId: entry.employeeId });

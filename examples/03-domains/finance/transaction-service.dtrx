@@ -352,7 +352,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
         // Create a single transaction (deposit, withdrawal, payment)
         post(CreateTransactionRequest request) -> txDb.Transaction {
             // Verify account exists and is active via AccountService
-            let JSON account = AccountService.AccountAPI.get(#"/internal/{request.accountId}");
+            let Account account = AccountService.AccountAPI.get.accountByIdInternal(request.accountId);
 
             if (account.status != "active") {
                 throw ValidationException(#"Account is not active. Current status: {account.status}");
@@ -389,8 +389,8 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
         @path('/transfer')
         post(TransferRequest request) -> TransferResponse {
             // Validate both accounts exist and are active
-            let JSON sourceAccount = AccountService.AccountAPI.get(#"/internal/{request.sourceAccountId}");
-            let JSON destAccount = AccountService.AccountAPI.get(#"/internal/{request.destinationAccountId}");
+            let Account sourceAccount = AccountService.AccountAPI.get.accountByIdInternal(request.sourceAccountId);
+            let Account destAccount = AccountService.AccountAPI.get.accountByIdInternal(request.destinationAccountId);
 
             if (sourceAccount.status != "active") {
                 throw ValidationException("Source account is not active");
@@ -552,7 +552,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
 
         // Internal endpoint for cross-service lookups
         @path('/service/by-account/:accountId')
-        get(UUID accountId) : access(Service), hidden -> Array<txDb.Transaction> {
+        get transactionsByAccountInternal(UUID accountId) : access(Service), hidden, idempotent -> Array<txDb.Transaction> {
             return txDb.Transaction
             .where(accountId: accountId)
             .orderBy(createdAt: desc)

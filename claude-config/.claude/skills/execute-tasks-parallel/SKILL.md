@@ -1,6 +1,6 @@
 ---
 description: Execute multiple tasks in parallel — evaluate all tasks for blockers, then delegate each to a separate agent
-model: opus
+model: claude-sonnet-4-6
 disable-model-invocation: true
 delegation-strategy:
   phases:
@@ -9,11 +9,11 @@ delegation-strategy:
       parallelizable: false
       description: "Read all task files, validate dependencies, identify blockers"
     - name: "spawn_agents"
-      model: "opus"
+      model: "claude-sonnet-4-6"
       parallelizable: false
       description: "Spawn one agent per task to implement code changes and run targeted tests"
     - name: "verify_and_gate"
-      model: "opus"
+      model: "claude-sonnet-4-6"
       parallelizable: false
       description: "Run full suite once per package, attribute failures, fix loop, final validation"
 ---
@@ -287,7 +287,7 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
 
 ### Model Selection
 
-- Use `model: "opus"` for code implementation tasks
+- Use `model: "claude-sonnet-4-6"` for code implementation tasks
 - Use `model: "haiku"` for documentation-only tasks
 
 ### Output Format

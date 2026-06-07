@@ -250,7 +250,7 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
         // Schedule a new viewing
         post(ScheduleViewingRequest request) -> viewingDb.Viewing {
             // Verify the listing exists and is active
-            let JSON listing = ListingService.ListingAPI.get(#"/internal/{request.listingId}");
+            let Listing listing = ListingService.ListingAPI.get.listingByIdInternal(request.listingId);
 
             if (listing.status != "active") {
                 throw ValidationException("Cannot schedule a viewing for a non-active listing");

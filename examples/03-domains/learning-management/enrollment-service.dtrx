@@ -233,7 +233,7 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
 
             // Increment course enrollment count
             try {
-                CourseService.CourseAPI.post(#"/internal/{courseId}/increment-enrollment");
+                CourseService.CourseAPI.post.incrementEnrollment(courseId);
             } catch (Exception e) {
                 Log.error(#"Failed to increment enrollment count: {e}");
             }
@@ -272,7 +272,7 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
 
             // Decrement course enrollment count
             try {
-                CourseService.CourseAPI.post(#"/internal/{courseId}/decrement-enrollment");
+                CourseService.CourseAPI.post.decrementEnrollment(courseId);
             } catch (Exception e) {
                 Log.error(#"Failed to decrement enrollment count: {e}");
             }
@@ -377,10 +377,10 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
             let UUID studentId = Auth.user().id;
 
             // Verify student exists and is active
-            let JSON student = StudentService.StudentAPI.get(#"/internal/{studentId}");
+            let Student student = StudentService.StudentAPI.get.studentByIdInternal(studentId);
 
             // Verify course can accept enrollments
-            let Boolean canEnroll = CourseService.CourseAPI.get(#"/internal/{request.courseId}/can-enroll");
+            let Boolean canEnroll = CourseService.CourseAPI.get.canEnroll(request.courseId);
 
             if (!canEnroll) {
                 throw ValidationException({
@@ -635,7 +635,7 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
 
         // Internal endpoint
         @path('/service/:id')
-        get(UUID id) : access(Service), hidden -> enrollmentDb.Enrollment {
+        get enrollmentByIdInternal(UUID id) : access(Service), hidden, idempotent -> enrollmentDb.Enrollment {
             return enrollmentDb.Enrollment.findOrFail(id);
         }
 

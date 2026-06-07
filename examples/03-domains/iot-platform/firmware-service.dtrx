@@ -361,10 +361,10 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
 
             let Int deviceCount = 0;
             if (request.targetDeviceGroupId != null) {
-                let Array<JSON> groupDevices = DeviceService.DeviceAPI.get('/by-group/:groupId', request.targetDeviceGroupId);
+                let Array<Device> groupDevices = DeviceService.DeviceAPI.get.devicesByGroup(request.targetDeviceGroupId);
                 deviceCount = groupDevices.length();
             } else {
-                let Array<JSON> allDevices = DeviceService.DeviceAPI.get('/by-type/:type', "Sensor");
+                let Array<Device> allDevices = DeviceService.DeviceAPI.get.devicesByType(DeviceType.Sensor);
                 deviceCount = allDevices.length();
             }
 

@@ -301,7 +301,7 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
             let Project project = projectDb.Project.findOrFail(id);
 
             // Verify the user exists
-            let JSON user = UserService.UserAPI.get(#"/internal/{request.userId}");
+            let User user = UserService.UserAPI.get.userByIdInternal(request.userId);
 
             // Check if already a member
             let ProjectMember? existing = projectDb.ProjectMember
@@ -396,7 +396,7 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
 
         // Internal endpoint for other services
         @path('/service/:id')
-        get(UUID id) : access(Service), hidden -> projectDb.Project {
+        get projectByIdInternal(UUID id) : access(Service), hidden, idempotent -> projectDb.Project {
             return projectDb.Project.findOrFail(id);
         }
 

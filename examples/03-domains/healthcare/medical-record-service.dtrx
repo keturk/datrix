@@ -692,7 +692,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
 
         post(CreateRecordRequest request) -> medicalRecordDb.MedicalRecord {
             // Cross-service validation
-            let Boolean patientValid = PatientService.PatientAPI.post('/internal/validate', { patientId: request.patientId });
+            let Boolean patientValid = PatientService.PatientAPI.post.validatePatient({ patientId: request.patientId });
             if (!patientValid) {
                 throw ValidationException("Patient not found or inactive");
             }
@@ -700,7 +700,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
             if (request.appointmentId != null) {
                 try {
                     // Verify appointment belongs to this patient
-                    let JSON appointment = AppointmentService.AppointmentAPI.get('/internal/:id', request.appointmentId);
+                    let Appointment appointment = AppointmentService.AppointmentAPI.get.appointmentByIdInternal(request.appointmentId);
                     if (appointment.patientId != request.patientId) {
                         throw ValidationException("Appointment does not belong to this patient");
                     }
@@ -870,7 +870,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
 
         @path('/prescriptions')
         post(CreatePrescriptionRequest request) -> medicalRecordDb.Prescription {
-            let Boolean patientValid = PatientService.PatientAPI.post('/internal/validate', { patientId: request.patientId });
+            let Boolean patientValid = PatientService.PatientAPI.post.validatePatient({ patientId: request.patientId });
             if (!patientValid) {
                 throw ValidationException("Patient not found or inactive");
             }
@@ -957,7 +957,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
         }
 
         @path('/service/patient/:patientId')
-        get(UUID patientId) : access(Service), hidden -> Array<medicalRecordDb.MedicalRecord> {
+        get recordsByPatientInternal(UUID patientId) : access(Service), hidden, idempotent -> Array<medicalRecordDb.MedicalRecord> {
             return medicalRecordDb.MedicalRecord
             .where(patientId: patientId)
             .whereNot(status: RecordStatus.Voided)
@@ -967,9 +967,9 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
         }
 
         @path('/service/from-appointment')
-        post(CreateRecordFromAppointmentRequest request) : access(Service), hidden -> medicalRecordDb.MedicalRecord {
+        post recordFromAppointment(CreateRecordFromAppointmentRequest request) : access(Service), hidden -> medicalRecordDb.MedicalRecord {
             // Cross-service call to get appointment details
-            let JSON appointment = AppointmentService.AppointmentAPI.get('/internal/:id', request.appointmentId);
+            let Appointment appointment = AppointmentService.AppointmentAPI.get.appointmentByIdInternal(request.appointmentId);
 
             return medicalRecordDb.MedicalRecord.create({
                 patientId: appointment.patientId,

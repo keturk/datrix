@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import json
 import logging
 import os
 import re
@@ -50,6 +51,7 @@ if library_dir.exists() and str(library_dir) not in sys.path:
     sys.path.insert(0, str(library_dir))
 
 from shared.venv import get_datrix_root  # noqa: E402
+from shared.ollama_utils import OLLAMA_DEFAULT_URL, call_ollama as _call_ollama  # noqa: E402
 from shared.logging_utils import ColorCodes, colorize  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -131,6 +133,12 @@ SKIP_DIRS: frozenset[str] = frozenset(
 )
 
 PIPELINE_AND_CAPABILITIES_FILENAME = "pipeline-and-capabilities.md"
+DEFAULT_LLM_MODEL = "qwen3-coder:30b-ctx32k"
+DEFAULT_LLM_TIMEOUT_SECONDS = 180
+DEFAULT_LLM_NUM_PREDICT = 4096
+DEFAULT_LLM_TEMPERATURE = 0.1
+DEFAULT_LLM_KEEP_ALIVE = "10m"
+DEFAULT_LLM_FINDING_LIMIT = 25
 
 # ── Callable type aliases for check registry ──
 
@@ -512,6 +520,78 @@ def _print_findings(result: LintResult, verbose: bool) -> None:
         print()
 
 
+def _read_doc_context(path: Path, line_number: int, radius: int = 3) -> str:
+    """Return a compact markdown context excerpt around a finding."""
+    if line_number <= 0:
+        return ""
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+    start = max(1, line_number - radius)
+    end = min(len(lines), line_number + radius)
+    return "\n".join(
+        f"{'>' if idx == line_number else ' '} {idx}: {lines[idx - 1]}"
+        for idx in range(start, end + 1)
+    )
+
+
+def _build_llm_suggest_prompt(result: LintResult, limit: int) -> str:
+    """Build a compact prompt from deterministic docs lint findings."""
+    findings: list[dict[str, object]] = []
+    for idx, finding in enumerate(result.findings[: max(0, limit)], start=1):
+        findings.append({
+            "finding_id": idx,
+            "check": finding.check_name,
+            "file": str(finding.file_path),
+            "line": finding.line_number,
+            "content": finding.content,
+            "deterministic_suggestion": finding.suggestion,
+            "context": _read_doc_context(finding.file_path, finding.line_number),
+        })
+    return "\n".join([
+        "Review these deterministic Datrix documentation lint findings.",
+        "",
+        "For each finding, propose exact replacement text or a small patch-style suggestion grounded in the evidence.",
+        "",
+        "Guardrails:",
+        "- Advisory only. Do not edit files.",
+        "- Do not invent source facts not present in the finding/context.",
+        "- If source evidence is insufficient, say what source file or command should be checked before editing.",
+        "",
+        "Return markdown with columns: finding_id, file, issue, suggested replacement, evidence needed.",
+        "",
+        json.dumps({"findings": findings}, indent=2),
+    ])
+
+
+def _run_llm_suggest(
+    result: LintResult,
+    limit: int,
+    ollama_url: str,
+    model: str,
+    timeout_seconds: int,
+    num_predict: int,
+    temperature: float,
+    keep_alive: str,
+) -> str:
+    """Run advisory local LLM docs suggestions over deterministic findings."""
+    prompt = _build_llm_suggest_prompt(result, limit)
+    response = _call_ollama(
+        "You are a Datrix documentation maintenance assistant. You produce advisory markdown only.",
+        prompt,
+        ollama_url=ollama_url,
+        ollama_model=model,
+        timeout=timeout_seconds,
+        num_predict=num_predict,
+        temperature=temperature,
+        keep_alive=keep_alive,
+    )
+    if response is None:
+        return "LLM docs suggestions failed: Ollama returned no response."
+    return response.strip()
+
+
 # ── Main ──
 
 
@@ -554,6 +634,14 @@ def main() -> int:
         action="store_true",
         help="Enable debug logging.",
     )
+    parser.add_argument("--llm-suggest", action="store_true", help="Append advisory local LLM replacement suggestions")
+    parser.add_argument("--llm-limit", type=int, default=DEFAULT_LLM_FINDING_LIMIT, help=f"Maximum findings to include in LLM suggestions (default: {DEFAULT_LLM_FINDING_LIMIT})")
+    parser.add_argument("--ollama-url", default=OLLAMA_DEFAULT_URL, help=f"Ollama server URL (default: {OLLAMA_DEFAULT_URL})")
+    parser.add_argument("--llm-model", default=DEFAULT_LLM_MODEL, help=f"Local LLM model (default: {DEFAULT_LLM_MODEL})")
+    parser.add_argument("--llm-timeout", type=int, default=DEFAULT_LLM_TIMEOUT_SECONDS, help=f"Ollama timeout seconds (default: {DEFAULT_LLM_TIMEOUT_SECONDS})")
+    parser.add_argument("--llm-num-predict", type=int, default=DEFAULT_LLM_NUM_PREDICT, help=f"Ollama max generated tokens (default: {DEFAULT_LLM_NUM_PREDICT})")
+    parser.add_argument("--llm-temperature", type=float, default=DEFAULT_LLM_TEMPERATURE, help=f"Ollama temperature (default: {DEFAULT_LLM_TEMPERATURE})")
+    parser.add_argument("--llm-keep-alive", default=DEFAULT_LLM_KEEP_ALIVE, help=f"Ollama keep_alive (default: {DEFAULT_LLM_KEEP_ALIVE})")
 
     args = parser.parse_args()
 
@@ -595,6 +683,27 @@ def main() -> int:
             DESIGN_DIR_CHECKS[check_name](design_dir, result)
 
     _print_findings(result, verbose=args.verbose)
+    if args.llm_suggest:
+        print()
+        print("---")
+        print()
+        print("## Local LLM Advisory Docs Suggestions")
+        print()
+        print("This section is advisory only. It does not edit documentation files.")
+        print()
+        if result.findings:
+            print(_run_llm_suggest(
+                result,
+                args.llm_limit,
+                args.ollama_url,
+                args.llm_model,
+                args.llm_timeout,
+                args.llm_num_predict,
+                args.llm_temperature,
+                args.llm_keep_alive,
+            ))
+        else:
+            print("No docs lint findings were available for advisory suggestions.")
 
     return 1 if result.has_failures else 0
 

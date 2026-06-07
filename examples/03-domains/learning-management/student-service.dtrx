@@ -208,13 +208,13 @@ service lms.StudentService('config/student-service.dcfg') : version('1.0.0'), de
 
         // Internal endpoint for other services
         @path('/service/:id')
-        get(UUID id) : access(Service), hidden -> studentDb.Student {
+        get studentByIdInternal(UUID id) : access(Service), hidden, idempotent -> studentDb.Student {
             return studentDb.Student.findOrFail(id);
         }
 
         // Internal endpoint to get multiple students
         @path('/service/bulk')
-        post(Array<UUID> ids) : access(Service), hidden -> Array<studentDb.Student> {
+        post studentsByIdsInternal(Array<UUID> ids) : access(Service), hidden -> Array<studentDb.Student> {
             return studentDb.Student.whereIn(id: ids).all();
         }
 
