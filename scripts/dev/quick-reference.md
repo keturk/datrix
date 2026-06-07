@@ -27,8 +27,9 @@ Generates Datrix projects from `.dtrx` source files. `-Language`/`-L`, `-Runtime
 | **TypeScript validation subset** | `.\dev\generate.ps1 -TestSet typescript-validation -L typescript` | Quick TS validation |
 | **Verbose output** | `.\dev\generate.ps1 -All -L python -VerboseOutput` | Show detailed generation output |
 | **Debug logging** | `.\dev\generate.ps1 -All -L python -Dbg` | Enable DEBUG level logging |
+| **Config profile** | `.\dev\generate.ps1 <source.dtrx> -L python -ConfigProfile production` | Select non-default config profile |
 
-**Parameters:** `-Source` (positional 0), `-Output` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (python\|typescript, output path), `-Runtime`/`-R` (docker-compose\|kubernetes\|azure-container-apps\|azure-app-service\|ecs-fargate\|app-runner, output path), `-Provider`/`-P` (local\|existing\|aws\|azure, output path), `-OutputBase` (default: .generated), `-TestSet` (default: all), `-VerboseOutput`, `-Dbg`
+**Parameters:** `-Source` (positional 0), `-Output` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (python\|typescript, output path), `-Runtime`/`-R` (docker-compose\|kubernetes\|azure-container-apps\|azure-app-service\|ecs-fargate\|app-runner, output path), `-Provider`/`-P` (local\|existing\|aws\|azure, output path), `-ConfigProfile` (config profile for YAML resolution, e.g. test\|development\|production; default: config default), `-OutputBase` (default: .generated), `-TestSet` (default: all), `-VerboseOutput`, `-Dbg`
 
 ### `dev\syntax-checker.ps1`
 
