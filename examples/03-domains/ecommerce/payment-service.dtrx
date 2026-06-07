@@ -144,7 +144,7 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
     }
 
     enqueue ecommerce.OrderService.ProcessPayment(UUID orderId, Money amount, String currency) {
-        let JSON order = ecommerce.OrderService.OrderAPI.get('/internal/:id', orderId);
+        let Order order = ecommerce.OrderService.OrderAPI.get.orderByIdInternal(orderId);
         let UUID customerId = order.customerId;
 
         let Payment payment = paymentDb.Payment.create({

@@ -1,4 +1,10 @@
 config service iot.FirmwareService {
+  template standardServicePolicy() {
+    availability = "required";
+    health = "ready";
+    timeout = 5000;
+  }
+
   base {
     port = 8001;
     flavor = "compose";
@@ -80,6 +86,11 @@ config service iot.FirmwareService {
             initial = "100ms";
             multiplier = 2;
           }
+        }
+      }
+      dependencyPolicy {
+        defaults {
+          service from standardServicePolicy();
         }
       }
     }

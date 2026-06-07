@@ -1,6 +1,6 @@
 ---
 description: Execute implementation tasks from task files — read, implement, verify, mark complete
-model: opus
+model: claude-sonnet-4-6
 disable-model-invocation: true
 delegation-strategy:
   phases:
@@ -9,7 +9,7 @@ delegation-strategy:
       parallelizable: false
       description: "Read task files, validate dependencies, identify quality gates"
     - name: "implement"
-      model: "opus"
+      model: "claude-sonnet-4-6"
       parallelizable: false
       description: "Apply code changes per task specification"
     - name: "verify"
@@ -18,7 +18,7 @@ delegation-strategy:
       max_parallel: 5
       description: "Run targeted tests, fix all failures"
     - name: "quality_gate"
-      model: "opus"
+      model: "claude-sonnet-4-6"
       parallelizable: false
       description: "Run full suite for final validation"
 ---

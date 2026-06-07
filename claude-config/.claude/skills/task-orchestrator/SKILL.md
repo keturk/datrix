@@ -1,6 +1,6 @@
 ---
 description: Fully automated multi-wave task orchestrator with dependency analysis and test gating
-model: opus
+model: claude-sonnet-4-6
 ---
 
 # Task Orchestrator
@@ -299,7 +299,7 @@ For each sub-group, spawn agents in a **single message** (multiple Task tool cal
 
 **Task tool parameters:**
 - `subagent_type: "general-purpose"`
-- `model: "opus"` for code tasks, `"haiku"` for documentation-only tasks
+- `model: "claude-sonnet-4-6"` for code tasks, `"haiku"` for documentation-only tasks
 - `max_turns: 40`
 - Do NOT set `run_in_background: true`
 - `description: "Implement task: {task_id}"`

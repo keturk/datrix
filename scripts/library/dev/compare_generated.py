@@ -14,6 +14,7 @@ From repository root. Default report path: generated-comparison-report.md under 
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -24,6 +25,7 @@ library_dir = Path(__file__).resolve().parent.parent
 if library_dir.exists() and str(library_dir) not in sys.path:
     sys.path.insert(0, str(library_dir))
 
+from shared.ollama_utils import OLLAMA_DEFAULT_URL, call_ollama as _call_ollama
 from shared.venv import get_datrix_root
 
 # Default path exclusions (dirs/files to skip when scanning)
@@ -32,6 +34,12 @@ EXCLUDE_DIRS = frozenset({
     ".pytest_cache", ".mypy_cache", "node_modules", ".venv",
 })
 EXCLUDE_FILE_SUFFIXES = frozenset({".pyc", ".pyo", ".egg-info"})
+DEFAULT_LLM_MODEL = "qwen3-coder:30b-ctx32k"
+DEFAULT_LLM_TIMEOUT_SECONDS = 180
+DEFAULT_LLM_NUM_PREDICT = 4096
+DEFAULT_LLM_TEMPERATURE = 0.1
+DEFAULT_LLM_KEEP_ALIVE = "10m"
+DEFAULT_LLM_FEATURE_LIMIT = 40
 
 # Feature registry: id -> { "name", "patterns", "description" }
 FEATURE_REGISTRY: list[dict[str, Any]] = [
@@ -356,6 +364,127 @@ def write_report(
         f.write("\n")
 
 
+def _build_llm_summary_prompt(
+    current_root: Path,
+    saved_root: Path,
+    by_feature: dict[str, dict[str, list[tuple[str, str, str]]]],
+    by_project: dict[str, dict[str, set[str]]],
+    file_count_current: int,
+    file_count_saved: int,
+    limit: int,
+) -> str:
+    """Build a compact prompt from deterministic generated comparison data."""
+    feature_names = {f["id"]: f["name"] for f in FEATURE_REGISTRY}
+    feature_descriptions = {f["id"]: f.get("description", "") for f in FEATURE_REGISTRY}
+    feature_rows: list[dict[str, object]] = []
+    for fid in [f["id"] for f in FEATURE_REGISTRY]:
+        old_list = by_feature[fid]["old"]
+        new_list = by_feature[fid]["new"]
+        old_projects = sorted({x[0] for x in old_list})
+        new_projects = sorted({x[0] for x in new_list})
+        if old_projects and new_projects:
+            gap = "both"
+        elif old_projects:
+            gap = "only in old"
+        elif new_projects:
+            gap = "only in new"
+        else:
+            gap = "absent"
+        if gap == "both" and len(feature_rows) >= limit:
+            continue
+        feature_rows.append({
+            "id": fid,
+            "name": feature_names.get(fid, fid),
+            "description": feature_descriptions.get(fid, ""),
+            "old_project_count": len(old_projects),
+            "new_project_count": len(new_projects),
+            "gap": gap,
+            "old_example": _one_example_path(old_list),
+            "new_example": _one_example_path(new_list),
+        })
+        if len(feature_rows) >= limit:
+            break
+
+    project_rows: list[dict[str, object]] = []
+    for project_key in sorted(by_project.keys())[:50]:
+        data = by_project[project_key]
+        old_feats = data["old"]
+        new_feats = data["new"]
+        project_rows.append({
+            "project": project_key,
+            "only_old": sorted(old_feats - new_feats),
+            "only_new": sorted(new_feats - old_feats),
+            "both_count": len(old_feats & new_feats),
+        })
+
+    return "\n".join([
+        "Review this deterministic content-level comparison of generated output.",
+        "",
+        "Summarize behavior-facing changes:",
+        "- route/schema/config changes",
+        "- migration/deployment changes",
+        "- likely intentional drift vs suspicious drift",
+        "",
+        "Guardrails:",
+        "- Advisory only; deterministic feature scan remains the source of truth.",
+        "- This is heuristic because it uses feature matches, not full tree diffs.",
+        "- Prefer concrete paths from examples when available.",
+        "",
+        "Return markdown with a concise summary, high-priority suspicious drift, likely intentional changes, and next inspection paths.",
+        "",
+        json.dumps(
+            {
+                "current_root": str(current_root),
+                "saved_root": str(saved_root),
+                "current_text_files": file_count_current,
+                "saved_text_files": file_count_saved,
+                "features": feature_rows,
+                "projects": project_rows,
+            },
+            indent=2,
+        ),
+    ])
+
+
+def _run_llm_summary(
+    current_root: Path,
+    saved_root: Path,
+    by_feature: dict[str, dict[str, list[tuple[str, str, str]]]],
+    by_project: dict[str, dict[str, set[str]]],
+    file_count_current: int,
+    file_count_saved: int,
+    limit: int,
+    ollama_url: str,
+    model: str,
+    timeout_seconds: int,
+    num_predict: int,
+    temperature: float,
+    keep_alive: str,
+) -> str:
+    """Run advisory local LLM summary over deterministic generated comparison."""
+    prompt = _build_llm_summary_prompt(
+        current_root,
+        saved_root,
+        by_feature,
+        by_project,
+        file_count_current,
+        file_count_saved,
+        limit,
+    )
+    response = _call_ollama(
+        "You are a Datrix generated-output comparison reviewer. You produce advisory markdown only.",
+        prompt,
+        ollama_url=ollama_url,
+        ollama_model=model,
+        timeout=timeout_seconds,
+        num_predict=num_predict,
+        temperature=temperature,
+        keep_alive=keep_alive,
+    )
+    if response is None:
+        return "LLM generated comparison summary failed: Ollama returned no response."
+    return response.strip()
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Content-level comparison of .generated vs .generated_saved (purpose-driven report).",
@@ -378,6 +507,14 @@ def main() -> int:
         default=None,
         help="Output Markdown report path (default: <datrix_root>/generated-comparison-report.md)",
     )
+    parser.add_argument("--llm-summary", action="store_true", help="Append advisory local LLM summary to the report")
+    parser.add_argument("--llm-limit", type=int, default=DEFAULT_LLM_FEATURE_LIMIT, help=f"Maximum feature/project rows for LLM summary (default: {DEFAULT_LLM_FEATURE_LIMIT})")
+    parser.add_argument("--ollama-url", default=OLLAMA_DEFAULT_URL, help=f"Ollama server URL (default: {OLLAMA_DEFAULT_URL})")
+    parser.add_argument("--llm-model", default=DEFAULT_LLM_MODEL, help=f"Local LLM model (default: {DEFAULT_LLM_MODEL})")
+    parser.add_argument("--llm-timeout", type=int, default=DEFAULT_LLM_TIMEOUT_SECONDS, help=f"Ollama timeout seconds (default: {DEFAULT_LLM_TIMEOUT_SECONDS})")
+    parser.add_argument("--llm-num-predict", type=int, default=DEFAULT_LLM_NUM_PREDICT, help=f"Ollama max generated tokens (default: {DEFAULT_LLM_NUM_PREDICT})")
+    parser.add_argument("--llm-temperature", type=float, default=DEFAULT_LLM_TEMPERATURE, help=f"Ollama temperature (default: {DEFAULT_LLM_TEMPERATURE})")
+    parser.add_argument("--llm-keep-alive", default=DEFAULT_LLM_KEEP_ALIVE, help=f"Ollama keep_alive (default: {DEFAULT_LLM_KEEP_ALIVE})")
     args = parser.parse_args()
 
     try:
@@ -422,6 +559,29 @@ def main() -> int:
         file_count_current,
         file_count_saved,
     )
+    if args.llm_summary:
+        llm_text = _run_llm_summary(
+            current_root,
+            saved_root,
+            by_feature,
+            by_project,
+            file_count_current,
+            file_count_saved,
+            args.llm_limit,
+            args.ollama_url,
+            args.llm_model,
+            args.llm_timeout,
+            args.llm_num_predict,
+            args.llm_temperature,
+            args.llm_keep_alive,
+        )
+        with open(report_path, "a", encoding="utf-8") as f:
+            f.write(
+                "\n---\n\n## Local LLM Advisory Generated-Diff Summary\n\n"
+                "This section is heuristic and advisory only. The deterministic feature matrix above remains the source of truth.\n\n"
+                + llm_text
+                + "\n"
+            )
     print(f"Report written: {report_path}")
     return 0
 

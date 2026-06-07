@@ -47,10 +47,17 @@ from shared.generated_test_log_writer import GeneratedTestLogWriter
 from shared.aggregate_test_writer import AggregateTestWriter
 from shared.deploy_test_log_writer import DeployTestLogWriter
 from shared.deploy_test_aggregate_writer import DeployTestAggregateWriter
+from shared.ollama_utils import OLLAMA_DEFAULT_URL, call_ollama as _call_ollama
 
 # Global set to track all active subprocesses
 _active_processes = set()
 _process_lock = threading.Lock()
+DEFAULT_LLM_MODEL = "qwen3-coder:30b-ctx32k"
+DEFAULT_LLM_TIMEOUT_SECONDS = 180
+DEFAULT_LLM_NUM_PREDICT = 4096
+DEFAULT_LLM_TEMPERATURE = 0.1
+DEFAULT_LLM_KEEP_ALIVE = "10m"
+DEFAULT_LLM_CLUSTER_LIMIT = 12
 
 
 def register_process(process):
@@ -381,6 +388,126 @@ def get_paths() -> dict[str, Path]:
     "datrix_root": datrix_root,
     "datrix_dir": datrix_dir,
     }
+
+
+def _latest_aggregate_indexes(paths: dict[str, Path], max_files: int = 4) -> list[Path]:
+    """Return newest aggregate-index.json files from generated test results."""
+    root = paths["datrix_root"] / ".generated" / ".test_results"
+    if not root.is_dir():
+        return []
+    candidates = sorted(
+        root.rglob("aggregate-index.json"),
+        key=lambda p: p.stat().st_mtime if p.exists() else 0,
+        reverse=True,
+    )
+    return candidates[:max_files]
+
+
+def _load_aggregate_summary(index_path: Path, limit: int) -> dict[str, Any] | None:
+    """Load a bounded aggregate index summary for LLM triage."""
+    try:
+        data = json.loads(index_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    clusters = data.get("cross_project_clusters", [])
+    suite_clusters = data.get("suite_failure_clusters", [])
+    failed_projects = data.get("failed_projects", [])
+    if not isinstance(clusters, list):
+        clusters = []
+    if not isinstance(suite_clusters, list):
+        suite_clusters = []
+    if not isinstance(failed_projects, list):
+        failed_projects = []
+    return {
+        "aggregate_index": str(index_path),
+        "language": data.get("language"),
+        "platform": data.get("platform"),
+        "total_projects": data.get("total_projects"),
+        "projects_passed": data.get("projects_passed"),
+        "projects_failed": data.get("projects_failed"),
+        "total_counts": data.get("total_counts"),
+        "cross_project_clusters": clusters[:limit],
+        "suite_failure_clusters": suite_clusters[:limit],
+        "failed_projects": failed_projects[:limit],
+    }
+
+
+def _run_llm_post_run_summary(
+    paths: dict[str, Path],
+    failed_steps: list[str],
+    limit: int,
+    ollama_url: str,
+    model: str,
+    timeout_seconds: int,
+    num_predict: int,
+    temperature: float,
+    keep_alive: str,
+) -> str:
+    """Run advisory local LLM summary over latest aggregate test indexes."""
+    summaries = [
+        item
+        for path in _latest_aggregate_indexes(paths)
+        for item in [_load_aggregate_summary(path, limit)]
+        if item is not None
+    ]
+    prompt = "\n".join([
+        "Review this Datrix complete workflow post-run test summary.",
+        "",
+        "Use only aggregate-index.json data and failed step names.",
+        "Summarize:",
+        "- top root causes",
+        "- likely owning generator/template",
+        "- recommended fix order",
+        "- suspected transient failures to ignore or rerun",
+        "",
+        "Guardrails:",
+        "- Advisory only. Do not modify files or decide pass/fail.",
+        "- Never use full logs by default; rely on aggregate indexes and representative cluster metadata.",
+        "- If evidence is insufficient, identify which index/error file to inspect next.",
+        "",
+        json.dumps(
+            {
+                "failed_steps": failed_steps,
+                "aggregate_summaries": summaries,
+            },
+            indent=2,
+        ),
+    ])
+    response = _call_ollama(
+        "You are a Datrix generated-test triage assistant. You produce advisory markdown only.",
+        prompt,
+        ollama_url=ollama_url,
+        ollama_model=model,
+        timeout=timeout_seconds,
+        num_predict=num_predict,
+        temperature=temperature,
+        keep_alive=keep_alive,
+    )
+    if response is None:
+        return "LLM post-run summary failed: Ollama returned no response."
+    return response.strip()
+
+
+def _print_llm_post_run_summary(args: argparse.Namespace, paths: dict[str, Path], failed_steps: list[str]) -> None:
+    """Print an optional advisory LLM post-run summary."""
+    if not getattr(args, "llm_summary", False):
+        return
+    print()
+    print_info("---")
+    print_info("Local LLM Advisory Post-Run Summary")
+    print_info("This section is advisory only. Deterministic workflow results own pass/fail.")
+    text = _run_llm_post_run_summary(
+        paths,
+        failed_steps,
+        args.llm_limit,
+        args.ollama_url,
+        args.llm_model,
+        args.llm_timeout,
+        args.llm_num_predict,
+        args.llm_temperature,
+        args.llm_keep_alive,
+    )
+    print(text, flush=True)
 
 
 def _find_powershell() -> Optional[str]:
@@ -2799,6 +2926,14 @@ Examples:
     )
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging (DEBUG level instead of INFO)")
+    parser.add_argument("--llm-summary", action="store_true", help="Print advisory local LLM post-run summary from aggregate indexes")
+    parser.add_argument("--llm-limit", type=int, default=DEFAULT_LLM_CLUSTER_LIMIT, help=f"Maximum clusters/projects per aggregate index for LLM summary (default: {DEFAULT_LLM_CLUSTER_LIMIT})")
+    parser.add_argument("--ollama-url", default=OLLAMA_DEFAULT_URL, help=f"Ollama server URL (default: {OLLAMA_DEFAULT_URL})")
+    parser.add_argument("--llm-model", default=DEFAULT_LLM_MODEL, help=f"Local LLM model (default: {DEFAULT_LLM_MODEL})")
+    parser.add_argument("--llm-timeout", type=int, default=DEFAULT_LLM_TIMEOUT_SECONDS, help=f"Ollama timeout seconds (default: {DEFAULT_LLM_TIMEOUT_SECONDS})")
+    parser.add_argument("--llm-num-predict", type=int, default=DEFAULT_LLM_NUM_PREDICT, help=f"Ollama max generated tokens (default: {DEFAULT_LLM_NUM_PREDICT})")
+    parser.add_argument("--llm-temperature", type=float, default=DEFAULT_LLM_TEMPERATURE, help=f"Ollama temperature (default: {DEFAULT_LLM_TEMPERATURE})")
+    parser.add_argument("--llm-keep-alive", default=DEFAULT_LLM_KEEP_ALIVE, help=f"Ollama keep_alive (default: {DEFAULT_LLM_KEEP_ALIVE})")
     args = parser.parse_args()
 
     # Validate arguments: when not -All, example_path is required; output_path is derived from config if omitted
@@ -2953,6 +3088,7 @@ Examples:
             for step in failed_steps:
                 print_error(f" [X] {step}")
             print_error("=" * 60)
+            _print_llm_post_run_summary(args, paths, failed_steps)
             return 1
         else:
             print_success("=" * 60)
@@ -2962,6 +3098,7 @@ Examples:
             print_info(f"Finished: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
             print_info(f"Duration: {duration}")
             print_success("=" * 60)
+            _print_llm_post_run_summary(args, paths, failed_steps)
             return 0
     except KeyboardInterrupt:
         print()

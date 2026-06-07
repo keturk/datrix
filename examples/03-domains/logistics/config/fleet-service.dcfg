@@ -86,6 +86,14 @@ config service logistics.FleetService {
           }
         }
       }
+      dependencyPolicy {
+        defaults {
+          service {
+            availability = "required";
+            health = "ready";
+          }
+        }
+      }
     }
   }
 

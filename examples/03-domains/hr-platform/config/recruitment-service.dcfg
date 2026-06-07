@@ -1,4 +1,10 @@
 config service hr.RecruitmentService {
+  template standardServicePolicy() {
+    availability = "required";
+    health = "ready";
+    timeout = 5000;
+  }
+
   base {
     port = 8001;
     flavor = "compose";
@@ -78,6 +84,11 @@ config service hr.RecruitmentService {
             initial = "100ms";
             multiplier = 2;
           }
+        }
+      }
+      dependencyPolicy {
+        defaults {
+          service from standardServicePolicy();
         }
       }
     }

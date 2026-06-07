@@ -23,6 +23,30 @@
 .PARAMETER FailOnPlaceholders
     Exit with non-zero if any placeholder patterns are found (actionable only; allowlisted excluded).
 
+.PARAMETER LlmTriage
+    Append advisory local LLM triage for syntax and placeholder findings.
+
+.PARAMETER LlmLimit
+    Maximum findings to include in advisory LLM triage. Default: 30.
+
+.PARAMETER OllamaUrl
+    Ollama server URL for advisory LLM triage.
+
+.PARAMETER LlmModel
+    Local LLM model for advisory triage.
+
+.PARAMETER LlmTimeout
+    Ollama request timeout in seconds for advisory triage.
+
+.PARAMETER LlmNumPredict
+    Ollama max generated tokens for advisory triage.
+
+.PARAMETER LlmTemperature
+    Ollama temperature for advisory triage.
+
+.PARAMETER LlmKeepAlive
+    Ollama keep_alive value for advisory triage.
+
 .EXAMPLE
     .\audit.ps1 -Report examples-generated-audit-report.md
     Run audit and write markdown report; script prints where the report was written.
@@ -36,7 +60,15 @@ param(
     [string]$OutputBase = ".generated",
     [string]$Report = "",
     [switch]$FailOnSyntax,
-    [switch]$FailOnPlaceholders
+    [switch]$FailOnPlaceholders,
+    [switch]$LlmTriage,
+    [int]$LlmLimit = 30,
+    [string]$OllamaUrl = "http://10.94.0.100:11434",
+    [string]$LlmModel = "qwen3-coder:30b-ctx32k",
+    [int]$LlmTimeout = 180,
+    [int]$LlmNumPredict = 4096,
+    [double]$LlmTemperature = 0.1,
+    [string]$LlmKeepAlive = "10m"
 )
 
 # Show usage when no parameters provided (mimic compile.ps1)
@@ -89,6 +121,18 @@ try {
     }
     if ($FailOnSyntax) { $pyArgs += "--fail-on-syntax" }
     if ($FailOnPlaceholders) { $pyArgs += "--fail-on-placeholders" }
+    if ($LlmTriage) {
+        $pyArgs += @(
+            "--llm-triage",
+            "--llm-limit", $LlmLimit,
+            "--ollama-url", $OllamaUrl,
+            "--llm-model", $LlmModel,
+            "--llm-timeout", $LlmTimeout,
+            "--llm-num-predict", $LlmNumPredict,
+            "--llm-temperature", $LlmTemperature,
+            "--llm-keep-alive", $LlmKeepAlive
+        )
+    }
 
     & $pythonExe $pythonScript @pyArgs
     $exitCode = $LASTEXITCODE

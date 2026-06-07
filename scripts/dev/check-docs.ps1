@@ -30,6 +30,30 @@
 .PARAMETER Dbg
     Enable debug logging.
 
+.PARAMETER LlmSuggest
+    Append advisory local LLM replacement suggestions for deterministic findings.
+
+.PARAMETER LlmLimit
+    Maximum findings to include in advisory LLM suggestions. Default: 25.
+
+.PARAMETER OllamaUrl
+    Ollama server URL for advisory LLM suggestions.
+
+.PARAMETER LlmModel
+    Local LLM model for advisory suggestions.
+
+.PARAMETER LlmTimeout
+    Ollama request timeout in seconds for advisory suggestions.
+
+.PARAMETER LlmNumPredict
+    Ollama max generated tokens for advisory suggestions.
+
+.PARAMETER LlmTemperature
+    Ollama temperature for advisory suggestions.
+
+.PARAMETER LlmKeepAlive
+    Ollama keep_alive value for advisory suggestions.
+
 .EXAMPLE
     .\check-docs.ps1
     Run all checks on all docs directories.
@@ -55,7 +79,31 @@ param(
     [switch]$Detailed,
 
     [Parameter()]
-    [switch]$Dbg
+    [switch]$Dbg,
+
+    [Parameter()]
+    [switch]$LlmSuggest,
+
+    [Parameter()]
+    [int]$LlmLimit = 25,
+
+    [Parameter()]
+    [string]$OllamaUrl = "http://10.94.0.100:11434",
+
+    [Parameter()]
+    [string]$LlmModel = "qwen3-coder:30b-ctx32k",
+
+    [Parameter()]
+    [int]$LlmTimeout = 180,
+
+    [Parameter()]
+    [int]$LlmNumPredict = 4096,
+
+    [Parameter()]
+    [double]$LlmTemperature = 0.1,
+
+    [Parameter()]
+    [string]$LlmKeepAlive = "10m"
 )
 
 $ErrorActionPreference = "Stop"
@@ -115,6 +163,18 @@ try {
     }
     if ($Detailed) { $pyArgs += "--verbose" }
     if ($Dbg) { $pyArgs += "--debug" }
+    if ($LlmSuggest) {
+        $pyArgs += @(
+            "--llm-suggest",
+            "--llm-limit", $LlmLimit,
+            "--ollama-url", $OllamaUrl,
+            "--llm-model", $LlmModel,
+            "--llm-timeout", $LlmTimeout,
+            "--llm-num-predict", $LlmNumPredict,
+            "--llm-temperature", $LlmTemperature,
+            "--llm-keep-alive", $LlmKeepAlive
+        )
+    }
 
     & $pythonExe $pythonScript @pyArgs
     exit $LASTEXITCODE

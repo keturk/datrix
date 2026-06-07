@@ -298,7 +298,7 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
 
         @path('/place')
         post(PlaceOrderRequest request) -> orderDb.Order {
-            let JSON restaurant = RestaurantService.RestaurantAPI.get('/internal/:id', request.restaurantId);
+            let Restaurant restaurant = RestaurantService.RestaurantAPI.get.restaurantByIdInternal(request.restaurantId);
 
             if (!restaurant.isOpen) {
                 throw ValidationException({
@@ -315,7 +315,7 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
             }
 
             let Array<UUID> itemIds = request.items.map(i => i.menuItemId);
-            let Array<JSON> menuItems = MenuService.MenuAPI.post('/internal/items', itemIds);
+            let Array<MenuItem> menuItems = MenuService.MenuAPI.post.menuItemsByIds(itemIds);
 
             let Order order = orderDb.Order.create({
                 orderNumber: generateOrderNumber(),
@@ -429,7 +429,7 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('1.0.0'
         }
 
         @path('/service/:id')
-        get(UUID id) : access(Service), hidden -> orderDb.Order {
+        get orderByIdInternal(UUID id) : access(Service), hidden, idempotent -> orderDb.Order {
             return orderDb.Order.findOrFail(id);
         }
 

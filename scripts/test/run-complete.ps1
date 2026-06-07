@@ -69,6 +69,30 @@
 .PARAMETER Dbg
  Alias for -DebugLogging. Enable debug logging (DEBUG level instead of INFO).
 
+.PARAMETER LlmSummary
+ Print advisory local LLM post-run summary from aggregate indexes.
+
+.PARAMETER LlmLimit
+ Maximum clusters/projects per aggregate index for advisory LLM summary. Default: 12.
+
+.PARAMETER OllamaUrl
+ Ollama server URL for advisory LLM summary.
+
+.PARAMETER LlmModel
+ Local LLM model for advisory summary.
+
+.PARAMETER LlmTimeout
+ Ollama request timeout in seconds for advisory summary.
+
+.PARAMETER LlmNumPredict
+ Ollama max generated tokens for advisory summary.
+
+.PARAMETER LlmTemperature
+ Ollama temperature for advisory summary.
+
+.PARAMETER LlmKeepAlive
+ Ollama keep_alive value for advisory summary.
+
 .EXAMPLE
  .\run-complete.ps1 "examples/02-features/01-core-data-modeling/entities/system.dtrx" -L python
  Runs the complete workflow; output path is derived by run_complete.py from test-projects.json.
@@ -157,7 +181,15 @@ param(
  [switch]$Skip5,
  [switch]$FreshBuild,
  [Alias("Dbg")]
- [switch]$DebugLogging
+ [switch]$DebugLogging,
+ [switch]$LlmSummary,
+ [int]$LlmLimit = 12,
+ [string]$OllamaUrl = "http://10.94.0.100:11434",
+ [string]$LlmModel = "qwen3-coder:30b-ctx32k",
+ [int]$LlmTimeout = 180,
+ [int]$LlmNumPredict = 4096,
+ [double]$LlmTemperature = 0.1,
+ [string]$LlmKeepAlive = "10m"
 )
 
 # Color output functions
@@ -437,6 +469,18 @@ if ($Rerun) {
   }
    if ($DebugLogging) { $singleArgs += "--debug" }
   if ($VerboseOutput) { $singleArgs += "--verbose" }
+  if ($LlmSummary) {
+   $singleArgs += @(
+    "--llm-summary",
+    "--llm-limit", $LlmLimit,
+    "--ollama-url", $OllamaUrl,
+    "--llm-model", $LlmModel,
+    "--llm-timeout", $LlmTimeout,
+    "--llm-num-predict", $LlmNumPredict,
+    "--llm-temperature", $LlmTemperature,
+    "--llm-keep-alive", $LlmKeepAlive
+   )
+  }
 
   Write-Info "Running: $pythonExe -u $($singleArgs -join ' ')"
   Write-Info ""
@@ -560,6 +604,18 @@ if ($DebugLogging) {
 }
 if ($VerboseOutput) {
  $pythonArgs += "--verbose"
+}
+if ($LlmSummary) {
+ $pythonArgs += @(
+  "--llm-summary",
+  "--llm-limit", $LlmLimit,
+  "--ollama-url", $OllamaUrl,
+  "--llm-model", $LlmModel,
+  "--llm-timeout", $LlmTimeout,
+  "--llm-num-predict", $LlmNumPredict,
+  "--llm-temperature", $LlmTemperature,
+  "--llm-keep-alive", $LlmKeepAlive
+ )
 }
 
 # Set environment variable for fresh build mode (deploy tests will use --no-cache)

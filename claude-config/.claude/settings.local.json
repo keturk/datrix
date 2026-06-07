@@ -53,7 +53,8 @@
       "PowerShell(git -C d:\\\\datrix\\\\datrix diff --stat)",
       "PowerShell(git -C d:\\\\datrix\\\\datrix diff)",
       "PowerShell(git -C d:\\\\datrix\\\\datrix-codegen-common diff --stat)",
-      "PowerShell(git -C d:\\\\datrix\\\\datrix-codegen-common diff)"
+      "PowerShell(git -C d:\\\\datrix\\\\datrix-codegen-common diff)",
+      "PowerShell(Get-ChildItem \"D:\\\\datrix\\\\datrix-codegen-python\\\\.test_results\" -Directory | Sort-Object Name | Select-Object -Last 1 | ForEach-Object { Get-Content \\(Join-Path $_.FullName \"full.log\"\\) | Select-Object -Last 12 })"
     ],
     "additionalDirectories": [
       "d:\\datrix\\$repo\\tests",

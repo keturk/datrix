@@ -12,11 +12,18 @@ Usage:
 
 import argparse
 import io
+import json
 import re
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
+
+library_dir = Path(__file__).resolve().parent.parent
+if library_dir.exists() and str(library_dir) not in sys.path:
+    sys.path.insert(0, str(library_dir))
+
+from shared.ollama_utils import OLLAMA_DEFAULT_URL, call_ollama as _call_ollama  # noqa: E402
 
 # Configure UTF-8 encoding for stdout/stderr on Windows
 if sys.platform == "win32":
@@ -24,6 +31,13 @@ if sys.platform == "win32":
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
+DEFAULT_LLM_MODEL = "qwen3-coder:30b-ctx32k"
+DEFAULT_LLM_TIMEOUT_SECONDS = 180
+DEFAULT_LLM_NUM_PREDICT = 4096
+DEFAULT_LLM_TEMPERATURE = 0.1
+DEFAULT_LLM_KEEP_ALIVE = "10m"
+DEFAULT_LLM_GROUP_LIMIT = 10
 
 
 @dataclass
@@ -294,6 +308,108 @@ def generate_report(
     return "\n".join(lines)
 
 
+def _failure_excerpt(failure: Failure, max_lines: int = 18) -> str:
+    """Return a compact representative traceback/log excerpt."""
+    lines = [line for line in failure.traceback_lines if line.strip()]
+    if not lines:
+        return failure.error_message[:1200]
+    return "\n".join(lines[:max_lines])[:3000]
+
+
+def _build_llm_triage_prompt(
+    log_path: str,
+    format_name: str,
+    failures: list[Failure],
+    groups: dict[str, list[Failure]],
+    limit: int,
+) -> str:
+    """Build a compact prompt from deterministic triage groups."""
+    sorted_groups = sorted(groups.items(), key=lambda kv: len(kv[1]), reverse=True)
+    payload: list[dict[str, object]] = []
+    for group_id, (key, group_failures) in enumerate(sorted_groups[: max(0, limit)], start=1):
+        representative = group_failures[0]
+        payload.append({
+            "group_id": group_id,
+            "root_cause_key": key,
+            "failure_count": len(group_failures),
+            "priority": priority_label(key, len(group_failures)),
+            "representative": {
+                "test_id": representative.test_id,
+                "error_type": representative.error_type,
+                "error_message": representative.error_message,
+                "file_path": representative.file_path,
+                "excerpt": _failure_excerpt(representative),
+            },
+            "affected": [
+                f.test_id or f.error_message or "(unknown)"
+                for f in group_failures[:12]
+            ],
+        })
+
+    return "\n".join([
+        "Review this deterministic failure triage summary for Datrix.",
+        "",
+        "For each group, provide:",
+        "- probable root cause",
+        "- first files or generated artifacts to inspect",
+        "- category: codegen, template, runtime, test, deploy, or environment",
+        "- concise next command to run",
+        "",
+        "Guardrails:",
+        "- Advisory only. Do not edit files.",
+        "- Deterministic group IDs and counts are the source of truth.",
+        "- Use only the summary and representative excerpts below.",
+        "- If evidence is insufficient, say what should be inspected next.",
+        "",
+        "Return markdown with an overall summary and a table by group_id.",
+        "",
+        json.dumps(
+            {
+                "log_path": log_path,
+                "format": format_name,
+                "total_failures": len(failures),
+                "distinct_groups": len(groups),
+                "groups": payload,
+            },
+            indent=2,
+        ),
+    ])
+
+
+def _run_llm_triage(
+    log_path: str,
+    format_name: str,
+    failures: list[Failure],
+    groups: dict[str, list[Failure]],
+    limit: int,
+    ollama_url: str,
+    model: str,
+    timeout_seconds: int,
+    num_predict: int,
+    temperature: float,
+    keep_alive: str,
+) -> str:
+    """Run advisory local LLM triage over deterministic failure groups."""
+    prompt = _build_llm_triage_prompt(log_path, format_name, failures, groups, limit)
+    system_prompt = (
+        "You are a Datrix failure triage assistant. You do not modify files or "
+        "decide pass/fail. You produce advisory markdown only."
+    )
+    response = _call_ollama(
+        system_prompt,
+        prompt,
+        ollama_url=ollama_url,
+        ollama_model=model,
+        timeout=timeout_seconds,
+        num_predict=num_predict,
+        temperature=temperature,
+        keep_alive=keep_alive,
+    )
+    if response is None:
+        return "LLM triage failed: Ollama returned no response."
+    return response.strip()
+
+
 def main() -> int:
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -304,6 +420,14 @@ def main() -> int:
     parser.add_argument("--format", choices=["pytest", "generate", "deploy"], default="", help="Force parser format")
     parser.add_argument("--output", "-o", default="", help="Write report to file (Markdown)")
     parser.add_argument("--debug", action="store_true", help="Enable debug output")
+    parser.add_argument("--llm-summary", action="store_true", help="Append advisory local LLM triage summary")
+    parser.add_argument("--llm-limit", type=int, default=DEFAULT_LLM_GROUP_LIMIT, help=f"Maximum failure groups to include in LLM summary (default: {DEFAULT_LLM_GROUP_LIMIT})")
+    parser.add_argument("--ollama-url", default=OLLAMA_DEFAULT_URL, help=f"Ollama server URL (default: {OLLAMA_DEFAULT_URL})")
+    parser.add_argument("--llm-model", default=DEFAULT_LLM_MODEL, help=f"Local LLM model (default: {DEFAULT_LLM_MODEL})")
+    parser.add_argument("--llm-timeout", type=int, default=DEFAULT_LLM_TIMEOUT_SECONDS, help=f"Ollama timeout seconds (default: {DEFAULT_LLM_TIMEOUT_SECONDS})")
+    parser.add_argument("--llm-num-predict", type=int, default=DEFAULT_LLM_NUM_PREDICT, help=f"Ollama max generated tokens (default: {DEFAULT_LLM_NUM_PREDICT})")
+    parser.add_argument("--llm-temperature", type=float, default=DEFAULT_LLM_TEMPERATURE, help=f"Ollama temperature (default: {DEFAULT_LLM_TEMPERATURE})")
+    parser.add_argument("--llm-keep-alive", default=DEFAULT_LLM_KEEP_ALIVE, help=f"Ollama keep_alive (default: {DEFAULT_LLM_KEEP_ALIVE})")
 
     args = parser.parse_args()
 
@@ -341,6 +465,25 @@ def main() -> int:
 
     # Generate report
     report = generate_report(str(log_path), format_name, failures, groups)
+    if args.llm_summary:
+        llm_text = _run_llm_triage(
+            str(log_path),
+            format_name,
+            failures,
+            groups,
+            args.llm_limit,
+            args.ollama_url,
+            args.llm_model,
+            args.llm_timeout,
+            args.llm_num_predict,
+            args.llm_temperature,
+            args.llm_keep_alive,
+        )
+        report += (
+            "\n\n---\n\n## Local LLM Advisory Triage\n\n"
+            "This section is advisory only. Deterministic failure groups remain the source of truth.\n\n"
+            + llm_text
+        )
 
     # Output
     if args.output:

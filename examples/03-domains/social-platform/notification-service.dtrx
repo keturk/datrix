@@ -123,7 +123,7 @@ service social.NotificationService('config/notification-service.dcfg') : version
             Log.info("Creating notification for new comment", { commentId: commentId, postId: postId });
 
             // Look up the post to notify the post author
-            let JSON post = PostService.PostAPI.get(#"/internal/{postId}");
+            let Post post = PostService.PostAPI.get.postByIdInternal(postId);
             let UUID postAuthorId = post.authorId;
 
             // Don't notify yourself
@@ -155,7 +155,7 @@ service social.NotificationService('config/notification-service.dcfg') : version
         on PostLiked(UUID postId, UUID userId) {
             Log.info("Creating notification for post like", { postId: postId, userId: userId });
 
-            let JSON post = PostService.PostAPI.get(#"/internal/{postId}");
+            let Post post = PostService.PostAPI.get.postByIdInternal(postId);
             let UUID postAuthorId = post.authorId;
 
             // Don't notify yourself
@@ -217,7 +217,7 @@ service social.NotificationService('config/notification-service.dcfg') : version
 
             if (prefs == null || prefs.followNotifications) {
                 // Get the follower's info
-                let JSON follower = UserService.UserAPI.get(#"/internal/{followerId}");
+                let User follower = UserService.UserAPI.get.userByIdInternal(followerId);
 
                 let Notification notification = notificationDb.Notification.create({
                     userId: followeeId,

@@ -171,13 +171,13 @@ service taskapp.UserService('config/user-service.dcfg') : version('1.0.0'), desc
 
         // Internal endpoint for other services
         @path('/service/:id')
-        get(UUID id) : access(Service), hidden -> userDb.User {
+        get userByIdInternal(UUID id) : access(Service), hidden, idempotent -> userDb.User {
             return userDb.User.findOrFail(id);
         }
 
         // Internal endpoint to get multiple users
         @path('/service/bulk')
-        post(Array<UUID> ids) : access(Service), hidden -> Array<userDb.User> {
+        post usersByIds(Array<UUID> ids) : access(Service), hidden -> Array<userDb.User> {
             return userDb.User.whereIn(id: ids).all();
         }
 

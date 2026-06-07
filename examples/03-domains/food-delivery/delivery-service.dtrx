@@ -221,7 +221,7 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
                 restaurantId: restaurantId
             });
 
-            let JSON restaurant = OrderService.OrderAPI.get('/internal/:id', orderId);
+            let Order restaurant = OrderService.OrderAPI.get.orderByIdInternal(orderId);
 
             let Delivery delivery = deliveryDb.Delivery.create({
                 deliveryCode: generateDeliveryCode(),

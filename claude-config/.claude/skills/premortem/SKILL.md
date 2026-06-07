@@ -1,6 +1,6 @@
 ---
 description: Runs a premortem on any plan, launch, product, hire, strategy, or decision. Assumes it already failed 6 months later and works backward to find every reason why. Produces a revised plan with blind spots exposed.
-model: opus
+model: claude-sonnet-4-6
 delegation-strategy:
   phases:
     - name: "context_gathering"

@@ -1,6 +1,6 @@
 ---
 description: Diagnose generated code test failures, trace to codegen root causes, implement fixes, and verify
-model: opus
+model: claude-sonnet-4-6
 delegation-strategy:
   phases:
     - name: "log_parsing"
@@ -9,7 +9,7 @@ delegation-strategy:
       max_parallel: 3
       description: "Parse test failure logs and extract structured failure data"
     - name: "root_cause_analysis"
-      model: "opus"
+      model: "claude-sonnet-4-6"
       parallelizable: false
       description: "Trace failures to codegen source and build causal chains"
     - name: "fix_planning"

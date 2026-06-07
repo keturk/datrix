@@ -590,6 +590,12 @@ healthCheck:
   retries: 3               # 3 consecutive failures = unhealthy
 ```
 
+Deployment probes wire directly to the generated health endpoints:
+- **Liveness probe** → `/live` (process responsiveness only)
+- **Readiness probe** → `/ready` (all required dependencies healthy)
+
+See [Dependency Health and Readiness](#dependency-health-and-readiness) for the full three-endpoint contract.
+
 ### Deployment Strategy
 
 **Rolling update:**
@@ -950,6 +956,94 @@ fallback:
   cacheTtl: 300            # Cache TTL in seconds
   staticValue: null        # For type: static
   defaultValue: {}         # For type: default
+```
+
+### Dependency Resilience Policy
+
+Every `service` dependency that a service issues inter-service calls to requires an **explicit** resilience policy. The generator never synthesizes timeout, circuit-breaker, or bulkhead values. If a called service has no resolved policy, generation fails with `RESILIENCE_POLICY_REQUIRED`.
+
+#### Two-Level Hierarchy
+
+Policy is resolved from two levels — later takes precedence:
+
+1. **Application-level baseline** — `resilience.dependencyPolicy.defaults.service`, declared once in the service `.dcfg` and inherited by every `service` dependency.
+2. **Per-service override** — `resilience.dependencyPolicy.service <Name>`, applied only where one dependency differs from the baseline.
+
+#### `standardServicePolicy()` Template
+
+The recommended starting point for the `service` baseline:
+
+```dcfg
+template standardServicePolicy() {
+  availability = "required";
+  health = "ready";
+  timeout = 5000;
+}
+
+resilience {
+  dependencyPolicy {
+    defaults {
+      service from standardServicePolicy();
+    }
+    service InventoryService {
+      timeout = 2000;        // tighter timeout for one dependency
+    }
+  }
+}
+```
+
+Opting in **by name** keeps values visible in config — they are never inherited silently.
+
+#### Canonical Service Name
+
+Config must use the **canonical resolved service model name** (e.g., `OrderService`, `InventoryService`). A non-canonical or misspelled name is a config error, never silently aliased.
+
+#### Retry Off by Default
+
+Retry stays **off** for service calls unless the target endpoint is marked `idempotent`. Even then, it is bounded by a retry budget and is circuit-breaker-aware. Timeout, circuit breaker, and bulkhead are non-amplifying and stay active within the declared policy.
+
+#### `RESILIENCE_POLICY_REQUIRED`
+
+Triggered when a `service` dependency with calls is covered at **neither** the application baseline nor the per-service override level. The fix is to declare `defaults { service from standardServicePolicy(); }` at the service level, or a per-service block for that specific dependency.
+
+See [config-dsl-reference.md — dependencyPolicy block](../reference/config-dsl-reference.md#dependencypolicy-block) for the full field reference.
+
+### Dependency Health and Readiness {#dependency-health-and-readiness}
+
+Generated services expose three distinct health endpoints:
+
+| Endpoint | Semantics |
+|---|---|
+| `/live` | Process liveness — the service process can respond. No dependency checks. |
+| `/ready` | Readiness — all `required`-availability dependencies are up. Fails 503 when a required dependency is down. |
+| `/health` | Full status — all dependency checks including degraded optional dependencies. |
+
+**Deployment probes point at `/ready` for readiness, `/live` for liveness.** The old single `/health` contract is replaced outright; there are no backward-compatible fields.
+
+#### Readiness and Health Severity
+
+Each dependency's health severity controls how its failure affects the endpoints:
+
+| `health` value | `/ready` on dependency failure | `/health` |
+|---|---|---|
+| `ready` | 503 | unhealthy |
+| `degraded` | 200 (stays ready) | degraded |
+| `degraded` + `readyOnDegraded = false` | 503 (blocks readiness) | degraded |
+| `ignored` | 200 (no check) | omitted |
+
+Use `readyOnDegraded = false` to make a degraded dependency block rollout readiness without marking it fully required.
+
+#### Example `/health` Response
+
+```json
+{
+  "status": "degraded",
+  "service": "order_service",
+  "checks": {
+    "database": {"status": "up", "required": true},
+    "cache.sessionCache": {"status": "down", "required": false, "health": "degraded", "error": "connection refused"}
+  }
+}
 ```
 
 ---

@@ -252,7 +252,7 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
             // When a contract becomes active (sale), mark the listing as under contract
             if (newStatus == ContractStatus.Active) {
                 try {
-                    ListingService.ListingAPI.put(#"/internal/{listingId}/under-contract");
+                    ListingService.ListingAPI.put.markUnderContract(listingId);
                     Log.info("Listing marked as under contract", { listingId: listingId, contractRef: contractRef });
                 } catch (Exception e) {
                     Log.error("Failed to update listing status", { listingId: listingId, error: e });
@@ -309,7 +309,7 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
         // Create a new contract
         post(CreateContractRequest request) -> contractDb.Contract {
             // Verify listing exists and is available
-            let JSON listing = ListingService.ListingAPI.get(#"/internal/{request.listingId}");
+            let Listing listing = ListingService.ListingAPI.get.listingByIdInternal(request.listingId);
 
             if (listing.status != "active") {
                 throw ValidationException("Cannot create a contract for a non-active listing");

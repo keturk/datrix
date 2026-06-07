@@ -493,12 +493,12 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
 
         // Internal endpoint for cross-service lookups
         @path('/service/:id')
-        get(UUID id) : access(Service), hidden -> employeeDb.Employee {
+        get employeeByIdInternal(UUID id) : access(Service), hidden, idempotent -> employeeDb.Employee {
             return employeeDb.Employee.findOrFail(id);
         }
 
         @path('/service/by-number/:employeeNumber')
-        get(String employeeNumber) : access(Service), hidden -> employeeDb.Employee {
+        get employeeByNumberInternal(String employeeNumber) : access(Service), hidden, idempotent -> employeeDb.Employee {
             return employeeDb.Employee.where(employeeNumber: employeeNumber).firstOrFail();
         }
 

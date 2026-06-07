@@ -61,13 +61,13 @@ service library.MemberService('config/member-service.dcfg') : version('1.0.0'), 
 
         // 'internal' restricts this endpoint to service-to-service calls only
         @path('/service/:id')
-        get(UUID id) : access(Service), hidden -> memberDb.Member {
+        get memberById(UUID id) : access(Service), hidden -> memberDb.Member {
             return memberDb.Member.findOrFail(id);
         }
 
         // Internal endpoint returning a struct - exposes only profile fields, not the full entity
         @path('/service/profile/:id')
-        get(UUID id) : access(Service), hidden -> MemberProfile {
+        get memberProfile(UUID id) : access(Service), hidden -> MemberProfile {
             let Member member = memberDb.Member.findOrFail(id);
             return { fullName: member.fullName, email: member.email, membershipType: member.membershipType };
         }

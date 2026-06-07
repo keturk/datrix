@@ -798,6 +798,94 @@ integrations:
 
 ---
 
+## `dependencyPolicy` Block {#dependencypolicy-block}
+
+The `dependencyPolicy` block is nested inside a `resilience { }` block and declares the explicit failure-behavior policy for every dependency that requires one. The generator **never** synthesizes a policy value — every `service` dependency with inter-service calls must be covered or generation fails with `RESILIENCE_POLICY_REQUIRED`.
+
+### Structure
+
+```dcfg
+resilience {
+  dependencyPolicy {
+    defaults {
+      service from standardServicePolicy();   // baseline for all service deps
+      cache {                                  // baseline for all cache deps
+        availability = "required";
+        health = "ready";
+        operations {
+          read   { onFailure = "fallback"; fallback = "sourceOfTruth"; }
+          write  { onFailure = "raise"; }
+          delete { onFailure = "warn"; }
+        }
+      }
+    }
+    service InventoryService {               // per-service override
+      timeout = 2000;
+    }
+    cache sessionCache {                     // per-cache override
+      availability = "optional";
+      health = "degraded";
+    }
+  }
+}
+```
+
+### `defaults` Section
+
+Declares per-kind application-level baselines. Each kind entry is inherited by every dependency of that kind unless a named override exists.
+
+- `service from <template>()` — opt into a named template for the `service` baseline.
+- Named kind blocks (`cache { … }`, `rdbms { … }`, etc.) — inline baseline for that kind.
+
+### Per-Dependency Overrides
+
+Named blocks (`service <Name> { … }` / `cache <Name> { … }`) override the baseline for exactly one dependency. The name must be the **canonical resolved dependency name**:
+- `service` kind → canonical service model name (e.g., `OrderService`)
+- Other kinds → declared name in the DSL block (e.g., `sessionCache`, `orderDb`)
+
+Non-canonical names are a config error, never silently aliased.
+
+### Per-Dependency Fields
+
+| Field | Values | Inherit behavior |
+|---|---|---|
+| `availability` | `required` / `optional` / `degraded` | `None` → inherit baseline |
+| `health` | `live` / `ready` / `degraded` / `ignored` | `None` → inherit baseline (no implicit `ready`) |
+| `readyOnDegraded` | `true` (default) / `false` | `false` makes degraded a readiness blocker |
+| `operations` | Per-operation `onFailure` blocks | Only specified operations overridden |
+
+After merging, the resolved `availability` and `health` must both be non-`None`. If either is missing, generation fails with `RESILIENCE_POLICY_REQUIRED`.
+
+### Operations Block
+
+Each operation entry specifies failure behavior for one database/cache/service operation:
+
+```dcfg
+operations {
+  read   { onFailure = "fallback"; fallback = "sourceOfTruth"; }
+  write  { onFailure = "degrade"; }
+  delete { onFailure = "raise"; }
+  counterIncrement { onFailure = "deny"; }
+}
+```
+
+`onFailure` values: `raise` / `deny` / `degrade` / `warn` / `fallback` / `ignore`. The `fallback` field (when `onFailure = "fallback"`) names the fallback source kind (e.g., `"sourceOfTruth"`).
+
+### Validation Diagnostics
+
+| Diagnostic | Cause |
+|---|---|
+| `RESILIENCE_POLICY_REQUIRED` | `service` dependency with calls has no resolved `availability` or `health` |
+| `RESILIENCE_POLICY_INVALID` | Non-canonical dependency name; unsupported operation for kind |
+| `RESILIENCE_RATE_LIMIT_COUNTER` | Rate-limit counter set to `degrade`/`warn`/`ignore` without `unsafeAllowFailOpen = true` |
+| `RESILIENCE_AUTH_CACHE_DELETE` | Authorization/session cache `delete` set to `warn` without proof stale cache cannot authorize |
+
+### No Grammar Change
+
+The existing named-block parser already accepts `cache <name> { … }` / `service <name> { … }`. No `.dcfg` grammar change is needed to use `dependencyPolicy`.
+
+---
+
 ## Diagnostic Output (Planned)
 
 The ConfigDSL compiler does not write YAML config files during normal generation. A planned diagnostic command will print the resolved canonical dictionary for review, testing, and migration verification:
