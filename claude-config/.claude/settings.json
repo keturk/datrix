@@ -13,6 +13,9 @@
       "PowerShell(powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-python -Keyword \"custom_endpoint_tenantable\" -NoSave)",
       "Read(//d/datrix/**)",
       "PowerShell(& \"d:/datrix/datrix/scripts/test/test-single.ps1\" \"tests/unit/generators/test_common_struct_generation.py\" -Project datrix-codegen-python -Verbose)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\KErca\\.claude"
     ]
   },
   "hooks": {
