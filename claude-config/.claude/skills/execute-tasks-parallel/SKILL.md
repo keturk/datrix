@@ -1,4 +1,4 @@
----
+﻿---
 description: Execute multiple tasks in parallel — evaluate all tasks for blockers, then delegate each to a separate agent
 model: claude-sonnet-4-6
 disable-model-invocation: true
@@ -275,9 +275,9 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
    - Any errors or questions encountered
 
 4. **Handle agent questions immediately:**
-   - If ANY agent returns with questions/ambiguities (status BLOCKED or NEEDS_CONTEXT), use `AskUserQuestion` to relay them to the user
-   - After the user answers, resume the agent with the provided context
-   - Do NOT proceed to quality gate while questions are outstanding
+   - If ANY agent returns with **spec gap or missing user input** (NEEDS_CONTEXT — unclear requirement, missing path, credential): use `AskUserQuestion` to relay to the user; resume the agent after receiving answers; do NOT proceed to quality gate while questions are outstanding
+   - If ANY agent returns with **technical ambiguity** (BLOCKED or NEEDS_CONTEXT with a design choice, conflicting patterns, or unclear root cause): invoke the **Decision Escalation Protocol** — spawn an Opus 4.8 agent to analyze and recommend; resume the implementation agent with Opus's recommendation
+   - If ANY agent returns with a **hard blocker** (BLOCKED due to missing dependency, missing file, incomplete prereq): record the failure, report to user, do not re-attempt
 
 5. **Report progress to user** after all agents have returned (or been resumed and re-completed):
    - Which tasks completed implementation
@@ -459,9 +459,9 @@ For each NEW failure (not already known from agent targeted tests):
 | 2       | task-40-04 | Updated validate_all → validate method call | FAIL — new error |
 
 **Stop conditions:**
-- 3 attempts per attributed task with no progress → mark that task FAILED
-- A fix introduces additional failures → revert the fix attempt, report
-- Fix reveals cascading issues in unrelated subsystems → STOP, report to user
+- **First attempt fails** and root cause is unclear → immediately invoke the **Decision Escalation Protocol** (Opus 4.8 agent with full context: task spec, the failed attempt, exact failures); implement Opus's recommendation; if still failing → mark that task FAILED
+- A fix introduces additional failures → revert the fix attempt immediately, then invoke the **Decision Escalation Protocol** before continuing
+- Fix reveals cascading issues in unrelated subsystems → invoke the **Decision Escalation Protocol** to determine correct fix scope; if Opus recommends stopping → STOP, report to user
 
 #### Step 4: Final Validation
 
@@ -608,6 +608,75 @@ Failed (if any):
 - Task {NN}-{TT}: {Title} — {why}
 ```
 
+## Decision Escalation Protocol
+
+When execution reaches a genuine design or architectural decision — one where multiple valid approaches exist, root cause is unclear after investigation, or the right fix scope is ambiguous — escalate to an Opus 4.8 agent **before** asking the user or marking a task failed.
+
+### When to Escalate
+
+**DO escalate for:**
+- An agent returns BLOCKED or NEEDS_CONTEXT with a **technical ambiguity** (design choice, conflicting patterns, unclear root cause) — not a hard blocker
+- The Phase 3 first fix attempt fails and root cause is unclear
+- A fix introduces additional failures, suggesting a systemic issue
+- Cascading failures across unrelated code — correct scope of fix is unclear
+
+**Do NOT escalate for:**
+- Hard blockers: missing dependency, incomplete prereq task, missing file → STOP and report immediately
+- Simple errors with obvious fixes → fix directly
+- Missing user-supplied input → ask user directly
+
+### How to Escalate
+
+Spawn a subagent via the Agent tool:
+
+```
+subagent_type: "general-purpose"
+model: "opus"
+description: "Opus decision: {brief problem description}"
+```
+
+**Opus agent prompt:**
+```
+You are a senior architect making a high-stakes implementation decision. Do NOT implement — analyze and recommend only.
+
+CONTEXT:
+Task: {task_id} — {title}
+Objective: {what the task was supposed to accomplish}
+
+PROBLEM:
+{exact error, conflict, or ambiguity — be specific}
+
+WHAT WAS TRIED:
+{each fix attempt or approach considered, with outcome}
+
+RELEVANT CODE (key excerpts):
+{file paths and actual code snippets}
+
+YOUR TASK:
+Analyze for long-term correctness. Do NOT suggest workarounds, band-aids, or "good enough for now" solutions. Consider:
+- Root cause (not symptom)
+- Impact on other components
+- Consistency with existing patterns
+- Long-term maintainability
+
+Return:
+1. Root cause analysis (2-3 sentences)
+2. Recommended approach — concrete, step-by-step instructions
+3. Exact files to modify and what changes to make
+4. Why this is the right long-term choice (not the quick fix)
+5. Any risks or prerequisites
+
+Be specific. The implementing agent will follow your recommendation directly.
+```
+
+### After Opus Returns
+
+- Resume with the current model (Sonnet) and implement exactly what Opus recommended
+- Do NOT improvise beyond the recommendation
+- If Opus recommends stopping and asking the user, surface Opus's full analysis as context when asking
+
+---
+
 ## Advantages Over Sequential Execution
 
 - **Speed:** Tasks execute concurrently, reducing wall-clock time
@@ -635,3 +704,4 @@ Use `/execute-tasks` instead if:
 - **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
 - **NO debug scatter** — zero temporary logging statements
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)
+

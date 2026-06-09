@@ -6,7 +6,7 @@ config service hr.RecruitmentService {
   }
 
   base {
-    port = 8001;
+    port = 8003;
     flavor = "compose";
     replicas = 1;
     resources {
