@@ -1,6 +1,6 @@
 # RDBMS Migration Architectural Decisions
 
-**Last Updated:** June 1, 2026
+**Last Updated:** June 8, 2026
 
 This document records the architectural decisions for Datrix incremental RDBMS schema migrations. For API-level documentation see [RDBMS Migration API](../../../datrix-common/docs/architecture/migration.md). For the adapter protocol see [RdbmsMigrationAdapter](../../../datrix-codegen-common/docs/migration-adapter.md).
 
@@ -151,6 +151,42 @@ Reconciliation records that Datrix imported a live snapshot and used it against 
 ## D29: Drift Is a Production Guard and a Pre-Prod Reconcile Path
 
 A per-environment policy selector (default off) splits behavior. **Production** treats drift as a guard: export a live snapshot in the target environment, run `detect_drift` offline against it, and refuse (or loudly warn) when `L` ≠ expected — never auto-reconcile. **Pre-prod** gains the reconcile verbs and the recommended loop (fix generator → regenerate → export live snapshot → `drift --live-snapshot` → `reconcile --adopt` or `--to-desired`). The selector controls whether exported live snapshots are required for the guard/reconcile workflow; it never grants Datrix database connectivity. First-implementation reflector scope is Postgres, MySQL, and MariaDB, with MariaDB routed through the MySQL-family reflector and reverse type map unless real MariaDB catalog tests prove a branch is required (inherits the SQL dialect's MariaDB→MySQL mapping).
+
+---
+
+## Regime-Aware Migration Lifecycle (D30–D34)
+
+The migration engine treats every database as a persistent, append-only one. That assumption is correct for production databases with real data, but actively harmful for pre-production and ephemeral databases whose schema is still being designed and whose instances are routinely wiped. The following decisions introduce a **regime** distinction: when a database is declared disposable or pre-production, schema changes that would normally block generation can trigger an explicit reset-and-rebaseline operation instead, letting agents move fast without corrupting the desired specification.
+
+## D30: Rebaseline (`R := D`) Is a First-Class, Policy-Gated Operation
+
+A new `rebaseline` operation explicitly sets the recorded baseline to the desired schema. It runs no DDL, opens no database connection, and is **refused in `guard` mode**. Rebaseline starts a fresh ledger generation (a new `0001_initial` = `D`) rather than editing any frozen revision, and records `rebaselined_from` provenance containing the prior ledger identity, reason, and timestamp for auditability.
+
+**Rationale:** The wipe-and-redeploy lifecycle has no live schema worth preserving and no persistent migration history to protect. Today's recovery mechanism is a manual, unaudited `rm -rf` of the state directory. Making rebaseline a first-class, gated framework operation replaces that ad-hoc approach with an explicit, audited one that records the decision and the prior state for investigation if needed.
+
+## D31: Generation Is Regime-Aware; the Classifier Is Not Weakened
+
+`generate` resolves the `driftPolicy.mode` for the target block at generation time and dispatches on it at the single `classified.blocked` site in the orchestrator. In `off` and `guard` modes, a blocked diff raises `GenerationError` unchanged. In `reconcile` mode, a blocked diff raises with an actionable message naming both `rebaseline` (wipe regime) and `reconcile --to-desired` (keep regime) as operator choices. In `ephemeral` mode, a blocked diff automatically invokes `rebaseline` (R := D) in-process, logs the action, and continues to render a fresh baseline.
+
+**Rationale:** The `change_policy.classify_diff` classification is the single source of truth for *what* a diff is (baseline / safe / risky / blocked). What changes is the *consequence* of the `blocked` outcome, which is now a regime-dependent dispatch. Safe and risky changes flow through the normal incremental allocate-and-append path in all regimes (no weakening, no early classification shortcuts). This separates "what the change is" (stable, reviewable policy) from "what we do about it in this environment" (regime).
+
+## D32: A Fourth `ephemeral` Mode for Disposable Databases; Blocked-Only Auto-Rebaseline
+
+A new `driftPolicy.mode = "ephemeral"` is added to the configuration model and decision flow. In `ephemeral` mode, auto-rebaseline triggers **only on the `blocked` classification** — the one outcome that breaks generation and requires an explicit decision. Safe and risky diffs continue through the normal incremental allocate-and-append path, identical to `off` mode. Default `driftPolicy.mode` remains `off`; `guard`, `reconcile`, and `ephemeral` semantics are all distinct and explicitly chosen per profile.
+
+**Rationale:** Dev and Docker-local databases are thrown away every run; requiring an explicit `rebaseline` command by hand there is pure friction that slows iteration. Scoping auto-rebaseline to the `blocked` classification keeps the behavior minimal and predictable: additive changes (nullable adds, index adds) still build a clean, replayable incremental chain that applies cleanly to a fresh database, and only an otherwise-fatal destructive block collapses to a fresh `D` baseline. Rebaselining *every* diff would cause unnecessary history churn with no benefit on a database that replays the full chain from empty anyway.
+
+## D33: Pre-Prod Never Auto-Rebaselines; Keep-vs-Wipe Is Operator-Chosen
+
+In `reconcile` mode, generation that would block fails with a message offering exactly two operator choices: `rebaseline` (wipe regime — discard and start from `D`) or `reconcile --to-desired` (keep regime — export live schema `L`, converge with an additive migration from `L → D`). The system does not automatically pick one path over the other.
+
+**Rationale:** Pre-production environments sometimes hold staging data worth keeping to verify a fix (e.g., a full-fidelity test dataset prepared for integration testing). Silently discarding it on the next schema change would be the same class of error as today's silent generation block — the operator lost data without realizing it. By surfacing the choice explicitly and requiring a deliberate action, reconcile mode honors the operator's intent: if the data is disposable, `rebaseline --all` followed by `generate` is two explicit commands; if the data is valuable, `reconcile --to-desired` preserves it with a real, audited migration.
+
+## D34: Rebaseline Provenance Is Recorded, Not Executed (Ledger v3)
+
+When a ledger is rebaselined, it records a top-level `rebaselined_from` field containing metadata about the prior ledger: its hash, the ID of its latest revision, a human-readable reason (from `--reason` CLI flag), and `recorded_at` timestamp. This provenance is written at `LEDGER_VERSION = 3` (`READABLE_LEDGER_VERSIONS = {1,2,3}` in code). Provenance is metadata only — it is never replayed as DDL, never converted to migration operations, and never carries secrets or connection details.
+
+**Rationale:** A reset that leaves no trace is indistinguishable from silent data corruption or a tooling bug. Recording the decision keeps "we deliberately reset `R` to `D` at time T for reason X by operator Y" fully auditable and recoverable for investigation. The v3 bump is a clean additive field independent of 016's already-shipped v2 (`adopted`/`adopt_live_schema`). Reading code writes v3, reads any of {1,2,3}, and a ledger lacking `rebaselined_from` is transparently treated as pre-v3 with no behavior change — the field is entirely optional and its absence does not break anything.
 
 ---
 

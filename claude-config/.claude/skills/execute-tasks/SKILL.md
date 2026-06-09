@@ -1,4 +1,4 @@
----
+﻿---
 description: Execute implementation tasks from task files — read, implement, verify, mark complete
 model: claude-sonnet-4-6
 disable-model-invocation: true
@@ -208,7 +208,9 @@ Process tasks one at a time in dependency order. For each task:
 - Dependencies satisfied: YES (already validated in pre_check)
 - Ambiguities: NONE / {list of questions}
 
-**If ambiguities exist** → STOP, ask questions, WAIT for answers before proceeding to Step 2.
+**If ambiguities exist:**
+- **Spec gap or missing user input** (unclear requirement, missing path, credential) → STOP, ask user, WAIT for answers before proceeding to Step 2
+- **Technical design ambiguity** (conflicting patterns, multiple valid architectural approaches) → invoke the **Decision Escalation Protocol** (Opus 4.8 agent); proceed to Step 2 using Opus's recommendation
 
 #### Step 2: Implement (Write Code)
 
@@ -337,7 +339,7 @@ On abort, report what was completed, what failed, and what cannot proceed.
 <!-- PHASE: verify -->
 ## Phase 3: Verification
 
-For each task (in parallel, up to 5 tasks concurrently), run targeted tests and fix all failures (max 3 attempts per task).
+For each task (in parallel, up to 5 tasks concurrently), run targeted tests and fix all failures. If the first fix attempt fails, escalate immediately to Opus 4.8 (Decision Escalation Protocol).
 
 **Assumes all tests were passing before implementation started.**
 
@@ -401,7 +403,7 @@ For tasks that modified code:
        → verification FAILED, proceed to Step 3 (Fix Failures)
    ```
 
-#### Step 3: Fix All Failures (max 3 attempts)
+#### Step 3: Fix All Failures
 
 If any test failures exist:
 
@@ -428,13 +430,13 @@ If any test failures exist:
    | 3       | {description} | {pass/fail + error} |
 
 4. **Outcomes:**
-   - **If all tests pass within 3 attempts** → verification PASSED
-   - **If tests still failing after 3 attempts** → verification FAILED (proceed to Step 4)
-   - **If a fix introduces additional failures** → STOP immediately, revert the fix attempt, report (do NOT count as successful attempt)
+   - **If the first fix attempt passes** → verification PASSED
+   - **If the first fix attempt fails** → immediately invoke the **Decision Escalation Protocol** (Opus 4.8 agent with full context: task spec, the failed attempt, exact failures); implement Opus's recommendation; if still failing → verification FAILED (proceed to Step 4)
+   - **If a fix introduces additional failures** → revert immediately, then invoke the **Decision Escalation Protocol** before any further attempt
 
-#### Step 4: Verification Failed (if not fixed after 3 attempts)
+#### Step 4: Verification Failed (if Opus-assisted attempt also fails)
 
-If tests still fail after 3 fix attempts:
+If tests still fail after the Opus-assisted attempt:
 
 1. **Do NOT mark the task COMPLETED**
 2. **Update the task file:**
@@ -444,7 +446,7 @@ If tests still fail after 3 fix attempts:
 ```markdown
 ## Why Failed
 
-**Test failures after implementation (not fixed after 3 attempts):**
+**Test failures after implementation (not fixed after Opus-assisted attempt):**
 
 | Attempt | What was tried | Result |
 |---------|---------------|--------|
@@ -631,7 +633,7 @@ Tests: {pass}/{total} passing
 **If FAILED:**
 ```
 CHECKPOINT — Task {NN}-{TT}: {Title}
-Status: FAILED (verification failed after 3 fix attempts)
+Status: FAILED (verification failed after Opus-assisted attempt)
 Files created: {list}
 Files modified: {list}
 Tests: {pass}/{total} passing
@@ -650,7 +652,7 @@ Recommendation: {next steps}
 ### Abort Conditions
 
 STOP immediately if:
-- Working for more than 3 fix attempts on test failures
+- First fix attempt failed and Opus-assisted attempt also failed
 - A fix attempt introduces additional failures
 - Fix reveals cascading issues in unrelated subsystems
 - Test failures appear in a different package than the one being modified
@@ -782,8 +784,78 @@ Failed (if any):
 - Task {NN}-{TT}: {Title} — {why}
 ```
 
+## Decision Escalation Protocol
+
+When execution reaches a genuine design or architectural decision — one where multiple valid approaches exist, root cause is unclear after investigation, or the right fix scope is ambiguous — escalate to an Opus 4.8 agent **before** asking the user or marking the task failed.
+
+### When to Escalate
+
+**DO escalate for:**
+- Step 1 (Understand) surfaces a **technical design ambiguity** — conflicting patterns, unclear architecture, multiple valid approaches with trade-offs
+- Phase 3 first fix attempt fails and root cause of test failures is unclear
+- A fix introduces additional failures, suggesting a systemic root cause
+- The task conflicts with existing architecture in a way requiring architectural judgment
+
+**Do NOT escalate for:**
+- Hard blockers: missing dependency, incomplete prereq task, missing file → STOP and report immediately
+- Simple errors with obvious fixes (typo, wrong import) → fix directly
+- Spec gaps requiring user input → ask user directly
+
+### How to Escalate
+
+Spawn a subagent via the Agent tool:
+
+```
+subagent_type: "general-purpose"
+model: "opus"
+description: "Opus decision: {brief problem description}"
+```
+
+**Opus agent prompt:**
+```
+You are a senior architect making a high-stakes implementation decision. Do NOT implement — analyze and recommend only.
+
+CONTEXT:
+Task: {task_id} — {title}
+Objective: {what the task was supposed to accomplish}
+
+PROBLEM:
+{exact error, conflict, or ambiguity — be specific}
+
+WHAT WAS TRIED:
+{each fix attempt or approach considered, with outcome}
+
+RELEVANT CODE (key excerpts):
+{file paths and actual code snippets}
+
+YOUR TASK:
+Analyze for long-term correctness. Do NOT suggest workarounds, band-aids, or "good enough for now" solutions. Consider:
+- Root cause (not symptom)
+- Impact on other components
+- Consistency with existing patterns
+- Long-term maintainability
+
+Return:
+1. Root cause analysis (2-3 sentences)
+2. Recommended approach — concrete, step-by-step instructions
+3. Exact files to modify and what changes to make
+4. Why this is the right long-term choice (not the quick fix)
+5. Any risks or prerequisites
+
+Be specific. The implementing agent will follow your recommendation directly.
+```
+
+### After Opus Returns
+
+- Implement exactly what Opus recommended with the current model (Sonnet)
+- Do NOT improvise beyond the recommendation
+- If Opus recommends stopping and asking the user, surface Opus's full analysis as context when asking
+
+---
+
 ## Anti-Patterns
 
 - **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
 - **NO debug scatter** — zero temporary logging statements
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)
+

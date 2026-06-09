@@ -1,4 +1,4 @@
----
+﻿---
 description: Fully automated multi-wave task orchestrator with dependency analysis and test gating
 model: claude-sonnet-4-6
 ---
@@ -331,9 +331,11 @@ Wait for all agents in the sub-group to complete before spawning the next sub-gr
 For each returned agent:
 1. Parse the JSON report from the agent's output
 2. Record status: IMPLEMENTED / BLOCKED / NEEDS_CONTEXT / FAILED
-3. If **NEEDS_CONTEXT**: relay questions to user via `AskUserQuestion`, then re-spawn the agent with the answer
-4. If **BLOCKED**: record the reason, add to `failed_tasks`
-5. If **FAILED**: record targeted test failures, add to `failed_tasks`
+3. If **NEEDS_CONTEXT** with a **spec gap or missing user input** (credentials, file path, unclear requirement): relay questions to user via `AskUserQuestion`, then re-spawn the agent with the answer
+4. If **NEEDS_CONTEXT** with a **technical ambiguity** (design choice, conflicting patterns, unclear root cause): invoke the **Decision Escalation Protocol** — spawn an Opus 4.8 agent to analyze and recommend, then re-spawn the implementation agent with Opus's recommendation
+5. If **BLOCKED** with a **technical root cause**: invoke the **Decision Escalation Protocol** before adding to `failed_tasks`
+6. If **BLOCKED** with a **hard blocker** (missing dependency, missing file, incomplete prereq): record the reason, add to `failed_tasks` directly
+7. If **FAILED**: record targeted test failures, add to `failed_tasks`
 
 Emit a brief progress report after all agents in the sub-group complete.
 
@@ -382,25 +384,28 @@ For each failing test **and each erroring module** from the full suite:
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{failing-test-path}"
    ```
    Include `VERIFIED_AGAINST_QUICK_REFERENCE` in the Bash tool description.
-5. **Repeat:** Max 3 fix attempts per attributed task
+5. **If the fix fails:** immediately invoke the **Decision Escalation Protocol** — spawn Opus 4.8 with full context (failing test, root cause hypothesis, code read, what was tried). Implement Opus's recommendation. If it still fails → mark the task FAILED.
 
 **Stop conditions:**
-- 3 attempts with no progress on a task → mark that task FAILED
-- A fix introduces new failures → revert the fix attempt manually (edit back), report
-- Cascading issues in unrelated subsystems → STOP, report
+- **first attempt** with no progress and root cause is unclear → invoke the **Decision Escalation Protocol** (Opus 4.8); if Opus's recommendation also fails → mark that task FAILED
+- A fix introduces new failures → revert the fix attempt manually (edit back), then invoke the **Decision Escalation Protocol** before trying again
+- Cascading issues in unrelated subsystems → invoke the **Decision Escalation Protocol** to determine correct fix scope; if Opus recommends stopping → STOP, report
 
 After fix loop, re-run full suite once to verify no regressions:
 ```bash
 powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
 ```
 
-#### 3f. Handle Failures (Pause & Ask)
+#### 3f. Handle Failures (Escalate then Pause & Ask)
 
-If any task still fails after 3 fix attempts:
+If the first fix attempt fails:
+
+1. **First: invoke the Decision Escalation Protocol** — spawn an Opus 4.8 agent with full context (task spec, all fix attempts, exact failures). Attempt Opus's recommendation once. If it succeeds, proceed normally.
+2. **If Opus's recommendation also fails**: surface to the user with Opus's analysis included as context.
 
 Use `AskUserQuestion` to ask the user:
 ```
-Task {task_id} ({title}) failed after 3 fix attempts.
+Task {task_id} ({title}) — first fix attempt failed.
 
 Failing tests:
 - {test_name}: {error_message}
@@ -473,6 +478,77 @@ All rules from `d:\datrix\.claude\CLAUDE.md` apply. Key rules for the orchestrat
 - **Logic map** — check `d:/datrix/.logic-map/markers.db` before modifying code with markers
 - **Project domain isolation** — no customer/project domain language in framework packages
 
+## Decision Escalation Protocol
+
+When execution reaches a genuine design or architectural decision — one where multiple valid approaches exist, the root cause is unclear after investigation, or the right scope of a fix is ambiguous — escalate to an Opus 4.8 agent **before** pausing for the user or marking a task failed.
+
+### When to Escalate
+
+**DO escalate for:**
+- An agent returns BLOCKED with a technical ambiguity (unclear design choice, conflicting patterns, unknown root cause) — not a hard blocker like a missing file
+- The first fix attempt fails and root cause is unclear
+- Cascading failures suggest a systemic problem where the correct fix scope is uncertain
+- A task's implementation conflicts with existing architecture in a way that requires architectural judgment
+
+**Do NOT escalate for:**
+- Incomplete prerequisite dependencies → STOP immediately, report
+- Simple syntax/import errors with obvious fixes → fix directly
+- Clear spec violations → fix directly
+- Missing user-supplied information (credentials, paths, spec gaps) → ask user directly
+
+### How to Escalate
+
+Spawn a subagent with `model: "opus"`:
+
+```
+Agent tool parameters:
+  subagent_type: "general-purpose"
+  model: "opus"
+  description: "Opus decision: {brief problem description}"
+```
+
+**Opus agent prompt template:**
+```
+You are a senior architect making a high-stakes implementation decision. Do NOT implement — analyze and recommend only.
+
+CONTEXT:
+Task: {task_id} — {title}
+Objective: {what the task was supposed to accomplish}
+
+PROBLEM:
+{exact error, conflict, or ambiguity — be specific}
+
+WHAT WAS TRIED:
+{each fix attempt or approach considered, with outcome}
+
+RELEVANT CODE (key excerpts):
+{file paths and relevant snippets — paste actual code, not descriptions}
+
+YOUR TASK:
+Analyze this problem for long-term correctness. Do NOT suggest workarounds, band-aids, or "good enough for now" solutions. Consider:
+- Root cause (not symptom)
+- Impact on other components
+- Consistency with existing patterns
+- Long-term maintainability
+
+Return:
+1. Root cause analysis (2-3 sentences)
+2. Recommended approach — concrete, step-by-step instructions
+3. Exact files to modify and what changes to make
+4. Why this is the right long-term choice (not the quick fix)
+5. Any risks or prerequisites the implementing agent must know
+
+Be specific. The implementing agent will follow your recommendation directly.
+```
+
+### After Opus Returns
+
+- Resume implementation with the current model (Sonnet)
+- Implement exactly what Opus recommended — do NOT improvise beyond the recommendation
+- If Opus recommends stopping and asking the user, surface Opus's full analysis as context when asking
+
+---
+
 ## Error Recovery
 
 ### Agent crashes or hits max_turns
@@ -492,3 +568,4 @@ All rules from `d:\datrix\.claude\CLAUDE.md` apply. Key rules for the orchestrat
   - Mark failures as FAILED
   - Ask user about continuing (as per 3f)
   - Next wave processes only tasks whose dependencies are all in `completed_tasks`
+
