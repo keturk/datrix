@@ -25,7 +25,6 @@ This directory configures Claude Code for the Datrix project. `CLAUDE.md` define
 | `/troubleshoot-and-fix` | Autonomous diagnose → fix → verify pipeline | Interactive |
 | `/codegen-fix-loop` | Self-correcting iterative fix loop with hard limits | Interactive |
 | `/operationalize-design` | Design doc → decisions → docs → tasks → cleanup | Interactive |
-| `/operationalize-design-v2` | Production-grade design operationalization with review | Interactive |
 | `/execute-tasks` | Execute tasks one at a time with verification | Interactive |
 | `/execute-tasks-parallel` | Execute independent tasks in parallel (no dependency analysis) | Interactive |
 | `/task-orchestrator` | Fully automated multi-wave task execution with dependency analysis | Interactive |
@@ -219,10 +218,6 @@ Apply review artifacts from Tier 1 (local) and Tier 2 (Codex) to task files. Rea
 
 **Key features:** Never double-applies findings, skips unfixable findings requiring design decisions, preserves task file structure.
 
-### `/operationalize-design-v2`
-
-Production-grade design operationalization with review. Enhanced version of `/operationalize-design` with additional quality gates and review steps.
-
 ### `/execute-tasks`
 
 Execute implementation tasks one at a time with verification. Simpler than `/execute-tasks-parallel` and `/task-orchestrator`, suitable for small task sets (1-3 tasks) where you want to see progress one task at a time.
@@ -406,7 +401,6 @@ Skills that support delegation:
     scope/SKILL.md
     checkpoint-debug/SKILL.md
     operationalize-design/SKILL.md
-    operationalize-design-v2/SKILL.md
     execute-tasks/skill.md
     execute-tasks-parallel/skill.md
     task-orchestrator/SKILL.md

@@ -55,7 +55,8 @@
       "PowerShell(git -C d:\\\\datrix\\\\datrix-codegen-common diff --stat)",
       "PowerShell(git -C d:\\\\datrix\\\\datrix-codegen-common diff)",
       "PowerShell(Get-ChildItem \"D:\\\\datrix\\\\datrix-codegen-python\\\\.test_results\" -Directory | Sort-Object Name | Select-Object -Last 1 | ForEach-Object { Get-Content \\(Join-Path $_.FullName \"full.log\"\\) | Select-Object -Last 12 })",
-      "PowerShell($json = Get-Content 'D:\\\\datrix\\\\.projects\\\\curvaero_azure\\\\.datrix\\\\manifests\\\\sql.json' | ConvertFrom-Json; \"Total SQL files: $\\($json.files.Count\\)\"; \"Generated at: $\\($json.generated_at\\)\")"
+      "PowerShell($json = Get-Content 'D:\\\\datrix\\\\.projects\\\\curvaero_azure\\\\.datrix\\\\manifests\\\\sql.json' | ConvertFrom-Json; \"Total SQL files: $\\($json.files.Count\\)\"; \"Generated at: $\\($json.generated_at\\)\")",
+      "Bash(rm -rf \"d:/datrix/.claude/skills/operationalize-design-v2\" \"d:/datrix/datrix/claude-config/.claude/skills/operationalize-design-v2\" && echo \"deleted both\"; ls -d \"d:/datrix/.claude/skills/operationalize-design-v2\" \"d:/datrix/datrix/claude-config/.claude/skills/operationalize-design-v2\" 2>&1)"
     ],
     "additionalDirectories": [
       "d:\\datrix\\$repo\\tests",
@@ -115,7 +116,8 @@
       "D:\\datrix\\datrix-projects\\curvaero\\docs",
       "D:\\datrix\\datrix-projects\\curvaero\\documents\\Market Analysis",
       "d:\\datrix\\datrix-projects\\curvaero\\docs",
-      "d:\\datrix\\.generated\\python\\docker\\02-features\\01-core-data-modeling\\enums\\.test_results\\deploy-test-20260428-225742"
+      "d:\\datrix\\.generated\\python\\docker\\02-features\\01-core-data-modeling\\enums\\.test_results\\deploy-test-20260428-225742",
+      "D:\\datrix\\datrix\\claude-config\\.claude\\skills\\operationalize-design-v2"
     ]
   }
 }
