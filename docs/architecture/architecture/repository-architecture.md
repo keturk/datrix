@@ -121,6 +121,8 @@ Generates Azure infrastructure (Bicep) including App Service (native PaaS runtim
 **Dependencies:**
 - `datrix-common` (AST model, configuration, generation framework, YAML/JSON builders)
 
+> **Language-agnostic provider generators (Design 010).** All four platform generators obtain language-specific runtime details from the `LanguageRuntimeSpec` protocol via `discover_language_runtime_spec(target_language)` — no `Language`-enum branching, no `language_name == "…"` comparisons in application-wiring code. The protocol carries three provider-facing methods alongside the Docker/K8s set: `container_command(service, package_name)` (explicit HTTP-service start command, consumed by Azure App Service; AWS inherits its container `ENTRYPOINT` from the Docker image), `hosts_consumers_in_process()` (whether scheduled-job / event-consumer / queue-worker containers run in-process on Compose/K8s), and `project_language()` (the language's `ProjectLanguage`). The IaC language a provider authors infrastructure in (AWS CDK Python, Azure Bicep) is independent of the generated app's language — AWS pins it in one `_CDK_IAC_LANGUAGE` constant. Shared, language-agnostic provider concerns (runtime-spec discovery helper, `runtime_stack_token` composer, `ObservabilityIntegration` facade over the shared `DashboardBuilder`, and the `PlatformInfrastructure` protocol) live in **`datrix-codegen-platform-common`** (depends on `datrix-common` + `datrix-codegen-common`). The platform discovery seam is the existing `PlatformGenerator` + `datrix.platforms` group — there is no separate `PlatformAdapter` type; `PlatformInfrastructure` is a property on `PlatformGenerator` subclasses. See [Decision 12: Language-Agnostic Provider Generators](../architecture-overview.md#decision-12-language-agnostic-provider-generators).
+
 ---
 
 ### CLI (1)
@@ -185,7 +187,7 @@ Generators and domain extensions load through **setuptools entry-point groups** 
 | `datrix.generators` | Code generators (Python, TypeScript, SQL, component) | `GeneratorPlugin` |
 | `datrix.platforms` | Platform generators (Docker, K8s, AWS, Azure) | `PlatformPlugin` |
 | `datrix.language_hooks` | Post-generation hooks (formatting, validation) | `LanguageHooks` |
-| `datrix.language_runtime_spec` | Infrastructure details (Dockerfiles, healthchecks, migrations) | `LanguageRuntimeSpec` |
+| `datrix.language_runtime_spec` | Infrastructure details (Dockerfiles, healthchecks, migrations, job/container commands, in-process-consumer predicate, project language) consumed by all four platform generators | `LanguageRuntimeSpec` |
 | `datrix.extensions` | Domain extension packs (types, builtins, DB extension names, templates) | `DatrixExtension` |
 
 All protocols are defined in `datrix-common` (see `datrix_common.plugin.protocol`, `datrix_common.plugin.extension`, `datrix_common.generation.language_hooks`, `datrix_common.generation.language_runtime_spec`). The CLI and pipeline discover installed plugins at runtime. Users only install the generators they need — no unused dependencies. Install **`datrix-extensions`** only when using `use extension` in `system.dtrx`.
@@ -303,7 +305,7 @@ Adding a new target language (e.g., Go, Rust, Java) requires a new `datrix-codeg
 5. Implement **micro-generators** (`MicroGenerator[TContext]` from `datrix_codegen_common`) for each domain, using shared context models.
 6. Add **`type_mappings.py`** — map every canonical type; register with `global_registry.register_language()`.
 7. Implement **`LanguageHooks`** — post-generation formatting and validation.
-8. Implement **`LanguageRuntimeSpec`** — Dockerfile context, healthchecks, DB URL schemes, migration commands, job runner commands.
+8. Implement **`LanguageRuntimeSpec`** — Dockerfile context, healthchecks, DB URL schemes, migration commands, job runner commands, plus the three provider-facing methods (`container_command`, `hosts_consumers_in_process`, `project_language`). The Design 014 parity gate fails onboarding if any method is unimplemented.
 9. Register entry points in **`pyproject.toml`** (`datrix.generators`, and hooks/runtime spec as required).
 10. Run parity verification: `validate_profile_completeness(LANG_PROFILE)` and `verify_micro_generator_parity(...)` to detect missing builtins, types, or domain generators.
 
