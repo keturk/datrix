@@ -317,6 +317,36 @@ class TestPhaseDetection:
         assert index["phases"]["docker-build"]["result"] == "FAILED"
         assert index["phases"]["docker-up"]["result"] == "SKIPPED"
 
+    def test_docker_build_failure_detected_without_started_marker(
+        self,
+        tmp_deploy_dir: Path,
+        tmp_path: Path,
+    ) -> None:
+        """Docker-build failure detected when only ERROR-level lines are present.
+
+        Regression test for the bug where deploy_test.py runs at WARNING log
+        level so 'docker_build_started' (INFO) is never emitted.  The log only
+        contains 'docker_build output:' and 'docker_build_failed exit_code=1'
+        — both ERROR-level.  index.json must report FAILED, not PASSED.
+        """
+        (tmp_deploy_dir / "deploy-test-output.log").write_text(
+            "2026-06-09 20:22:26,077 ERROR docker_build output:\n"
+            "error during connect: open //./pipe/dockerDesktopLinuxEngine: "
+            "The system cannot find the file specified.\n"
+            "2026-06-09 20:22:26,078 ERROR docker_build_failed exit_code=1\n",
+            encoding="utf-8",
+        )
+
+        writer = _make_writer(tmp_deploy_dir, tmp_path)
+        index_path = writer.write(timestamp=datetime(2026, 6, 9, 20, 22, 26))
+
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+        assert index["result"] == "FAILED"
+        assert index["failed_phase"] == "docker-build"
+        assert index["phases"]["docker-build"]["result"] == "FAILED"
+        assert index["phases"]["docker-up"]["result"] == "SKIPPED"
+        assert index["phases"]["health-check"]["result"] == "SKIPPED"
+
 
 # ---------------------------------------------------------------------------
 # Docker Log Excerpting Tests
