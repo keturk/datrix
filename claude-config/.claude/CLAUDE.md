@@ -2,7 +2,7 @@
 
 **Address user as Jon:** Always address the user as "Jon" in every reply.
 
-**On-demand skills:** `/imports`, `/logic-map`, `/fix`, `/fix-issue`, `/fix-bug-report`, `/codegen-review`, `/fix-tests`, `/scope`, `/checkpoint-debug`, `/troubleshoot-and-fix`, `/codegen-fix-loop`, `/operationalize-design`, `/operationalize-design-v2`, `/execute-tasks`, `/execute-tasks-parallel`, `/task-orchestrator`, `/absorb-design`, `/commit-and-push`, `/evaluate-generated`, `/evaluate-generated-service`, `/fix-cli`, `/fix-common`, `/fix-extensions`, `/fix-language`, `/fix-codegen-{aws,azure,common,component,docker,k8s,python,sql,typescript}`.
+**On-demand skills:** `/imports`, `/logic-map`, `/fix`, `/fix-issue`, `/fix-bug-report`, `/codegen-review`, `/fix-tests`, `/scope`, `/checkpoint-debug`, `/troubleshoot-and-fix`, `/codegen-fix-loop`, `/operationalize-design`, `/execute-tasks`, `/execute-tasks-parallel`, `/task-orchestrator`, `/absorb-design`, `/commit-and-push`, `/evaluate-generated`, `/evaluate-generated-service`, `/fix-cli`, `/fix-common`, `/fix-extensions`, `/fix-language`, `/fix-codegen-{aws,azure,common,component,docker,k8s,python,sql,typescript}`.
 
 ## Core Principles
 
@@ -44,13 +44,13 @@ Understand→Fix→Verify (`/fix` for full workflow). Implement "Recommended Fix
 
 **Completion timing in orchestrator runs:** In `/task-orchestrator` and `/execute-tasks-parallel` runs, mark a task COMPLETED only after the **wave's full test gate passes** (per-package tests for that wave). Do not mark tasks COMPLETED as individual agents return — agent success is necessary but not sufficient.
 
-**Pipeline skills and optional deps:** In pipeline skills like `/operationalize-design-v2`, when an optional dependency is absent but the pipeline can still produce its core deliverable, take the graceful-degradation path, note the degradation in the summary, and continue. Do not halt with an AskUserQuestion gate for missing optional validators. STOP only for genuinely blocking conditions (unresolved required decisions, missing required inputs, technical impossibility).
+**Pipeline skills and optional deps:** In pipeline skills like `/operationalize-design`, when an optional dependency is absent but the pipeline can still produce its core deliverable, take the graceful-degradation path, note the degradation in the summary, and continue. Do not halt with an AskUserQuestion gate for missing optional validators. STOP only for genuinely blocking conditions (unresolved required decisions, missing required inputs, technical impossibility).
 
 **Single-service verification:** Do not run `generate.ps1` on the full curvaero-backend system to verify a single-service change. Limit generation to the affected service only.
 
 ## Design Doc Workflow
 
-Docs in `design/` numbered by priority. Read full doc + cross-ref architecture before implementing. Design docs are scope boundaries — don't add unspecified features. Operationalize before coding: `/operationalize-design-v2` (production, with review) or `/operationalize-design` (rapid). Absorb after completion (`/absorb-design`). Never modify design docs during implementation.
+Docs in `design/` numbered by priority. Read full doc + cross-ref architecture before implementing. Design docs are scope boundaries — don't add unspecified features. Operationalize before coding: `/operationalize-design`. Absorb after completion (`/absorb-design`). Never modify design docs during implementation.
 
 ## Logic Map
 
