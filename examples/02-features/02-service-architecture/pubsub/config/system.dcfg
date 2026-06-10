@@ -102,4 +102,34 @@ config system library.System {
     }
     region = "us-east-1";
   }
+
+  profile productionApprunner as "prod-ar" extends base {
+    alias env = "PROD";
+    alias resource = "prod-ar";
+
+    deployment {
+      runtime = "app-runner";
+      provider = "aws";
+    }
+    secrets {
+      provider = "vault";
+      path = "secret/library";
+    }
+    gateway {
+      cors {
+        origins = ["https://library.example.com"];
+      }
+    }
+    observability {
+      tracing {
+        endpoint = env("JAEGER_URL");
+      }
+    }
+    serviceDiscovery {
+      type = "kubernetes";
+      namespace = "default";
+      labelSelector = "app=library";
+    }
+    region = "us-east-1";
+  }
 }

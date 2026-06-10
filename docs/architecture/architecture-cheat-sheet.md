@@ -30,7 +30,7 @@ Optional **datrix-extensions** (domain packs, `datrix.extensions` entry points) 
 | datrix-codegen-docker | Docker/Compose generation. YAML builders |
 | datrix-codegen-k8s | Kubernetes manifests |
 | datrix-codegen-aws | AWS infrastructure (CDK/CloudFormation): VPC, ECS, RDS, ElastiCache, SNS/SQS, MSK (Kafka), DynamoDB, S3 |
-| datrix-codegen-azure | Azure infrastructure (Bicep/ARM): Container Apps, Flexible Server, Cosmos DB, Service Bus, Event Hubs (Kafka), Redis, Blob |
+| datrix-codegen-azure | Azure infrastructure (Bicep/ARM): App Service, Functions, Flexible Server, Cosmos DB, Service Bus, Event Hubs (Kafka), Redis, Blob, APIM, Front Door, AI Search |
 | datrix-cli | CLI. Discovers generator plugins dynamically via entry points |
 | datrix-extensions | Optional domain extension packs (`datrix.extensions`). Depends on datrix-common |
 

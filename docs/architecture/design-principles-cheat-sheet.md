@@ -15,6 +15,7 @@
 11. **Protocol dispatch over isinstance** -- Use `ExpressionVisitor` / `StatementVisitor` and `node.accept(visitor)` for AST operations; use `CallTargetEmitter` + `dispatch_call()` for call targets. Do not grow `isinstance` ladders on expression nodes.
 12. **Explicit data flow** -- Service-wide config is frozen (`TranspileContext`). Per-file sibling state uses fresh `FileScope` objects. Visit results return `TranspileResult` (merge with `merge_artifacts`) — not hidden mutation on the transpiler for imports/flags.
 13. **Staged transpilation** -- Name resolution and query expansion run as explicit Stages 1–2 (`StagePipeline`); each language emitter is Stage 3. Keep stage boundaries and side-tables (`ResolutionTable`) instead of monolithic “do everything in one visit” growth.
+14. **Construct-mapped platform realization** -- `.dtrx` = platform-agnostic logic; `.dcfg` = deployment target (runtime + provider + sizing); generator maps each DSL block to the target's native primitive. Service shape is derived from declared blocks, not from a service-flavor selector (retired). No silent ignore: unsupported combinations raise with actionable errors. No defaults: every deployment choice must be explicit in config.
 
 ## DSL vs YAML Boundary
 

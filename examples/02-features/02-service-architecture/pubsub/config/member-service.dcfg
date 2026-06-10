@@ -77,7 +77,35 @@ config service library.MemberService {
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");
+      port = 5432;
       database = "library_members";
+      instanceClass = "db.t3.micro";
+      poolSize = 40;
+      ssl = true;
+      asyncDriver = "postgresql+asyncpg";
+      syncDriver = "postgresql+psycopg2";
+      healthCheckSql = "SELECT 1";
+    }
+    strategy {
+      rolling {
+        maxUnavailable = "25%";
+      }
+    }
+  }
+
+  profile productionApprunner as "prod-ar" extends base {
+    alias env = "PROD";
+    alias resource = "prod-ar";
+
+    replicas = 2;
+    replace rdbms memberDb {
+      id = "9faa43ea-466d-4f08-adc6-c8c10890abfc";
+      engine = "postgres";
+      flavor = "rds";
+      host = env("DB_HOST");
+      port = 5432;
+      database = "library_members";
+      instanceClass = "db.t3.micro";
       poolSize = 40;
       ssl = true;
       asyncDriver = "postgresql+asyncpg";

@@ -561,6 +561,67 @@ Enable packs in **`system.dtrx`** with `use extension <name>;` (not YAML). Exhau
 
 ---
 
+### 11. Construct-Mapped Platform Realization (Stable)
+
+**Principle:** Each DSL construct maps to the target platform's native primitive. Service deployment shape is derived from the constructs declared in the service — not from a separate realization-flavor selector.
+
+**The three-layer model:**
+
+| Layer | Where | Owns |
+|-------|-------|------|
+| Platform-agnostic logic | `.dtrx` | Service definitions, block structure, entity schema, business logic |
+| Deployment target | `.dcfg` | Runtime, provider, target, sizing — chosen once per profile |
+| Realization | Generator | Maps each construct to the target platform's native primitive |
+
+**How shape is derived:**
+
+The set of infrastructure resources a service receives is the union of its declared blocks, mapped by the active platform generator. No separate "service flavor" field routes the mapping — block kind plus platform determines the primitive.
+
+Example mapping on Azure (`runtime: azure-app-service, provider: azure`):
+
+| DSL block | Azure primitive |
+|-----------|----------------|
+| service (HTTP surface: `rest_api`, `graphql_api`) | Azure App Service |
+| `serverless` block | Azure Functions (Function App) |
+| `rdbms` block | Azure Flexible Server |
+| `cache` block | Azure Cache for Redis |
+| `nosql` block | Azure Cosmos DB |
+| `pubsub` block | Azure Service Bus or Event Hubs (by engine) |
+| `storage` block | Azure Blob Storage |
+| `cdn` block | Azure Front Door |
+| `gateway` block (`type: managed`) | Azure API Management |
+| `search` block | Azure AI Search |
+
+The same construct-to-primitive mapping applies on other platforms (AWS: App Service → App Runner/ECS + Fargate; Kubernetes: service → Deployment/Service/Ingress, job → CronJob; Docker Compose: services → containers).
+
+**No silent ignore:**
+
+When a deployment target is resolved, the generator either emits the correct primitive for each construct or raises a `GenerationError` with an actionable message. Unrecognised runtime/provider/target combinations fail loudly — see [Decision 6: Deployment Target Contract](architecture-overview.md#decision-6-deployment-target-contract-stable). No construct is silently omitted and no unsupported combination is silently corrected.
+
+**No defaults:**
+
+Every deployment-relevant choice is explicit in the `.dcfg` profile. A missing required field (runtime, provider, SKU for cloud-managed blocks) is a generation error that names the missing config path, the expected field, and the valid options. Generators never invent deployment values.
+
+**Infrastructure-flavor is per-block, not per-service:**
+
+`RdbmsFlavor`, `CacheFlavor`, `PubsubFlavor`, and similar enums express how a single block is provisioned (`container`, `flexible-server`, `elasticache`, `event-hubs`, etc.). They are block-level infrastructure choices, not a service-level runtime selector. Service deployment shape still derives from which blocks are declared, not from a service-flavor enum.
+
+**Retired path:**
+
+`azure-container-apps` as a `runtime` value is retired. Specifying it raises `GenerationError` with guidance to use `runtime: azure-app-service` for the native Azure PaaS runtime or `runtime: kubernetes, target: aks` for a container mesh on AKS.
+
+**Why:**
+- One representation removes the duplication where `.dtrx` described the logical structure and a separate flavor described the runtime shape — they were always derivable from each other
+- Generators can be verified exhaustively: every construct kind must have a mapping for every supported platform
+- No defaults means authors are always aware of their deployment choices; generation does not silently assume a platform
+
+**Benefits:**
+- Block structure drives infra shape — adding a block adds the right resources; removing one removes them
+- Platform generators are auditable: one mapping table per construct kind
+- Authors see every deployment choice in config; nothing is hidden in defaults
+
+---
+
 ## Code Generation Principles
 
 ### No Derived Artifacts (Planned)
@@ -666,7 +727,7 @@ Documentation examples must use current flag syntax. The canonical `datrix gener
 datrix generate --source examples/03-domains/ecommerce/system.dtrx --output generated
 ```
 
-The target language and deployment settings (runtime, provider, target, registry) are read from resolved config in the selected system `.dcfg` profile. There are no deployment-affecting CLI overrides — see [architecture-overview.md Decision 6: Deployment Target Contract](architecture-overview.md#decision-6-deployment-target-contract-planned). `--profile` selects the config profile to use.
+The target language and deployment settings (runtime, provider, target, registry) are read from resolved config in the selected system `.dcfg` profile. There are no deployment-affecting CLI overrides — see [architecture-overview.md Decision 6: Deployment Target Contract](architecture-overview.md#decision-6-deployment-target-contract-stable). `--profile` selects the config profile to use.
 
 > **Migration note:** The `--hosting` / `-H` and `--platform` / `-P` flags are being removed. The `--language` / `-L` flag remains for development convenience but deployment dimensions come exclusively from config.
 
@@ -682,5 +743,6 @@ Datrix design principles ensure:
 4. **Developer Experience** - Clear errors, readable code, helpful messages
 5. **Language Quality** - Platform-independent, DRY, progressive disclosure, configuration boundary, domain extension boundary
 6. **Code Quality** - Idiomatic, no dead code, readable output
+7. **Deployment clarity** - Construct-mapped platform realization: blocks drive infra shape, targets are explicit, no silent defaults
 
 These principles guide all architectural and implementation decisions in the Datrix project.

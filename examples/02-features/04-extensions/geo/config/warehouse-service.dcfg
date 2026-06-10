@@ -77,7 +77,9 @@ config service warehouse.WarehouseService {
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");
+      port = 5432;
       database = "warehouse_geo";
+      instanceClass = "db.t3.micro";
       poolSize = 40;
       ssl = true;
       asyncDriver = "postgresql+asyncpg";

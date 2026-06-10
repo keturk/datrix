@@ -89,12 +89,56 @@ config service library.BookService {
       engine = "postgres";
       flavor = "rds";
       host = env("DB_HOST");
+      port = 5432;
       database = "library_books";
+      instanceClass = "db.t3.micro";
       poolSize = 40;
       ssl = true;
       asyncDriver = "postgresql+asyncpg";
       syncDriver = "postgresql+psycopg2";
       healthCheckSql = "SELECT 1";
+    }
+    replace pubsub mq {
+      engine = "kafka";
+      flavor = "msk-serverless";
+      brokers = [env("MSK_BOOTSTRAP_SERVERS")];
+      partitions = 3;
+      replicationFactor = 3;
+      retention = "7d";
+    }
+    strategy {
+      rolling {
+        maxUnavailable = "25%";
+      }
+    }
+  }
+
+  profile productionApprunner as "prod-ar" extends base {
+    alias env = "PROD";
+    alias resource = "prod-ar";
+
+    replicas = 2;
+    replace rdbms bookDb {
+      id = "739c610a-ab42-4bde-823e-3c6d5049f594";
+      engine = "postgres";
+      flavor = "rds";
+      host = env("DB_HOST");
+      port = 5432;
+      database = "library_books";
+      instanceClass = "db.t3.micro";
+      poolSize = 40;
+      ssl = true;
+      asyncDriver = "postgresql+asyncpg";
+      syncDriver = "postgresql+psycopg2";
+      healthCheckSql = "SELECT 1";
+    }
+    replace pubsub mq {
+      engine = "kafka";
+      flavor = "msk-serverless";
+      brokers = [env("MSK_BOOTSTRAP_SERVERS")];
+      partitions = 3;
+      replicationFactor = 3;
+      retention = "7d";
     }
     strategy {
       rolling {
