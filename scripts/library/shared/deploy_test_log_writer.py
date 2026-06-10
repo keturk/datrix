@@ -81,7 +81,7 @@ _DOCKER_EXCERPT_TAIL_LINES = 50
 _PHASE_MARKERS: dict[str, re.Pattern[str]] = {
     "docker-build": re.compile(
         r"(?i)=== Docker Build ===|Building services|docker\.compose\.build"
-        r"|docker_build_started"
+        r"|docker_build_started|docker_build output:|docker_build_failed"
     ),
     "docker-up": re.compile(
         r"(?i)=== Docker Up ===|Starting services|docker\.compose\.up"
