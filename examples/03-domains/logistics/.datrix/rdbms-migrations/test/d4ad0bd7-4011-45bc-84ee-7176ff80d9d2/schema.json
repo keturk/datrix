@@ -1,0 +1,564 @@
+{
+  "block": {
+    "name": "shipmentDb"
+  },
+  "container": {
+    "kind": "service",
+    "name": "logistics.ShipmentService"
+  },
+  "cqrs_views": {},
+  "entities": {
+    "Shipment": {
+      "fields": {
+        "actualDelivery": {
+          "column_name": "actual_delivery",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "createdAt": {
+          "column_name": "created_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000002605BE3A6D0>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "destination": {
+          "column_name": "destination",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": 200,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 200
+            },
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "estimatedDelivery": {
+          "column_name": "estimated_delivery",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "id": {
+          "column_name": "id",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000002605BE0FD90>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": true,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "origin": {
+          "column_name": "origin",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": 200,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 200
+            },
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "packageSize": {
+          "column_name": "package_size",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "enum",
+            "name": "PackageSize",
+            "values": [
+              "Small",
+              "Medium",
+              "Large",
+              "ExtraLarge",
+              "Oversized"
+            ]
+          }
+        },
+        "recipientAddress": {
+          "column_name": "recipient_address",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": 500,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 500
+            },
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "recipientName": {
+          "column_name": "recipient_name",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": 200,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 200
+            },
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "senderId": {
+          "column_name": "sender_id",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "status": {
+          "column_name": "status",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "<abc.PropertyAccessNode object at 0x000002605B17DA20>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "enum",
+            "name": "ShipmentStatus",
+            "values": [
+              "Created",
+              "PickedUp",
+              "InTransit",
+              "OutForDelivery",
+              "Delivered",
+              "Failed",
+              "Returned"
+            ]
+          }
+        },
+        "trackingNumber": {
+          "column_name": "tracking_number",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": 50,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 50
+            },
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          },
+          "unique": true
+        },
+        "updatedAt": {
+          "column_name": "updated_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000002605BE3A970>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "weight": {
+          "column_name": "weight",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": 10,
+            "scale": 2
+          },
+          "type": {
+            "constraints": {
+              "precision": 10,
+              "scale": 2
+            },
+            "kind": "scalar",
+            "name": "Decimal",
+            "values": []
+          }
+        }
+      },
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "sender_id",
+            "status"
+          ],
+          "unique": false
+        },
+        {
+          "columns": [
+            "status",
+            "created_at"
+          ],
+          "unique": false
+        },
+        {
+          "columns": [
+            "tracking_number"
+          ],
+          "unique": false
+        }
+      ],
+      "table_name": "shipments",
+      "table_options": {}
+    },
+    "ShipmentEvent": {
+      "fields": {
+        "createdAt": {
+          "column_name": "created_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000002605BE3A6D0>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "eventType": {
+          "column_name": "event_type",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": 100,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 100
+            },
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "id": {
+          "column_name": "id",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000002605BE0FD90>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": true,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "location": {
+          "column_name": "location",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": 200,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 200
+            },
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "notes": {
+          "column_name": "notes",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Text",
+            "values": []
+          }
+        },
+        "shipmentId": {
+          "column_name": "shipment_id",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "timestamp": {
+          "column_name": "timestamp",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "<abc.CallNode object at 0x000002605B192900>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "updatedAt": {
+          "column_name": "updated_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000002605BE3A970>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        }
+      },
+      "foreign_keys": [
+        {
+          "columns": [
+            "shipment_id"
+          ],
+          "on_delete": "restrict",
+          "on_update": "restrict",
+          "referred_columns": [
+            "id"
+          ],
+          "referred_table": "shipments"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "shipment_id",
+            "timestamp"
+          ],
+          "unique": false
+        }
+      ],
+      "table_name": "shipment_events",
+      "table_options": {}
+    }
+  },
+  "enums": [
+    {
+      "database_name": "package_size",
+      "name": "PackageSize",
+      "values": [
+        "Small",
+        "Medium",
+        "Large",
+        "ExtraLarge",
+        "Oversized"
+      ]
+    },
+    {
+      "database_name": "shipment_status",
+      "name": "ShipmentStatus",
+      "values": [
+        "Created",
+        "PickedUp",
+        "InTransit",
+        "OutForDelivery",
+        "Delivered",
+        "Failed",
+        "Returned"
+      ]
+    }
+  ],
+  "format": "datrix.rdbms.schema",
+  "latest_revision": "0001_initial",
+  "rdbms_id": "d4ad0bd7-4011-45bc-84ee-7176ff80d9d2",
+  "schema_hash": "70bbc4e9d0ad80284261645056bbd38d4a03b2f949b7aab06e49de5ac0b77217",
+  "service": {
+    "name": "logistics.ShipmentService",
+    "version": "1.0.0"
+  },
+  "version": 1
+}

@@ -1,0 +1,69 @@
+
+// Example: Storage-backed replayable ingestion pattern.
+//
+// A supplier catalog feed is ingested in batches: an incoming batch is archived
+// to object storage (the system-of-record) and a StorageRef claim-check event is
+// published to the topic. A consumer downloads the archived batch and upserts the
+// product records idempotently, keyed on `sku`. The `replayable` modifier on the
+// topic synthesises a `replayCatalogFeed` endpoint and a cron backfill job so the
+// Product table can be rebuilt from storage at any time without re-fetching from
+// the supplier API.
+//
+// Neutral domain: supplier catalog feed → warehouse product table (no aviation terms).
+//
+// Key design contracts demonstrated:
+//   D39  Storage is the system-of-record; Kafka is transport only.
+//   D40  Claim-check events carry a StorageRef pointer, not the batch bytes.
+//   D41  Topic↔storage binding is declarative via source(folder).
+//   D42  Producer stamps event envelope as object metadata; replay reads metadata.
+//   D43  Consumers of replayable topics must be idempotent; enforced via replayKey.
+//   D44  replay schedule("…") synthesises a cron backfill job.
+service catalog.SupplierFeedService('config/supplier-feed-service.dcfg') : version('1.0.0'), description('Supplier catalog feed — replayable ingestion example') {
+
+    // Storage block: object-storage backing for the replayable topic.
+    // `batches/` folder is the system-of-record for ingested catalog payloads.
+    storage catalogArchive {
+        folder raw     : path('raw/');
+        folder batches : path('batches/');
+    }
+
+    // Pub/sub block: storage-backed replayable topic.
+    // `source(catalogArchive.batches)` binds the backing storage folder.
+    // `replayable` generates the replayCatalogFeed operator endpoint.
+    // `replay schedule("0 3 * * *")` adds a nightly cron backfill job.
+    pubsub feedBus {
+        topic CatalogFeed : source(catalogArchive.batches), replayable, replay schedule("0 3 * * *") {
+            publish ProductBatchPublished(
+                StorageRef batch,
+                Int recordCount,
+                String schemaVersion,
+                DateTime sourceUpdatedAt
+            );
+        }
+    }
+
+    // RDBMS block: warehouse product table.
+    // `sku : unique, replayKey` is the declarative idempotency key (Option C).
+    // The validator enforces that every consumer of a replayable topic writes into
+    // an entity that declares exactly one replayKey field and does so via .upsert().
+    rdbms db {
+        entity Product {
+            UUID id     : primaryKey, server = uuid();
+            String(100) sku    : unique, replayKey;
+            String(255) name   : trim;
+            Int         quantity = 0;
+            String(50)  schemaVersion;
+        }
+    }
+
+    // Consumer: downloads the archived batch and upserts the product records.
+    // Must use `.upsert()` (not `.create()`) — replay re-delivers events, so the
+    // write path must converge to the same state on every delivery (RPL004 gate).
+    subscribe CatalogFeed {
+        on ProductBatchPublished(StorageRef batch, Int recordCount, String schemaVersion, DateTime sourceUpdatedAt) {
+            let Bytes data = catalogArchive.batches.download(batch.key);
+            db.Product.upsert(batch.key, { sku: batch.key, name: "imported", quantity: recordCount, schemaVersion: schemaVersion });
+        }
+    }
+
+}

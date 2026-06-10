@@ -38,6 +38,16 @@ If a task spans 3+ unrelated subsystems, requires chain-debugging, or would fill
 
 Understand→Fix→Verify (`/fix` for full workflow). Implement "Recommended Fix" from issue reports first. STOP+report when: not confident, new test failures appear, scope grows beyond estimate.
 
+## Task Orchestration
+
+**Task completion script:** Always use `complete.ps1` to mark a task as COMPLETED. Never edit the task heading directly (Edit/Write bypass the validation hook that `complete.ps1` enforces). Read `datrix/scripts/tasks/quick-reference.md` for the exact invocation syntax before calling any task script.
+
+**Completion timing in orchestrator runs:** In `/task-orchestrator` and `/execute-tasks-parallel` runs, mark a task COMPLETED only after the **wave's full test gate passes** (per-package tests for that wave). Do not mark tasks COMPLETED as individual agents return — agent success is necessary but not sufficient.
+
+**Pipeline skills and optional deps:** In pipeline skills like `/operationalize-design-v2`, when an optional dependency is absent but the pipeline can still produce its core deliverable, take the graceful-degradation path, note the degradation in the summary, and continue. Do not halt with an AskUserQuestion gate for missing optional validators. STOP only for genuinely blocking conditions (unresolved required decisions, missing required inputs, technical impossibility).
+
+**Single-service verification:** Do not run `generate.ps1` on the full curvaero-backend system to verify a single-service change. Limit generation to the affected service only.
+
 ## Design Doc Workflow
 
 Docs in `design/` numbered by priority. Read full doc + cross-ref architecture before implementing. Design docs are scope boundaries — don't add unspecified features. Operationalize before coding: `/operationalize-design-v2` (production, with review) or `/operationalize-design` (rapid). Absorb after completion (`/absorb-design`). Never modify design docs during implementation.

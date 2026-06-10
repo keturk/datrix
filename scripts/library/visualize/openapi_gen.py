@@ -99,9 +99,11 @@ def _generate_specs(
     # Parse
     try:
         from datrix_language.parser import TreeSitterParser
+        from datrix_language.registration import register_all
         from datrix_common.semantic import SemanticAnalyzer
         from datrix_common.paths import ServicePaths
 
+        register_all()
         parser = TreeSitterParser()
         ast = parser.parse_file(source_path)
         analyzer = SemanticAnalyzer()

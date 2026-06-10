@@ -1,0 +1,575 @@
+{
+  "block": {
+    "name": "alertDb"
+  },
+  "container": {
+    "kind": "service",
+    "name": "iot.TelemetryService"
+  },
+  "cqrs_views": {},
+  "entities": {
+    "Alert": {
+      "fields": {
+        "acknowledgedAt": {
+          "column_name": "acknowledged_at",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "condition": {
+          "column_name": "condition",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": 200,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 200
+            },
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "createdAt": {
+          "column_name": "created_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000001F399EDDEF0>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "deviceId": {
+          "column_name": "device_id",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "id": {
+          "column_name": "id",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000001F399EF0830>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": true,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "message": {
+          "column_name": "message",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Text",
+            "values": []
+          }
+        },
+        "notes": {
+          "column_name": "notes",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Text",
+            "values": []
+          }
+        },
+        "resolvedAt": {
+          "column_name": "resolved_at",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "severity": {
+          "column_name": "severity",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "enum",
+            "name": "AlertSeverity",
+            "values": [
+              "Info",
+              "Warning",
+              "Error",
+              "Critical"
+            ]
+          }
+        },
+        "status": {
+          "column_name": "status",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "<abc.PropertyAccessNode object at 0x000001F399491400>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "enum",
+            "name": "AlertStatus",
+            "values": [
+              "Active",
+              "Acknowledged",
+              "Resolved"
+            ]
+          }
+        },
+        "triggeredAt": {
+          "column_name": "triggered_at",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "<abc.CallNode object at 0x000001F3994917F0>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "updatedAt": {
+          "column_name": "updated_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000001F399EDE190>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        }
+      },
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "device_id",
+            "status"
+          ],
+          "unique": false
+        },
+        {
+          "columns": [
+            "severity",
+            "status"
+          ],
+          "unique": false
+        },
+        {
+          "columns": [
+            "triggered_at"
+          ],
+          "unique": false
+        }
+      ],
+      "table_name": "alerts",
+      "table_options": {}
+    },
+    "AlertRule": {
+      "fields": {
+        "createdAt": {
+          "column_name": "created_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000001F399EDDEF0>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "deviceGroupId": {
+          "column_name": "device_group_id",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "deviceId": {
+          "column_name": "device_id",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "id": {
+          "column_name": "id",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000001F399EF0830>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": true,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "isEnabled": {
+          "column_name": "is_enabled",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "True"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Boolean",
+            "values": []
+          }
+        },
+        "lastTriggeredAt": {
+          "column_name": "last_triggered_at",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "metricName": {
+          "column_name": "metric_name",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": 100,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 100
+            },
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "operator": {
+          "column_name": "operator",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "enum",
+            "name": "ComparisonOperator",
+            "values": [
+              "GreaterThan",
+              "LessThan",
+              "Equals",
+              "GreaterOrEqual",
+              "LessOrEqual"
+            ]
+          }
+        },
+        "severity": {
+          "column_name": "severity",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "enum",
+            "name": "AlertSeverity",
+            "values": [
+              "Info",
+              "Warning",
+              "Error",
+              "Critical"
+            ]
+          }
+        },
+        "threshold": {
+          "column_name": "threshold",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": 10,
+            "scale": 4
+          },
+          "type": {
+            "constraints": {
+              "precision": 10,
+              "scale": 4
+            },
+            "kind": "scalar",
+            "name": "Decimal",
+            "values": []
+          }
+        },
+        "updatedAt": {
+          "column_name": "updated_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000001F399EDE190>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        }
+      },
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "metric_name",
+            "is_enabled"
+          ],
+          "unique": false
+        }
+      ],
+      "table_name": "alert_rules",
+      "table_options": {}
+    }
+  },
+  "enums": [
+    {
+      "database_name": "alert_severity",
+      "name": "AlertSeverity",
+      "values": [
+        "Info",
+        "Warning",
+        "Error",
+        "Critical"
+      ]
+    },
+    {
+      "database_name": "alert_status",
+      "name": "AlertStatus",
+      "values": [
+        "Active",
+        "Acknowledged",
+        "Resolved"
+      ]
+    },
+    {
+      "database_name": "comparison_operator",
+      "name": "ComparisonOperator",
+      "values": [
+        "GreaterThan",
+        "LessThan",
+        "Equals",
+        "GreaterOrEqual",
+        "LessOrEqual"
+      ]
+    }
+  ],
+  "format": "datrix.rdbms.schema",
+  "latest_revision": "0001_initial",
+  "rdbms_id": "91cd45cf-1c81-4096-8388-2753f0700b41",
+  "schema_hash": "1e0a820a7054f79bfbeac5669d1e2a2918c3c9a6fd3b8e2247ea60110d895e95",
+  "service": {
+    "name": "iot.TelemetryService",
+    "version": "1.0.0"
+  },
+  "version": 1
+}

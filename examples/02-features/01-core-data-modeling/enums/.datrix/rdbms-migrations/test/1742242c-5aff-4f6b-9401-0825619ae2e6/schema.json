@@ -1,0 +1,286 @@
+{
+  "block": {
+    "name": "bookDb"
+  },
+  "container": {
+    "kind": "service",
+    "name": "library.BookService"
+  },
+  "cqrs_views": {},
+  "entities": {
+    "Book": {
+      "fields": {
+        "author": {
+          "column_name": "author",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": 100,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 100
+            },
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "condition": {
+          "column_name": "condition",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "<abc.PropertyAccessNode object at 0x000001AC7E17AC40>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "enum",
+            "name": "BookCondition",
+            "values": [
+              "New",
+              "Good",
+              "Fair",
+              "Poor",
+              "Damaged"
+            ]
+          }
+        },
+        "createdAt": {
+          "column_name": "created_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000001AC7E0E7C50>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "format": {
+          "column_name": "format",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "<abc.PropertyAccessNode object at 0x000001AC7E17A9E0>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "enum",
+            "name": "BookFormat",
+            "values": [
+              "Hardcover",
+              "Paperback",
+              "eBook",
+              "Audiobook"
+            ]
+          }
+        },
+        "id": {
+          "column_name": "id",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000001AC7E107A10>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": true,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "isbn": {
+          "column_name": "isbn",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "publicationYear": {
+          "column_name": "publication_year",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Integer",
+            "values": []
+          }
+        },
+        "status": {
+          "column_name": "status",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "<abc.PropertyAccessNode object at 0x000001AC7E1C0B90>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "enum",
+            "name": "BookStatus",
+            "values": [
+              "Available",
+              "CheckedOut",
+              "Reserved",
+              "Maintenance"
+            ]
+          }
+        },
+        "title": {
+          "column_name": "title",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": 200,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 200
+            },
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "updatedAt": {
+          "column_name": "updated_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "<abc.CallNode object at 0x000001AC7E1C0190>"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        }
+      },
+      "foreign_keys": [],
+      "indexes": [],
+      "table_name": "books",
+      "table_options": {}
+    }
+  },
+  "enums": [
+    {
+      "database_name": "book_condition",
+      "name": "BookCondition",
+      "values": [
+        "New",
+        "Good",
+        "Fair",
+        "Poor",
+        "Damaged"
+      ]
+    },
+    {
+      "database_name": "book_format",
+      "name": "BookFormat",
+      "values": [
+        "Hardcover",
+        "Paperback",
+        "eBook",
+        "Audiobook"
+      ]
+    },
+    {
+      "database_name": "book_status",
+      "name": "BookStatus",
+      "values": [
+        "Available",
+        "CheckedOut",
+        "Reserved",
+        "Maintenance"
+      ]
+    }
+  ],
+  "format": "datrix.rdbms.schema",
+  "latest_revision": "0001_initial",
+  "rdbms_id": "1742242c-5aff-4f6b-9401-0825619ae2e6",
+  "schema_hash": "8853a2ae2700aee7db4165ad50cae10292763ce0512bbd6d74151a1cec2dd5bc",
+  "service": {
+    "name": "library.BookService",
+    "version": "1.0.0"
+  },
+  "version": 1
+}
