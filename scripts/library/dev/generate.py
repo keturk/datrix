@@ -15,6 +15,7 @@ import atexit
 import io
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -47,30 +48,10 @@ if _datrix_common_src.exists() and str(_datrix_common_src) not in sys.path:
     sys.path.insert(0, str(_datrix_common_src))
 from datrix_common import DATRIX_FILE_EXTENSION
 
-_GENERATE_LOG_FILE_ENV = "DATRIX_GENERATE_LOG_FILE"
-
-
 def _append_datrix_generate_cli_options(cmd_args: list[str], args: argparse.Namespace) -> None:
     """Append non-target datrix generate options from script args."""
     if getattr(args, "profile", None) is not None:
         cmd_args.extend(["--profile", args.profile])
-
-
-def _append_log_only_lines(lines: list[str]) -> None:
-    """Append lines to the wrapper log file without emitting console output."""
-    log_file = os.environ.get(_GENERATE_LOG_FILE_ENV)
-    if not log_file:
-        return
-
-    log_path = Path(log_file)
-    try:
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        with log_path.open("a", encoding="utf-8") as handle:
-            for line in lines:
-                handle.write(f"{line}\n")
-    except Exception:
-        # Logging must never break generation.
-        pass
 
 
 # Pattern to detect spinner/progress lines that should be filtered from logs
@@ -158,6 +139,14 @@ def generate_single_project(
         # Ensure path is absolute
         project_path = Path(project["path"]).resolve()
 
+        # Examples don't use persistent migration state — clear it before every generate
+        # so that stale or legacy-layout state never blocks generation.
+        examples_dir = datrix_root / "datrix" / "examples"
+        if examples_dir in project_path.parents:
+            migration_dir = project_path.parent / ".datrix" / "rdbms-migrations"
+            if migration_dir.exists():
+                shutil.rmtree(migration_dir)
+
         # Calculate output path
         # Use custom output base if provided, otherwise use default from project config
         if args.output_base and args.output_base != ".generated":
@@ -211,20 +200,6 @@ def generate_single_project(
 
         # Get venv path from python_exe
         venv_path = Path(python_exe).parent.parent
-
-        runtime_segment = args.runtime or "docker-compose"
-        provider_segment = args.provider or "local"
-        _append_log_only_lines(
-            [
-                f"Generating project: {project_name}",
-                f" Source: {project_path}",
-                f" Output: {output_path}",
-                f" Language: {args.language}",
-                f" Runtime (output path): {runtime_segment}",
-                f" Provider (output path): {provider_segment}",
-                "",
-            ]
-        )
 
         # Try to find datrix command in venv
         if os.name == "nt":

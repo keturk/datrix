@@ -2,6 +2,8 @@
 # Scans all datrix projects for incomplete tasks (those without "COMPLETED: " prefix)
 # and incomplete bugs (those without "FIXED: " prefix).
 # Warns for task files with missing or malformed task titles.
+# Also sweeps the entire tree under -BaseDir for stray .tasks folders located anywhere
+# other than the root of a project package, and warns about each (those are invisible to this scan).
 # Usage: .\scripts\tasks\todo.ps1 [-BaseDir <path>] [-Filter <string>] [-Dbg]
 # -Filter: when provided, only list tasks/bugs whose file name OR title contains the string (case-insensitive).
 
@@ -392,6 +394,53 @@ function Process-PhaseDependencies {
  }
 }
 
+# Walk the whole tree under $Root and return every folder named ".tasks" whose
+# full path is not in $LegitimateFolders. Used to warn about task files dropped in
+# the wrong place (where todo.ps1 would never scan them). Heavy/irrelevant dirs are
+# pruned so the sweep stays fast and avoids false positives from third-party/generated trees.
+function Find-StrayTasksFolders {
+ param(
+ [string]$Root,
+ [System.Collections.Generic.HashSet[string]]$LegitimateFolders
+ )
+
+ $excludedDirNames = @(
+ 'node_modules', '.git', '.venv', 'venv', 'env', '__pycache__',
+ '.mypy_cache', '.pytest_cache', '.ruff_cache', '.tox', '.idea',
+ '.vscode', 'dist', 'build', 'htmlcov', '.eggs', 'site-packages',
+ '.projects', '.tmp', '.test-output', '.agent_output', '.scripts'
+ )
+ $excluded = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+ foreach ($name in $excludedDirNames) { [void]$excluded.Add($name) }
+
+ $stray = @()
+ $stack = New-Object System.Collections.Stack
+ $stack.Push($Root)
+
+ while ($stack.Count -gt 0) {
+ $current = $stack.Pop()
+ $children = Get-ChildItem -LiteralPath $current -Directory -Force -ErrorAction SilentlyContinue
+ if ($null -eq $children) {
+ continue
+ }
+ foreach ($child in $children) {
+ if ($child.Name -eq '.tasks') {
+ if (-not $LegitimateFolders.Contains($child.FullName)) {
+ $stray += $child.FullName
+ }
+ # Don't descend into a .tasks folder; nested .tasks would be noise.
+ continue
+ }
+ if ($excluded.Contains($child.Name)) {
+ continue
+ }
+ $stack.Push($child.FullName)
+ }
+ }
+
+ return $stray
+}
+
 # Process root .tasks folder
 $rootTasksFolder = Join-Path $BaseDir ".tasks"
 $phaseTasksRoots = @($rootTasksFolder)
@@ -492,4 +541,31 @@ if ($totalTaskCount -eq 0 -and $totalBugCount -eq 0) {
 }
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
+
+# Sweep for stray .tasks folders that this tool would otherwise never scan.
+# Legitimate locations are derived (not hard-coded): the BaseDir root .tasks and
+# each datrix* project package's root .tasks. Anything else is flagged.
+$legitimateTasksFolders = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+[void]$legitimateTasksFolders.Add($rootTasksFolder)
+foreach ($project in $projects) {
+ [void]$legitimateTasksFolders.Add((Join-Path $project.FullName ".tasks"))
+}
+
+$strayTasksFolders = Find-StrayTasksFolders -Root $BaseDir -LegitimateFolders $legitimateTasksFolders
+
+if ($strayTasksFolders.Count -gt 0) {
+ Write-Host "========================================" -ForegroundColor Red
+ Write-Host "WARNING: Stray .tasks folder(s) found" -ForegroundColor Red
+ Write-Host "========================================" -ForegroundColor Red
+ Write-Host "These .tasks folders are NOT at the root of a project package," -ForegroundColor Yellow
+ Write-Host "so their task/bug files are invisible to this tool:" -ForegroundColor Yellow
+ foreach ($stray in ($strayTasksFolders | Sort-Object)) {
+ Write-Host "   $stray" -ForegroundColor Yellow
+ }
+ Write-Host ""
+ Write-Host "Move the task files into the appropriate package's root .tasks folder" -ForegroundColor Yellow
+ Write-Host "(e.g. <package>\.tasks\phase-NN\...), then delete the stray folder." -ForegroundColor Yellow
+ Write-Host "========================================" -ForegroundColor Red
+ Write-Host ""
+}
 

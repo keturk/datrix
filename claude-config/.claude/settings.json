@@ -13,7 +13,9 @@
       "PowerShell(powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-python -Keyword \"custom_endpoint_tenantable\" -NoSave)",
       "Read(//d/datrix/**)",
       "PowerShell(& \"d:/datrix/datrix/scripts/test/test-single.ps1\" \"tests/unit/generators/test_common_struct_generation.py\" -Project datrix-codegen-python -Verbose)",
-      "PowerShell(winget install Microsoft.AzureCLI --silent --accept-package-agreements --accept-source-agreements)"
+      "PowerShell(winget install Microsoft.AzureCLI --silent --accept-package-agreements --accept-source-agreements)",
+      "PowerShell(\\(Get-Command az -ErrorAction SilentlyContinue\\).Source; \\(Get-Command bicep -ErrorAction SilentlyContinue\\).Source)",
+      "PowerShell(if \\(!\\(Test-Path \"D:\\\\datrix\\\\reports\"\\)\\) { New-Item -ItemType Directory -Path \"D:\\\\datrix\\\\reports\" })"
     ],
     "additionalDirectories": [
       "C:\\Users\\KErca\\.claude"

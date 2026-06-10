@@ -1,0 +1,122 @@
+config service catalog.SupplierFeedService {
+  base {
+    port = 8000;
+    flavor = "compose";
+    replicas = 1;
+    resources {
+      requests {
+        cpu = "100m";
+        memory = "256Mi";
+      }
+      limits {
+        cpu = "500m";
+        memory = "512Mi";
+      }
+    }
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms db {
+      id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+      engine = "postgres";
+      flavor = "container";
+      host = "localhost";
+      port = 5432;
+      database = "catalog_products";
+      poolSize = 20;
+      asyncDriver = "postgresql+asyncpg";
+      syncDriver = "postgresql+psycopg2";
+      healthCheckSql = "SELECT 1";
+      dockerImage = "postgres:17-alpine";
+      volumePath = "/var/lib/postgresql/data";
+      defaultUser = "postgres";
+    }
+    pubsub feedBus {
+      engine = "kafka";
+      flavor = "container";
+      brokers = ["localhost:9092"];
+      partitions = 3;
+      replicationFactor = 1;
+      retention = "7d";
+      port = 9092;
+      controllerPort = 9093;
+      dockerImage = "confluentinc/cp-kafka:7.6.0";
+      volumePath = "/var/lib/kafka/data";
+    }
+    storage catalogArchive {
+      provider = "minio";
+      flavor = "minio";
+      endpoint = "http://localhost:9000";
+      bucket = "catalog-archive";
+      region = "us-east-1";
+      accessKey = "minioadmin";
+      secretKey = "minioadmin";
+    }
+    jobs {
+      jobs {
+        replayCatalogFeed {
+          schedule = "0 3 * * *";
+          timeout = "3600s";
+        }
+      }
+    }
+    registration {
+      tags = ["api", "catalog", "v1"];
+      meta = {};
+      healthCheck {
+        type = "http";
+        path = "/health";
+        interval = "10s";
+      }
+    }
+    resilience {
+      defaults {
+        timeout = "30s";
+        retry {
+          maxAttempts = 3;
+          backoff {
+            type = "exponential";
+            initial = "200ms";
+            multiplier = 2;
+          }
+        }
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+
+    flavor = "ecs-fargate";
+    replicas = 2;
+    replace rdbms db {
+      id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+      engine = "postgres";
+      flavor = "rds";
+      host = env("DB_HOST");
+      database = "catalog_products";
+      poolSize = 40;
+      ssl = true;
+      asyncDriver = "postgresql+asyncpg";
+      syncDriver = "postgresql+psycopg2";
+      healthCheckSql = "SELECT 1";
+    }
+    strategy {
+      rolling {
+        maxUnavailable = "25%";
+      }
+    }
+  }
+}

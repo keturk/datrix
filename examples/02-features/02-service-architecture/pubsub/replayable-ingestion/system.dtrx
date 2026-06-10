@@ -1,0 +1,4 @@
+include 'supplier-feed-service.dtrx';
+
+system catalog.SupplierFeedSystem('config/system.dcfg') : version('1.0.0') {
+}

@@ -122,6 +122,21 @@ datrix migrations rebaseline --all \
 
 The `driftPolicy` selector in your system config determines regime behavior. Each mode represents a different database lifecycle and shapes how generation, drift detection, and reconciliation work. There are four modes: `off` (default), `guard` (production), `reconcile` (pre-production), and `ephemeral` (throwaway).
 
+**Mode summary — what happens to a `blocked` diff at generate time:**
+
+```
+driftPolicy.mode (resolved from the active profile's system config)
+        │
+        ├─ off        → append-only policy; blocked ⇒ GenerationError.  DEFAULT.
+        ├─ guard      → append-only policy; blocked ⇒ GenerationError; rebaseline refused.
+        ├─ reconcile  → blocked ⇒ actionable message offering {rebaseline | reconcile --to-desired}.
+        │               (no auto-rebaseline; operator chooses keep or wipe)
+        └─ ephemeral  → blocked ⇒ auto-rebaseline (R := D), logged, generation proceeds.
+                        safe/risky ⇒ normal incremental path (no rebaseline).
+```
+
+The diff classifier (`change_policy.classify_diff`) is never weakened — a `blocked` diff is still `blocked` in every mode. Only the *consequence* is regime-dependent.
+
 ### Off (Default)
 
 ```dcfg
@@ -340,7 +355,6 @@ Now `L ≠ R` (live has status, recorded doesn't). You have two choices:
 - **[Config DSL Reference — Drift Policy Selector](../reference/config-dsl-reference.md#drift-policy-selector)** — How to configure `driftPolicy` in your `.dcfg` files
 - **[RDBMS Migration Decisions (D24–D29)](../architecture/rdbms-migration-decisions.md#database-drift-detection--reconciliation-d24d29)** — Drift detection and reconciliation technical rationale
 - **[RDBMS Migration Decisions (D30–D34)](../architecture/rdbms-migration-decisions.md#regime-aware-migration-lifecycle-d30d34)** — Rebaseline and regime-aware generation rationale
-- **[Design 017: Regime-Aware Migration Lifecycle](../../design/017-regime-aware-migration-lifecycle.md)** — Full design document including architecture and implementation details
 - **[Architecture Overview — Decision 10](../architecture/architecture-overview.md#decision-10-database-drift-detection--reconciliation)** — System-level overview
 - **[CLI Migrations Commands](../../../datrix-cli/docs/commands/migrations.md)** — Full command reference
 - **[RDBMS Migration API](../../../datrix-common/docs/architecture/migration.md)** — Programmatic migration interface

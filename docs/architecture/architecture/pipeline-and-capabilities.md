@@ -403,6 +403,53 @@ service examples.OrderService('config/order-service.dcfg') {
 
 **Service-owned only (D7):** Serverless blocks are generated only when declared inside a service. Shared containers do not own deployable serverless blocks.
 
+### Replayable Ingestion — Storage-as-System-of-Record (Planned)
+
+Datrix supports an ingestion pattern that decouples *acquiring* records from *loading* them into a database, so a table can be rebuilt at any time without re-fetching from the external source (which may have mutated or disappeared). Normalized record batches are archived to object storage — the **system-of-record** — and the database is filled by consuming **claim-check** events: each event carries a small typed pointer (`StorageRef`) to the archived batch, never the bytes. Rebuild is a generated **replay** operator that re-publishes a topic's archived batches from storage; consumers reprocess and rebuild the database with zero external fetch. Because durability lives in storage, rebuild does not depend on broker retention.
+
+**DSL syntax (storage-backed, replayable topic):**
+
+```datrix
+storage catalogArchive {
+    folder raw      : path('raw/');         // source payloads
+    folder batches  : path('batches/');     // normalized record batches (system-of-record)
+}
+
+pubsub feedBus {
+    // `source(folder)` binds the backing storage; `replayable` generates the replay operator.
+    topic CatalogFeed : source(catalogArchive.batches), replayable {
+        publish ProductBatchPublished(
+            StorageRef batch,          // typed claim-check pointer (builtin value struct)
+            Int recordCount,
+            String schemaVersion,
+            DateTime sourceUpdatedAt
+        );
+    }
+}
+```
+
+**`StorageRef` (builtin value struct):** `{ String folder; String key; Int size; String contentType; String? checksum }` — the only value a claim-check event needs to locate its batch.
+
+**Storage is the system-of-record; Kafka is transport (D39).** The durable artifact is the normalized batch in object storage; the broker carries only pointers and need not retain anything for rebuild.
+
+**Claim-check, not fat events (D40).** Bulk batches exceed sane broker message sizes and would bloat the log; the bytes stay in storage, which is the system-of-record anyway, so there is one copy.
+
+**Topic↔storage binding is declarative (D41).** A replayable topic declares `source(folder)`; generic, generated replay needs to know the backing folder and object→event mapping rather than inferring it.
+
+**Event envelope persisted as object metadata (D42).** The producer stamps the event's fields onto the archived object via `set_metadata`; replay reconstructs events from `get_metadata` — one source of truth, no separate manifest store.
+
+**Consumers of replayable topics must be idempotent (D43).** The dedup key is declared explicitly: the target entity marks its idempotency key with the `replayKey` field modifier (e.g. `String sku : unique, replayKey;`). Enforced at generation — a replayable-topic consumer must `.upsert` into a `replayKey` entity; a `.create()`, or a target entity without `replayKey`, fails generation with a diagnostic. Replay re-delivers, so idempotency is structural and declarative, not a runtime dedup.
+
+**Replay is an operator-triggered endpoint plus optional backfill job (D44).** `replayable` synthesizes a `replay{Topic}(range)` operator endpoint onto the owning service; `replay schedule("…")` additionally synthesizes a cron backfill job. Both are ordinary service nodes, so every platform generator (AWS/Azure/Docker/K8s) deploys them without special-casing. Replay is range-scoped by key prefix and/or timestamp window.
+
+**Schema version is stamped per batch; cross-version replay fails fast (D45).** A consumer replaying an unsupported `schemaVersion` errors rather than coercing old records.
+
+**I/O stays explicit (D46).** `upload`/`download` remain explicit in handler bodies; the framework adds the typed `StorageRef`, the binding, replay synthesis, and the idempotency check — not hidden I/O.
+
+**Accumulate-only; deletion is deliberate and audited (D47).** The store and database never auto-delete and never propagate source deletions — a record the source drops is retained (historical value). The sole deletion path is an explicit operator `purge{Topic}(selector)` — by key, time-range, or full — that deletes the matching DB rows and storage data together, records the purge in a durable exclusion log that **replay honors** (so a purge is never undone by a later replay), and writes an audit record. Erasure is both logical (immediate: DB delete + exclusion entry) and physical (eventual: range/full delete whole objects; key-level compaction rewrites objects to remove the bytes). Storage stays append-only except via this audited purge path.
+
+**Reuses existing primitives:** the ten storage operations (`upload`/`download`/`list`/`exists`/`delete`/`copy`/`move`/`get_metadata`/`set_metadata`), the transactional outbox (`defer_event`/`outbox_active`), consumer DB-session injection, and the jobs/APScheduler path. The only generated additions are the storage-backed producer branch, the replay endpoint/job bodies, and the `StorageRef` schema.
+
 ### Managed API Gateway (Stable)
 
 Datrix supports managed API gateway infrastructure through a `gateway` block at the application level and a unified `gateway.yaml` configuration. When `type: managed` (or `type: kong` / `type: traefik`), platform generators emit cloud-managed or self-hosted API gateway resources with throttling, API keys, usage plans, request validation, response caching, WAF integration, and custom domain/TLS management.

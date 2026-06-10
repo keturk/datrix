@@ -70,12 +70,14 @@ def _parse_application(source_path: Path, profile: str) -> object:
     Returns the resolved Application object with configs attached.
     """
     from datrix_language.parser import TreeSitterParser
+    from datrix_language.registration import register_all
     from datrix_common.semantic import SemanticAnalyzer
     from datrix_common.config_resolution import (
         resolve_service_configs,
         resolve_infrastructure_configs,
     )
 
+    register_all()
     project_root = source_path.parent
 
     parser = TreeSitterParser()

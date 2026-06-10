@@ -52,11 +52,11 @@ The implementation uses existing application DSL and config models as the source
 
 ## D8: State Lives Under App-Root `.datrix`
 
-`schema.json` and `ledger.json` are stored under `{app_dir}/.datrix/rdbms-migrations/{rdbms_id}/`, where `app_dir` is the source application folder that owns the `.dtrx` and config inputs. Migration directories in generated output folders contain target-native migration files only. Changing output folders, profiles, resolved database engines, platforms, owner containers, block aliases, or target languages does not reset migration history for the same logical RDBMS block.
+`schema.json` and `ledger.json` are stored under `{app_dir}/.datrix/rdbms-migrations/{target}/{rdbms_id}/`, where `app_dir` is the source application folder that owns the `.dtrx` and config inputs and `target` is the concrete deployable profile name (see D35–D38). Migration directories in generated output folders contain target-native migration files only. Changing output folders, resolved database engines, platforms, owner containers, block aliases, or target languages does not reset migration history for the same logical RDBMS block on a given target. **Profile is now load-bearing in the state path** — it is the `target` segment — because one logical block deploys to N independently-wiped databases (one per target); see D35.
 
-## D8a: RDBMS Migration Streams Are UUID Scoped
+## D8a: RDBMS Migration Streams Are UUID + Target Scoped
 
-A service can have multiple `rdbms` blocks. The `.dcfg` `RdbmsConfig.id` UUID is the logical storage contract identity. The `.dtrx` owner container and block alias are mutable metadata. Migration history is scoped to `rdbms_id`, not to resolved database engine, database name, platform, profile, output folder, owner container, block alias, or target language.
+A service can have multiple `rdbms` blocks. The `.dcfg` `RdbmsConfig.id` UUID is the logical storage contract identity. The `.dtrx` owner container and block alias are mutable metadata. Migration history is scoped to `(rdbms_id, target)` — the UUID plus the concrete profile name — not to resolved database engine, database name, platform, output folder, owner container, block alias, or target language. The `rdbms_id` remains the stable logical identity across profiles (D16); the `target` dimension partitions one logical block's append-only history into one independent lifetime per deployment environment (D35).
 
 ## D9: Language/Adapter Changes Require Explicit Bootstrap for Existing Databases
 
@@ -88,7 +88,7 @@ Datrix-generated automatic migrations do not perform destructive or ambiguous sc
 
 ## D15: Migration State Paths Are Centralized and Stable
 
-`datrix_common.migration.state_store` is the only code allowed to construct app-level migration state paths. It validates `RdbmsConfig.id` as a UUID, lower-cases it, and uses it as the sole path segment under `.datrix/rdbms-migrations`. Language generators and platform generators must call the state store API instead of hand-building paths.
+`datrix_common.migration.state_store` is the only code allowed to construct app-level migration state paths. It validates `RdbmsConfig.id` as a UUID and lower-cases it, validates the `target` (concrete profile name) as a filesystem-safe segment, and uses `{target}/{rdbms_id}` as the path segments under `.datrix/rdbms-migrations` (see D35–D37). Language generators and platform generators must call the state store API (`block_dir(rdbms_id, target)`, `load(rdbms_id, target)`) instead of hand-building paths.
 
 ## D16: RDBMS UUID Is Required and Stable Across Profiles
 
@@ -96,7 +96,7 @@ Every resolved `RdbmsConfig` must contain an `id` UUID authored in ConfigDSL. No
 
 ## D17: Shared-Owned RDBMS Migrations Use Shared Generated Output
 
-Shared-owned RDBMS blocks are first-class migration targets. Their adapter-native migration files are generated under the shared block output tree using `SharedPaths.rdbms_dir`, not under a consuming service. The canonical app-level state path is still keyed only by `rdbms_id`.
+Shared-owned RDBMS blocks are first-class migration targets. Their adapter-native migration files are generated under the shared block output tree using `SharedPaths.rdbms_dir`, not under a consuming service. The canonical app-level state path is keyed by `(rdbms_id, target)` (see D35) — one shared block has one independent state lifetime per deployment target.
 
 ## D18: Shared-Owned RDBMS Migrations Are Deployment-Level Apply Units
 
@@ -187,6 +187,28 @@ In `reconcile` mode, generation that would block fails with a message offering e
 When a ledger is rebaselined, it records a top-level `rebaselined_from` field containing metadata about the prior ledger: its hash, the ID of its latest revision, a human-readable reason (from `--reason` CLI flag), and `recorded_at` timestamp. This provenance is written at `LEDGER_VERSION = 3` (`READABLE_LEDGER_VERSIONS = {1,2,3}` in code). Provenance is metadata only — it is never replayed as DDL, never converted to migration operations, and never carries secrets or connection details.
 
 **Rationale:** A reset that leaves no trace is indistinguishable from silent data corruption or a tooling bug. Recording the decision keeps "we deliberately reset `R` to `D` at time T for reason X by operator Y" fully auditable and recoverable for investigation. The v3 bump is a clean additive field independent of 016's already-shipped v2 (`adopted`/`adopt_live_schema`). Reading code writes v3, reads any of {1,2,3}, and a ledger lacking `rebaselined_from` is transparently treated as pre-v3 with no behavior change — the field is entirely optional and its absence does not break anything.
+
+---
+
+## Target-Scoped Migration State (D35–D38)
+
+D8/D8a/D15 keyed app-level migration state by `rdbms_id` alone, on the premise that one `rdbms_id` maps to one database lifetime. That premise holds for single-environment deployments but breaks when one logical block is deployed to multiple, independently-managed databases (e.g. a staging Postgres and an Azure Postgres wiped or preserved on separate schedules). The shared key is harmless for the append-only **keep-additive** path — the ledger is never pruned and each live database tracks its own position in its own `alembic_version` table — but it breaks on **rebaseline** (`R := D`, D30): rebaselining to wipe one environment prunes the shared `revisions/` set that another environment's live database still references, causing that environment's next deploy to fail with *"Can't locate revision."* The following decisions re-key state by `(rdbms_id, target)` so the append-only-per-database-lifetime principle (D30–D34) holds for the multi-target reality.
+
+## D35: Migration State Is Keyed by `(rdbms_id, target)`
+
+App-level migration state lives at `{app_dir}/.datrix/rdbms-migrations/{target}/{rdbms_id}/`. The unit of append-only history is one *physical database's* lifetime; two deployment targets of the same block are two lifetimes with two independent ledgers and revision sets. Rebaseline is therefore target-scoped: wiping one target prunes only that target's `revisions/` and leaves every other target byte-identical. This supersedes the `rdbms_id`-only key in D8a/D15. Only the *authoring-side* state gains the target dimension — the alembic runtime model is unchanged (each live database already owns its `alembic_version`).
+
+## D36: `target` Is the Concrete Profile Name
+
+The `target` segment is the **concrete profile name** — the identifier before `as "alias"` in the ConfigDSL `profile <name> as "<alias>"` declaration (e.g. `development`, `test`, `staging`, `production`) — never the short alias. This is the system's existing and only profile-identity convention: config resolution matches profiles by concrete name exclusively (`p.name == name`), raises a hard error on no match, and never matches aliases (aliases populate interpolation context only). The CLI `--profile` value and the orchestrator's resolved profile are both already concrete names threaded through this same resolution, so using the profile directly as the directory segment requires no new canonicalization. **Constraint:** if two profiles ever target the same physical database, they must share a `target` key — out of scope, recorded as a documented limitation.
+
+## D37: Layout Groups by Target, Then Block
+
+The path is `{target}/{rdbms_id}/`, so wiping or rebaselining a target is a single-directory operation and each lifetime's history is physically isolated. The inverse `{rdbms_id}/{target}/` is rejected: it scatters a target's lifetime across every block directory, turning a wipe into a multi-directory sweep.
+
+## D38: Existing State Is Relocated, Not Regenerated
+
+A guarded, idempotent `relocate-state` operation seeds the target-scoped layout from existing shared `{rdbms_id}/` state. It discovers the declared deployable targets by parsing the application's ConfigDSL profiles (not a flag list or hard-coded default), copies each existing block directory into every declared target's slot (copy-not-move until byte-identity is verified, then removes the legacy directory), is idempotent (existing target-scoped state is skipped, not overwritten), and refuses-and-reports any `{rdbms_id}/` directory that maps to no declared target. Regeneration is rejected because it would silently rewrite history; faithful relocation preserves the recorded baseline and is auditable. After the layout change, `load(rdbms_id, target)` raises `MigrationStateLegacyLayoutError` (naming the `relocate-state` command) when it finds legacy-layout state and no target-scoped state — there is no silent fallback to the legacy path.
 
 ---
 
