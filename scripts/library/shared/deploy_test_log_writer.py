@@ -40,6 +40,17 @@ DEPLOY_PHASES: list[str] = [
     "integration-tests",
 ]
 
+# Docker lifecycle phases that must run before any test phase. When every one
+# of these is SKIPPED, the Docker lifecycle never executed (e.g. the engine was
+# unavailable or the build failed before any artifact was written) — a failure,
+# not a pass.
+_INFRA_PHASES: list[str] = [
+    "docker-build",
+    "docker-up",
+    "health-check",
+    "db-connectivity",
+]
+
 
 # --- Transient error patterns ---
 # Canonical source. The deploy_test.py template duplicates these
@@ -1884,6 +1895,16 @@ class DeployTestLogWriter:
             phase = phases.get(phase_name)
             if phase and phase.result == "FAILED":
                 return "FAILED", phase_name
+        # No phase is explicitly FAILED. If every Docker lifecycle phase is
+        # SKIPPED, the deploy never ran (engine unavailable, or build failed
+        # before writing any artifact). SKIPPED != PASSED — surface the failure
+        # at docker-build, the first phase that should have executed.
+        all_infra_skipped = all(
+            (phases.get(p) or PhaseResult(result="SKIPPED")).result == "SKIPPED"
+            for p in _INFRA_PHASES
+        )
+        if all_infra_skipped:
+            return "FAILED", "docker-build"
         return "PASSED", None
 
     def _classify_error_type(self, phase: str, message: str) -> str:
