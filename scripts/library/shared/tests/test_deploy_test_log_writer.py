@@ -169,6 +169,32 @@ def all_passing_dir(tmp_deploy_dir: Path) -> Path:
     return tmp_deploy_dir
 
 
+@pytest.fixture
+def docker_unavailable_no_markers_dir(tmp_deploy_dir: Path) -> Path:
+    """Simulate the deploy lifecycle producing no parseable phase output.
+
+    Mirrors a run where Docker fails before any recognizable phase marker is
+    written (e.g. the engine is unreachable and the process dies early). No
+    test artifacts, and a log whose lines match none of the phase markers.
+    Every infrastructure phase therefore remains SKIPPED.
+    """
+    (tmp_deploy_dir / "deploy-test-output.log").write_text(
+        'error during connect: Get "http://%2F%2F.%2Fpipe%2F'
+        'dockerDesktopLinuxEngine/_ping": open //./pipe/'
+        "dockerDesktopLinuxEngine: The system cannot find the file specified.\n",
+        encoding="utf-8",
+    )
+    # No failures.json, no JUnit XML, no Jest JSON (Docker never ran).
+    return tmp_deploy_dir
+
+
+@pytest.fixture
+def no_log_no_artifacts_dir(tmp_deploy_dir: Path) -> Path:
+    """Simulate the deploy process dying before writing any log or artifact."""
+    # tmp_deploy_dir has only the empty docker-logs/ subdir — nothing else.
+    return tmp_deploy_dir
+
+
 def _make_writer(
     run_dir: Path,
     tmp_path: Path,
@@ -249,6 +275,51 @@ class TestPhaseDetection:
         index = json.loads(index_path.read_text(encoding="utf-8"))
         assert index["result"] == "PASSED"
         assert index["failed_phase"] is None
+
+    def test_docker_unavailable_no_markers_detected_as_failure(
+        self,
+        docker_unavailable_no_markers_dir: Path,
+        tmp_path: Path,
+    ) -> None:
+        """Lifecycle with no parseable phase output is FAILED, not PASSED.
+
+        When Docker never runs and the log contains no recognizable phase
+        markers, every infrastructure phase stays SKIPPED. The result must be
+        FAILED at docker-build — SKIPPED must never be reported as PASSED.
+        """
+        writer = _make_writer(
+            docker_unavailable_no_markers_dir,
+            tmp_path,
+            project_name="01-foundation",
+            example="01-foundation",
+        )
+        index_path = writer.write(timestamp=datetime(2026, 6, 9, 20, 22, 23))
+
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+        assert index["result"] == "FAILED"
+        assert index["failed_phase"] == "docker-build"
+        assert index["phases"]["docker-build"]["result"] == "SKIPPED"
+        assert index["phases"]["docker-up"]["result"] == "SKIPPED"
+        assert index["phases"]["health-check"]["result"] == "SKIPPED"
+        assert index["phases"]["db-connectivity"]["result"] == "SKIPPED"
+
+    def test_no_log_no_artifacts_detected_as_failure(
+        self,
+        no_log_no_artifacts_dir: Path,
+        tmp_path: Path,
+    ) -> None:
+        """A run with no log and no artifacts is FAILED, not PASSED."""
+        writer = _make_writer(
+            no_log_no_artifacts_dir,
+            tmp_path,
+            project_name="01-foundation",
+            example="01-foundation",
+        )
+        index_path = writer.write(timestamp=datetime(2026, 6, 9, 20, 22, 23))
+
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+        assert index["result"] == "FAILED"
+        assert index["failed_phase"] == "docker-build"
 
     def test_deploy_phases_constant_order(self) -> None:
         """DEPLOY_PHASES constant has correct ordered phases."""
