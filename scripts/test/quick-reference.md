@@ -210,3 +210,26 @@ Validates that all canonical types in the TypeRegistry have mappings in the requ
 **Exit codes:** 0 = all types mapped, 1 = missing mappings found
 
 **Purpose:** This script replaces package-local cross-language type mapping tests. Individual language packages test only their own mappings; this repo-level script validates completeness across all requested languages.
+
+---
+
+### `test\regen-parity-baselines.ps1`
+
+Regenerates the stored reference-example parity baselines consumed by the
+`datrix-codegen-common` example-parity test. For every example `system.dtrx` under
+`datrix/examples/` × each discovered language, generates output in-process and writes a
+deterministic per-file sha256 manifest to
+`datrix-codegen-common/tests/parity/baselines/<example_id>/<language>.sha256`. This is the
+**only** sanctioned way to update baselines — the test itself never writes them (no
+auto-heal). Run it deliberately after an intentional, reviewed change to generated output.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Regenerate all** | `.\test\regen-parity-baselines.ps1` | Rewrite every example × language baseline |
+| **Single example** | `.\test\regen-parity-baselines.ps1 -Example "01-foundation/library"` | Rewrite one example's baselines (path relative to `datrix/examples/`) |
+| **Single language** | `.\test\regen-parity-baselines.ps1 -Language python` | Rewrite only the named language's baselines |
+| **Debug** | `.\test\regen-parity-baselines.ps1 -Dbg` | Debug logging |
+
+**Parameters:** `-Example` (relative path under `datrix/examples/`, optional — default all), `-Language` (python\|typescript, optional — default all discovered), `-Dbg`
+
+**Note:** Baselines are deterministic (generation output is byte-stable). Regeneration must be reviewed in the diff — an unexpected baseline change signals real cross-language divergence.
