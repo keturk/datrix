@@ -48,7 +48,7 @@ config service ecommerce.UserService {
       partitions = 3;
       replicationFactor = 1;
       port = 9092;
-      dockerImage = "confluentinc/cp-kafka:7.6";
+      dockerImage = "confluentinc/cp-kafka:7.6.0";
       volumePath = "/var/lib/kafka/data";
       retention = "7d";
       controllerPort = 9093;
