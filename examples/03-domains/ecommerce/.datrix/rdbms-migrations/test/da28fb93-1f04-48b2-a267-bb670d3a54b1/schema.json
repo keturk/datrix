@@ -15,7 +15,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002618B11C670>"
+            "value": "<abc.CallNode object at 0x0000026D583E0910>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -55,7 +55,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002618B10A350>"
+            "value": "<abc.CallNode object at 0x0000026D583DE7B0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -117,7 +117,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002618B11DF60>"
+            "value": "<abc.CallNode object at 0x0000026D583E0670>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -147,7 +147,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002618B11C670>"
+            "value": "<abc.CallNode object at 0x0000026D583E0910>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -187,7 +187,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002618B10A350>"
+            "value": "<abc.CallNode object at 0x0000026D583DE7B0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -263,7 +263,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000002618A8E8360>"
+            "value": "<abc.PropertyAccessNode object at 0x0000026D57BA46E0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -290,7 +290,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002618B11DF60>"
+            "value": "<abc.CallNode object at 0x0000026D583E0670>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -376,7 +376,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002618B11C670>"
+            "value": "<abc.CallNode object at 0x0000026D583E0910>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -416,7 +416,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002618B10A350>"
+            "value": "<abc.CallNode object at 0x0000026D583DE7B0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -555,7 +555,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000002618A8D9470>"
+            "value": "<abc.PropertyAccessNode object at 0x0000026D57B9D7F0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -599,7 +599,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002618B11DF60>"
+            "value": "<abc.CallNode object at 0x0000026D583E0670>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -681,7 +681,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "da28fb93-1f04-48b2-a267-bb670d3a54b1",
-  "schema_hash": "a4b91c112ea5a3fe6f2c350eaffd591ba9d65e5ffbf82fb9f5495e78bcdc48b6",
+  "schema_hash": "3ea4f8d869b3f4f44da0631d6bda62570e57ffafc93721bd5fb415635f1dd081",
   "service": {
     "name": "ecommerce.ProductService",
     "version": "1.0.0"

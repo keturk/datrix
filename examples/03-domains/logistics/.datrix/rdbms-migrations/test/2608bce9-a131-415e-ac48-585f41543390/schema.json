@@ -33,7 +33,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002A8FBF23620>"
+            "value": "<abc.CallNode object at 0x000002BB6553B9A0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -93,7 +93,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002A8FBF20D70>"
+            "value": "<abc.CallNode object at 0x000002BB655390F0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -199,7 +199,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000002A8FB5346E0>"
+            "value": "<abc.PropertyAccessNode object at 0x000002BB64B4CA60>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -248,7 +248,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002A8FBF238C0>"
+            "value": "<abc.CallNode object at 0x000002BB6553BC40>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -330,7 +330,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002A8FBF23620>"
+            "value": "<abc.CallNode object at 0x000002BB6553B9A0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -372,7 +372,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002A8FBF20D70>"
+            "value": "<abc.CallNode object at 0x000002BB655390F0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -434,7 +434,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002A8FBF238C0>"
+            "value": "<abc.CallNode object at 0x000002BB6553BC40>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -523,7 +523,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002A8FBF23620>"
+            "value": "<abc.CallNode object at 0x000002BB6553B9A0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -563,7 +563,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002A8FBF20D70>"
+            "value": "<abc.CallNode object at 0x000002BB655390F0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -625,7 +625,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000002A8FB52CC20>"
+            "value": "<abc.PropertyAccessNode object at 0x000002BB64B44FA0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -676,7 +676,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002A8FBF238C0>"
+            "value": "<abc.CallNode object at 0x000002BB6553BC40>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -777,7 +777,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "2608bce9-a131-415e-ac48-585f41543390",
-  "schema_hash": "cfdde08d2ae1102ef75f5b359ebf45370b39b229aaded229a2a9acb445a9c389",
+  "schema_hash": "8e29663fe3a73aa78c0420272cf91a4d12a9a0e6cda8ffb65c23c5bbb58a4818",
   "service": {
     "name": "logistics.FleetService",
     "version": "1.0.0"
