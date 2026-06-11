@@ -579,20 +579,26 @@ The set of infrastructure resources a service receives is the union of its decla
 
 Example mapping on Azure (`runtime: azure-app-service, provider: azure`):
 
-| DSL block | Azure primitive |
-|-----------|----------------|
-| service (HTTP surface: `rest_api`, `graphql_api`) | Azure App Service |
-| `serverless` block | Azure Functions (Function App) |
-| `rdbms` block | Azure Flexible Server |
+| DSL construct | Azure primitive |
+|---------------|----------------|
+| `rest_api` or `graphql_api` | App Service Web App (Linux, one per service with an HTTP surface) |
+| `subscribe` (event consumer) | Azure Function — Service Bus or Event Hubs trigger |
+| `jobs()` (scheduled) | Azure Function — timer trigger (NCRONTAB schedule) |
+| `enqueue` consumer | Azure Function — queue trigger (Service Bus or Storage Queue) |
+| `serverless { … }` block handlers | Azure Function — per-handler trigger type |
+| `pubsub` block | Service Bus namespace or Event Hubs namespace (by engine) |
+| `queues` block | Service Bus queue or Storage Queue |
+| `rdbms` block | Azure Flexible Server (PostgreSQL/MySQL/MariaDB) |
 | `cache` block | Azure Cache for Redis |
-| `nosql` block | Azure Cosmos DB |
-| `pubsub` block | Azure Service Bus or Event Hubs (by engine) |
-| `storage` block | Azure Blob Storage |
+| `nosql` block | Cosmos DB |
+| `storage` block | Blob Storage |
 | `cdn` block | Azure Front Door |
-| `gateway` block (`type: managed`) | Azure API Management |
+| `gateway` block (`type: managed`) | API Management |
 | `search` block | Azure AI Search |
 
-The same construct-to-primitive mapping applies on other platforms (AWS: App Service → App Runner/ECS + Fargate; Kubernetes: service → Deployment/Service/Ingress, job → CronJob; Docker Compose: services → containers).
+All async handlers for a service — service-level `subscribe`, `jobs()`, `enqueue` consumers, and `serverless` block handlers — are grouped into a single **Function App per service**. The per-service compute shape follows from what the service declares: an HTTP surface (`rest_api`/`graphql_api`) → Web App; any async handler → Function App; both declared → both; neither declared → generation error.
+
+The same construct-to-primitive mapping applies on other platforms (AWS: `rest_api`/`graphql_api` → App Runner or ECS Fargate; `subscribe`/`jobs()`/`enqueue` → Lambda; Kubernetes: service → Deployment/Service/Ingress, job → CronJob; Docker Compose: services → containers). See [datrix-codegen-azure/docs/architecture.md](../../../../datrix-codegen-azure/docs/architecture.md) for the full Azure construct mapping and shape-derivation rules.
 
 **No silent ignore:**
 
@@ -609,6 +615,8 @@ Every deployment-relevant choice is explicit in the `.dcfg` profile. A missing r
 **Retired path:**
 
 `azure-container-apps` as a `runtime` value is retired. Specifying it raises `GenerationError` with guidance to use `runtime: azure-app-service` for the native Azure PaaS runtime or `runtime: kubernetes, target: aks` for a container mesh on AKS.
+
+On AWS, both `ecs-fargate` and `app-runner` are **first-class** HTTP runtimes — neither is retired. The author selects between them in `.dcfg` (`deployment { runtime = "ecs-fargate" | "app-runner" }`); the generator never chooses between them. See [datrix-codegen-aws architecture](../../../datrix-codegen-aws/docs/architecture.md#http-runtimes-ecs-fargate-and-app-runner) for the full construct → primitive mapping.
 
 **Why:**
 - One representation removes the duplication where `.dtrx` described the logical structure and a separate flavor described the runtime shape — they were always derivable from each other
