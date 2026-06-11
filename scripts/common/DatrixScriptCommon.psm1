@@ -119,11 +119,13 @@ function Get-DatrixPackageNamesGlobWithPyProject {
 function Get-DatrixTestablePackageNames {
  <#
  .SYNOPSIS
- Lists datrix-* package directory names under the workspace that contain a tests/ directory (test.ps1 -All behavior).
+ Lists datrix package directory names under the workspace that contain a tests/ directory (test.ps1 -All behavior).
 
  .DESCRIPTION
  Discovers packages by scanning the workspace root (same idea as status_tests.py get_datrix_projects), not only
  the hardcoded Get-DatrixDirectories list, so packages like datrix-codegen-common are included.
+
+ Matches both "datrix" (the monorepo showcase package) and "datrix-*" packages.
 
  Retired names merged into datrix-common are excluded: datrix-core, datrix-codegen.
 
@@ -145,7 +147,7 @@ function Get-DatrixTestablePackageNames {
  if (Test-Path $WorkspaceRoot) {
   Get-ChildItem -Path $WorkspaceRoot -Directory |
    Where-Object {
-    $_.Name -like "datrix-*" -and
+    ($_.Name -like "datrix-*" -or $_.Name -eq "datrix") -and
     $retired -notcontains $_.Name -and
     (Test-Path (Join-Path $_.FullName "tests"))
    } |

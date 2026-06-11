@@ -71,3 +71,13 @@ issue = "datrix/.tasks/phase-36/task-36-07-quality-gate-datrix.md"
 file = "datrix_codegen_common/algorithms/struct_context_typescript.py"
 import = "datrix_codegen_typescript"
 issue = "datrix/.tasks/phase-36/task-36-07-quality-gate-datrix.md"
+
+# --- GenDSL naming helper in datrix-codegen-common ---
+# This helper lazily imports datrix_codegen_sql for SQL table-name resolution.
+# The proper long-term fix is to remove the lazy conditional import and pass
+# the table-name function as a parameter, or relocate the SQL logic.
+
+[[allow]]
+file = "datrix_codegen_common/gendsl/_naming.py"
+import = "datrix_codegen_sql"
+issue = "datrix/.tasks/phase-64/task-64-09-no-concrete-target-arch-test.md"

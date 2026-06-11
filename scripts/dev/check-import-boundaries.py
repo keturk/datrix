@@ -17,71 +17,136 @@ import ast
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
-# Boundary rules: source package -> list of forbidden import prefixes
-# Keys are package names (e.g., datrix_common), values are forbidden import prefixes
-BOUNDARY_RULES: dict[str, list[str]] = {
-    "datrix_common": [
-        "datrix_language",
-        "datrix_cli",
-        "datrix_codegen_",  # Wildcard: any package starting with datrix_codegen_
-        "datrix_extensions",
-    ],
-    "datrix_language": [
-        "datrix_cli",
-        "datrix_codegen_",  # Wildcard
-    ],
-    "datrix_codegen_common": [
-        "datrix_codegen_python",
-        "datrix_codegen_typescript",
-        "datrix_codegen_docker",
-        "datrix_codegen_k8s",
-        "datrix_codegen_aws",
-        "datrix_codegen_azure",
-        "datrix_cli",
-    ],
-    "datrix_codegen_python": [
-        "datrix_codegen_typescript",
-    ],
-    "datrix_codegen_typescript": [
-        "datrix_codegen_python",
-    ],
-    "datrix_codegen_docker": [
-        "datrix_codegen_common",
-        "datrix_codegen_python",
-        "datrix_codegen_typescript",
-        "datrix_cli",
-    ],
-    "datrix_codegen_k8s": [
-        "datrix_codegen_common",
-        "datrix_codegen_python",
-        "datrix_codegen_typescript",
-        "datrix_cli",
-    ],
-    "datrix_codegen_aws": [
-        "datrix_codegen_common",
-        "datrix_codegen_python",
-        "datrix_codegen_typescript",
-        "datrix_cli",
-    ],
-    "datrix_codegen_azure": [
-        "datrix_codegen_common",
-        "datrix_codegen_python",
-        "datrix_codegen_typescript",
-        "datrix_cli",
-    ],
-    "datrix_extensions": [
-        "datrix_cli",
-        "datrix_codegen_python",
-        "datrix_codegen_typescript",
-        "datrix_codegen_common",
-        "datrix_codegen_docker",
-        "datrix_codegen_k8s",
-        "datrix_codegen_aws",
-        "datrix_codegen_azure",
-        "datrix_language",
-    ],
+
+@dataclass(frozen=True)
+class BoundaryRule:
+    """Per-package boundary rule: forbidden prefixes plus subtree carve-outs.
+
+    An import that matches a forbidden prefix is still permitted when it
+    starts with one of ``allowed_subtrees`` — used to admit the narrow,
+    language-agnostic platform -> codegen-common edges while keeping the
+    language-shaped subtrees walled off.
+    """
+
+    forbidden_prefixes: tuple[str, ...]
+    allowed_subtrees: frozenset[str] = frozenset()
+
+
+# The closed set of language-agnostic datrix_codegen_common subtrees that
+# platform generators (docker, k8s, aws, azure) are permitted to import.
+# Adding a seventh subtree requires a doc + rule edit and review.
+#
+# Covers all 13 distinct datrix_codegen_common modules that platforms import today:
+#   gendsl.*       — GenDSL compiler/executor/registry/scope
+#   dashboards.*   — shared Grafana dashboard builder (builder, models)
+#   algorithms.serverless            — serverless block plan algorithm
+#   context_models.serverless        — serverless plan/render context models
+#   context_models.replayable_ingestion — frozen, language-agnostic ingestion plan
+#   enums           — shared enums (e.g. DatabaseEngine)
+#
+# Platforms remain FORBIDDEN from: transpiler.*, language-shaped context_models.*
+# (entity/schema/service/endpoint/cache/pubsub/cqrs/jobs/project), and
+# language-shaped algorithms.* (same suffixes).
+PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
+    [
+        "datrix_codegen_common.gendsl",
+        "datrix_codegen_common.dashboards",
+        "datrix_codegen_common.algorithms.serverless",
+        "datrix_codegen_common.context_models.serverless",
+        "datrix_codegen_common.context_models.replayable_ingestion",
+        "datrix_codegen_common.enums",
+    ]
+)
+
+# Boundary rules: source package -> BoundaryRule
+# forbidden_prefixes: imports whose prefix matches are forbidden
+# allowed_subtrees: specific sub-prefixes that override the broader forbidden prefix
+BOUNDARY_RULES: dict[str, BoundaryRule] = {
+    "datrix_common": BoundaryRule(
+        forbidden_prefixes=(
+            "datrix_language",
+            "datrix_cli",
+            "datrix_codegen_",  # Wildcard: any package starting with datrix_codegen_
+            "datrix_extensions",
+        ),
+    ),
+    "datrix_language": BoundaryRule(
+        forbidden_prefixes=(
+            "datrix_cli",
+            "datrix_codegen_",  # Wildcard
+        ),
+    ),
+    "datrix_codegen_common": BoundaryRule(
+        forbidden_prefixes=(
+            "datrix_codegen_python",
+            "datrix_codegen_typescript",
+            "datrix_codegen_docker",
+            "datrix_codegen_k8s",
+            "datrix_codegen_aws",
+            "datrix_codegen_azure",
+            "datrix_cli",
+        ),
+    ),
+    "datrix_codegen_python": BoundaryRule(
+        forbidden_prefixes=("datrix_codegen_typescript",),
+    ),
+    "datrix_codegen_typescript": BoundaryRule(
+        forbidden_prefixes=("datrix_codegen_python",),
+    ),
+    # Platform generators keep datrix_codegen_common on forbidden_prefixes but carry
+    # PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES to admit the six language-agnostic
+    # subtrees they legitimately consume. The transpiler and language-shaped
+    # context_models/algorithms subtrees remain forbidden.
+    "datrix_codegen_docker": BoundaryRule(
+        forbidden_prefixes=(
+            "datrix_codegen_common",
+            "datrix_codegen_python",
+            "datrix_codegen_typescript",
+            "datrix_cli",
+        ),
+        allowed_subtrees=PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES,
+    ),
+    "datrix_codegen_k8s": BoundaryRule(
+        forbidden_prefixes=(
+            "datrix_codegen_common",
+            "datrix_codegen_python",
+            "datrix_codegen_typescript",
+            "datrix_cli",
+        ),
+        allowed_subtrees=PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES,
+    ),
+    "datrix_codegen_aws": BoundaryRule(
+        forbidden_prefixes=(
+            "datrix_codegen_common",
+            "datrix_codegen_python",
+            "datrix_codegen_typescript",
+            "datrix_cli",
+        ),
+        allowed_subtrees=PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES,
+    ),
+    "datrix_codegen_azure": BoundaryRule(
+        forbidden_prefixes=(
+            "datrix_codegen_common",
+            "datrix_codegen_python",
+            "datrix_codegen_typescript",
+            "datrix_cli",
+        ),
+        allowed_subtrees=PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES,
+    ),
+    "datrix_extensions": BoundaryRule(
+        forbidden_prefixes=(
+            "datrix_cli",
+            "datrix_codegen_python",
+            "datrix_codegen_typescript",
+            "datrix_codegen_common",
+            "datrix_codegen_docker",
+            "datrix_codegen_k8s",
+            "datrix_codegen_aws",
+            "datrix_codegen_azure",
+            "datrix_language",
+        ),
+    ),
 }
 
 
@@ -115,14 +180,28 @@ class AllowlistEntry:
 
 
 def is_forbidden_import(
-    source_package: str, imported_module: str, forbidden_prefix: str
+    source_package: str,
+    imported_module: str,
+    forbidden_prefix: str,
+    allowed_subtrees: frozenset[str] = frozenset(),
 ) -> bool:
     """Check if an import violates a forbidden prefix rule.
+
+    An import that matches a forbidden prefix is still permitted when it
+    starts with one of the ``allowed_subtrees`` entries — used to admit
+    the narrow, language-agnostic platform -> codegen-common edges.
+
+    Subtree matching uses an exact-or-child rule:
+        subtree ``s`` matches ``m`` when ``m == s`` or ``m.startswith(s + ".")``.
+    This ensures ``enums`` matches ``enums`` and ``enums.foo`` but never
+    ``enums_other``.
 
     Args:
         source_package: The package doing the importing (e.g., datrix_common)
         imported_module: The full dotted import name (e.g., datrix_language.parser)
         forbidden_prefix: The forbidden prefix (may end with _ for wildcard)
+        allowed_subtrees: Fully-qualified subtree roots that override the
+            forbidden prefix for this source package.
 
     Returns:
         True if the import is forbidden, False otherwise
@@ -134,10 +213,22 @@ def is_forbidden_import(
     # Handle wildcard prefixes (e.g., datrix_codegen_)
     if forbidden_prefix.endswith("_"):
         # Wildcard match: imported module starts with prefix
-        return imported_module.startswith(forbidden_prefix)
+        matched = imported_module.startswith(forbidden_prefix)
+    else:
+        # Exact prefix match (or module.submodule)
+        matched = imported_module.startswith(forbidden_prefix + ".") or imported_module == forbidden_prefix
 
-    # Exact prefix match (or module.submodule)
-    return imported_module.startswith(forbidden_prefix + ".") or imported_module == forbidden_prefix
+    if not matched:
+        return False
+
+    # The import matches a forbidden prefix; check whether an allowed subtree
+    # carves it out.  A subtree ``s`` covers ``m`` when ``m == s`` or
+    # ``m.startswith(s + ".")``.
+    for subtree in allowed_subtrees:
+        if imported_module == subtree or imported_module.startswith(subtree + "."):
+            return False
+
+    return True
 
 
 def extract_imports_from_file(file_path: Path) -> list[tuple[int, str]]:
@@ -231,9 +322,9 @@ def scan_package_for_violations(
     """
     violations: list[Violation] = []
 
-    # Get forbidden prefixes for this package
-    forbidden_prefixes = BOUNDARY_RULES.get(package_info.name, [])
-    if not forbidden_prefixes:
+    # Get the boundary rule for this package; no rule means no restrictions
+    rule = BOUNDARY_RULES.get(package_info.name)
+    if rule is None:
         return violations
 
     # Directories to scan: src/, tests/, fixtures/, helpers/
@@ -266,10 +357,15 @@ def scan_package_for_violations(
                 print(f"Warning: Failed to read {rel_path} - {e}", file=sys.stderr)
                 continue
 
-            # Check each import against forbidden prefixes
+            # Check each import against forbidden prefixes, respecting allowed subtrees
             for line_num, imported_module in imports:
-                for forbidden_prefix in forbidden_prefixes:
-                    if is_forbidden_import(package_info.name, imported_module, forbidden_prefix):
+                for forbidden_prefix in rule.forbidden_prefixes:
+                    if is_forbidden_import(
+                        package_info.name,
+                        imported_module,
+                        forbidden_prefix,
+                        rule.allowed_subtrees,
+                    ):
                         violations.append(
                             Violation(
                                 file_path=py_file,
