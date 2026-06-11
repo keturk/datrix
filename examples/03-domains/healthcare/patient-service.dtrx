@@ -335,7 +335,7 @@ service healthcare.PatientService('config/patient-service.dcfg') : version('1.0.
         alert errorRate(ratio) over(5m) > 5% @severity(critical);
 
         // List endpoint with search and filtering
-        get(String? search, PatientStatus? status, Int page = 1, Int perPage = 20) -> PatientSearchResult {
+        get(String? search, PatientStatus? status, Int page = 1, Int perPage = 20) : auth(required, providers: [identity]) -> PatientSearchResult {
             let JSON query = patientDb.Patient.query();
 
             if (search != null && !search.isEmpty()) {
@@ -377,7 +377,7 @@ service healthcare.PatientService('config/patient-service.dcfg') : version('1.0.
         }
 
         @path('/:id')
-        get(UUID id) -> patientDb.Patient {
+        get(UUID id) : auth(required, providers: [identity]) -> patientDb.Patient {
             let Patient patient = patientDb.Patient.findOrFail(id);
 
             Log.info("Patient viewed", {
@@ -392,7 +392,7 @@ service healthcare.PatientService('config/patient-service.dcfg') : version('1.0.
 
         // Lookup by Medical Record Number
         @path('/mrn/:mrn')
-        get(String mrn) -> patientDb.Patient {
+        get(String mrn) : auth(required, providers: [identity]) -> patientDb.Patient {
             // Check cache first for fast lookup
             let JSON? cached = redis.PatientByMRN.get(mrn);
             if (cached != null) {
@@ -414,7 +414,7 @@ service healthcare.PatientService('config/patient-service.dcfg') : version('1.0.
             return patient;
         }
 
-        post(CreatePatientRequest request) -> patientDb.Patient {
+        post(CreatePatientRequest request) : auth(required, providers: [identity]) -> patientDb.Patient {
             let Patient patient = patientDb.Patient.create({
                 firstName: request.firstName,
                 lastName: request.lastName,
@@ -446,7 +446,7 @@ service healthcare.PatientService('config/patient-service.dcfg') : version('1.0.
         }
 
         @path('/:id')
-        put(UUID id, UpdatePatientRequest request) -> patientDb.Patient {
+        put(UUID id, UpdatePatientRequest request) : auth(required, providers: [identity]) -> patientDb.Patient {
             let Patient patient = patientDb.Patient.findOrFail(id);
 
             // Track which fields changed for the update event
@@ -478,7 +478,7 @@ service healthcare.PatientService('config/patient-service.dcfg') : version('1.0.
         }
 
         @path('/:id/status')
-        put(UUID id, UpdatePatientStatusRequest request) : access(admin) -> patientDb.Patient {
+        put(UUID id, UpdatePatientStatusRequest request) : auth(required, providers: [identity], roles: [admin]) -> patientDb.Patient {
             let Patient patient = patientDb.Patient.findOrFail(id);
             patient.status = request.status;
             patient.save();
@@ -495,23 +495,23 @@ service healthcare.PatientService('config/patient-service.dcfg') : version('1.0.
 
         // Internal endpoints for cross-service communication
         @path('/service/:id')
-        get patientByIdInternal(UUID id) : access(Service), hidden, idempotent -> patientDb.Patient {
+        get patientByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> patientDb.Patient {
             return patientDb.Patient.findOrFail(id);
         }
 
         @path('/service/mrn/:mrn')
-        get patientByMrnInternal(String mrn) : access(Service), hidden, idempotent -> patientDb.Patient {
+        get patientByMrnInternal(String mrn) : auth(service, providers: [platform]), hidden, idempotent -> patientDb.Patient {
             return patientDb.Patient.where(mrn: mrn).firstOrFail();
         }
 
         @path('/service/validate')
-        post validatePatient(ValidatePatientRequest request) : access(Service), hidden, idempotent -> Boolean {
+        post validatePatient(ValidatePatientRequest request) : auth(service, providers: [platform]), hidden, idempotent -> Boolean {
             let Patient? patient = patientDb.Patient.find(request.patientId);
             return patient != null && patient.status == PatientStatus.Active;
         }
 
         @path('/service/bulk')
-        post patientsByIdsInternal(BulkPatientRequest request) : access(Service), hidden -> Array<patientDb.Patient> {
+        post patientsByIdsInternal(BulkPatientRequest request) : auth(service, providers: [platform]), hidden -> Array<patientDb.Patient> {
             return patientDb.Patient.whereIn(id: request.ids).all();
         }
 

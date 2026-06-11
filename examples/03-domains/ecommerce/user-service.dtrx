@@ -240,10 +240,10 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
     // REST API block - generates CRUD endpoints and custom routes
     rest_api UserAPI : basePath('/api/v1'), rdbms(userDb) {
 
-        resource userDb.User : access(admin);
+        resource userDb.User : auth(required, providers: [identity], roles: [admin]);
 
         @path('/register')
-        post(RegisterRequest request) : public -> userDb.User {
+        post(RegisterRequest request) : auth(public) -> userDb.User {
             if (!Validator.isEmail(request.email))
             throw ValidationException("Invalid email format");
             if (request.password.length() < 8)
@@ -269,7 +269,7 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
         }
 
         @path('/login')
-        post(LoginRequest request) : public -> LoginResponse {
+        post(LoginRequest request) : auth(public) -> LoginResponse {
             // 'firstOrFail()' throws NotFoundException if no match
             let User user = userDb.User.where(email: request.email).firstOrFail();
 
@@ -312,7 +312,7 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
         }
 
         @path('/logout')
-        post(LogoutRequest request) -> Void {
+        post(LogoutRequest request) : auth(required, providers: [identity]) -> Void {
             let String token = Auth.token();
             let UserSession? session = userDb.UserSession.where(token: token).first();
             if (session != null) {
@@ -323,12 +323,12 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
         }
 
         @path('/me')
-        get() -> userDb.User {
+        get() : auth(required, providers: [identity]) -> userDb.User {
             return Auth.user();
         }
 
         @path('/me')
-        put(UpdateProfileRequest request) -> userDb.User {
+        put(UpdateProfileRequest request) : auth(required, providers: [identity]) -> userDb.User {
             let User user = Auth.user();
 
             if (request.firstName != null) user.firstName = request.firstName;
@@ -342,7 +342,7 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
         }
 
         @path('/me/password')
-        put(ChangePasswordRequest request) -> Void {
+        put(ChangePasswordRequest request) : auth(required, providers: [identity]) -> Void {
             let User user = Auth.user();
 
             if (!verifyPassword(request.currentPassword, user.passwordHash)) {
@@ -354,7 +354,7 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
         }
 
         @path('/verify-email')
-        post(VerifyEmailRequest request) : public -> userDb.User {
+        post(VerifyEmailRequest request) : auth(public) -> userDb.User {
             let User user = userDb.User.where(emailVerificationToken: request.token).firstOrFail();
 
             user.emailVerifiedAt = DateTime.now();
@@ -366,7 +366,7 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
         }
 
         @path('/forgot-password')
-        post(ForgotPasswordRequest request) : public -> Void {
+        post(ForgotPasswordRequest request) : auth(public) -> Void {
             let User? user = userDb.User.where(email: request.email).first();
 
             if (user != null) {
@@ -380,7 +380,7 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
         }
 
         @path('/reset-password')
-        post(ResetPasswordRequest request) : public -> userDb.User {
+        post(ResetPasswordRequest request) : auth(public) -> userDb.User {
             let User user = userDb.User.where(passwordResetToken: request.token).firstOrFail();
 
             if (user.passwordResetExpiry == null || DateTime.now() > user.passwordResetExpiry) {
@@ -396,7 +396,7 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
         }
 
         @path('/:id/status')
-        put(UUID id, UpdateUserStatusRequest request) : access(admin) -> userDb.User {
+        put(UUID id, UpdateUserStatusRequest request) : auth(required, providers: [identity], roles: [admin]) -> userDb.User {
             let User user = userDb.User.findOrFail(id);
             user.status = request.status;
             user.save();
@@ -405,12 +405,12 @@ service ecommerce.UserService('config/user-service.dcfg') : version('1.0.0'), de
 
         // @internal marks endpoints as internal-only, not exposed through the API gateway
         @path('/service/:id')
-        get userByIdInternal(UUID id) : access(Service), hidden, idempotent -> userDb.User {
+        get userByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> userDb.User {
             return userDb.User.findOrFail(id);
         }
 
         @path('/service/validate-session')
-        post sessionValidation(ValidateSessionRequest request) : access(Service), hidden -> SessionValidationResponse {
+        post sessionValidation(ValidateSessionRequest request) : auth(service, providers: [platform]), hidden -> SessionValidationResponse {
             let UserSession? session = userDb.UserSession.where(token: request.token).first();
 
             if (session == null || session.isExpired) {

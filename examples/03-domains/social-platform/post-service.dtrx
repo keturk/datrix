@@ -302,7 +302,7 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
     rest_api PostAPI : basePath('/api/v1/posts'), rdbms(postDb) {
 
         // Public feed of posts
-        get(Int page = 1, Int perPage = 20) : public -> PaginatedPosts {
+        get(Int page = 1, Int perPage = 20) : auth(public) -> PaginatedPosts {
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             let Array<Post> posts = postDb.Post
             .where(visibility: PostVisibility.Public)
@@ -325,7 +325,7 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
 
         // Get a single post
         @path('/:id')
-        get(UUID id) : public -> postDb.Post {
+        get(UUID id) : auth(public) -> postDb.Post {
             let Post post = postDb.Post.findOrFail(id);
 
             if (!post.isPublic) {
@@ -343,7 +343,7 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
         }
 
         // Create a new post
-        post(CreatePostRequest request) -> postDb.Post {
+        post(CreatePostRequest request) : auth(required, providers: [identity]) -> postDb.Post {
             let UUID authorId = Auth.user().id;
 
             // Verify user exists and is active via UserService
@@ -363,7 +363,7 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
 
         // Update a post
         @path('/:id')
-        put(UUID id, UpdatePostRequest request) -> postDb.Post {
+        put(UUID id, UpdatePostRequest request) : auth(required, providers: [identity]) -> postDb.Post {
             let Post post = postDb.Post.findOrFail(id);
             let UUID userId = Auth.user().id;
 
@@ -385,7 +385,7 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
 
         // Delete a post
         @path('/:id')
-        delete(UUID id) -> Void {
+        delete(UUID id) : auth(required, providers: [identity]) -> Void {
             let Post post = postDb.Post.findOrFail(id);
             let UUID userId = Auth.user().id;
 
@@ -401,7 +401,7 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
 
         // Get posts by a specific author
         @path('/author/:authorId')
-        get(UUID authorId, Int page = 1, Int perPage = 20) : public -> PaginatedPosts {
+        get(UUID authorId, Int page = 1, Int perPage = 20) : auth(public) -> PaginatedPosts {
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             let Array<Post> posts = postDb.Post
             .where(authorId: authorId)
@@ -426,7 +426,7 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
 
         // Search posts by content
         @path('/search')
-        get(String query, Int page = 1, Int perPage = 20) : public -> PaginatedPosts {
+        get(String query, Int page = 1, Int perPage = 20) : auth(public) -> PaginatedPosts {
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             let Array<Post> posts = postDb.Post
             .fulltext(query)
@@ -450,7 +450,7 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
 
         // Like a post
         @path('/:id/like')
-        post(UUID id) -> LikeResponse {
+        post(UUID id) : auth(required, providers: [identity]) -> LikeResponse {
             let UUID userId = Auth.user().id;
             let Post post = postDb.Post.findOrFail(id);
 
@@ -484,7 +484,7 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
 
         // Unlike a post
         @path('/:id/unlike')
-        delete(UUID id) -> LikeResponse {
+        delete(UUID id) : auth(required, providers: [identity]) -> LikeResponse {
             let UUID userId = Auth.user().id;
             let Post post = postDb.Post.findOrFail(id);
 
@@ -510,7 +510,7 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
 
         // Get comments on a post
         @path('/:id/comments')
-        get(UUID id, Int page = 1, Int perPage = 20) : public -> Array<postDb.Comment> {
+        get(UUID id, Int page = 1, Int perPage = 20) : auth(public) -> Array<postDb.Comment> {
             let Post _parentCheck = postDb.Post.findOrFail(id);
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             return postDb.Comment
@@ -523,7 +523,7 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
 
         // Add a comment to a post
         @path('/:id/comments')
-        post(UUID id, CreateCommentRequest request) -> postDb.Comment {
+        post(UUID id, CreateCommentRequest request) : auth(required, providers: [identity]) -> postDb.Comment {
             let UUID authorId = Auth.user().id;
             let Post post = postDb.Post.findOrFail(id);
 
@@ -547,7 +547,7 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
         // Get trending posts
         @path('/trending')
         @cache(ttl: 300)
-        get(Int limit = 20) : public -> Array<postDb.Post> {
+        get(Int limit = 20) : auth(public) -> Array<postDb.Post> {
             let Int cappedLimit = Math.min(limit, MAX_PAGE_SIZE);
             return postDb.Post
             .where(status: ContentStatus.Published)
@@ -559,7 +559,7 @@ service social.PostService('config/post-service.dcfg') : version('1.0.0'), descr
 
         // Internal endpoint for other services
         @path('/service/:id')
-        get postByIdInternal(UUID id) : access(Service), hidden, idempotent -> postDb.Post {
+        get postByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> postDb.Post {
             return postDb.Post.findOrFail(id);
         }
 

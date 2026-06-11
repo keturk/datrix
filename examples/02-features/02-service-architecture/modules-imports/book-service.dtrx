@@ -591,11 +591,11 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         // 'resource' auto-generates standard CRUD endpoints
         // 'only(...)' restricts which CRUD operations are generated
         // 'public' makes endpoints accessible without authentication
-        resource catalog.Book : only(list, get), public;
+        resource catalog.Book : only(list, get), auth(public);
         // 'access(role)' restricts endpoints to users with the specified role
-        resource catalog.Book : only(create, update, delete), access(librarian);
-        resource catalog.Category : only(list, get), public;
-        resource catalog.Category : only(create, update, delete), access(librarian);
+        resource catalog.Book : only(create, update, delete), auth(required, providers: [customer]);
+        resource catalog.Category : only(list, get), auth(public);
+        resource catalog.Category : only(create, update, delete), auth(required, providers: [customer]);
 
         // 'fn' inside a rest_api block defines API-level helper functions
         fn findBooksByFilter(String? titleFilter, String? authorFilter) -> Array<catalog.Book> {
@@ -617,13 +617,13 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         // '@retry' adds automatic retry logic for transient failures
         @retry(maxAttempts: 3)
         @path('/books/search')
-        get(String query) : public -> Array<catalog.Book> {
+        get(String query) : auth(public) -> Array<catalog.Book> {
             return catalog.Book.where(title: query).all();
         }
 
         // Endpoint that delegates to the API-level helper function
         @path('/books/filter')
-        get(String? title, String? author) : public -> Array<catalog.Book> {
+        get(String? title, String? author) : auth(public) -> Array<catalog.Book> {
             return findBooksByFilter(title, author);
         }
 
@@ -632,37 +632,37 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         // Endpoints querying the CQRS view instead of the entity table
         // Views provide faster reads from denormalized, pre-projected data
         @path('/books/catalog')
-        get() : public -> Array<BookCatalogView> {
+        get() : auth(public) -> Array<BookCatalogView> {
             return BookCatalogView.all();
         }
 
         @path('/books/available')
-        get() : public -> Array<BookCatalogView> {
+        get() : auth(public) -> Array<BookCatalogView> {
             return BookCatalogView.where(status: BookStatus.Available).all();
         }
 
         @path('/books/category/:categoryId')
-        get(UUID categoryId) : public -> Array<catalog.Book> {
+        get(UUID categoryId) : auth(public) -> Array<catalog.Book> {
             return catalog.Book.where(categoryId: categoryId).all();
         }
 
         // Query through the join entity to find books by tag (many-to-many traversal)
         @path('/books/by-tag/:tagId')
-        get(UUID tagId) : public -> Array<catalog.Book> {
+        get(UUID tagId) : auth(public) -> Array<catalog.Book> {
             let Array<BookTag> bookTags = catalog.BookTag.where(tagId: tagId).all();
             return bookTags.map(bt => catalog.Book.findOrFail(bt.bookId));
         }
 
         // Filter books by their physical branch location
         @path('/books/by-branch/:branchId')
-        get(UUID branchId) : public -> Array<catalog.Book> {
+        get(UUID branchId) : auth(public) -> Array<catalog.Book> {
             return catalog.Book.where(branchId: branchId).all();
         }
 
         // Return a struct constructed from entity data
         // PriceRange is imported from the common module
         @path('/books/:id/price-range')
-        get(UUID id) : public -> PriceRange {
+        get(UUID id) : auth(public) -> PriceRange {
             let Book book = catalog.Book.findOrFail(id);
             let Decimal min = book.price;
             let Decimal max = book.price;
@@ -672,26 +672,26 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         // '@cache' enables response caching with a time-to-live in seconds
         @cache(ttl: 300)
         @path('/books/popular')
-        get() : public -> Array<catalog.Book> {
+        get() : auth(public) -> Array<catalog.Book> {
             return catalog.Book.where(status: BookStatus.Available).all();
         }
 
         // '@deprecated' marks an endpoint as deprecated; clients should migrate away
         @deprecated
         @path('/books/legacy-search')
-        get(String q) : public -> Array<catalog.Book> {
+        get(String q) : auth(public) -> Array<catalog.Book> {
             return catalog.Book.where(title: q).all();
         }
 
         // Endpoint returning a projected array of scalar values via .map()
         @path('/books/titles')
-        get() : public -> Array<String> {
+        get() : auth(public) -> Array<String> {
             let Array<Book> books = catalog.Book.where(status: BookStatus.Available).all();
             return books.map(b => b.title);
         }
 
         @path('/books/by-condition')
-        get(String condition) : public -> Array<catalog.Book> {
+        get(String condition) : auth(public) -> Array<catalog.Book> {
             let Array<Book> allBooks = catalog.Book.all();
             return allBooks.filter(b => b.condition == condition);
         }
@@ -699,7 +699,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         // Checkout endpoint uses 'try/catch/finally' for comprehensive error handling
         // 'finally' always runs, whether or not an exception was thrown
         @path('/books/:id/checkout')
-        post(UUID id) : access(member) -> catalog.Checkout {
+        post(UUID id) : auth(required, providers: [customer]) -> catalog.Checkout {
             try {
                 let Book book = catalog.Book.findOrFail(id);
 
@@ -730,7 +730,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
 
         // Endpoint using switch/case for conditional logic based on enum value
         @path('/books/:id/condition')
-        put(UUID id, UpdateBookConditionRequest request) : access(librarian) -> catalog.Book {
+        put(UUID id, UpdateBookConditionRequest request) : auth(required, providers: [customer]) -> catalog.Book {
             let Book book = catalog.Book.findOrFail(id);
             let BookCondition oldCondition = book.condition;
 
@@ -760,7 +760,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         // 'internal' restricts this endpoint to service-to-service calls only
         // Internal endpoints are not exposed through the API gateway
         @path('/books/internal/:id')
-        get bookByIdInternal(UUID id) : access(Service), hidden, idempotent -> catalog.Book {
+        get bookByIdInternal(UUID id) : auth(service, providers: [svc]) -> catalog.Book {
             return catalog.Book.findOrFail(id);
         }
 
@@ -768,7 +768,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         @timeout(ms: 5000)
         // Internal endpoint returning a struct instead of a full entity
         @path('/books/internal/availability/:id')
-        get bookAvailabilityByIdInternal(UUID id) : access(Service), hidden, idempotent -> BookAvailabilityResponse {
+        get bookAvailabilityByIdInternal(UUID id) : auth(service, providers: [svc]) -> BookAvailabilityResponse {
             let Book book = catalog.Book.findOrFail(id);
             return { available: book.isAvailable };
         }
@@ -776,17 +776,17 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         // Reporting endpoints read from the second 'reporting' rdbms block
         // This demonstrates cross-database reads within a single API
         @path('/reporting/audit-log/:bookId')
-        get(UUID bookId) : access(librarian) -> Array<reporting.BookAuditLog> {
+        get(UUID bookId) : auth(required, providers: [customer]) -> Array<reporting.BookAuditLog> {
             return reporting.BookAuditLog.where(bookId: bookId).all();
         }
 
         @path('/reporting/daily-stats')
-        get() : access(librarian) -> Array<reporting.DailyBookStats> {
+        get() : auth(required, providers: [customer]) -> Array<reporting.DailyBookStats> {
             return reporting.DailyBookStats.all();
         }
 
         @path('/reporting/daily-stats/:date')
-        get(DateTime date) : access(librarian) -> reporting.DailyBookStats {
+        get(DateTime date) : auth(required, providers: [customer]) -> reporting.DailyBookStats {
             return reporting.DailyBookStats.where(reportDate: date).firstOrFail();
         }
 

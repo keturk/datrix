@@ -197,7 +197,7 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
     rest_api ProjectAPI : basePath('/api/v1/projects'), rdbms(projectDb) {
 
         // List projects for the current user
-        get(Int page = 1, Int perPage = 20, ProjectStatus? status) -> PaginatedProjects {
+        get(Int page = 1, Int perPage = 20, ProjectStatus? status) : auth(required, providers: [identity]) -> PaginatedProjects {
             let UUID userId = Auth.user().id;
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
 
@@ -239,12 +239,12 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
 
         // Get a single project
         @path('/:id')
-        get(UUID id) -> projectDb.Project {
+        get(UUID id) : auth(required, providers: [identity]) -> projectDb.Project {
             return projectDb.Project.findOrFail(id);
         }
 
         // Create a new project
-        post(CreateProjectRequest request) -> projectDb.Project {
+        post(CreateProjectRequest request) : auth(required, providers: [identity]) -> projectDb.Project {
             let UUID ownerId = Auth.user().id;
 
             let Project project = projectDb.Project.create({
@@ -260,7 +260,7 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
 
         // Update a project
         @path('/:id')
-        put(UUID id, UpdateProjectRequest request) -> projectDb.Project {
+        put(UUID id, UpdateProjectRequest request) : auth(required, providers: [identity]) -> projectDb.Project {
             let Project project = projectDb.Project.findOrFail(id);
 
             if (request.name != null) {
@@ -281,7 +281,7 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
 
         // Delete (archive) a project
         @path('/:id')
-        delete(UUID id) -> Void {
+        delete(UUID id) : auth(required, providers: [identity]) -> Void {
             let Project project = projectDb.Project.findOrFail(id);
             let UUID userId = Auth.user().id;
 
@@ -297,7 +297,7 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
 
         // Add a member to a project
         @path('/:id/members')
-        post(UUID id, AddMemberRequest request) -> projectDb.ProjectMember {
+        post(UUID id, AddMemberRequest request) : auth(required, providers: [identity]) -> projectDb.ProjectMember {
             let Project project = projectDb.Project.findOrFail(id);
 
             // Verify the user exists
@@ -328,7 +328,7 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
 
         // Update a member's role
         @path('/:id/members/:userId')
-        put(UUID id, UUID userId, UpdateMemberRoleRequest request) -> projectDb.ProjectMember {
+        put(UUID id, UUID userId, UpdateMemberRoleRequest request) : auth(required, providers: [identity]) -> projectDb.ProjectMember {
             let ProjectMember member = projectDb.ProjectMember
             .where(projectId: id)
             .where(userId: userId)
@@ -342,7 +342,7 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
 
         // Remove a member from a project
         @path('/:id/members/:userId')
-        delete(UUID id, UUID userId) -> Void {
+        delete(UUID id, UUID userId) : auth(required, providers: [identity]) -> Void {
             let ProjectMember member = projectDb.ProjectMember
             .where(projectId: id)
             .where(userId: userId)
@@ -361,7 +361,7 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
 
         // Get project members
         @path('/:id/members')
-        get(UUID id) -> Array<projectDb.ProjectMember> {
+        get(UUID id) : auth(required, providers: [identity]) -> Array<projectDb.ProjectMember> {
             return projectDb.ProjectMember
             .where(projectId: id)
             .all();
@@ -369,7 +369,7 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
 
         // Search projects
         @path('/search')
-        get(String query, Int page = 1, Int perPage = 20) -> PaginatedProjects {
+        get(String query, Int page = 1, Int perPage = 20) : auth(required, providers: [identity]) -> PaginatedProjects {
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             let Array<Project> projects = projectDb.Project
             .fulltext(query)
@@ -396,7 +396,7 @@ service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0')
 
         // Internal endpoint for other services
         @path('/service/:id')
-        get projectByIdInternal(UUID id) : access(Service), hidden, idempotent -> projectDb.Project {
+        get projectByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> projectDb.Project {
             return projectDb.Project.findOrFail(id);
         }
 

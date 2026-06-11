@@ -235,16 +235,16 @@ service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0
 
     rest_api ShippingAPI : basePath('/api/v1/shipments'), rdbms(shippingDb) {
 
-        resource shippingDb.Shipment : only(get);
+        resource shippingDb.Shipment : auth(required, providers: [identity]), only(get);
 
         @path('/order/:orderId')
-        get(UUID orderId) -> shippingDb.Shipment {
+        get(UUID orderId) : auth(required, providers: [identity]) -> shippingDb.Shipment {
             return shippingDb.Shipment.where(orderId: orderId).firstOrFail();
         }
 
         // Public tracking endpoint - no authentication required
         @path('/track/:trackingNumber')
-        get(String trackingNumber) : public -> ShipmentTracking {
+        get(String trackingNumber) : auth(public) -> ShipmentTracking {
             let JSON? cached = redis.ShipmentCache.get(trackingNumber);
 
             let Shipment shipment = shippingDb.Shipment.where(trackingNumber: trackingNumber).firstOrFail();
@@ -270,7 +270,7 @@ service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0
             };
         }
 
-        post createShipment(CreateShipmentRequest request) : access(Service), hidden -> shippingDb.Shipment {
+        post createShipment(CreateShipmentRequest request) : auth(service, providers: [platform]), hidden -> shippingDb.Shipment {
             let ShippingCarrier carrier = selectCarrier(request.destination, request.weight);
             let DateTime estimatedDelivery = calculateEstimatedDelivery(carrier, request.destination);
 
@@ -315,7 +315,7 @@ service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0
         }
 
         @path('/:id/status')
-        put(UUID id, UpdateShipmentStatusRequest request) : access(admin) -> shippingDb.Shipment {
+        put(UUID id, UpdateShipmentStatusRequest request) : auth(required, providers: [identity], roles: [admin]) -> shippingDb.Shipment {
             let Shipment shipment = shippingDb.Shipment.findOrFail(id);
 
             let ShipmentStatus oldStatus = shipment.status;
@@ -348,7 +348,7 @@ service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0
         }
 
         @path('/:id/events')
-        post(UUID id, AddTrackingEventRequest request) : access(admin) -> shippingDb.ShipmentEvent {
+        post(UUID id, AddTrackingEventRequest request) : auth(required, providers: [identity], roles: [admin]) -> shippingDb.ShipmentEvent {
             let Shipment shipment = shippingDb.Shipment.findOrFail(id);
 
             let ShipmentEvent event = shippingDb.ShipmentEvent.create({
@@ -374,7 +374,7 @@ service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0
         }
 
         @path('/rates')
-        post(GetShippingRatesRequest request) : public -> Array<ShippingRateResponse> {
+        post(GetShippingRatesRequest request) : auth(public) -> Array<ShippingRateResponse> {
             let Array<ShippingRateResponse> rates = [];
 
             rates.push({
@@ -400,7 +400,7 @@ service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0
 
         // Webhook for external carrier status updates
         @path('/webhook/fedex')
-        post(FedExWebhookRequest request) : public -> Void {
+        post(FedExWebhookRequest request) : auth(public) -> Void {
             let String trackingNumber = request.payload.trackingNumber;
             let String eventType = request.payload.eventType;
             let String location = request.payload.location ?? "Unknown";

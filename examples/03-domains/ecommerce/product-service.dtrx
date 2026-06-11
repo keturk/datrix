@@ -292,12 +292,12 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
 
     rest_api ProductAPI : basePath('/api/v1/products'), rdbms(productDb) {
 
-        resource productDb.Product : only(list, get), public;
+        resource productDb.Product : auth(public), only(list, get);
 
-        resource productDb.Product : only(create, update, delete), access(admin);
+        resource productDb.Product : auth(required, providers: [identity], roles: [admin]), only(create, update, delete);
 
         @path('/slug/:slug')
-        get(String slug) : public -> productDb.Product {
+        get(String slug) : auth(public) -> productDb.Product {
             let JSON? cached = redis.ProductCache.get(#"slug:{slug}");
             if (cached != null) return cached;
 
@@ -308,7 +308,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
 
         // Full-text search endpoint
         @path('/search')
-        get(String query, Int? limit, Int? offset) : public -> Array<productDb.Product> {
+        get(String query, Int? limit, Int? offset) : auth(public) -> Array<productDb.Product> {
             return productDb.Product
             .fulltext(query)
             .where(status: ProductStatus.Active)
@@ -318,7 +318,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         }
 
         @path('/category/:categoryId')
-        get(UUID categoryId, Int? limit) : public -> Array<productDb.Product> {
+        get(UUID categoryId, Int? limit) : auth(public) -> Array<productDb.Product> {
             return productDb.Product
             .where(categoryId: categoryId)
             .where(status: ProductStatus.Active)
@@ -327,7 +327,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
             .all();
         }
 
-        post(CreateProductRequest request) : access(admin) -> productDb.Product {
+        post(CreateProductRequest request) : auth(required, providers: [identity], roles: [admin]) -> productDb.Product {
             let Product product = productDb.Product.create({
                 name: request.name,
                 description: request.description,
@@ -348,7 +348,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         }
 
         @path('/:id/inventory')
-        put(UUID id, UpdateInventoryRequest request) : access(admin) -> productDb.Product {
+        put(UUID id, UpdateInventoryRequest request) : auth(required, providers: [identity], roles: [admin]) -> productDb.Product {
             let Product product = productDb.Product.findOrFail(id);
             let Int oldInventory = product.inventory;
             product.inventory = request.inventory;
@@ -360,7 +360,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         }
 
         @path('/:id/publish')
-        put(UUID id) : access(admin) -> productDb.Product {
+        put(UUID id) : auth(required, providers: [identity], roles: [admin]) -> productDb.Product {
             let Product product = productDb.Product.findOrFail(id);
             product.publish();
             return product;
@@ -368,7 +368,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
 
         // Internal endpoints for cross-service communication
         @path('/service/check-availability')
-        post checkAvailability(CheckAvailabilityRequest request) : access(Service), hidden, idempotent -> AvailabilityResponse {
+        post checkAvailability(CheckAvailabilityRequest request) : auth(service, providers: [platform]), hidden, idempotent -> AvailabilityResponse {
             let Array<AvailabilityItem> availability = [];
             let Boolean allAvailable = true;
 
@@ -395,7 +395,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         }
 
         @path('/service/reserve-inventory')
-        post reserveInventory(ReserveInventoryRequest request) : access(Service), hidden -> ReservationResponse {
+        post reserveInventory(ReserveInventoryRequest request) : auth(service, providers: [platform]), hidden -> ReservationResponse {
             transaction(productDb) {
                 foreach item in request.items {
                     let Product product = productDb.Product.findOrFail(item.productId);
@@ -431,7 +431,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         }
 
         @path('/service/confirm-reservation')
-        post reservationConfirmation(ConfirmReservationRequest request) : access(Service), hidden -> Void {
+        post reservationConfirmation(ConfirmReservationRequest request) : auth(service, providers: [platform]), hidden -> Void {
             let Array<InventoryReservation> reservations = productDb.InventoryReservation
             .where(reservationId: request.reservationId)
             .where(status: ReservationStatus.Reserved)
@@ -446,7 +446,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         }
 
         @path('/service/release-reservation')
-        post reservationRelease(ReleaseReservationRequest request) : access(Service), hidden -> Void {
+        post reservationRelease(ReleaseReservationRequest request) : auth(service, providers: [platform]), hidden -> Void {
             let Array<InventoryReservation> reservations = productDb.InventoryReservation
             .where(reservationId: request.reservationId)
             .where(status: ReservationStatus.Reserved)
@@ -472,13 +472,13 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         }
 
         @path('/service/:id')
-        get productByIdInternal(UUID id) : access(Service), hidden, idempotent -> productDb.Product {
+        get productByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> productDb.Product {
             return productDb.Product.findOrFail(id);
         }
 
         // 'whereIn(...)' filters by a set of values
         @path('/service/bulk')
-        post productsBulk(BulkProductRequest request) : access(Service), hidden, idempotent -> Array<productDb.Product> {
+        post productsBulk(BulkProductRequest request) : auth(service, providers: [platform]), hidden, idempotent -> Array<productDb.Product> {
             return productDb.Product.whereIn(id: request.ids).all();
         }
 

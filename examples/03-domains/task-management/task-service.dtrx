@@ -363,7 +363,7 @@ service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), desc
     rest_api TaskAPI : basePath('/api/v1/tasks'), rdbms(taskDb) {
 
         // List tasks with filtering
-        get(UUID? projectId, UUID? assigneeId, TaskStatus? status, Priority? priority, Int page = 1, Int perPage = 20) -> PaginatedTasks {
+        get(UUID? projectId, UUID? assigneeId, TaskStatus? status, Priority? priority, Int page = 1, Int perPage = 20) : auth(required, providers: [identity]) -> PaginatedTasks {
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
 
             let JSON query = taskDb.Task;
@@ -409,12 +409,12 @@ service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), desc
 
         // Get a single task
         @path('/:id')
-        get(UUID id) -> taskDb.Task {
+        get(UUID id) : auth(required, providers: [identity]) -> taskDb.Task {
             return taskDb.Task.findOrFail(id);
         }
 
         // Create a new task
-        post(CreateTaskRequest request) -> taskDb.Task {
+        post(CreateTaskRequest request) : auth(required, providers: [identity]) -> taskDb.Task {
             let UUID reporterId = Auth.user().id;
 
             // Verify project exists
@@ -444,7 +444,7 @@ service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), desc
 
         // Update a task
         @path('/:id')
-        put(UUID id, UpdateTaskRequest request) -> taskDb.Task {
+        put(UUID id, UpdateTaskRequest request) : auth(required, providers: [identity]) -> taskDb.Task {
             let Task task = taskDb.Task.findOrFail(id);
 
             if (request.title != null) {
@@ -481,7 +481,7 @@ service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), desc
 
         // Update task status
         @path('/:id/status')
-        put(UUID id, UpdateStatusRequest request) -> taskDb.Task {
+        put(UUID id, UpdateStatusRequest request) : auth(required, providers: [identity]) -> taskDb.Task {
             let Task task = taskDb.Task.findOrFail(id);
 
             // Validate status transitions
@@ -503,7 +503,7 @@ service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), desc
 
         // Assign a task
         @path('/:id/assign')
-        put(UUID id, AssignTaskRequest request) -> taskDb.Task {
+        put(UUID id, AssignTaskRequest request) : auth(required, providers: [identity]) -> taskDb.Task {
             let Task task = taskDb.Task.findOrFail(id);
 
             // Verify assignee exists
@@ -517,7 +517,7 @@ service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), desc
 
         // Unassign a task
         @path('/:id/unassign')
-        put(UUID id) -> taskDb.Task {
+        put(UUID id) : auth(required, providers: [identity]) -> taskDb.Task {
             let Task task = taskDb.Task.findOrFail(id);
             task.assigneeId = null;
             task.save();
@@ -527,7 +527,7 @@ service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), desc
 
         // Get comments on a task
         @path('/:id/comments')
-        get(UUID id, Int page = 1, Int perPage = 20) -> Array<taskDb.TaskComment> {
+        get(UUID id, Int page = 1, Int perPage = 20) : auth(required, providers: [identity]) -> Array<taskDb.TaskComment> {
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             return taskDb.TaskComment
             .where(taskId: id)
@@ -539,7 +539,7 @@ service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), desc
 
         // Add a comment to a task
         @path('/:id/comments')
-        post(UUID id, CreateCommentRequest request) -> taskDb.TaskComment {
+        post(UUID id, CreateCommentRequest request) : auth(required, providers: [identity]) -> taskDb.TaskComment {
             let UUID authorId = Auth.user().id;
             let Task task = taskDb.Task.findOrFail(id);
 
@@ -557,7 +557,7 @@ service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), desc
 
         // Search tasks by title or description
         @path('/search')
-        get(String query, UUID? projectId, Int page = 1, Int perPage = 20) -> PaginatedTasks {
+        get(String query, UUID? projectId, Int page = 1, Int perPage = 20) : auth(required, providers: [identity]) -> PaginatedTasks {
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
 
             let JSON taskQuery = taskDb.Task.fulltext(query);
@@ -590,7 +590,7 @@ service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), desc
 
         // Get task statistics for a project
         @path('/stats')
-        get(UUID projectId) -> TaskStats {
+        get(UUID projectId) : auth(required, providers: [identity]) -> TaskStats {
             let Int totalTasks = taskDb.Task.where(projectId: projectId).count();
             let Int todoCount = taskDb.Task.where(projectId: projectId).where(status: TaskStatus.Todo).count();
             let Int inProgressCount = taskDb.Task.where(projectId: projectId).where(status: TaskStatus.InProgress).count();
@@ -616,7 +616,7 @@ service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), desc
 
         // Get my assigned tasks
         @path('/my-tasks')
-        get(TaskStatus? status, Int page = 1, Int perPage = 20) -> PaginatedTasks {
+        get(TaskStatus? status, Int page = 1, Int perPage = 20) : auth(required, providers: [identity]) -> PaginatedTasks {
             let UUID userId = Auth.user().id;
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
 
@@ -652,7 +652,7 @@ service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), desc
 
         // Delete a task
         @path('/:id')
-        delete(UUID id) -> Void {
+        delete(UUID id) : auth(required, providers: [identity]) -> Void {
             let Task task = taskDb.Task.findOrFail(id);
             task.status = TaskStatus.Cancelled;
             task.save();
@@ -660,7 +660,7 @@ service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), desc
 
         // Internal endpoint
         @path('/service/:id')
-        get taskByIdInternal(UUID id) : access(Service), hidden, idempotent -> taskDb.Task {
+        get taskByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> taskDb.Task {
             return taskDb.Task.findOrFail(id);
         }
 

@@ -122,12 +122,12 @@ service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), des
 
     // REST API block - generates CRUD endpoints and custom routes
     rest_api AuthorAPI : basePath("/api/v1/authors"), rdbms(authorDb) {
-        // 'resource' auto-generates standard CRUD endpoints; 'access(role)' restricts by role
-        resource authorDb.Author : access(admin);
+        // 'resource' auto-generates standard CRUD endpoints; 'auth(required, ...)' restricts by role
+        resource authorDb.Author : auth(required, providers: [identity], roles: [admin]);
         // Custom endpoint with @path decorator
         @path('/register')
-        // 'public' makes this endpoint accessible without authentication
-        post(RegisterAuthorRequest request) : public -> authorDb.Author {
+        // 'auth(public)' makes this endpoint accessible without authentication
+        post(RegisterAuthorRequest request) : auth(public) -> authorDb.Author {
             // '#Type' is a type hint for local variables
             let Author? existingAuthor = authorDb.Author.where(email: request.email).first();
             if (existingAuthor != null)
