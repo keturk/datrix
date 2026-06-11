@@ -28,7 +28,7 @@ config service cityservices.DistrictService {
       asyncDriver = "postgresql+asyncpg";
       syncDriver = "postgresql+psycopg2";
       healthCheckSql = "SELECT 1";
-      dockerImage = "postgis/postgis:17-3.5-alpine";
+      dockerImage = "postgis/postgis:17-3.5";
       volumePath = "/var/lib/postgresql/data";
       defaultUser = "postgres";
     }
@@ -48,7 +48,7 @@ config service cityservices.DistrictService {
       partitions = 3;
       replicationFactor = 1;
       port = 9092;
-      dockerImage = "confluentinc/cp-kafka:7.6";
+      dockerImage = "confluentinc/cp-kafka:7.6.0";
       volumePath = "/var/lib/kafka/data";
       retention = "7d";
       controllerPort = 9093;
