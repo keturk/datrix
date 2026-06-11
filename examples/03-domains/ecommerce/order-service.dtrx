@@ -341,7 +341,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
         alert errorRate(ratio) over(5m) > 5% @severity(critical);
 
         // Paginated list endpoint with optional filtering
-        get(Int page = 1, Int perPage = 20, OrderStatus? status) -> PaginatedOrders {
+        get(Int page = 1, Int perPage = 20, OrderStatus? status) : auth(required, providers: [identity]) -> PaginatedOrders {
             let UUID customerId = Auth.user().id;
 
             let JSON query = orderDb.Order.where(customerId: customerId);
@@ -373,7 +373,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/:id')
-        get(UUID id) -> orderDb.Order {
+        get(UUID id) : auth(required, providers: [identity]) -> orderDb.Order {
             let Order order = orderDb.Order.findOrFail(id);
 
             if (order.customerId != Auth.user().id && !Auth.hasRole("admin")) {
@@ -383,7 +383,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
             return order;
         }
 
-        post(CreateOrderRequest request) -> orderDb.Order {
+        post(CreateOrderRequest request) : auth(required, providers: [identity]) -> orderDb.Order {
             // Check idempotency to prevent duplicate orders on retry
             let JSON? cached = checkIdempotency(request.idempotencyKey, "create_order");
             if (cached != null) {
@@ -453,7 +453,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/:id/cancel')
-        put(UUID id, CancelOrderRequest request) -> orderDb.Order {
+        put(UUID id, CancelOrderRequest request) : auth(required, providers: [identity]) -> orderDb.Order {
             let Order order = orderDb.Order.findOrFail(id);
 
             if (order.customerId != Auth.user().id && !Auth.hasRole("admin")) {
@@ -477,12 +477,12 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/service/:id')
-        get orderByIdInternal(UUID id) : access(Service), hidden, idempotent -> orderDb.Order {
+        get orderByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> orderDb.Order {
             return orderDb.Order.findOrFail(id);
         }
 
         @path('/:id/confirm-payment')
-        post paymentConfirmation(UUID id, ConfirmPaymentRequest request) : access(Service), hidden -> orderDb.Order {
+        post paymentConfirmation(UUID id, ConfirmPaymentRequest request) : auth(service, providers: [platform]), hidden -> orderDb.Order {
             let Order order = orderDb.Order.findOrFail(id);
             order.paymentId = request.paymentId;
             order.status = OrderStatus.Confirmed;
@@ -491,7 +491,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/:id/update-shipment')
-        post shipmentUpdate(UUID id, UpdateShipmentRequest request) : access(Service), hidden -> orderDb.Order {
+        post shipmentUpdate(UUID id, UpdateShipmentRequest request) : auth(service, providers: [platform]), hidden -> orderDb.Order {
             let Order order = orderDb.Order.findOrFail(id);
             order.shipmentId = request.shipmentId;
             order.save();

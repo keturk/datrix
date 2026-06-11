@@ -203,18 +203,18 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
 
     rest_api UserAPI : basePath('/api/v1/users'), rdbms(userDb) {
 
-        resource userDb.User : only(list, get), public;
+        resource userDb.User : auth(public), only(list, get);
 
         // Get current user profile
         @path('/me')
-        get() -> userDb.User {
+        get() : auth(required, providers: [identity]) -> userDb.User {
             let UUID userId = Auth.user().id;
             return userDb.User.findOrFail(userId);
         }
 
         // Update current user profile
         @path('/me')
-        put(UpdateProfileRequest request) -> userDb.User {
+        put(UpdateProfileRequest request) : auth(required, providers: [identity]) -> userDb.User {
             let UUID userId = Auth.user().id;
             let User user = userDb.User.findOrFail(userId);
 
@@ -254,7 +254,7 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
 
         // Search users by username or display name
         @path('/search')
-        get(String query, Int page = 1, Int perPage = 20) : public -> PaginatedUsers {
+        get(String query, Int page = 1, Int perPage = 20) : auth(public) -> PaginatedUsers {
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             let Array<User> users = userDb.User
             .fulltext(query)
@@ -276,7 +276,7 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
 
         // Follow a user
         @path('/:id/follow')
-        post(UUID id) -> userDb.Follow {
+        post(UUID id) : auth(required, providers: [identity]) -> userDb.Follow {
             let UUID followerId = Auth.user().id;
 
             if (followerId == id) {
@@ -319,7 +319,7 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
 
         // Unfollow a user
         @path('/:id/unfollow')
-        delete(UUID id) -> Void {
+        delete(UUID id) : auth(required, providers: [identity]) -> Void {
             let UUID followerId = Auth.user().id;
 
             let Follow follow = userDb.Follow
@@ -350,7 +350,7 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
 
         // Get followers of a user
         @path('/:id/followers')
-        get(UUID id, Int page = 1, Int perPage = 20) : public -> PaginatedUsers {
+        get(UUID id, Int page = 1, Int perPage = 20) : auth(public) -> PaginatedUsers {
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             let Array<Follow> follows = userDb.Follow
             .where(followeeId: id)
@@ -370,7 +370,7 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
 
         // Get users that a user is following
         @path('/:id/following')
-        get(UUID id, Int page = 1, Int perPage = 20) : public -> PaginatedUsers {
+        get(UUID id, Int page = 1, Int perPage = 20) : auth(public) -> PaginatedUsers {
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             let Array<Follow> follows = userDb.Follow
             .where(followerId: id)
@@ -390,13 +390,13 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
 
         // Internal endpoint for other services
         @path('/service/:id')
-        get userByIdInternal(UUID id) : access(Service), hidden, idempotent -> userDb.User {
+        get userByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> userDb.User {
             return userDb.User.findOrFail(id);
         }
 
         // Internal endpoint to get multiple users
         @path('/service/bulk')
-        post usersByIds(Array<UUID> ids) : access(Service), hidden -> Array<userDb.User> {
+        post usersByIds(Array<UUID> ids) : auth(service, providers: [platform]), hidden -> Array<userDb.User> {
             return userDb.User.whereIn(id: ids).all();
         }
 

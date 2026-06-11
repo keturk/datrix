@@ -373,7 +373,7 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
     rest_api EnrollmentAPI : basePath('/api/v1/enrollments'), rdbms(enrollmentDb) {
 
         // Enroll in a course
-        post(EnrollRequest request) -> enrollmentDb.Enrollment {
+        post(EnrollRequest request) : auth(required, providers: [identity]) -> enrollmentDb.Enrollment {
             let UUID studentId = Auth.user().id;
 
             // Verify student exists and is active
@@ -414,7 +414,7 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
         }
 
         // Get current user's enrollments
-        get(EnrollmentStatus? status, Int page = 1, Int perPage = 20) -> PaginatedEnrollments {
+        get(EnrollmentStatus? status, Int page = 1, Int perPage = 20) : auth(required, providers: [identity]) -> PaginatedEnrollments {
             let UUID studentId = Auth.user().id;
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
 
@@ -449,7 +449,7 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
 
         // Get a single enrollment
         @path('/:id')
-        get(UUID id) -> enrollmentDb.Enrollment {
+        get(UUID id) : auth(required, providers: [identity]) -> enrollmentDb.Enrollment {
             let Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
             let UUID userId = Auth.user().id;
 
@@ -462,7 +462,7 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
 
         // Drop an enrollment
         @path('/:id/drop')
-        put(UUID id, DropRequest request) -> enrollmentDb.Enrollment {
+        put(UUID id, DropRequest request) : auth(required, providers: [identity]) -> enrollmentDb.Enrollment {
             let UUID userId = Auth.user().id;
             let Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
 
@@ -488,7 +488,7 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
 
         // Update progress
         @path('/:id/progress')
-        put(UUID id, UpdateProgressRequest request) -> enrollmentDb.Enrollment {
+        put(UUID id, UpdateProgressRequest request) : auth(required, providers: [identity]) -> enrollmentDb.Enrollment {
             let UUID userId = Auth.user().id;
             let Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
 
@@ -512,7 +512,7 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
 
         // Submit a grade for a module
         @path('/:id/grades')
-        post(UUID id, SubmitGradeRequest request) -> enrollmentDb.GradeRecord {
+        post(UUID id, SubmitGradeRequest request) : auth(required, providers: [identity], roles: [admin]) -> enrollmentDb.GradeRecord {
             let Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
 
             if (!enrollment.canSubmitGrades) {
@@ -554,7 +554,7 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
 
         // Get grades for an enrollment
         @path('/:id/grades')
-        get(UUID id) -> Array<enrollmentDb.GradeRecord> {
+        get(UUID id) : auth(required, providers: [identity]) -> Array<enrollmentDb.GradeRecord> {
             let Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
             let UUID userId = Auth.user().id;
 
@@ -570,7 +570,7 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
 
         // Get student transcript
         @path('/transcript/:studentId')
-        get(UUID studentId) -> Array<enrollmentDb.Enrollment> {
+        get(UUID studentId) : auth(required, providers: [identity]) -> Array<enrollmentDb.Enrollment> {
             let UUID userId = Auth.user().id;
 
             if (studentId != userId && !Auth.hasRole("admin")) {
@@ -585,7 +585,7 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
 
         // Get enrollments for a specific course (admin)
         @path('/course/:courseId')
-        get(UUID courseId, EnrollmentStatus? status, Int page = 1, Int perPage = 20) : access(admin) -> PaginatedEnrollments {
+        get(UUID courseId, EnrollmentStatus? status, Int page = 1, Int perPage = 20) : auth(required, providers: [identity], roles: [admin]) -> PaginatedEnrollments {
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
 
             let JSON query = enrollmentDb.Enrollment.where(courseId: courseId);
@@ -619,7 +619,7 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
 
         // Get enrollment activity log
         @path('/:id/activity')
-        get(UUID id) -> Array<enrollmentDb.EnrollmentActivity> {
+        get(UUID id) : auth(required, providers: [identity]) -> Array<enrollmentDb.EnrollmentActivity> {
             let Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
             let UUID userId = Auth.user().id;
 
@@ -635,7 +635,7 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0
 
         // Internal endpoint
         @path('/service/:id')
-        get enrollmentByIdInternal(UUID id) : access(Service), hidden, idempotent -> enrollmentDb.Enrollment {
+        get enrollmentByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> enrollmentDb.Enrollment {
             return enrollmentDb.Enrollment.findOrFail(id);
         }
 

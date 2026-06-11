@@ -284,7 +284,7 @@ service social.NotificationService('config/notification-service.dcfg') : version
     rest_api NotificationAPI : basePath('/api/v1/notifications'), rdbms(notificationDb) {
 
         // Get notifications for the authenticated user
-        get(Int page = 1, Int perPage = 20, Boolean? unreadOnly) -> PaginatedNotifications {
+        get(Int page = 1, Int perPage = 20, Boolean? unreadOnly) : auth(required, providers: [identity]) -> PaginatedNotifications {
             let UUID userId = Auth.user().id;
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
 
@@ -315,7 +315,7 @@ service social.NotificationService('config/notification-service.dcfg') : version
 
         // Get a single notification
         @path('/:id')
-        get(UUID id) -> notificationDb.Notification {
+        get(UUID id) : auth(required, providers: [identity]) -> notificationDb.Notification {
             let Notification notification = notificationDb.Notification.findOrFail(id);
             let UUID userId = Auth.user().id;
 
@@ -328,7 +328,7 @@ service social.NotificationService('config/notification-service.dcfg') : version
 
         // Mark a single notification as read
         @path('/:id/read')
-        put(UUID id) -> notificationDb.Notification {
+        put(UUID id) : auth(required, providers: [identity]) -> notificationDb.Notification {
             let UUID userId = Auth.user().id;
             let Notification notification = notificationDb.Notification.findOrFail(id);
 
@@ -345,7 +345,7 @@ service social.NotificationService('config/notification-service.dcfg') : version
 
         // Mark multiple notifications as read
         @path('/mark-read')
-        put(MarkReadRequest request) -> MarkReadResponse {
+        put(MarkReadRequest request) : auth(required, providers: [identity]) -> MarkReadResponse {
             let UUID userId = Auth.user().id;
             let Int updatedCount = 0;
 
@@ -367,7 +367,7 @@ service social.NotificationService('config/notification-service.dcfg') : version
 
         // Mark all notifications as read (optionally filtered by type)
         @path('/mark-all-read')
-        post(MarkAllReadRequest request) -> MarkReadResponse {
+        post(MarkAllReadRequest request) : auth(required, providers: [identity]) -> MarkReadResponse {
             let UUID userId = Auth.user().id;
             let Array<Notification> unread = notificationDb.Notification
             .where(userId: userId)
@@ -389,7 +389,7 @@ service social.NotificationService('config/notification-service.dcfg') : version
 
         // Get unread count
         @path('/unread-count')
-        get() -> Int {
+        get() : auth(required, providers: [identity]) -> Int {
             let UUID userId = Auth.user().id;
             return notificationDb.Notification
             .where(userId: userId)
@@ -399,7 +399,7 @@ service social.NotificationService('config/notification-service.dcfg') : version
 
         // Get notification preferences
         @path('/preferences')
-        get() -> notificationDb.NotificationPreference {
+        get() : auth(required, providers: [identity]) -> notificationDb.NotificationPreference {
             let UUID userId = Auth.user().id;
             let NotificationPreference? prefs = notificationDb.NotificationPreference
             .where(userId: userId)
@@ -417,7 +417,7 @@ service social.NotificationService('config/notification-service.dcfg') : version
 
         // Update notification preferences
         @path('/preferences')
-        put(NotificationPreferences request) -> notificationDb.NotificationPreference {
+        put(NotificationPreferences request) : auth(required, providers: [identity]) -> notificationDb.NotificationPreference {
             let UUID userId = Auth.user().id;
             let NotificationPreference? prefs = notificationDb.NotificationPreference
             .where(userId: userId)
@@ -442,7 +442,7 @@ service social.NotificationService('config/notification-service.dcfg') : version
 
         // Delete a notification
         @path('/:id')
-        delete(UUID id) -> Void {
+        delete(UUID id) : auth(required, providers: [identity]) -> Void {
             let UUID userId = Auth.user().id;
             let Notification notification = notificationDb.Notification.findOrFail(id);
 

@@ -367,7 +367,7 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
     rest_api CourseAPI : basePath('/api/v1/courses'), rdbms(courseDb) {
 
         // List published courses
-        get(DifficultyLevel? difficulty, Int page = 1, Int perPage = 20) : public -> PaginatedCourses {
+        get(DifficultyLevel? difficulty, Int page = 1, Int perPage = 20) : auth(public) -> PaginatedCourses {
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
 
             let JSON query = courseDb.Course.where(status: CourseStatus.Published);
@@ -401,12 +401,12 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
         // Get a single course with modules and lessons
         @path('/:id')
-        get(UUID id) : public -> courseDb.Course {
+        get(UUID id) : auth(public) -> courseDb.Course {
             return courseDb.Course.findOrFail(id);
         }
 
         // Create a new course
-        post(CreateCourseRequest request) : access(admin) -> courseDb.Course {
+        post(CreateCourseRequest request) : auth(required, providers: [identity], roles: [admin]) -> courseDb.Course {
             let UUID instructorId = Auth.user().id;
 
             let Course course = courseDb.Course.create({
@@ -426,7 +426,7 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
         // Update a course
         @path('/:id')
-        put(UUID id, UpdateCourseRequest request) : access(admin) -> courseDb.Course {
+        put(UUID id, UpdateCourseRequest request) : auth(required, providers: [identity], roles: [admin]) -> courseDb.Course {
             let Course course = courseDb.Course.findOrFail(id);
 
             if (request.title != null) {
@@ -459,7 +459,7 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
         // Publish a course
         @path('/:id/publish')
-        put(UUID id) : access(admin) -> courseDb.Course {
+        put(UUID id) : auth(required, providers: [identity], roles: [admin]) -> courseDb.Course {
             let Course course = courseDb.Course.findOrFail(id);
 
             if (course.status != CourseStatus.Draft) {
@@ -475,7 +475,7 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
         // Archive a course
         @path('/:id/archive')
-        put(UUID id) : access(admin) -> courseDb.Course {
+        put(UUID id) : auth(required, providers: [identity], roles: [admin]) -> courseDb.Course {
             let Course course = courseDb.Course.findOrFail(id);
             course.archive();
             return course;
@@ -483,7 +483,7 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
         // Search courses
         @path('/search')
-        get(String query, DifficultyLevel? difficulty, Int page = 1, Int perPage = 20) : public -> PaginatedCourses {
+        get(String query, DifficultyLevel? difficulty, Int page = 1, Int perPage = 20) : auth(public) -> PaginatedCourses {
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
 
             let JSON courseQuery = courseDb.Course
@@ -518,7 +518,7 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
         // Add a module to a course
         @path('/:id/modules')
-        post(UUID id, CreateModuleRequest request) : access(admin) -> courseDb.CourseModule {
+        post(UUID id, CreateModuleRequest request) : auth(required, providers: [identity], roles: [admin]) -> courseDb.CourseModule {
             let Course course = courseDb.Course.findOrFail(id);
 
             let CourseModule module = courseDb.CourseModule.create({
@@ -536,7 +536,7 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
         // Get modules for a course
         @path('/:id/modules')
-        get(UUID id) : public -> Array<courseDb.CourseModule> {
+        get(UUID id) : auth(public) -> Array<courseDb.CourseModule> {
             return courseDb.CourseModule
             .where(courseId: id)
             .orderBy(orderIndex: asc)
@@ -545,7 +545,7 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
         // Add a lesson to a module
         @path('/modules/:moduleId/lessons')
-        post(UUID moduleId, CreateLessonRequest request) : access(admin) -> courseDb.Lesson {
+        post(UUID moduleId, CreateLessonRequest request) : auth(required, providers: [identity], roles: [admin]) -> courseDb.Lesson {
             let CourseModule module = courseDb.CourseModule.findOrFail(moduleId);
 
             let Lesson lesson = courseDb.Lesson.create({
@@ -565,7 +565,7 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
         // Get lessons for a module
         @path('/modules/:moduleId/lessons')
-        get(UUID moduleId) : public -> Array<courseDb.Lesson> {
+        get(UUID moduleId) : auth(public) -> Array<courseDb.Lesson> {
             return courseDb.Lesson
             .where(courseModuleId: moduleId)
             .orderBy(orderIndex: asc)
@@ -574,7 +574,7 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
         // Update a lesson
         @path('/lessons/:lessonId')
-        put(UUID lessonId, UpdateLessonRequest request) : access(admin) -> courseDb.Lesson {
+        put(UUID lessonId, UpdateLessonRequest request) : auth(required, providers: [identity], roles: [admin]) -> courseDb.Lesson {
             let Lesson lesson = courseDb.Lesson.findOrFail(lessonId);
 
             if (request.title != null) {
@@ -595,7 +595,7 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
         // Rate a course
         @path('/:id/rate')
-        post(UUID id, RateCourseRequest request) -> courseDb.CourseRating {
+        post(UUID id, RateCourseRequest request) : auth(required, providers: [identity]) -> courseDb.CourseRating {
             let UUID studentId = Auth.user().id;
             let Course course = courseDb.Course.findOrFail(id);
 
@@ -625,7 +625,7 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
         // Get course ratings
         @path('/:id/ratings')
-        get(UUID id, Int page = 1, Int perPage = 20) : public -> Array<courseDb.CourseRating> {
+        get(UUID id, Int page = 1, Int perPage = 20) : auth(public) -> Array<courseDb.CourseRating> {
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             return courseDb.CourseRating
             .where(courseId: id)
@@ -637,20 +637,20 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
         // Internal endpoint for other services
         @path('/service/:id')
-        get courseByIdInternal(UUID id) : access(Service), hidden, idempotent -> courseDb.Course {
+        get courseByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> courseDb.Course {
             return courseDb.Course.findOrFail(id);
         }
 
         // Internal endpoint to check enrollment availability
         @path('/service/:id/can-enroll')
-        get canEnroll(UUID id) : access(Service), hidden, idempotent -> Boolean {
+        get canEnroll(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> Boolean {
             let Course course = courseDb.Course.findOrFail(id);
             return course.canEnroll;
         }
 
         // Internal endpoint to increment enrollment count
         @path('/service/:id/increment-enrollment')
-        post incrementEnrollment(UUID id) : access(Service), hidden -> courseDb.Course {
+        post incrementEnrollment(UUID id) : auth(service, providers: [platform]), hidden -> courseDb.Course {
             let Course course = courseDb.Course.findOrFail(id);
             course.currentEnrollment = course.currentEnrollment + 1;
             course.save();
@@ -659,7 +659,7 @@ service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), desc
 
         // Internal endpoint to decrement enrollment count
         @path('/service/:id/decrement-enrollment')
-        post decrementEnrollment(UUID id) : access(Service), hidden -> courseDb.Course {
+        post decrementEnrollment(UUID id) : auth(service, providers: [platform]), hidden -> courseDb.Course {
             let Course course = courseDb.Course.findOrFail(id);
             if (course.currentEnrollment > 0) {
                 course.currentEnrollment = course.currentEnrollment - 1;

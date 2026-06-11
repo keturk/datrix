@@ -466,7 +466,7 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
     rest_api AppointmentAPI : basePath('/api/v1/appointments'), rdbms(appointmentDb) {
 
         // List with multiple optional filters
-        get(UUID? patientId, UUID? providerId, AppointmentStatus? status, DateTime? startDate, DateTime? endDate, Int page = 1, Int perPage = 20) -> AppointmentSearchResult {
+        get(UUID? patientId, UUID? providerId, AppointmentStatus? status, DateTime? startDate, DateTime? endDate, Int page = 1, Int perPage = 20) : auth(required, providers: [identity]) -> AppointmentSearchResult {
             let JSON query = appointmentDb.Appointment.query();
 
             if (patientId != null) {
@@ -511,11 +511,11 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
         }
 
         @path('/:id')
-        get(UUID id) -> appointmentDb.Appointment {
+        get(UUID id) : auth(required, providers: [identity]) -> appointmentDb.Appointment {
             return appointmentDb.Appointment.findOrFail(id);
         }
 
-        post(ScheduleAppointmentRequest request) -> appointmentDb.Appointment {
+        post(ScheduleAppointmentRequest request) : auth(required, providers: [identity]) -> appointmentDb.Appointment {
             // Cross-service call to validate the patient exists and is active
             let Boolean patientValid = PatientService.PatientAPI.post.validatePatient({ patientId: request.patientId });
             if (!patientValid) {
@@ -562,7 +562,7 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
         }
 
         @path('/:id')
-        put(UUID id, UpdateAppointmentRequest request) -> appointmentDb.Appointment {
+        put(UUID id, UpdateAppointmentRequest request) : auth(required, providers: [identity]) -> appointmentDb.Appointment {
             let Appointment appointment = appointmentDb.Appointment.findOrFail(id);
 
             if (!appointment.canCancel) {
@@ -589,7 +589,7 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
 
         // State transition endpoints
         @path('/:id/confirm')
-        put(UUID id) -> appointmentDb.Appointment {
+        put(UUID id) : auth(required, providers: [identity]) -> appointmentDb.Appointment {
             let Appointment appointment = appointmentDb.Appointment.findOrFail(id);
 
             if (appointment.status != AppointmentStatus.Scheduled) {
@@ -603,28 +603,28 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
         }
 
         @path('/:id/check-in')
-        put(UUID id) -> appointmentDb.Appointment {
+        put(UUID id) : auth(required, providers: [identity]) -> appointmentDb.Appointment {
             let Appointment appointment = appointmentDb.Appointment.findOrFail(id);
             appointment.checkIn();
             return appointment;
         }
 
         @path('/:id/start')
-        put(UUID id) -> appointmentDb.Appointment {
+        put(UUID id) : auth(required, providers: [identity]) -> appointmentDb.Appointment {
             let Appointment appointment = appointmentDb.Appointment.findOrFail(id);
             appointment.start();
             return appointment;
         }
 
         @path('/:id/complete')
-        put(UUID id, CompleteAppointmentRequest request) -> appointmentDb.Appointment {
+        put(UUID id, CompleteAppointmentRequest request) : auth(required, providers: [identity]) -> appointmentDb.Appointment {
             let Appointment appointment = appointmentDb.Appointment.findOrFail(id);
             appointment.complete(request.notes);
             return appointment;
         }
 
         @path('/:id/cancel')
-        put(UUID id, CancelAppointmentRequest request) -> appointmentDb.Appointment {
+        put(UUID id, CancelAppointmentRequest request) : auth(required, providers: [identity]) -> appointmentDb.Appointment {
             let Appointment appointment = appointmentDb.Appointment.findOrFail(id);
             appointment.cancel(request.reason ?? "Cancelled by user");
 
@@ -635,14 +635,14 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
 
         // 'access(staff)' restricts to users with the staff role
         @path('/:id/no-show')
-        put(UUID id) : access(staff) -> appointmentDb.Appointment {
+        put(UUID id) : auth(required, providers: [identity], roles: [staff]) -> appointmentDb.Appointment {
             let Appointment appointment = appointmentDb.Appointment.findOrFail(id);
             appointment.markNoShow();
             return appointment;
         }
 
         @path('/patient/:patientId/upcoming')
-        get(UUID patientId) -> Array<appointmentDb.Appointment> {
+        get(UUID patientId) : auth(required, providers: [identity]) -> Array<appointmentDb.Appointment> {
             return appointmentDb.Appointment
             .where(patientId: patientId)
             .whereIn(status: [AppointmentStatus.Scheduled, AppointmentStatus.Confirmed])
@@ -653,7 +653,7 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
         }
 
         @path('/patient/:patientId/history')
-        get(UUID patientId, Int limit = 20) -> Array<appointmentDb.Appointment> {
+        get(UUID patientId, Int limit = 20) : auth(required, providers: [identity]) -> Array<appointmentDb.Appointment> {
             return appointmentDb.Appointment
             .where(patientId: patientId)
             .whereIn(status: [AppointmentStatus.Completed, AppointmentStatus.Cancelled, AppointmentStatus.NoShow])
@@ -664,7 +664,7 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
 
         // Availability slot calculation endpoint
         @path('/slots')
-        get(UUID? providerId, Date date, Int durationMinutes = 30) -> Array<AppointmentSlot> {
+        get(UUID? providerId, Date date, Int durationMinutes = 30) : auth(required, providers: [identity]) -> Array<AppointmentSlot> {
             let DateTime startOfDay = DateTime.parse(#"{date.format('YYYY-MM-DD')}T08:00:00");
             let DateTime endOfDay = DateTime.parse(#"{date.format('YYYY-MM-DD')}T17:00:00");
 
@@ -714,12 +714,12 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
         }
 
         @path('/service/:id')
-        get appointmentByIdInternal(UUID id) : access(Service), hidden, idempotent -> appointmentDb.Appointment {
+        get appointmentByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> appointmentDb.Appointment {
             return appointmentDb.Appointment.findOrFail(id);
         }
 
         @path('/service/patient/:patientId')
-        get appointmentsByPatientInternal(UUID patientId) : access(Service), hidden, idempotent -> Array<appointmentDb.Appointment> {
+        get appointmentsByPatientInternal(UUID patientId) : auth(service, providers: [platform]), hidden, idempotent -> Array<appointmentDb.Appointment> {
             return appointmentDb.Appointment
             .where(patientId: patientId)
             .orderBy(scheduledAt: desc)

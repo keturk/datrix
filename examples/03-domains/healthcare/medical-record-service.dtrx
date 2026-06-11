@@ -632,7 +632,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
         alert responseTime(p95) over(5m) > 500ms @severity(warning);
         alert errorRate(ratio) over(5m) > 5% @severity(critical);
 
-        get(UUID patientId, RecordType? type, DateTime? startDate, DateTime? endDate, Int page = 1, Int perPage = 20) -> RecordSearchResult {
+        get(UUID patientId, RecordType? type, DateTime? startDate, DateTime? endDate, Int page = 1, Int perPage = 20) : auth(required, providers: [identity]) -> RecordSearchResult {
             let JSON query = medicalRecordDb.MedicalRecord.where(patientId: patientId);
 
             if (type != null) {
@@ -677,7 +677,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
         }
 
         @path('/:id')
-        get(UUID id) -> medicalRecordDb.MedicalRecord {
+        get(UUID id) : auth(required, providers: [identity]) -> medicalRecordDb.MedicalRecord {
             let MedicalRecord record = medicalRecordDb.MedicalRecord.findOrFail(id);
 
             Log.info("Record viewed", {
@@ -690,7 +690,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
             return record;
         }
 
-        post(CreateRecordRequest request) -> medicalRecordDb.MedicalRecord {
+        post(CreateRecordRequest request) : auth(required, providers: [identity]) -> medicalRecordDb.MedicalRecord {
             // Cross-service validation
             let Boolean patientValid = PatientService.PatientAPI.post.validatePatient({ patientId: request.patientId });
             if (!patientValid) {
@@ -736,7 +736,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
         }
 
         @path('/:id')
-        put(UUID id, UpdateRecordRequest request) -> medicalRecordDb.MedicalRecord {
+        put(UUID id, UpdateRecordRequest request) : auth(required, providers: [identity]) -> medicalRecordDb.MedicalRecord {
             let MedicalRecord record = medicalRecordDb.MedicalRecord.findOrFail(id);
 
             if (!record.canEdit) {
@@ -753,7 +753,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
 
         // Record state transition endpoints
         @path('/:id/finalize')
-        put(UUID id) -> medicalRecordDb.MedicalRecord {
+        put(UUID id) : auth(required, providers: [identity]) -> medicalRecordDb.MedicalRecord {
             let MedicalRecord record = medicalRecordDb.MedicalRecord.findOrFail(id);
             record.finalize();
 
@@ -768,7 +768,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
         }
 
         @path('/:id/amend')
-        put(UUID id, AmendRecordRequest request) -> medicalRecordDb.MedicalRecord {
+        put(UUID id, AmendRecordRequest request) : auth(required, providers: [identity]) -> medicalRecordDb.MedicalRecord {
             let MedicalRecord record = medicalRecordDb.MedicalRecord.findOrFail(id);
 
             if (request.updatedContent != null) {
@@ -783,7 +783,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
         }
 
         @path('/:id/void')
-        put(UUID id, VoidRecordRequest request) : access(admin) -> medicalRecordDb.MedicalRecord {
+        put(UUID id, VoidRecordRequest request) : auth(required, providers: [identity], roles: [admin]) -> medicalRecordDb.MedicalRecord {
             let MedicalRecord record = medicalRecordDb.MedicalRecord.findOrFail(id);
             record.void(request.reason);
 
@@ -794,7 +794,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
 
         // File upload endpoint
         @path('/:id/attachments')
-        post(UUID id, AddAttachmentRequest request) -> medicalRecordDb.Attachment {
+        post(UUID id, AddAttachmentRequest request) : auth(required, providers: [identity]) -> medicalRecordDb.Attachment {
             let MedicalRecord record = medicalRecordDb.MedicalRecord.findOrFail(id);
 
             // Upload file to storage and get the path
@@ -834,7 +834,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
 
         // File download endpoint
         @path('/:id/attachments/:attachmentId/download')
-        get(UUID id, UUID attachmentId) -> Blob {
+        get(UUID id, UUID attachmentId) : auth(required, providers: [identity]) -> Blob {
             let Attachment attachment = medicalRecordDb.Attachment.findOrFail(attachmentId);
 
             if (attachment.recordId != id) {
@@ -853,7 +853,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
 
         // Prescription management endpoints
         @path('/prescriptions')
-        get(UUID patientId, Boolean? activeOnly) -> Array<medicalRecordDb.Prescription> {
+        get(UUID patientId, Boolean? activeOnly) : auth(required, providers: [identity]) -> Array<medicalRecordDb.Prescription> {
             let JSON query = medicalRecordDb.Prescription.where(patientId: patientId);
 
             if (activeOnly == true) {
@@ -864,12 +864,12 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
         }
 
         @path('/prescriptions/:id')
-        get(UUID id) -> medicalRecordDb.Prescription {
+        get(UUID id) : auth(required, providers: [identity]) -> medicalRecordDb.Prescription {
             return medicalRecordDb.Prescription.findOrFail(id);
         }
 
         @path('/prescriptions')
-        post(CreatePrescriptionRequest request) -> medicalRecordDb.Prescription {
+        post(CreatePrescriptionRequest request) : auth(required, providers: [identity]) -> medicalRecordDb.Prescription {
             let Boolean patientValid = PatientService.PatientAPI.post.validatePatient({ patientId: request.patientId });
             if (!patientValid) {
                 throw ValidationException("Patient not found or inactive");
@@ -898,7 +898,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
         }
 
         @path('/prescriptions/:id/refill')
-        post(UUID id) -> medicalRecordDb.Prescription {
+        post(UUID id) : auth(required, providers: [identity]) -> medicalRecordDb.Prescription {
             let Prescription prescription = medicalRecordDb.Prescription.findOrFail(id);
             prescription.refill();
 
@@ -912,7 +912,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
         }
 
         @path('/prescriptions/:id/discontinue')
-        put(UUID id, DiscontinuePrescriptionRequest request) -> medicalRecordDb.Prescription {
+        put(UUID id, DiscontinuePrescriptionRequest request) : auth(required, providers: [identity]) -> medicalRecordDb.Prescription {
             let Prescription prescription = medicalRecordDb.Prescription.findOrFail(id);
             prescription.discontinue(request.reason);
             return prescription;
@@ -920,7 +920,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
 
         // Comprehensive patient history view
         @path('/patient/:patientId/history')
-        get(UUID patientId) -> PatientHistory {
+        get(UUID patientId) : auth(required, providers: [identity]) -> PatientHistory {
             let Array<MedicalRecord> records = medicalRecordDb.MedicalRecord
             .where(patientId: patientId)
             .whereNot(status: RecordStatus.Voided)
@@ -957,7 +957,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
         }
 
         @path('/service/patient/:patientId')
-        get recordsByPatientInternal(UUID patientId) : access(Service), hidden, idempotent -> Array<medicalRecordDb.MedicalRecord> {
+        get recordsByPatientInternal(UUID patientId) : auth(service, providers: [platform]), hidden, idempotent -> Array<medicalRecordDb.MedicalRecord> {
             return medicalRecordDb.MedicalRecord
             .where(patientId: patientId)
             .whereNot(status: RecordStatus.Voided)
@@ -967,7 +967,7 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
         }
 
         @path('/service/from-appointment')
-        post recordFromAppointment(CreateRecordFromAppointmentRequest request) : access(Service), hidden -> medicalRecordDb.MedicalRecord {
+        post recordFromAppointment(CreateRecordFromAppointmentRequest request) : auth(service, providers: [platform]), hidden -> medicalRecordDb.MedicalRecord {
             // Cross-service call to get appointment details
             let Appointment appointment = AppointmentService.AppointmentAPI.get.appointmentByIdInternal(request.appointmentId);
 

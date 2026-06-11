@@ -180,15 +180,15 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
         alert responseTime(p95) over(5m) > 500ms @severity(warning);
         alert errorRate(ratio) over(5m) > 3% @severity(critical);
 
-        resource paymentDb.Payment : only(get);
+        resource paymentDb.Payment : auth(required, providers: [identity]), only(get);
 
         @path('/order/:orderId')
-        get(UUID orderId) -> paymentDb.Payment {
+        get(UUID orderId) : auth(required, providers: [identity]) -> paymentDb.Payment {
             return paymentDb.Payment.where(orderId: orderId).firstOrFail();
         }
 
         @path('/my-payments')
-        get(Int page = 1, Int perPage = 20) -> Array<paymentDb.Payment> {
+        get(Int page = 1, Int perPage = 20) : auth(required, providers: [identity]) -> Array<paymentDb.Payment> {
             let UUID customerId = Auth.user().id;
             let Int cappedPerPage = Math.min(perPage, MAX_PAGE_SIZE);
             return paymentDb.Payment
@@ -200,7 +200,7 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
         }
 
         @path('/process')
-        post(ProcessPaymentRequest request) -> paymentDb.Payment {
+        post(ProcessPaymentRequest request) : auth(required, providers: [identity]) -> paymentDb.Payment {
             let UUID customerId = Auth.user().id;
 
             let Payment payment = paymentDb.Payment.create({
@@ -219,7 +219,7 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
         }
 
         @path('/:id/refund')
-        post(UUID id, RefundPaymentRequest request) : access(admin) -> paymentDb.Refund {
+        post(UUID id, RefundPaymentRequest request) : auth(required, providers: [identity], roles: [admin]) -> paymentDb.Refund {
             let Payment payment = paymentDb.Payment.findOrFail(id);
 
             if (!payment.canRefund) {
@@ -269,7 +269,7 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
 
         // Webhook endpoint for external payment gateway callbacks
         @path('/webhook/stripe')
-        post(StripeWebhookRequest request) : public -> Void {
+        post(StripeWebhookRequest request) : auth(public) -> Void {
 
             let String eventType = request.payload.type;
             let JSON data = request.payload.data.object;

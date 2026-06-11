@@ -56,9 +56,9 @@ service blog.CommentService('config/comment-service.dcfg') : version('1.0.0'), d
 
     rest_api CommentAPI : basePath("/api/v1/comments"), rdbms(commentDb) {
         // 'only(...)' restricts which CRUD operations are generated
-        resource commentDb.Comment : only(get), public;
+        resource commentDb.Comment : auth(public), only(get);
         @path('/')
-        get(UUID contentId, CommentStatus? status) : public -> Array<commentDb.Comment> {
+        get(UUID contentId, CommentStatus? status) : auth(public) -> Array<commentDb.Comment> {
             return commentDb.Comment.where(contentId: contentId).all();
         }
 

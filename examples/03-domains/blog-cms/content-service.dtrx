@@ -104,8 +104,8 @@ service blog.ContentService('config/content-service.dcfg') : version('1.0.0'), d
     }
 
     rest_api ContentAPI : basePath("/api/v1/posts"), rdbms(contentDb) {
-        resource contentDb.Post : only(list, get), public;
-        resource contentDb.Post : only(create, update, delete), access(editor);
+        resource contentDb.Post : auth(public), only(list, get);
+        resource contentDb.Post : auth(required, providers: [identity], roles: [editor]), only(create, update, delete);
     }
 
     test("computed isDraft is true for Draft status") {

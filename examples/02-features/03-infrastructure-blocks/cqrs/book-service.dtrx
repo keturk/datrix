@@ -299,10 +299,10 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
     rest_api BookServiceAPI : basePath("/api/v1"), rdbms(bookDb) {
         // 'resource' auto-generates standard CRUD endpoints
         // 'only(...)' restricts which CRUD operations are generated
-        // 'public' makes endpoints accessible without authentication
-        resource bookDb.Book : only(list, get), public;
-        // 'access(role)' restricts endpoints to users with the specified role
-        resource bookDb.Book : only(create, update, delete), access(librarian);
+        // 'auth(public)' makes endpoints accessible without authentication
+        resource bookDb.Book : auth(public), only(list, get);
+        // 'auth(required, ...)' restricts endpoints to users with the specified role
+        resource bookDb.Book : auth(required, providers: [identity], roles: [librarian]), only(create, update, delete);
 
         // 'fn' inside a rest_api block defines API-level helper functions
         fn findBooksByFilter(String? titleFilter, String? authorFilter) -> Array<bookDb.Book> {
@@ -319,56 +319,56 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         }
 
         @path('/books/search')
-        get(String query) : public -> Array<bookDb.Book> {
+        get(String query) : auth(public) -> Array<bookDb.Book> {
             return bookDb.Book.where(title: query).all();
         }
 
         // Endpoint that delegates to the API-level helper function
         @path('/books/filter')
-        get(String? title, String? author) : public -> Array<bookDb.Book> {
+        get(String? title, String? author) : auth(public) -> Array<bookDb.Book> {
             return findBooksByFilter(title, author);
         }
 
         // Endpoints querying the CQRS view instead of the entity table
         // Views provide faster reads from denormalized, pre-projected data
         @path('/books/catalog')
-        get() : public -> Array<BookCatalogView> {
+        get() : auth(public) -> Array<BookCatalogView> {
             return BookCatalogView.all();
         }
 
         @path('/books/available')
-        get() : public -> Array<BookCatalogView> {
+        get() : auth(public) -> Array<BookCatalogView> {
             return BookCatalogView.where(status: BookStatus.Available).all();
         }
 
         @path('/books/category/:categoryId')
-        get(UUID categoryId) : public -> Array<bookDb.Book> {
+        get(UUID categoryId) : auth(public) -> Array<bookDb.Book> {
             return bookDb.Book.where(categoryId: categoryId).all();
         }
 
         // Query through the join entity to find books by tag (many-to-many traversal)
         @path('/books/by-tag/:tagId')
-        get(UUID tagId) : public -> Array<bookDb.Book> {
+        get(UUID tagId) : auth(public) -> Array<bookDb.Book> {
             let Array<BookTag> bookTags = bookDb.BookTag.where(tagId: tagId).all();
             return bookTags.map(bt => bookDb.Book.findOrFail(bt.bookId));
         }
 
-        // 'internal' restricts this endpoint to service-to-service calls only
+        // 'hidden' restricts this endpoint to service-to-service calls only
         // Internal endpoints are not exposed through the API gateway
         @path('/books/internal/:id')
-        get bookByIdInternal(UUID id) : access(Service), hidden, idempotent -> bookDb.Book {
+        get bookByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> bookDb.Book {
             return bookDb.Book.findOrFail(id);
         }
 
         // Internal endpoint returning a struct instead of a full entity
         @path('/books/internal/availability/:id')
-        get bookAvailabilityByIdInternal(UUID id) : access(Service), hidden, idempotent -> BookAvailabilityResponse {
+        get bookAvailabilityByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> BookAvailabilityResponse {
             let Book book = bookDb.Book.findOrFail(id);
             return { available: book.isAvailable };
         }
 
-        resource bookDb.Category : only(list, get), public;
-        resource bookDb.Category : only(create, update, delete), access(librarian);
+        resource bookDb.Category : auth(public), only(list, get);
+        resource bookDb.Category : auth(required, providers: [identity], roles: [librarian]), only(create, update, delete);
     }
 
     test("computed displayTitle formats title and year") {
