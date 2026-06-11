@@ -35,7 +35,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001FE120822E0>"
+            "value": "<abc.CallNode object at 0x0000021D74A57070>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -57,7 +57,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001FE1204BA10>"
+            "value": "<abc.CallNode object at 0x0000021D74A54830>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -119,7 +119,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001FE12082580>"
+            "value": "<abc.CallNode object at 0x0000021D74A57310>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -147,7 +147,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "6b74a63f-60d3-4cc1-a36f-a52c3c3f317c",
-  "schema_hash": "8b27bc9d822c697f46273e061347f6474db80ccd23923e5ad92c5d5e8548496a",
+  "schema_hash": "f81c7fcaad24f4c0cf61152dd30523791003e5c74f9eb758623b548d99093a7d",
   "service": {
     "name": "library.BookService",
     "version": "1.0.0"
