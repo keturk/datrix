@@ -35,7 +35,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001E4552D5FD0>"
+            "value": "<abc.CallNode object at 0x000001A012FB71C0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -113,7 +113,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001E4552DCD00>"
+            "value": "<abc.CallNode object at 0x000001A012FC2200>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -173,7 +173,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001E4552D5DA0>"
+            "value": "<abc.CallNode object at 0x000001A012FB6C80>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -251,7 +251,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.ListLiteralNode object at 0x000001E4547E3890>"
+            "value": "<abc.ListLiteralNode object at 0x000001A0124D6390>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -309,7 +309,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001E4552D5FD0>"
+            "value": "<abc.CallNode object at 0x000001A012FB71C0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -349,7 +349,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001E4552DCD00>"
+            "value": "<abc.CallNode object at 0x000001A012FC2200>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -485,7 +485,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000001E4545AEF90>"
+            "value": "<abc.PropertyAccessNode object at 0x000001A012203CB0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -560,7 +560,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001E4552D5DA0>"
+            "value": "<abc.CallNode object at 0x000001A012FB6C80>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -603,6 +603,7 @@
             "patient_id",
             "record_date"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
@@ -610,12 +611,14 @@
             "patient_id",
             "type"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
           "columns": [
             "appointment_id"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
@@ -623,6 +626,7 @@
             "provider_id",
             "record_date"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
@@ -630,6 +634,7 @@
             "title",
             "content"
           ],
+          "fulltext": true,
           "unique": false
         }
       ],
@@ -661,7 +666,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001E4552D5FD0>"
+            "value": "<abc.CallNode object at 0x000001A012FB71C0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -759,7 +764,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001E4552DCD00>"
+            "value": "<abc.CallNode object at 0x000001A012FC2200>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -1013,7 +1018,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000001E4545A86E0>"
+            "value": "<abc.PropertyAccessNode object at 0x000001A0121AB2A0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -1040,7 +1045,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001E4552D5DA0>"
+            "value": "<abc.CallNode object at 0x000001A012FB6C80>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -1065,6 +1070,7 @@
             "patient_id",
             "start_date"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
@@ -1072,12 +1078,14 @@
             "patient_id",
             "status"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
           "columns": [
             "medication_name"
           ],
+          "fulltext": false,
           "unique": false
         }
       ],
@@ -1125,7 +1133,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "c5effd71-cdbc-4850-880e-670494a879e1",
-  "schema_hash": "74b916e8cc0c2fde98538d80e405c6a0c250ec6a919dadd930918332cd6967a5",
+  "schema_hash": "9eaa384808e57fc3e24f6c3f4d1ee43df2276391ff7f19f1168fc88551804c69",
   "service": {
     "name": "healthcare.MedicalRecordService",
     "version": "1.0.0"

@@ -97,7 +97,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001D74178C2F0>"
+            "value": "<abc.CallNode object at 0x000001E75342C3D0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -174,7 +174,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.CallNode object at 0x000001D740A2C4B0>"
+            "value": "<abc.CallNode object at 0x000001E7526B5E10>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -241,7 +241,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001D74178F4D0>"
+            "value": "<abc.CallNode object at 0x000001E75342F230>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -319,7 +319,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000001D740A2C210>"
+            "value": "<abc.PropertyAccessNode object at 0x000001E7526B5B70>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -367,7 +367,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001D74178CDE0>"
+            "value": "<abc.CallNode object at 0x000001E75342D860>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -391,18 +391,21 @@
           "columns": [
             "email"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
           "columns": [
             "student_number"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
           "columns": [
             "status"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
@@ -411,6 +414,7 @@
             "last_name",
             "email"
           ],
+          "fulltext": true,
           "unique": false
         }
       ],
@@ -433,7 +437,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "06e2c613-cc3e-493b-94a2-38a25064380f",
-  "schema_hash": "fd89f28768e591337bae9daf8c2be2ce54e11a989ed35fd9a2293e4f84c1b048",
+  "schema_hash": "ce0ff17e2ebeb7946f2add8170800e88d019797750676ce15731e6e7a5418af6",
   "service": {
     "name": "lms.StudentService",
     "version": "1.0.0"

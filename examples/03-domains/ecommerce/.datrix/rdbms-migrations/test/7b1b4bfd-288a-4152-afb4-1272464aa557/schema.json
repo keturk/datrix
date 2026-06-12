@@ -33,7 +33,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000026D583E0910>"
+            "value": "<abc.CallNode object at 0x000001BD8E7CE120>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -130,7 +130,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000026D583DE7B0>"
+            "value": "<abc.CallNode object at 0x000001BD8E7DC360>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -262,7 +262,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x0000026D578D9470>"
+            "value": "<abc.PropertyAccessNode object at 0x000001BD8DDCBF50>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -306,7 +306,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x0000026D578D9630>"
+            "value": "<abc.PropertyAccessNode object at 0x000001BD8DDD41A0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -333,7 +333,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000026D583E0670>"
+            "value": "<abc.CallNode object at 0x000001BD8E7CDB70>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -358,12 +358,14 @@
             "status",
             "role"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
           "columns": [
             "email"
           ],
+          "fulltext": false,
           "unique": false
         }
       ],
@@ -377,7 +379,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000026D583E0910>"
+            "value": "<abc.CallNode object at 0x000001BD8E7CE120>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -421,7 +423,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000026D583DE7B0>"
+            "value": "<abc.CallNode object at 0x000001BD8E7DC360>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -531,7 +533,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000026D583E0670>"
+            "value": "<abc.CallNode object at 0x000001BD8E7CDB70>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -591,7 +593,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000026D583E0910>"
+            "value": "<abc.CallNode object at 0x000001BD8E7CE120>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -651,7 +653,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000026D583DE7B0>"
+            "value": "<abc.CallNode object at 0x000001BD8E7DC360>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -730,7 +732,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000026D583E0670>"
+            "value": "<abc.CallNode object at 0x000001BD8E7CDB70>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -805,12 +807,14 @@
             "user_id",
             "expires_at"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
           "columns": [
             "token"
           ],
+          "fulltext": false,
           "unique": false
         }
       ],
@@ -842,7 +846,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "7b1b4bfd-288a-4152-afb4-1272464aa557",
-  "schema_hash": "e9c615872b16b904460f897a0ea39903b30fcfdfcd25108b703962c9cb951d0f",
+  "schema_hash": "928724fb3dbbad13f410370ecc7ec9e902a9e36f78240d4a19105f111d4d528a",
   "service": {
     "name": "ecommerce.UserService",
     "version": "1.0.0"

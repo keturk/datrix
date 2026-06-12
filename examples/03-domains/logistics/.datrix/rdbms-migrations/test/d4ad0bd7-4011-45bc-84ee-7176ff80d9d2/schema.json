@@ -33,7 +33,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002BB6553B9A0>"
+            "value": "<abc.CallNode object at 0x00000213BCF92C80>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -93,7 +93,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002BB655390F0>"
+            "value": "<abc.CallNode object at 0x00000213BCF903D0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -217,7 +217,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000002BB6488ECF0>"
+            "value": "<abc.PropertyAccessNode object at 0x00000213BC27C6E0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -268,7 +268,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002BB6553BC40>"
+            "value": "<abc.CallNode object at 0x00000213BCF92F20>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -314,6 +314,7 @@
             "sender_id",
             "status"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
@@ -321,12 +322,14 @@
             "status",
             "created_at"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
           "columns": [
             "tracking_number"
           ],
+          "fulltext": false,
           "unique": false
         }
       ],
@@ -340,7 +343,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002BB6553B9A0>"
+            "value": "<abc.CallNode object at 0x00000213BCF92C80>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -382,7 +385,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002BB655390F0>"
+            "value": "<abc.CallNode object at 0x00000213BCF903D0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -460,7 +463,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.CallNode object at 0x000002BB6489FBD0>"
+            "value": "<abc.CallNode object at 0x00000213BC2995C0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -482,7 +485,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002BB6553BC40>"
+            "value": "<abc.CallNode object at 0x00000213BCF92F20>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -519,6 +522,7 @@
             "shipment_id",
             "timestamp"
           ],
+          "fulltext": false,
           "unique": false
         }
       ],
@@ -555,7 +559,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "d4ad0bd7-4011-45bc-84ee-7176ff80d9d2",
-  "schema_hash": "3a6fe23e886a5e8e03961903a73d5c59065318994d7cd8c2ae917b39a6ec8882",
+  "schema_hash": "b833679621f179dfc85ba695dc7518f4a1b33c19729c6f88e0186f43d9e51445",
   "service": {
     "name": "logistics.ShipmentService",
     "version": "1.0.0"

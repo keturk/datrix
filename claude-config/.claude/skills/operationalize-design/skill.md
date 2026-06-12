@@ -73,6 +73,14 @@ This skill executes five phases. Each phase builds on the previous.
 - No dependency graphs in console output — that data lives in dependencies.md
 - One line per data point. If it fits on one line, don't use three
 
+**Ambiguity resolution — hard gate before Phase 3:**
+- Before any official doc is edited (Phase 3) or any task is generated (Phase 4), there must be ZERO unresolved open questions and ZERO unresolved ambiguities. This is a hard gate: execution work does not begin until it is cleared. Phases 1–2 exist to clear it.
+- "Resolved" means resolved by **investigation, never by assumption.** A question is closed only when one of these answers it: codebase evidence (read the actual code), existing-doc cross-reference, logic-map markers, or an explicit answer from the user. "I can think of a reasonable answer" does NOT close a question — that is an assumption, and assumptions are banned (CLAUDE.md: "Never assume/fabricate — look it up").
+- You may NOT declare "no open questions" unless you have investigated each one. The specific failure mode this gate prevents: listing a question in Phase 1, then silently assuming its answer and proceeding. Every closed question must be traceable to the investigation that closed it.
+- Explicit alternatives in the design (Option A/B, multiple named approaches) are ALWAYS user decisions. Investigation informs a recommendation but NEVER closes them — only the user does.
+- If, after genuine investigation, ANY question remains unanswerable from the codebase/docs, OR any explicit alternative remains unchosen → STOP. Present each remaining item with your investigation findings and a recommendation, and WAIT for the user. Do not enter Phase 3 or Phase 4 with any open item.
+- This is the one class of STOP that overrides "run the full pipeline": an unresolved required decision is a genuine blocker (CLAUDE.md: pipeline skills STOP for "unresolved required decisions, missing required inputs"). It is NOT the same as a missing optional validator — do not confuse the two.
+
 ---
 
 ### Phase 1: Analysis — Audit the Design Document
@@ -123,8 +131,10 @@ Before proceeding to Phase 2, answer:
 
 If you deviated: STOP and explain the deviation to the user.
 
+**Investigation discipline for open questions:** For each open question you identify, you must actually investigate before classifying it. Read the relevant code, cross-reference the architecture docs, and query logic-map markers where relevant. Record what you found. A question you "answered" without reading anything is unresolved — it is an assumption, and it does NOT clear the ambiguity gate. See **Ambiguity resolution — hard gate** above.
+
 **If there are BLOCKING open questions** (ambiguities that prevent task generation):
-- Present them with recommended answers and evidence from the codebase
+- Present them with recommended answers and the investigation evidence behind each (code references, existing patterns, doc cross-refs)
 - WAIT for user to confirm or override
 
 **If the design presents explicit alternatives** (Option A vs Option B, multiple approaches listed):
@@ -133,7 +143,7 @@ If you deviated: STOP and explain the deviation to the user.
 - Present the alternatives with your recommendation and evidence
 - WAIT for user to choose — never auto-select
 
-**If all questions have clear answers from the codebase AND the design presents no explicit alternatives** → proceed automatically.
+**If all questions have clear answers from the codebase (each backed by investigation, not assumption) AND the design presents no explicit alternatives** → proceed automatically.
 
 ---
 
@@ -182,9 +192,12 @@ Before proceeding to Phase 3, answer:
 If you deviated: STOP and explain the deviation to the user.
 
 **Confidence gate:**
+- A decision may be marked **HIGH only if it is backed by cited investigation evidence** (code reference, existing pattern, doc cross-ref). A decision with no evidence behind it is an assumption — it is NOT HIGH; treat it as LOW and surface it. HIGH is earned by investigation, not by confidence in a guess.
 - **All HIGH** → proceed to Phase 3 automatically
 - **Any MEDIUM** → flag for review but proceed (include in final summary)
 - **Any LOW** → STOP, present decisions, WAIT for user input
+
+This gate is the enforcement point for the **Ambiguity resolution — hard gate** declared at the top of this skill: do not enter Phase 3 with any LOW (assumption-based or user-decision) item outstanding.
 
 ---
 
@@ -495,6 +508,8 @@ Design: preserved at {path}
 ## Anti-Patterns
 
 - **NO generating tasks without resolving ambiguities first** — Phase 2 before Phase 4
+- **NO closing open questions by assumption** — a question is resolved only when investigation (code, docs, logic-map) or the user answers it. A plausible guess does not clear the ambiguity gate. Every resolved question must be traceable to the investigation that closed it.
+- **NO entering Phase 3/4 with any open item** — unresolved questions and unchosen explicit alternatives are hard blockers; STOP and present findings + recommendations, then WAIT
 - **NO deleting the design doc** — design docs are preserved as historical reference
 - **NO duplicating content** — transfer, don't copy
 - **NO creating new standalone docs** — integrate into existing doc structure

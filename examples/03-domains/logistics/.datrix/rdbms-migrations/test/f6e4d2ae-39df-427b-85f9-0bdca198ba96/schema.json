@@ -54,7 +54,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002BB6553B9A0>"
+            "value": "<abc.CallNode object at 0x00000213BCF92C80>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -114,7 +114,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002BB655390F0>"
+            "value": "<abc.CallNode object at 0x00000213BCF903D0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -216,7 +216,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000002BB64A0D080>"
+            "value": "<abc.PropertyAccessNode object at 0x00000213BC1F7D90>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -243,7 +243,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002BB6553BC40>"
+            "value": "<abc.CallNode object at 0x00000213BCF92F20>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -286,6 +286,7 @@
             "vehicle_id",
             "status"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
@@ -293,6 +294,7 @@
             "driver_id",
             "status"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
@@ -300,6 +302,7 @@
             "status",
             "created_at"
           ],
+          "fulltext": false,
           "unique": false
         }
       ],
@@ -351,7 +354,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002BB6553B9A0>"
+            "value": "<abc.CallNode object at 0x00000213BCF92C80>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -391,7 +394,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002BB655390F0>"
+            "value": "<abc.CallNode object at 0x00000213BCF903D0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -467,7 +470,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000002BB649E3E70>"
+            "value": "<abc.PropertyAccessNode object at 0x00000213BC1E6970>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -494,7 +497,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002BB6553BC40>"
+            "value": "<abc.CallNode object at 0x00000213BCF92F20>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -531,12 +534,14 @@
             "route_id",
             "sequence"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
           "columns": [
             "shipment_id"
           ],
+          "fulltext": false,
           "unique": false
         }
       ],
@@ -569,7 +574,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "f6e4d2ae-39df-427b-85f9-0bdca198ba96",
-  "schema_hash": "ea8c3d862ace26b0bf45b1d7230799a9c83ec8c1efc20ff53b43e1425e0f80d9",
+  "schema_hash": "ea5264960b7fe2e56d37ee90cda35a3440df14c6cc6fadc30e56bb54b9e787fe",
   "service": {
     "name": "logistics.RouteService",
     "version": "1.0.0"

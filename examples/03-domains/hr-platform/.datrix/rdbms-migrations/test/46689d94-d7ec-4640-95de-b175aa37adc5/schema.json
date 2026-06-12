@@ -177,14 +177,17 @@
       "indexes": [
         {
           "columns": [],
+          "fulltext": false,
           "unique": false
         },
         {
           "columns": [],
+          "fulltext": false,
           "unique": false
         },
         {
           "columns": [],
+          "fulltext": false,
           "unique": false
         }
       ],
@@ -200,7 +203,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000022B782207C0>"
+            "value": "<abc.CallNode object at 0x0000024B4C7E18D0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -240,7 +243,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000022B78223E70>"
+            "value": "<abc.CallNode object at 0x0000024B4C7F4600>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -320,7 +323,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000022B78220A60>"
+            "value": "<abc.CallNode object at 0x0000024B4C7E16A0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -382,7 +385,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000022B782207C0>"
+            "value": "<abc.CallNode object at 0x0000024B4C7E18D0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -568,7 +571,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000022B78223E70>"
+            "value": "<abc.CallNode object at 0x0000024B4C7F4600>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -720,7 +723,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x0000022B775CA040>"
+            "value": "<abc.PropertyAccessNode object at 0x0000024B4BBAC210>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -785,7 +788,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000022B78220A60>"
+            "value": "<abc.CallNode object at 0x0000024B4C7E16A0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -809,6 +812,7 @@
           "columns": [
             "email"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
@@ -816,6 +820,7 @@
             "department",
             "status"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
@@ -823,18 +828,21 @@
             "status",
             "employment_type"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
           "columns": [
             "manager_id"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
           "columns": [
             "hire_date"
           ],
+          "fulltext": false,
           "unique": false
         }
       ],
@@ -881,7 +889,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "46689d94-d7ec-4640-95de-b175aa37adc5",
-  "schema_hash": "fb9a87a8ae20fdde29372677fe6c56d0438d048fb0ad25313d50a01236710523",
+  "schema_hash": "9f99bed59a4bf8298c7d5c3d6bad3a7a3e4a6d04b227563f9ee0213607658a47",
   "service": {
     "name": "hr.EmployeeService",
     "version": "1.0.0"
