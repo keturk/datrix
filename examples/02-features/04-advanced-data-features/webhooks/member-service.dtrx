@@ -89,11 +89,11 @@ service library.MemberService('config/member-service.dcfg') : version('1.0.0'), 
 
     rest_api MemberAPI : basePath("/api/v1/members"), rdbms(memberDb) {
         // 'resource' auto-generates standard CRUD endpoints for the entity
-        resource memberDb.Member;
+        resource memberDb.Member : auth(required, providers: [member]);
 
         // Advanced search endpoint combining fulltext, filtering, and pagination
         @path('/search')
-        get(String? search, MembershipType? type, Int page = 1, Int perPage = 20) -> MemberSearchResult {
+        get(String? search, MembershipType? type, Int page = 1, Int perPage = 20) : auth(required, providers: [member]) -> MemberSearchResult {
             // '.query()' starts a chainable query builder
             let JSON query = memberDb.Member.query();
 
@@ -129,20 +129,20 @@ service library.MemberService('config/member-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/by-membership/:membershipNumber')
-        get(String membershipNumber) -> memberDb.Member {
+        get(String membershipNumber) : auth(required, providers: [member]) -> memberDb.Member {
             // '.firstOrFail()' returns the first match or throws if none found
             return memberDb.Member.where(membershipNumber: membershipNumber).firstOrFail();
         }
 
         // 'internal' restricts this endpoint to service-to-service calls only
         @path('/service/:id')
-        get memberByIdInternal(UUID id) : access(Service), hidden, idempotent -> memberDb.Member {
+        get memberByIdInternal(UUID id) : auth(service, providers: [internal]), hidden, idempotent -> memberDb.Member {
             return memberDb.Member.findOrFail(id);
         }
 
         // Internal endpoint returning a struct - exposes only profile fields, not the full entity
         @path('/service/profile/:id')
-        get memberProfileByIdInternal(UUID id) : access(Service), hidden, idempotent -> MemberProfile {
+        get memberProfileByIdInternal(UUID id) : auth(service, providers: [internal]), hidden, idempotent -> MemberProfile {
             let Member member = memberDb.Member.findOrFail(id);
             return { fullName: member.fullName, email: member.email, membershipType: member.membershipType };
         }

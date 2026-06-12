@@ -318,7 +318,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
         alert errorRate(ratio) over(5m) > 5% @severity(critical);
 
         // List employees with pagination
-        get(Int page = 1, Int perPage = 20, Department? department, EmployeeStatus? status) -> PaginatedEmployees {
+        get(Int page = 1, Int perPage = 20, Department? department, EmployeeStatus? status) : auth(required, providers: [identity]) -> PaginatedEmployees {
             let JSON query = employeeDb.Employee.all();
 
             if (department != null) {
@@ -352,12 +352,12 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
 
         // Get a single employee
         @path('/:id')
-        get(UUID id) -> employeeDb.Employee {
+        get(UUID id) : auth(required, providers: [identity]) -> employeeDb.Employee {
             return employeeDb.Employee.findOrFail(id);
         }
 
         // Create a new employee
-        post(CreateEmployeeRequest request) : access(admin) -> employeeDb.Employee {
+        post(CreateEmployeeRequest request) : auth(required, providers: [identity], roles: [admin]) -> employeeDb.Employee {
             // Check for duplicate email
             let Employee? existing = employeeDb.Employee.where(email: request.email).first();
             if (existing != null) {
@@ -392,7 +392,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
 
         // Update employee details
         @path('/:id')
-        put(UUID id, UpdateEmployeeRequest request) : access(admin) -> employeeDb.Employee {
+        put(UUID id, UpdateEmployeeRequest request) : auth(required, providers: [identity], roles: [admin]) -> employeeDb.Employee {
             let Employee employee = employeeDb.Employee.findOrFail(id);
 
             if (request.firstName != null) employee.firstName = request.firstName;
@@ -408,7 +408,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
 
         // Update employee status
         @path('/:id/status')
-        put(UUID id, UpdateStatusRequest request) : access(admin) -> employeeDb.Employee {
+        put(UUID id, UpdateStatusRequest request) : auth(required, providers: [identity], roles: [admin]) -> employeeDb.Employee {
             let Employee employee = employeeDb.Employee.findOrFail(id);
 
             switch (request.status) {
@@ -439,7 +439,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
 
         // Add an emergency contact
         @path('/:id/emergency-contacts')
-        post(UUID id, AddEmergencyContactRequest request) -> employeeDb.EmergencyContact {
+        post(UUID id, AddEmergencyContactRequest request) : auth(required, providers: [identity]) -> employeeDb.EmergencyContact {
             let Employee employee = employeeDb.Employee.findOrFail(id);
 
             let EmergencyContact contact = employeeDb.EmergencyContact.create({
@@ -455,7 +455,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
 
         // Get emergency contacts for an employee
         @path('/:id/emergency-contacts')
-        get(UUID id) -> Array<employeeDb.EmergencyContact> {
+        get(UUID id) : auth(required, providers: [identity]) -> Array<employeeDb.EmergencyContact> {
             return employeeDb.EmergencyContact
             .where(employeeId: id)
             .all();
@@ -463,7 +463,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
 
         // Get employees by department
         @path('/by-department/:department')
-        get(Department department) -> Array<employeeDb.Employee> {
+        get(Department department) : auth(required, providers: [identity]) -> Array<employeeDb.Employee> {
             return employeeDb.Employee
             .where(department: department)
             .where(status: EmployeeStatus.Active)
@@ -473,7 +473,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
 
         // Get direct reports for a manager
         @path('/:id/reports')
-        get(UUID id) -> Array<employeeDb.Employee> {
+        get(UUID id) : auth(required, providers: [identity]) -> Array<employeeDb.Employee> {
             return employeeDb.Employee
             .where(managerId: id)
             .where(status: EmployeeStatus.Active)
@@ -483,7 +483,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
 
         // CQRS directory view endpoint
         @path('/directory')
-        get(Department? department) : public -> Array<EmployeeDirectoryView> {
+        get(Department? department) : auth(public) -> Array<EmployeeDirectoryView> {
             if (department != null) {
                 return EmployeeDirectoryView.where(department: department).all();
             }
@@ -493,12 +493,12 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
 
         // Internal endpoint for cross-service lookups
         @path('/service/:id')
-        get employeeByIdInternal(UUID id) : access(Service), hidden, idempotent -> employeeDb.Employee {
+        get employeeByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> employeeDb.Employee {
             return employeeDb.Employee.findOrFail(id);
         }
 
         @path('/service/by-number/:employeeNumber')
-        get employeeByNumberInternal(String employeeNumber) : access(Service), hidden, idempotent -> employeeDb.Employee {
+        get employeeByNumberInternal(String employeeNumber) : auth(service, providers: [platform]), hidden, idempotent -> employeeDb.Employee {
             return employeeDb.Employee.where(employeeNumber: employeeNumber).firstOrFail();
         }
 

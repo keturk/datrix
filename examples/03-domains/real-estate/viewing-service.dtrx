@@ -209,7 +209,7 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
         alert responseTime(p95) over(5m) > 500ms @severity(warning);
 
         // List viewings with pagination
-        get(Int page = 1, Int perPage = 20, UUID? listingId, ViewingStatus? status) -> PaginatedViewings {
+        get(Int page = 1, Int perPage = 20, UUID? listingId, ViewingStatus? status) : auth(required, providers: [identity]) -> PaginatedViewings {
             let JSON query = viewingDb.Viewing.all();
 
             if (listingId != null) {
@@ -243,12 +243,12 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
 
         // Get a single viewing
         @path('/:id')
-        get(UUID id) -> viewingDb.Viewing {
+        get(UUID id) : auth(required, providers: [identity]) -> viewingDb.Viewing {
             return viewingDb.Viewing.findOrFail(id);
         }
 
         // Schedule a new viewing
-        post(ScheduleViewingRequest request) -> viewingDb.Viewing {
+        post(ScheduleViewingRequest request) : auth(required, providers: [identity]) -> viewingDb.Viewing {
             // Verify the listing exists and is active
             let Listing listing = ListingService.ListingAPI.get.listingByIdInternal(request.listingId);
 
@@ -272,7 +272,7 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
 
         // Confirm a viewing
         @path('/:id/confirm')
-        put(UUID id) -> viewingDb.Viewing {
+        put(UUID id) : auth(required, providers: [identity]) -> viewingDb.Viewing {
             let Viewing viewing = viewingDb.Viewing.findOrFail(id);
             viewing.confirm();
             return viewing;
@@ -280,7 +280,7 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
 
         // Complete a viewing with optional feedback
         @path('/:id/complete')
-        put(UUID id, CompleteViewingRequest request) -> viewingDb.Viewing {
+        put(UUID id, CompleteViewingRequest request) : auth(required, providers: [identity]) -> viewingDb.Viewing {
             let Viewing viewing = viewingDb.Viewing.findOrFail(id);
             viewing.complete(request.feedback, request.rating);
             return viewing;
@@ -288,7 +288,7 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
 
         // Cancel a viewing
         @path('/:id/cancel')
-        put(UUID id, CancelViewingRequest request) -> viewingDb.Viewing {
+        put(UUID id, CancelViewingRequest request) : auth(required, providers: [identity]) -> viewingDb.Viewing {
             let Viewing viewing = viewingDb.Viewing.findOrFail(id);
             viewing.cancel(request.reason);
             return viewing;
@@ -296,7 +296,7 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
 
         // Mark a viewing as no-show
         @path('/:id/no-show')
-        put(UUID id) -> viewingDb.Viewing {
+        put(UUID id) : auth(required, providers: [identity]) -> viewingDb.Viewing {
             let Viewing viewing = viewingDb.Viewing.findOrFail(id);
             viewing.markNoShow();
             return viewing;
@@ -304,7 +304,7 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
 
         // Get viewings for a specific listing
         @path('/by-listing/:listingId')
-        get(UUID listingId) -> Array<viewingDb.Viewing> {
+        get(UUID listingId) : auth(required, providers: [identity]) -> Array<viewingDb.Viewing> {
             return viewingDb.Viewing
             .where(listingId: listingId)
             .orderBy(scheduledAt: asc)
@@ -313,7 +313,7 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.
 
         // Get upcoming viewings for an agent
         @path('/by-agent/:agentId/upcoming')
-        get(UUID agentId) -> Array<viewingDb.Viewing> {
+        get(UUID agentId) : auth(required, providers: [identity]) -> Array<viewingDb.Viewing> {
             return viewingDb.Viewing
             .where(agentId: agentId)
             .where(scheduledAt: gte(DateTime.now()))

@@ -308,7 +308,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
         alert errorRate(ratio) over(5m) > 3% @severity(critical);
 
         // List transactions with filtering and pagination
-        get(Int page = 1, Int perPage = 20, UUID? accountId, TransactionType? type, TransactionStatus? status) -> PaginatedTransactions {
+        get(Int page = 1, Int perPage = 20, UUID? accountId, TransactionType? type, TransactionStatus? status) : auth(required, providers: [identity]) -> PaginatedTransactions {
             let JSON query = txDb.Transaction.all();
 
             if (accountId != null) {
@@ -345,12 +345,12 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
         }
 
         @path('/:id')
-        get(UUID id) -> txDb.Transaction {
+        get(UUID id) : auth(required, providers: [identity]) -> txDb.Transaction {
             return txDb.Transaction.findOrFail(id);
         }
 
         // Create a single transaction (deposit, withdrawal, payment)
-        post(CreateTransactionRequest request) -> txDb.Transaction {
+        post(CreateTransactionRequest request) : auth(required, providers: [identity]) -> txDb.Transaction {
             // Verify account exists and is active via AccountService
             let Account account = AccountService.AccountAPI.get.accountByIdInternal(request.accountId);
 
@@ -387,7 +387,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
 
         // Execute an account-to-account transfer
         @path('/transfer')
-        post(TransferRequest request) -> TransferResponse {
+        post(TransferRequest request) : auth(required, providers: [identity]) -> TransferResponse {
             // Validate both accounts exist and are active
             let Account sourceAccount = AccountService.AccountAPI.get.accountByIdInternal(request.sourceAccountId);
             let Account destAccount = AccountService.AccountAPI.get.accountByIdInternal(request.destinationAccountId);
@@ -451,7 +451,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
 
         // Submit a batch of transactions
         @path('/batch')
-        post(CreateBatchRequest request) -> BatchResponse {
+        post(CreateBatchRequest request) : auth(required, providers: [identity]) -> BatchResponse {
             let String batchRef = generateReference("BAT");
             let Money totalAmount = Money.of(0, Currency.USD);
 
@@ -515,7 +515,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
 
         // Get transaction summary for an account
         @path('/summary/:accountId')
-        get(UUID accountId) -> TransactionSummary {
+        get(UUID accountId) : auth(required, providers: [identity]) -> TransactionSummary {
             let Array<Transaction> transactions = txDb.Transaction
             .where(accountId: accountId)
             .where(status: TransactionStatus.Completed)
@@ -544,7 +544,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
 
         // Reverse a completed transaction
         @path('/:id/reverse')
-        put(UUID id) : access(admin) -> txDb.Transaction {
+        put(UUID id) : auth(required, providers: [identity], roles: [admin]) -> txDb.Transaction {
             let Transaction tx = txDb.Transaction.findOrFail(id);
             tx.reverse();
             return tx;
@@ -552,7 +552,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
 
         // Internal endpoint for cross-service lookups
         @path('/service/by-account/:accountId')
-        get transactionsByAccountInternal(UUID accountId) : access(Service), hidden, idempotent -> Array<txDb.Transaction> {
+        get transactionsByAccountInternal(UUID accountId) : auth(service, providers: [platform]), hidden, idempotent -> Array<txDb.Transaction> {
             return txDb.Transaction
             .where(accountId: accountId)
             .orderBy(createdAt: desc)

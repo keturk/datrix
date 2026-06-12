@@ -39,11 +39,11 @@ service shop.CatalogService('config/catalog-service.dcfg') : version('1.0.0'), d
     }
 
     rest_api CatalogServiceAPI : basePath("/api/v1"), rdbms(catalogDb) {
-        resource catalogDb.Product : only(list, get), public;
-        resource catalogDb.Product : only(create, update, delete), access(admin);
+        resource catalogDb.Product : only(list, get), auth(public);
+        resource catalogDb.Product : only(create, update, delete), auth(required, providers: [member], roles: [admin]);
 
         @path('/products/search')
-        get(String query) : public -> Array<catalogDb.Product> {
+        get(String query) : auth(public) -> Array<catalogDb.Product> {
             return catalogDb.Product.where(name: query).all();
         }
     }

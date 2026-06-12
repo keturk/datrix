@@ -14,7 +14,7 @@ service library.StorageWriterService('config/storage-writer-service.dcfg') : ver
 
     rest_api ExchangeAPI : basePath('/api/v1/exchange') {
         @path('/health')
-        get() -> String {
+        get() : auth(public) -> String {
             return "ok";
         }
 

@@ -315,11 +315,11 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
 
     rest_api DeliveryAPI : basePath('/api/v1/deliveries'), rdbms(deliveryDb) {
 
-        resource deliveryDb.Delivery : only(list, get);
-        resource deliveryDb.DeliveryDriver : only(list, get, create, update);
+        resource deliveryDb.Delivery : auth(required, providers: [identity]), only(list, get);
+        resource deliveryDb.DeliveryDriver : auth(required, providers: [identity], roles: [admin]), only(list, get, create, update);
 
         @path('/:id/assign')
-        post(UUID id, AssignDriverRequest request) -> deliveryDb.Delivery {
+        post(UUID id, AssignDriverRequest request) : auth(required, providers: [identity], roles: [admin]) -> deliveryDb.Delivery {
             let Delivery delivery = deliveryDb.Delivery.findOrFail(id);
             let DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(request.driverId);
 
@@ -353,7 +353,7 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
         }
 
         @path('/drivers/:id/location')
-        put(UUID id, UpdateLocationRequest request) -> deliveryDb.DeliveryDriver {
+        put(UUID id, UpdateLocationRequest request) : auth(required, providers: [identity]) -> deliveryDb.DeliveryDriver {
             let DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(id);
 
             driver.currentLatitude = request.latitude;
@@ -371,7 +371,7 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
         }
 
         @path('/:id/complete')
-        post(UUID id) -> deliveryDb.Delivery {
+        post(UUID id) : auth(required, providers: [identity]) -> deliveryDb.Delivery {
             let Delivery delivery = deliveryDb.Delivery.findOrFail(id);
 
             if (delivery.status != DeliveryStatus.Delivering) {
@@ -408,7 +408,7 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
         }
 
         @path('/:id/track')
-        get(UUID id) : public -> DeliveryTrackingInfo {
+        get(UUID id) : auth(public) -> DeliveryTrackingInfo {
             let Delivery delivery = deliveryDb.Delivery.findOrFail(id);
 
             let String? driverName = null;
@@ -440,7 +440,7 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
         }
 
         @path('/drivers/available')
-        get() -> DriverAvailabilityResponse {
+        get() : auth(required, providers: [identity], roles: [admin]) -> DriverAvailabilityResponse {
             let Array<DeliveryDriver> drivers = deliveryDb.DeliveryDriver
             .where(status: DriverStatus.Available)
             .orderBy(rating: desc)
@@ -453,7 +453,7 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
         }
 
         @path('/drivers/:id/online')
-        post(UUID id) -> deliveryDb.DeliveryDriver {
+        post(UUID id) : auth(required, providers: [identity]) -> deliveryDb.DeliveryDriver {
             let DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(id);
             driver.goOnline();
 
@@ -466,7 +466,7 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
         }
 
         @path('/drivers/:id/offline')
-        post(UUID id) -> deliveryDb.DeliveryDriver {
+        post(UUID id) : auth(required, providers: [identity]) -> deliveryDb.DeliveryDriver {
             let DeliveryDriver driver = deliveryDb.DeliveryDriver.findOrFail(id);
             driver.goOffline();
 
@@ -479,7 +479,7 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
         }
 
         @path('/order/:orderId')
-        get(UUID orderId) -> deliveryDb.Delivery {
+        get(UUID orderId) : auth(required, providers: [identity]) -> deliveryDb.Delivery {
             return deliveryDb.Delivery.where(orderId: orderId).firstOrFail();
         }
 

@@ -45,7 +45,7 @@ service hostdemo.UserService('config/user-service.dcfg') : version('1.0.0'), des
     }
 
     rest_api UserAPI : basePath("/api/v1/users"), rdbms(usersDb) {
-        resource usersDb.User;
+        resource usersDb.User : auth(required, providers: [member]);
     }
 
 }

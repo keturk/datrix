@@ -1,0 +1,29 @@
+{
+  "provider": "keycloak",
+  "audience": "machine",
+  "mode": "external",
+  "issuer": "https://auth.shop.example.com/realms/shop-machines",
+  "clientId": "shop-service-clients",
+  "clientSecret": {
+    "provider": "env",
+    "name": "IDENTITY_PLATFORMMACHINE_CLIENT_SECRET"
+  },
+  "keycloak": {
+    "realm": "shop-machines",
+    "host": "auth.shop.example.com",
+    "port": 8443,
+    "adminUser": "admin",
+    "adminPassword": {
+      "provider": "env",
+      "name": "IDENTITY_PLATFORMMACHINE_ADMIN_PASSWORD"
+    },
+    "dbEngine": "postgres"
+  },
+  "roleSource": {
+    "claimPath": "realm_access.roles",
+    "guarantee": "required"
+  },
+  "tokens": {
+    "accessToken": "15m"
+  }
+}

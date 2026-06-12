@@ -28,7 +28,7 @@ service examples.OrderService('config/order-service.dcfg') : version('1.0.0'), d
     }
 
     rest_api OrderApi : basePath('/api/v1'), rdbms(db) {
-        resource db.Order : only(list, get), public;
+        resource db.Order : only(list, get), auth(public);
     }
 
     jobs('config/order-service.dcfg') {
@@ -52,7 +52,7 @@ service examples.OrderService('config/order-service.dcfg') : version('1.0.0'), d
 
         @path('/webhooks/stripe')
         @name('StripeWebhook')
-        post(JSON payload) -> Void {
+        post(JSON payload) : auth(public) -> Void {
             Log.info("Stripe webhook received");
         }
 

@@ -67,7 +67,7 @@ service library.LoanService('config/loan-service.dcfg') : version('1.0.0'), desc
 
     rest_api LoanAPI : basePath("/api/v1/loans"), rdbms(loanDb) {
         // Custom endpoint using a struct as input and returning an entity
-        post(CreateLoanRequest request) -> loanDb.Loan {
+        post(CreateLoanRequest request) : auth(required, providers: [member]) -> loanDb.Loan {
             // '#Book' is a type hint for the response from a cross-service API call
             // ServiceName.APIName.method() makes a synchronous call to another service
             let Book bookResponse = BookService.BookServiceAPI.get.bookByIdInternal(request.bookId);
@@ -87,7 +87,7 @@ service library.LoanService('config/loan-service.dcfg') : version('1.0.0'), desc
         }
 
         @path('/member/:memberId')
-        get(UUID memberId) -> Array<loanDb.Loan> {
+        get(UUID memberId) : auth(required, providers: [member]) -> Array<loanDb.Loan> {
             return loanDb.Loan.where(memberId: memberId).all();
         }
 

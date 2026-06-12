@@ -268,7 +268,7 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
         alert responseTime(p95) over(5m) > 500ms @severity(warning);
 
         // List contracts with pagination
-        get(Int page = 1, Int perPage = 20, ContractStatus? status, ContractType? contractType) -> PaginatedContracts {
+        get(Int page = 1, Int perPage = 20, ContractStatus? status, ContractType? contractType) : auth(required, providers: [identity]) -> PaginatedContracts {
             let JSON query = contractDb.Contract.all();
 
             if (status != null) {
@@ -302,12 +302,12 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
 
         // Get a single contract
         @path('/:id')
-        get(UUID id) -> contractDb.Contract {
+        get(UUID id) : auth(required, providers: [identity]) -> contractDb.Contract {
             return contractDb.Contract.findOrFail(id);
         }
 
         // Create a new contract
-        post(CreateContractRequest request) -> contractDb.Contract {
+        post(CreateContractRequest request) : auth(required, providers: [identity]) -> contractDb.Contract {
             // Verify listing exists and is available
             let Listing listing = ListingService.ListingAPI.get.listingByIdInternal(request.listingId);
 
@@ -334,7 +334,7 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
 
         // Submit a draft contract for review
         @path('/:id/submit')
-        put(UUID id) -> contractDb.Contract {
+        put(UUID id) : auth(required, providers: [identity]) -> contractDb.Contract {
             let Contract contract = contractDb.Contract.findOrFail(id);
             contract.submit();
             return contract;
@@ -342,7 +342,7 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
 
         // Sign a pending contract
         @path('/:id/sign')
-        put(UUID id) -> contractDb.Contract {
+        put(UUID id) : auth(required, providers: [identity]) -> contractDb.Contract {
             let Contract contract = contractDb.Contract.findOrFail(id);
             contract.sign();
             return contract;
@@ -350,7 +350,7 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
 
         // Activate a signed contract
         @path('/:id/activate')
-        put(UUID id) -> contractDb.Contract {
+        put(UUID id) : auth(required, providers: [identity]) -> contractDb.Contract {
             let Contract contract = contractDb.Contract.findOrFail(id);
             contract.activate();
             return contract;
@@ -358,7 +358,7 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
 
         // Terminate a contract
         @path('/:id/terminate')
-        put(UUID id, TerminateContractRequest request) -> contractDb.Contract {
+        put(UUID id, TerminateContractRequest request) : auth(required, providers: [identity]) -> contractDb.Contract {
             let Contract contract = contractDb.Contract.findOrFail(id);
             contract.terminate(request.reason);
             return contract;
@@ -366,7 +366,7 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
 
         // Add a document to a contract
         @path('/:id/documents')
-        post(UUID id, AddDocumentRequest request) -> contractDb.ContractDocument {
+        post(UUID id, AddDocumentRequest request) : auth(required, providers: [identity]) -> contractDb.ContractDocument {
             let Contract contract = contractDb.Contract.findOrFail(id);
 
             let ContractDocument doc = contractDb.ContractDocument.create({
@@ -381,7 +381,7 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
 
         // Get documents for a contract
         @path('/:id/documents')
-        get(UUID id) -> Array<contractDb.ContractDocument> {
+        get(UUID id) : auth(required, providers: [identity]) -> Array<contractDb.ContractDocument> {
             return contractDb.ContractDocument
             .where(contractId: id)
             .orderBy(uploadedAt: desc)
@@ -390,7 +390,7 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
 
         // Get contracts by listing
         @path('/by-listing/:listingId')
-        get(UUID listingId) -> Array<contractDb.Contract> {
+        get(UUID listingId) : auth(required, providers: [identity]) -> Array<contractDb.Contract> {
             return contractDb.Contract
             .where(listingId: listingId)
             .orderBy(createdAt: desc)
@@ -399,7 +399,7 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
 
         // Get contracts by buyer
         @path('/by-buyer/:buyerId')
-        get(UUID buyerId) -> Array<contractDb.Contract> {
+        get(UUID buyerId) : auth(required, providers: [identity]) -> Array<contractDb.Contract> {
             return contractDb.Contract
             .where(buyerId: buyerId)
             .orderBy(createdAt: desc)
@@ -408,7 +408,7 @@ service realestate.ContractService('config/contract-service.dcfg') : version('1.
 
         // Get contracts by seller
         @path('/by-seller/:sellerId')
-        get(UUID sellerId) -> Array<contractDb.Contract> {
+        get(UUID sellerId) : auth(required, providers: [identity]) -> Array<contractDb.Contract> {
             return contractDb.Contract
             .where(sellerId: sellerId)
             .orderBy(createdAt: desc)

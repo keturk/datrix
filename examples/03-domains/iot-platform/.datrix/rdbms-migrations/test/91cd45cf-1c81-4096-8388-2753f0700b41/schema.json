@@ -53,7 +53,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001AC1C71B9A0>"
+            "value": "<abc.CallNode object at 0x0000028537B1F700>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -93,7 +93,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001AC1C731E10>"
+            "value": "<abc.CallNode object at 0x0000028537B35630>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -192,7 +192,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000001AC1BCC6970>"
+            "value": "<abc.PropertyAccessNode object at 0x00000285370EB700>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -218,7 +218,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.CallNode object at 0x000001AC1BCC6D60>"
+            "value": "<abc.CallNode object at 0x00000285370EBAF0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -240,7 +240,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001AC1C71B5B0>"
+            "value": "<abc.CallNode object at 0x0000028537B1EE40>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -291,7 +291,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001AC1C71B9A0>"
+            "value": "<abc.CallNode object at 0x0000028537B1F700>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -349,7 +349,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001AC1C731E10>"
+            "value": "<abc.CallNode object at 0x0000028537B35630>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -499,7 +499,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001AC1C71B5B0>"
+            "value": "<abc.CallNode object at 0x0000028537B1EE40>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -566,7 +566,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "91cd45cf-1c81-4096-8388-2753f0700b41",
-  "schema_hash": "b56d426c960d5a6a999578bae97a890295bea963aaf4e172c1ff31de2f2bac31",
+  "schema_hash": "cf7988c742cd64a115e0031c7d34536fc9dad82c881d711f74d7badadc6c0e36",
   "service": {
     "name": "iot.TelemetryService",
     "version": "1.0.0"

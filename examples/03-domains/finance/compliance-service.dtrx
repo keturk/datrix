@@ -339,7 +339,7 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
 
         // List alerts with filtering and pagination
         @path('/alerts')
-        get(Int page = 1, Int perPage = 20, AlertSeverity? severity, AlertStatus? status, UUID? accountId) : access(admin) -> PaginatedAlerts {
+        get(Int page = 1, Int perPage = 20, AlertSeverity? severity, AlertStatus? status, UUID? accountId) : auth(required, providers: [identity], roles: [admin]) -> PaginatedAlerts {
             let JSON query = complianceDb.ComplianceAlert.all();
 
             if (severity != null) {
@@ -377,13 +377,13 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
 
         // Get a specific alert
         @path('/alerts/:id')
-        get(UUID id) : access(admin) -> complianceDb.ComplianceAlert {
+        get(UUID id) : auth(required, providers: [identity], roles: [admin]) -> complianceDb.ComplianceAlert {
             return complianceDb.ComplianceAlert.findOrFail(id);
         }
 
         // Start reviewing an alert
         @path('/alerts/:id/review')
-        put(UUID id, ReviewAlertRequest request) : access(admin) -> complianceDb.ComplianceAlert {
+        put(UUID id, ReviewAlertRequest request) : auth(required, providers: [identity], roles: [admin]) -> complianceDb.ComplianceAlert {
             let ComplianceAlert alert = complianceDb.ComplianceAlert.findOrFail(id);
             alert.startReview();
             alert.auditNote = request.notes;
@@ -393,7 +393,7 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
 
         // Resolve an alert
         @path('/alerts/:id/resolve')
-        put(UUID id, ResolveAlertRequest request) : access(admin) -> complianceDb.ComplianceAlert {
+        put(UUID id, ResolveAlertRequest request) : auth(required, providers: [identity], roles: [admin]) -> complianceDb.ComplianceAlert {
             let ComplianceAlert alert = complianceDb.ComplianceAlert.findOrFail(id);
             alert.resolve(request.resolution, request.isFalsePositive, Auth.user().id);
             return alert;
@@ -401,7 +401,7 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
 
         // Escalate an alert
         @path('/alerts/:id/escalate')
-        put(UUID id, EscalateAlertRequest request) : access(admin) -> complianceDb.ComplianceAlert {
+        put(UUID id, EscalateAlertRequest request) : auth(required, providers: [identity], roles: [admin]) -> complianceDb.ComplianceAlert {
             let ComplianceAlert alert = complianceDb.ComplianceAlert.findOrFail(id);
             alert.escalate(request.reason, request.escalatedTo);
             return alert;
@@ -409,7 +409,7 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
 
         // Get audit trail for an entity
         @path('/audit-trail/:entityType/:entityId')
-        get(String entityType, UUID entityId) : access(admin) -> Array<complianceDb.AuditTrail> {
+        get(String entityType, UUID entityId) : auth(required, providers: [identity], roles: [admin]) -> Array<complianceDb.AuditTrail> {
             return complianceDb.AuditTrail
             .where(entityType: entityType)
             .where(entityId: entityId)
@@ -419,7 +419,7 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
 
         // Get compliance report summary
         @path('/reports/summary')
-        get(DateTime? fromDate, DateTime? toDate) : access(admin) -> ComplianceReportSummary {
+        get(DateTime? fromDate, DateTime? toDate) : auth(required, providers: [identity], roles: [admin]) -> ComplianceReportSummary {
             let Array<ComplianceAlert> allAlerts = complianceDb.ComplianceAlert.all();
 
             let Int total = allAlerts.length();
@@ -440,7 +440,7 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('1
 
         // Get alerts by account
         @path('/alerts/by-account/:accountId')
-        get(UUID accountId) : access(admin) -> Array<complianceDb.ComplianceAlert> {
+        get(UUID accountId) : auth(required, providers: [identity], roles: [admin]) -> Array<complianceDb.ComplianceAlert> {
             return complianceDb.ComplianceAlert
             .where(accountId: accountId)
             .orderBy(detectedAt: desc)

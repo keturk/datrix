@@ -134,23 +134,23 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
     rest_api BookServiceAPI : basePath("/api/v1"), rdbms(bookDb) {
         // 'only(...)' restricts which CRUD operations are generated
         // 'public' makes endpoints accessible without authentication
-        resource bookDb.Book : only(list, get), public;
+        resource bookDb.Book : only(list, get), auth(public);
         // 'access(role)' restricts endpoints to users with the specified role
-        resource bookDb.Book : only(create, update, delete), access(librarian);
-        resource bookDb.Category : only(list, get), public;
-        resource bookDb.Category : only(create, update, delete), access(librarian);
+        resource bookDb.Book : only(create, update, delete), auth(required, providers: [member], roles: [librarian]);
+        resource bookDb.Category : only(list, get), auth(public);
+        resource bookDb.Category : only(create, update, delete), auth(required, providers: [member], roles: [librarian]);
 
         // Custom endpoint with @path decorator and explicit HTTP method
         // ':' after params specifies access level; '->' specifies return type
         @path('/books/search')
-        get(String query) : public -> Array<bookDb.Book> {
+        get(String query) : auth(public) -> Array<bookDb.Book> {
             // Query entities using where() for filtering and all() to fetch results
             return bookDb.Book.where(title: query).all();
         }
 
         // Path parameters use ':paramName' syntax (e.g., :categoryId)
         @path('/books/category/:categoryId')
-        get(UUID categoryId) : public -> Array<bookDb.Book> {
+        get(UUID categoryId) : auth(public) -> Array<bookDb.Book> {
             return bookDb.Book.where(categoryId: categoryId).all();
         }
 

@@ -21,7 +21,7 @@ service library.MemberService('config/member-service.dcfg') : version('1.0.0'), 
     }
 
     rest_api MemberAPI : basePath("/api/v1/members"), rdbms(memberDb) {
-        resource memberDb.Member;
+        resource memberDb.Member : auth(required, providers: [member]);
     }
 
 }
