@@ -109,7 +109,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001C046DAE900>"
+            "value": "<abc.CallNode object at 0x000002039AE5EA50>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -149,7 +149,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001C046DAC050>"
+            "value": "<abc.CallNode object at 0x000002039AE74B40>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -308,7 +308,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000001C046057770>"
+            "value": "<abc.PropertyAccessNode object at 0x000002039A15D780>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -356,7 +356,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001C046DAEBA0>"
+            "value": "<abc.CallNode object at 0x000002039AE5E7B0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -419,6 +419,7 @@
             "city",
             "state"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
@@ -426,6 +427,7 @@
             "status",
             "property_type"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
@@ -433,6 +435,7 @@
             "property_type",
             "price"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
@@ -440,6 +443,7 @@
             "status",
             "price"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
@@ -449,6 +453,7 @@
             "address",
             "city"
           ],
+          "fulltext": true,
           "unique": false
         }
       ],
@@ -462,7 +467,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001C046DAE900>"
+            "value": "<abc.CallNode object at 0x000002039AE5EA50>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -524,7 +529,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001C046DAC050>"
+            "value": "<abc.CallNode object at 0x000002039AE74B40>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -564,7 +569,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001C046DAEBA0>"
+            "value": "<abc.CallNode object at 0x000002039AE5E7B0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -601,6 +606,7 @@
             "listing_id",
             "feature_name"
           ],
+          "fulltext": false,
           "unique": false
         }
       ],
@@ -634,7 +640,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001C046DAE900>"
+            "value": "<abc.CallNode object at 0x000002039AE5EA50>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -656,7 +662,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001C046DAC050>"
+            "value": "<abc.CallNode object at 0x000002039AE74B40>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -736,7 +742,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001C046DAEBA0>"
+            "value": "<abc.CallNode object at 0x000002039AE5E7B0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -793,6 +799,7 @@
             "listing_id",
             "order_index"
           ],
+          "fulltext": false,
           "unique": false
         }
       ],
@@ -827,7 +834,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "3bd1a12a-1386-49bd-8454-06f9fb0279ff",
-  "schema_hash": "2d6ad0b59601cca15af6538a1c23d869123f542ca64279c4cedac0d3a7e62cc3",
+  "schema_hash": "ae5fd1cf0f169d675e77c7c0e6afcd102e686d4b76c72dd8f412eea23ec0fefb",
   "service": {
     "name": "realestate.ListingService",
     "version": "1.0.0"

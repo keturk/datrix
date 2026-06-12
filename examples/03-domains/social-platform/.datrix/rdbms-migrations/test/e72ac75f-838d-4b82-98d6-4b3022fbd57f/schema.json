@@ -15,7 +15,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001F4A5FA4910>"
+            "value": "<abc.CallNode object at 0x00000219F87D1160>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -37,7 +37,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.CallNode object at 0x000001F4A5284AD0>"
+            "value": "<abc.CallNode object at 0x00000219F7AA9940>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -95,7 +95,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001F4A5F79FD0>"
+            "value": "<abc.CallNode object at 0x00000219F87A2820>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -117,7 +117,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001F4A5FA4BB0>"
+            "value": "<abc.CallNode object at 0x00000219F87D1400>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -142,6 +142,7 @@
             "follower_id",
             "followee_id"
           ],
+          "fulltext": false,
           "unique": true
         },
         {
@@ -149,6 +150,7 @@
             "followee_id",
             "followed_at"
           ],
+          "fulltext": false,
           "unique": false
         }
       ],
@@ -200,7 +202,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001F4A5FA4910>"
+            "value": "<abc.CallNode object at 0x00000219F87D1160>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -323,7 +325,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001F4A5F79FD0>"
+            "value": "<abc.CallNode object at 0x00000219F87A2820>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -403,7 +405,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000001F4A5274600>"
+            "value": "<abc.PropertyAccessNode object at 0x00000219F7A95470>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -429,7 +431,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001F4A5FA4BB0>"
+            "value": "<abc.CallNode object at 0x00000219F87D1400>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -474,18 +476,21 @@
           "columns": [
             "username"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
           "columns": [
             "email"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
           "columns": [
             "status"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
@@ -493,6 +498,7 @@
             "username",
             "display_name"
           ],
+          "fulltext": true,
           "unique": false
         }
       ],
@@ -514,7 +520,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "e72ac75f-838d-4b82-98d6-4b3022fbd57f",
-  "schema_hash": "83abe64253eefbd6d38c0906dfb3e7bc846924f70f6bf836d9693a962b710251",
+  "schema_hash": "8e80e363442358619d14558ced09ed7757b556819507aab98224fe9b0778f3a0",
   "service": {
     "name": "social.UserService",
     "version": "1.0.0"

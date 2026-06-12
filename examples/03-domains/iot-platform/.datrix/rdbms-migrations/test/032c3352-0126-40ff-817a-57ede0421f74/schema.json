@@ -33,7 +33,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000028537B1F700>"
+            "value": "<abc.CallNode object at 0x000001FD44A75A20>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -95,7 +95,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000028537B35630>"
+            "value": "<abc.CallNode object at 0x000001FD44A76900>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -156,7 +156,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x0000028536D201A0>"
+            "value": "<abc.PropertyAccessNode object at 0x000001FD43C20D00>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -225,7 +225,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000028537B1EE40>"
+            "value": "<abc.CallNode object at 0x000001FD44A741A0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -283,6 +283,7 @@
           "columns": [
             "status"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
@@ -290,6 +291,7 @@
             "firmware_version_id",
             "status"
           ],
+          "fulltext": false,
           "unique": false
         }
       ],
@@ -323,7 +325,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000028537B1F700>"
+            "value": "<abc.CallNode object at 0x000001FD44A75A20>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -383,7 +385,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000028537B35630>"
+            "value": "<abc.CallNode object at 0x000001FD44A76900>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -445,7 +447,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.CallNode object at 0x0000028536D22510>"
+            "value": "<abc.CallNode object at 0x000001FD43C239A0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -467,7 +469,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000028537B1EE40>"
+            "value": "<abc.CallNode object at 0x000001FD44A741A0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -512,12 +514,14 @@
           "columns": [
             "version"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
           "columns": [
             "is_stable"
           ],
+          "fulltext": false,
           "unique": false
         }
       ],
@@ -549,7 +553,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000028537B1F700>"
+            "value": "<abc.CallNode object at 0x000001FD44A75A20>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -625,7 +629,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000028537B35630>"
+            "value": "<abc.CallNode object at 0x000001FD44A76900>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -689,7 +693,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000028537B1EE40>"
+            "value": "<abc.CallNode object at 0x000001FD44A741A0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -726,6 +730,7 @@
             "firmware_rollout_id",
             "device_id"
           ],
+          "fulltext": false,
           "unique": true
         },
         {
@@ -733,6 +738,7 @@
             "firmware_rollout_id",
             "status"
           ],
+          "fulltext": false,
           "unique": false
         }
       ],
@@ -768,7 +774,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "032c3352-0126-40ff-817a-57ede0421f74",
-  "schema_hash": "020dc77f9d0ad2d59e03b1d15c22ad86eac214afd20ba07c1f8ce84bc35462c9",
+  "schema_hash": "dfe3051d10f104573c5281eeedca6bcb4ac0184ba3104e3b2037e89726e8e9a8",
   "service": {
     "name": "iot.FirmwareService",
     "version": "1.0.0"

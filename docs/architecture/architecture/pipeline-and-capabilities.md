@@ -544,6 +544,56 @@ service ecommerce.WarehouseService('config/warehouse.dcfg') {
 
 See the [PostGIS extension reference](../../../../datrix-extensions/docs/postgis-extension.md) for the full namespace contract, type mappings, and SQL lowering details. For raster/tile operations, see the [geo raster extension reference](../../../../datrix-extensions/docs/geo-raster-extension.md).
 
+### Infrastructure Resource Pooling — Shared Provisioned Resources With Per-Service Isolation (Planned)
+
+Datrix generates **one provisioned managed resource per infrastructure block** on every platform. For systems with many bounded-context services, this multiplies the fixed per-instance base cost — a system with 43 `rdbms` blocks generates 43 provisioned servers; 38 `pubsub` blocks generate 38 namespaces.
+
+**Pooling is opt-in.** Several infra blocks across services can share one provisioned resource while maintaining **logical isolation** — each child block gets its own connection secret, RBAC/IAM scope, migration identity, and observability tags. Blocks without a group declaration continue to use the existing dedicated-per-block path and output is unchanged (byte-for-byte identical on all six generators).
+
+**Explicit group declaration via `.dcfg`:** Pooling is authoring via `serverGroup` / `namespaceGroup` fields on RDBMS and PubSub blocks, plus `serverGroups{}` / `namespaceGroups{}` sizing blocks in the system `.dcfg`:
+
+```dcfg
+// Service config
+rdbms ordersDb {
+    engine = "postgres"
+    platform = "rds"
+    serverGroup = "orders-pool"
+}
+
+// System config
+serverGroups {
+    orders-pool {
+        sku = "db.t3.medium"
+        storageGb = 100
+    }
+}
+```
+
+**Platform-neutral contract:** `PooledGroup` / `PooledMember` in `datrix_codegen_common.pooling.models` is consumed identically by Python/TypeScript × Azure/AWS/Docker/K8s. The contract is platform-agnostic and language-agnostic; every generator receives pre-resolved `list[PooledGroup]` and iterates `group.members` for per-child wiring. Cross-reference: [Pooling Contract Reference](../../../../datrix-codegen-common/docs/pooling-contract.md).
+
+**Profile-scoped identity:** `(group_name, profile)` is the shared-resource key; staging and production never share a physical resource. Migration state is target-scoped (`.datrix/rdbms-migrations/<target>/...` per phase-55), and resource identity is resolved per deployment profile during config resolution.
+
+**Per-child isolation is a required output:** Connection secret, RBAC/IAM scope, migration identity, and observability dimensions are emitted by the grouping pre-pass per member, not assumed correct. Validators enforce per-child secret distinctness, per-child RBAC/IAM scope binding, cross-group migration-identity UUID uniqueness, and per-child observability tagging. No shared admin secret; no wildcard grant.
+
+**Docker/K8s reconciliation:** On Docker and Kubernetes, explicit `serverGroup` is authoritative. Ungrouped blocks keep the existing implicit host-based deduplication via `InfraRegistry` (identity unchanged — `InfraIdentity(component_type, engine, host, port)`). Parity is tested: identical resource counts for the same grouped app across Azure/AWS/Docker/K8s (modulo operator-flavor rejection).
+
+**Operator-flavor rejection:** Operator-flavor RDBMS and PubSub blocks cannot join a group (one CR = one single-tenant cluster). Generation raises `GenerationError` naming the offending group and block with a clear message: *"Operator-flavor engine cannot join a server/namespace group; use container flavor or a dedicated (ungrouped) block."*
+
+**Ungrouped byte-identical guarantee (D48):** Ungrouped output is byte-for-byte unchanged on all six generators. The grouping pre-pass is a no-op when no blocks declare a group.
+
+**Design decisions:**
+- **D39** — Resource identity is `(group, profile)` — staging and production are separate physical resources
+- **D40** — Per-child isolation (secret/RBAC/migration/diagnostics) is a required pre-pass output, validator-backed
+- **D41** — Membership is a `.dcfg` field (`serverGroup`, `namespaceGroup`) — configuration is configuration; pooling is opt-in via authoring
+- **D42** — Operator-flavor engine in a group is rejected, fail loud (no silent CR fan-out, no fallback)
+- **D43** — Explicit group governs grouped blocks; ungrouped blocks keep implicit collapse via `InfraRegistry` (backward-compatible, parity-tested)
+- **D48** — Ungrouped output is byte-for-byte unchanged on all six generators
+- **Capacity validation** — Cross-platform validator rejects undeclared groups, mismatched member engine/flavor/version, profile-missing-from-identity, and operator-flavor-in-group before generation starts
+
+**Cross-reference:**
+- [Config System — serverGroup / namespaceGroup fields](../../../../datrix-common/docs/architecture/config-system.md#servergroup--namespacegroup--infrastructure-resource-pooling-fields)
+- [Pooling Contract Reference](../../../../datrix-codegen-common/docs/pooling-contract.md) — canonical model documentation, per-generator consumption patterns, InfraRegistry reconciliation, operator-flavor rejection
+
 ---
 
 ## Managed Identity Provider Integration (Planned)

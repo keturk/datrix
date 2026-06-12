@@ -53,7 +53,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000027725191160>"
+            "value": "<abc.CallNode object at 0x0000020BF4A11630>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -113,7 +113,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002772519D2B0>"
+            "value": "<abc.CallNode object at 0x0000020BF4A604B0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -155,7 +155,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.CallNode object at 0x0000027724452430>"
+            "value": "<abc.CallNode object at 0x0000020BF3C34360>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -195,7 +195,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000027725191400>"
+            "value": "<abc.CallNode object at 0x0000020BF4A11400>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -240,6 +240,7 @@
             "entity_id",
             "performed_at"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
@@ -247,6 +248,7 @@
             "entity_type",
             "entity_id"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
@@ -254,12 +256,14 @@
             "performed_by",
             "performed_at"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
           "columns": [
             "performed_at"
           ],
+          "fulltext": false,
           "unique": false
         }
       ],
@@ -311,7 +315,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000027725191160>"
+            "value": "<abc.CallNode object at 0x0000020BF4A11630>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -353,7 +357,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.CallNode object at 0x0000027724477230>"
+            "value": "<abc.CallNode object at 0x0000020BF3C5C520>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -395,7 +399,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002772519D2B0>"
+            "value": "<abc.CallNode object at 0x0000020BF4A604B0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -532,7 +536,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x00000277244773F0>"
+            "value": "<abc.PropertyAccessNode object at 0x0000020BF3C5C910>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -620,7 +624,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000027725191400>"
+            "value": "<abc.CallNode object at 0x0000020BF4A11400>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -645,6 +649,7 @@
             "account_id",
             "detected_at"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
@@ -652,6 +657,7 @@
             "severity",
             "status"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
@@ -659,6 +665,7 @@
             "status",
             "detected_at"
           ],
+          "fulltext": false,
           "unique": false
         },
         {
@@ -666,6 +673,7 @@
             "type",
             "status"
           ],
+          "fulltext": false,
           "unique": false
         }
       ],
@@ -679,7 +687,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000027725191160>"
+            "value": "<abc.CallNode object at 0x0000020BF4A11630>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -745,7 +753,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.CallNode object at 0x000002772443D7F0>"
+            "value": "<abc.CallNode object at 0x0000020BF3C22270>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -767,7 +775,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002772519D2B0>"
+            "value": "<abc.CallNode object at 0x0000020BF4A604B0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -951,7 +959,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000027725191400>"
+            "value": "<abc.CallNode object at 0x0000020BF4A11400>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -976,6 +984,7 @@
             "report_date",
             "report_type"
           ],
+          "fulltext": false,
           "unique": false
         }
       ],
@@ -1020,7 +1029,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "11c99334-4634-4934-a5ba-7432e6a980ce",
-  "schema_hash": "5dd258d8ac24d33ef6f3caf68c5cb6c90aaab6bd79de6226b6664ea88747cba7",
+  "schema_hash": "667eee910ab0b0ffcac71df8c6c08766ddbcc5a99983d0634bad3c92d5b12d26",
   "service": {
     "name": "finance.ComplianceService",
     "version": "1.0.0"
