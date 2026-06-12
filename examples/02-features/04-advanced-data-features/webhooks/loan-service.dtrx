@@ -103,7 +103,7 @@ service library.LoanService('config/loan-service.dcfg') : version('1.0.0'), desc
         @retry(maxAttempts: 3)
         @timeout(ms: 5000)
         // Custom endpoint using a struct as input and returning an entity
-        post(CreateLoanRequest request) -> loanDb.Loan {
+        post(CreateLoanRequest request) : auth(required, providers: [member]) -> loanDb.Loan {
             // Check idempotency first - return cached result if this is a duplicate request
             let JSON? cached = checkIdempotency(request.idempotencyKey, "create_loan");
             if (cached != null) {
@@ -144,14 +144,14 @@ service library.LoanService('config/loan-service.dcfg') : version('1.0.0'), desc
         }
 
         @path('/member/:memberId')
-        get(UUID memberId) -> Array<loanDb.Loan> {
+        get(UUID memberId) : auth(required, providers: [member]) -> Array<loanDb.Loan> {
             return loanDb.Loan.where(memberId: memberId).all();
         }
 
         // Webhook endpoint receives external notifications (e.g., from a payment or notification service)
         // 'public' allows unauthenticated access since webhooks come from external systems
         @path('/webhook/overdue-notification')
-        post(OverdueWebhookRequest request) : public -> Void {
+        post(OverdueWebhookRequest request) : auth(public) -> Void {
             let String eventType = request.payload.type;
 
             if (eventType == "loan.overdue") {
@@ -170,7 +170,7 @@ service library.LoanService('config/loan-service.dcfg') : version('1.0.0'), desc
 
         // Return endpoint marks a loan as returned and records the return time
         @path('/:id/return')
-        post(UUID id) -> Void {
+        post(UUID id) : auth(required, providers: [member]) -> Void {
             let Loan loan = loanDb.Loan.findOrFail(id);
             loan.status = LoanStatus.Returned;
             loan.returnedAt = DateTime.now();

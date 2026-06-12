@@ -306,7 +306,7 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
     rest_api TelemetryAPI : basePath('/api/v1/telemetry'), rdbms(alertDb) {
 
         @path('/ingest')
-        post(IngestTelemetryRequest request) -> JSON {
+        post ingestTelemetry(IngestTelemetryRequest request) : auth(service, providers: [platform]) -> JSON {
             docdb.TelemetryData.insert({
                 deviceId: request.deviceId,
                 timestamp: DateTime.now(),
@@ -342,7 +342,7 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
         }
 
         @path('/device/:deviceId/latest')
-        get(UUID deviceId) -> LatestReadings {
+        get(UUID deviceId) : auth(required, providers: [identity]) -> LatestReadings {
             let JSON? cached = redis.LatestTelemetryCache.get(deviceId);
 
             if (cached != null) {
@@ -381,7 +381,7 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
         }
 
         @path('/device/:deviceId/history')
-        get(UUID deviceId, DateTime? from, DateTime? to, Int? limit) -> Array<JSON> {
+        get(UUID deviceId, DateTime? from, DateTime? to, Int? limit) : auth(required, providers: [identity]) -> Array<JSON> {
             let JSON query = docdb.TelemetryData.where(deviceId: deviceId);
 
             if (from != null) {
@@ -399,7 +399,7 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
         }
 
         @path('/alerts')
-        get(AlertStatus? status, AlertSeverity? severity) -> Array<alertDb.Alert> {
+        get(AlertStatus? status, AlertSeverity? severity) : auth(required, providers: [identity]) -> Array<alertDb.Alert> {
             let JSON query = alertDb.Alert.all();
 
             if (status != null) {
@@ -414,12 +414,12 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
         }
 
         @path('/alerts/:id')
-        get(UUID id) -> alertDb.Alert {
+        get(UUID id) : auth(required, providers: [identity]) -> alertDb.Alert {
             return alertDb.Alert.findOrFail(id);
         }
 
         @path('/alerts/:id/acknowledge')
-        post(UUID id, AcknowledgeAlertRequest request) -> alertDb.Alert {
+        post(UUID id, AcknowledgeAlertRequest request) : auth(required, providers: [identity]) -> alertDb.Alert {
             let Alert alert = alertDb.Alert.findOrFail(id);
 
             if (!alert.isActive) {
@@ -441,7 +441,7 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
         }
 
         @path('/alerts/:id/resolve')
-        post(UUID id) -> alertDb.Alert {
+        post(UUID id) : auth(required, providers: [identity]) -> alertDb.Alert {
             let Alert alert = alertDb.Alert.findOrFail(id);
             alert.resolve();
 
@@ -454,7 +454,7 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
         }
 
         @path('/alerts/device/:deviceId')
-        get(UUID deviceId, AlertStatus? status) -> Array<alertDb.Alert> {
+        get(UUID deviceId, AlertStatus? status) : auth(required, providers: [identity]) -> Array<alertDb.Alert> {
             let JSON query = alertDb.Alert.where(deviceId: deviceId);
 
             if (status != null) {
@@ -465,12 +465,12 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
         }
 
         @path('/alert-rules')
-        get() -> Array<alertDb.AlertRule> {
+        get() : auth(required, providers: [identity]) -> Array<alertDb.AlertRule> {
             return alertDb.AlertRule.where(isEnabled: true).all();
         }
 
         @path('/alert-rules')
-        post(CreateAlertRuleRequest request) -> alertDb.AlertRule {
+        post(CreateAlertRuleRequest request) : auth(required, providers: [identity], roles: [admin]) -> alertDb.AlertRule {
             let AlertRule rule = alertDb.AlertRule.create({
                 deviceId: request.deviceId,
                 deviceGroupId: request.deviceGroupId,
@@ -493,7 +493,7 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0')
         }
 
         @path('/device/:deviceId/logs')
-        get(UUID deviceId, Int? limit) -> Array<JSON> {
+        get(UUID deviceId, Int? limit) : auth(required, providers: [identity]) -> Array<JSON> {
             return docdb.DeviceLog
             .where(deviceId: deviceId)
             .orderBy(timestamp: desc)

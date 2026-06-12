@@ -205,11 +205,11 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
 
     rest_api DeviceAPI : basePath('/api/v1/devices'), rdbms(deviceDb) {
 
-        resource deviceDb.Device : only(list, get);
-        resource deviceDb.DeviceGroup;
+        resource deviceDb.Device : auth(required, providers: [identity]), only(list, get);
+        resource deviceDb.DeviceGroup : auth(required, providers: [identity], roles: [admin]);
 
         @path('/register')
-        post(RegisterDeviceRequest request) -> deviceDb.Device {
+        post(RegisterDeviceRequest request) : auth(required, providers: [identity], roles: [admin]) -> deviceDb.Device {
             let Device device = deviceDb.Device.create({
                 serialNumber: generateSerialNumber(),
                 name: request.name,
@@ -232,7 +232,7 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
         }
 
         @path('/:id/activate')
-        post(UUID id) -> deviceDb.Device {
+        post(UUID id) : auth(required, providers: [identity], roles: [admin]) -> deviceDb.Device {
             let Device device = deviceDb.Device.findOrFail(id);
 
             if (device.status == DeviceStatus.Decommissioned) {
@@ -260,7 +260,7 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
         }
 
         @path('/:id/heartbeat')
-        post(UUID id, HeartbeatRequest request) -> deviceDb.Device {
+        post deviceHeartbeat(UUID id, HeartbeatRequest request) : auth(service, providers: [platform]) -> deviceDb.Device {
             let Device device = deviceDb.Device.findOrFail(id);
 
             if (device.status != DeviceStatus.Active) {
@@ -285,7 +285,7 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
         }
 
         @path('/:id/decommission')
-        post(UUID id) : access(admin) -> deviceDb.Device {
+        post(UUID id) : auth(required, providers: [identity], roles: [admin]) -> deviceDb.Device {
             let Device device = deviceDb.Device.findOrFail(id);
             device.decommission();
 
@@ -300,7 +300,7 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
         }
 
         @path('/by-type/:type')
-        get devicesByType(DeviceType type) : access(Service), idempotent -> Array<deviceDb.Device> {
+        get devicesByType(DeviceType type) : auth(service, providers: [platform]), idempotent -> Array<deviceDb.Device> {
             return deviceDb.Device
             .where(type: type)
             .where(status: DeviceStatus.Active)
@@ -309,7 +309,7 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
         }
 
         @path('/by-group/:groupId')
-        get devicesByGroup(UUID groupId) : access(Service), idempotent -> Array<deviceDb.Device> {
+        get devicesByGroup(UUID groupId) : auth(service, providers: [platform]), idempotent -> Array<deviceDb.Device> {
             let Array<DeviceGroupMember> members = deviceDb.DeviceGroupMember
             .where(deviceGroupId: groupId)
             .all();
@@ -317,7 +317,7 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
         }
 
         @path('/groups/:groupId/add')
-        post(UUID groupId, AddToGroupRequest request) -> deviceDb.DeviceGroupMember {
+        post(UUID groupId, AddToGroupRequest request) : auth(required, providers: [identity], roles: [admin]) -> deviceDb.DeviceGroupMember {
             let DeviceGroup group = deviceDb.DeviceGroup.findOrFail(groupId);
             let Device device = deviceDb.Device.findOrFail(request.deviceId);
 
@@ -349,7 +349,7 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
         }
 
         @path('/summary')
-        get deviceSummary() : access(Service), hidden, idempotent -> DeviceSummary {
+        get deviceSummary() : auth(service, providers: [platform]), hidden, idempotent -> DeviceSummary {
             let Int total = deviceDb.Device.count();
             let Int active = deviceDb.Device.where(status: DeviceStatus.Active).count();
             let Int inactive = deviceDb.Device.where(status: DeviceStatus.Inactive).count();
@@ -366,7 +366,7 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
         }
 
         @path('/by-firmware/:version')
-        get(String version) -> Array<deviceDb.Device> {
+        get(String version) : auth(required, providers: [identity]) -> Array<deviceDb.Device> {
             return deviceDb.Device
             .where(firmwareVersion: version)
             .orderBy(name: asc)

@@ -1,0 +1,137 @@
+// Storefront service — neutral e-commerce domain (Product / Order / Customer).
+//
+// Hosts the application identity block and a REST API that exercises every
+// auth(...) surface mode supported by the identity stack:
+//   - auth(public)                                        — open browsing
+//   - auth(required, providers: [customer])               — signed-in customer
+//   - auth(optional, providers: [customer], profile: optional) — soft auth + profile
+//   - auth(required, providers: [workforce], roles: [catalogAdmin]) — staff RBAC
+//   - auth(service, providers: [platformMachine], roles: [orderWriter]) — machine
+//   - auth(required, providers: [customer, workforce])    — multi-provider surface
+//   - verify(signature, ...)                              — inbound webhook surface
+service shop.StorefrontService('config/storefront-service.dcfg')
+    : version('1.0.0'), description('storefront with first-class identity') {
+
+    discovery { }
+
+    // Identity block: three named providers, no implicit default provider.
+    // Provider type / issuer / claim mapping all live in the referenced .dcfg.
+    // (Comments are not permitted inside the identity block body.)
+    identity {
+        provider customer config('config/identity/customer.dcfg') {
+            String email;
+            String? displayName;
+            group "premium-buyers" as premiumCustomer;
+        }
+        provider workforce config('config/identity/workforce.dcfg') {
+            String email;
+            group "catalog-admins" as catalogAdmin;
+        }
+        provider platformMachine config('config/identity/platform-machine.dcfg') {
+            group "service-writers" as orderWriter;
+        }
+    }
+
+    enum OrderStatus {
+        Pending,
+        Paid,
+        Shipped,
+        Cancelled
+    }
+
+    // Request body for the machine bulk-import surface.
+    struct OrderImportRequest {
+        Array<String> references = [];
+    }
+
+    // Inbound payment webhook payload (signature-verified at the edge).
+    struct PaymentWebhookRequest {
+        String eventType;
+        String reference;
+    }
+
+    rdbms storeDb {
+
+        abstract entity BaseEntity {
+            UUID id : primaryKey, server = uuid();
+            DateTime createdAt : server = DateTime.now();
+            DateTime updatedAt : server = DateTime.now();
+        }
+
+        entity Product extends BaseEntity {
+            String(200) name : trim;
+            String(50) sku : unique, trim;
+            Decimal(10, 2) price = 0.0;
+            Boolean active = true;
+        }
+
+        entity Customer extends BaseEntity {
+            String(255) email : unique, trim;
+            String(120)? fullName : trim;
+        }
+
+        entity Order extends BaseEntity {
+            String(40) reference : unique, trim;
+            OrderStatus status = OrderStatus.Pending;
+            Decimal(12, 2) total = 0.0;
+            belongsTo Customer : index;
+        }
+    }
+
+    rest_api StorefrontAPI : basePath("/api/v1"), rdbms(storeDb) {
+        // Anonymous catalogue browsing.
+        resource storeDb.Product : only(list, get), auth(public);
+
+        // Staff-only catalogue maintenance (workforce role catalogAdmin).
+        resource storeDb.Product : only(create, update, delete),
+            auth(required, providers: [workforce], roles: [catalogAdmin]);
+
+        // Signed-in customer order surfaces.
+        resource storeDb.Order : only(list, get, create),
+            auth(required, providers: [customer]);
+
+        // Public product search.
+        @path('/products/search')
+        get(String query) : auth(public) -> Array<storeDb.Product> {
+            return storeDb.Product.where(name: query).all();
+        }
+
+        // Soft-auth recommendations: anonymous allowed, profile loaded when present.
+        @path('/products/recommended')
+        get() : auth(optional, providers: [customer], profile: optional)
+            -> Array<storeDb.Product> {
+            return storeDb.Product.where(active: true).all();
+        }
+
+        // Customer's own profile-backed order history (requires loaded profile).
+        @path('/orders/mine')
+        get() : auth(required, providers: [customer], profile: required)
+            -> Array<storeDb.Order> {
+            return storeDb.Order.where(status: OrderStatus.Paid).all();
+        }
+
+        // Machine-only bulk order writer (service principal, role orderWriter).
+        @path('/orders/bulk-import')
+        post importOrders(OrderImportRequest request)
+            : auth(service, providers: [platformMachine], roles: [orderWriter])
+            -> Int {
+            return request.references.length();
+        }
+
+        // Multi-provider surface: either a signed-in customer or staff member.
+        @path('/orders/lookup/:reference')
+        get(String reference)
+            : auth(required, providers: [customer, workforce])
+            -> Array<storeDb.Order> {
+            return storeDb.Order.where(reference: reference).all();
+        }
+
+        // Inbound payment webhook: signature-verified, no user auth.
+        @path('/webhooks/payment')
+        post receivePaymentEvent(PaymentWebhookRequest request)
+            : auth(public),
+              verify(signature, provider: paymentGateway, secretRef: paymentWebhookSecret)
+            -> Void {
+        }
+    }
+}

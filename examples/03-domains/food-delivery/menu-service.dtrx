@@ -181,12 +181,12 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
 
     rest_api MenuAPI : basePath('/api/v1/menus'), rdbms(menuDb) {
 
-        resource menuDb.MenuCategory;
-        resource menuDb.MenuItem : only(list, get), public;
-        resource menuDb.MenuItem : only(create, update, delete), access(admin);
+        resource menuDb.MenuCategory : auth(required, providers: [identity], roles: [admin]);
+        resource menuDb.MenuItem : auth(public), only(list, get);
+        resource menuDb.MenuItem : auth(required, providers: [identity], roles: [admin]), only(create, update, delete);
 
         @path('/restaurant/:restaurantId')
-        get(UUID restaurantId) : public -> Array<menuDb.MenuCategory> {
+        get(UUID restaurantId) : auth(public) -> Array<menuDb.MenuCategory> {
             return menuDb.MenuCategory
             .where(restaurantId: restaurantId)
             .orderBy(orderIndex: asc)
@@ -194,7 +194,7 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
         }
 
         @path('/category/:menuCategoryId/items')
-        get(UUID menuCategoryId) : public -> Array<menuDb.MenuItem> {
+        get(UUID menuCategoryId) : auth(public) -> Array<menuDb.MenuItem> {
             return menuDb.MenuItem
             .where(menuCategoryId: menuCategoryId)
             .where(availability: ItemAvailability.Available)
@@ -203,7 +203,7 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
         }
 
         @path('/search')
-        get(String query, Int? limit) : public -> Array<menuDb.MenuItem> {
+        get(String query, Int? limit) : auth(public) -> Array<menuDb.MenuItem> {
             return menuDb.MenuItem
             .fulltext(query)
             .where(availability: ItemAvailability.Available)
@@ -212,7 +212,7 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
         }
 
         @path('/items/:id/availability')
-        put(UUID id, UpdateAvailabilityRequest request) : access(admin) -> menuDb.MenuItem {
+        put(UUID id, UpdateAvailabilityRequest request) : auth(required, providers: [identity], roles: [admin]) -> menuDb.MenuItem {
             let MenuItem item = menuDb.MenuItem.findOrFail(id);
             item.availability = request.availability;
             item.save();
@@ -234,7 +234,7 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
         }
 
         @path('/items/vegetarian')
-        get(Int? limit) : public -> Array<menuDb.MenuItem> {
+        get(Int? limit) : auth(public) -> Array<menuDb.MenuItem> {
             return menuDb.MenuItem
             .where(isVegetarian: true)
             .where(availability: ItemAvailability.Available)
@@ -243,7 +243,7 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
         }
 
         @path('/items/vegan')
-        get(Int? limit) : public -> Array<menuDb.MenuItem> {
+        get(Int? limit) : auth(public) -> Array<menuDb.MenuItem> {
             return menuDb.MenuItem
             .where(isVegan: true)
             .where(availability: ItemAvailability.Available)
@@ -252,12 +252,12 @@ service fooddelivery.MenuService('config/menu-service.dcfg') : version('1.0.0'),
         }
 
         @path('/service/items/:id')
-        get menuItemByIdInternal(UUID id) : access(Service), hidden, idempotent -> menuDb.MenuItem {
+        get menuItemByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> menuDb.MenuItem {
             return menuDb.MenuItem.findOrFail(id);
         }
 
         @path('/service/items')
-        post menuItemsByIds(Array<UUID> ids) : access(Service), hidden, idempotent -> Array<menuDb.MenuItem> {
+        post menuItemsByIds(Array<UUID> ids) : auth(service, providers: [platform]), hidden, idempotent -> Array<menuDb.MenuItem> {
             return menuDb.MenuItem.whereIn(id: ids).all();
         }
 

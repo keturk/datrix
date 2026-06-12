@@ -1,0 +1,10 @@
+// Identity example — exercises the full identity stack end-to-end.
+//
+// Declares an identity block with three providers (customer, workforce,
+// platformMachine) and a storefront service whose REST surfaces use every
+// auth(...) mode plus a webhook verify(...) surface, all in the neutral
+// e-commerce domain (Product / Order / Customer).
+include 'storefront-service.dtrx';
+
+system shop.System('config/system.dcfg') : version('1.0.0') {
+}

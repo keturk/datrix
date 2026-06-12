@@ -41,8 +41,8 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
 
     // REST API block - standard CRUD endpoints for both entities
     rest_api BookRestAPI : basePath("/api/v1"), rdbms(bookDb) {
-        resource bookDb.Book;
-        resource bookDb.Category;
+        resource bookDb.Book : auth(required, providers: [member]);
+        resource bookDb.Category : auth(required, providers: [member]);
     }
 
     // GraphQL API block - typed queries with relationship resolution

@@ -221,11 +221,11 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
         alert responseTime(p95) over(5m) > 500ms @severity(warning);
         alert errorRate(ratio) over(5m) > 5% @severity(critical);
 
-        resource accountDb.Customer : only(list, get);
-        resource accountDb.Customer : only(create, update), access(admin);
+        resource accountDb.Customer : auth(public), only(list, get);
+        resource accountDb.Customer : auth(required, providers: [identity], roles: [admin]), only(create, update);
 
         // List accounts with pagination
-        get(Int page = 1, Int perPage = 20, AccountStatus? status) -> PaginatedAccounts {
+        get(Int page = 1, Int perPage = 20, AccountStatus? status) : auth(required, providers: [identity]) -> PaginatedAccounts {
             let JSON query = accountDb.Account.all();
 
             if (status != null) {
@@ -254,12 +254,12 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
         }
 
         @path('/:id')
-        get(UUID id) -> accountDb.Account {
+        get(UUID id) : auth(required, providers: [identity]) -> accountDb.Account {
             return accountDb.Account.findOrFail(id);
         }
 
         // Create a new account for a customer
-        post(CreateAccountRequest request) -> accountDb.Account {
+        post(CreateAccountRequest request) : auth(required, providers: [identity]) -> accountDb.Account {
             let Customer customer = accountDb.Customer.findOrFail(request.customerId);
 
             if (customer.kycStatus != KycStatus.Verified) {
@@ -282,7 +282,7 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
 
         // Get account balance
         @path('/:id/balance')
-        get(UUID id) -> AccountBalanceResponse {
+        get(UUID id) : auth(required, providers: [identity]) -> AccountBalanceResponse {
             let Account account = accountDb.Account.findOrFail(id);
             return {
                 accountId: account.id,
@@ -295,7 +295,7 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
 
         // Activate a pending account
         @path('/:id/activate')
-        put(UUID id) : access(admin) -> accountDb.Account {
+        put(UUID id) : auth(required, providers: [identity], roles: [admin]) -> accountDb.Account {
             let Account account = accountDb.Account.findOrFail(id);
             account.activate();
             return account;
@@ -303,7 +303,7 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
 
         // Freeze an account
         @path('/:id/freeze')
-        put(UUID id, FreezeAccountRequest request) : access(admin) -> accountDb.Account {
+        put(UUID id, FreezeAccountRequest request) : auth(required, providers: [identity], roles: [admin]) -> accountDb.Account {
             let Account account = accountDb.Account.findOrFail(id);
             account.freeze(request.reason);
             return account;
@@ -311,7 +311,7 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
 
         // Unfreeze a frozen account
         @path('/:id/unfreeze')
-        put(UUID id) : access(admin) -> accountDb.Account {
+        put(UUID id) : auth(required, providers: [identity], roles: [admin]) -> accountDb.Account {
             let Account account = accountDb.Account.findOrFail(id);
             account.unfreeze();
             return account;
@@ -319,7 +319,7 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
 
         // Close an account
         @path('/:id/close')
-        put(UUID id, FreezeAccountRequest request) : access(admin) -> accountDb.Account {
+        put(UUID id, FreezeAccountRequest request) : auth(required, providers: [identity], roles: [admin]) -> accountDb.Account {
             let Account account = accountDb.Account.findOrFail(id);
             account.close(request.reason);
             return account;
@@ -327,7 +327,7 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
 
         // Update customer KYC status
         @path('/customers/:id/kyc')
-        put(UUID id, UpdateKycRequest request) : access(admin) -> accountDb.Customer {
+        put(UUID id, UpdateKycRequest request) : auth(required, providers: [identity], roles: [admin]) -> accountDb.Customer {
             let Customer customer = accountDb.Customer.findOrFail(id);
             customer.kycStatus = request.kycStatus;
             customer.save();
@@ -336,7 +336,7 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
 
         // Get accounts by customer
         @path('/by-customer/:customerId')
-        get(UUID customerId) -> Array<accountDb.Account> {
+        get(UUID customerId) : auth(required, providers: [identity]) -> Array<accountDb.Account> {
             return accountDb.Account
             .where(customerId: customerId)
             .orderBy(openedAt: desc)
@@ -345,12 +345,12 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
 
         // Internal endpoint for cross-service lookups
         @path('/service/:id')
-        get accountByIdInternal(UUID id) : access(Service), hidden, idempotent -> accountDb.Account {
+        get accountByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> accountDb.Account {
             return accountDb.Account.findOrFail(id);
         }
 
         @path('/service/by-number/:accountNumber')
-        get accountByNumberInternal(String accountNumber) : access(Service), hidden, idempotent -> accountDb.Account {
+        get accountByNumberInternal(String accountNumber) : auth(service, providers: [platform]), hidden, idempotent -> accountDb.Account {
             return accountDb.Account.where(accountNumber: accountNumber).firstOrFail();
         }
 

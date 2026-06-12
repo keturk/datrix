@@ -262,7 +262,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
         alert errorRate(ratio) over(5m) > 5% @severity(critical);
 
         // List all listings with pagination
-        get(Int page = 1, Int perPage = 20, ListingStatus? status, PropertyType? propertyType) : public -> PaginatedListings {
+        get(Int page = 1, Int perPage = 20, ListingStatus? status, PropertyType? propertyType) : auth(public) -> PaginatedListings {
             let JSON query = listingDb.Listing.all();
 
             if (status != null) {
@@ -298,12 +298,12 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
 
         // Get a single listing by ID
         @path('/:id')
-        get(UUID id) : public -> listingDb.Listing {
+        get(UUID id) : auth(public) -> listingDb.Listing {
             return listingDb.Listing.findOrFail(id);
         }
 
         // Create a new listing
-        post(CreateListingRequest request) -> listingDb.Listing {
+        post(CreateListingRequest request) : auth(required, providers: [identity]) -> listingDb.Listing {
             let Listing listing = listingDb.Listing.create({
                 title: request.title,
                 description: request.description,
@@ -330,7 +330,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
 
         // Update a listing
         @path('/:id')
-        put(UUID id, UpdateListingRequest request) -> listingDb.Listing {
+        put(UUID id, UpdateListingRequest request) : auth(required, providers: [identity]) -> listingDb.Listing {
             let Listing listing = listingDb.Listing.findOrFail(id);
 
             if (request.title != null) listing.title = request.title;
@@ -344,7 +344,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
 
         // Activate a draft listing
         @path('/:id/activate')
-        put(UUID id) -> listingDb.Listing {
+        put(UUID id) : auth(required, providers: [identity]) -> listingDb.Listing {
             let Listing listing = listingDb.Listing.findOrFail(id);
             listing.activate();
             return listing;
@@ -352,7 +352,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
 
         // Withdraw a listing
         @path('/:id/withdraw')
-        put(UUID id) -> listingDb.Listing {
+        put(UUID id) : auth(required, providers: [identity]) -> listingDb.Listing {
             let Listing listing = listingDb.Listing.findOrFail(id);
             listing.withdraw();
             return listing;
@@ -360,7 +360,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
 
         // Full-text search across listings
         @path('/search')
-        get(String query, Int? limit, Int? offset) : public -> Array<listingDb.Listing> {
+        get(String query, Int? limit, Int? offset) : auth(public) -> Array<listingDb.Listing> {
             return listingDb.Listing
             .fulltext(query)
             .where(status: ListingStatus.Active)
@@ -371,7 +371,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
 
         // Search by city
         @path('/by-city/:city')
-        get(String city, Int? limit) : public -> Array<listingDb.Listing> {
+        get(String city, Int? limit) : auth(public) -> Array<listingDb.Listing> {
             return listingDb.Listing
             .where(city: city)
             .where(status: ListingStatus.Active)
@@ -382,7 +382,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
 
         // Filter by price range
         @path('/by-price')
-        get(Money minPrice, Money maxPrice, Int? limit) : public -> Array<listingDb.Listing> {
+        get(Money minPrice, Money maxPrice, Int? limit) : auth(public) -> Array<listingDb.Listing> {
             return listingDb.Listing
             .where(status: ListingStatus.Active)
             .where(price: gte(minPrice))
@@ -394,7 +394,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
 
         // Add an image to a listing
         @path('/:id/images')
-        post(UUID id, AddImageRequest request) -> listingDb.ListingImage {
+        post(UUID id, AddImageRequest request) : auth(required, providers: [identity]) -> listingDb.ListingImage {
             let Listing listing = listingDb.Listing.findOrFail(id);
 
             let ListingImage image = listingDb.ListingImage.create({
@@ -411,7 +411,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
 
         // Add a feature to a listing
         @path('/:id/features')
-        post(UUID id, AddFeatureRequest request) -> listingDb.ListingFeature {
+        post(UUID id, AddFeatureRequest request) : auth(required, providers: [identity]) -> listingDb.ListingFeature {
             let Listing listing = listingDb.Listing.findOrFail(id);
 
             let ListingFeature feature = listingDb.ListingFeature.create({
@@ -426,7 +426,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
 
         // Get listing images
         @path('/:id/images')
-        get(UUID id) : public -> Array<listingDb.ListingImage> {
+        get(UUID id) : auth(public) -> Array<listingDb.ListingImage> {
             return listingDb.ListingImage
             .where(listingId: id)
             .orderBy(orderIndex: asc)
@@ -435,7 +435,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
 
         // Get listing features
         @path('/:id/features')
-        get(UUID id) : public -> Array<listingDb.ListingFeature> {
+        get(UUID id) : auth(public) -> Array<listingDb.ListingFeature> {
             return listingDb.ListingFeature
             .where(listingId: id)
             .all();
@@ -443,13 +443,13 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
 
         // Internal endpoint for cross-service lookups
         @path('/service/:id')
-        get listingByIdInternal(UUID id) : access(Service), hidden, idempotent -> listingDb.Listing {
+        get listingByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> listingDb.Listing {
             return listingDb.Listing.findOrFail(id);
         }
 
         // Internal: mark listing as under contract
         @path('/service/:id/under-contract')
-        put markUnderContract(UUID id) : access(Service), hidden -> listingDb.Listing {
+        put markUnderContract(UUID id) : auth(service, providers: [platform]), hidden -> listingDb.Listing {
             let Listing listing = listingDb.Listing.findOrFail(id);
             listing.markUnderContract();
             return listing;
@@ -457,7 +457,7 @@ service realestate.ListingService('config/listing-service.dcfg') : version('1.0.
 
         // Internal: mark listing as sold
         @path('/service/:id/sold')
-        put listingMarkedSold(UUID id) : access(Service), hidden -> listingDb.Listing {
+        put listingMarkedSold(UUID id) : auth(service, providers: [platform]), hidden -> listingDb.Listing {
             let Listing listing = listingDb.Listing.findOrFail(id);
             listing.markSold();
             return listing;

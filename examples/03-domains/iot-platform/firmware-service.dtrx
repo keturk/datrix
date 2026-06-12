@@ -284,10 +284,10 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
 
     rest_api FirmwareAPI : basePath('/api/v1/firmware'), rdbms(firmwareDb) {
 
-        resource firmwareDb.FirmwareVersion;
+        resource firmwareDb.FirmwareVersion : auth(required, providers: [identity], roles: [admin]);
 
         @path('/versions/stable')
-        get() : public -> Array<firmwareDb.FirmwareVersion> {
+        get() : auth(public) -> Array<firmwareDb.FirmwareVersion> {
             return firmwareDb.FirmwareVersion
             .where(isStable: true)
             .orderBy(releasedAt: desc)
@@ -295,14 +295,14 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/versions/latest')
-        get() : public -> firmwareDb.FirmwareVersion {
+        get() : auth(public) -> firmwareDb.FirmwareVersion {
             return firmwareDb.FirmwareVersion
             .where(isStable: true)
             .orderBy(releasedAt: desc)
             .firstOrFail();
         }
 
-        post(CreateFirmwareRequest request) : access(admin) -> firmwareDb.FirmwareVersion {
+        post(CreateFirmwareRequest request) : auth(required, providers: [identity], roles: [admin]) -> firmwareDb.FirmwareVersion {
             let FirmwareVersion? existing = firmwareDb.FirmwareVersion
             .where(version: request.version)
             .first();
@@ -333,7 +333,7 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/rollouts')
-        get(RolloutStatus? status) -> Array<firmwareDb.FirmwareRollout> {
+        get(RolloutStatus? status) : auth(required, providers: [identity], roles: [admin]) -> Array<firmwareDb.FirmwareRollout> {
             let JSON query = firmwareDb.FirmwareRollout.all();
 
             if (status != null) {
@@ -344,7 +344,7 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/rollouts/start')
-        post(StartRolloutRequest request) : access(admin) -> firmwareDb.FirmwareRollout {
+        post(StartRolloutRequest request) : auth(required, providers: [identity], roles: [admin]) -> firmwareDb.FirmwareRollout {
             let FirmwareVersion firmware = firmwareDb.FirmwareVersion.findOrFail(request.firmwareVersionId);
 
             let Array<FirmwareRollout> activeRollouts = firmwareDb.FirmwareRollout
@@ -388,7 +388,7 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/rollouts/:id/pause')
-        post(UUID id) : access(admin) -> firmwareDb.FirmwareRollout {
+        post(UUID id) : auth(required, providers: [identity], roles: [admin]) -> firmwareDb.FirmwareRollout {
             let FirmwareRollout rollout = firmwareDb.FirmwareRollout.findOrFail(id);
 
             if (rollout.status != RolloutStatus.InProgress) {
@@ -411,7 +411,7 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/rollouts/:id/resume')
-        post(UUID id) : access(admin) -> firmwareDb.FirmwareRollout {
+        post(UUID id) : auth(required, providers: [identity], roles: [admin]) -> firmwareDb.FirmwareRollout {
             let FirmwareRollout rollout = firmwareDb.FirmwareRollout.findOrFail(id);
 
             if (rollout.status != RolloutStatus.Paused) {
@@ -432,7 +432,7 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/rollouts/:id/status')
-        get(UUID id) -> RolloutProgress {
+        get(UUID id) : auth(required, providers: [identity], roles: [admin]) -> RolloutProgress {
             let FirmwareRollout rollout = firmwareDb.FirmwareRollout.findOrFail(id);
 
             return {
@@ -446,7 +446,7 @@ service iot.FirmwareService('config/firmware-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/rollouts/:id/logs')
-        get(UUID id, DeviceUpdateStatus? status) -> Array<firmwareDb.RolloutLog> {
+        get(UUID id, DeviceUpdateStatus? status) : auth(required, providers: [identity], roles: [admin]) -> Array<firmwareDb.RolloutLog> {
             let FirmwareRollout rollout = firmwareDb.FirmwareRollout.findOrFail(id);
 
             let JSON query = firmwareDb.RolloutLog.where(firmwareRolloutId: rollout.id);

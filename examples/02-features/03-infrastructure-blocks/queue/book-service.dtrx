@@ -139,24 +139,24 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
     }
 
     rest_api BookServiceAPI : basePath("/api/v1"), rdbms(bookDb) {
-        resource bookDb.Book : only(list, get), public;
-        resource bookDb.Book : only(create, update, delete), access(librarian);
-        resource bookDb.Category : only(list, get), public;
+        resource bookDb.Book : only(list, get), auth(public);
+        resource bookDb.Book : only(create, update, delete), auth(required, providers: [member], roles: [librarian]);
+        resource bookDb.Category : only(list, get), auth(public);
 
         @path('/books/search')
-        get(String query) : public -> Array<bookDb.Book> {
+        get(String query) : auth(public) -> Array<bookDb.Book> {
             return bookDb.Book.where(title: query).all();
         }
 
         @path('/books/:bookId/reindex')
-        post(UUID bookId) : access(admin) -> bookDb.Book {
+        post(UUID bookId) : auth(required, providers: [member], roles: [admin]) -> bookDb.Book {
             let Book book = bookDb.Book.findOrFail(bookId);
             dispatch IndexBook(book.id, book.title, book.author);
             return book;
         }
 
         @path('/books/:bookId/notify')
-        post(UUID bookId, BookNotifyRequest request) : access(admin) -> bookDb.Book {
+        post(UUID bookId, BookNotifyRequest request) : auth(required, providers: [member], roles: [admin]) -> bookDb.Book {
             let Book book = bookDb.Book.findOrFail(bookId);
             dispatch SendBookNotification(book.id, request.recipientEmail, request.message);
             return book;

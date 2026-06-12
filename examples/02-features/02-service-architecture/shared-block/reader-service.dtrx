@@ -15,7 +15,7 @@ service library.ReportService('config/report-service.dcfg') : version('1.0.0'), 
 
     rest_api ReportAPI : basePath('/api/v1') {
         @path('/reports/health')
-        get() -> String {
+        get() : auth(public) -> String {
             return "ok";
         }
 

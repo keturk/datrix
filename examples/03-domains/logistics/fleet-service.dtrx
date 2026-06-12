@@ -249,11 +249,11 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
 
     rest_api FleetAPI : basePath('/api/v1/fleet'), rdbms(fleetDb) {
 
-        resource fleetDb.Vehicle;
-        resource fleetDb.Driver;
+        resource fleetDb.Vehicle : auth(required, providers: [identity], roles: [admin]);
+        resource fleetDb.Driver : auth(required, providers: [identity], roles: [admin]);
 
         @path('/vehicles/:id/assign-driver')
-        post(UUID id, AssignDriverRequest request) -> fleetDb.Vehicle {
+        post(UUID id, AssignDriverRequest request) : auth(required, providers: [identity], roles: [admin]) -> fleetDb.Vehicle {
             let Vehicle vehicle = fleetDb.Vehicle.findOrFail(id);
             let Driver driver = fleetDb.Driver.findOrFail(request.driverId);
 
@@ -293,7 +293,7 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/vehicles/:id/release')
-        post(UUID id) -> fleetDb.Vehicle {
+        post(UUID id) : auth(required, providers: [identity], roles: [admin]) -> fleetDb.Vehicle {
             let Vehicle vehicle = fleetDb.Vehicle.findOrFail(id);
 
             if (vehicle.currentDriverId == null) {
@@ -326,7 +326,7 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/vehicles/:id/status')
-        put(UUID id, UpdateVehicleStatusRequest request) : access(admin) -> fleetDb.Vehicle {
+        put(UUID id, UpdateVehicleStatusRequest request) : auth(required, providers: [identity], roles: [admin]) -> fleetDb.Vehicle {
             let Vehicle vehicle = fleetDb.Vehicle.findOrFail(id);
             vehicle.status = request.status;
             vehicle.save();
@@ -340,7 +340,7 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/vehicles/available')
-        get(VehicleType? type) -> Array<fleetDb.Vehicle> {
+        get(VehicleType? type) : auth(required, providers: [identity]) -> Array<fleetDb.Vehicle> {
             let JSON query = fleetDb.Vehicle.where(status: VehicleStatus.Available);
 
             if (type != null) {
@@ -351,7 +351,7 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/drivers/available')
-        get() -> Array<fleetDb.Driver> {
+        get() : auth(required, providers: [identity]) -> Array<fleetDb.Driver> {
             return fleetDb.Driver
             .where(status: DriverStatus.Available)
             .orderBy(rating: desc)
@@ -359,7 +359,7 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/metrics')
-        get fleetMetrics() : access(Service), hidden -> VehicleMetrics {
+        get fleetMetrics() : auth(service, providers: [platform]), hidden -> VehicleMetrics {
             let Int total = fleetDb.Vehicle.count();
             let Int available = fleetDb.Vehicle.where(status: VehicleStatus.Available).count();
             let Int inUse = fleetDb.Vehicle.where(status: VehicleStatus.InUse).count();

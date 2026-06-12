@@ -256,9 +256,9 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
 
     rest_api RouteAPI : basePath('/api/v1/routes'), rdbms(routeDb) {
 
-        resource routeDb.Route;
+        resource routeDb.Route : auth(required, providers: [identity]);
 
-        post(CreateRouteRequest request) -> routeDb.Route {
+        post(CreateRouteRequest request) : auth(required, providers: [identity]) -> routeDb.Route {
             let Route route = routeDb.Route.create({
                 routeCode: generateRouteCode(),
                 vehicleId: request.vehicleId,
@@ -280,7 +280,7 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/:id/stops')
-        post(UUID id, AddStopRequest request) -> routeDb.RouteStop {
+        post(UUID id, AddStopRequest request) : auth(required, providers: [identity]) -> routeDb.RouteStop {
             let Route route = routeDb.Route.findOrFail(id);
 
             if (route.status != RouteStatus.Planned) {
@@ -311,7 +311,7 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/:id/stops')
-        get(UUID id) -> Array<routeDb.RouteStop> {
+        get(UUID id) : auth(required, providers: [identity]) -> Array<routeDb.RouteStop> {
             let Route route = routeDb.Route.findOrFail(id);
             return routeDb.RouteStop
             .where(routeId: route.id)
@@ -320,7 +320,7 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/:id/start')
-        post(UUID id) -> routeDb.Route {
+        post(UUID id) : auth(required, providers: [identity]) -> routeDb.Route {
             let Route route = routeDb.Route.findOrFail(id);
 
             if (route.status != RouteStatus.Planned) {
@@ -357,7 +357,7 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/:id/complete')
-        post(UUID id) -> routeDb.Route {
+        post(UUID id) : auth(required, providers: [identity]) -> routeDb.Route {
             let Route route = routeDb.Route.findOrFail(id);
 
             if (route.status != RouteStatus.Active) {
@@ -382,7 +382,7 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/:id/stops/:stopId/complete')
-        post(UUID id, UUID stopId) -> routeDb.RouteStop {
+        post(UUID id, UUID stopId) : auth(required, providers: [identity]) -> routeDb.RouteStop {
             let Route route = routeDb.Route.findOrFail(id);
             let RouteStop stop = routeDb.RouteStop.findOrFail(stopId);
 
@@ -421,7 +421,7 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/:id/progress')
-        get(UUID id) -> RouteProgress {
+        get(UUID id) : auth(required, providers: [identity]) -> RouteProgress {
             let Route route = routeDb.Route.findOrFail(id);
             let Int completedStops = routeDb.RouteStop
             .where(routeId: route.id)
@@ -440,7 +440,7 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/vehicle/:vehicleId')
-        get(UUID vehicleId, RouteStatus? status) -> Array<routeDb.Route> {
+        get(UUID vehicleId, RouteStatus? status) : auth(required, providers: [identity]) -> Array<routeDb.Route> {
             let JSON query = routeDb.Route.where(vehicleId: vehicleId);
 
             if (status != null) {
@@ -451,7 +451,7 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
         }
 
         @path('/driver/:driverId')
-        get(UUID driverId, RouteStatus? status) -> Array<routeDb.Route> {
+        get(UUID driverId, RouteStatus? status) : auth(required, providers: [identity]) -> Array<routeDb.Route> {
             let JSON query = routeDb.Route.where(driverId: driverId);
 
             if (status != null) {

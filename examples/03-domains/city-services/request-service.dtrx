@@ -112,14 +112,14 @@ service cityservices.RequestService('config/request-service.dcfg') : version('1.
 
     rest_api RequestAPI : basePath('/api/v1/requests'), rdbms(requestDb) {
 
-        resource requestDb.ServiceRequest : only(list, get), public;
-        resource requestDb.ServiceRequest : only(delete), access(admin);
+        resource requestDb.ServiceRequest : auth(public), only(list, get);
+        resource requestDb.ServiceRequest : auth(required, providers: [identity], roles: [admin]), only(delete);
 
         // Find open service requests near a given location
         // GeoSql.withinDistanceMeters() lowers to PostGIS ST_DWithin
         // GeoSql.distanceMeters() lowers to PostGIS ST_Distance for ordering
         @path('/nearby')
-        get(Number lat, Number lng, Number radiusMeters) : public -> Array<requestDb.ServiceRequest> {
+        get(Number lat, Number lng, Number radiusMeters) : auth(public) -> Array<requestDb.ServiceRequest> {
             return requestDb.ServiceRequest
                 .where(status: RequestStatus.Open)
                 .where(GeoSql.withinDistanceMeters(location, lat, lng, radiusMeters))
@@ -130,7 +130,7 @@ service cityservices.RequestService('config/request-service.dcfg') : version('1.
         // Create a service request with location from GeoJSON input
         // GeoShape.fromGeoJson() converts a GeoJSON point string to WKT Geometry
         @path('/')
-        post(CreateServiceRequestInput input) : public -> requestDb.ServiceRequest {
+        post(CreateServiceRequestInput input) : auth(public) -> requestDb.ServiceRequest {
             let Geometry locationGeometry = GeoShape.fromGeoJson(input.locationGeoJson);
 
             let ServiceRequest request = requestDb.ServiceRequest.create({
@@ -148,7 +148,7 @@ service cityservices.RequestService('config/request-service.dcfg') : version('1.
         // Check if a service request falls within a given boundary polygon
         // GeoShape.containsPoint() is a value-level containment check
         @path('/:requestId/check-boundary')
-        get checkBoundary(UUID requestId, String boundaryWkt) : access(Service), hidden -> JSON {
+        get checkBoundary(UUID requestId, String boundaryWkt) : auth(service, providers: [platform]), hidden -> JSON {
             let ServiceRequest request = requestDb.ServiceRequest.findOrFail(requestId);
             let String requestWkt = GeoShape.toWkt(request.location);
             let Geometry boundaryGeometry = GeoShape.fromWkt(boundaryWkt);
@@ -164,7 +164,7 @@ service cityservices.RequestService('config/request-service.dcfg') : version('1.
 
         // Assign a request to a district
         @path('/:requestId/assign')
-        post(UUID requestId, AssignRequestInput input) : access(admin) -> requestDb.ServiceRequest {
+        post(UUID requestId, AssignRequestInput input) : auth(required, providers: [identity], roles: [admin]) -> requestDb.ServiceRequest {
             let ServiceRequest request = requestDb.ServiceRequest.findOrFail(requestId);
             request.assign(input.districtId);
             return request;

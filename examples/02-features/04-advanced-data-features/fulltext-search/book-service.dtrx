@@ -40,12 +40,12 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
     // REST API block with a search endpoint using fulltext queries
     rest_api BookServiceAPI : basePath("/api/v1"), rdbms(bookDb) {
         // Auto-generate standard CRUD endpoints for Book
-        resource bookDb.Book;
+        resource bookDb.Book : auth(required, providers: [member]);
 
         // Search endpoint using fulltext query
         // '.fulltext(query)' performs natural-language search across fulltext-indexed fields
         @path('/books/search')
-        get(String query) : public -> Array<bookDb.Book> {
+        get(String query) : auth(public) -> Array<bookDb.Book> {
             return bookDb.Book.fulltext(query).all();
         }
 

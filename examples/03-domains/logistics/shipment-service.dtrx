@@ -205,10 +205,10 @@ service logistics.ShipmentService('config/shipment-service.dcfg') : version('1.0
 
     rest_api ShipmentAPI : basePath('/api/v1/shipments'), rdbms(shipmentDb) {
 
-        resource shipmentDb.Shipment : only(list, get);
+        resource shipmentDb.Shipment : auth(required, providers: [identity]), only(list, get);
 
         @path('/track/:trackingNumber')
-        get(String trackingNumber) : public -> TrackingResponse {
+        get(String trackingNumber) : auth(public) -> TrackingResponse {
             let JSON? cached = redis.ShipmentStatusCache.get(trackingNumber);
 
             let Shipment shipment = shipmentDb.Shipment.where(trackingNumber: trackingNumber).firstOrFail();
@@ -228,7 +228,7 @@ service logistics.ShipmentService('config/shipment-service.dcfg') : version('1.0
             };
         }
 
-        post(CreateShipmentRequest request) -> shipmentDb.Shipment {
+        post(CreateShipmentRequest request) : auth(required, providers: [identity]) -> shipmentDb.Shipment {
             let Shipment shipment = shipmentDb.Shipment.create({
                 trackingNumber: generateTrackingNumber(),
                 senderId: request.senderId,
@@ -254,7 +254,7 @@ service logistics.ShipmentService('config/shipment-service.dcfg') : version('1.0
         }
 
         @path('/:id/status')
-        put(UUID id, UpdateShipmentStatusRequest request) -> shipmentDb.Shipment {
+        put(UUID id, UpdateShipmentStatusRequest request) : auth(required, providers: [identity]) -> shipmentDb.Shipment {
             let Shipment shipment = shipmentDb.Shipment.findOrFail(id);
             let ShipmentStatus oldStatus = shipment.status;
 
@@ -288,7 +288,7 @@ service logistics.ShipmentService('config/shipment-service.dcfg') : version('1.0
         }
 
         @path('/sender/:senderId')
-        get(UUID senderId, ShipmentStatus? status) -> Array<shipmentDb.Shipment> {
+        get(UUID senderId, ShipmentStatus? status) : auth(required, providers: [identity]) -> Array<shipmentDb.Shipment> {
             let JSON query = shipmentDb.Shipment.where(senderId: senderId);
 
             if (status != null) {
@@ -299,7 +299,7 @@ service logistics.ShipmentService('config/shipment-service.dcfg') : version('1.0
         }
 
         @path('/:id/events')
-        get(UUID id) -> Array<shipmentDb.ShipmentEvent> {
+        get(UUID id) : auth(required, providers: [identity]) -> Array<shipmentDb.ShipmentEvent> {
             let Shipment shipment = shipmentDb.Shipment.findOrFail(id);
             return shipmentDb.ShipmentEvent
             .where(shipmentId: shipment.id)
@@ -308,7 +308,7 @@ service logistics.ShipmentService('config/shipment-service.dcfg') : version('1.0
         }
 
         @path('/summary')
-        get shipmentSummary() : access(Service), hidden -> ShipmentSummary {
+        get shipmentSummary() : auth(service, providers: [platform]), hidden -> ShipmentSummary {
             let Int total = shipmentDb.Shipment.count();
             let Int inTransit = shipmentDb.Shipment
             .whereIn(status: [ShipmentStatus.InTransit, ShipmentStatus.OutForDelivery])

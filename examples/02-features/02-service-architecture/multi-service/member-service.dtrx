@@ -29,7 +29,7 @@ service library.MemberService('config/member-service.dcfg') : version('1.0.0'), 
 
     // MemberService exposes its own API surface (separate from BookService)
     rest_api MemberAPI : basePath("/api/v1/members"), rdbms(memberDb) {
-        resource memberDb.Member;
+        resource memberDb.Member : auth(required, providers: [member]);
     }
 
 }

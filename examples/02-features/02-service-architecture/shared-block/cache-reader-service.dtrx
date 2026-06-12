@@ -14,7 +14,7 @@ service library.CacheReaderService('config/cache-reader-service.dcfg') : version
 
     rest_api CacheReaderAPI : basePath('/api/v1/cache-reader') {
         @path('/health')
-        get() -> String {
+        get() : auth(public) -> String {
             return "ok";
         }
 

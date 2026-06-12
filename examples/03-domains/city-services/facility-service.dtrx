@@ -102,14 +102,14 @@ service cityservices.FacilityService('config/facility-service.dcfg') : version('
 
     rest_api FacilityAPI : basePath('/api/v1/facilities'), rdbms(facilityDb) {
 
-        resource facilityDb.Facility : only(list, get), public;
-        resource facilityDb.Facility : only(create, update, delete), access(admin);
+        resource facilityDb.Facility : auth(public), only(list, get);
+        resource facilityDb.Facility : auth(required, providers: [identity], roles: [admin]), only(create, update, delete);
 
         // Find operational facilities within a radius of a lat/lng point, ordered by distance
         // GeoSql.withinDistanceMeters() lowers to PostGIS ST_DWithin with geography cast
         // GeoSql.distanceMeters() lowers to PostGIS ST_Distance for ordering
         @path('/nearby')
-        get(Number lat, Number lng, Number radiusMeters, FacilityType? type) : public -> Array<facilityDb.Facility> {
+        get(Number lat, Number lng, Number radiusMeters, FacilityType? type) : auth(public) -> Array<facilityDb.Facility> {
             let JSON query = facilityDb.Facility
                 .where(isOperational: true)
                 .where(GeoSql.withinDistanceMeters(location, lat, lng, radiusMeters))
@@ -125,7 +125,7 @@ service cityservices.FacilityService('config/facility-service.dcfg') : version('
         // Find parks whose boundary contains a given lat/lng point
         // GeoSql.containsPoint() lowers to PostGIS ST_Contains
         @path('/parks/containing')
-        get(Number lat, Number lng) : public -> Array<facilityDb.Park> {
+        get(Number lat, Number lng) : auth(public) -> Array<facilityDb.Park> {
             return facilityDb.Park
                 .where(isOpen: true)
                 .where(GeoSql.containsPoint(boundary, lat, lng))
@@ -136,7 +136,7 @@ service cityservices.FacilityService('config/facility-service.dcfg') : version('
         // Demonstrates GeoShape.centroid() for value-level centroid computation
         // and GeoShape.area() for value-level area computation
         @path('/parks/:parkId/details')
-        get(UUID parkId) : public -> JSON {
+        get(UUID parkId) : auth(public) -> JSON {
             let Park park = facilityDb.Park.findOrFail(parkId);
             let Geometry centroid = GeoShape.centroid(park.boundary);
             let Number areaSqMeters = GeoShape.area(park.boundary);
@@ -152,7 +152,7 @@ service cityservices.FacilityService('config/facility-service.dcfg') : version('
         // List parks ordered by area (largest first)
         // GeoSql.area() as SQL-level scalar expression for ordering
         @path('/parks/by-area')
-        get() : public -> Array<facilityDb.Park> {
+        get() : auth(public) -> Array<facilityDb.Park> {
             return facilityDb.Park
                 .where(isOpen: true)
                 .orderBy(GeoSql.area(boundary), desc)

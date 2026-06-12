@@ -66,9 +66,9 @@ service hostdemo.BlogService('config/blog-service.dcfg') : version('1.0.0'), des
     }
 
     rest_api BlogAPI : basePath("/api/v1/posts"), rdbms(blogDb) {
-        resource blogDb.Post;
-        resource blogDb.Comment;
-        resource blogDb.Tag;
+        resource blogDb.Post : auth(required, providers: [member]);
+        resource blogDb.Comment : auth(required, providers: [member]);
+        resource blogDb.Tag : auth(required, providers: [member]);
     }
 
 }

@@ -44,18 +44,18 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
     }
 
     rest_api BookServiceAPI : basePath("/api/v1"), rdbms(bookDb) {
-        resource bookDb.Book : only(create, get), public;
-        resource bookDb.Category : only(create, get, list), public;
+        resource bookDb.Book : only(create, get), auth(public);
+        resource bookDb.Category : only(create, get, list), auth(public);
 
         // '.whereIn(field: array)' matches records where field is in the given list
         @path('/books/bulk')
-        post(Array<UUID> ids) : public -> Array<bookDb.Book> {
+        post(Array<UUID> ids) : auth(public) -> Array<bookDb.Book> {
             return bookDb.Book.whereIn(id: ids).all();
         }
 
         // '.orderBy(field: direction)' sorts results; 'asc' or 'desc' direction
         @path('/books/by-price')
-        get() : public -> Array<bookDb.Book> {
+        get() : auth(public) ->Array<bookDb.Book> {
             return bookDb.Book
             .where(status: BookStatus.Available)
             .orderBy(price: asc)
@@ -64,19 +64,19 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
 
         // '.whereNull(field)' matches records where the field is null
         @path('/books/never-borrowed')
-        get() : public -> Array<bookDb.Book> {
+        get() : auth(public) ->Array<bookDb.Book> {
             return bookDb.Book.whereNull(lastBorrowedAt).all();
         }
 
         // '.count()' returns the number of matching records
         @path('/books/count')
-        get(BookStatus status) : public -> Int {
+        get(BookStatus status) : auth(public) ->Int {
             return bookDb.Book.where(status: status).count();
         }
 
         // '.limit()' and '.offset()' enable pagination
         @path('/books/paginated')
-        get(Int page, Int pageSize) : public -> Array<bookDb.Book> {
+        get(Int page, Int pageSize) : auth(public) ->Array<bookDb.Book> {
             let Int offset = (page - 1) * pageSize;
             return bookDb.Book
             .where(status: BookStatus.Available)
@@ -88,7 +88,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
 
         // Chained query: multiple .where() clauses combine as AND conditions
         @path('/books/search')
-        get(String author, Int minYear, Int maxYear) : public -> Array<bookDb.Book> {
+        get(String author, Int minYear, Int maxYear) : auth(public) ->Array<bookDb.Book> {
             return bookDb.Book
             .where(author: author)
             .where(publicationYear: gte(minYear))
@@ -99,7 +99,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
 
         // '.fulltext(query)' performs natural-language search on indexed fields
         @path('/books/fulltext')
-        get(String query, Int? limit) : public -> Array<bookDb.Book> {
+        get(String query, Int? limit) : auth(public) ->Array<bookDb.Book> {
             return bookDb.Book
             .fulltext(query)
             .limit(limit ?? 20)
@@ -108,7 +108,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
 
         // Complex chaining with multiple operators
         @path('/books/advanced-search')
-        get(UUID categoryId, Decimal minPrice, Decimal maxPrice, Int? limit) : public -> Array<bookDb.Book> {
+        get(UUID categoryId, Decimal minPrice, Decimal maxPrice, Int? limit) : auth(public) ->Array<bookDb.Book> {
             return bookDb.Book
             .where(categoryId: categoryId)
             .where(status: BookStatus.Available)
@@ -122,7 +122,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         // '.whereNull()' for finding overdue checkouts (no return date)
         // 'lt(value)' comparison operator: less than
         @path('/checkouts/overdue')
-        get() : public -> Array<bookDb.Checkout> {
+        get() : auth(public) ->Array<bookDb.Checkout> {
             return bookDb.Checkout
             .whereNull(returnDate)
             .where(dueDate: lt(DateTime.now()))
@@ -133,7 +133,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
 
         // Count with multiple conditions
         @path('/books/count-by-price-range')
-        get(Decimal minPrice, Decimal maxPrice) : public -> Int {
+        get(Decimal minPrice, Decimal maxPrice) : auth(public) ->Int {
             return bookDb.Book
             .where(price: gte(minPrice))
             .where(price: lte(maxPrice))

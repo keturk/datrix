@@ -72,13 +72,13 @@ service cityservices.DistrictService('config/district-service.dcfg') : version('
 
     rest_api DistrictAPI : basePath('/api/v1/districts'), rdbms(districtDb) {
 
-        resource districtDb.District : only(list, get), public;
-        resource districtDb.District : only(create, update, delete), access(admin);
+        resource districtDb.District : auth(public), only(list, get);
+        resource districtDb.District : auth(required, providers: [identity], roles: [admin]), only(create, update, delete);
 
         // Find the district that contains a given lat/lng point
         // GeoSql.containsPoint() lowers to PostGIS ST_Contains
         @path('/for-location')
-        get(Number lat, Number lng) : public -> districtDb.District {
+        get(Number lat, Number lng) : auth(public) -> districtDb.District {
             return districtDb.District
                 .where(GeoSql.containsPoint(boundary, lat, lng))
                 .firstOrFail();
@@ -86,7 +86,7 @@ service cityservices.DistrictService('config/district-service.dcfg') : version('
 
         // Find zoning areas that cover a given lat/lng point
         @path('/zoning/for-location')
-        get(Number lat, Number lng) : public -> Array<districtDb.ZoningArea> {
+        get(Number lat, Number lng) : auth(public) -> Array<districtDb.ZoningArea> {
             return districtDb.ZoningArea
                 .where(GeoSql.containsPoint(boundary, lat, lng))
                 .all();
@@ -95,7 +95,7 @@ service cityservices.DistrictService('config/district-service.dcfg') : version('
         // Get a district boundary as GeoJSON for map rendering
         // Demonstrates GeoShape.toGeoJson() for value-level geometry conversion
         @path('/:districtId/boundary-geojson')
-        get(UUID districtId) : public -> JSON {
+        get(UUID districtId) : auth(public) -> JSON {
             let District district = districtDb.District.findOrFail(districtId);
             let String geojson = GeoShape.toGeoJson(district.boundary);
             return { geojson: geojson };
@@ -104,7 +104,7 @@ service cityservices.DistrictService('config/district-service.dcfg') : version('
         // Get computed spatial metrics for a district
         // Demonstrates GeoShape.area() for value-level area computation
         @path('/:districtId/spatial-info')
-        get(UUID districtId) : public -> JSON {
+        get(UUID districtId) : auth(public) -> JSON {
             let District district = districtDb.District.findOrFail(districtId);
             let Number areaSqMeters = GeoShape.area(district.boundary);
             let Geometry centroid = GeoShape.centroid(district.boundary);
@@ -121,7 +121,7 @@ service cityservices.DistrictService('config/district-service.dcfg') : version('
         // List districts ordered by area (SQL-level spatial scalar)
         // GeoSql.area() lowers to PostGIS ST_Area
         @path('/by-area')
-        get() : public -> Array<districtDb.District> {
+        get() : auth(public) -> Array<districtDb.District> {
             return districtDb.District
                 .orderBy(GeoSql.area(boundary), desc)
                 .all();

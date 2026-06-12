@@ -206,11 +206,11 @@ service fooddelivery.RestaurantService('config/restaurant-service.dcfg') : versi
 
     rest_api RestaurantAPI : basePath('/api/v1/restaurants'), rdbms(restaurantDb) {
 
-        resource restaurantDb.Restaurant : only(list, get), public;
-        resource restaurantDb.Restaurant : only(create, update, delete), access(admin);
+        resource restaurantDb.Restaurant : auth(public), only(list, get);
+        resource restaurantDb.Restaurant : auth(required, providers: [identity], roles: [admin]), only(create, update, delete);
 
         @path('/search')
-        get(String query, Int? limit, Int? offset) : public -> Array<restaurantDb.Restaurant> {
+        get(String query, Int? limit, Int? offset) : auth(public) -> Array<restaurantDb.Restaurant> {
             return restaurantDb.Restaurant
             .fulltext(query)
             .where(status: RestaurantStatus.Active)
@@ -220,7 +220,7 @@ service fooddelivery.RestaurantService('config/restaurant-service.dcfg') : versi
         }
 
         @path('/by-cuisine/:cuisineType')
-        get(String cuisineType) : public -> Array<restaurantDb.Restaurant> {
+        get(String cuisineType) : auth(public) -> Array<restaurantDb.Restaurant> {
             return restaurantDb.Restaurant
             .where(cuisineType: cuisineType)
             .where(status: RestaurantStatus.Active)
@@ -229,7 +229,7 @@ service fooddelivery.RestaurantService('config/restaurant-service.dcfg') : versi
         }
 
         @path('/:id/reviews')
-        get(UUID id) : public -> Array<restaurantDb.RestaurantReview> {
+        get(UUID id) : auth(public) -> Array<restaurantDb.RestaurantReview> {
             let Restaurant restaurant = restaurantDb.Restaurant.findOrFail(id);
             return restaurantDb.RestaurantReview
             .where(restaurantId: restaurant.id)
@@ -239,7 +239,7 @@ service fooddelivery.RestaurantService('config/restaurant-service.dcfg') : versi
         }
 
         @path('/:id/reviews')
-        post(UUID id, SubmitReviewRequest request) -> restaurantDb.RestaurantReview {
+        post(UUID id, SubmitReviewRequest request) : auth(required, providers: [identity]) -> restaurantDb.RestaurantReview {
             let Restaurant restaurant = restaurantDb.Restaurant.findOrFail(id);
 
             if (!restaurant.isApproved) {
@@ -266,7 +266,7 @@ service fooddelivery.RestaurantService('config/restaurant-service.dcfg') : versi
         }
 
         @path('/service/:id')
-        get restaurantByIdInternal(UUID id) : access(Service), hidden, idempotent -> restaurantDb.Restaurant {
+        get restaurantByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> restaurantDb.Restaurant {
             return restaurantDb.Restaurant.findOrFail(id);
         }
 

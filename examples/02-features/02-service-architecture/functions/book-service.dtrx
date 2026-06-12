@@ -61,12 +61,12 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
 
     // REST API block with API-level functions
     rest_api BookServiceAPI : basePath("/api/v1"), rdbms(bookDb) {
-        resource bookDb.Book;
+        resource bookDb.Book : auth(public);
 
         // --- API-level custom endpoint ---
         // Uses service-level functions to implement business logic
         @path('/books/:bookId/late-fee')
-        get(UUID bookId, DateTime dueDate) -> Decimal {
+        get(UUID bookId, DateTime dueDate) : auth(public) -> Decimal {
             // Call service-level function to get days overdue
             let Int days = daysSinceDue(dueDate);
             // Call another service-level function to calculate the fee

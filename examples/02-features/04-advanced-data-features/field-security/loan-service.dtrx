@@ -67,7 +67,7 @@ service library.LoanService('config/loan-service.dcfg') : version('1.0.0'), desc
         @retry(maxAttempts: 3)
         @timeout(ms: 5000)
         // Custom endpoint using a struct as input and returning an entity
-        post(CreateLoanRequest request) -> loanDb.Loan {
+        post(CreateLoanRequest request) : auth(required, providers: [member]) -> loanDb.Loan {
             // try/catch for error handling with logging
             try {
                 // '#Book' is a type hint for the response from a cross-service API call
@@ -99,7 +99,7 @@ service library.LoanService('config/loan-service.dcfg') : version('1.0.0'), desc
         }
 
         @path('/member/:memberId')
-        get(UUID memberId) -> Array<loanDb.Loan> {
+        get(UUID memberId) : auth(required, providers: [member]) -> Array<loanDb.Loan> {
             return loanDb.Loan.where(memberId: memberId).all();
         }
 

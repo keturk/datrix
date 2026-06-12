@@ -214,7 +214,7 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
 
         // List payroll runs with pagination
         @path('/runs')
-        get(Int page = 1, Int perPage = 20, PayrollStatus? status, PayPeriod? payPeriod) : access(admin) -> PaginatedPayrollRuns {
+        get(Int page = 1, Int perPage = 20, PayrollStatus? status, PayPeriod? payPeriod) : auth(required, providers: [identity], roles: [admin]) -> PaginatedPayrollRuns {
             let JSON query = payrollDb.PayrollRun.all();
 
             if (status != null) {
@@ -248,13 +248,13 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
 
         // Get a single payroll run
         @path('/runs/:id')
-        get(UUID id) : access(admin) -> payrollDb.PayrollRun {
+        get(UUID id) : auth(required, providers: [identity], roles: [admin]) -> payrollDb.PayrollRun {
             return payrollDb.PayrollRun.findOrFail(id);
         }
 
         // Get payroll run summary
         @path('/runs/:id/summary')
-        get(UUID id) : access(admin) -> PayrollSummary {
+        get(UUID id) : auth(required, providers: [identity], roles: [admin]) -> PayrollSummary {
             let PayrollRun run = payrollDb.PayrollRun.findOrFail(id);
             return {
                 payrollRunId: run.id,
@@ -269,7 +269,7 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
 
         // Create a new payroll run with entries
         @path('/runs')
-        post(CreatePayrollRunRequest request) : access(admin) -> payrollDb.PayrollRun {
+        post(CreatePayrollRunRequest request) : auth(required, providers: [identity], roles: [admin]) -> payrollDb.PayrollRun {
             let String ref = generatePayrollRef();
             let Money totalGross = Money.of(0, "USD");
             let Money totalDeductions = Money.of(0, "USD");
@@ -318,7 +318,7 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
 
         // Process a pending payroll run atomically
         @path('/runs/:id/process')
-        put(UUID id) : access(admin) -> payrollDb.PayrollRun {
+        put(UUID id) : auth(required, providers: [identity], roles: [admin]) -> payrollDb.PayrollRun {
             let PayrollRun run = payrollDb.PayrollRun.findOrFail(id);
 
             run.startProcessing();
@@ -354,7 +354,7 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
 
         // Get entries for a payroll run
         @path('/runs/:id/entries')
-        get(UUID id) : access(admin) -> Array<payrollDb.PayrollEntry> {
+        get(UUID id) : auth(required, providers: [identity], roles: [admin]) -> Array<payrollDb.PayrollEntry> {
             return payrollDb.PayrollEntry
             .where(payrollRunId: id)
             .all();
@@ -362,7 +362,7 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), des
 
         // Get payroll history for an employee
         @path('/employee/:employeeId/history')
-        get(UUID employeeId) : access(admin) -> Array<payrollDb.PayrollEntry> {
+        get(UUID employeeId) : auth(required, providers: [identity], roles: [admin]) -> Array<payrollDb.PayrollEntry> {
             return payrollDb.PayrollEntry
             .where(employeeId: employeeId)
             .orderBy(createdAt: desc)

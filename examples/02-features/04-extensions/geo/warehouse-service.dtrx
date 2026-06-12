@@ -55,7 +55,7 @@ service warehouse.WarehouseService('config/warehouse-service.dcfg') : version('1
         // Find warehouses that contain a specific lat/lng point in their boundary
         // GeoSql.containsPoint() lowers to PostGIS ST_Contains with point construction
         @path('/warehouses/containing')
-        get(Number lat, Number lng) : public -> Array<warehouseDb.Warehouse> {
+        get(Number lat, Number lng) : auth(public) -> Array<warehouseDb.Warehouse> {
             return warehouseDb.Warehouse
                 .where(GeoSql.containsPoint(boundary, lat, lng))
                 .all();
@@ -65,7 +65,7 @@ service warehouse.WarehouseService('config/warehouse-service.dcfg') : version('1
         // GeoSql.withinDistanceNm() lowers to PostGIS ST_DWithin with geography cast
         // GeoSql.distanceNm() computes geodetic distance in nautical miles for ordering
         @path('/warehouses/nearby')
-        get(Number lat, Number lng, Number radiusNm) : public -> Array<warehouseDb.Warehouse> {
+        get(Number lat, Number lng, Number radiusNm) : auth(public) -> Array<warehouseDb.Warehouse> {
             return warehouseDb.Warehouse
                 .where(GeoSql.withinDistanceNm(centerPoint, lat, lng, radiusNm))
                 .orderBy(GeoSql.distanceNm(centerPoint, lat, lng))
@@ -74,7 +74,7 @@ service warehouse.WarehouseService('config/warehouse-service.dcfg') : version('1
 
         // Find delivery zones covering a specific point
         @path('/delivery-zones/for-location')
-        get(Number lat, Number lng) : public -> Array<warehouseDb.DeliveryZone> {
+        get(Number lat, Number lng) : auth(public) -> Array<warehouseDb.DeliveryZone> {
             return warehouseDb.DeliveryZone
                 .where(GeoSql.containsPoint(coverageArea, lat, lng))
                 .all();
@@ -83,7 +83,7 @@ service warehouse.WarehouseService('config/warehouse-service.dcfg') : version('1
         // Get warehouse details with computed area
         // GeoSql.area() computes PostGIS ST_Area in square meters as a scalar expression
         @path('/warehouses/:warehouseId/area')
-        get(UUID warehouseId) : public -> warehouseDb.Warehouse {
+        get(UUID warehouseId) : auth(public) -> warehouseDb.Warehouse {
             let Warehouse warehouse = warehouseDb.Warehouse.findOrFail(warehouseId);
 
             // GeoShape.area() is a value-level operation using the geometry value

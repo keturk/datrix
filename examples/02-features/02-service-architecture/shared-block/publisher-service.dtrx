@@ -37,7 +37,7 @@ service library.DataIngestionService('config/data-ingestion-service.dcfg') : ver
 
     rest_api IngestionAPI : basePath('/api/v1/internal'), rdbms(ingestionDb) {
         @path('/ingestion/trigger')
-        post(String source) -> ingestionDb.IngestionRun {
+        post(String source) : auth(service, providers: [internal]) -> ingestionDb.IngestionRun {
             return ingestionDb.IngestionRun.create({
                 source: source,
                 status: IngestionStatus.Running,
