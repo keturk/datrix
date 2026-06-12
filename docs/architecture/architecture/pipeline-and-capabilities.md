@@ -543,3 +543,64 @@ service ecommerce.WarehouseService('config/warehouse.dcfg') {
 - **OpenAPI format metadata:** `format: wkt` for `Geometry`, `format: ewkt` for `Geography`
 
 See the [PostGIS extension reference](../../../../datrix-extensions/docs/postgis-extension.md) for the full namespace contract, type mappings, and SQL lowering details. For raster/tile operations, see the [geo raster extension reference](../../../../datrix-extensions/docs/geo-raster-extension.md).
+
+---
+
+## Managed Identity Provider Integration (Planned)
+
+> **Not yet implemented.** The design is finalized and absorbed; implementation has not begun.
+
+Applications declare managed identity providers in an `identity {}` block. The pipeline connects provider declarations to generated authentication middleware, per-surface authorization contracts, and platform-specific provisioning artifacts.
+
+### DSL Layer
+
+The parser and transformer produce an `IdentityBlock` AST node containing one `ProviderDecl` per named provider. Each `ProviderDecl` carries:
+
+- Provider name and bound config path (`.dcfg` file)
+- Identity fields (typed field declarations that become `Auth.identity.*` accessors at runtime)
+- Group-to-role mappings (`group "<local>" as <role>`)
+
+Every externally reachable surface must carry an explicit `auth(...)` modifier (modes: `public`, `required`, `optional`, `service`) or a `verify(...)` modifier. Surfaces with neither fail validation (IDN011). Block-level auth defaults may be declared on `rest_api` and `graphql_api` blocks; surface-level `auth(...)` fully replaces (never merges with) the block default.
+
+**Semantic validators:** IDN001–IDN018 (identity block / surface rules), IDC001–IDC003 (config file rules). See [semantic-validators.md](../../../../datrix-common/docs/architecture/semantic-validators.md#identity-validation-idn001idn018).
+
+### Generator Layer
+
+**Provider plan (OR6):** All generators consume a versioned JSON artifact `config/generated/identity-providers.json` (the "provider plan") emitted by the component generator. The plan binds each provider name to its runtime parameters (issuer, JWKS URL, audience, client ID, algorithm allow-list, secret references). Runtime code resolves a provider by issuer, not by name — each surface validates against the provider whose issuer matches the incoming token.
+
+**Per-platform outputs:**
+
+| Platform | Generator | Key outputs |
+|----------|-----------|-------------|
+| Python / FastAPI | `datrix-codegen-python` | `identity.py` (PyJWT + `PyJWKClient`), `identity_surface.py` guard, `identity_profile.py` service, WebSocket auth, delegation helper |
+| TypeScript / NestJS | `datrix-codegen-typescript` | `identity.ts` (`jose`), `identity-surface.guard.ts`, `identity-profile.service.ts`, WebSocket gateway, delegation helper |
+| AWS | `datrix-codegen-aws` | Cognito User Pool + per-service app clients, MFA, custom attributes, groups, hosted UI, OR2 AWS secret wiring |
+| Azure | `datrix-codegen-azure` | Entra ID / Entra External ID app registration, audience routing, Bicep extension, OR2 Azure Key Vault secret wiring |
+| Docker | `datrix-codegen-docker` | Keycloak + backing DB containers, realm import artifact, OR2 Docker secret wiring |
+| Kubernetes | `datrix-codegen-k8s` | Keycloak StatefulSet + DB StatefulSet, realm ConfigMap, OR2 K8s secret wiring |
+| Component | `datrix-codegen-component` | Provider plan JSON, public-client metadata, identity documentation artifact |
+
+**System entities (OR11):** `IdentityProfile` and `IdentityLink` are reserved entity names injected by the identity planner. `IdentityProfile` stores projected provider identity fields per-user; `IdentityLink` tracks per-provider credential linkage (sub claim, issuer, linked-at timestamp). User-defined entities with these names fail validation.
+
+**Secret provider matrix (OR2):** Provider secrets (client secrets, JWKS signing keys, webhook secrets) are referenced via `ConfigSecretRef` with a `secretProvider` field. Supported providers: `env`, `aws-secrets-manager`, `aws-ssm`, `azure-key-vault`, `k8s-secret`, `docker-secret`.
+
+**Capability matrix (OR14):** `datrix_common/identity/capability_matrix.py` maps each provider type to its supported capability set (MFA, social providers, custom claims, machine audience, etc.). Generators query this matrix to gate feature emission — unsupported capabilities for a given provider type raise a codegen error rather than silently omitting code.
+
+### Provider Type Routing (Azure, OR3)
+
+Azure provider type is determined by `audience` in the provider config:
+
+| Audience | Provider | Notes |
+|----------|----------|-------|
+| `customer` | Entra External ID | B2C is legacy and not generated |
+| `workforce` | Entra ID | Standard workforce / employee auth |
+| `machine` | User-assigned managed identity | No human login; service-to-service only |
+
+### Design Reference
+
+Full design decisions (DN1–DN82) and operationalization resolutions (OR1–OR20) are distributed across:
+
+- [datrix-common/docs/architecture/identity.md](../../../../datrix-common/docs/architecture/identity.md) — AuthContract, provider config schema, provider plan (OR6), system entities, capability matrix, secret reference matrix
+- [datrix-language/docs/reference/access-levels.md](../../../../datrix-language/docs/reference/access-levels.md) — full `identity {}` / `auth(...)` / `verify(...)` DSL syntax
+- [datrix-common/docs/architecture/semantic-validators.md](../../../../datrix-common/docs/architecture/semantic-validators.md#identity-validation-idn001idn018) — IDN001–IDN018, IDC001–IDC003
+- Platform-specific docs in each `datrix-codegen-*` repo under `docs/identity-*.md`
