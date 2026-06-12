@@ -12,6 +12,7 @@ Fully automated multi-wave task orchestrator. Accepts a set of tasks (individual
 - Automated test execution (runs full suite via Bash, does not ask user)
 - Automatic wave advancement (no human intervention between waves)
 - Handles tasks with cross-dependencies (separates into waves instead of blocking)
+- **Sequential multi-phase execution** — given several phases (e.g. `72, 73, 74`), finishes each phase fully before starting the next, with an Opus-recovered phase gate at every boundary (Step 3i)
 
 ## When to Use
 
@@ -218,7 +219,7 @@ For each phase (in numeric order):
         local_wave += 1
 ```
 
-4. **Phase boundaries are wave boundaries** — even if a task in phase 35 has no dependencies, it cannot start until ALL phase 34 waves are complete
+4. **Phase boundaries are wave boundaries** — even if a task in phase 35 has no dependencies, it cannot start until ALL phase 34 waves are complete. Each phase boundary is also a **Phase Boundary Gate** (Step 3i): the earlier phase must pass an explicit completion check — with Opus-led recovery on failure — before the next phase's first wave is spawned.
 
 **Example with 2 phases:**
 ```
@@ -270,7 +271,18 @@ Do NOT wait for user confirmation — proceed directly to execution. The plan is
 
 ## Step 3: Wave Execution Loop
 
-Execute each wave sequentially. Within each wave, execute tasks in parallel (up to 5 agents at a time).
+Execute each wave sequentially. Within each wave, tasks run concurrently against a **rolling pool of up to 5 in-flight agents** (Step 3b) — a freed slot is refilled the instant an agent finishes, rather than waiting for a fixed batch to drain.
+
+### Shared Context Pre-Read (once per run, before the wave loop)
+
+Agents otherwise each re-read the same architecture docs on startup, burning duplicate tokens and latency across a wide wave. Read these **once** at the start of Step 3 and build a compact **shared context digest** (≤ ~400 lines) to inject verbatim into every implementation-agent prompt:
+
+- [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md)
+- [design-principles-cheat-sheet.md](../../../../../datrix/docs/architecture/design-principles-cheat-sheet.md)
+- [ai-agent-rules.md](../../../../../datrix-common/docs/contributing/ai-agent-rules.md) — the core rules + prohibited patterns
+- The `.project-structure.md` for each package that has a task in this run (read per-package, key into the digest by package name)
+
+The digest is **reference context, not a substitute for the task file** — agents still read their own task file and the specific code they touch. Store it as `shared_context` and pass the package-relevant slice in each agent prompt (see 3b). Build it once; reuse for every wave and every phase in the run.
 
 ### State Tracking
 
@@ -280,6 +292,9 @@ Maintain these state variables throughout the loop:
 - `failed_tasks[]` — tasks that failed after 3 fix attempts
 - `skipped_tasks[]` — tasks skipped because a dependency failed
 - `current_wave` — wave number being executed
+- `in_flight[]` — agents currently running in this wave's rolling pool (rolling dispatch, 3b)
+- `wave_queue[]` — tasks in this wave not yet dispatched (FIFO, respecting 2d file-conflict ordering)
+- `shared_context` — the pre-read digest injected into every agent prompt
 
 ### For Each Wave:
 
@@ -291,22 +306,37 @@ Before executing a wave, check if any task in this wave depends on a `failed_tas
 - Remove skipped tasks from the wave
 - If the entire wave is skipped → emit checkpoint and move to next wave
 
-#### 3b. Spawn Implementation Agents
+#### 3b. Spawn Implementation Agents (rolling pool)
 
-Batch tasks in the wave into sub-groups of **5** (max parallel agents).
+Run the wave through a **rolling pool of up to 5 concurrent agents** (`CAP = 5`). This replaces the old fixed "sub-groups of 5 with a barrier between each sub-group" — that scheme idled up to 4 slots whenever one agent in a batch ran long. The pool keeps all 5 slots busy until the wave's work runs out.
 
-For each sub-group, spawn agents in a **single message** (multiple Task tool calls, all foreground — up to 5):
+**Dispatch loop:**
+
+1. Seed `wave_queue` with all non-skipped tasks in the wave, ordered so that any **2d file-conflict** pair is sequenced (the second task of a conflicting pair must not be dispatchable until the first leaves `in_flight`). Treat such a pair as an intra-wave dependency edge inside the pool.
+2. Fill the pool: dispatch tasks from the head of `wave_queue` until `len(in_flight) == CAP` or the queue is empty. Each dispatch spawns **one** background agent (`run_in_background: true`).
+3. When a completion notification arrives, immediately run 3c **for that one agent** (parse its result, handle BLOCKED/NEEDS_CONTEXT/re-spawn). Remove it from `in_flight`.
+4. Refill: dispatch the next eligible task from `wave_queue` (skip any task whose 2d-conflict predecessor is still in flight; take the next eligible one). Repeat 3–4 until `wave_queue` is empty **and** `in_flight` is empty.
+5. **Wave join:** the pool being fully drained (`in_flight` empty, `wave_queue` empty) is the barrier before the test gate. Do NOT start 3d until the join — this preserves the "never test mid-wave" hard rule.
+
+A re-spawn (NEEDS_CONTEXT answered, or escalation recommendation ready) goes back through the pool like any other dispatch — it re-enters `wave_queue` and takes the next free slot.
 
 **Task tool parameters:**
 - `subagent_type: "general-purpose"`
-- `model: "claude-sonnet-4-6"` for code tasks, `"haiku"` for documentation-only tasks
+- `model:` — tier per task (see **Model tiering** below)
 - `max_turns: 40`
-- Do NOT set `run_in_background: true`
+- `run_in_background: true` — required for the rolling pool (the orchestrator is re-invoked on each completion, freeing a slot)
 - `description: "Implement task: {task_id}"`
+
+**Model tiering (per task):**
+- `"haiku"` — **documentation-only** tasks, **and** trivial mechanical code tasks where the change is unambiguous and self-contained: pure renames, moving/extracting a named constant, a single-import or single-symbol edit, mechanical signature propagation. Only when you are confident the task carries no design judgment.
+- `"claude-sonnet-4-6"` — all substantive code tasks (default for anything touching logic, new files, multi-file edits, or anything you are not certain is trivial). When in doubt, use Sonnet, not Haiku.
+- `"opus"` — **never** for implementation here; Opus is reserved for the Decision Escalation Protocol and the phase-recovery path.
+
+**Fallback when background agents are unavailable** (e.g. the harness can't notify on completion, or a deterministic run is required): fall back to foreground batches, but size them to **balance**, not rigid 5s — e.g. dispatch 6 tasks as 3+3, not 5+1, so a lone trailer never wastes a whole barrier. Aim for `ceil(N / ceil(N / CAP))` per batch. The rolling pool is preferred; this is only the degraded path.
 
 **Agent prompt template:**
 
-Read `d:\datrix\datrix\claude-config\.claude\agent-templates\task-implementation-agent.md` and substitute `{task_path}` with the actual task file path. The template contains:
+Read `d:\datrix\datrix\claude-config\.claude\agent-templates\task-implementation-agent.md` and substitute `{task_path}` with the actual task file path. Prepend the package-relevant slice of `shared_context` (the pre-read digest from Step 3) to the prompt under a `## Shared Architecture Context (pre-read — do not re-fetch)` heading, so the agent skips redundant doc reads. The template contains:
 - Standard workflow (UNDERSTAND → IMPLEMENT → SELF-CHECK → RUN TARGETED TESTS → RETURN RESULTS)
 - Anti-patterns to avoid
 - Self-check protocol (anti-stub check, test quality check, self-contradiction check)
@@ -324,37 +354,38 @@ Read `d:\datrix\datrix\claude-config\.claude\agent-templates\task-implementation
 
 This removes the duplicate suite run while preserving both the gate's static-analysis value (agent) and an independent test verdict (orchestrator).
 
-Wait for all agents in the sub-group to complete before spawning the next sub-group.
+The rolling pool (above) governs when the next task is dispatched — a freed slot is refilled immediately, not after the whole wave drains.
 
-#### 3c. Collect Agent Results
+#### 3c. Collect Agent Results (per completion)
 
-For each returned agent:
+Run this **each time one agent completes**, as its notification arrives (rolling pool) — not once per sub-group:
+
 1. Parse the JSON report from the agent's output
 2. Record status: IMPLEMENTED / BLOCKED / NEEDS_CONTEXT / FAILED
-3. If **NEEDS_CONTEXT** with a **spec gap or missing user input** (credentials, file path, unclear requirement): relay questions to user via `AskUserQuestion`, then re-spawn the agent with the answer
-4. If **NEEDS_CONTEXT** with a **technical ambiguity** (design choice, conflicting patterns, unclear root cause): invoke the **Decision Escalation Protocol** — spawn an Opus 4.8 agent to analyze and recommend, then re-spawn the implementation agent with Opus's recommendation
+3. If **NEEDS_CONTEXT** with a **spec gap or missing user input** (credentials, file path, unclear requirement): relay questions to user via `AskUserQuestion`, then re-queue the agent (re-enters the pool) with the answer
+4. If **NEEDS_CONTEXT** with a **technical ambiguity** (design choice, conflicting patterns, unclear root cause): invoke the **Decision Escalation Protocol** — spawn an Opus 4.8 agent to analyze and recommend, then re-queue the implementation agent with Opus's recommendation
 5. If **BLOCKED** with a **technical root cause**: invoke the **Decision Escalation Protocol** before adding to `failed_tasks`
 6. If **BLOCKED** with a **hard blocker** (missing dependency, missing file, incomplete prereq): record the reason, add to `failed_tasks` directly
 7. If **FAILED**: record targeted test failures, add to `failed_tasks`
 
-Emit a brief progress report after all agents in the sub-group complete.
+Then free the agent's slot and refill the pool (3b step 4). Emit a brief progress report at the **wave join** (when the pool has fully drained), not after each completion — keep per-completion output to a one-line status.
 
 #### 3d. Run Full Test Suite Per Package
 
-**HARD RULE — never run a test suite mid-group.** Do NOT invoke `test.ps1` until EVERY task in the wave (all parallel sub-groups) has finished implementing. No per-task, per-sub-group, or partial-wave test runs. The full suite is the wave's single test gate, and it runs exactly once here after the whole parallel group is complete.
+**HARD RULE — never run a test suite mid-wave.** Do NOT invoke `test.ps1` until the **wave join** — EVERY task in the wave has finished implementing and the rolling pool has fully drained. No per-task, per-completion, or partial-wave test runs. The full suite is the wave's single test gate, and it runs exactly once here after the whole wave is complete.
 
-After ALL tasks in the wave have been implemented (all sub-groups done):
+After the **wave join** — the rolling pool has fully drained (`in_flight` and `wave_queue` both empty):
 
 1. Group completed tasks in this wave by `package`
-2. For each affected package, run the full test suite **directly via Bash**:
+2. Run the full test suite for **every affected package concurrently**. The package suites are independent, so fire them **all in a single message** as multiple Bash calls (one per package) rather than sequentially — on a multi-package wave this runs the gates in parallel instead of back-to-back:
 
    ```bash
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
    ```
 
-   Include `VERIFIED_AGAINST_QUICK_REFERENCE` in the Bash tool description.
+   One such Bash call per affected package, all dispatched together. Include `VERIFIED_AGAINST_QUICK_REFERENCE` in each Bash tool description.
 
-   This run is the orchestrator's **authoritative, independent** gate — it is run here regardless of any result an agent self-reported, including in a quality-gate wave. (The redundant *agent-side* suite run is suppressed at spawn time — see 3b.) Do not skip it or substitute an agent's self-reported numbers.
+   These runs are the orchestrator's **authoritative, independent** gate — run regardless of any result an agent self-reported, including in a quality-gate wave. (The redundant *agent-side* suite run is suppressed at spawn time — see 3b.) Do not skip them or substitute an agent's self-reported numbers. Each package writes its own `.test_results/` folder, so parallel runs do not collide; read each package's `index.json` separately in step 3.
 
 3. **Read the canonical result from `index.json`, not the console.** `test.ps1` saves a timestamped folder under `{package}/.test_results/test-results-*/` and prints its path on the final console lines. Read that folder's `index.json` — it is the machine-readable source of truth. Do NOT eyeball-parse stdout. Extract:
    - `result` — `"PASSED"` or `"FAILED"`
@@ -447,6 +478,53 @@ If failed or skipped tasks exist, list only those (one ID per line). Do NOT list
 
 Mark the wave's todo as completed in TodoWrite.
 
+#### 3i. Phase Boundary Gate (multi-phase runs only)
+
+When the run spans more than one phase (e.g. `PHASES: 72, 73, 74`), phases execute **strictly sequentially**: every wave of phase 72 must complete before the first wave of phase 73 begins, and 73 before 74. This is already enforced structurally — phase boundaries are wave boundaries (Step 2c) — but the **phase gate** adds an explicit completion check at each boundary so a later phase never starts on top of an incompletely-built earlier phase.
+
+Trigger this gate **after the last wave of a phase completes** (i.e. the next wave in the sequence belongs to a higher phase number, or there are no more waves) and **before spawning the first wave of the next phase**.
+
+**Gate procedure for completed phase `P`:**
+
+1. **Partition phase `P`'s tasks** into `completed`, `failed`, and `skipped` (using the run-wide state variables, filtered to tasks whose `phase == P`).
+
+2. **Green phase** — `failed` and `skipped` are both empty:
+   - Emit the Phase Checkpoint (below).
+   - Proceed to the first wave of phase `P+1`.
+
+3. **Red phase** — any `failed` or `skipped` task in phase `P`:
+   - **Do NOT start phase `P+1` yet.**
+   - **First, delegate recovery to Opus** — invoke the **Decision Escalation Protocol** (`model: "opus"`, Opus 4.8) once, scoped to the whole phase. Give Opus: every failed/skipped task in phase `P`, the exact test failures/errors, all prior fix attempts from the wave-level fix loop (3e/3f), and the relevant code excerpts. Ask Opus for a **phase-recovery plan** — root cause(s) across the failed tasks and concrete, per-task remediation steps. Use the phase-recovery prompt variant in the Decision Escalation Protocol.
+   - **Implement Opus's recommendation** with the current model (Sonnet): apply the per-task fixes exactly as specified, then re-run the **full test suite for every affected package** (3d gate rules — GREEN only when `result == "PASSED"` AND `failed == 0` AND `error == 0`). Re-attribute and mark any now-passing tasks complete via `complete.ps1`.
+   - **Re-evaluate the phase:**
+     - If phase `P` is now green → emit the Phase Checkpoint, proceed to phase `P+1`.
+     - If phase `P` is **still red** after implementing Opus's plan → **HALT at the phase boundary** and `AskUserQuestion` (below). Do not auto-advance.
+
+   `AskUserQuestion` on unresolved phase failure:
+   ```
+   Phase {P} did not complete cleanly — Opus-led recovery still leaves failures.
+
+   Failed / skipped in phase {P}:
+   - {task_id}: {reason}
+
+   Opus's analysis:
+   {1-2 line summary of Opus's root-cause finding}
+
+   Options:
+   1. Stop — halt orchestration here; phase {P+1}+ not started. Emit final report.
+   2. Proceed anyway — start phase {P+1}; tasks transitively depending on phase {P}'s failed tasks stay skipped, the rest run.
+   ```
+   - **Stop** → emit final report (Step 4) and halt; later phases are reported as `NOT STARTED`.
+   - **Proceed anyway** → carry phase `P`'s `failed`/`skipped` forward into run-wide state and start phase `P+1` (3a's skip logic already prunes downstream dependents).
+
+**Phase Checkpoint format** (emit at every phase boundary, green or after recovery):
+```
+Phase {P} COMPLETE — {completed}/{phase_total} tasks | tests: {package}: {passed}/{total} | {package}: {passed}/{total}
+→ Starting phase {P+1}
+```
+
+Track phases as their own TodoWrite group so the user can see phase-level progress distinct from wave-level progress.
+
 ---
 
 ## Step 4: Final Report
@@ -455,12 +533,13 @@ After all waves are executed (or execution is halted by user), emit a lean repor
 
 ```
 DONE: {COMPLETED|PARTIAL|HALTED} — {completed}/{total} tasks, {waves_executed}/{total_waves} waves
+Phases: {P}: COMPLETE | {P+1}: PARTIAL | {P+2}: NOT STARTED   (only for multi-phase runs)
 Tests: {package}: {passed}/{total} | {package}: {passed}/{total}
 Failed: {task-id} — {reason}  (only if any)
 Skipped: {task-id} — blocked by {dep}  (only if any)
 ```
 
-Do NOT list completed tasks — success is the default. Only list failures and skips.
+Do NOT list completed tasks — success is the default. Only list failures and skips. For multi-phase runs, include the per-phase status line: a phase is `COMPLETE` (passed its phase gate), `PARTIAL` (started, advanced past the gate with failures via "Proceed anyway"), or `NOT STARTED` (never reached because an earlier phase gate halted).
 
 ---
 
@@ -541,10 +620,41 @@ Return:
 Be specific. The implementing agent will follow your recommendation directly.
 ```
 
+### Phase-Recovery Variant (Phase Boundary Gate, 3i)
+
+When the escalation is triggered by a **red phase gate** rather than a single task, the problem spans every failed/skipped task in the phase. Use the same `model: "opus"` spawn, but swap the single-task framing for a phase-wide one:
+
+```
+You are a senior architect recovering a FAILED PHASE before the next phase may start. Do NOT implement — analyze and recommend only.
+
+PHASE: {P} — {phase title/summary}
+GOAL: bring phase {P} fully green (every task passing its package suite) so phase {P+1} can begin on a complete foundation.
+
+FAILED / SKIPPED TASKS (with the exact test failures/errors and node IDs):
+{per-task: task_id, title, failing tests/erroring modules, error text}
+
+WHAT WAS ALREADY TRIED (wave-level fix loop, per task):
+{per-task fix attempts and outcomes}
+
+RELEVANT CODE (key excerpts across the failing tasks):
+{file paths and actual snippets}
+
+YOUR TASK:
+Find the root cause(s) — there may be ONE shared cause behind several failures (e.g. a cross-task integration mismatch introduced earlier in the phase). Do NOT suggest workarounds. Return:
+1. Root cause(s) — name shared causes explicitly
+2. A per-task remediation plan — for each failed/skipped task, concrete step-by-step fixes
+3. Exact files to modify and what changes to make
+4. Recommended order of remediation (some fixes may unblock others)
+5. Any task that genuinely cannot be recovered here and why (so the orchestrator can halt-and-ask on just that task)
+
+Be specific. The implementing agent will follow your plan directly, then re-run the full package suites.
+```
+
 ### After Opus Returns
 
 - Resume implementation with the current model (Sonnet)
 - Implement exactly what Opus recommended — do NOT improvise beyond the recommendation
+- For a phase-recovery plan: apply the per-task fixes, then re-run the full suite for **every affected package** (3d gate rules) before re-evaluating the phase gate
 - If Opus recommends stopping and asking the user, surface Opus's full analysis as context when asking
 
 ---

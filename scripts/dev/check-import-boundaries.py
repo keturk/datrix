@@ -56,6 +56,7 @@ PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
         "datrix_codegen_common.context_models.serverless",
         "datrix_codegen_common.context_models.replayable_ingestion",
         "datrix_codegen_common.enums",
+        "datrix_codegen_common.platform",
     ]
 )
 
@@ -95,7 +96,7 @@ BOUNDARY_RULES: dict[str, BoundaryRule] = {
         forbidden_prefixes=("datrix_codegen_python",),
     ),
     # Platform generators keep datrix_codegen_common on forbidden_prefixes but carry
-    # PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES to admit the six language-agnostic
+    # PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES to admit the language-agnostic
     # subtrees they legitimately consume. The transpiler and language-shaped
     # context_models/algorithms subtrees remain forbidden.
     "datrix_codegen_docker": BoundaryRule(

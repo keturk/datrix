@@ -48,7 +48,7 @@ PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES = _scanner.PLATFORM_CODEGEN_COMMON_ALLO
 # the constant propagate to both the rule and the tests automatically.
 # ---------------------------------------------------------------------------
 
-# All six allowed subtree roots.  The test asserts explicit membership so a
+# All allowed subtree roots.  The test asserts explicit membership so a
 # silent shrink of the constant fails here.
 _EXPECTED_ALLOWED_SUBTREES: frozenset[str] = frozenset(
     [
@@ -58,6 +58,7 @@ _EXPECTED_ALLOWED_SUBTREES: frozenset[str] = frozenset(
         "datrix_codegen_common.context_models.serverless",
         "datrix_codegen_common.context_models.replayable_ingestion",
         "datrix_codegen_common.enums",
+        "datrix_codegen_common.platform",
     ]
 )
 
@@ -131,6 +132,10 @@ class TestPlatformAllowedSubtrees:
             "datrix_codegen_common.context_models.replayable_ingestion",
             # enums root (DatabaseEngine lives inside as an attribute, module is enums)
             "datrix_codegen_common.enums",
+            # platform provider helpers/protocols
+            "datrix_codegen_common.platform",
+            "datrix_codegen_common.platform.runtime",
+            "datrix_codegen_common.platform.value_objects",
         ],
     )
     def test_allowed_subtree_is_not_forbidden(self, imported_module: str) -> None:
