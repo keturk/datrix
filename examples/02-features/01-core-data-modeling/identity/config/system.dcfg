@@ -29,7 +29,6 @@ config system shop.System {
           algorithm = "RS256";
           issuer = "shop";
           expiresIn = 86400;
-          exclude = ["/health", "publicRoutes"];
         }
       }
       cors {
