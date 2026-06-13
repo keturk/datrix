@@ -29,7 +29,6 @@ config system social.System {
           algorithm = "RS256";
           issuer = "library";
           expiresIn = 86400;
-          exclude = ["/health", "publicRoutes"];
         }
       }
       cors {

@@ -29,7 +29,6 @@ config system warehouse.System {
           algorithm = "RS256";
           issuer = "warehouse";
           expiresIn = 86400;
-          exclude = ["/health", "publicRoutes"];
         }
       }
       cors {

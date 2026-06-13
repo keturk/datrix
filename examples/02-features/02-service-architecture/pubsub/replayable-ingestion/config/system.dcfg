@@ -29,7 +29,6 @@ config system catalog.SupplierFeedSystem {
           algorithm = "RS256";
           issuer = "catalog";
           expiresIn = 86400;
-          exclude = ["/health"];
         }
       }
       cors {

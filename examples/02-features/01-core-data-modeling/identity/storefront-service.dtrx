@@ -5,6 +5,7 @@
 //   - auth(public)                                        — open browsing
 //   - auth(required, providers: [customer])               — signed-in customer
 //   - auth(optional, providers: [customer], profile: optional) — soft auth + profile
+//   - auth(required, providers: [customer], roles: [premiumCustomer]) — role-gated access
 //   - auth(required, providers: [workforce], roles: [catalogAdmin]) — staff RBAC
 //   - auth(service, providers: [platformMachine], roles: [orderWriter]) — machine
 //   - auth(required, providers: [customer, workforce])    — multi-provider surface
@@ -44,7 +45,7 @@ service shop.StorefrontService('config/storefront-service.dcfg')
         Array<String> references = [];
     }
 
-    // Inbound payment webhook payload (signature-verified at the edge).
+    // Inbound payment webhook payload (stripe-signature-verified at the edge).
     struct PaymentWebhookRequest {
         String eventType;
         String reference;
@@ -103,6 +104,13 @@ service shop.StorefrontService('config/storefront-service.dcfg')
             return storeDb.Product.where(active: true).all();
         }
 
+        // Premium-member exclusive product catalogue (requires premiumCustomer role).
+        @path('/products/premium')
+        get() : auth(required, providers: [customer], roles: [premiumCustomer])
+            -> Array<storeDb.Product> {
+            return storeDb.Product.where(active: true).all();
+        }
+
         // Customer's own profile-backed order history (requires loaded profile).
         @path('/orders/mine')
         get() : auth(required, providers: [customer], profile: required)
@@ -126,11 +134,11 @@ service shop.StorefrontService('config/storefront-service.dcfg')
             return storeDb.Order.where(reference: reference).all();
         }
 
-        // Inbound payment webhook: signature-verified, no user auth.
+        // Inbound payment webhook: stripe-signature-verified, no user auth.
         @path('/webhooks/payment')
         post receivePaymentEvent(PaymentWebhookRequest request)
             : auth(public),
-              verify(signature, provider: paymentGateway, secretRef: paymentWebhookSecret)
+              verify(signature, provider: stripe, secretRef: paymentWebhookSecret)
             -> Void {
         }
     }
