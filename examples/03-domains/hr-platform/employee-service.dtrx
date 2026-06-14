@@ -3,6 +3,16 @@ from hr.common import AuditedEntity, Department, generateEmployeeNumber;
 
 service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), description('employee management and directory service') {
     discovery { }
+
+    identity {
+        provider identity config('config/identity/identity.dcfg') {
+            String email;
+            group "admins" as admin;
+        }
+        provider platform config('config/identity/platform.dcfg') {
+        }
+    }
+
     enum EmployeeStatus {
         Active : value('active'),
         OnLeave : value('on_leave'),
@@ -378,11 +388,11 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
                 hireDate: request.hireDate,
                 salary: request.salary,
                 managerId: request.managerId,
-                emailVerificationToken: generateToken()
+                emailVerificationToken: Random.string(32)
             });
 
             if (request.password != null) {
-                employee.passwordHash = hashPassword(request.password);
+                employee.passwordHash = Crypto.bcryptHash(request.password);
             }
 
             employee.save();

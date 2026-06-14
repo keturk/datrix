@@ -5,6 +5,12 @@
 service shop.CatalogService('config/catalog-service.dcfg') : version('1.0.0'), description('product catalog service') {
     discovery { }
 
+    identity {
+        provider member config('config/identity/member.dcfg') {
+            group "administrators" as admin;
+        }
+    }
+
     enum ProductStatus {
         Draft,
         Active,

@@ -7,6 +7,13 @@ service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), des
     // Service infrastructure configuration
     discovery { }                                                   // Service discovery (auto-configured)
 
+    identity {
+        provider identity config('config/identity/identity.dcfg') {
+            group "admins" as admin;
+            group "editors" as editor;
+        }
+    }
+
     // Enums define a fixed set of allowed values for type-safe fields
     enum AuthorRole {
         Writer,
@@ -134,7 +141,7 @@ service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), des
             throw ValidationException("Email already registered");
             let Author author = authorDb.Author.create({
                 email: request.email,
-                passwordHash: Auth.hashPassword(request.password),
+                passwordHash: Crypto.bcryptHash(request.password),
                 firstName: request.firstName,
                 lastName: request.lastName,
                 role: AuthorRole.Writer,
@@ -149,7 +156,7 @@ service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), des
     test("computed fullName concatenates first and last name") {
         let Author author = authorDb.Author.create({
             email: "jane@example.com",
-            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
+            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
             firstName: "Jane",
             lastName: "Doe"
         });
@@ -160,7 +167,7 @@ service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), des
     test("computed isActive is true for Active status") {
         let Author author = authorDb.Author.create({
             email: "active@example.com",
-            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
+            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
             firstName: "Active",
             lastName: "Author",
             status: AuthorStatus.Active,
@@ -173,7 +180,7 @@ service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), des
     test("computed canLogin requires active and verified") {
         let Author author = authorDb.Author.create({
             email: "login@example.com",
-            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
+            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
             firstName: "Login",
             lastName: "User",
             status: AuthorStatus.Active,
@@ -187,7 +194,7 @@ service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), des
         assert throws(
         () => authorDb.Author.create({
             email: "unverified@example.com",
-            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
+            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
             firstName: "Unverified",
             lastName: "Author",
             status: AuthorStatus.Active
@@ -199,7 +206,7 @@ service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), des
     test("afterCreate emits AuthorRegistered event") {
         let Author author = authorDb.Author.create({
             email: "event@example.com",
-            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
+            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
             firstName: "Event",
             lastName: "Test"
         });
@@ -210,7 +217,7 @@ service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), des
     test("spec: fullName returns Jane Austen for literary author fixture") {
         let Author author = authorDb.Author.create({
             email: "spec.display@example.com",
-            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
+            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
             firstName: "Jane",
             lastName: "Austen"
         });
@@ -221,7 +228,7 @@ service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), des
     test("spec: isActive is true for verified Active author Mark Twain") {
         let Author author = authorDb.Author.create({
             email: "spec.active@example.com",
-            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
+            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
             firstName: "Mark",
             lastName: "Twain",
             status: AuthorStatus.Active,
@@ -234,7 +241,7 @@ service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), des
     test("spec: canLogin is true for active verified Ernest Hemingway") {
         let Author author = authorDb.Author.create({
             email: "spec.login@example.com",
-            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
+            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
             firstName: "Ernest",
             lastName: "Hemingway",
             status: AuthorStatus.Active,
@@ -248,7 +255,7 @@ service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), des
         assert throws(
         () => authorDb.Author.create({
             email: "spec.unverified@example.com",
-            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
+            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
             firstName: "Unverified",
             lastName: "Author",
             status: AuthorStatus.Active
@@ -260,7 +267,7 @@ service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), des
     test("spec: afterCreate emits AuthorRegistered for Virginia Woolf fixture") {
         let Author author = authorDb.Author.create({
             email: "spec.event@example.com",
-            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
+            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
             firstName: "Virginia",
             lastName: "Woolf"
         });
@@ -271,7 +278,7 @@ service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), des
     test("computed isVerified is true when emailVerifiedAt is set") {
         let Author author = authorDb.Author.create({
             email: "verified.spec@example.com",
-            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
+            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
             firstName: "Verified",
             lastName: "Author",
             emailVerifiedAt: DateTime.now()
@@ -283,7 +290,7 @@ service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), des
     test("computed isVerified is false when emailVerifiedAt is null") {
         let Author author = authorDb.Author.create({
             email: "notverified.spec@example.com",
-            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
+            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
             firstName: "NotVerified",
             lastName: "Author"
         });
@@ -294,7 +301,7 @@ service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), des
     test("computed canLogin is false for inactive author") {
         let Author author = authorDb.Author.create({
             email: "inactive.spec@example.com",
-            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
+            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
             firstName: "Inactive",
             lastName: "Author",
             status: AuthorStatus.Inactive,
@@ -307,7 +314,7 @@ service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), des
     test("afterUpdate emits AuthorStatusChanged on status change") {
         let Author author = authorDb.Author.create({
             email: "statuschange.spec@example.com",
-            passwordHash: Auth.hashPassword("Str0ng#TestP@ss9"),
+            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
             firstName: "StatusChange",
             lastName: "Author",
             emailVerifiedAt: DateTime.now()

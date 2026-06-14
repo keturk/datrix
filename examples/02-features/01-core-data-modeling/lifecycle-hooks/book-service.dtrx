@@ -5,6 +5,11 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
     // Service infrastructure configuration
     discovery { }                                              // Service discovery (auto-configured)
 
+    identity {
+        provider member config('config/identity/member.dcfg') {
+        }
+    }
+
     // Enums define a fixed set of allowed values for type-safe fields
     enum BookStatus {
         Available,

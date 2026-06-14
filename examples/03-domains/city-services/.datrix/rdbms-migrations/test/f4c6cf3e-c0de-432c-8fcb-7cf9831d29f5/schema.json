@@ -72,7 +72,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002216781C1A0>"
+            "value": "<abc.CallNode object at 0x00000254A08C02F0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -112,7 +112,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000221677F5860>"
+            "value": "<abc.CallNode object at 0x00000254A08999B0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -176,7 +176,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002216781C440>"
+            "value": "<abc.CallNode object at 0x00000254A08C0590>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -232,7 +232,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002216781C1A0>"
+            "value": "<abc.CallNode object at 0x00000254A08C02F0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -272,7 +272,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000221677F5860>"
+            "value": "<abc.CallNode object at 0x00000254A08999B0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -356,7 +356,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002216781C440>"
+            "value": "<abc.CallNode object at 0x00000254A08C0590>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -437,7 +437,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "f4c6cf3e-c0de-432c-8fcb-7cf9831d29f5",
-  "schema_hash": "932ecba375855ab4d09ea1b82ba393c39936b80b01a065b95077a3ebeb941ddc",
+  "schema_hash": "59b781b7fee65440801f344add4306cc2c38efe35b448a6523dfb2bcca01c688",
   "service": {
     "name": "cityservices.DistrictService",
     "version": "1.0.0"

@@ -3,6 +3,16 @@ from datrix.foundation import MAX_PAGE_SIZE;
 
 service taskapp.UserService('config/user-service.dcfg') : version('1.0.0'), description('user and team member management service') {
     discovery { }
+
+    identity {
+        provider identity config('config/identity/identity.dcfg') {
+            String email;
+            group "admins" as admin;
+        }
+        provider platform config('config/identity/platform.dcfg') {
+        }
+    }
+
     enum UserRole {
         Admin : value('admin'),
         Manager : value('manager'),
@@ -87,11 +97,11 @@ service taskapp.UserService('config/user-service.dcfg') : version('1.0.0'), desc
                 displayName: request.displayName,
                 role: request.role,
                 status: UserStatus.Active,
-                emailVerificationToken: generateToken()
+                emailVerificationToken: Random.string(32)
             });
 
             if (request.password != null) {
-                user.passwordHash = hashPassword(request.password);
+                user.passwordHash = Crypto.bcryptHash(request.password);
             }
 
             user.save();

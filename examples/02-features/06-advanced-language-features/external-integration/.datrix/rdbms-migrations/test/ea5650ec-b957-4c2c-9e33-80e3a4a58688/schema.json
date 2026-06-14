@@ -15,7 +15,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002BEFF40D7F0>"
+            "value": "<abc.CallNode object at 0x000001A29787C830>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -76,7 +76,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002BEFF3E6F20>"
+            "value": "<abc.CallNode object at 0x000001A297855F60>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -116,7 +116,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002BEFF40DA90>"
+            "value": "<abc.CallNode object at 0x000001A29787CAD0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -144,7 +144,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "ea5650ec-b957-4c2c-9e33-80e3a4a58688",
-  "schema_hash": "c9a8d42d06513fe25fe446c0f3ce557f3e30a8b195e14f2afe4918cb3e113552",
+  "schema_hash": "ad3b7c1512a722a116c0c7e14b95af44b92da931ef8431959e2378a4b65c1ce3",
   "service": {
     "name": "hostdemo.UserService",
     "version": "1.0.0"

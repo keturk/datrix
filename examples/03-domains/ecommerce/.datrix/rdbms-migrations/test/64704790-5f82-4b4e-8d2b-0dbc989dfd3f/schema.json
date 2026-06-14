@@ -15,7 +15,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001BD8E7CE120>"
+            "value": "<abc.CallNode object at 0x0000023BE9194EC0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -37,7 +37,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001BD8E7DC360>"
+            "value": "<abc.CallNode object at 0x0000023BE918FE00>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -115,7 +115,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001BD8E7CDB70>"
+            "value": "<abc.CallNode object at 0x0000023BE9195A20>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -143,7 +143,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "64704790-5f82-4b4e-8d2b-0dbc989dfd3f",
-  "schema_hash": "6d075c280e70fa366d91b6a830eea0bf9818bab60433bed71f1d3d5d795f51c8",
+  "schema_hash": "e1a655ae182ae3382823574cfcee03d38390752a4b9335464a6244757407c397",
   "service": {
     "name": "ecommerce.NotificationService",
     "version": "1.0.0"

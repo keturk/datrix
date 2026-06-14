@@ -1,6 +1,12 @@
 
 service hostdemo.UserService('config/user-service.dcfg') : version('1.0.0'), description('user accounts') {
     discovery { }
+
+    identity {
+        provider member config('config/identity/member.dcfg') {
+        }
+    }
+
     rdbms usersDb {
 
         entity User extends BaseEntity {
@@ -9,7 +15,7 @@ service hostdemo.UserService('config/user-service.dcfg') : version('1.0.0'), des
             String(100) displayName : trim;
 
             beforeCreate {
-                passwordHash = Auth.hashPassword(passwordHash);
+                passwordHash = Crypto.bcryptHash(passwordHash);
             }
 
         }
@@ -19,7 +25,7 @@ service hostdemo.UserService('config/user-service.dcfg') : version('1.0.0'), des
     test("beforeCreate hashes password on user creation") {
         let usersDb.User user = usersDb.User.create({
             email: "test.user@example.com",
-            passwordHash: Auth.hashPassword("plaintext123"),
+            passwordHash: Crypto.bcryptHash("plaintext123"),
             displayName: "Test User"
         });
         user.save();

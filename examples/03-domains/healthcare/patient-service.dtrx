@@ -5,6 +5,17 @@ from healthcare.common import SoftDeletable, InsuranceInfo, Gender, BloodType, c
 // Define a service in the 'healthcare' namespace
 service healthcare.PatientService('config/patient-service.dcfg') : version('1.0.0'), description('patient management service') {
     discovery { }
+
+    identity {
+        provider identity config('config/identity/identity.dcfg') {
+            String email;
+            group "admins" as admin;
+            group "staff" as staff;
+        }
+        provider platform config('config/identity/platform.dcfg') {
+        }
+    }
+
     enum PatientStatus {
         Active,
         Inactive,
@@ -427,11 +438,11 @@ service healthcare.PatientService('config/patient-service.dcfg') : version('1.0.
                 emergencyContact: request.emergencyContact,
                 primaryInsurance: request.primaryInsurance,
                 status: PatientStatus.Active,
-                emailVerificationToken: generateToken()
+                emailVerificationToken: Random.string(32)
             });
 
             if (request.password != null) {
-                patient.passwordHash = hashPassword(request.password);
+                patient.passwordHash = Crypto.bcryptHash(request.password);
             }
 
             redis.PatientCache.set(patient.id, {

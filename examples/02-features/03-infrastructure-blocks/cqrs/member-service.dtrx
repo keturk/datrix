@@ -2,6 +2,14 @@
 // A separate service in the same namespace handles member management
 service library.MemberService('config/member-service.dcfg') : version('1.0.0'), description('member management service') {
     discovery { }
+
+    identity {
+        provider identity config('config/identity/identity.dcfg') {
+        }
+        provider platform config('config/identity/platform.dcfg') {
+        }
+    }
+
     enum MembershipType {
         Standard,
         Premium,

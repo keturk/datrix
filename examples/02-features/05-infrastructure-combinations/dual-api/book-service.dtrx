@@ -11,6 +11,11 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
     // Service infrastructure configuration
     discovery { }                                              // Service discovery (auto-configured)
 
+    identity {
+        provider member config('config/identity/member.dcfg') {
+        }
+    }
+
     // Relational database block - groups entities (tables) under a named datasource
     rdbms bookDb {
 

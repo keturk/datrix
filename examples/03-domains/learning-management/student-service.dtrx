@@ -3,6 +3,16 @@ from datrix.foundation import MAX_PAGE_SIZE;
 
 service lms.StudentService('config/student-service.dcfg') : version('1.0.0'), description('student profile and account management service') {
     discovery { }
+
+    identity {
+        provider identity config('config/identity/identity.dcfg') {
+            String email;
+            group "admins" as admin;
+        }
+        provider platform config('config/identity/platform.dcfg') {
+        }
+    }
+
     enum StudentStatus {
         Active : value('active'),
         Graduated : value('graduated'),
@@ -103,10 +113,10 @@ service lms.StudentService('config/student-service.dcfg') : version('1.0.0'), de
                 email: request.email,
                 dateOfBirth: request.dateOfBirth,
                 status: StudentStatus.Active,
-                emailVerificationToken: generateToken()
+                emailVerificationToken: Random.string(32)
             });
             if (request.password != null) {
-                student.passwordHash = hashPassword(request.password);
+                student.passwordHash = Crypto.bcryptHash(request.password);
             }
             student.save();
             return student;

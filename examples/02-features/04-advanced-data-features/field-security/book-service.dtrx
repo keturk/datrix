@@ -79,7 +79,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
 
             // Lifecycle hook - runs before a new record is persisted
             beforeCreate {
-                passwordHash = Auth.hashPassword(passwordHash);
+                passwordHash = Crypto.bcryptHash(passwordHash);
             }
 
         }

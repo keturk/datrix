@@ -3,6 +3,16 @@ from logistics.common import GeoCoordinate, generateTrackingNumber;
 
 service logistics.ShipmentService('config/shipment-service.dcfg') : version('1.0.0'), description('shipment tracking and management service') {
     discovery { }
+
+    identity {
+        provider identity config('config/identity/identity.dcfg') {
+            String email;
+            group "admins" as admin;
+        }
+        provider platform config('config/identity/platform.dcfg') {
+        }
+    }
+
     enum ShipmentStatus {
         Created,
         PickedUp,

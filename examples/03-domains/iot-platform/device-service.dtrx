@@ -3,6 +3,16 @@ from iot.common import generateSerialNumber, HEARTBEAT_TIMEOUT_SECONDS;
 
 service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), description('device registration and lifecycle management service') {
     discovery { }
+
+    identity {
+        provider identity config('config/identity/identity.dcfg') {
+            String email;
+            group "admins" as admin;
+        }
+        provider platform config('config/identity/platform.dcfg') {
+        }
+    }
+
     enum DeviceStatus {
         Active,
         Inactive,
@@ -79,7 +89,7 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
             }
 
             afterCreate {
-                deviceToken = generateToken();
+                deviceToken = Random.string(32);
                 dispatch DeviceRegistered(id, serialNumber, name, type);
             }
 

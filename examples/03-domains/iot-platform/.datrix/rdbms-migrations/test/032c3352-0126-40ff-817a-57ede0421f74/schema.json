@@ -33,7 +33,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001FD44A75A20>"
+            "value": "<abc.CallNode object at 0x000002540DE955C0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -95,7 +95,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001FD44A76900>"
+            "value": "<abc.CallNode object at 0x000002540DE6AC80>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -156,7 +156,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000001FD43C20D00>"
+            "value": "<abc.PropertyAccessNode object at 0x000002540D114E50>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -225,7 +225,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001FD44A741A0>"
+            "value": "<abc.CallNode object at 0x000002540DE95860>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -325,7 +325,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001FD44A75A20>"
+            "value": "<abc.CallNode object at 0x000002540DE955C0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -385,7 +385,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001FD44A76900>"
+            "value": "<abc.CallNode object at 0x000002540DE6AC80>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -447,7 +447,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.CallNode object at 0x000001FD43C239A0>"
+            "value": "<abc.CallNode object at 0x000002540D117540>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -469,7 +469,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001FD44A741A0>"
+            "value": "<abc.CallNode object at 0x000002540DE95860>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -553,7 +553,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001FD44A75A20>"
+            "value": "<abc.CallNode object at 0x000002540DE955C0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -629,7 +629,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001FD44A76900>"
+            "value": "<abc.CallNode object at 0x000002540DE6AC80>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -693,7 +693,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001FD44A741A0>"
+            "value": "<abc.CallNode object at 0x000002540DE95860>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -774,7 +774,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "032c3352-0126-40ff-817a-57ede0421f74",
-  "schema_hash": "dfe3051d10f104573c5281eeedca6bcb4ac0184ba3104e3b2037e89726e8e9a8",
+  "schema_hash": "b2702da5248b1b2eb4aef37290c5e929aab44515c02b8d807c1e3b406daf8881",
   "service": {
     "name": "iot.FirmwareService",
     "version": "1.0.0"

@@ -7,6 +7,14 @@ service cityservices.DistrictService('config/district-service.dcfg') : version('
 
     discovery { }
 
+    identity {
+        provider identity config('config/identity/identity.dcfg') {
+            group "admins" as admin;
+        }
+        provider platform config('config/identity/platform.dcfg') {
+        }
+    }
+
     rdbms districtDb {
 
         // City district with a polygon boundary
@@ -22,7 +30,7 @@ service cityservices.DistrictService('config/district-service.dcfg') : version('
             index(name);
 
             afterCreate {
-                accessToken = generateToken();
+                accessToken = Random.string(32);
                 dispatch DistrictCreated(id, name, code);
             }
         }

@@ -6,6 +6,12 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
 
     // Service infrastructure configuration
     discovery { }                                              // Service discovery (auto-configured)
+
+    identity {
+        provider member config('config/identity/member.dcfg') {
+        }
+    }
+
     // Resilience config defines retry policies, circuit breakers, and per-service timeouts
     rdbms bookDb {
 
