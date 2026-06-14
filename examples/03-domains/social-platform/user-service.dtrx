@@ -4,6 +4,15 @@ from social.common import ContentStatus, paginate;
 
 service social.UserService('config/user-service.dcfg') : version('1.0.0'), description('user management and social graph service') {
     discovery { }
+
+    identity {
+        provider identity config('config/identity/identity.dcfg') {
+            String email;
+        }
+        provider platform config('config/identity/platform.dcfg') {
+        }
+    }
+
     enum UserStatus {
         Active : value('active'),
         Suspended : value('suspended'),
@@ -68,7 +77,7 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
             }
 
             afterCreate {
-                emailVerificationToken = generateToken();
+                emailVerificationToken = Random.string(32);
                 dispatch UserRegistered(id, username, email);
             }
 
@@ -231,7 +240,7 @@ service social.UserService('config/user-service.dcfg') : version('1.0.0'), descr
             }
 
             if (request.password != null) {
-                user.passwordHash = hashPassword(request.password);
+                user.passwordHash = Crypto.bcryptHash(request.password);
             }
 
             user.save();

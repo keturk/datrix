@@ -4,7 +4,15 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
 
     // Service infrastructure configuration
     discovery { }                                              // Service discovery (auto-configured)
-    // 'integrations' declares third-party service connectors (email, SMS, payment, etc.)
+
+    identity {
+        provider member config('config/identity/member.dcfg') {
+            group "librarians" as librarian;
+        }
+        provider internal config('config/identity/internal.dcfg') {
+        }
+    }
+
     // Enums define a fixed set of allowed values for type-safe fields
     enum BookStatus {
         Available,
@@ -68,7 +76,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             UserRole role = UserRole.Member;
 
             beforeCreate {
-                passwordHash = Auth.hashPassword(passwordHash);
+                passwordHash = Crypto.bcryptHash(passwordHash);
             }
 
         }

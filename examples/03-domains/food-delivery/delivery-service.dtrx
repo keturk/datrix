@@ -145,7 +145,7 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
             }
 
             afterCreate {
-                accessToken = generateToken();
+                accessToken = Random.string(32);
                 dispatch DeliveryCreated(id, deliveryCode, orderId);
             }
 

@@ -134,7 +134,7 @@ service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), 
             }
 
             afterCreate {
-                accessToken = generateToken();
+                accessToken = Random.string(32);
             }
 
         }

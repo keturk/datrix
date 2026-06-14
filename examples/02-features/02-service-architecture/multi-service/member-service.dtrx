@@ -7,6 +7,12 @@ service library.MemberService('config/member-service.dcfg') : version('1.0.0'), 
 
     // Service infrastructure configuration - each service has its own config directory
     discovery { }
+
+    identity {
+        provider member config('config/identity/member.dcfg') {
+        }
+    }
+
     // MemberService has its own dedicated database, separate from BookService
     rdbms memberDb {
 
@@ -21,7 +27,7 @@ service library.MemberService('config/member-service.dcfg') : version('1.0.0'), 
             String? emailVerificationToken;
 
             afterCreate {
-                emailVerificationToken = generateToken();
+                emailVerificationToken = Random.string(32);
             }
         }
 

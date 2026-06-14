@@ -8,6 +8,11 @@ service library.LoanService('config/loan-service.dcfg') : version('1.0.0'), desc
         MemberService { loadBalance: roundRobin, healthyOnly: true }
     }
 
+    identity {
+        provider identity config('config/identity/identity.dcfg') {
+        }
+    }
+
     enum LoanStatus {
         Active,
         Returned,

@@ -143,7 +143,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             UserRole role = UserRole.Member;
 
             beforeCreate {
-                passwordHash = Auth.hashPassword(passwordHash);
+                passwordHash = Crypto.bcryptHash(passwordHash);
             }
 
         }

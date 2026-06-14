@@ -1,6 +1,15 @@
 
 service fooddelivery.RestaurantService('config/restaurant-service.dcfg') : version('1.0.0'), description('restaurant registration and management service') {
     discovery { }
+
+    identity {
+        provider identity config('config/identity/identity.dcfg') {
+            group "admins" as admin;
+        }
+        provider platform config('config/identity/platform.dcfg') {
+        }
+    }
+
     enum RestaurantStatus {
         Active,
         Closed,

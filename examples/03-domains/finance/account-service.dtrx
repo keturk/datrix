@@ -3,6 +3,15 @@ from finance.common import AuditedEntity, Currency, generateReference;
 
 service finance.AccountService('config/account-service.dcfg') : version('1.0.0'), description('account and customer management service') {
     discovery { }
+
+    identity {
+        provider identity config('config/identity/identity.dcfg') {
+            group "admins" as admin;
+        }
+        provider platform config('config/identity/platform.dcfg') {
+        }
+    }
+
     enum AccountType {
         Checking : value('checking'),
         Savings : value('savings'),
@@ -83,7 +92,7 @@ service finance.AccountService('config/account-service.dcfg') : version('1.0.0')
             }
 
             afterCreate {
-                emailVerificationToken = generateToken();
+                emailVerificationToken = Random.string(32);
                 Log.info("Customer created", { customerId: id, kycStatus: kycStatus });
             }
 

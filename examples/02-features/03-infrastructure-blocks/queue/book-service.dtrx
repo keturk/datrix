@@ -2,6 +2,14 @@
 // BookService produces queues for background processing tasks
 service library.BookService('config/book-service.dcfg') : version('1.0.0'), description('book management service') {
     discovery { }
+
+    identity {
+        provider member config('config/identity/member.dcfg') {
+            group "librarians" as librarian;
+            group "administrators" as admin;
+        }
+    }
+
     enum BookStatus {
         Available,
         CheckedOut,
@@ -42,7 +50,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             UserRole role = UserRole.Member;
 
             beforeCreate {
-                passwordHash = Auth.hashPassword(passwordHash);
+                passwordHash = Crypto.bcryptHash(passwordHash);
             }
 
         }

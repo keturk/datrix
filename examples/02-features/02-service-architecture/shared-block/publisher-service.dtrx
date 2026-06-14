@@ -4,6 +4,13 @@
 service library.DataIngestionService('config/data-ingestion-service.dcfg') : version('1.0.0'), description('Ingests data and publishes to shared topic') {
     uses IngestionEvents;
 
+    identity {
+        provider member config('config/identity/member.dcfg') {
+        }
+        provider internal config('config/identity/internal.dcfg') {
+        }
+    }
+
     enum IngestionStatus { Idle, Running, Completed, Failed }
 
     rdbms ingestionDb {

@@ -44,6 +44,17 @@ config service library.BookService {
       dockerImage = "confluentinc/cp-kafka:7.6.0";
       volumePath = "/var/lib/kafka/data";
     }
+    queues {
+      engine = "rabbitmq";
+      flavor = "container";
+      host = "localhost";
+      port = 5672;
+      managementPort = 15672;
+      defaultUser = "guest";
+      dockerImage = "rabbitmq:3-management-alpine";
+      volumePath = "/var/lib/rabbitmq";
+      healthCheckCmd = "rabbitmq-diagnostics -q ping";
+    }
     registration {
       tags = ["api", "library", "v1"];
       meta = {};

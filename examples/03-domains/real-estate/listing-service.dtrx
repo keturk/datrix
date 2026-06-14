@@ -3,6 +3,15 @@ from realestate.common import PropertyType, formatPrice, generateListingRef;
 
 service realestate.ListingService('config/listing-service.dcfg') : version('1.0.0'), description('property listing management service') {
     discovery { }
+
+    identity {
+        provider identity config('config/identity/identity.dcfg') {
+            String email;
+        }
+        provider platform config('config/identity/platform.dcfg') {
+        }
+    }
+
     enum ListingStatus {
         Draft : value('draft'),
         Active : value('active'),
