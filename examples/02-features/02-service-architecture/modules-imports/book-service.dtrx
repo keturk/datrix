@@ -8,6 +8,15 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
 
     // Service infrastructure configuration
     discovery { }                                              // Service discovery (auto-configured)
+
+    identity {
+        provider customer config('config/identity/customer.dcfg') {
+            String email;
+        }
+        provider svc config('config/identity/svc.dcfg') {
+        }
+    }
+
     // 'integrations' declares third-party service connectors (email, SMS, payment, etc.)
     // Enums define a fixed set of allowed values for type-safe fields
     enum BookStatus {
@@ -78,7 +87,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             UserRole role = UserRole.Member;
 
             beforeCreate {
-                passwordHash = Auth.hashPassword(passwordHash);
+                passwordHash = Crypto.bcryptHash(passwordHash);
             }
 
         }

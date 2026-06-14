@@ -20,6 +20,11 @@
 //   D44  replay schedule("…") synthesises a cron backfill job.
 service catalog.SupplierFeedService('config/supplier-feed-service.dcfg') : version('1.0.0'), description('Supplier catalog feed — replayable ingestion example') {
 
+    identity {
+        provider _platform config('config/identity/_platform.dcfg') {
+        }
+    }
+
     // Storage block: object-storage backing for the replayable topic.
     // `batches/` folder is the system-of-record for ingested catalog payloads.
     storage catalogArchive {

@@ -5,6 +5,15 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
     // Service infrastructure configuration
     discovery { }                                              // Service discovery (auto-configured)
 
+    identity {
+        provider identity config('config/identity/identity.dcfg') {
+            String email;
+            group "librarians" as librarian;
+        }
+        provider platform config('config/identity/platform.dcfg') {
+        }
+    }
+
     // Enums define a fixed set of allowed values for type-safe fields
     enum BookStatus {
         Available,
@@ -57,7 +66,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
 
             // Lifecycle hook - hash the password before storing
             beforeCreate {
-                passwordHash = Auth.hashPassword(passwordHash);
+                passwordHash = Crypto.bcryptHash(passwordHash);
             }
 
         }
