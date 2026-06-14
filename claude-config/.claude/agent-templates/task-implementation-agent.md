@@ -78,6 +78,12 @@ powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specif
 
 **Important:** Include `VERIFIED_AGAINST_QUICK_REFERENCE` in the Bash tool description.
 
+**Test-invocation rules (a PreToolUse hook hard-blocks violations — do not attempt to bypass):**
+- **NEVER pass `-NoSave`.** It suppresses the saved timestamped `.test_results/` folder that Jon and the orchestrator read for progress. Always let results save.
+- **NEVER pass `-VerboseOutput`.** It floods the transcript and burns tokens for no benefit. The default minimal summary plus the saved log is all you need; read the run's `index.json` / `full.log` for detail.
+- **NEVER call `pytest` (or `python -m pytest`) directly.** All tests run through `test.ps1` / `test-single.ps1`, which activate the shared venv and save results.
+- **NEVER run `mypy` (or any standalone type-check command).** Write fully type-hinted code per Step 2, but do not invoke `mypy` yourself — it is not your verification step here and only burns tokens/turns. Type correctness is enforced by the orchestrator's suite gate.
+
 - If the task has NO `## Targeted Tests` section → report `no_targeted_tests: true`
 - If targeted tests fail → attempt to fix (max 3 attempts)
 - Do NOT run the full test suite — the orchestrator handles that after the wave/batch

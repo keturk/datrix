@@ -552,7 +552,9 @@ All rules from `d:\datrix\.claude\CLAUDE.md` apply. Key rules for the orchestrat
 - **NO debug scatter** — zero temporary logging statements left behind
 - **NO mocks in tests** — `unittest.mock`, `MagicMock`, `SimpleNamespace` all banned
 - **NO temporary files outside designated folders** — use `D:\datrix\.scripts\`, `D:\datrix\.test-output\`, `D:\datrix\.tmp\`
-- **Test execution via PowerShell scripts only** — always use `test.ps1`, never call pytest directly
+- **Test execution via PowerShell scripts only** — always use `test.ps1` / `test-single.ps1`, **never call `pytest` (or `python -m pytest`) directly**. A PreToolUse hook hard-blocks direct pytest.
+- **Never pass `-NoSave` or `-VerboseOutput` to `test.ps1`** — `-NoSave` hides the saved progress Jon reads; `-VerboseOutput` burns tokens for no benefit. Run with neither flag and read `index.json` for results. The hook hard-blocks both flags. This applies to the orchestrator's own gate/specific runs **and** every spawned agent.
+- **Never run `mypy`** (or any standalone type-checker) in this workflow — neither the orchestrator nor its agents. Code must be fully type-hinted, but type correctness is covered by the suite gate; a separate mypy run only burns tokens/turns.
 - **VERIFIED_AGAINST_QUICK_REFERENCE** — include in all Bash descriptions for script invocations
 - **Logic map** — check `d:/datrix/.logic-map/markers.db` before modifying code with markers
 - **Project domain isolation** — no customer/project domain language in framework packages

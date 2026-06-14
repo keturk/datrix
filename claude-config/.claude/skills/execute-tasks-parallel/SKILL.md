@@ -257,6 +257,11 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
    IMPORTANT: You implement code AND run ONLY targeted tests for your task.
    Do NOT run the full test suite — the orchestrator runs it once after ALL agents
    complete, to avoid N parallel full-suite executions.
+
+   TEST-INVOKE RULES (a PreToolUse hook hard-blocks violations):
+   - Never pass -NoSave or -VerboseOutput to test.ps1 (they hide saved progress / burn tokens).
+   - Never call pytest (or python -m pytest) directly — use test.ps1 / test-single.ps1.
+   - Never run mypy or any standalone type-checker — write typed code, but don't run a type-check command.
    ```
 
    **See the template file for:**
