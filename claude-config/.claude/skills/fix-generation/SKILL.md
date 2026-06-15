@@ -209,19 +209,23 @@ Pick the cluster representative (one project) and trace end to end:
 4. Update any logic-map markers (`@canonical`, `@pattern`, `@boundary`, `@invariant`) on modified code.
 5. **Cross-package handoff:** if the root cause is in a package different from the one you're scoped to, do NOT reach across — report it and hand off to that package's `/fix-codegen-*` skill (per the mapping table).
 
-### Step 7: Verify by Regenerating the Affected Project
+### Step 7: Verify by Regenerating the Affected Projects — ONE BY ONE
 
-Choose the regeneration command from the cluster representative's `Source` / `Output` (see [Generation / Regeneration Commands](#generation--regeneration-commands)). Do **NOT** regenerate more than needed:
+**Always regenerate one project/example at a time.** When a fix touches more than one failing project/example, verify each individually by regenerating its own `Source` — **never** run a whole group or `-All` to verify. Per-project regeneration isolates which projects the fix actually repaired, keeps a single new failure from being buried in a batch run, and avoids burning time re-running already-passing projects. Group/`-All` runs are reserved for a final full sweep that Jon explicitly requests — not for verification here.
 
-- **Framework example, one project** → regenerate just that `Source`:
+Choose the regeneration command from each failing project's `Source` / `Output` (see [Generation / Regeneration Commands](#generation--regeneration-commands)):
+
+- **Framework example** → regenerate that single `Source`, one at a time:
   `powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" "{source-dtrx-path}" -L {language}`
-- **Framework example, whole group affected** (the root cause spans every example in a group, e.g. all Domains) → regenerate that group only: `-TestSet foundation` / `-Domains` / `-TestSet {set}`. Use `-All` only when the cluster genuinely spans every test set.
-- **CurvAero backend** → for a single-service fix, regenerate only the affected service's source (CLAUDE.md single-service rule). For a system-wide fix, run the wrapper matching the log's Output profile (`generate-curvaero.ps1` / `-staging` / `-azure`).
+  If the cluster's root cause spans several examples, loop over them individually — regenerate the first, confirm SUCCESS, then the next, and so on. Do **NOT** use `-TestSet` / `-Domains` / `-All` to verify a fix.
+- **CurvAero backend** → for a single-service fix, regenerate only the affected service's source (CLAUDE.md single-service rule). For a system-wide fix, run the wrapper matching the log's Output profile (`generate-curvaero.ps1` / `-staging` / `-azure`) only when Jon explicitly asks for a full regen.
 
-Assess:
-- **Generation succeeds** → fix confirmed for that cluster. If the cluster spans multiple projects, regenerate one or two more representatives to confirm the pattern.
+Assess after **each** project's regeneration:
+- **Generation succeeds** → fix confirmed for that project. Move to the next affected project.
 - **Same error** → fix incomplete; investigate deeper (max 3 attempts per cluster).
 - **Different error** → fix introduced a regression or uncovered a second root cause; reassess.
+
+Confirm **every** affected project regenerates successfully before marking the cluster done — a fix that repairs the representative but not its siblings is not complete.
 
 Then run the debug-artifact check on any modified package:
 ```bash
@@ -303,7 +307,7 @@ On abort, write a partial issue report and report what was diagnosed, attempted,
 ## Anti-Patterns
 
 - **NO editing generated output** under `.generated/` or `.projects/` — fix the generator/template/project source; regeneration overwrites it.
-- **NO over-regenerating to verify** — regenerate the smallest scope that proves the fix (one source, then one group; never the full CurvAero system for a single-service change — CLAUDE.md).
+- **NO over-regenerating to verify** — regenerate **one project/example at a time**; never run a group (`-TestSet`/`-Domains`) or `-All` to verify a fix, and never the full CurvAero system for a single-service change (CLAUDE.md). When several projects are affected, verify each individually, one by one.
 - **NO running a datrix script without checking** `datrix/scripts/dev/quick-reference.md` first — a pre-tool hook enforces this.
 - **NO exploring the repo from scratch** — read `.project-structure.md` and the context above.
 - **NO trusting triage grouping blindly** — confirm clusters against the raw log.

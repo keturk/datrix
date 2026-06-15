@@ -65,6 +65,30 @@ config system library.System {
       port = 8500;
       datacenter = "dc1";
     }
+    keycloakIdentity {
+      host = "keycloak";
+      port = 8080;
+      adminUser = "admin";
+      adminPassword {
+        provider = "env";
+        name = "KEYCLOAK_ADMIN_PASSWORD";
+      }
+      dbEngine = "postgres";
+      providers {
+        internal {
+          realm = "library-internal";
+          clientId = "library-internal-client";
+        }
+        librarian {
+          realm = "library-librarian";
+          clientId = "library-librarian-client";
+        }
+        member {
+          realm = "library-member";
+          clientId = "library-member-client";
+        }
+      }
+    }
   }
 
   profile test as "test" extends base {

@@ -8,11 +8,9 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
     identity {
         provider librarian config('config/identity/librarian.dcfg') {
             String email;
-            group "librarians" as librarian;
         }
         provider member config('config/identity/member.dcfg') {
             String email;
-            group "members" as member;
         }
         provider internal config('config/identity/internal.dcfg') {
         }

@@ -1,0 +1,21 @@
+// Platform-managed identity provider for 'svc'.
+// mode = platformManaged: the generator resolves the target-native provider at
+// generation time (docker → Keycloak, Azure → Entra, AWS → Cognito).
+config identity svc {
+  base {
+    audience = "machine";
+    mode = "platformManaged";
+  }
+
+  profile development as "dev" extends base {
+  }
+
+  profile test as "test" extends base {
+  }
+
+  profile staging as "stg" extends base {
+  }
+
+  profile production as "prod" extends base {
+  }
+}
