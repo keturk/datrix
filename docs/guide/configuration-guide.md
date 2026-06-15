@@ -1064,7 +1064,7 @@ system {
 
 ```yaml
 test:
-  type: nginx                      # nginx, kong, traefik, aws-alb, azure-agw
+  type: nginx                      # nginx, managed
   host: localhost
   port: 8080
   cors:
@@ -1111,7 +1111,7 @@ production:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `type` | String | Gateway type (nginx, kong, aws-alb, etc.) |
+| `type` | String | Gateway type (nginx, managed) |
 | `host` | String | Gateway host |
 | `port` | Integer | Gateway port |
 | `cors` | Object | CORS configuration |

@@ -456,7 +456,7 @@ pubsub feedBus {
 
 ### Managed API Gateway (Stable)
 
-Datrix supports managed API gateway infrastructure through a `gateway` block at the application level and a unified `gateway.yaml` configuration. When `type: managed` (or `type: kong` / `type: traefik`), platform generators emit cloud-managed or self-hosted API gateway resources with throttling, API keys, usage plans, request validation, response caching, WAF integration, and custom domain/TLS management.
+Datrix supports managed API gateway infrastructure through a `gateway` block at the application level and a unified `gateway.yaml` configuration. When `type: managed` (cloud only), the AWS and Azure generators emit cloud-managed API gateway resources with throttling, API keys, usage plans, request validation, response caching, WAF integration, and custom domain/TLS management.
 
 **DSL syntax (application-level `gateway` block):**
 
@@ -481,14 +481,14 @@ application ecommerce.Ecommerce {
 }
 ```
 
-Gateway configuration can also be specified entirely in `gateway.yaml` (profile-based, as with other config files) for users who prefer YAML over DSL-level gateway config. The `type` field in `GatewayProfileConfig` determines the gateway infrastructure: `nginx` (default, existing NGINX reverse proxy), `managed` (cloud-native: AWS API Gateway / Azure APIM), `kong` (Kong Gateway for Docker/K8s), or `traefik` (Traefik for K8s).
+Gateway configuration can also be specified entirely in `gateway.yaml` (profile-based, as with other config files) for users who prefer YAML over DSL-level gateway config. The `type` field in `GatewayProfileConfig` determines the gateway infrastructure: `nginx` (default; the only self-hosted gateway, used by Docker and Kubernetes) or `managed` (cloud-only: AWS API Gateway / Azure APIM).
 
 **Multi-platform code generation:**
 
 | Platform | Status | Gateway Service | Generated Artifacts |
 |----------|--------|----------------|---------------------|
-| Docker Compose | Stable | Kong Gateway (declarative mode) when `type: managed`/`kong`; NGINX when `type: nginx` | Kong container + `kong.yml` declarative config with rate-limiting, key-auth, and proxy-cache plugins |
-| Kubernetes | Stable | Kong Ingress Controller CRDs or Traefik IngressRoute | KongPlugin CRDs (rate-limiting, key-auth) + annotated Ingress resources |
+| Docker Compose | Stable | NGINX reverse proxy when `type: nginx` (`managed` is cloud-only and rejected) | NGINX container + reverse-proxy config with rate limiting |
+| Kubernetes | Stable | NGINX Ingress controller when `type: nginx` (`managed` is cloud-only and rejected) | Annotated Ingress resources |
 | AWS | Stable | API Gateway REST API (full-featured) or HTTP API (throttling-only) | CDK/CloudFormation: REST API with usage plans, API keys, caching, VPC Link + NLB for ECS integration |
 | Azure | Stable | Azure API Management (APIM) | Bicep: APIM service, per-service APIs, products (usage plans), XML rate-limiting/quota policies |
 
