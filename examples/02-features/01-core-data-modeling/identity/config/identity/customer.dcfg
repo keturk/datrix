@@ -1,69 +1,85 @@
-{
-  "provider": "keycloak",
-  "audience": "customer",
-  "mode": "external",
-  "issuer": "https://auth.shop.example.com/realms/shop-customers",
-  "clientId": "shop-storefront",
-  "clientSecret": {
-    "provider": "env",
-    "name": "IDENTITY_CUSTOMER_CLIENT_SECRET"
-  },
-  "keycloak": {
-    "realm": "shop-customers",
-    "host": "auth.shop.example.com",
-    "port": 8443,
-    "adminUser": "admin",
-    "adminPassword": {
-      "provider": "env",
-      "name": "IDENTITY_CUSTOMER_ADMIN_PASSWORD"
-    },
-    "dbEngine": "postgres"
-  },
-  "identityFields": {
-    "email": {
-      "claimPath": "email",
-      "guarantee": "required",
-      "syncPolicy": "syncOnAuth"
-    },
-    "displayName": {
-      "claimPath": "name",
-      "guarantee": "optional",
-      "syncPolicy": "bootstrapOnly"
+// Example customer identity provider — external Keycloak (validated, not
+// provisioned), so the same example is valid on every deployment target.
+config identity customer {
+  base {
+    provider = "keycloak";
+    audience = "customer";
+    mode = "external";
+    issuer = "https://auth.shop.example.com/realms/shop-customers";
+    clientId = "shop-storefront";
+    clientSecret {
+      provider = "env";
+      name = "IDENTITY_CUSTOMER_CLIENT_SECRET";
     }
-  },
-  "roleSource": {
-    "claimPath": "realm_access.roles",
-    "guarantee": "optional"
-  },
-  "profileProjection": {
-    "enabled": true,
-    "fields": {
-      "email": {
-        "source": "email",
-        "owner": "provider",
-        "syncPolicy": "syncOnAuth"
-      },
-      "displayName": {
-        "source": "name",
-        "owner": "provider",
-        "syncPolicy": "bootstrapOnly"
-      },
-      "marketingOptIn": {
-        "owner": "app"
+    keycloak {
+      realm = "shop-customers";
+      host = "auth.shop.example.com";
+      port = 8443;
+      adminUser = "admin";
+      adminPassword {
+        provider = "env";
+        name = "IDENTITY_CUSTOMER_ADMIN_PASSWORD";
+      }
+      dbEngine = "postgres";
+    }
+    identityFields {
+      email {
+        claimPath = "email";
+        guarantee = "required";
+        syncPolicy = "syncOnAuth";
+      }
+      displayName {
+        claimPath = "name";
+        guarantee = "optional";
+        syncPolicy = "bootstrapOnly";
       }
     }
-  },
-  "publicClient": {
-    "baseUrls": {
-      "test": "https://shop.example.com",
-      "development": "http://localhost:3000",
-      "production": "https://shop.example.com"
-    },
-    "flows": ["authorization_code"]
-  },
-  "tokens": {
-    "accessToken": "1h",
-    "refreshToken": "30d",
-    "idToken": "1h"
+    roleSource {
+      claimPath = "realm_access.roles";
+      guarantee = "optional";
+    }
+    profileProjection {
+      enabled = true;
+      fields {
+        email {
+          source = "email";
+          owner = "provider";
+          syncPolicy = "syncOnAuth";
+        }
+        displayName {
+          source = "name";
+          owner = "provider";
+          syncPolicy = "bootstrapOnly";
+        }
+        marketingOptIn {
+          owner = "app";
+        }
+      }
+    }
+    publicClient {
+      baseUrls {
+        test = "https://shop.example.com";
+        development = "http://localhost:3000";
+        production = "https://shop.example.com";
+      }
+      flows = ["authorization_code"];
+    }
+    tokens {
+      accessToken = "1h";
+      refreshToken = "30d";
+      idToken = "1h";
+    }
+  }
+
+  profile development as "dev" extends base {
+  }
+
+  profile test as "test" extends base {
+  }
+
+  profile staging as "stg" extends base {
+  }
+
+  profile production as "prod" extends base {
   }
 }

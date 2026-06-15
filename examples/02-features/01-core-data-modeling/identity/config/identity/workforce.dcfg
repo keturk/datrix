@@ -1,46 +1,62 @@
-{
-  "provider": "keycloak",
-  "audience": "workforce",
-  "mode": "external",
-  "issuer": "https://auth.shop.example.com/realms/shop-staff",
-  "clientId": "shop-backoffice",
-  "clientSecret": {
-    "provider": "env",
-    "name": "IDENTITY_WORKFORCE_CLIENT_SECRET"
-  },
-  "keycloak": {
-    "realm": "shop-staff",
-    "host": "auth.shop.example.com",
-    "port": 8443,
-    "adminUser": "admin",
-    "adminPassword": {
-      "provider": "env",
-      "name": "IDENTITY_WORKFORCE_ADMIN_PASSWORD"
-    },
-    "dbEngine": "postgres"
-  },
-  "identityFields": {
-    "email": {
-      "claimPath": "email",
-      "guarantee": "required",
-      "syncPolicy": "syncOnAuth"
+// Example workforce identity provider — external Keycloak (validated, not
+// provisioned), valid on every deployment target.
+config identity workforce {
+  base {
+    provider = "keycloak";
+    audience = "workforce";
+    mode = "external";
+    issuer = "https://auth.shop.example.com/realms/shop-staff";
+    clientId = "shop-backoffice";
+    clientSecret {
+      provider = "env";
+      name = "IDENTITY_WORKFORCE_CLIENT_SECRET";
     }
-  },
-  "roleSource": {
-    "claimPath": "realm_access.roles",
-    "guarantee": "required"
-  },
-  "publicClient": {
-    "baseUrls": {
-      "test": "https://backoffice.shop.example.com",
-      "development": "http://localhost:3100",
-      "production": "https://backoffice.shop.example.com"
-    },
-    "flows": ["authorization_code"]
-  },
-  "tokens": {
-    "accessToken": "30m",
-    "refreshToken": "8h",
-    "idToken": "30m"
+    keycloak {
+      realm = "shop-staff";
+      host = "auth.shop.example.com";
+      port = 8443;
+      adminUser = "admin";
+      adminPassword {
+        provider = "env";
+        name = "IDENTITY_WORKFORCE_ADMIN_PASSWORD";
+      }
+      dbEngine = "postgres";
+    }
+    identityFields {
+      email {
+        claimPath = "email";
+        guarantee = "required";
+        syncPolicy = "syncOnAuth";
+      }
+    }
+    roleSource {
+      claimPath = "realm_access.roles";
+      guarantee = "required";
+    }
+    publicClient {
+      baseUrls {
+        test = "https://backoffice.shop.example.com";
+        development = "http://localhost:3100";
+        production = "https://backoffice.shop.example.com";
+      }
+      flows = ["authorization_code"];
+    }
+    tokens {
+      accessToken = "30m";
+      refreshToken = "8h";
+      idToken = "30m";
+    }
+  }
+
+  profile development as "dev" extends base {
+  }
+
+  profile test as "test" extends base {
+  }
+
+  profile staging as "stg" extends base {
+  }
+
+  profile production as "prod" extends base {
   }
 }

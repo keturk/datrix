@@ -1,29 +1,45 @@
-{
-  "provider": "keycloak",
-  "audience": "machine",
-  "mode": "external",
-  "issuer": "https://auth.shop.example.com/realms/shop-machines",
-  "clientId": "shop-service-clients",
-  "clientSecret": {
-    "provider": "env",
-    "name": "IDENTITY_PLATFORMMACHINE_CLIENT_SECRET"
-  },
-  "keycloak": {
-    "realm": "shop-machines",
-    "host": "auth.shop.example.com",
-    "port": 8443,
-    "adminUser": "admin",
-    "adminPassword": {
-      "provider": "env",
-      "name": "IDENTITY_PLATFORMMACHINE_ADMIN_PASSWORD"
-    },
-    "dbEngine": "postgres"
-  },
-  "roleSource": {
-    "claimPath": "realm_access.roles",
-    "guarantee": "required"
-  },
-  "tokens": {
-    "accessToken": "15m"
+// Example machine identity provider — external Keycloak (validated, not
+// provisioned), valid on every deployment target.
+config identity platformMachine {
+  base {
+    provider = "keycloak";
+    audience = "machine";
+    mode = "external";
+    issuer = "https://auth.shop.example.com/realms/shop-machines";
+    clientId = "shop-service-clients";
+    clientSecret {
+      provider = "env";
+      name = "IDENTITY_PLATFORMMACHINE_CLIENT_SECRET";
+    }
+    keycloak {
+      realm = "shop-machines";
+      host = "auth.shop.example.com";
+      port = 8443;
+      adminUser = "admin";
+      adminPassword {
+        provider = "env";
+        name = "IDENTITY_PLATFORMMACHINE_ADMIN_PASSWORD";
+      }
+      dbEngine = "postgres";
+    }
+    roleSource {
+      claimPath = "realm_access.roles";
+      guarantee = "required";
+    }
+    tokens {
+      accessToken = "15m";
+    }
+  }
+
+  profile development as "dev" extends base {
+  }
+
+  profile test as "test" extends base {
+  }
+
+  profile staging as "stg" extends base {
+  }
+
+  profile production as "prod" extends base {
   }
 }
