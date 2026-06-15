@@ -1,9 +1,11 @@
 ---
 description: Analyze project bug reports, classify as app-definition or generator-level, fix root causes, and update reports with resolution
-model: claude-sonnet-4-6
+model: claude-opus-4-8
 ---
 
 # Fix Bug Report
+
+**Reasoning effort: HIGH.** Apply STOP AND THINK on every bug — read the generator/template/transformer and the offending app definition before forming a hypothesis. One correct root-cause fix beats five quick patches.
 
 Analyze structured bug reports, classify each as an app-definition fix or a generator-level fix, implement the appropriate changes, and update each bug report with the resolution.
 
