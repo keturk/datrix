@@ -60,6 +60,27 @@ PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
     ]
 )
 
+# The closed set of language-agnostic datrix_codegen_common subtrees that the
+# SQL generator is permitted to import.  SQL is a schema/DDL generator — it is
+# not a language generator, but it is not a platform generator either, so it
+# carries its own narrower carve-out rather than the platform set.
+#
+# Covers the datrix_codegen_common modules that SQL imports today:
+#   gendsl.*                          — GenDSL compiler/executor (shared entry point)
+#   context_models.migration          — SQL migration state model (language-agnostic)
+#   orchestration.migration_adapter   — migration adapter shared by SQL + TS (language-agnostic)
+#
+# SQL remains FORBIDDEN from: transpiler.*, language-shaped context_models.*
+# (entity/schema/service/endpoint/cache/pubsub/cqrs/jobs/project), algorithms.*,
+# dashboards.*, and the platform-specific subtrees.
+SQL_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
+    [
+        "datrix_codegen_common.gendsl",
+        "datrix_codegen_common.context_models.migration",
+        "datrix_codegen_common.orchestration.migration_adapter",
+    ]
+)
+
 # Boundary rules: source package -> BoundaryRule
 # forbidden_prefixes: imports whose prefix matches are forbidden
 # allowed_subtrees: specific sub-prefixes that override the broader forbidden prefix
@@ -94,6 +115,31 @@ BOUNDARY_RULES: dict[str, BoundaryRule] = {
     ),
     "datrix_codegen_typescript": BoundaryRule(
         forbidden_prefixes=("datrix_codegen_python",),
+    ),
+    # SQL generator: forbidden from sibling language packages and from the bulk of
+    # datrix_codegen_common (it is not a language generator, so the transpiler and
+    # language-shaped subtrees are off-limits).  SQL_CODEGEN_COMMON_ALLOWED_SUBTREES
+    # carves out the narrow language-agnostic subtrees SQL legitimately uses.
+    "datrix_codegen_sql": BoundaryRule(
+        forbidden_prefixes=(
+            "datrix_codegen_python",
+            "datrix_codegen_typescript",
+            "datrix_codegen_common",
+            "datrix_cli",
+        ),
+        allowed_subtrees=SQL_CODEGEN_COMMON_ALLOWED_SUBTREES,
+    ),
+    # Component generator: forbidden from sibling language packages and datrix_cli.
+    # Component is a language-agnostic scaffolding generator — it is not a language
+    # generator, but unlike SQL it legitimately imports datrix_codegen_common freely
+    # (gendsl, algorithms.serverless, context_models.serverless, etc.), so
+    # datrix_codegen_common is NOT on its forbidden list.
+    "datrix_codegen_component": BoundaryRule(
+        forbidden_prefixes=(
+            "datrix_codegen_python",
+            "datrix_codegen_typescript",
+            "datrix_cli",
+        ),
     ),
     # Platform generators keep datrix_codegen_common on forbidden_prefixes but carry
     # PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES to admit the language-agnostic

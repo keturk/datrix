@@ -42,6 +42,7 @@ is_forbidden_import = _scanner.is_forbidden_import
 BOUNDARY_RULES = _scanner.BOUNDARY_RULES
 BoundaryRule = _scanner.BoundaryRule
 PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES = _scanner.PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES
+SQL_CODEGEN_COMMON_ALLOWED_SUBTREES = _scanner.SQL_CODEGEN_COMMON_ALLOWED_SUBTREES
 
 # ---------------------------------------------------------------------------
 # Constants referenced in the tests — pulled from the module so changes to
@@ -264,3 +265,168 @@ class TestCarveoutDoesNotLeakToOtherPackages:
                 f"Platform rule for {platform!r} should have non-empty allowed_subtrees "
                 f"but found: {rule.allowed_subtrees!r}"
             )
+
+
+@pytest.mark.unit
+class TestSqlBoundaryRuleCoverage:
+    """BOUNDARY_RULES contains an entry for datrix_codegen_sql and it enforces
+    the sibling-language prohibition absolutely.
+
+    Covers task 78-14: closing the scanner gap for the SQL generator package.
+    """
+
+    def test_sql_rule_exists_in_boundary_rules(self) -> None:
+        """datrix_codegen_sql must have an entry in BOUNDARY_RULES."""
+        assert "datrix_codegen_sql" in BOUNDARY_RULES, (
+            "datrix_codegen_sql is absent from BOUNDARY_RULES — the SQL package "
+            "is unrestricted and cross-language imports would go undetected."
+        )
+
+    def test_sql_rule_has_sql_codegen_common_allowed_subtrees(self) -> None:
+        """The SQL rule must carry the SQL_CODEGEN_COMMON_ALLOWED_SUBTREES carve-out."""
+        rule = BOUNDARY_RULES["datrix_codegen_sql"]
+        assert rule.allowed_subtrees == SQL_CODEGEN_COMMON_ALLOWED_SUBTREES, (
+            f"datrix_codegen_sql's allowed_subtrees should equal SQL_CODEGEN_COMMON_ALLOWED_SUBTREES "
+            f"but found: {rule.allowed_subtrees!r}"
+        )
+
+    @pytest.mark.parametrize(
+        "imported_module",
+        [
+            "datrix_codegen_typescript",
+            "datrix_codegen_typescript.generators.persistence.mikroorm_migration_adapter",
+            "datrix_codegen_python",
+            "datrix_codegen_python.generators.api",
+            "datrix_cli",
+        ],
+    )
+    def test_sql_sibling_language_imports_are_forbidden(self, imported_module: str) -> None:
+        """Sibling language and CLI imports must be flagged as forbidden for SQL."""
+        rule = BOUNDARY_RULES["datrix_codegen_sql"]
+        is_forbidden = any(
+            is_forbidden_import("datrix_codegen_sql", imported_module, prefix, rule.allowed_subtrees)
+            for prefix in rule.forbidden_prefixes
+        )
+        assert is_forbidden, (
+            f"Import {imported_module!r} was NOT flagged as forbidden for datrix_codegen_sql — "
+            f"the sibling-language prohibition must be absolute."
+        )
+
+    @pytest.mark.parametrize(
+        "imported_module",
+        [
+            # gendsl subtree — SQL's GenDSL entry point
+            "datrix_codegen_common.gendsl",
+            "datrix_codegen_common.gendsl.compiler",
+            "datrix_codegen_common.gendsl.executor",
+            "datrix_codegen_common.gendsl.test_harness",
+            # migration context model — SQL-specific but language-agnostic
+            "datrix_codegen_common.context_models.migration",
+            # migration orchestration adapter — shared SQL + TS migration adapter
+            "datrix_codegen_common.orchestration.migration_adapter",
+        ],
+    )
+    def test_sql_allowed_codegen_common_subtrees_are_not_forbidden(self, imported_module: str) -> None:
+        """Language-agnostic codegen-common subtrees that SQL legitimately imports must not be flagged."""
+        rule = BOUNDARY_RULES["datrix_codegen_sql"]
+        is_forbidden = any(
+            is_forbidden_import("datrix_codegen_sql", imported_module, prefix, rule.allowed_subtrees)
+            for prefix in rule.forbidden_prefixes
+        )
+        assert not is_forbidden, (
+            f"Allowed import {imported_module!r} was incorrectly flagged as forbidden "
+            f"for datrix_codegen_sql — check SQL_CODEGEN_COMMON_ALLOWED_SUBTREES."
+        )
+
+    @pytest.mark.parametrize(
+        "imported_module",
+        [
+            # transpiler is explicitly walled off
+            "datrix_codegen_common.transpiler.shared_transpiler",
+            # language-shaped context_models subtrees
+            "datrix_codegen_common.context_models.entity",
+            "datrix_codegen_common.context_models.schema",
+            # algorithms subtrees (not serverless)
+            "datrix_codegen_common.algorithms.entity",
+        ],
+    )
+    def test_sql_denied_codegen_common_subtrees_are_forbidden(self, imported_module: str) -> None:
+        """Language-shaped codegen-common subtrees must remain forbidden for SQL."""
+        rule = BOUNDARY_RULES["datrix_codegen_sql"]
+        is_forbidden = any(
+            is_forbidden_import("datrix_codegen_sql", imported_module, prefix, rule.allowed_subtrees)
+            for prefix in rule.forbidden_prefixes
+        )
+        assert is_forbidden, (
+            f"Denied import {imported_module!r} was NOT flagged as forbidden for datrix_codegen_sql — "
+            f"the allowed_subtrees carve-out must not be too broad."
+        )
+
+
+@pytest.mark.unit
+class TestComponentBoundaryRuleCoverage:
+    """BOUNDARY_RULES contains an entry for datrix_codegen_component and it enforces
+    the sibling-language prohibition absolutely.
+
+    Covers task 78-14: closing the scanner gap for the Component generator package.
+    """
+
+    def test_component_rule_exists_in_boundary_rules(self) -> None:
+        """datrix_codegen_component must have an entry in BOUNDARY_RULES."""
+        assert "datrix_codegen_component" in BOUNDARY_RULES, (
+            "datrix_codegen_component is absent from BOUNDARY_RULES — the Component package "
+            "is unrestricted and cross-language imports would go undetected."
+        )
+
+    def test_component_rule_has_empty_allowed_subtrees(self) -> None:
+        """Component's rule has no allowed_subtrees (datrix_codegen_common is not restricted)."""
+        rule = BOUNDARY_RULES["datrix_codegen_component"]
+        assert rule.allowed_subtrees == frozenset(), (
+            f"datrix_codegen_component's BoundaryRule should have empty allowed_subtrees "
+            f"(datrix_codegen_common is not forbidden for Component) but found: {rule.allowed_subtrees!r}"
+        )
+
+    @pytest.mark.parametrize(
+        "imported_module",
+        [
+            "datrix_codegen_typescript",
+            "datrix_codegen_typescript.generators.api",
+            "datrix_codegen_python",
+            "datrix_codegen_python.generators.api",
+            "datrix_cli",
+        ],
+    )
+    def test_component_sibling_language_imports_are_forbidden(self, imported_module: str) -> None:
+        """Sibling language and CLI imports must be flagged as forbidden for Component."""
+        rule = BOUNDARY_RULES["datrix_codegen_component"]
+        is_forbidden = any(
+            is_forbidden_import("datrix_codegen_component", imported_module, prefix, rule.allowed_subtrees)
+            for prefix in rule.forbidden_prefixes
+        )
+        assert is_forbidden, (
+            f"Import {imported_module!r} was NOT flagged as forbidden for datrix_codegen_component — "
+            f"the sibling-language prohibition must be absolute."
+        )
+
+    @pytest.mark.parametrize(
+        "imported_module",
+        [
+            # Component freely imports datrix_codegen_common (not restricted)
+            "datrix_codegen_common.gendsl.compiler",
+            "datrix_codegen_common.gendsl.executor",
+            "datrix_codegen_common.algorithms.serverless",
+            "datrix_codegen_common.algorithms.nosql_connection",
+            "datrix_codegen_common.context_models.serverless",
+        ],
+    )
+    def test_component_codegen_common_imports_are_not_forbidden(self, imported_module: str) -> None:
+        """datrix_codegen_common imports must NOT be flagged for Component (it is not restricted)."""
+        rule = BOUNDARY_RULES["datrix_codegen_component"]
+        is_forbidden = any(
+            is_forbidden_import("datrix_codegen_component", imported_module, prefix, rule.allowed_subtrees)
+            for prefix in rule.forbidden_prefixes
+        )
+        assert not is_forbidden, (
+            f"Import {imported_module!r} was incorrectly flagged as forbidden for datrix_codegen_component — "
+            f"datrix_codegen_common is not restricted for Component."
+        )
