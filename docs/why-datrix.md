@@ -11,7 +11,7 @@ Vibe coding is ad hoc by nature. Every session starts fresh. There's no memory o
 | **Consistency** | Every prompt produces different code. Two services built the same way will have different patterns, naming, and structure. | Every service follows the same architecture. Same patterns, same naming, same structure — every time. |
 | **Hallucination** | AI invents APIs that don't exist, uses deprecated libraries, generates code that looks right but fails at runtime. | Deterministic generation from validated templates. No guessing, no hallucination. If it compiles, it works. |
 | **Cross-service coordination** | Each service is generated independently. Shared types drift, event contracts break, API clients fall out of sync. | All services are generated from a single source of truth. Types, events, and API contracts are consistent by definition. |
-| **Infrastructure** | You still have to manually write Docker, Kubernetes, monitoring, and CI/CD configs — AI can't see your full architecture. | Infrastructure is generated alongside application code. Docker Compose, K8s manifests, Prometheus configs — all wired together automatically. |
+| **Infrastructure** | You still have to manually write Docker, monitoring, and CI/CD configs — AI can't see your full architecture. | Infrastructure is generated alongside application code. Docker Compose, Prometheus configs — all wired together automatically. |
 | **Reproducibility** | Re-prompting the same request gives different results. No version control over the generation process itself. | Same `.dtrx` input always produces the same output. Your architecture is version-controlled and diffable. |
 | **Team scaling** | Code quality varies by who wrote the prompt and when. Senior and junior developers produce wildly different outputs. | Best practices are encoded in the generator. Every developer produces the same architecture, regardless of seniority. |
 | **Cost** | Monthly AI subscriptions per developer, plus token costs that scale with codebase size. | No AI subscription needed. Datrix runs locally — your architecture definition is the only input. |
@@ -31,13 +31,13 @@ With Datrix, change a field name in your entity, regenerate, and every service t
 
 ### Your Spec Outlives Your Stack
 
-Vibe-coded projects are frozen the moment they're written. The code is the artifact — and if the world around it changes (a library deprecates its API, a better pattern emerges, your team decides to move from Docker to Kubernetes), someone has to go touch every file that's affected. Which is most of them.
+Vibe-coded projects are frozen the moment they're written. The code is the artifact — and if the world around it changes (a library deprecates its API, a better pattern emerges, your team decides to move from Docker Compose to AWS ECS), someone has to go touch every file that's affected. Which is most of them.
 
 With Datrix, your `.dtrx` spec is the only thing you own. The generated code is just today's output from it.
 
 - **Datrix ships a bug fix** in how it generates authentication middleware. Regenerate. Every service gets the fix.
 - **You want to add OpenTelemetry tracing** across the platform. It gets added to the generator. Regenerate. Done.
-- **Your startup grows and you need Kubernetes** instead of Docker Compose. The spec doesn't change — switch the platform flag and regenerate.
+- **Your startup grows and you need managed cloud hosting** instead of Docker Compose. The spec doesn't change — switch the platform flag and regenerate.
 - **A new language target ships.** Your Python services can become TypeScript services without rewriting a single line of business logic.
 - **You need to migrate from AWS to Azure** — or any cloud to any other. The spec doesn't describe AWS services or Azure services. It describes *your* services. Datrix handles the mapping to each cloud's managed offerings. Switch the platform target, regenerate, and your application uses the native services of the new cloud without a single line of business logic changing.
 - **You need to onboard a new developer.** Hand them the `.dtrx` files. The entire architecture is readable, reviewable, and fits in a single screen.
@@ -116,7 +116,6 @@ datrix-common          — Shared AST, semantic analysis, validation engine
        +-- datrix-codegen-component   — Config, docs, and schema generator
        |
        +-- datrix-codegen-docker      — Docker + Compose platform generator
-       +-- datrix-codegen-k8s         — Kubernetes manifests generator
        +-- datrix-codegen-aws         — AWS CDK + CloudFormation generator
        +-- datrix-codegen-azure       — Azure Bicep + ARM generator
        |

@@ -50,7 +50,7 @@ From these specifications, Datrix generates production-ready code in your target
 
 ✅ **Type-safe by design** — All types are validated at specification time
 ✅ **DRY principle** — Define once, generate everywhere
-✅ **Platform-agnostic** — Same spec works for Docker, Kubernetes, AWS, Azure
+✅ **Platform-agnostic** — Same spec works for Docker, AWS, Azure
 ✅ **Fail-fast validation** — Errors caught before code generation
 ✅ **Zero boilerplate** — No manual CRUD, no manual API routing
 ✅ **Production-ready output** — Proper error handling, logging, observability
@@ -189,9 +189,9 @@ config system ecommerce.System {
     profile production {
         language: python
         deployment {
-            runtime: kubernetes
+            runtime: ecs-fargate
             provider: aws
-            target: eks
+            registry: ecr
         }
         region: us-east-1
     }
@@ -1617,7 +1617,7 @@ Generated services expose three distinct probes rather than one conflated `/heal
 | `/ready` | All `required` dependencies usable — returns 503 when a required dependency is down |
 | `/health` | Detailed per-dependency report, including `degraded` optional dependencies |
 
-A dependency declared `health = "degraded"` keeps `/ready` green while `/health` reports `degraded`, unless you set `readyOnDegraded = false` to make it a readiness blocker for guarded rollouts. Deployment probes (Docker healthcheck, Kubernetes liveness/readiness/startup) point at `/ready`.
+A dependency declared `health = "degraded"` keeps `/ready` green while `/health` reports `degraded`, unless you set `readyOnDegraded = false` to make it a readiness blocker for guarded rollouts. Deployment probes (Docker healthcheck) point at `/ready`.
 
 ---
 
@@ -1721,7 +1721,7 @@ config extern pricing.PricingEngine {
 }
 ```
 
-This generates Docker Compose entries and Kubernetes manifests for the extern service, including health checks and environment variables.
+This generates Docker Compose entries for the extern service, including health checks and environment variables.
 
 **External mode** — The service runs somewhere else (cloud, on-premises):
 

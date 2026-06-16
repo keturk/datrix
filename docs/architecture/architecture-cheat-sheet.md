@@ -28,7 +28,6 @@ Optional **datrix-extensions** (domain packs, `datrix.extensions` entry points) 
 | datrix-codegen-typescript | TypeScript generation (NestJS/Express). Jinja2 + Prettier |
 | datrix-codegen-sql | SQL DDL (PostgreSQL, MySQL) |
 | datrix-codegen-docker | Docker/Compose generation. YAML builders |
-| datrix-codegen-k8s | Kubernetes manifests |
 | datrix-codegen-aws | AWS infrastructure (CDK/CloudFormation): VPC, ECS, RDS, ElastiCache, SNS/SQS, MSK (Kafka), DynamoDB, S3 |
 | datrix-codegen-azure | Azure infrastructure (Bicep/ARM): App Service, Functions, Flexible Server, Cosmos DB, Service Bus, Event Hubs (Kafka), Redis, Blob, APIM, Front Door, AI Search |
 | datrix-cli | CLI. Discovers generator plugins dynamically via entry points |
@@ -87,7 +86,7 @@ Contract-only declarations for external libraries/tools that Datrix does not gen
 - **Extern service = contract only** — user builds and deploys the implementation
 - **Allowed members:** `struct`, `enum`, `rest_api` (signature-only), `errors`, `auth`, `health`
 - **No infrastructure blocks** (`rdbms`, `cache`, `pubsub`, etc.)
-- **Config:** `deployment: container` (image + port, compose/K8s entries generated) or `deployment: external` (remote URL, no deployment artifacts)
+- **Config:** `deployment: container` (image + port, compose entries generated) or `deployment: external` (remote URL, no deployment artifacts)
 - **Generated artifacts:** typed HTTP client, request/response models, error classes, contract validation (per consuming service)
 - **AST:** `ExternService` in `datrix_common.datrix_model.extern_service`, registered on `Application.extern_services`
 - **`uses` resolution order:** shared block → extern service → regular service

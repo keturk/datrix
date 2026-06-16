@@ -39,7 +39,7 @@ disable-model-invocation: true
 - Jinja2 templates + ruff format (Python) / Prettier (TypeScript)
 - Exhaustive type mappings. Validate generated code.
 
-### datrix-codegen-* (docker, k8s, aws, azure)
+### datrix-codegen-* (docker, aws, azure)
 - YAML/JSON builders. Validate manifests.
 
 ## Code Examples

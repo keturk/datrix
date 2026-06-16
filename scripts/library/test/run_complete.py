@@ -2890,14 +2890,14 @@ Examples:
     "--platform",
     dest="platform",
     default="docker-compose/local",
-    help="Target platform (default: docker-compose/local). Common values: docker-compose/local, kubernetes/existing, etc."
+    help="Target platform (default: docker-compose/local). Common values: docker-compose/local, azure-container-apps/existing, etc."
     )
     parser.add_argument(
     "-Hosting",
     "--hosting",
     dest="hosting",
     default=None,
-    help="Hosting platform override (docker, kubernetes, aws, azure)"
+    help="Hosting platform override (docker, aws, azure)"
     )
     parser.add_argument(
     "-Skip1",

@@ -77,8 +77,8 @@ config system shop.System {
     alias resource = "prod";
 
     deployment {
-      runtime = "ecs-fargate";
-      provider = "aws";
+      runtime = "docker-compose";
+      provider = "local";
     }
     secrets {
       provider = "vault";
@@ -90,9 +90,10 @@ config system shop.System {
       }
     }
     serviceDiscovery {
-      type = "kubernetes";
-      namespace = "default";
-      labelSelector = "app=shop";
+      type = "consul";
+      host = "localhost";
+      port = 8500;
+      datacenter = "dc1";
     }
     region = "us-east-1";
   }

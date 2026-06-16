@@ -6,7 +6,7 @@
 
 ## Repository Architecture
 
-The project is split into **thirteen** installable packages (twelve core toolchain packages plus optional **datrix-extensions**), plus the **datrix** showcase repo (docs, examples, scripts) and **datrix-projects** repo (private production projects). This structure provides clear boundaries, independent versioning/releases, selective installation, and per-repo CI/CD pipelines.
+The project is split into **twelve** installable packages (eleven core toolchain packages plus optional **datrix-extensions**), plus the **datrix** showcase repo (docs, examples, scripts) and **datrix-projects** repo (private production projects). This structure provides clear boundaries, independent versioning/releases, selective installation, and per-repo CI/CD pipelines.
 
 ### Core Repositories (2)
 
@@ -97,37 +97,34 @@ Generates SQL DDL (PostgreSQL, MySQL). Extends `SQLDialect` protocol with seed-s
 
 ---
 
-### Platform Generators (4)
+### Platform Generators (3)
 
 Generate infrastructure and deployment configurations. Under the [Deployment Target Contract](../architecture-overview.md#decision-6-deployment-target-contract-stable), these generators are classified by their role in the multidimensional deployment model:
 
-- **Runtime generators** (`datrix-codegen-docker`, `datrix-codegen-k8s`) — own the deployable artifact shape for `docker-compose` and `kubernetes` runtimes respectively
+- **Runtime generators** (`datrix-codegen-docker`) — owns the deployable artifact shape for the `docker-compose` runtime
 - **Provider generators** (`datrix-codegen-aws`, `datrix-codegen-azure`) — own provider-managed infrastructure, and also own provider-native runtimes (`ecs-fargate`, `app-runner` for AWS; `azure-app-service` for Azure)
 
-Provider generators augment runtime output when selected alongside Docker or Kubernetes. For `runtime: kubernetes, provider: azure`, the K8s generator still produces Kubernetes manifests; the Azure generator adds AKS/ACR/identity/networking/managed-service integration. For `runtime: azure-app-service`, the Azure generator produces all infrastructure directly — there is no separate runtime generator.
+Provider generators augment runtime output when selected alongside Docker. For `runtime: docker-compose, provider: aws`, the Docker generator still produces the Compose artifacts; the AWS generator adds VPC/identity/networking/managed-service integration. For `runtime: azure-app-service`, the Azure generator produces all infrastructure directly — there is no separate runtime generator.
 
 #### 8. datrix-codegen-docker
 Generates Dockerfiles and docker-compose.yml, including optional **job worker** services for Python services with jobs, **Elasticsearch** infrastructure plus index-init containers when search integration and searchable fields are present, **Varnish** cache proxy containers when `cdn` blocks are configured (simulates edge caching for local development), **PgBouncer** containers when `connectionPooler.enabled: true` on RDBMS blocks (one PgBouncer container per consolidated database, with health check and dependency wiring), an **NGINX reverse-proxy** gateway container when `gateway.type` is `nginx` (the only self-hosted gateway; `managed` is cloud-only and rejected for Docker), and **seed services** that run profile-gated seed scripts after migration completion (production profiles run reference data only by default)
 
-#### 9. datrix-codegen-k8s
-Generates Kubernetes manifests (Deployment, Service, etc.) including Elasticsearch StatefulSets, headless Services, and search index init Jobs when `search` blocks are present, PgBouncer Deployment + ClusterIP Service + ConfigMap when `connectionPooler.enabled: true` on RDBMS blocks, an NGINX Ingress controller with annotated Ingress when `gateway.type` is `nginx` (the only self-hosted gateway; `managed` is cloud-only and rejected for Kubernetes), and **seed Jobs** that run profile-gated seed scripts after schema initialization and migrations (alongside existing Kafka/RabbitMQ/search init Jobs)
-
-#### 10. datrix-codegen-aws
+#### 9. datrix-codegen-aws
 Generates AWS infrastructure (CDK, CloudFormation) including VPC, ECS Fargate, RDS, ElastiCache, SNS/SQS, MSK (Kafka), Amazon MQ (RabbitMQ), DynamoDB, Amazon DocumentDB (MongoDB), S3, ALB, Amazon OpenSearch Service domains, CloudFront CDN distributions (with OAC for S3 origins, custom domains, and SSL certificates), RDS Proxy resources when `connectionPooler.enabled: true` on RDBMS blocks, API Gateway (REST API or HTTP API) with usage plans, API keys, response caching, WAF Web ACL, VPC Link + NLB, and custom domains when `gateway.type` is `managed`, and AWS Cloud Map service discovery (private DNS namespace + ECS service registration for internal service-to-service communication)
 
-#### 11. datrix-codegen-azure
-Generates Azure infrastructure (Bicep) including App Service (native PaaS runtime for `runtime: azure-app-service`), Azure Functions (serverless handlers from `serverless` blocks), Flexible Server (from `rdbms` blocks), Cosmos DB (from `nosql` blocks), Service Bus or Event Hubs/Kafka (from `pubsub` blocks), Azure Cache for Redis (from `cache` blocks), Blob Storage (from `storage` blocks), Azure AI Search services (from `search` blocks), Azure Front Door CDN profiles (from `cdn` blocks), Azure API Management (from `gateway.type: managed`), built-in PgBouncer server parameters on Flexible Server when `connectionPooler.enabled: true`, App Service internal service discovery (peer service URL env vars), and AKS provisioning support (for `runtime: kubernetes, target: aks`). Service deployment shape is derived from declared DSL blocks; no per-service runtime-flavor selector is used.
+#### 10. datrix-codegen-azure
+Generates Azure infrastructure (Bicep) including App Service (native PaaS runtime for `runtime: azure-app-service`), Azure Functions (serverless handlers from `serverless` blocks), Flexible Server (from `rdbms` blocks), Cosmos DB (from `nosql` blocks), Service Bus or Event Hubs/Kafka (from `pubsub` blocks), Azure Cache for Redis (from `cache` blocks), Blob Storage (from `storage` blocks), Azure AI Search services (from `search` blocks), Azure Front Door CDN profiles (from `cdn` blocks), Azure API Management (from `gateway.type: managed`), built-in PgBouncer server parameters on Flexible Server when `connectionPooler.enabled: true`, and App Service internal service discovery (peer service URL env vars). Service deployment shape is derived from declared DSL blocks; no per-service runtime-flavor selector is used.
 
 **Dependencies:**
 - `datrix-common` (AST model, configuration, generation framework, YAML/JSON builders)
 
-> **Language-agnostic provider generators.** All four platform generators obtain language-specific runtime details from the `LanguageRuntimeSpec` protocol via `discover_language_runtime_spec(target_language)` — no `Language`-enum branching, no `language_name == "…"` comparisons in application-wiring code. The protocol carries three provider-facing methods alongside the Docker/K8s set: `container_command(service, package_name)` (explicit HTTP-service start command, consumed by Azure App Service; AWS inherits its container `ENTRYPOINT` from the Docker image), `hosts_consumers_in_process()` (whether scheduled-job / event-consumer / queue-worker containers run in-process on Compose/K8s), and `project_language()` (the language's `ProjectLanguage`). The IaC language a provider authors infrastructure in (AWS CDK Python, Azure Bicep) is independent of the generated app's language — AWS pins it in one `_CDK_IAC_LANGUAGE` constant. Shared, language-agnostic provider concerns (the `resolve_runtime_spec` discovery helper, the `runtime_stack_token` composer, and the `PlatformInfrastructure` protocol) live in the **`platform/` subpackage inside the existing `datrix-codegen-common`** (`datrix_codegen_common.platform`, a sibling of `gendsl/`, `dashboards/`, `algorithms/`, `context_models/`) — **not a new package**. The shared Grafana `DashboardBuilder` already lives in `datrix_codegen_common.dashboards` and platforms import it directly (no re-home, no facade). The platform discovery seam is the existing `PlatformGenerator` + `datrix.platforms` group — there is no separate `PlatformAdapter` type; `PlatformInfrastructure` is a property on `PlatformGenerator` subclasses. See [Shared Provider Library](../../datrix-codegen-common/docs/architecture.md#shared-provider-library-platform) and [Decision 12: Language-Agnostic Provider Generators](../architecture-overview.md#decision-12-language-agnostic-provider-generators).
+> **Language-agnostic provider generators.** All three platform generators obtain language-specific runtime details from the `LanguageRuntimeSpec` protocol via `discover_language_runtime_spec(target_language)` — no `Language`-enum branching, no `language_name == "…"` comparisons in application-wiring code. The protocol carries three provider-facing methods alongside the Docker set: `container_command(service, package_name)` (explicit HTTP-service start command, consumed by Azure App Service; AWS inherits its container `ENTRYPOINT` from the Docker image), `hosts_consumers_in_process()` (whether scheduled-job / event-consumer / queue-worker containers run in-process on Compose), and `project_language()` (the language's `ProjectLanguage`). The IaC language a provider authors infrastructure in (AWS CDK Python, Azure Bicep) is independent of the generated app's language — AWS pins it in one `_CDK_IAC_LANGUAGE` constant. Shared, language-agnostic provider concerns (the `resolve_runtime_spec` discovery helper, the `runtime_stack_token` composer, and the `PlatformInfrastructure` protocol) live in the **`platform/` subpackage inside the existing `datrix-codegen-common`** (`datrix_codegen_common.platform`, a sibling of `gendsl/`, `dashboards/`, `algorithms/`, `context_models/`) — **not a new package**. The shared Grafana `DashboardBuilder` already lives in `datrix_codegen_common.dashboards` and platforms import it directly (no re-home, no facade). The platform discovery seam is the existing `PlatformGenerator` + `datrix.platforms` group — there is no separate `PlatformAdapter` type; `PlatformInfrastructure` is a property on `PlatformGenerator` subclasses. See [Shared Provider Library](../../datrix-codegen-common/docs/architecture.md#shared-provider-library-platform) and [Decision 12: Language-Agnostic Provider Generators](../architecture-overview.md#decision-12-language-agnostic-provider-generators).
 
 ---
 
 ### CLI (1)
 
-#### 12. datrix-cli
+#### 11. datrix-cli
 Command-line interface for code generation and seed management
 
 **Responsibilities:**
@@ -148,7 +145,7 @@ Command-line interface for code generation and seed management
 
 ### Extension packs (optional)
 
-#### 13. datrix-extensions
+#### 12. datrix-extensions
 Optional package of **domain extension** entry points registered under the `datrix.extensions` group. Each pack contributes language-agnostic scalar definitions, builtin objects, and value struct definitions via the **`value_struct_definitions()`** surface on the `DatrixExtension` protocol, database extension names, extra dependency hints, and optional template directories. **Language-specific type mappings** live in `datrix-codegen-python`, `datrix-codegen-typescript`, `datrix-codegen-sql`, not in the extension pack (split ownership).
 
 **Current extensions:**
@@ -167,7 +164,7 @@ Optional package of **domain extension** entry points registered under the `datr
 
 ### Showcase (1)
 
-#### 14. datrix
+#### 13. datrix
 Public repository with documentation, examples, and scripts.
 
 ---
@@ -178,14 +175,14 @@ Generators and domain extensions load through **setuptools entry-point groups** 
 
 - **Protocols** — Code generators implement `GeneratorPlugin`; platform generators implement `PlatformPlugin`. **Language targets subclass `LanguageGenerator`** (`datrix_common.generation.language_generator`): `generate()` is `@final` in the base class; subclasses implement **nine abstract methods**. See [code-generation.md](../../../../datrix-common/docs/architecture/code-generation.md#consolidated-generator-infrastructure) in datrix-common.
 - **`TypeMappingRegistry`** (`datrix_common.generation.type_mapping_registry`) — each registered language maps canonical `TypeRegistry` types (`global_registry.register_language()` at import time).
-- **`LanguageHooks` / `LanguageRuntimeSpec`** — post-write formatting and validation hooks, and infrastructure details for Docker/K8s (Dockerfile context, health checks, migration commands), respectively.
+- **`LanguageHooks` / `LanguageRuntimeSpec`** — post-write formatting and validation hooks, and infrastructure details for Docker (Dockerfile context, health checks, migration commands), respectively.
 
 ### Entry Point Groups
 
 | Group | Purpose | Protocol |
 |-------|---------|----------|
 | `datrix.generators` | Code generators (Python, TypeScript, SQL, component) | `GeneratorPlugin` |
-| `datrix.platforms` | Platform generators (Docker, K8s, AWS, Azure) | `PlatformPlugin` |
+| `datrix.platforms` | Platform generators (Docker, AWS, Azure) | `PlatformPlugin` |
 | `datrix.language_hooks` | Post-generation hooks (formatting, validation) | `LanguageHooks` |
 | `datrix.language_runtime_spec` | Infrastructure details (Dockerfiles, healthchecks, migrations, job/container commands, in-process-consumer predicate, project language) consumed by all four platform generators | `LanguageRuntimeSpec` |
 | `datrix.extensions` | Domain extension packs (types, builtins, DB extension names, templates) | `DatrixExtension` |
@@ -239,7 +236,7 @@ A `.dtrx` application is built from **five** top-level container kinds (plus `in
 
 ### Extern services (external library interfacing)
 
-An `extern service` declares a **contract** for an external HTTP service that Datrix does not generate code for. The user builds and deploys the external service independently (in any language); Datrix generates a **typed HTTP client** in consuming services and wires **deployment infrastructure** (Docker Compose entry, K8s manifests, health checks, environment variables).
+An `extern service` declares a **contract** for an external HTTP service that Datrix does not generate code for. The user builds and deploys the external service independently (in any language); Datrix generates a **typed HTTP client** in consuming services and wires **deployment infrastructure** (Docker Compose entry, health checks, environment variables).
 
 **Why HTTP services instead of in-process dependencies:**
 - No language lock-in — user writes external service in any language
@@ -281,7 +278,6 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
 - **Contract validation** — `ensure` clauses run before HTTP dispatch (raises `ContractViolationError`)
 - **Client DTOs** — request/response models from the extern service's struct definitions
 - **Docker Compose entry** — container with user-provided image (no build context), health check, `depends_on` wiring
-- **K8s manifests** — Deployment, Service, Secret for colocated extern services
 - **Environment wiring** — `{SERVICE}_SERVICE_URL` injected into consuming services
 
 **Config profiles:** Extern services support two deployment modes via config YAML:

@@ -667,7 +667,7 @@ service hr.RecruitmentService('config/recruitment-service.dcfg') : version('1.0.
             title: "DevOps Engineer",
             description: "Manage infrastructure and deployments",
             department: Department.Engineering,
-            requirements: "Kubernetes, Terraform experience",
+            requirements: "Docker, Terraform experience",
             salaryRange: "$110k - $140k",
             isRemote: true,
             status: PostingStatus.Closed

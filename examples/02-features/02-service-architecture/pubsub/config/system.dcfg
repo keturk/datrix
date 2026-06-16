@@ -101,8 +101,8 @@ config system library.System {
     alias resource = "prod";
 
     deployment {
-      runtime = "ecs-fargate";
-      provider = "aws";
+      runtime = "docker-compose";
+      provider = "local";
     }
     secrets {
       provider = "vault";
@@ -119,9 +119,10 @@ config system library.System {
       }
     }
     serviceDiscovery {
-      type = "kubernetes";
-      namespace = "default";
-      labelSelector = "app=library";
+      type = "consul";
+      host = "localhost";
+      port = 8500;
+      datacenter = "dc1";
     }
     region = "us-east-1";
   }
@@ -131,8 +132,8 @@ config system library.System {
     alias resource = "prod-ar";
 
     deployment {
-      runtime = "app-runner";
-      provider = "aws";
+      runtime = "docker-compose";
+      provider = "local";
     }
     secrets {
       provider = "vault";
@@ -149,9 +150,10 @@ config system library.System {
       }
     }
     serviceDiscovery {
-      type = "kubernetes";
-      namespace = "default";
-      labelSelector = "app=library";
+      type = "consul";
+      host = "localhost";
+      port = 8500;
+      datacenter = "dc1";
     }
     region = "us-east-1";
   }

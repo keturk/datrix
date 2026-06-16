@@ -26,7 +26,7 @@ A project and task management system for team collaboration.
 - **Redis** - Session storage and query caching
 
 ### Service Discovery
-- **Consul** (development) / **Kubernetes** (production)
+- **Consul**
 
 ### Observability
 - **Prometheus** - Metrics collection
@@ -58,8 +58,8 @@ A project and task management system for team collaboration.
 # Generate Python services with Docker
 datrix generate examples/02-domains/task-management/system.dtrx -l python -p docker
 
-# Generate TypeScript services with Kubernetes
-datrix generate examples/02-domains/task-management/system.dtrx -l typescript -p kubernetes
+# Generate TypeScript services with Docker
+datrix generate examples/02-domains/task-management/system.dtrx -l typescript -p docker
 ```
 
 ## Files

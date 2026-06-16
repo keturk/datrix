@@ -488,7 +488,7 @@ def main():
  
     # Batch mode
     parser.add_argument("--language", type=str.lower, default="python", choices=["python", "typescript"], help="Target language")
-    parser.add_argument("--runtime", type=str.lower, default=None, choices=["docker-compose", "kubernetes", "azure-app-service", "ecs-fargate", "app-runner"], help="Optional output path runtime segment; generation reads runtime from resolved config")
+    parser.add_argument("--runtime", type=str.lower, default=None, choices=["docker-compose", "azure-app-service", "ecs-fargate", "app-runner"], help="Optional output path runtime segment; generation reads runtime from resolved config")
     parser.add_argument("--provider", type=str.lower, default=None, choices=["local", "existing", "aws", "azure"], help="Optional output path provider segment; generation reads provider from resolved config")
     parser.add_argument("--output-base", type=str, default=".generated", help="Output base directory")
     parser.add_argument("--test-set", type=str, default="all", help="Test set to use (e.g. all, foundation, non-foundation, features, domains)")

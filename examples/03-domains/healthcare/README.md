@@ -26,7 +26,7 @@ A healthcare management system for patient records, appointments, and medical hi
 - **Redis** - Session storage and availability caching
 
 ### Service Discovery
-- **Consul** (development) / **Kubernetes** (production)
+- **Consul**
 
 ### Observability
 - **Prometheus** - Metrics collection
@@ -55,8 +55,8 @@ A healthcare management system for patient records, appointments, and medical hi
 # Generate Python services with Docker
 datrix generate examples/02-domains/healthcare/system.dtrx -l python -p docker
 
-# Generate TypeScript services with Kubernetes
-datrix generate examples/02-domains/healthcare/system.dtrx -l typescript -p kubernetes
+# Generate TypeScript services with Docker
+datrix generate examples/02-domains/healthcare/system.dtrx -l typescript -p docker
 ```
 
 ## Files

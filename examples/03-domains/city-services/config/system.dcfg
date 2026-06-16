@@ -102,8 +102,8 @@ config system cityservices {
     alias resource = "prod";
 
     deployment {
-      runtime = "ecs-fargate";
-      provider = "aws";
+      runtime = "docker-compose";
+      provider = "local";
     }
     secrets {
       provider = "vault";
@@ -120,9 +120,10 @@ config system cityservices {
       }
     }
     serviceDiscovery {
-      type = "kubernetes";
-      namespace = "default";
-      labelSelector = "app=cityservices";
+      type = "consul";
+      host = "localhost";
+      port = 8500;
+      datacenter = "dc1";
     }
     region = "us-east-1";
   }

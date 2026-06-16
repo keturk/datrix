@@ -90,7 +90,7 @@ Structure per project:
 - ` Source:` — the `.dtrx` file that was generated (use this to **regenerate** for verification).
 - ` Output:` — the output directory; the language is the path segment after `.generated\` (or after `.projects\<name>\`).
 - `=== Detailed output for {name} ===` … `=== End output for {name} ===` — the full stderr/stdout for that project.
-- `ERROR datrix_cli.pipeline.generation pipeline_stage_failed stage=generate:{generator} error={message} duration_ms=...` — the structured failure line. **`{generator}`** names the failing generator (docker, python, typescript, sql, k8s, …).
+- `ERROR datrix_cli.pipeline.generation pipeline_stage_failed stage=generate:{generator} error={message} duration_ms=...` — the structured failure line. **`{generator}`** names the failing generator (docker, python, typescript, sql, …).
 - `Pipeline error: {message}` — the human-readable error (often a multi-line block with "Searched locations" / "Suggestions").
 - `[N/48] {name}: Failed` — per-project status footer. Only `Failed` projects need attention; skip `Success`.
 
@@ -103,7 +103,6 @@ The `stage=generate:{generator}` token identifies the package that owns the fail
 | `python` | `datrix-codegen-python` | `/fix-codegen-python` |
 | `typescript` | `datrix-codegen-typescript` | `/fix-codegen-typescript` |
 | `docker` | `datrix-codegen-docker` | `/fix-codegen-docker` |
-| `k8s` | `datrix-codegen-k8s` | `/fix-codegen-k8s` |
 | `sql` | `datrix-codegen-sql` | `/fix-codegen-sql` |
 | `aws` | `datrix-codegen-aws` | `/fix-codegen-aws` |
 | `azure` | `datrix-codegen-azure` | `/fix-codegen-azure` |

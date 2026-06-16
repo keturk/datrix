@@ -57,7 +57,8 @@
       "PowerShell(Get-ChildItem \"D:\\\\datrix\\\\datrix-codegen-python\\\\.test_results\" -Directory | Sort-Object Name | Select-Object -Last 1 | ForEach-Object { Get-Content \\(Join-Path $_.FullName \"full.log\"\\) | Select-Object -Last 12 })",
       "PowerShell($json = Get-Content 'D:\\\\datrix\\\\.projects\\\\curvaero_azure\\\\.datrix\\\\manifests\\\\sql.json' | ConvertFrom-Json; \"Total SQL files: $\\($json.files.Count\\)\"; \"Generated at: $\\($json.generated_at\\)\")",
       "Bash(rm -rf \"d:/datrix/.claude/skills/operationalize-design-v2\" \"d:/datrix/datrix/claude-config/.claude/skills/operationalize-design-v2\" && echo \"deleted both\"; ls -d \"d:/datrix/.claude/skills/operationalize-design-v2\" \"d:/datrix/datrix/claude-config/.claude/skills/operationalize-design-v2\" 2>&1)",
-      "PowerShell(powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-docker -Specific \"tests/unit/config/test_kong_gateway_generator.py\" 2>&1 | Select-Object -Last 40)"
+      "PowerShell(powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-docker -Specific \"tests/unit/config/test_kong_gateway_generator.py\" 2>&1 | Select-Object -Last 40)",
+      "PowerShell(& \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-common -Specific \"tests/unit/config/config_store\" 2>&1)"
     ],
     "additionalDirectories": [
       "d:\\datrix\\$repo\\tests",

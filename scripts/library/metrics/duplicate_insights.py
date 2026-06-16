@@ -92,7 +92,7 @@ def render_markdown(
     )
     lines.append(
         "That is the dominant story: repetition is largely **structural parallelism between language backends**, "
-        "not random copy-paste. A smaller slice is **cross-platform manifests** (e.g. Docker vs Kubernetes) and "
+        "not random copy-paste. A smaller slice is **cross-platform manifests** (e.g. AWS vs Azure) and "
         "**intra-package** repetition (multiple GraphQL or API test modules in Python, or two TypeScript generators).\n\n"
     )
 
@@ -104,7 +104,7 @@ def render_markdown(
         "Language-agnostic IR or template data built once, thin per-language emitters; or accept drift cost |\n"
     )
     lines.append(
-        "| **Platform twins** | Docker vs K8s (or AWS vs Azure) sharing PromQL, alerts, or doc stubs | "
+        "| **Platform twins** | AWS vs Azure sharing PromQL, alerts, or doc stubs | "
         "Shared tables/helpers in `datrix-common` or `datrix-codegen-component` |\n"
     )
     lines.append(
@@ -147,7 +147,7 @@ def render_markdown(
         "builders** generated once or defined declaratively instead of parallel imperative blocks.\n"
     )
     lines.append(
-        "4. **Observability / PromQL (Docker vs K8s):** one module of **aggregation → PromQL string** rules consumed "
+        "4. **Observability / PromQL (AWS vs Azure):** one module of **aggregation → PromQL string** rules consumed "
         "by both platform generators removes manifest drift.\n"
     )
     lines.append(

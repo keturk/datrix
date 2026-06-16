@@ -45,12 +45,11 @@ Usage: datrix generate [OPTIONS]
 │                                    typescript                               │
 │ --hosting            -H      TEXT  Override hosting platform from           │
 │                                    system .dcfg profile. Valid: docker,     │
-│                                    kubernetes, aws, azure                   │
+│                                    aws, azure                               │
 │ --platform           -P      TEXT  Override service platform for all        │
-│                                    services. Valid: compose, kubernetes,    │
-│                                    ecs-fargate, ecs-ec2, lambda,            │
-│                                    app-runner, eks, container-apps,         │
-│                                    functions, aks, app-service              │
+│                                    services. Valid: compose, ecs-fargate,   │
+│                                    ecs-ec2, lambda, app-runner,             │
+│                                    container-apps, functions, app-service   │
 │ --help                             Show this message and exit.              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```

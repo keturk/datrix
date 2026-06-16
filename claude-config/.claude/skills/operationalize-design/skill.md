@@ -342,7 +342,6 @@ If you deviated: STOP and explain the deviation to the user.
      | datrix-codegen-common | `d:\datrix\datrix-codegen-common\docs\` |
      | datrix-codegen-component | `d:\datrix\datrix-codegen-component\docs\` |
      | datrix-codegen-docker | `d:\datrix\datrix-codegen-docker\docs\` |
-     | datrix-codegen-k8s | `d:\datrix\datrix-codegen-k8s\docs\` |
      | datrix-codegen-python | `d:\datrix\datrix-codegen-python\docs\` |
      | datrix-codegen-sql | `d:\datrix\datrix-codegen-sql\docs\` |
      | datrix-codegen-typescript | `d:\datrix\datrix-codegen-typescript\docs\` |

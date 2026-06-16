@@ -427,9 +427,8 @@ config system ecommerce.System {
     language = python;
 
     deployment {
-      runtime = kubernetes;
+      runtime = azure-app-service;
       provider = azure;
-      target = aks;
       registry = acr;
     }
   }

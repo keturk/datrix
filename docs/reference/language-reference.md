@@ -586,7 +586,7 @@ These differ from **extension-pack** scalars (declared via `use extension` and `
 
 ## Extern Services
 
-Extern services declare a **contract** for an external library or tool that Datrix does not generate code for. You build and deploy the implementation yourself; Datrix generates a **typed client** in consuming services and wires deployment entries (Docker Compose, Kubernetes) automatically.
+Extern services declare a **contract** for an external library or tool that Datrix does not generate code for. You build and deploy the implementation yourself; Datrix generates a **typed client** in consuming services and wires deployment entries (Docker Compose) automatically.
 
 ### Purpose
 
@@ -759,7 +759,6 @@ For each extern service that a Datrix service consumes via `uses`:
 | Typed error classes | When `errors` block exists |
 | Contract validation functions | When `ensure` clauses exist |
 | Docker Compose service entry | When config has `deployment: container` |
-| Kubernetes Deployment + Service + Secret | When config has `deployment: container` |
 | Environment variable injection in consuming services | Always |
 
 See [Configuration Guide — Extern Service Configuration](../guide/configuration-guide.md#extern-service-configuration) for deployment configuration.

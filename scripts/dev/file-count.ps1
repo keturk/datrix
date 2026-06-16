@@ -17,7 +17,6 @@
  - datrix-codegen-aws
  - datrix-codegen-azure
  - datrix-codegen-docker
- - datrix-codegen-k8s
  - datrix-extensions
  - datrix-projects
 

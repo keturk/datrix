@@ -37,7 +37,7 @@ Main code generation script. Generates Python/TypeScript code from .dtrx source 
 .\generate.ps1 examples/01-foundation/system.dtrx .generated/python/docker/my-project
 
 # With custom language and platform
-.\generate.ps1 examples/01-foundation/system.dtrx .generated/typescript/kubernetes/my-project -L typescript -P kubernetes
+.\generate.ps1 examples/01-foundation/system.dtrx .generated/typescript/azure-container-apps/my-project -L typescript -P azure-container-apps
 
 # Enable debug logging
 .\generate.ps1 examples/01-foundation/system.dtrx .generated/python/docker/my-project -Dbg
@@ -53,7 +53,7 @@ Main code generation script. Generates Python/TypeScript code from .dtrx source 
 .\generate.ps1 -TestSet foundation -L python  # examples/01-foundation
 .\generate.ps1 -Domains # examples/03-domains
 # With options
-.\generate.ps1 -All -Language typescript -Platform kubernetes
+.\generate.ps1 -All -Language typescript -Platform azure-container-apps
 ```
 
 ### Parameters
@@ -66,7 +66,7 @@ Main code generation script. Generates Python/TypeScript code from .dtrx source 
 | `-TestSet` | | `all` | Test set name (batch mode) |
 | `-Domains` | | | Generate domain examples only |
 | `-Language` | `-L` | `python` | Target language (python, typescript) |
-| `-Platform` | `-P` | `docker` | Target platform (docker, kubernetes) |
+| `-Platform` | `-P` | `docker` | Target platform (docker, azure-container-apps) |
 | `-OutputBase` | | `.generated` | Output base directory (batch mode) |
 | `-Dbg` | | | Enable debug logging |
 

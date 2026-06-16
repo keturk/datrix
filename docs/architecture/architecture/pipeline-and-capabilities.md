@@ -89,7 +89,6 @@
 ┌─────────────────────────────────┐
 │ Platform Generators │
 │ - datrix-codegen-docker │
-│ - datrix-codegen-k8s │
 │ - datrix-codegen-aws │
 │ - datrix-codegen-azure │
 └─────────────────────────────────┘
@@ -99,7 +98,7 @@ Generated Application
   - Database migrations (incremental,
     append-only revision chain per
     RDBMS block UUID)
-  - Docker / K8s manifests
+  - Docker manifest
   - Seed scripts (profile-gated,
     multi-target, cross-component)
 ```
@@ -178,7 +177,7 @@ Cross-cutting behavior described here matches the **current** generators; see [c
 
 - **Multi-service NGINX gateway** (Stable) — For applications with more than one service, `datrix_codegen_docker.generators.config.gateway_generator` renders `config/nginx/nginx.conf` via `nginx.conf.j2`: one **upstream** per service, **location** blocks for public REST paths (including each `rest_api` **base_path** prefix), **GraphQL** `graphql_api` base paths (with WebSocket upgrade headers when the API has subscriptions), **health** aliases derived from the primary REST `base_path` plus `service.config.health_check.path` when a primary REST API exists (with `GenerationError` on duplicate external health paths), **403** for versioned paths matching internal REST segments (`INTERNAL_PATH_DENY_REGEX` in the gateway module), **CORS OPTIONS** handling and **proxy timeouts** on proxied locations, and **`client_max_body_size`** on routes for services that declare **storage** blocks. Rate limit zones from `@rateLimit` on endpoints are preserved. If an upstream has **no** matching locations, generation raises `GenerationError` listing that upstream (instead of emitting a broken config). Test-only multi-service fixtures use `attach_config_for_docker` / `ensure_minimal_rest_api_for_multi_service_gateway` in `datrix_codegen_docker.test_helpers` to add minimal `rest_api` stubs when the parsed `.dtrx` omits API blocks.
 
-- **Liveness / readiness / health split** (Planned) — Generated services expose three distinct probes instead of a single conflated `/health`: **`/live`** (process liveness only), **`/ready`** (all `required` dependencies usable — returns 503 when a required dependency is down), and **`/health`** (detailed per-dependency report, including `degraded` optional dependencies). A dependency declared `health = "degraded"` keeps `/ready` green while `/health` reports `degraded`, unless a per-dependency `readyOnDegraded = false` makes it a readiness blocker for guarded rollouts. Deployment probes (Docker healthcheck, K8s liveness/readiness/startup) point at `/ready`; the prior single-`/health` contract is replaced outright, with no backward-compat fields.
+- **Liveness / readiness / health split** (Planned) — Generated services expose three distinct probes instead of a single conflated `/health`: **`/live`** (process liveness only), **`/ready`** (all `required` dependencies usable — returns 503 when a required dependency is down), and **`/health`** (detailed per-dependency report, including `degraded` optional dependencies). A dependency declared `health = "degraded"` keeps `/ready` green while `/health` reports `degraded`, unless a per-dependency `readyOnDegraded = false` makes it a readiness blocker for guarded rollouts. Deployment probes (Docker healthcheck) point at `/ready`; the prior single-`/health` contract is replaced outright, with no backward-compat fields.
 
 ### Phase 03 capabilities (Stable) (Python, Docker)
 
@@ -197,8 +196,6 @@ Cross-cutting behavior described here matches the **current** generators; see [c
 - **Prometheus application metrics** (Stable) — Before sub-generators run, `PythonGenerator` sets the Jinja global `has_prometheus_metrics` from the resolved observability profile. When true, generated **RDBMS** `connection.py` modules expose `sqlalchemy_pool_*` gauges (pool listeners), **Redis cache** access increments `redis_cache_hits_total` / `redis_cache_misses_total`, and **jobs** `runner.py` records `job_runs_total`, `job_failures_total`, and `job_duration_seconds` (see `metrics_middleware.py.j2` for HTTP counters/histograms as before).
 
 - **Docker monitoring stack** (Stable) — With `observability.metrics` (Prometheus) and `observability.visualization` (Grafana), `datrix-codegen-docker` adds **cAdvisor** next to Prometheus, scrapes it from `prometheus.yml.j2`, writes **per-compose-service Grafana dashboards** plus a **multi-service overview** (`datrix-system-overview.json`) via the shared `DashboardBuilder` in `datrix_codegen_common.dashboards.builder` (delegated through a thin wrapper in `datrix_codegen_docker.generators.infra.dashboard_builder`), and emits **per-service alert files** under `config/prometheus/` (standard rules: `HighErrorRate`, `HighLatency`, optional pool/cache/job rules from service features, plus a **DSL** group when blocks declare alerts). Grafana dashboards require metrics; missing metrics with visualization enabled raises `GenerationError` at generation time. Dashboard panels are organized into row groups (HTTP, RDBMS, Cache, Jobs, Pubsub, CQRS, Storage, DSL Alerts, Container Resources) and include Grafana template variables (`$service`, `$interval`) for runtime filtering. Dashboard row visibility is user-configurable via `visualization.dashboards.rows` in the observability config.
-
-- **Kubernetes Grafana dashboards** (Stable) — With `observability.metrics` (Prometheus) and `observability.visualization` (Grafana), `datrix-codegen-k8s` emits sidecar-discoverable Grafana dashboard **ConfigMaps** with a configurable selector label (default: `grafana_dashboard: "1"`). Dashboard JSON is generated by the shared `DashboardBuilder` in `datrix_codegen_common.dashboards.builder`. K8s dashboards include pod resource panels (CPU, memory, restarts from kubelet/kube-state-metrics) and a `$namespace` template variable. Kubernetes does not deploy Grafana itself — clusters provide Grafana through kube-prometheus-stack or equivalent.
 
 - **AWS CloudWatch dashboards** (Stable) — With `observability.visualization` (`cloudwatch`) and `observability.metrics` (`cloudwatch`), `datrix-codegen-aws` emits `AWS::CloudWatch::Dashboard` CloudFormation resources per service with infrastructure widgets (ECS, RDS, ElastiCache, SQS, SNS, ALB) and application metric widgets from the `Datrix/Application` CloudWatch namespace. Provider pairing is strict: `cloudwatch` visualization requires `cloudwatch` metrics. Managed Grafana (`visualization.managed: true`) provisions an `AWS::Grafana::Workspace` with AMP datasource and Grafana dashboard JSON.
 
@@ -235,11 +232,10 @@ service CatalogService {
 | Platform | Status | Search Service | Client Library |
 |----------|--------|---------------|----------------|
 | Docker Compose | Stable | Elasticsearch container + init container | `elasticsearch` / `@elastic/elasticsearch` |
-| Kubernetes | Stable | Elasticsearch StatefulSet + headless Service + init Job | `elasticsearch` / `@elastic/elasticsearch` |
 | AWS | Stable | Amazon OpenSearch Service domain (CDK) | `elasticsearch` / `@elastic/elasticsearch` (wire-compatible) |
 | Azure | Stable | Azure AI Search (Bicep) | `azure-search-documents` / `@azure/search-documents` |
 
-**Platform-variant code generation:** Docker, K8s, and AWS targets are Elasticsearch-compatible and share the same generated client code. Azure AI Search has a different API surface, so the language code generators produce platform-variant search integration code: separate templates for index init, search client, and sync handlers. The variant is selected based on the target platform in `CodegenContext`.
+**Platform-variant code generation:** Docker and AWS targets are Elasticsearch-compatible and share the same generated client code. Azure AI Search has a different API surface, so the language code generators produce platform-variant search integration code: separate templates for index init, search client, and sync handlers. The variant is selected based on the target platform in `CodegenContext`.
 
 **Azure AI Search type mapping:** Elasticsearch field types, analyzers, and boost weights are translated to Azure AI Search equivalents. `boost` values become scoring profiles (an index-level construct). Language-specific analyzers map to `.lucene` variants (e.g., `"english"` → `"en.lucene"`). The mapping is exhaustive and fails fast on unsupported types.
 
@@ -281,7 +277,7 @@ integrations layerName {
 
 ### Notification Infrastructure Provisioning
 
-Generated services call notification builtins (`Email.send`, `SMS.send`, `Push.send`) and the language generators emit provider-specific helpers; the cloud/runtime generators provision the backing provider resources from the same resolved `integrations` profile — no new application DSL syntax. Provisioning is keyed on the pair `(provider, DeploymentProvider)`, resolved through total frozen dispatch tables in `datrix_common.config.integrations.provisioning`. Each `(channel, provider, DeploymentProvider)` cell resolves to exactly one realization class: `PROVISION` (Datrix owns the resource — SES identity, SNS platform application, ACS, Notification Hub, Mailpit — plus scoped IAM/role and env wiring), `SECRET_REF` (Secrets Manager / Key Vault placeholder reference + env wiring, no provider resource), or `UNSUPPORTED` (generation fails loud with `GenerationError` in the `resolve_infrastructure_configs` stage, before any generator runs). The dispatch-table shape mirrors `PROVIDER_GENERATORS` (single deterministic value per key), not `*_ENGINES_BY_FLAVOR`. Coverage: AWS SES/SNS-SMS/SNS-push, Azure Communication Services (`acs` email/SMS) and Notification Hubs (`azure-notification-hubs` push), and local Mailpit SMTP capture for Docker (any `smtp` service) and Kubernetes (`LOCAL` + `smtp` service). Credential hygiene is centralized on `datrix_common.config.secret_hygiene.looks_like_raw_secret` at config-validation time — raw secret literals are rejected; `env("...")` references and `credentialSecretName` are accepted; no generator emits a raw credential. Full reference: [notification-provisioning.md](../../../../datrix-common/docs/integrations/notification-provisioning.md).
+Generated services call notification builtins (`Email.send`, `SMS.send`, `Push.send`) and the language generators emit provider-specific helpers; the cloud/runtime generators provision the backing provider resources from the same resolved `integrations` profile — no new application DSL syntax. Provisioning is keyed on the pair `(provider, DeploymentProvider)`, resolved through total frozen dispatch tables in `datrix_common.config.integrations.provisioning`. Each `(channel, provider, DeploymentProvider)` cell resolves to exactly one realization class: `PROVISION` (Datrix owns the resource — SES identity, SNS platform application, ACS, Notification Hub, Mailpit — plus scoped IAM/role and env wiring), `SECRET_REF` (Secrets Manager / Key Vault placeholder reference + env wiring, no provider resource), or `UNSUPPORTED` (generation fails loud with `GenerationError` in the `resolve_infrastructure_configs` stage, before any generator runs). The dispatch-table shape mirrors `PROVIDER_GENERATORS` (single deterministic value per key), not `*_ENGINES_BY_FLAVOR`. Coverage: AWS SES/SNS-SMS/SNS-push, Azure Communication Services (`acs` email/SMS) and Notification Hubs (`azure-notification-hubs` push), and local Mailpit SMTP capture for Docker (`LOCAL` + any `smtp` service). Credential hygiene is centralized on `datrix_common.config.secret_hygiene.looks_like_raw_secret` at config-validation time — raw secret literals are rejected; `env("...")` references and `credentialSecretName` are accepted; no generator emits a raw credential. Full reference: [notification-provisioning.md](../../../../datrix-common/docs/integrations/notification-provisioning.md).
 
 ### CDN / Content Delivery (Beta)
 
@@ -326,7 +322,6 @@ service frontend.WebService : version('1.0.0') {
 | Platform | Status | CDN Service | Generated Artifacts |
 |----------|--------|-------------|---------------------|
 | Docker Compose | Stable | Varnish cache proxy (simulates edge caching) | Varnish container + VCL configuration |
-| Kubernetes | Stable | Ingress annotations (origin-compatible headers) | CDN-origin Ingress with CORS and cache-control annotations |
 | AWS | Stable | CloudFront distribution with OAC | CDK/CloudFormation: distribution, behaviors, OAC, optional ACM certificate |
 | Azure | Planned | Azure Front Door profile | Bicep: profile, endpoints, origin groups, routes, cache configuration |
 
@@ -394,7 +389,6 @@ service examples.OrderService('config/order-service.dcfg') {
 | AWS | Stable | Lambda functions (CDK) | API Gateway HTTP API, EventBridge Scheduler, SNS/SQS triggers |
 | Azure | Stable | Function App (Bicep) | HTTP trigger, Timer trigger, Service Bus/Event Grid triggers |
 | Docker Compose | Stable | Separate container services | APScheduler, uvicorn, consumer loops |
-| Kubernetes | Stable | CronJob, Deployment + Service | Schedule, consumer process, HTTP server |
 | Component | Stable | (support metadata only) | Env vars, README documentation |
 
 **Platform compatibility (D8):** `ServerlessProfileConfig.platform` determines the programming model: `lambda` (AWS only), `functions` (Azure only), `container` (all providers). Incompatible platform/provider combinations fail generation before partial artifacts are rendered.
@@ -444,7 +438,7 @@ pubsub feedBus {
 
 **Consumers of replayable topics must be idempotent (D43).** The dedup key is declared explicitly: the target entity marks its idempotency key with the `replayKey` field modifier (e.g. `String sku : unique, replayKey;`). Enforced at generation — a replayable-topic consumer must `.upsert` into a `replayKey` entity; a `.create()`, or a target entity without `replayKey`, fails generation with a diagnostic. Replay re-delivers, so idempotency is structural and declarative, not a runtime dedup.
 
-**Replay is an operator-triggered endpoint plus optional backfill job (D44).** `replayable` synthesizes a `replay{Topic}(range)` operator endpoint onto the owning service; `replay schedule("…")` additionally synthesizes a cron backfill job. Both are ordinary service nodes, so every platform generator (AWS/Azure/Docker/K8s) deploys them without special-casing. Replay is range-scoped by key prefix and/or timestamp window.
+**Replay is an operator-triggered endpoint plus optional backfill job (D44).** `replayable` synthesizes a `replay{Topic}(range)` operator endpoint onto the owning service; `replay schedule("…")` additionally synthesizes a cron backfill job. Both are ordinary service nodes, so every platform generator (AWS/Azure/Docker) deploys them without special-casing. Replay is range-scoped by key prefix and/or timestamp window.
 
 **Schema version is stamped per batch; cross-version replay fails fast (D45).** A consumer replaying an unsupported `schemaVersion` errors rather than coercing old records.
 
@@ -481,14 +475,13 @@ application ecommerce.Ecommerce {
 }
 ```
 
-Gateway configuration can also be specified entirely in `gateway.yaml` (profile-based, as with other config files) for users who prefer YAML over DSL-level gateway config. The `type` field in `GatewayProfileConfig` determines the gateway infrastructure: `nginx` (default; the only self-hosted gateway, used by Docker and Kubernetes) or `managed` (cloud-only: AWS API Gateway / Azure APIM).
+Gateway configuration can also be specified entirely in `gateway.yaml` (profile-based, as with other config files) for users who prefer YAML over DSL-level gateway config. The `type` field in `GatewayProfileConfig` determines the gateway infrastructure: `nginx` (default; the only self-hosted gateway, used by Docker) or `managed` (cloud-only: AWS API Gateway / Azure APIM).
 
 **Multi-platform code generation:**
 
 | Platform | Status | Gateway Service | Generated Artifacts |
 |----------|--------|----------------|---------------------|
 | Docker Compose | Stable | NGINX reverse proxy when `type: nginx` (`managed` is cloud-only and rejected) | NGINX container + reverse-proxy config with rate limiting |
-| Kubernetes | Stable | NGINX Ingress controller when `type: nginx` (`managed` is cloud-only and rejected) | Annotated Ingress resources |
 | AWS | Stable | API Gateway REST API (full-featured) or HTTP API (throttling-only) | CDK/CloudFormation: REST API with usage plans, API keys, caching, VPC Link + NLB for ECS integration |
 | Azure | Stable | Azure API Management (APIM) | Bicep: APIM service, per-service APIs, products (usage plans), XML rate-limiting/quota policies |
 
@@ -569,15 +562,13 @@ serverGroups {
 }
 ```
 
-**Platform-neutral contract:** `PooledGroup` / `PooledMember` in `datrix_codegen_common.pooling.models` is consumed identically by Python/TypeScript × Azure/AWS/Docker/K8s. The contract is platform-agnostic and language-agnostic; every generator receives pre-resolved `list[PooledGroup]` and iterates `group.members` for per-child wiring. Cross-reference: [Pooling Contract Reference](../../../../datrix-codegen-common/docs/pooling-contract.md).
+**Platform-neutral contract:** `PooledGroup` / `PooledMember` in `datrix_codegen_common.pooling.models` is consumed identically by Python/TypeScript × Azure/AWS/Docker. The contract is platform-agnostic and language-agnostic; every generator receives pre-resolved `list[PooledGroup]` and iterates `group.members` for per-child wiring. Cross-reference: [Pooling Contract Reference](../../../../datrix-codegen-common/docs/pooling-contract.md).
 
 **Profile-scoped identity:** `(group_name, profile)` is the shared-resource key; staging and production never share a physical resource. Migration state is target-scoped (`.datrix/rdbms-migrations/<target>/...` per phase-55), and resource identity is resolved per deployment profile during config resolution.
 
 **Per-child isolation is a required output:** Connection secret, RBAC/IAM scope, migration identity, and observability dimensions are emitted by the grouping pre-pass per member, not assumed correct. Validators enforce per-child secret distinctness, per-child RBAC/IAM scope binding, cross-group migration-identity UUID uniqueness, and per-child observability tagging. No shared admin secret; no wildcard grant.
 
-**Docker/K8s reconciliation:** On Docker and Kubernetes, explicit `serverGroup` is authoritative. Ungrouped blocks keep the existing implicit host-based deduplication via `InfraRegistry` (identity unchanged — `InfraIdentity(component_type, engine, host, port)`). Parity is tested: identical resource counts for the same grouped app across Azure/AWS/Docker/K8s (modulo operator-flavor rejection).
-
-**Operator-flavor rejection:** Operator-flavor RDBMS and PubSub blocks cannot join a group (one CR = one single-tenant cluster). Generation raises `GenerationError` naming the offending group and block with a clear message: *"Operator-flavor engine cannot join a server/namespace group; use container flavor or a dedicated (ungrouped) block."*
+**Docker reconciliation:** On Docker, explicit `serverGroup` is authoritative. Ungrouped blocks keep the existing implicit host-based deduplication via `InfraRegistry` (identity unchanged — `InfraIdentity(component_type, engine, host, port)`). Parity is tested: identical resource counts for the same grouped app across Azure/AWS/Docker.
 
 **Ungrouped byte-identical guarantee (D48):** Ungrouped output is byte-for-byte unchanged on all six generators. The grouping pre-pass is a no-op when no blocks declare a group.
 
@@ -585,14 +576,13 @@ serverGroups {
 - **D39** — Resource identity is `(group, profile)` — staging and production are separate physical resources
 - **D40** — Per-child isolation (secret/RBAC/migration/diagnostics) is a required pre-pass output, validator-backed
 - **D41** — Membership is a `.dcfg` field (`serverGroup`, `namespaceGroup`) — configuration is configuration; pooling is opt-in via authoring
-- **D42** — Operator-flavor engine in a group is rejected, fail loud (no silent CR fan-out, no fallback)
 - **D43** — Explicit group governs grouped blocks; ungrouped blocks keep implicit collapse via `InfraRegistry` (backward-compatible, parity-tested)
 - **D48** — Ungrouped output is byte-for-byte unchanged on all six generators
-- **Capacity validation** — Cross-platform validator rejects undeclared groups, mismatched member engine/flavor/version, profile-missing-from-identity, and operator-flavor-in-group before generation starts
+- **Capacity validation** — Cross-platform validator rejects undeclared groups, mismatched member engine/flavor/version, and profile-missing-from-identity before generation starts
 
 **Cross-reference:**
 - [Config System — serverGroup / namespaceGroup fields](../../../../datrix-common/docs/architecture/config-system.md#servergroup--namespacegroup--infrastructure-resource-pooling-fields)
-- [Pooling Contract Reference](../../../../datrix-codegen-common/docs/pooling-contract.md) — canonical model documentation, per-generator consumption patterns, InfraRegistry reconciliation, operator-flavor rejection
+- [Pooling Contract Reference](../../../../datrix-codegen-common/docs/pooling-contract.md) — canonical model documentation, per-generator consumption patterns, InfraRegistry reconciliation
 
 ---
 
@@ -627,12 +617,11 @@ Every externally reachable surface must carry an explicit `auth(...)` modifier (
 | AWS | `datrix-codegen-aws` | Cognito User Pool + per-service app clients, MFA, custom attributes, groups, hosted UI, OR2 AWS secret wiring |
 | Azure | `datrix-codegen-azure` | Entra ID / Entra External ID app registration, audience routing, Bicep extension, OR2 Azure Key Vault secret wiring |
 | Docker | `datrix-codegen-docker` | Keycloak + backing DB containers, realm import artifact, OR2 Docker secret wiring |
-| Kubernetes | `datrix-codegen-k8s` | Keycloak StatefulSet + DB StatefulSet, realm ConfigMap, OR2 K8s secret wiring |
 | Component | `datrix-codegen-component` | Provider plan JSON, public-client metadata, identity documentation artifact |
 
 **System entities (OR11):** `IdentityProfile` and `IdentityLink` are reserved entity names injected by the identity planner. `IdentityProfile` stores projected provider identity fields per-user; `IdentityLink` tracks per-provider credential linkage (sub claim, issuer, linked-at timestamp). User-defined entities with these names fail validation.
 
-**Secret provider matrix (OR2):** Provider secrets (client secrets, JWKS signing keys, webhook secrets) are referenced via `ConfigSecretRef` with a `secretProvider` field. Supported providers: `env`, `aws-secrets-manager`, `aws-ssm`, `azure-key-vault`, `k8s-secret`, `docker-secret`.
+**Secret provider matrix (OR2):** Provider secrets (client secrets, JWKS signing keys, webhook secrets) are referenced via `ConfigSecretRef` with a `secretProvider` field. Supported providers: `env`, `aws-secrets-manager`, `aws-ssm`, `azure-key-vault`, `docker-secret`.
 
 **Capability matrix (OR14):** `datrix_common/identity/capability_matrix.py` maps each provider type to its supported capability set (MFA, social providers, custom claims, machine audience, etc.). Generators query this matrix to gate feature emission — unsupported capabilities for a given provider type raise a codegen error rather than silently omitting code.
 

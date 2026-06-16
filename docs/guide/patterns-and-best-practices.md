@@ -768,7 +768,7 @@ service ecommerce.OrderService {
 - Type-safe API calls — no manual HTTP client code
 - Contract validation at call site via `ensure` clauses
 - Auth headers injected automatically
-- Deployment wired into Docker Compose / Kubernetes
+- Deployment wired into Docker Compose
 
 ### Pattern: Profile-Based Deployment Modes
 
@@ -1470,7 +1470,7 @@ config system ecommerce.System {
 
     profile staging {
         language: python
-        deployment { runtime: kubernetes, provider: aws, target: eks }
+        deployment { runtime: ecs-fargate, provider: aws, registry: ecr }
         region: us-east-1
     }
 }

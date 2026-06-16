@@ -149,7 +149,6 @@ class TestPlatformAllowedSubtrees:
         "platform_source",
         [
             "datrix_codegen_docker",
-            "datrix_codegen_k8s",
             "datrix_codegen_aws",
             "datrix_codegen_azure",
         ],
@@ -259,7 +258,7 @@ class TestCarveoutDoesNotLeakToOtherPackages:
 
     def test_platform_rule_allowed_subtrees_is_nonempty(self) -> None:
         """Confirm that each platform rule carries a non-empty allowed_subtrees."""
-        for platform in ("datrix_codegen_docker", "datrix_codegen_k8s", "datrix_codegen_aws", "datrix_codegen_azure"):
+        for platform in ("datrix_codegen_docker", "datrix_codegen_aws", "datrix_codegen_azure"):
             rule = BOUNDARY_RULES[platform]
             assert rule.allowed_subtrees, (
                 f"Platform rule for {platform!r} should have non-empty allowed_subtrees "

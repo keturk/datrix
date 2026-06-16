@@ -51,7 +51,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x00000263EFAD2E40>"
+            "value": "<abc.PropertyAccessNode object at 0x00000272A251A190>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -78,7 +78,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000263F071FEE0>"
+            "value": "<abc.CallNode object at 0x00000272A3173930>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -100,7 +100,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000263F071D630>"
+            "value": "<abc.CallNode object at 0x00000272A3171080>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -245,7 +245,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000263F0740210>"
+            "value": "<abc.CallNode object at 0x00000272A3173BD0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -348,7 +348,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000263F071FEE0>"
+            "value": "<abc.CallNode object at 0x00000272A3173930>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -414,7 +414,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000263F071D630>"
+            "value": "<abc.CallNode object at 0x00000272A3171080>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -502,7 +502,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000263F0740210>"
+            "value": "<abc.CallNode object at 0x00000272A3173BD0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -580,7 +580,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "16c55322-03bc-48df-bc01-fcbc02d6804f",
-  "schema_hash": "9f3ae9f869c10c02188ddb2482ec6e1447ed1b1a1372e14c18b513d6b03c6a0b",
+  "schema_hash": "89c3d338c6310cb49c142f0a71a41a55b86d15b08da3aca49adcd562b710e1ea",
   "service": {
     "name": "social.NotificationService",
     "version": "1.0.0"

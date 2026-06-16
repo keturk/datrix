@@ -56,7 +56,6 @@ These are the 14 documentation locations where content may be placed:
 | datrix-codegen-common | `d:\datrix\datrix-codegen-common\docs` | Shared codegen utilities |
 | datrix-codegen-component | `d:\datrix\datrix-codegen-component\docs` | Component-level generator |
 | datrix-codegen-docker | `d:\datrix\datrix-codegen-docker\docs` | Docker/Compose generation |
-| datrix-codegen-k8s | `d:\datrix\datrix-codegen-k8s\docs` | Kubernetes manifest generation |
 | datrix-codegen-python | `d:\datrix\datrix-codegen-python\docs` | Python/FastAPI generator |
 | datrix-codegen-sql | `d:\datrix\datrix-codegen-sql\docs` | SQL schema generation |
 | datrix-codegen-typescript | `d:\datrix\datrix-codegen-typescript\docs` | TypeScript/NestJS generator |

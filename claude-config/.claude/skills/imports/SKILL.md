@@ -44,7 +44,7 @@ disable-model-invocation: true
 - `datrix_common.utils.text` → `to_snake_case`, `to_camel_case`, `to_pascal_case`, `to_kebab_case`, `to_screaming_snake_case`, `to_plural`, `to_singular`, `extract_simple_name`
 - `datrix_common.paths` → `ServicePaths`
 - `datrix_common.config.codegen_context` → `CodegenContext`
-- `datrix_common.config.platform` → `BasePlatformConfig`, `DockerPlatformConfig`, `K8sPlatformConfig`, `AwsPlatformConfig`, `AzurePlatformConfig`
+- `datrix_common.config.platform` → `BasePlatformConfig`, `DockerPlatformConfig`, `AwsPlatformConfig`, `AzurePlatformConfig`
 - `datrix_common.config.project` → `ProjectConfig`, `InfraImageCatalog`, `PlatformsConfig`
 - `datrix_common.config.project.catalog` → `get_dependency_version`, `CatalogLookupError`
 - `datrix_common.config.datasource` → `BrokerEngine`, `CacheEngine`, `get_broker_engine`, `get_cache_engine`, `KAFKA`, `REDIS`, `all_broker_engines`, `all_cache_engines` (plus `rdbms_engine`, `nosql_engine`, models, loader)

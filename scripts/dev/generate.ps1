@@ -32,7 +32,7 @@
  Can be abbreviated as -L.
 
 .PARAMETER Runtime
- Optional runtime for output path derivation (options: docker-compose, kubernetes, azure-container-apps, azure-app-service, ecs-fargate, app-runner).
+ Optional runtime for output path derivation (options: docker-compose, azure-container-apps, azure-app-service, ecs-fargate, app-runner).
  The actual runtime used for generation is read from config/system-config.yaml deployment section.
  Can be abbreviated as -R.
 
@@ -66,8 +66,8 @@
  Generate all projects for Python.
 
 .EXAMPLE
- .\generate.ps1 -All -Language typescript -Runtime kubernetes -Provider existing
- Generate all projects for TypeScript with output paths using kubernetes/existing.
+ .\generate.ps1 -All -Language typescript -Runtime azure-container-apps -Provider existing
+ Generate all projects for TypeScript with output paths using azure-container-apps/existing.
 
 .EXAMPLE
  .\generate.ps1 -Domains -L typescript
@@ -96,7 +96,7 @@ param(
 
  [Parameter()]
  [Alias("R")]
- [ValidateSet("docker-compose", "kubernetes", "azure-container-apps", "azure-app-service", "ecs-fargate", "app-runner")]
+ [ValidateSet("docker-compose", "azure-container-apps", "azure-app-service", "ecs-fargate", "app-runner")]
  [string]$Runtime = "",
 
   [Parameter()]
@@ -175,7 +175,7 @@ function Show-HelpMessage {
  Write-Host " .\generate.ps1 examples/02-features/01-core-data-modeling/entities/system.dtrx -L python" -ForegroundColor Gray
  Write-Host " .\generate.ps1 -All -L python" -ForegroundColor Gray
  Write-Host " .\generate.ps1 -Domains -L python" -ForegroundColor Gray
- Write-Host " .\generate.ps1 -All -Language typescript -Runtime kubernetes -Provider existing -Dbg" -ForegroundColor Gray
+ Write-Host " .\generate.ps1 -All -Language typescript -Runtime azure-container-apps -Provider existing -Dbg" -ForegroundColor Gray
  Write-Host ""
  Write-Host "Use Get-Help .\generate.ps1 -Full for detailed help." -ForegroundColor Yellow
  Write-Host ""

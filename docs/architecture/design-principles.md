@@ -366,7 +366,6 @@ service library.BookService : version('1.0.0') {
 
 **Generated Differences:**
 - Docker: Creates Dockerfile + docker-compose.yml
-- Kubernetes: Creates Deployment + Service manifests
 - AWS: Creates ECS task definitions
 - **Business logic: Identical across all platforms**
 
@@ -544,7 +543,7 @@ Enable packs in **`system.dtrx`** with `use extension <name>;` (not YAML). Exhau
 - Baseline observability must track what is actually provisioned, not what might be provisioned
 - User-declared alerts remain distinct (custom thresholds, custom metrics) and must not collide with baseline alerts in names or tags
 
-**Application:** Each infrastructure generator (AWS, Azure, K8s) inspects the resource plans it produces and emits a baseline set of alarms/alerts/recording rules for provisioned resources. Baseline alerts use conservative default thresholds defined in source constants. User-declared `AlertDeclaration`s from the DSL remain a separate codepath with distinct naming.
+**Application:** Each infrastructure generator (AWS, Azure) inspects the resource plans it produces and emits a baseline set of alarms/alerts/recording rules for provisioned resources. Baseline alerts use conservative default thresholds defined in source constants. User-declared `AlertDeclaration`s from the DSL remain a separate codepath with distinct naming.
 
 ---
 
@@ -557,7 +556,7 @@ Enable packs in **`system.dtrx`** with `use extension <name>;` (not YAML). Exhau
 - Explicit defaults are discoverable and auditable
 - Override hooks allow teams to tune without forking generators
 
-**Application:** When a generator adds a new behavior-changing resource (e.g., Docker network segmentation, K8s PodDisruptionBudget, EventBridge DLQ), the default values are defined as named constants in source code and documented in the package architecture docs. Where the platform config model already has a relevant field, the default flows through that config surface so users can override it.
+**Application:** When a generator adds a new behavior-changing resource (e.g., Docker network segmentation, EventBridge DLQ), the default values are defined as named constants in source code and documented in the package architecture docs. Where the platform config model already has a relevant field, the default flows through that config surface so users can override it.
 
 ---
 
@@ -598,7 +597,7 @@ Example mapping on Azure (`runtime: azure-app-service, provider: azure`):
 
 All async handlers for a service — service-level `subscribe`, `jobs()`, `enqueue` consumers, and `serverless` block handlers — are grouped into a single **Function App per service**. The per-service compute shape follows from what the service declares: an HTTP surface (`rest_api`/`graphql_api`) → Web App; any async handler → Function App; both declared → both; neither declared → generation error.
 
-The same construct-to-primitive mapping applies on other platforms (AWS: `rest_api`/`graphql_api` → App Runner or ECS Fargate; `subscribe`/`jobs()`/`enqueue` → Lambda; Kubernetes: service → Deployment/Service/Ingress, job → CronJob; Docker Compose: services → containers). See [datrix-codegen-azure/docs/architecture.md](../../../../datrix-codegen-azure/docs/architecture.md) for the full Azure construct mapping and shape-derivation rules.
+The same construct-to-primitive mapping applies on other platforms (AWS: `rest_api`/`graphql_api` → App Runner or ECS Fargate; `subscribe`/`jobs()`/`enqueue` → Lambda; Docker Compose: services → containers). See [datrix-codegen-azure/docs/architecture.md](../../../../datrix-codegen-azure/docs/architecture.md) for the full Azure construct mapping and shape-derivation rules.
 
 **No silent ignore:**
 
@@ -614,7 +613,7 @@ Every deployment-relevant choice is explicit in the `.dcfg` profile. A missing r
 
 **Retired path:**
 
-`azure-container-apps` as a `runtime` value is retired. Specifying it raises `GenerationError` with guidance to use `runtime: azure-app-service` for the native Azure PaaS runtime or `runtime: kubernetes, target: aks` for a container mesh on AKS.
+`azure-container-apps` as a `runtime` value is retired. Specifying it raises `GenerationError` with guidance to use `runtime: azure-app-service` for the native Azure PaaS runtime.
 
 On AWS, both `ecs-fargate` and `app-runner` are **first-class** HTTP runtimes — neither is retired. The author selects between them in `.dcfg` (`deployment { runtime = "ecs-fargate" | "app-runner" }`); the generator never chooses between them. See [datrix-codegen-aws architecture](../../../datrix-codegen-aws/docs/architecture.md#http-runtimes-ecs-fargate-and-app-runner) for the full construct → primitive mapping.
 

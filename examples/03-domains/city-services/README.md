@@ -41,7 +41,7 @@ This example requires `use extension geo;` in the system block and demonstrates:
 - **Databases**: PostgreSQL with PostGIS extension (one per service)
 - **Message Queue**: Kafka for event-driven communication
 - **Cache**: Redis for district and facility caching
-- **Service Discovery**: Consul (dev), Kubernetes (prod)
+- **Service Discovery**: Consul
 - **Observability**: Prometheus, Jaeger, Loki, Grafana
 
 ## Key Features

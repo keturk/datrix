@@ -96,7 +96,6 @@ EXCLUDED_ERROR_SITES: list[tuple[str, str]] = [
     ("datrix_codegen_docker/generators/compose/_compose_infra.py", "_build_rabbitmq_queue"),
     ("datrix_codegen_docker/generators/config/gateway_generator.py", "build_gateway_container"),
     ("datrix_codegen_docker/generators/infra/dashboard_builder.py", "generate_dashboards"),
-    ("datrix_codegen_k8s/generators/infra_mapper.py", "map_queue_to_k8s"),
     ("datrix_codegen_python/generators/api/_api_test_http_samples.py", "_handler_body_has_not_found_on_miss_lookup"),
     ("datrix_codegen_python/generators/api/gateway_generator.py", "_generate_gateway_auth"),
     ("datrix_codegen_python/generators/api/gateway_generator.py", "_generate_gateway_transforms"),

@@ -26,7 +26,7 @@
 
 .PARAMETER Platform
  Target platform for output path derivation (default: docker-compose/local).
- Should match the runtime/provider used during generation (e.g., docker-compose/local, kubernetes/existing).
+ Should match the runtime/provider used during generation (e.g., docker-compose/local, azure-container-apps/existing).
  Can be abbreviated as -P.
 
 .PARAMETER TestSet

@@ -34,7 +34,7 @@ class BoundaryRule:
 
 
 # The closed set of language-agnostic datrix_codegen_common subtrees that
-# platform generators (docker, k8s, aws, azure) are permitted to import.
+# platform generators (docker, aws, azure) are permitted to import.
 # Adding a seventh subtree requires a doc + rule edit and review.
 #
 # Covers all 13 distinct datrix_codegen_common modules that platforms import today:
@@ -104,7 +104,6 @@ BOUNDARY_RULES: dict[str, BoundaryRule] = {
             "datrix_codegen_python",
             "datrix_codegen_typescript",
             "datrix_codegen_docker",
-            "datrix_codegen_k8s",
             "datrix_codegen_aws",
             "datrix_codegen_azure",
             "datrix_cli",
@@ -154,15 +153,6 @@ BOUNDARY_RULES: dict[str, BoundaryRule] = {
         ),
         allowed_subtrees=PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES,
     ),
-    "datrix_codegen_k8s": BoundaryRule(
-        forbidden_prefixes=(
-            "datrix_codegen_common",
-            "datrix_codegen_python",
-            "datrix_codegen_typescript",
-            "datrix_cli",
-        ),
-        allowed_subtrees=PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES,
-    ),
     "datrix_codegen_aws": BoundaryRule(
         forbidden_prefixes=(
             "datrix_codegen_common",
@@ -188,7 +178,6 @@ BOUNDARY_RULES: dict[str, BoundaryRule] = {
             "datrix_codegen_typescript",
             "datrix_codegen_common",
             "datrix_codegen_docker",
-            "datrix_codegen_k8s",
             "datrix_codegen_aws",
             "datrix_codegen_azure",
             "datrix_language",

@@ -25,7 +25,7 @@ Complete reference for all configuration files:
 - Infrastructure configuration sections (`rdbms`, `pubsub`, `cache`, `storage`, `queues`, `jobs`)
 - Resilience, discovery, and observability
 - Profiles and environment-specific configuration
-- Platform-specific settings (Docker, Kubernetes, AWS, Azure)
+- Platform-specific settings (Docker, AWS, Azure)
 
 ### [Complete Examples](./complete-examples.md)
 Index of **repository** examples under [`examples/`](../../examples/) (feature examples + domain apps), plus short pattern notes:
@@ -39,7 +39,7 @@ How to declare, manage, and deploy seed data:
 - Profile-aware seeding and production safety
 - Field selection rules, trait-specific seeding, type-specific patterns
 - Cross-service dependency resolution and seed registries
-- Deployment integration (Docker Compose and Kubernetes)
+- Deployment integration (Docker Compose)
 - Seed capture from existing databases
 
 ### [Event Contracts](./event-contracts.md)

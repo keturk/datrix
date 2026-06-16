@@ -2,7 +2,7 @@
 
 **Address user as Jon:** Always address the user as "Jon" in every reply.
 
-**On-demand skills:** `/imports`, `/logic-map`, `/fix`, `/fix-issue`, `/fix-bug-report`, `/codegen-review`, `/fix-tests`, `/scope`, `/checkpoint-debug`, `/troubleshoot-and-fix`, `/codegen-fix-loop`, `/operationalize-design`, `/execute-tasks`, `/execute-tasks-parallel`, `/task-orchestrator`, `/absorb-design`, `/commit-and-push`, `/evaluate-generated`, `/evaluate-generated-service`, `/fix-cli`, `/fix-common`, `/fix-extensions`, `/fix-language`, `/fix-codegen-{aws,azure,common,component,docker,k8s,python,sql,typescript}`.
+**On-demand skills:** `/imports`, `/logic-map`, `/fix`, `/fix-issue`, `/fix-bug-report`, `/codegen-review`, `/fix-tests`, `/scope`, `/checkpoint-debug`, `/troubleshoot-and-fix`, `/codegen-fix-loop`, `/operationalize-design`, `/execute-tasks`, `/execute-tasks-parallel`, `/task-orchestrator`, `/absorb-design`, `/commit-and-push`, `/evaluate-generated`, `/evaluate-generated-service`, `/fix-cli`, `/fix-common`, `/fix-extensions`, `/fix-language`, `/fix-codegen-{aws,azure,common,component,docker,python,sql,typescript}`.
 
 ## Core Principles
 
@@ -51,6 +51,8 @@ Understand→Fix→Verify (`/fix` for full workflow). Implement "Recommended Fix
 ## Design Doc Workflow
 
 Docs in `design/` numbered by priority. Read full doc + cross-ref architecture before implementing. Design docs are scope boundaries — don't add unspecified features. Operationalize before coding: `/operationalize-design`. Absorb after completion (`/absorb-design`). Never modify design docs during implementation.
+
+**No investigation deferred to implementation.** Resolve every factual unknown *during* design — external product facts (APIs, versions, endpoints, claim shapes), codebase facts (does this symbol/literal exist, what shape does this code assume), and scope boundaries. A design doc must not contain "verify during implementation", "TBD", or assumptions presented as fact. Look it up now (web docs, source reads), cite the source, and bake the verified value in. If something genuinely cannot be determined, that is a blocking open question to STOP on — not a task to hand to the implementer.
 
 ## Logic Map
 

@@ -398,25 +398,6 @@ services:
     restart: "no"
 ```
 
-### Kubernetes
-
-Generated Kubernetes output includes seed Jobs alongside existing init Jobs:
-
-```yaml
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: billing-service-seed
-spec:
-  backoffLimit: 3
-  template:
-    spec:
-      containers:
-        - name: seed
-          command: ["python", "-m", "billing.persistence.seeds.seed_runner"]
-      restartPolicy: Never
-```
-
 ---
 
 ## Idempotency

@@ -26,7 +26,7 @@ A content management system for blogs and articles with author management, conte
 - **Redis** - Content caching and session storage
 
 ### Service Discovery
-- **Consul** (development) / **Kubernetes** (production)
+- **Consul**
 
 ### Observability
 - **Prometheus** - Metrics collection
@@ -54,8 +54,8 @@ A content management system for blogs and articles with author management, conte
 # Generate Python services with Docker
 datrix generate examples/02-domains/blog-cms/system.dtrx -l python -p docker
 
-# Generate TypeScript services with Kubernetes
-datrix generate examples/02-domains/blog-cms/system.dtrx -l typescript -p kubernetes
+# Generate TypeScript services with Docker
+datrix generate examples/02-domains/blog-cms/system.dtrx -l typescript -p docker
 ```
 
 ## Files

@@ -139,7 +139,7 @@ Determine the target language and platform from the generated output:
 - **Python:** Look for `pyproject.toml`, `requirements.txt`, `src/` with Python packages, `main.py`
 - **TypeScript:** Look for `package.json`, `tsconfig.json`, `src/` with `.ts` files, `app.module.ts`
 
-Note: Platform (Docker/Kubernetes/AWS/Azure) is typically detected at project level, not service level.
+Note: Platform (Docker/AWS/Azure) is typically detected at project level, not service level.
 
 #### 2b: Read Service Manifests
 

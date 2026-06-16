@@ -171,12 +171,6 @@ Quick-reference index for AI agents. All paths relative to `D:/datrix/`.
 - [seed-services.md](datrix-codegen-docker/docs/seed-services.md) → Seed service Docker generation
 - [config-store.md](datrix-codegen-docker/docs/config-store.md) → Consul config store generation (Docker)
 
-**Kubernetes (datrix-codegen-k8s):**
-- [architecture.md](datrix-codegen-k8s/docs/architecture.md) → Kubernetes generator architecture
-- [kubernetes-generator-api.md](datrix-codegen-k8s/docs/kubernetes-generator-api.md) → Kubernetes generator API
-- [seed-jobs.md](datrix-codegen-k8s/docs/seed-jobs.md) → Kubernetes seed jobs
-- [config-store.md](datrix-codegen-k8s/docs/config-store.md) → Consul config store generation (Kubernetes)
-
 **AWS (datrix-codegen-aws):**
 - [architecture.md](datrix-codegen-aws/docs/architecture.md) → AWS generator architecture
 - [aws-generator-api.md](datrix-codegen-aws/docs/aws-generator-api.md) → AWS generator API
@@ -310,8 +304,8 @@ Quick-reference index for AI agents. All paths relative to `D:/datrix/`.
 |-------|--------------|
 | **Observability** | [observability.md](datrix-common/docs/observability.md), Python: [observability-codegen.md](datrix-codegen-python/docs/observability-codegen.md), TypeScript: [observability-codegen.md](datrix-codegen-typescript/docs/observability-codegen.md), Docker: [observability-stack.md](datrix-codegen-docker/docs/observability-stack.md) |
 | **Multi-tenancy** | Python: [tenancy-codegen.md](datrix-codegen-python/docs/tenancy-codegen.md), TypeScript: [tenancy-codegen.md](datrix-codegen-typescript/docs/tenancy-codegen.md) |
-| **Runtime Config Store** | Schema: [config-store.md](datrix-common/docs/config-store.md), Python client: [runtime-config-client.md](datrix-codegen-python/docs/runtime-config-client.md), TypeScript client: [runtime-config-client.md](datrix-codegen-typescript/docs/runtime-config-client.md), Docker/Consul: [config-store.md](datrix-codegen-docker/docs/config-store.md), Kubernetes/Consul: [config-store.md](datrix-codegen-k8s/docs/config-store.md), AWS AppConfig: [config-store.md](datrix-codegen-aws/docs/config-store.md), Azure App Configuration: [config-store.md](datrix-codegen-azure/docs/config-store.md) |
-| **Seed data** | [seed-data-guidelines.md](datrix/docs/guide/seed-data-guidelines.md), Python: [seed-generation.md](datrix-codegen-python/docs/seed-generation.md), TypeScript: [seed-generation.md](datrix-codegen-typescript/docs/seed-generation.md), SQL: [seed-dialect-extensions.md](datrix-codegen-sql/docs/seed-dialect-extensions.md), Docker: [seed-services.md](datrix-codegen-docker/docs/seed-services.md), Kubernetes: [seed-jobs.md](datrix-codegen-k8s/docs/seed-jobs.md) |
+| **Runtime Config Store** | Schema: [config-store.md](datrix-common/docs/config-store.md), Python client: [runtime-config-client.md](datrix-codegen-python/docs/runtime-config-client.md), TypeScript client: [runtime-config-client.md](datrix-codegen-typescript/docs/runtime-config-client.md), Docker/Consul: [config-store.md](datrix-codegen-docker/docs/config-store.md), AWS AppConfig: [config-store.md](datrix-codegen-aws/docs/config-store.md), Azure App Configuration: [config-store.md](datrix-codegen-azure/docs/config-store.md) |
+| **Seed data** | [seed-data-guidelines.md](datrix/docs/guide/seed-data-guidelines.md), Python: [seed-generation.md](datrix-codegen-python/docs/seed-generation.md), TypeScript: [seed-generation.md](datrix-codegen-typescript/docs/seed-generation.md), SQL: [seed-dialect-extensions.md](datrix-codegen-sql/docs/seed-dialect-extensions.md), Docker: [seed-services.md](datrix-codegen-docker/docs/seed-services.md) |
 | **Entity identity** | [entity-identity.md](datrix-common/docs/generation/entity-identity.md) |
 | **Code generation** | [README.md](datrix-common/docs/generation/README.md) |
 

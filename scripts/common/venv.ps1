@@ -538,7 +538,6 @@ function Install-DatrixPackage {
  "datrix-codegen-typescript" = "datrix_codegen_typescript"
  "datrix-codegen-sql" = "datrix_codegen_sql"
  "datrix-codegen-docker" = "datrix_codegen_docker"
- "datrix-codegen-k8s" = "datrix_codegen_k8s"
  "datrix-codegen-aws" = "datrix_codegen_aws"
  "datrix-codegen-azure" = "datrix_codegen_azure"
  "datrix-extensions" = "datrix_extensions"
@@ -654,8 +653,7 @@ function Test-DatrixWorkspacePresent {
  "datrix-language",
  "datrix-codegen-aws",
  "datrix-codegen-azure",
- "datrix-codegen-docker",
- "datrix-codegen-k8s"
+ "datrix-codegen-docker"
  )
 
  $missing = @()
@@ -772,7 +770,6 @@ function Get-DatrixPackages {
  "datrix-codegen-typescript",
  "datrix-codegen-sql",
  "datrix-codegen-docker",
- "datrix-codegen-k8s",
  "datrix-codegen-aws",
  "datrix-codegen-azure",
  "datrix-extensions"
@@ -849,7 +846,6 @@ function Test-PackageNeedsReinstall {
  "datrix-codegen-typescript" = "datrix_codegen_typescript"
  "datrix-codegen-sql" = "datrix_codegen_sql"
  "datrix-codegen-docker" = "datrix_codegen_docker"
- "datrix-codegen-k8s" = "datrix_codegen_k8s"
  "datrix-codegen-aws" = "datrix_codegen_aws"
  "datrix-codegen-azure" = "datrix_codegen_azure"
  "datrix-extensions" = "datrix_extensions"

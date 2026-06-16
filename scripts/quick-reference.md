@@ -87,7 +87,6 @@ Valid project names for `-Projects` parameter:
 - `datrix-codegen-typescript`
 - `datrix-codegen-sql`
 - `datrix-codegen-docker`
-- `datrix-codegen-k8s`
 - `datrix-codegen-aws`
 - `datrix-codegen-azure`
 - `datrix-extensions`

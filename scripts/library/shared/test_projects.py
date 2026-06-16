@@ -51,7 +51,7 @@ def build_output_path(source_path: str, language: str, platform: str) -> str:
  Args:
   source_path: Source file path from project config
   language: Target language (python, typescript)
-  platform: Target platform (docker, k8s, aws, azure)
+  platform: Target platform (docker, aws, azure)
 
  Returns:
   Relative output path without .generated prefix

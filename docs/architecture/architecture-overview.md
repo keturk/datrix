@@ -14,9 +14,9 @@ Datrix is a code generation system that transforms `.dtrx` domain specifications
 ✅ **Template-Based Generation** - Jinja2 templates with automatic formatting
 ✅ **Fail-Fast Error Handling** - Errors caught at generation time, not runtime
 ✅ **Multi-Language Support** - Python, TypeScript, SQL
-✅ **Multi-Platform Support** - Docker, Kubernetes, AWS, Azure
+✅ **Multi-Platform Support** - Docker, AWS, Azure
 ✅ **Type-Safe** - Exhaustive type mappings with validation
-✅ **Modular Architecture** - 13 installable packages (core toolchain + optional **datrix-extensions**) plus showcase and projects repos
+✅ **Modular Architecture** - 12 installable packages (core toolchain + optional **datrix-extensions**) plus showcase and projects repos
 ✅ **Specification-Level Testing** - DSL `test` blocks transpile to pytest under `tests/spec/` (Python) and Jest under `test/spec/` (TypeScript); see the [spec testing documentation](../guide/spec-testing.md)
 ✅ **Event contracts** - `ensure` clauses on `publish` events enforce publisher-side validation before `dispatch`
 ✅ **External library interfacing** - `extern service` declarations generate typed HTTP clients and deployment wiring for user-built services
@@ -71,7 +71,6 @@ graph TD
  CGC --> E[datrix-codegen-typescript]
  A --> F[datrix-codegen-sql]
  CGC --> G[datrix-codegen-docker]
- CGC --> H[datrix-codegen-k8s]
  A --> I[datrix-codegen-aws]
  A --> J[datrix-codegen-azure]
  B --> K[datrix-cli]
@@ -81,7 +80,6 @@ graph TD
  E --> K
  F --> K
  G --> K
- H --> K
  I --> K
  J --> K
 ```
@@ -90,13 +88,13 @@ graph TD
 - **datrix-common** (no dependencies) — Foundation and generation framework (AST model, type system, semantic analysis, standard library resources + loader protocols, config resolution, plugin protocols, generation framework). Does **not** import `datrix-language` — parser and stdlib-loader implementations are injected via protocols.
 - **datrix-language** (depends on datrix-common) — Parser + CST-to-AST transformers, implements `ParserProtocol` and `StdlibParserProtocol` defined in datrix-common
 - **datrix-extensions** (depends on datrix-common) — Optional domain packs; **not** required by `datrix-cli` or generators unless you declare `use extension` and install the pack
-- **datrix-codegen-common** (depends on datrix-common) — Shared codegen intelligence: profile-driven transpiler, language-agnostic algorithms, context models, field analysis, parity checking, shared Grafana dashboard builder, GenDSL runtime, serverless/replayable-ingestion plans. Consumed by language codegen packages and by **all four** platform generators for its language-agnostic services.
+- **datrix-codegen-common** (depends on datrix-common) — Shared codegen intelligence: profile-driven transpiler, language-agnostic algorithms, context models, field analysis, parity checking, shared Grafana dashboard builder, GenDSL runtime, serverless/replayable-ingestion plans. Consumed by language codegen packages and by **all three** platform generators for its language-agnostic services.
 - **Language Code Generators** (depend on datrix-codegen-common, which depends on datrix-common) — Python, TypeScript
 - **Other Code Generators** (depend on datrix-common) — SQL, component
-- **Platform Generators** (Docker, Kubernetes, AWS, Azure) — all four depend on **datrix-codegen-common** for its language-agnostic platform services (GenDSL runtime, shared Grafana `DashboardBuilder`, serverless and replayable-ingestion plans, shared enums) as well as datrix-common. They must **not** import the language-specific parts of codegen-common (`transpiler.*`, language-shaped `context_models`/`algorithms`) or any language generator package — see the [platform → codegen-common subtree contract](../../datrix-common/docs/architecture/import-boundaries.md#platform--codegen-common-subtree-contract).
+- **Platform Generators** (Docker, AWS, Azure) — all three depend on **datrix-codegen-common** for its language-agnostic platform services (GenDSL runtime, shared Grafana `DashboardBuilder`, serverless and replayable-ingestion plans, shared enums) as well as datrix-common. They must **not** import the language-specific parts of codegen-common (`transpiler.*`, language-shaped `context_models`/`algorithms`) or any language generator package — see the [platform → codegen-common subtree contract](../../datrix-common/docs/architecture/import-boundaries.md#platform--codegen-common-subtree-contract).
 - **datrix-cli** (depends on datrix-common, datrix-language; owns `GenerationPipeline` orchestration; discovers generator plugins dynamically)
 
-> **`datrix_codegen_common/platform/` subpackage.** A `platform/` subpackage lives **inside the existing `datrix-codegen-common`** — a sibling of `gendsl/`, `dashboards/`, `algorithms/`, and `context_models/`. **No new package or repo is created**: the shared provider seam (the `resolve_runtime_spec` / `runtime_stack_token` helpers and the `PlatformInfrastructure` protocol) is language-agnostic platform code, exactly the layer `datrix-codegen-common` already owns. Because the four platform generators already legally import `datrix-codegen-common`, `platform.*` simply joins the closed list of language-agnostic codegen-common subtrees platforms may import (alongside `gendsl.*`, `dashboards.*`, `algorithms.serverless`, `context_models.serverless`, `context_models.replayable_ingestion`, `enums`) — no new graph node and no new boundary edge. The shared Grafana `DashboardBuilder` **stays in `datrix-codegen-common/dashboards/`** and platforms continue to import it directly; there is no re-home and no `ObservabilityIntegration` facade. See [Shared Provider Library](../../datrix-codegen-common/docs/architecture.md#shared-provider-library-platform) and [Decision 12: Language-Agnostic Provider Generators](#decision-12-language-agnostic-provider-generators).
+> **`datrix_codegen_common/platform/` subpackage.** A `platform/` subpackage lives **inside the existing `datrix-codegen-common`** — a sibling of `gendsl/`, `dashboards/`, `algorithms/`, and `context_models/`. **No new package or repo is created**: the shared provider seam (the `resolve_runtime_spec` / `runtime_stack_token` helpers and the `PlatformInfrastructure` protocol) is language-agnostic platform code, exactly the layer `datrix-codegen-common` already owns. Because the three platform generators already legally import `datrix-codegen-common`, `platform.*` simply joins the closed list of language-agnostic codegen-common subtrees platforms may import (alongside `gendsl.*`, `dashboards.*`, `algorithms.serverless`, `context_models.serverless`, `context_models.replayable_ingestion`, `enums`) — no new graph node and no new boundary edge. The shared Grafana `DashboardBuilder` **stays in `datrix-codegen-common/dashboards/`** and platforms continue to import it directly; there is no re-home and no `ObservabilityIntegration` facade. See [Shared Provider Library](../../datrix-codegen-common/docs/architecture.md#shared-provider-library-platform) and [Decision 12: Language-Agnostic Provider Generators](#decision-12-language-agnostic-provider-generators).
 
 **Import boundary enforcement:** The dependency edges above are enforced by automated tooling — see [Import Boundaries](../../datrix-common/docs/architecture/import-boundaries.md) for the full rule table and scanner usage. The scanner currently reports a known lower-bound caveat: files carrying a UTF-8 BOM are silently skipped (read with `encoding="utf-8"`), so the violation count is a lower bound until the scanner reads with `encoding="utf-8-sig"`. Fixing that is a tracked scanner-robustness follow-up, separate from the boundary-rule reconciliation.
 
@@ -172,7 +170,7 @@ graph TD
 - Clear ownership
 - Plugin architecture
 
-**Result:** Separate repos for Docker, K8s, AWS, Azure
+**Result:** Separate repos for Docker, AWS, Azure
 
 ---
 
@@ -217,8 +215,8 @@ graph TD
 
 **Rationale:**
 - Legacy models conflated runtime packaging shape, infrastructure provider, and cloud-managed targets into a single dimension
-- "Docker" and "Kubernetes" are runtime/packaging targets, not cloud providers; "AWS" and "Azure" are providers, not runtimes
-- One-dimensional models cannot express combinations like "Kubernetes on Azure (AKS)" or "Docker Compose on Azure VM" without overloading terms
+- "Docker Compose" and "ECS Fargate" are runtime/packaging targets, not cloud providers; "AWS" and "Azure" are providers, not runtimes
+- One-dimensional models cannot express combinations like "ECS Fargate on AWS" or "Docker Compose on Azure VM" without overloading terms
 - CLI overrides can create partial deployment states where the command line says one target but resolved config still contains values for another
 
 **Result:**
@@ -228,19 +226,19 @@ graph TD
 language: python | typescript
 
 deployment:
-  runtime: docker-compose | kubernetes | azure-app-service | ecs-fargate | app-runner
+  runtime: docker-compose | azure-app-service | ecs-fargate | app-runner
   provider: local | existing | aws | azure
-  target: aks | eks | vm | ...        # optional, provider-specific
+  target: vm | ...                    # optional, provider-specific
   registry: acr | ecr | ...           # optional, provider-specific
 ```
 
 - `language` selects the generated application implementation
-- `deployment.runtime` selects the deployable artifact shape (Compose, Kubernetes manifests, Azure App Service, etc.)
+- `deployment.runtime` selects the deployable artifact shape (Compose, Azure App Service, ECS Fargate, etc.)
 - `deployment.provider` selects the infrastructure provider or substrate owner
 - `deployment.target` and `deployment.registry` are optional provider-specific refinements
-- `host` remains a network endpoint concept only — never used to mean AWS, Azure, Docker, or Kubernetes
+- `host` remains a network endpoint concept only — never used to mean AWS, Azure, or Docker
 
-> **Note:** `runtime: azure-container-apps` is **retired**. Use `runtime: azure-app-service` for the native Azure PaaS runtime, or `runtime: kubernetes, target: aks` for a container mesh on AKS. Specifying the retired value raises a generation error with migration guidance.
+> **Note:** `runtime: azure-container-apps` is **retired**. Use `runtime: azure-app-service` for the native Azure PaaS runtime. Specifying the retired value raises a generation error with migration guidance.
 
 **Construct-mapped realization:** Once a deployment target is resolved, each DSL block maps to the target platform's native primitive. Service deployment shape is derived entirely from declared blocks — no separate per-service runtime selector is needed. See [Design Principles — Construct-Mapped Platform Realization](./design-principles.md#11-construct-mapped-platform-realization-stable) for the full mapping table and rationale.
 
@@ -249,7 +247,7 @@ deployment:
 | Concept | Examples | Owns |
 | --- | --- | --- |
 | Language | `python`, `typescript` | Application source code, framework/runtime adapters, language package/dependency files |
-| Runtime | `docker-compose`, `kubernetes`, `azure-app-service`, `ecs-fargate` | Deployable artifact shape and process model |
+| Runtime | `docker-compose`, `azure-app-service`, `ecs-fargate`, `app-runner` | Deployable artifact shape and process model |
 | Provider | `local`, `existing`, `aws`, `azure` | Provider-managed substrate, registry, identity, networking, managed services |
 | Infrastructure flavor | `container`, `external`, `rds`, `flexible-server`, `event-hubs` | Per-block provisioning choice (RDBMS, cache, pubsub, etc.) |
 | Host | `db.example.com`, `api.example.com`, `localhost` | Network endpoint |
@@ -263,13 +261,12 @@ deployment:
   runtime: docker-compose
   provider: local
 
-# Kubernetes on Azure (AKS)
+# AWS App Runner
 language: python
 deployment:
-  runtime: kubernetes
-  provider: azure
-  target: aks
-  registry: acr
+  runtime: app-runner
+  provider: aws
+  registry: ecr
 
 # Azure App Service (native PaaS)
 language: python
@@ -292,12 +289,10 @@ deployment:
 | --- | --- | --- | --- |
 | Python Docker Compose local | `component`, `python`, `sql` | `docker` | none |
 | TypeScript Docker Compose local | `component`, `typescript`, `sql`, `python_http_contract_overlay` | `docker` | none |
-| Python Kubernetes existing | `component`, `python`, `sql` | `k8s` | none |
-| Python Kubernetes on Azure (AKS) | `component`, `python`, `sql` | `k8s` | `azure` AKS/ACR/networking |
-| Python Azure App Service | `component`, `python`, `sql` | none (PaaS, no K8s manifests) | `azure` App Service + managed infra |
+| Python Azure App Service | `component`, `python`, `sql` | none (PaaS) | `azure` App Service + managed infra |
 | Python ECS Fargate | `component`, `python`, `sql` | none (PaaS) | `aws` ECS/Fargate/managed infra |
 
-Provider generators augment runtime output unless the runtime is provider-native. For `runtime: kubernetes, provider: azure`, Azure support adds AKS/ACR/identity/networking/managed-service integration without replacing Kubernetes manifests. For `runtime: azure-app-service`, the Azure generator produces all infrastructure Bicep — there is no separate runtime generator.
+Provider generators augment runtime output unless the runtime is provider-native. For `runtime: docker-compose, provider: aws`, AWS support adds VPC/identity/networking/managed-service integration without replacing the Compose runtime artifacts. For `runtime: azure-app-service`, the Azure generator produces all infrastructure Bicep — there is no separate runtime generator.
 
 **Explicit config rule:** Defaults are an anti-pattern for deployment generation. Every deployment-relevant field must come from resolved config. Missing required fields must produce explicit errors naming the config path and expected field. Invalid combinations must produce validation errors rather than being corrected silently. No generator may override a user-provided config value.
 
@@ -306,7 +301,6 @@ Provider generators augment runtime output unless the runtime is provider-native
 | Runtime | Valid providers |
 | --- | --- |
 | `docker-compose` | `local`, `aws`, `azure` |
-| `kubernetes` | `existing`, `aws`, `azure` |
 | `azure-app-service` | `azure` |
 | `ecs-fargate` | `aws` |
 | `app-runner` | `aws` |
@@ -371,14 +365,14 @@ Provider generators augment runtime output unless the runtime is provider-native
 ### Decision 9: Centralized Runtime Config Store
 
 **Rationale:**
-- ConfigDSL (`.dcfg`) resolves configuration at generation/deploy time and bakes it into generated code, env vars, Compose files, K8s manifests, and cloud infrastructure. That cannot support operational changes that must happen without rebuilding and redeploying an image: feature flags and kill switches, rate-limit/TTL/retry/timeout tuning, per-environment overrides of the same artifact, and secret-rotation coordination
+- ConfigDSL (`.dcfg`) resolves configuration at generation/deploy time and bakes it into generated code, env vars, Compose files, and cloud infrastructure. That cannot support operational changes that must happen without rebuilding and redeploying an image: feature flags and kill switches, rate-limit/TTL/retry/timeout tuning, per-environment overrides of the same artifact, and secret-rotation coordination
 - Datrix needs to generate the runtime config-store infrastructure, initial values, access permissions, and language-specific runtime clients while preserving the existing static ConfigDSL pipeline
 - A runtime config plane must not become a backdoor for secrets — it stores only non-sensitive values and *references* to secrets, never secret values
 
 **Result:**
 - A system-level `configStore` section is added to existing **system** ConfigDSL. No application DSL grammar change is introduced — the runtime plane is purely an infrastructure + generated-client capability. The resolved object attaches to `app.system.config.config_store` via `SystemConfigProfileConfig.config_store` (`ConfigStoreConfig | None`)
 - `configStore` is **additive and gated**: services receive a generated runtime client only when `configStore` is present; apps without it produce byte-equivalent output (no client files, no new env vars, no config-store infrastructure). It does **not** replace service/system `.dcfg` — ConfigDSL remains the source for generation-time and deploy-time configuration. The config store adds runtime-mutable keys only
-- **Supported engines (initial set):** AWS AppConfig (`engine: appconfig`, `platform: managed`), Azure App Configuration (`engine: app-configuration`, `platform: managed`), and self-hosted Consul KV for Docker/Kubernetes (`engine: consul`, `platform: container` or `external`). Parameter Store and etcd are future extensions
+- **Supported engines (initial set):** AWS AppConfig (`engine: aws-managed`, `platform: managed`), Azure App Configuration (`engine: azure-managed`, `platform: managed`), and self-hosted Consul KV for Docker (`engine: consul`, `platform: container` or `external`). Parameter Store and etcd are future extensions
 - **Centralized compatibility validation:** engine/platform/provider combinations are validated in `datrix-common` during system config resolution, using the resolved deployment runtime/provider plus config-store engine/platform. Unsupported combinations fail loud with diagnostics naming runtime, provider, engine, and platform. Generator-side `GenerationError` guards remain as a defensive backstop. There is no silent fallback from cloud config to local JSON — local defaults are client startup data, not an infrastructure substitute
 - **Generated clients** (Python and TypeScript) share one conceptual API: `start/stop/refresh`, typed scalar accessors (`get_bool/get_int/get_float/get_string`), `get_namespace`, and `get_secret_ref`. The dynamic API is the public contract; generators also emit typed namespace/key constants (Python frozen constants, TypeScript `as const` + literal types) but no per-key accessor methods. Behavior: cache seeded from generated defaults, remote values merged over defaults profile-by-profile, unknown namespace/key access raises, single background poll task per process, and explicit fail-open (log-and-continue) vs fail-closed (fail startup / raise on refresh) semantics
 - **Secrets boundary:** keys may declare a `secretRef` (provider + name/path + optional version) — a non-sensitive pointer. Scalar accessors raise for `secretRef` keys; only `get_secret_ref` returns reference metadata. Actual secret values resolve through generated secret-manager access code (Vault, Azure Key Vault, AWS Secrets Manager, env). Secret-manager read permissions are generated from declared secret references, not from arbitrary runtime values. Raw secret-looking defaults are rejected using the same placeholder/secret hygiene as extern-service config
@@ -386,10 +380,9 @@ Provider generators augment runtime output unless the runtime is provider-native
 
 **Engine compatibility matrix:**
 
-| Deployment target | appconfig managed | app-configuration managed | consul container | consul external |
+| Deployment target | aws-managed (AWS AppConfig) | azure-managed (Azure App Configuration) | consul container | consul external |
 | --- | --- | --- | --- | --- |
 | Docker/local | invalid | invalid | supported | supported |
-| Kubernetes/local | invalid | invalid | supported | supported |
 | AWS provider | supported | invalid | invalid | supported |
 | Azure provider | invalid | supported | invalid | supported |
 
@@ -448,19 +441,19 @@ Provider generators augment runtime output unless the runtime is provider-native
 ### Decision 12: Language-Agnostic Provider Generators
 
 **Rationale:**
-- Provider generators (AWS, Azure) were coupled to the target language in a way runtime generators (Docker, K8s) were not: Docker/K8s discover the language via the `LanguageRuntimeSpec` protocol and ask it for language-appropriate commands, while AWS branched on the `Language` enum inline and hardcoded Python idioms (CDK stack language, scheduled-job command), and Azure hardcoded the App Service `gunicorn … uvicorn` startup command and `PYTHON|…` `linuxFxVersion`
+- Provider generators (AWS, Azure) were coupled to the target language in a way runtime generators (Docker) were not: Docker discover the language via the `LanguageRuntimeSpec` protocol and ask it for language-appropriate commands, while AWS branched on the `Language` enum inline and hardcoded Python idioms (CDK stack language, scheduled-job command), and Azure hardcoded the App Service `gunicorn … uvicorn` startup command and `PYTHON|…` `linuxFxVersion`
 - Consequence: a new target language required editing every provider generator independently, and a new provider had to re-derive language handling from scratch instead of inheriting it
 - There was no shared home for provider-level, language-agnostic concerns (config resolution, observability integration, networking/auth/managed-service provisioning), so each provider re-implemented them
 
 **Result:**
-- **Language is discovered, never branched.** Every platform generator obtains language-specific runtime details from `LanguageRuntimeSpec` via `discover_language_runtime_spec(target_language)`, exactly as Docker/K8s do. Zero `Language`-enum branches and zero `language_name == "…"` string comparisons remain in any platform package's application-wiring code (Docker, K8s, AWS, Azure)
-- **The `LanguageRuntimeSpec` protocol gains exactly three language-agnostic methods** (default-free abstract declarations, implemented in `datrix-codegen-python` and `datrix-codegen-typescript`, covered by the Design 014 parity gate): `container_command(service, package_name) -> list[str]` (the explicit HTTP-service start command; sole consumer is Azure App Service — AWS inherits its container `ENTRYPOINT` from the built Docker image and needs no wiring), `hosts_consumers_in_process() -> bool` (whether the language runs scheduled-job / event-consumer / queue-worker containers in-process on Compose/K8s), and `project_language() -> ProjectLanguage` (the language's own `ProjectLanguage` member, replacing a silent string→enum fallback). `health_check_endpoint` is **not** added — the readiness path is the shared, language-neutral `HTTP_HEALTH_CHECK_PATH = "/ready"` constant
+- **Language is discovered, never branched.** Every platform generator obtains language-specific runtime details from `LanguageRuntimeSpec` via `discover_language_runtime_spec(target_language)`, exactly as Docker do. Zero `Language`-enum branches and zero `language_name == "…"` string comparisons remain in any platform package's application-wiring code (Docker, AWS, Azure)
+- **The `LanguageRuntimeSpec` protocol gains exactly three language-agnostic methods** (default-free abstract declarations, implemented in `datrix-codegen-python` and `datrix-codegen-typescript`, covered by the Design 014 parity gate): `container_command(service, package_name) -> list[str]` (the explicit HTTP-service start command; sole consumer is Azure App Service — AWS inherits its container `ENTRYPOINT` from the built Docker image and needs no wiring), `hosts_consumers_in_process() -> bool` (whether the language runs scheduled-job / event-consumer / queue-worker containers in-process on Compose), and `project_language() -> ProjectLanguage` (the language's own `ProjectLanguage` member, replacing a silent string→enum fallback). `health_check_endpoint` is **not** added — the readiness path is the shared, language-neutral `HTTP_HEALTH_CHECK_PATH = "/ready"` constant
 - **IaC language ≠ application language.** The language a provider authors its infrastructure artifacts in (AWS CDK Python, Azure Bicep) is independent of the generated application's language. A TypeScript app deployed via AWS still gets Python CDK stacks; the CDK references a TypeScript container command obtained from the runtime spec. AWS collapses its three Python-IaC string constants into one named `_CDK_IAC_LANGUAGE` constant documenting this invariant
 - **The `datrix_codegen_common/platform/` subpackage** (inside the existing `datrix-codegen-common`, a sibling of `gendsl/`, `dashboards/`, `algorithms/`, `context_models/` — **not a new package**) is the shared home for provider-level concerns that are language-agnostic and shared by ≥2 platforms: the `resolve_runtime_spec(context)` discovery helper (raises `GenerationError`, never falls back to Python), the `runtime_stack_token(lang_spec, runtime_version)` `LANG|VERSION` composer, and the `PlatformInfrastructure` protocol. The shared Grafana `DashboardBuilder` already lives in `datrix_codegen_common/dashboards/` and platforms import it directly — no re-home, no facade
-- **`PlatformInfrastructure` protocol** (`@runtime_checkable`, in `datrix_codegen_common/platform/`) expresses provider-level infrastructure surfaces — `network_topology(app)`, `service_to_service_auth(app)`, and `provision_managed_service(block, block_kind, service)` — exposed as a `platform_infrastructure` property on each `PlatformGenerator` subclass. Every platform implements the **full** protocol: clouds fully; Docker/K8s return explicit no-op value objects (`NetworkTopology.none()`, empty `ManagedServicePlan`) — honest "no VPC/IAM" facts, never silent stubs. Value objects (`NetworkTopology`, `ServiceAuthModel`, `ManagedServicePlan`) are frozen Pydantic models in `datrix_codegen_common/platform/`, keeping provider concepts out of the AST model
+- **`PlatformInfrastructure` protocol** (`@runtime_checkable`, in `datrix_codegen_common/platform/`) expresses provider-level infrastructure surfaces — `network_topology(app)`, `service_to_service_auth(app)`, and `provision_managed_service(block, block_kind, service)` — exposed as a `platform_infrastructure` property on each `PlatformGenerator` subclass. Every platform implements the **full** protocol: clouds fully; Docker return explicit no-op value objects (`NetworkTopology.none()`, empty `ManagedServicePlan`) — honest "no VPC/IAM" facts, never silent stubs. Value objects (`NetworkTopology`, `ServiceAuthModel`, `ManagedServicePlan`) are frozen Pydantic models in `datrix_codegen_common/platform/`, keeping provider concepts out of the AST model
 - **The platform seam is the existing `PlatformGenerator` + `datrix.platforms` entry-point group** — discovered via `discover_platforms`. No new `PlatformAdapter` type is introduced. `PlatformInfrastructure` and the shared `DashboardBuilder` are *consumed by* `PlatformGenerator` subclasses, never a competing discovery contract. A new provider implements a `PlatformGenerator` subclass + a `PlatformInfrastructure` implementation, and *consumes* the shared `DashboardBuilder` (`datrix_codegen_common.dashboards`) and `LanguageRuntimeSpec` — language support is free
 
-**Reference:** [Repository Architecture — Platform Generators](architecture/repository-architecture.md#platform-generators-4) | [Import Boundaries — Platform → codegen-common subtree contract](../../datrix-common/docs/architecture/import-boundaries.md#platform--codegen-common-subtree-contract)
+**Reference:** [Repository Architecture — Platform Generators](architecture/repository-architecture.md#platform-generators-3) | [Import Boundaries — Platform → codegen-common subtree contract](../../datrix-common/docs/architecture/import-boundaries.md#platform--codegen-common-subtree-contract)
 
 ---
 
@@ -477,7 +470,7 @@ Provider generators augment runtime output unless the runtime is provider-native
 - **Unified `auth(...)` protected-surface contract.** Every externally reachable REST/GraphQL/WebSocket/webhook/externally-invokable-serverless surface resolves exactly one effective `AuthContract`. Forms: `auth(public)`, `auth(required, providers: […])`, `auth(optional, providers: […])`, `auth(required, providers: […], roles: […])`, `auth(service, providers: […])`. `providers: [...]` is a **set** (issuer selects the provider; no fallback order); `roles: [...]` is **any-of** with **no transitive hierarchy**. Non-public modes require an explicit provider list — there is no application default provider and no implicit public default.
 - **`AuthContract` replaces `AccessLevel` + `Endpoint.required_roles`/`Endpoint.access_level`.** The legacy `AccessLevel` enum, the `Endpoint.access_level`/`Endpoint.required_roles` fields, and the `is_public`/`is_service_facing`/`is_authorized()` predicates in `datrix-common` are **deleted, not adapted**. The transformer's modifier-string + `@authorize`-decorator access handling lowers to a frozen `AuthContract` (`mode`, `providers`, `roles`, `principalTypes`, `surfaceId`, `delegation`, `profile`, `verify`). The generated auth code drops `ROLE_HIERARCHY`/`_expand_roles` — a deliberate forward-only break: a token previously passing a check only via transitive role inclusion no longer passes unless it carries the literal role.
 - **Provider is the source of truth; Datrix projects a local profile.** Datrix never mints primary tokens. It validates provider tokens via issuer/audience/client/JWKS, and for human providers projects a local `IdentityProfile` (+ `IdentityLink` keyed `(providerName, providerSubject)`) into a bound relational store on first successful auth. These are Datrix-managed system entities users cannot redefine. Account linking is explicit and verified; weak email-only linking is forbidden.
-- **Opinionated per-target providers.** Docker/K8s → Keycloak (provisioned with realm import, clients, groups, social providers); AWS → Cognito User Pool (app-level, per-service app client); Azure customer → Microsoft Entra External ID, Azure workforce → Microsoft Entra ID, Azure machine → user-assigned managed identity (app registration via the Microsoft Graph Bicep extension, never a `deploy-identity.sh` stub). `provider self` (`ProviderPlanEntry.mode="self"`) is a Datrix-managed Keycloak issuer realizable on **all four targets** — Docker/K8s reuse existing Keycloak provisioning; AWS and Azure get managed-container + backing-DB + realm-import provisioning — so "managed" includes "Datrix-managed self-hosted," not external-only. `mode: external` consumes issuer/JWKS/audience/client and provisions nothing. A capability matrix in `datrix-common` is the authoritative source for supported `(providerType, target, feature)` combinations; unsupported combinations fail loud.
+- **Opinionated per-target providers.** Docker → Keycloak (provisioned with realm import, clients, groups, social providers); AWS → Cognito User Pool (app-level, per-service app client); Azure customer → Microsoft Entra External ID, Azure workforce → Microsoft Entra ID, Azure machine → user-assigned managed identity (app registration via the Microsoft Graph Bicep extension, never a `deploy-identity.sh` stub). `provider self` (`ProviderPlanEntry.mode="self"`) is a Datrix-managed Keycloak issuer realizable on **all three targets** — Docker reuse existing Keycloak provisioning; AWS and Azure get managed-container + backing-DB + realm-import provisioning — so "managed" includes "Datrix-managed self-hosted," not external-only. `mode: external` consumes issuer/JWKS/audience/client and provisions nothing. A capability matrix in `datrix-common` is the authoritative source for supported `(providerType, target, feature)` combinations; unsupported combinations fail loud.
 - **Structured versioned provider plan.** A `config/generated/identity-providers.json` artifact (schema owned by `datrix-common`, one per application+environment) carries providers, surfaces, role/attribute mappings, revocation mode, and `*_SECRET_REF` names. Runtime guards resolve provider per surface by issuer from `plan.surfaces[surfaceId]` — never a hardcoded provider name. A non-secret public-client metadata artifact (`identity-client-<provider>.<env>.json`) is the only supported input for frontend login config. Secrets are `ConfigSecretRef` references only (reusing the existing structured secret model + raw-secret hygiene), wired to platform-native secret stores; raw secrets never appear in source, manifests, logs, or docs.
 - **Security-sensitive defaults fail closed.** Auth/JWKS-refresh failures, authorization-bearing cache reads/deletes (revocation, role mappings, identity links), and revocation checks reuse the existing `dependencyPolicy` model with `onFailure="raise"`/`"deny"` only (the model has no `fallback`). Error bodies are opaque (RFC 7807) and never leak issuer/audience/client/role/claim detail; structured reason codes go to logs only. WebSocket auth uses fixed close codes (4401 auth-failed/expired, 4403 forbidden) and clears membership/`Auth.*` state on expiry.
 
@@ -505,7 +498,7 @@ pip install datrix-cli datrix-codegen-python datrix-codegen-docker
 # Full stack
 pip install datrix-cli \
  datrix-codegen-python datrix-codegen-typescript datrix-codegen-sql \
- datrix-codegen-docker datrix-codegen-k8s datrix-codegen-aws datrix-codegen-azure
+ datrix-codegen-docker datrix-codegen-aws datrix-codegen-azure
 ```
 
 **Note:** The CLI automatically discovers installed generators. You only need to install the generators you plan to use.

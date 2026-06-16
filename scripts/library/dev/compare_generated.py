@@ -66,7 +66,7 @@ FEATURE_REGISTRY: list[dict[str, Any]] = [
     {"id": "integrations_storage", "name": "Storage integration", "patterns": ["storage_client", "upload", "download", "boto3", "S3"], "description": "Object/blob storage client. In both; fewer in new."},
     {"id": "integrations_payment", "name": "Payment integration", "patterns": ["payment_client", "payment_provider"], "description": "Payment provider client. Only in new where payment integration is declared."},
     {"id": "resilience", "name": "Resilience (retry/circuit breaker)", "patterns": ["retry", "circuit_breaker", "resilient_client", "Tenacity"], "description": "Retry and circuit-breaker for outbound calls. Present in both."},
-    {"id": "discovery", "name": "Service discovery", "patterns": ["service_discovery", "get_service_url", "discovery_", "consul", "kubernetes"], "description": "Service discovery (Consul/K8s/env) for calling other services. Present in both."},
+    {"id": "discovery", "name": "Service discovery", "patterns": ["service_discovery", "get_service_url", "discovery_", "consul"], "description": "Service discovery (Consul/env) for calling other services. Present in both."},
     {"id": "observability_metrics", "name": "Metrics (Prometheus)", "patterns": ["Prometheus", "metrics_middleware", "/metrics"], "description": "Prometheus metrics endpoint and middleware. Missing in new: no generated metrics middleware."},
     {"id": "observability_tracing", "name": "Tracing (OpenTelemetry)", "patterns": ["opentelemetry", "tracing", "trace_id"], "description": "OpenTelemetry tracing. In both; fewer in new (observability profile)."},
     {"id": "observability_logging", "name": "Structured logging", "patterns": ["structlog", "structured_logger", "JSON logging"], "description": "Structured (e.g. JSON) logging. Missing in new: no generated structured logger."},
@@ -84,7 +84,7 @@ FEATURE_REGISTRY: list[dict[str, Any]] = [
 
 
 def _normalize_project_key_saved_layout(relative_path: str, root: Path) -> str | None:
-    """Normalize path under .generated_saved: first two segments, strip _docker/_k8s from second.
+    """Normalize path under .generated_saved: first two segments, strip _docker from second.
 
     Saved layout example: 01-foundation/01-basic-entity_docker/... -> 01-foundation/01-basic-entity
     """
@@ -93,7 +93,6 @@ def _normalize_project_key_saved_layout(relative_path: str, root: Path) -> str |
         return None
     first, second = parts[0], parts[1]
     second = second.removesuffix("_docker") if second.endswith("_docker") else second
-    second = second.removesuffix("_k8s") if second.endswith("_k8s") else second
     return f"{first}/{second}"
 
 

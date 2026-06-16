@@ -14,7 +14,7 @@
   Name of the test set in scripts/config/test-projects.json (default: typescript-validation).
 
 .PARAMETER Platform
-  docker | kubernetes | k8s (default: docker).
+  docker (default: docker).
 
 .PARAMETER Skip4
   When used with -Skip5, runs run-complete.ps1 instead of generate.ps1 (workflow steps 1-2 only).
@@ -34,7 +34,7 @@ param(
     [string]$TestSet = "typescript-validation",
 
     [Parameter()]
-    [ValidateSet("docker", "kubernetes", "k8s")]
+    [ValidateSet("docker")]
     [string]$Platform = "docker",
 
     [switch]$Skip4,

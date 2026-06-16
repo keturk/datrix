@@ -303,7 +303,7 @@ config system ecommerce.System {
   base {
     language = python;                    # Required: python or typescript
     deployment {                         # Required: deployment target
-      runtime = docker-compose;           # docker-compose, kubernetes, ecs-fargate, etc.
+      runtime = docker-compose;           # docker-compose, ecs-fargate, app-runner, etc.
       provider = local;                   # local, existing, aws, azure
     }
     defaultTimeout = 30000;              # Default request timeout (ms)
@@ -363,7 +363,7 @@ config system ecommerce.System {
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `deployment.target` | String | — | Provider-specific target (e.g., `aks`, `eks`, `vm`) |
+| `deployment.target` | String | — | Provider-specific target (e.g., `vm`) |
 | `deployment.registry` | String | — | Provider-specific image registry (e.g., `acr`, `ecr`) |
 | `defaultTimeout` | Integer | 30000 | Default request timeout (ms) |
 | `region` | String | — | Cloud region (required for AWS/Azure) |
@@ -384,7 +384,6 @@ config system ecommerce.System {
 | Value | Artifact Shape | Service Flavors |
 |-------|----------------|----------------|
 | `docker-compose` | Docker Compose (Dockerfile, docker-compose.yml, .env) | `compose` |
-| `kubernetes` | Kubernetes manifests, Helm charts, Kustomize overlays | `kubernetes` |
 | `ecs-fargate` | AWS CDK stacks (ECS Fargate, ALB, VPC) | `ecs-fargate` |
 | `app-runner` | AWS CDK stacks (App Runner) | `app-runner` |
 | `azure-container-apps` | Azure Bicep modules (Container Apps) | `container-apps` |
@@ -395,9 +394,8 @@ config system ecommerce.System {
 | Value | Meaning | Valid Runtimes |
 |-------|---------|---------------|
 | `local` | Local machine (no cloud) | `docker-compose` |
-| `existing` | Pre-existing cluster (not provisioned) | `kubernetes` |
-| `aws` | Amazon Web Services | `docker-compose`, `kubernetes`, `ecs-fargate`, `app-runner` |
-| `azure` | Microsoft Azure | `docker-compose`, `kubernetes`, `azure-container-apps`, `azure-app-service` |
+| `aws` | Amazon Web Services | `docker-compose`, `ecs-fargate`, `app-runner` |
+| `azure` | Microsoft Azure | `docker-compose`, `azure-container-apps`, `azure-app-service` |
 
 ### Deployment Examples
 
@@ -407,12 +405,11 @@ deployment:
   runtime: docker-compose
   provider: local
 
-# Kubernetes on Azure (AKS)
+# AWS ECS Fargate
 deployment:
-  runtime: kubernetes
-  provider: azure
-  target: aks
-  registry: acr
+  runtime: ecs-fargate
+  provider: aws
+  registry: ecr
 
 # Azure Container Apps
 deployment:
@@ -420,10 +417,11 @@ deployment:
   provider: azure
   registry: acr
 
-# Kubernetes in existing cluster
+# AWS App Runner
 deployment:
-  runtime: kubernetes
-  provider: existing
+  runtime: app-runner
+  provider: aws
+  registry: ecr
 ```
 
 ---
@@ -533,13 +531,6 @@ test:
   platform: compose
 ```
 
-**Kubernetes hosting:**
-
-```yaml
-production:
-  platform: kubernetes
-```
-
 **AWS hosting:**
 
 ```yaml
@@ -547,7 +538,6 @@ production:
   platform: ecs-fargate    # Recommended for most workloads
   # platform: ecs-ec2      # When you need EC2 control
   # platform: app-runner   # Fully managed container service
-  # platform: eks          # When using EKS cluster
   # Event-driven / Lambda-style handlers: declare a serverless {} block in the DSL
   # and set platform: lambda | functions | container in that block's YAML — not here.
 ```
@@ -557,7 +547,6 @@ production:
 ```yaml
 production:
   platform: container-apps   # Recommended for containers
-  # platform: aks            # When using AKS cluster
   # platform: app-service    # For web apps
   # Azure Functions-style handlers: serverless block YAML (platform: functions), not service platform.
 ```
@@ -1136,7 +1125,7 @@ system {
 
 ```yaml
 test:
-  type: consul                     # consul, eureka, etcd, kubernetes
+  type: consul                     # consul, eureka, etcd
   host: localhost
   port: 8500
   healthCheckInterval: 10s
@@ -1350,7 +1339,7 @@ The service `.dcfg` queues section configures **task-dispatch** brokers (RabbitM
 Each profile (`test`, `production`, …) is a `QueueConfig` object:
 
 - **`engine`** (required): `rabbitmq` \| `sqs` \| `service-bus` \| `storage-queue`
-- **`platform`** (required): `container` \| `operator` \| `external` \| `sqs` \| `amazon-mq` \| `service-bus` \| `storage-queue` — must match hosting + engine (see [config-system architecture](../../../datrix-common/docs/architecture/config-system.md#queue-configuration) in datrix-common)
+- **`platform`** (required): `container` \| `external` \| `sqs` \| `amazon-mq` \| `service-bus` \| `storage-queue` — must match hosting + engine (see [config-system architecture](../../../datrix-common/docs/architecture/config-system.md#queue-configuration) in datrix-common)
 
 Connection and ops fields (when required): `host`, `port`, `managementPort`, `defaultUser`, `dockerImage`, `volumePath`, `healthCheckCmd`, `region`, `queuePrefix`, `connectionString`, `sku`.
 
@@ -1511,7 +1500,7 @@ Each extern service config must declare a `deployment` mode:
 
 | Mode | Description | Required Fields |
 |------|-------------|-----------------|
-| `container` | Datrix manages the container (Docker Compose / K8s) | `image`, `port` |
+| `container` | Datrix manages the container (Docker Compose) | `image`, `port` |
 | `external` | Remote URL, not managed by Datrix | `url` |
 
 ### Single Profile
@@ -1612,7 +1601,6 @@ config extern pricing.PricingEngine {
 
 **`deployment: container`:**
 - Docker Compose service entry with image, ports, health check, environment variables, `restart: unless-stopped`
-- Kubernetes Deployment + Service + Secret manifests (under `k8s/base/extern-{name}/`)
 - Consuming services get `{SERVICE}_SERVICE_URL=http://{name}:{port}` and `depends_on` with `condition: service_healthy`
 
 **`deployment: external`:**
@@ -1672,35 +1660,6 @@ profile base {
     }
     registry: registry.example.com
 }
-```
-
-### Kubernetes (Existing Cluster)
-
-Namespace and labels configured per-service:
-
-```yaml
-production:
-  deployment:
-    runtime: kubernetes
-    provider: existing
-  # Per-service config:
-  # namespace: ecommerce           # Kubernetes namespace
-  # labels:
-  #   app: order-service
-  #   environment: production
-```
-
-### Kubernetes on Azure (AKS)
-
-```yaml
-production:
-  deployment:
-    runtime: kubernetes
-    provider: azure
-    target: aks
-    registry: acr
-  location: eastus
-  resourceGroup: ecommerce-rg
 ```
 
 ### AWS (ECS Fargate)
@@ -1847,9 +1806,9 @@ The `configStore` section in a **system** ConfigDSL profile enables a runtime-mu
 
 | Engine | Platform | Runtime target |
 |--------|----------|---------------|
-| `appconfig` | `managed` | AWS provider |
-| `app-configuration` | `managed` | Azure provider |
-| `consul` | `container` | Docker / Kubernetes (Datrix-provisioned) |
+| `aws-managed` | `managed` | AWS provider |
+| `azure-managed` | `managed` | Azure provider |
+| `consul` | `container` | Docker (Datrix-provisioned) |
 | `consul` | `external` | Any (connect to existing backend) |
 
 ### Minimal example
@@ -1859,12 +1818,12 @@ config system ecommerce.System {
   profile production as "prod" {
     language = python;
     deployment {
-      runtime = kubernetes;
+      runtime = ecs-fargate;
       provider = aws;
     }
 
     configStore {
-      engine = appconfig;
+      engine = aws-managed;
       platform = managed;
       applicationName = "ecommerce-api";
       environment = "prod";

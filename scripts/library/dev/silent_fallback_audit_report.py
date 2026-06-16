@@ -51,7 +51,6 @@ PROJECTS = [
     "datrix-codegen-azure",
     "datrix-codegen-component",
     "datrix-codegen-docker",
-    "datrix-codegen-k8s",
     "datrix-codegen-python",
     "datrix-codegen-sql",
     "datrix-codegen-typescript",

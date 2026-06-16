@@ -117,7 +117,7 @@ Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `p
 #### 1b: Read System-Level Configs (Optional)
 
 Read system-level YAML configs to understand project-wide features:
-- System config: platform (Docker/K8s/AWS/Azure), environment settings
+- System config: platform (Docker/AWS/Azure), environment settings
 - Registry: service registry configuration
 - Gateway: NGINX routing, JWT auth, rate limiting
 - Observability: metrics, tracing, logging, visualization
@@ -152,7 +152,6 @@ Determine the target language and platform from the generated output:
 - **Python:** Look for `pyproject.toml`, `requirements.txt` in service dirs
 - **TypeScript:** Look for `package.json`, `tsconfig.json` in service dirs
 - **Docker:** Look for `docker-compose.yml` at project root
-- **Kubernetes:** Look for `k8s/` directory at project root
 
 #### 2b: Read Manifests
 
@@ -275,7 +274,7 @@ Where `{EVAL_DIR}` is the timestamped evaluation directory created in Phase 0.
 **Source:** `{SOURCE path}`
 **Generated:** `{GENERATED path}`
 **Language:** {Python/TypeScript}
-**Platform:** {Docker/Kubernetes/AWS/Azure}
+**Platform:** {Docker/AWS/Azure}
 **Generated At:** {timestamp from manifests}
 
 ---
@@ -455,7 +454,7 @@ PROJECT_SOURCE: {system.dtrx path}
 **Generated Directory:** `{generated service directory path}`
 **Project Source:** `{system.dtrx path}`
 **Language:** {Python/TypeScript}
-**Platform:** {Docker/Kubernetes/AWS/Azure}
+**Platform:** {Docker/AWS/Azure}
 
 ---
 

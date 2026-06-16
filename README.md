@@ -22,7 +22,7 @@ From a single `.dtrx` definition, Datrix produces:
 - **Event-driven messaging** — Kafka/RabbitMQ producers and consumers with topic routing
 - **Caching** — Redis integration with hash, sorted set, list, and counter patterns
 - **Observability** — Prometheus metrics, OpenTelemetry tracing, structured logging, Grafana dashboards
-- **Infrastructure** — Dockerfiles, docker-compose, Kubernetes manifests, AWS CDK, Azure Bicep
+- **Infrastructure** — Dockerfiles, docker-compose, AWS CDK, Azure Bicep
 - **Testing** — Unit and integration test suites with real database fixtures
 - **Documentation** — API docs, environment variable reference, architecture diagrams
 
@@ -126,7 +126,7 @@ Browse the full example: [ecommerce/](examples/03-domains/ecommerce/) | [generat
        |
        v
   +--------------------+
-  | Platform Generators|  Docker, Kubernetes, AWS, Azure
+  | Platform Generators|  Docker, AWS, Azure
   +--------------------+
        |
        v
@@ -138,9 +138,9 @@ Browse the full example: [ecommerce/](examples/03-domains/ecommerce/) | [generat
 | Code Generation | Platform Generation |
 |----------------|-------------------|
 | Python (FastAPI) | Docker + Compose |
-| TypeScript (NestJS) | Kubernetes |
-| SQL (PostgreSQL, MySQL, MariaDB) | AWS (CDK + CloudFormation) |
-| Component (configs, schemas, docs) | Azure (Bicep + ARM) |
+| TypeScript (NestJS) | AWS (CDK + CloudFormation) |
+| SQL (PostgreSQL, MySQL, MariaDB) | Azure (Bicep + ARM) |
+| Component (configs, schemas, docs) | |
 
 ---
 

@@ -26,7 +26,7 @@ An educational platform for online courses, student enrollment, and progress tra
 - **Redis** - Course content caching and session storage
 
 ### Service Discovery
-- **Consul** (development) / **Kubernetes** (production)
+- **Consul**
 
 ### Observability
 - **Prometheus** - Metrics collection
@@ -56,8 +56,8 @@ An educational platform for online courses, student enrollment, and progress tra
 # Generate Python services with Docker
 datrix generate examples/02-domains/learning-management/system.dtrx -l python -p docker
 
-# Generate TypeScript services with Kubernetes
-datrix generate examples/02-domains/learning-management/system.dtrx -l typescript -p kubernetes
+# Generate TypeScript services with Docker
+datrix generate examples/02-domains/learning-management/system.dtrx -l typescript -p docker
 ```
 
 ## Files
