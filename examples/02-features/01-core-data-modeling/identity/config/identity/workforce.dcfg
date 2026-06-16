@@ -1,26 +1,20 @@
-// Example workforce identity provider — external Keycloak (validated, not
+// Example workforce identity provider — external Zitadel (validated, not
 // provisioned), valid on every deployment target.
 config identity workforce {
   base {
-    provider = "keycloak";
+    provider = "zitadel";
     audience = "workforce";
     mode = "external";
-    issuer = "https://auth.shop.example.com/realms/shop-staff";
+    issuer = "https://auth.shop.example.com";
     clientId = "shop-backoffice";
     clientSecret {
       provider = "env";
       name = "IDENTITY_WORKFORCE_CLIENT_SECRET";
     }
-    keycloak {
-      realm = "shop-staff";
-      host = "auth.shop.example.com";
-      port = 8443;
-      adminUser = "admin";
-      adminPassword {
-        provider = "env";
-        name = "IDENTITY_WORKFORCE_ADMIN_PASSWORD";
-      }
-      dbEngine = "postgres";
+    zitadel {
+      instanceUrl = "https://auth.shop.example.com";
+      projectName = "shop-staff";
+      organization = "shop";
     }
     identityFields {
       email {
@@ -30,7 +24,7 @@ config identity workforce {
       }
     }
     roleSource {
-      claimPath = "realm_access.roles";
+      claimPath = "urn:zitadel:iam:org:project:roles";
       guarantee = "required";
     }
     publicClient {

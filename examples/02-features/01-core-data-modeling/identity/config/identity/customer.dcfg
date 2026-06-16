@@ -1,26 +1,20 @@
-// Example customer identity provider — external Keycloak (validated, not
+// Example customer identity provider — external Zitadel (validated, not
 // provisioned), so the same example is valid on every deployment target.
 config identity customer {
   base {
-    provider = "keycloak";
+    provider = "zitadel";
     audience = "customer";
     mode = "external";
-    issuer = "https://auth.shop.example.com/realms/shop-customers";
+    issuer = "https://auth.shop.example.com";
     clientId = "shop-storefront";
     clientSecret {
       provider = "env";
       name = "IDENTITY_CUSTOMER_CLIENT_SECRET";
     }
-    keycloak {
-      realm = "shop-customers";
-      host = "auth.shop.example.com";
-      port = 8443;
-      adminUser = "admin";
-      adminPassword {
-        provider = "env";
-        name = "IDENTITY_CUSTOMER_ADMIN_PASSWORD";
-      }
-      dbEngine = "postgres";
+    zitadel {
+      instanceUrl = "https://auth.shop.example.com";
+      projectName = "shop-customers";
+      organization = "shop";
     }
     identityFields {
       email {
@@ -35,7 +29,7 @@ config identity customer {
       }
     }
     roleSource {
-      claimPath = "realm_access.roles";
+      claimPath = "urn:zitadel:iam:org:project:roles";
       guarantee = "optional";
     }
     profileProjection {

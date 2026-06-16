@@ -616,7 +616,7 @@ Every externally reachable surface must carry an explicit `auth(...)` modifier (
 | TypeScript / NestJS | `datrix-codegen-typescript` | `identity.ts` (`jose`), `identity-surface.guard.ts`, `identity-profile.service.ts`, WebSocket gateway, delegation helper |
 | AWS | `datrix-codegen-aws` | Cognito User Pool + per-service app clients, MFA, custom attributes, groups, hosted UI, OR2 AWS secret wiring |
 | Azure | `datrix-codegen-azure` | Entra ID / Entra External ID app registration, audience routing, Bicep extension, OR2 Azure Key Vault secret wiring |
-| Docker | `datrix-codegen-docker` | Keycloak + backing DB containers, realm import artifact, OR2 Docker secret wiring |
+| Docker | `datrix-codegen-docker` | Zitadel + backing DB containers, project/organization import artifact, master key + instance config, OR2 Docker secret wiring |
 | Component | `datrix-codegen-component` | Provider plan JSON, public-client metadata, identity documentation artifact |
 
 **System entities (OR11):** `IdentityProfile` and `IdentityLink` are reserved entity names injected by the identity planner. `IdentityProfile` stores projected provider identity fields per-user; `IdentityLink` tracks per-provider credential linkage (sub claim, issuer, linked-at timestamp). User-defined entities with these names fail validation.
