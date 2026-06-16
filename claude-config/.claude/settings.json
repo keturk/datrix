@@ -16,7 +16,8 @@
       "PowerShell(\\(Get-Command az -ErrorAction SilentlyContinue\\).Source; \\(Get-Command bicep -ErrorAction SilentlyContinue\\).Source)",
       "PowerShell(if \\(!\\(Test-Path \"D:\\\\datrix\\\\reports\"\\)\\) { New-Item -ItemType Directory -Path \"D:\\\\datrix\\\\reports\" })",
       "Edit(/.claude/skills/task-orchestrator/**)",
-      "PowerShell(powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-docker -Specific \"tests/unit/test_keycloak_compose.py\" 2>&1 | Select-Object -Last 30)"
+      "PowerShell(powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-docker -Specific \"tests/unit/test_keycloak_compose.py\" 2>&1 | Select-Object -Last 30)",
+      "mcp__azure__subscription_list"
     ],
     "additionalDirectories": [
       "C:\\Users\\KErca\\.claude"
