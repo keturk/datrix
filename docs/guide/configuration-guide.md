@@ -386,7 +386,6 @@ config system ecommerce.System {
 | `docker-compose` | Docker Compose (Dockerfile, docker-compose.yml, .env) | `compose` |
 | `ecs-fargate` | AWS CDK stacks (ECS Fargate, ALB, VPC) | `ecs-fargate` |
 | `app-runner` | AWS CDK stacks (App Runner) | `app-runner` |
-| `azure-container-apps` | Azure Bicep modules (Container Apps) | `container-apps` |
 | `azure-app-service` | Azure Bicep modules (App Service) | `app-service` |
 
 ### Deployment Provider Options
@@ -394,8 +393,8 @@ config system ecommerce.System {
 | Value | Meaning | Valid Runtimes |
 |-------|---------|---------------|
 | `local` | Local machine (no cloud) | `docker-compose` |
-| `aws` | Amazon Web Services | `docker-compose`, `ecs-fargate`, `app-runner` |
-| `azure` | Microsoft Azure | `docker-compose`, `azure-container-apps`, `azure-app-service` |
+| `aws` | Amazon Web Services | `ecs-fargate`, `app-runner` |
+| `azure` | Microsoft Azure | `azure-app-service` |
 
 ### Deployment Examples
 
@@ -411,9 +410,9 @@ deployment:
   provider: aws
   registry: ecr
 
-# Azure Container Apps
+# Azure App Service
 deployment:
-  runtime: azure-container-apps
+  runtime: azure-app-service
   provider: azure
   registry: acr
 

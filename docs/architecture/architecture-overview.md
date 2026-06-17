@@ -216,11 +216,11 @@ graph TD
 **Rationale:**
 - Legacy models conflated runtime packaging shape, infrastructure provider, and cloud-managed targets into a single dimension
 - "Docker Compose" and "ECS Fargate" are runtime/packaging targets, not cloud providers; "AWS" and "Azure" are providers, not runtimes
-- One-dimensional models cannot express combinations like "ECS Fargate on AWS" or "Docker Compose on Azure VM" without overloading terms
+- One-dimensional models cannot express combinations like "ECS Fargate on AWS" or "Azure App Service on Azure" without overloading terms
 - CLI overrides can create partial deployment states where the command line says one target but resolved config still contains values for another
 
 **Result:**
-- An explicit deployment target model replaces the single `hosting` dimension with four orthogonal fields:
+- An explicit deployment target model replaces the single `hosting` dimension with three orthogonal fields:
 
 ```yaml
 language: python | typescript
@@ -228,14 +228,14 @@ language: python | typescript
 deployment:
   runtime: docker-compose | azure-app-service | ecs-fargate | app-runner
   provider: local | existing | aws | azure
-  target: vm | ...                    # optional, provider-specific
   registry: acr | ecr | ...           # optional, provider-specific
 ```
 
 - `language` selects the generated application implementation
 - `deployment.runtime` selects the deployable artifact shape (Compose, Azure App Service, ECS Fargate, etc.)
 - `deployment.provider` selects the infrastructure provider or substrate owner
-- `deployment.target` and `deployment.registry` are optional provider-specific refinements
+- `deployment.registry` is an optional provider-specific refinement
+- There is no `target` dimension; cloud deployments use only native runtimes (`ecs-fargate`/`app-runner` for AWS, `azure-app-service` for Azure)
 - `host` remains a network endpoint concept only — never used to mean AWS, Azure, or Docker
 
 > **Note:** `runtime: azure-container-apps` is **retired**. Use `runtime: azure-app-service` for the native Azure PaaS runtime. Specifying the retired value raises a generation error with migration guidance.
@@ -292,7 +292,7 @@ deployment:
 | Python Azure App Service | `component`, `python`, `sql` | none (PaaS) | `azure` App Service + managed infra |
 | Python ECS Fargate | `component`, `python`, `sql` | none (PaaS) | `aws` ECS/Fargate/managed infra |
 
-Provider generators augment runtime output unless the runtime is provider-native. For `runtime: docker-compose, provider: aws`, AWS support adds VPC/identity/networking/managed-service integration without replacing the Compose runtime artifacts. For `runtime: azure-app-service`, the Azure generator produces all infrastructure Bicep — there is no separate runtime generator.
+Provider-native runtimes are produced entirely by their provider generator. The `docker-compose` runtime is local-only — it is never paired with a cloud provider, and provider generators never augment Compose output. For `runtime: azure-app-service`, the Azure generator produces all infrastructure Bicep — there is no separate runtime generator. For `runtime: ecs-fargate` / `app-runner`, the AWS generator produces all infrastructure directly.
 
 **Explicit config rule:** Defaults are an anti-pattern for deployment generation. Every deployment-relevant field must come from resolved config. Missing required fields must produce explicit errors naming the config path and expected field. Invalid combinations must produce validation errors rather than being corrected silently. No generator may override a user-provided config value.
 
@@ -300,7 +300,7 @@ Provider generators augment runtime output unless the runtime is provider-native
 
 | Runtime | Valid providers |
 | --- | --- |
-| `docker-compose` | `local`, `aws`, `azure` |
+| `docker-compose` | `local` |
 | `azure-app-service` | `azure` |
 | `ecs-fargate` | `aws` |
 | `app-runner` | `aws` |

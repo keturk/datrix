@@ -35,7 +35,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001C70CCF07D0>"
+            "value": "<abc.CallNode object at 0x0000028F7E5847D0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -57,7 +57,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000001C70CD00B00>"
+            "value": "<abc.PropertyAccessNode object at 0x0000028F7E590B00>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -84,7 +84,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001C70CCED6A0>"
+            "value": "<abc.CallNode object at 0x0000028F7E57D400>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -144,7 +144,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000001C70CCF16D0>"
+            "value": "<abc.PropertyAccessNode object at 0x0000028F7E5856D0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -191,7 +191,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001C70CCF0CD0>"
+            "value": "<abc.CallNode object at 0x0000028F7E584CD0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -240,7 +240,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "0409d7f0-a9c3-4642-9c87-2aad86b5d696",
-  "schema_hash": "43d6c801648cdeb1029f70db5b41b305009dc2226abf8ecdbed1ffa5b01c2ede",
+  "schema_hash": "d4e0777835cbfb9c27b921df617e0e9459e9ad3ae22133e1a97dd07a8913083e",
   "service": {
     "name": "library.BookService",
     "version": "1.0.0"
