@@ -178,11 +178,22 @@ def _render_block_assignment(node: "ast.BlockAssignment", indent: int) -> str:
 
 
 def _render_named_block(node: "ast.NamedBlockDecl", indent: int) -> str:
-    prefix = "  " * indent
-    if node.template_call is not None:
-        return f"{prefix}{node.section} {node.name} from {_render_expr(node.template_call)};"
+    from datrix_common.config.dcfg import ast_nodes as ast
 
-    header = f"{prefix}{node.section} {node.name} {{"
+    prefix = "  " * indent
+    # The "*" sentinel marks a name-less kind block (e.g. ``service from tpl()``).
+    # ``*`` is not a valid identifier, so it must never be emitted as the name.
+    name_part = "" if node.name == ast.KIND_DEFAULT_BLOCK_NAME else f" {node.name}"
+    if node.template_call is not None:
+        head = f"{prefix}{node.section}{name_part} from {_render_expr(node.template_call)}"
+        if node.inherits_base:
+            head += " inheriting base"
+        if node.body:
+            body = _render_body(node.body, indent + 1)
+            return "\n".join([f"{head} {{", *body, f"{prefix}}}"])
+        return f"{head};"
+
+    header = f"{prefix}{node.section}{name_part} {{"
     body = _render_body(node.body, indent + 1)
     footer = f"{prefix}}}"
     return "\n".join([header, *body, footer])
@@ -192,13 +203,23 @@ def _render_replace(node: "ast.ReplaceDecl", indent: int) -> str:
     from datrix_common.config.dcfg import ast_nodes as ast
 
     if isinstance(node.target, ast.NamedBlockDecl):
-        if node.target.template_call is not None:
-            return (
-                f"{'  ' * indent}replace {node.target.section} {node.target.name} "
-                f"from {_render_expr(node.target.template_call)};"
+        target = node.target
+        name_part = (
+            "" if target.name == ast.KIND_DEFAULT_BLOCK_NAME else f" {target.name}"
+        )
+        if target.template_call is not None:
+            head = (
+                f"{'  ' * indent}replace {target.section}{name_part} "
+                f"from {_render_expr(target.template_call)}"
             )
-        header = f"{'  ' * indent}replace {node.target.section} {node.target.name} {{"
-        body = _render_body(node.target.body, indent + 1)
+            if target.inherits_base:
+                head += " inheriting base"
+            if target.body:
+                body = _render_body(target.body, indent + 1)
+                return "\n".join([f"{head} {{", *body, f"{'  ' * indent}}}"])
+            return f"{head};"
+        header = f"{'  ' * indent}replace {target.section}{name_part} {{"
+        body = _render_body(target.body, indent + 1)
         footer = f"{'  ' * indent}}}"
         return "\n".join([header, *body, footer])
 
@@ -310,7 +331,71 @@ def format_dcfg(source: str, source_path: Path) -> tuple[str, list[LintIssue], s
 
     lines.append("}")
     formatted = "\n".join(lines).rstrip() + "\n"
+
+    # Fail-safe: a formatter must only change whitespace, never meaning. If the
+    # rendered output does not round-trip back to the same AST -- or would drop
+    # comments -- decline to rewrite the file and surface the defect instead of
+    # silently corrupting it.
+    guard = _formatting_safety_issue(source, formatted, ast, source_path)
+    if guard is not None:
+        return source, [*issues, guard], None
+
     return formatted, issues, None
+
+
+def _formatting_safety_issue(
+    source: str,
+    formatted: str,
+    source_ast: "ast.ConfigDecl",
+    source_path: Path,
+) -> "LintIssue | None":
+    """Return a blocking issue if reformatting would alter meaning or drop comments.
+
+    The renderer is hand-written and can lag the grammar. Rather than trust it
+    blindly, re-parse the formatted text and compare ASTs: any divergence (or a
+    parse failure, or lost ``//`` comments) means the format is unsafe to write.
+    """
+    from datrix_common.config.dcfg.parser import ConfigDSLParseError, parse_dcfg
+
+    source_comments = _count_comment_lines(source)
+    formatted_comments = _count_comment_lines(formatted)
+    if formatted_comments < source_comments:
+        return LintIssue(
+            1,
+            1,
+            "Formatter would drop %d comment line(s); leaving file unchanged. "
+            "ConfigDSL comments are not preserved by the formatter -- this is a "
+            "formatter limitation, not a file error."
+            % (source_comments - formatted_comments),
+        )
+
+    try:
+        formatted_ast = parse_dcfg(formatted, str(source_path))
+    except ConfigDSLParseError as exc:
+        return LintIssue(
+            1,
+            1,
+            "Formatter produced output that fails to parse (%s); leaving file "
+            "unchanged. This is a formatter bug -- please report it." % exc,
+        )
+
+    if formatted_ast != source_ast:
+        return LintIssue(
+            1,
+            1,
+            "Formatter output is not semantically identical to the input "
+            "(AST differs); leaving file unchanged to avoid corruption. This is "
+            "a formatter bug -- please report it.",
+        )
+
+    return None
+
+
+def _count_comment_lines(source: str) -> int:
+    """Count lines whose first non-whitespace characters start a ``//`` comment."""
+    return sum(
+        1 for line in source.splitlines() if line.lstrip().startswith("//")
+    )
 
 
 class ConfigLinter:
