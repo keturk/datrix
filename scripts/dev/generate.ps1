@@ -28,18 +28,24 @@
 
 .PARAMETER Language
  Target language for output path derivation (required, options: python, typescript).
- The actual language used for generation is read from config/system-config.yaml.
+ The actual language used for generation comes from config/system.dcfg for the active profile.
  Can be abbreviated as -L.
 
 .PARAMETER Runtime
  Optional runtime for output path derivation (options: docker-compose, azure-container-apps, azure-app-service, ecs-fargate, app-runner).
- The actual runtime used for generation is read from config/system-config.yaml deployment section.
+ The actual runtime used for generation comes from the config/system.dcfg deployment block of the active profile -- NOT from this flag.
  Can be abbreviated as -R.
 
 .PARAMETER Provider
   Optional provider for output path derivation (options: local, existing, aws, azure).
-  The actual provider used for generation is read from config/system-config.yaml deployment section.
+  The actual provider used for generation comes from the config/system.dcfg deployment block of the active profile -- NOT from this flag.
   Can be abbreviated as -P.
+
+.PARAMETER ConfigProfile
+  ConfigDSL profile that selects the deployment target (e.g. test, development, staging, production, pilot).
+  This is the ONLY flag that changes what is generated. When omitted, datrix generate uses its default profile 'test',
+  which typically extends the docker-compose base -- so omitting it on an Azure project yields docker output.
+  Pass the profile that targets your runtime (e.g. -ConfigProfile pilot) to generate the Azure variant.
 
 .PARAMETER OutputBase
  Output base directory (default: .generated). Only used with -All parameter.

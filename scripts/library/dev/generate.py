@@ -194,7 +194,8 @@ def generate_single_project(
 
         # Build datrix generate command. Language, runtime, and provider are used
         # only for output path derivation and are not forwarded to datrix generate.
-        # Generation target values are read from config/system.yaml.
+        # The generation target (language and deployment runtime/provider) comes from
+        # config/system.dcfg for the active profile (--profile; datrix's default is test).
         import os
         import tempfile
 
@@ -209,7 +210,7 @@ def generate_single_project(
 
         # Build command arguments
         # The command structure is: datrix generate [OPTIONS]
-        # Language and deployment come from the project's config/system.yaml
+        # Language and deployment come from config/system.dcfg for the active --profile
         cmd_args = [
         "generate",
         "--source",

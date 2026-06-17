@@ -109,7 +109,7 @@ Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `p
 3. Identify all `include` statements (these are service .dtrx files)
 4. Extract service names from include paths (e.g., `"aviation-data-service.dtrx"` → `aviation-data-service`)
 5. Identify system config references:
-   - System config path (e.g., `config/system-config.yaml`)
+   - System config path (e.g., `config/system.dcfg`)
    - Registry config path
    - Gateway config path (if multi-service)
    - Observability config path

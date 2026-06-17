@@ -21,7 +21,7 @@
 
 .PARAMETER Language
  Target language for output path derivation (required). Options: python, typescript.
- The actual language used for generation is read from config/system-config.yaml.
+ The actual language used for generation comes from config/system.dcfg for the active profile.
  Can be abbreviated as -L.
 
 .PARAMETER Platform
