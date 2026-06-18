@@ -17,7 +17,8 @@
       "PowerShell(if \\(!\\(Test-Path \"D:\\\\datrix\\\\reports\"\\)\\) { New-Item -ItemType Directory -Path \"D:\\\\datrix\\\\reports\" })",
       "Edit(/.claude/skills/task-orchestrator/**)",
       "PowerShell(powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-docker -Specific \"tests/unit/test_keycloak_compose.py\" 2>&1 | Select-Object -Last 30)",
-      "mcp__azure__subscription_list"
+      "mcp__azure__subscription_list",
+      "PowerShell(& \"d:\\\\datrix\\\\datrix-projects\\\\curvaero\\\\generate-curvaero-staging.ps1\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\KErca\\.claude"
