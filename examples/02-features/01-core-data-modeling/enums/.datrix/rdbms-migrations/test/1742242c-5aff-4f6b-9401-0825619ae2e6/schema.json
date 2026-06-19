@@ -35,7 +35,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x0000020618B34B00>"
+            "value": "<abc.PropertyAccessNode object at 0x0000018AAFA58B00>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -63,7 +63,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000020618B18F50>"
+            "value": "<abc.CallNode object at 0x0000018AAFA3CF50>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -85,7 +85,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x0000020618B348A0>"
+            "value": "<abc.PropertyAccessNode object at 0x0000018AAFA588A0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -112,7 +112,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000020618B15550>"
+            "value": "<abc.CallNode object at 0x0000018AAFA39550>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -170,7 +170,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x0000020618B19E50>"
+            "value": "<abc.PropertyAccessNode object at 0x0000018AAFA3DE50>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -217,7 +217,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000020618B19450>"
+            "value": "<abc.CallNode object at 0x0000018AAFA3D450>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -277,7 +277,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "1742242c-5aff-4f6b-9401-0825619ae2e6",
-  "schema_hash": "11eb3d379e4ab15aff7693b2ed8f01ce349d3764181d6f5317dcb5168a190578",
+  "schema_hash": "811b97983b51f30a252fbdcecb173cd6b6fbd6d9f4fcdf17133bc06aba4a0a2a",
   "service": {
     "name": "library.BookService",
     "version": "1.0.0"
