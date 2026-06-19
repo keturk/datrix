@@ -60,7 +60,8 @@
       "PowerShell(powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-docker -Specific \"tests/unit/config/test_kong_gateway_generator.py\" 2>&1 | Select-Object -Last 40)",
       "PowerShell(& \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-common -Specific \"tests/unit/config/config_store\" 2>&1)",
       "mcp__azure__group_list",
-      "PowerShell(& \"d:/datrix/datrix/scripts/test/test-single.ps1\" \"tests/unit/generators/test_pipeline_generation.py\" -Project datrix-codegen-azure 2>&1)"
+      "PowerShell(& \"d:/datrix/datrix/scripts/test/test-single.ps1\" \"tests/unit/generators/test_pipeline_generation.py\" -Project datrix-codegen-azure 2>&1)",
+      "PowerShell(& \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-common -Specific \"tests/integration/test_ungrouped_byte_identical.py\" 2>&1)"
     ],
     "additionalDirectories": [
       "d:\\datrix\\$repo\\tests",

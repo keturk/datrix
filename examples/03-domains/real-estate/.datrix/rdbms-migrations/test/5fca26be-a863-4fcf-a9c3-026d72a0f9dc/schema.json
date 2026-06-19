@@ -130,7 +130,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001DF831B6BA0>"
+            "value": "<abc.CallNode object at 0x00000238C028F310>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -170,7 +170,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001DF831B42F0>"
+            "value": "<abc.CallNode object at 0x00000238C028CA60>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -264,7 +264,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000001DF8250D2B0>"
+            "value": "<abc.PropertyAccessNode object at 0x00000238BF564440>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -349,7 +349,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001DF831B6E40>"
+            "value": "<abc.CallNode object at 0x00000238C028F5B0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -430,7 +430,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001DF831B6BA0>"
+            "value": "<abc.CallNode object at 0x00000238C028F310>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -492,7 +492,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001DF831B42F0>"
+            "value": "<abc.CallNode object at 0x00000238C028CA60>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -514,7 +514,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001DF831B6E40>"
+            "value": "<abc.CallNode object at 0x00000238C028F5B0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -536,7 +536,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.CallNode object at 0x000001DF824D65F0>"
+            "value": "<abc.CallNode object at 0x00000238BF536270>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -607,7 +607,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "5fca26be-a863-4fcf-a9c3-026d72a0f9dc",
-  "schema_hash": "f987be8abcf65c7250fb65dc73410979d6758bb07104084b2f62e95ba1ee5db2",
+  "schema_hash": "f188b2183c850a2b6c5993c73cd1bbecbef48eb81c8c48abb6e889302d9bdedc",
   "service": {
     "name": "realestate.ContractService",
     "version": "1.0.0"

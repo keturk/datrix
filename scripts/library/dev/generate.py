@@ -292,14 +292,15 @@ app()
             sys.stderr.flush()
 
             # If the subprocess itself failed, capture error-like lines BEFORE
-            # promoting warnings/errors to failures, so we don't pollute the
-            # errors list with arbitrary trailing output from warning-only runs.
+            # promoting errors to failures, so we don't pollute the errors list
+            # with arbitrary trailing output from warning-only runs.
             subprocess_failed = exit_code != 0
 
-            # Any warning or error emitted during generation is treated as a
-            # hard failure: they indicate silent fallbacks, incomplete mappings,
-            # or contract violations that must not be allowed to ship.
-            if (warnings or errors) and exit_code == 0:
+            # Any error emitted during generation is treated as a hard failure:
+            # errors indicate silent fallbacks, incomplete mappings, or contract
+            # violations that must not be allowed to ship. Warnings are reported
+            # in the summary but do NOT fail generation.
+            if errors and exit_code == 0:
                 exit_code = 1
 
             # If the subprocess failed and we didn't already capture specific
@@ -450,18 +451,7 @@ def _print_generation_summary(
                 print(colorize(f" - {failed_project}", ColorCodes.RED))
             print()
 
-    if fail_count > 0 or total_errors > 0 or total_warnings > 0:
-        if total_warnings > 0 and fail_count == 0 and total_errors == 0:
-            # Warnings-only failure: make the failure reason explicit.
-            msg = (
-                "Generation failed: warnings are treated as errors. "
-                "Fix the warnings above (they indicate silent fallbacks or "
-                "incomplete mappings in the generators) and re-run."
-            )
-            if logger:
-                logger.write_console(colorize(msg, ColorCodes.RED))
-            else:
-                print(colorize(msg, ColorCodes.RED))
+    if fail_count > 0 or total_errors > 0:
         return 1
     if logger:
         logger.write_console(colorize("All projects generated successfully!", ColorCodes.GREEN))

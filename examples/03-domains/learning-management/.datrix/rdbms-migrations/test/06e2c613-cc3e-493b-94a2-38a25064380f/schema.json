@@ -97,7 +97,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001C919EE5940>"
+            "value": "<abc.CallNode object at 0x000001EF0ACDA580>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -174,7 +174,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.CallNode object at 0x000001C91932C2F0>"
+            "value": "<abc.CallNode object at 0x000001EF0A0FC830>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -241,7 +241,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001C919ECB000>"
+            "value": "<abc.CallNode object at 0x000001EF0ACB7C40>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -319,7 +319,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000001C91932C050>"
+            "value": "<abc.PropertyAccessNode object at 0x000001EF0A0FC590>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -367,7 +367,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001C919EE5BE0>"
+            "value": "<abc.CallNode object at 0x000001EF0ACDA820>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -437,7 +437,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "06e2c613-cc3e-493b-94a2-38a25064380f",
-  "schema_hash": "37f31b289b246062a581de644127dd16bfdaf38fbbf583aaca9547244f46f603",
+  "schema_hash": "72f561525f58fbe0965dea1f7e8563160999a94fffcda92bb39497fbf7f424c8",
   "service": {
     "name": "lms.StudentService",
     "version": "1.0.0"
