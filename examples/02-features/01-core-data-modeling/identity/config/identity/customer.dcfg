@@ -63,6 +63,7 @@ config identity customer {
       refreshToken = "30d";
       idToken = "1h";
     }
+    jwksCacheTtlSeconds = 3600;
   }
 
   profile development as "dev" extends base {

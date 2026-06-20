@@ -31,6 +31,7 @@ config service taskapp.ProjectService {
       port = 5432;
       database = "library_books";
       poolSize = 20;
+      maxOverflow = 20;
       asyncDriver = "postgresql+asyncpg";
       syncDriver = "postgresql+psycopg2";
       healthCheckSql = "SELECT 1";
@@ -102,6 +103,7 @@ config service taskapp.ProjectService {
       host = env("DB_HOST");
       database = "library_books";
       poolSize = 40;
+      maxOverflow = 20;
       ssl = true;
       asyncDriver = "postgresql+asyncpg";
       syncDriver = "postgresql+psycopg2";

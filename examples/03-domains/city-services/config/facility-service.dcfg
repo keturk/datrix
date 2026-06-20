@@ -25,6 +25,7 @@ config service cityservices.FacilityService {
       port = 5433;
       database = "cityservices_facilities";
       poolSize = 20;
+      maxOverflow = 20;
       asyncDriver = "postgresql+asyncpg";
       syncDriver = "postgresql+psycopg2";
       healthCheckSql = "SELECT 1";
@@ -100,6 +101,7 @@ config service cityservices.FacilityService {
       host = env("DB_HOST");
       database = "cityservices_facilities";
       poolSize = 40;
+      maxOverflow = 20;
       ssl = true;
       asyncDriver = "postgresql+asyncpg";
       syncDriver = "postgresql+psycopg2";

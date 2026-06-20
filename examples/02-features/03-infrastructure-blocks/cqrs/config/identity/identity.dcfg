@@ -5,6 +5,7 @@ config identity identity {
   base {
     audience = "customer";
     mode = "platformManaged";
+    jwksCacheTtlSeconds = 3600;
   }
 
   profile development as "dev" extends base {

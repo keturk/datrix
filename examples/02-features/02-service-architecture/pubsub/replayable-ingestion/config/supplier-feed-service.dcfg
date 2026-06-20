@@ -25,6 +25,7 @@ config service catalog.SupplierFeedService {
       port = 5432;
       database = "catalog_products";
       poolSize = 20;
+      maxOverflow = 20;
       asyncDriver = "postgresql+asyncpg";
       syncDriver = "postgresql+psycopg2";
       healthCheckSql = "SELECT 1";
@@ -108,6 +109,7 @@ config service catalog.SupplierFeedService {
       host = env("DB_HOST");
       database = "catalog_products";
       poolSize = 40;
+      maxOverflow = 20;
       ssl = true;
       asyncDriver = "postgresql+asyncpg";
       syncDriver = "postgresql+psycopg2";

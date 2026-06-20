@@ -25,6 +25,7 @@ config service warehouse.WarehouseService {
       port = 5432;
       database = "warehouse_geo";
       poolSize = 20;
+      maxOverflow = 20;
       asyncDriver = "postgresql+asyncpg";
       syncDriver = "postgresql+psycopg2";
       healthCheckSql = "SELECT 1";
@@ -81,6 +82,7 @@ config service warehouse.WarehouseService {
       database = "warehouse_geo";
       instanceClass = "db.t3.micro";
       poolSize = 40;
+      maxOverflow = 20;
       ssl = true;
       asyncDriver = "postgresql+asyncpg";
       syncDriver = "postgresql+psycopg2";

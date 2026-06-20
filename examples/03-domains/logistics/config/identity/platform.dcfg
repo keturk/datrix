@@ -5,6 +5,7 @@ config identity platform {
   base {
     audience = "machine";
     mode = "platformManaged";
+    jwksCacheTtlSeconds = 3600;
   }
 
   profile development as "dev" extends base {

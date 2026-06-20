@@ -25,6 +25,7 @@ config service shop.CatalogService {
       port = 5432;
       database = "shop_catalog";
       poolSize = 20;
+      maxOverflow = 20;
       asyncDriver = "postgresql+asyncpg";
       syncDriver = "postgresql+psycopg2";
       healthCheckSql = "SELECT 1";
@@ -53,6 +54,10 @@ config service shop.CatalogService {
           }
         }
       }
+    }
+    remoteConfigOps {
+      consulTimeoutSeconds = 5.0;
+      appconfigMinPollSeconds = 15;
     }
   }
 

@@ -23,6 +23,7 @@ config identity platformMachine {
     tokens {
       accessToken = "15m";
     }
+    jwksCacheTtlSeconds = 3600;
   }
 
   profile development as "dev" extends base {
