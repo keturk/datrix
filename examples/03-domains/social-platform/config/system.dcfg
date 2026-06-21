@@ -15,6 +15,60 @@ config system social.System {
     secrets {
       provider = "env";
     }
+    platforms {
+      docker {
+        kafka_default_retention_ms = 604800000;
+        infra {
+          defaultHealthcheck {
+            interval = "10s";
+            timeout = "10s";
+            retries = 10;
+          }
+          elasticsearchHealthcheck {
+            interval = "10s";
+            timeout = "5s";
+            retries = 5;
+            startPeriod = "30s";
+          }
+          rabbitmqHealthcheck {
+            interval = "10s";
+            timeout = "15s";
+            retries = 20;
+            startPeriod = "60s";
+          }
+          kafkaHealthcheck {
+            interval = "10s";
+            timeout = "15s";
+            retries = 20;
+            startPeriod = "60s";
+          }
+          jobWorkerHealthcheck {
+            interval = "30s";
+            timeout = "10s";
+            retries = 3;
+            startPeriod = "40s";
+          }
+          observabilityHealthcheck {
+            interval = "15s";
+            timeout = "10s";
+            retries = 5;
+            startPeriod = "30s";
+          }
+          pgbouncer {
+            maxClientConn = 200;
+            defaultPoolSize = 20;
+          }
+          elasticsearch {
+            heap = "512m";
+          }
+          initScript {
+            maxRetries = 30;
+            retryDelaySeconds = 2;
+          }
+          multiRdbmsStartPeriodSeconds = 120;
+        }
+      }
+    }
     gateway {
       port = 80;
       rateLimit {

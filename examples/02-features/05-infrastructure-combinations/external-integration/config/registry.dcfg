@@ -68,6 +68,57 @@ config service library.RegistryService {
       awsSecretPrefix = "registry/";
       azureSecretPrefix = "registry/";
     }
+    cacheOps {
+      ttlSeconds = 300;
+      keyMaxLength = 100;
+      redisPoolSize = 10;
+    }
+    queueOps {
+      sqsPollWaitSeconds = 20;
+      sqsMaxMessagesPerPoll = 10;
+      servicebusMaxWaitSeconds = 5;
+    }
+    kafkaOps {
+      consumerPollTimeoutMs = 1000;
+      keepalivePollTimeoutMs = 1000;
+      maxPollIntervalMs = 600000;
+    }
+    messagingOps {
+      rabbitmqPrefetchCount = 10;
+    }
+    downloadOps {
+      timeoutSeconds = 300;
+      chunkSizeBytes = 65536;
+      maxRetries = 3;
+      retryDelaySeconds = 1.0;
+      retryableStatusCodes = [429, 500, 502, 503, 504];
+    }
+    remoteConfigOps {
+      consulTimeoutSeconds = 5.0;
+      appconfigMinPollSeconds = 15;
+    }
+    rateLimitOps {
+      windowSeconds = 60;
+    }
+    microserviceClientOps {
+      timeoutSeconds = 300;
+      circuitBreakerFailMax = 5;
+      circuitBreakerResetSeconds = 30;
+      bulkheadMaxConcurrent = 10;
+      integrationConnectTimeoutMs = 1000;
+      integrationReadTimeoutMs = 30000;
+      mailgunTimeoutSeconds = 30;
+    }
+    retryBudgetOps {
+      window = 100;
+      ratio = 0.1;
+    }
+    outboxOps {
+      flushBatchSize = 500;
+    }
+    serviceCredentialOps {
+      tokenExpirySkewSeconds = 30;
+    }
   }
 
   profile test as "test" extends base {
