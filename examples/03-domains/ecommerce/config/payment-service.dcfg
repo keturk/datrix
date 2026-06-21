@@ -79,6 +79,7 @@ config service ecommerce.PaymentService {
       payment {
         provider = "stripe";
         currency = "USD";
+        testMode = false;
       }
     }
   }
