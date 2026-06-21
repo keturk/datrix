@@ -76,6 +76,19 @@ config service blog.ContentService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["content-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "content-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "content-service/";
+      azureSecretPrefix = "content-service/";
+    }
   }
 
   profile test as "test" extends base {

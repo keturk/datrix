@@ -84,6 +84,19 @@ config service catalog.SupplierFeedService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["supplier-feed-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "supplier-feed-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "supplier-feed-service/";
+      azureSecretPrefix = "supplier-feed-service/";
+    }
   }
 
   profile test as "test" extends base {

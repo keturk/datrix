@@ -64,6 +64,19 @@ config service library.SharedDataExchangeService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["data-exchange.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "data-exchange";
+      vaultNamespace = "";
+      awsSecretPrefix = "data-exchange/";
+      azureSecretPrefix = "data-exchange/";
+    }
   }
 
   profile test as "test" extends base {

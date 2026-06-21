@@ -8,28 +8,296 @@ This guide covers Datrix `.dcfg` ConfigDSL files, their structure, options, and 
 
 ## Table of Contents
 
-1. [Configuration Overview](#configuration-overview)
-2. [Configuration Hierarchy](#configuration-hierarchy)
-3. [Profiles and Environments](#profiles-and-environments)
-4. [System Configuration](#system-configuration)
-5. [Service Configuration](#service-configuration)
-6. [Service dependencies (`dependencies` section)](#service-dependencies-dependencies-section)
-7. [Datasources Configuration](#datasources-configuration)
-8. [Service Registration](#service-registration)
-9. [Resilience Configuration](#resilience-configuration)
-10. [Gateway Configuration](#gateway-configuration)
-11. [Registry Configuration](#registry-configuration)
-12. [Observability Configuration](#observability-configuration)
-13. [Storage Configuration](#storage-configuration)
-14. [Jobs Configuration](#jobs-configuration)
-15. [Queue Configuration](#queue-configuration)
-16. [Integrations Configuration](#integrations-configuration)
-17. [Extern Service Configuration](#extern-service-configuration)
-18. [Platform-Specific Configuration](#platform-specific-configuration)
-19. [Seed Configuration](#seed-configuration)
-20. [Environment Variables](#environment-variables)
-21. [Secrets Management](#secrets-management)
-22. [Runtime Config Store](#runtime-config-store)
+1. [Eliminate-Hardcoded-Defaults Program (Waves D–L)](#eliminate-hardcoded-defaults-program-waves-dl)
+2. [Configuration Overview](#configuration-overview)
+3. [Configuration Hierarchy](#configuration-hierarchy)
+4. [Profiles and Environments](#profiles-and-environments)
+5. [System Configuration](#system-configuration)
+6. [Service Configuration](#service-configuration)
+7. [Service dependencies (`dependencies` section)](#service-dependencies-dependencies-section)
+8. [Datasources Configuration](#datasources-configuration)
+9. [Service Registration](#service-registration)
+10. [Resilience Configuration](#resilience-configuration)
+11. [Gateway Configuration](#gateway-configuration)
+12. [Registry Configuration](#registry-configuration)
+13. [Observability Configuration](#observability-configuration)
+14. [Storage Configuration](#storage-configuration)
+15. [Jobs Configuration](#jobs-configuration)
+16. [Queue Configuration](#queue-configuration)
+17. [Integrations Configuration](#integrations-configuration)
+18. [Extern Service Configuration](#extern-service-configuration)
+19. [Platform-Specific Configuration](#platform-specific-configuration)
+20. [Seed Configuration](#seed-configuration)
+21. [Environment Variables](#environment-variables)
+22. [Secrets Management](#secrets-management)
+23. [Runtime Config Store](#runtime-config-store)
+
+---
+
+## Eliminate-Hardcoded-Defaults Program (Waves D–L)
+
+Datrix implements a **no-hardcoded-app-defaults principle**: every app-specific sizing, cost, operational, or security value is config-authored and **fails loud** at generation time (not silently at runtime). This section covers the entire program surface introduced across Waves D–L.
+
+### The Principle
+
+**No value may be:**
+- Baked into generator code or templates
+- Supplied via silent fallback (`x or DEFAULT`, `?? N`, `env || 'localhost'`)
+- Hardcoded into deployment config
+
+**Every such value must be:**
+- Explicitly authored in the application/system config
+- Fail-loud when absent: generation raises `GenerationError` or runtime startup errors loudly
+
+**Exceptions (kept as documented framework constants, not config):**
+- Standard protocol ports (postgres 5432, redis 6379, Kafka 9093, etc.) — as named constants
+- AWS Fargate/App Runner CPU/memory tier tables — AWS API constraints
+- Secure hardening defaults (TLS ≥1.2, HTTPS-only) — exposing these as tunable invites posture weakening
+
+### Configuration Homes (Wave D–L Inventory)
+
+Each new surface lives in one of two config locations, chosen by ownership boundary:
+
+| Surface | Home | Wave | Profile | ConfigDSL Block |
+|---------|------|------|---------|-----------------|
+| **Per-Deployment Infrastructure** |  |  |  |  |
+| AWS CloudWatch alarms (RDS/ElastiCache/DynamoDB thresholds) | `platforms.aws.alarms` | C | system | `alarms { rdsCpuPercent = 80; … }` |
+| AWS Lambda sizing (consumer memory/timeout/batch size) | `platforms.aws.lambda` | C | system | `lambda { consumerMemoryMb = 512; … }` |
+| AWS ECS/App Runner healthcheck timing | `platforms.aws.ecsHealthCheck` | E | system | `ecsHealthCheck { interval = "30s"; … }` |
+| AWS ECS autoscaling (CPU target, scale cooldowns) | `platforms.aws.ecsScaling` | E | system | `ecsScaling { cpuTarget = 70; … }` |
+| AWS Lambda trigger settings | `platforms.aws.consumerLambdaTriggers` | E | system | `consumerLambdaTriggers { maxReceiveCount = 3; … }` |
+| AWS migration task sizing (Fargate CPU/memory) | `platforms.aws.migrationTask` | C | system | `migrationTask { fargateCpu = 256; … }` |
+| AWS scheduled task config (retry attempts, max age, DLQ retention) | `platforms.aws.scheduledTask` | C | system | `scheduledTask { retryAttempts = 2; … }` |
+| AWS AppConfig rollout (growth/bake/replicate) | `platforms.aws.appConfig` | E | system | `appConfig { rollout { growth = 10; … } }` |
+| AWS CloudFront (connection retries/timeout) | `platforms.aws.cloudFront` | E | system | `cloudFront { connectionRetries = 3; … }` |
+| AWS S3 Lifecycle (transition days) | `platforms.aws.sorLifecycle` | C | system | `sorLifecycle { transitionDays = 90; }` |
+| Azure App Insights (sampling %, retention days) | `platforms.azure.appInsights` | F | system | `appInsights { samplingPercent = 100; … }` |
+| Azure Event Hubs (retention days) | `platforms.azure.eventHubs` | F | system | `eventHubs { retentionDays = 7; }` |
+| Azure migration job sizing (CPU, memory) | `platforms.azure.migrationJob` | F | system | `migrationJob { cpu = "0.25"; … }` |
+| Azure replica job (timeout, retry limit) | `platforms.azure.replicaJob` | F | system | `replicaJob { timeoutSeconds = 300; … }` |
+| Azure database defaults (HA mode, backup retention, geo-redundancy) | `platforms.azure.databaseDefaults` | G | system | `databaseDefaults { haMode = "active"; … }` |
+| Azure resource sizing (App Service plan SKU, Function SKU, pools) | `platforms.azure.resources` | G | system | Nested per-resource blocks |
+| Docker infra healthcheck timing (all engines) | `platforms.docker.infra.defaultHealthcheck` | D | system | `infra { defaultHealthcheck { interval = "15s"; … } }` |
+| Docker PgBouncer connection pooling | `platforms.docker.infra.pgbouncer` | D | system | `infra { pgbouncer { maxClientConn = 200; … } }` |
+| Docker Elasticsearch JVM heap | `platforms.docker.infra.elasticsearch` | D | system | `infra { elasticsearch { heap = "512m"; } }` |
+| Docker init script retries | `platforms.docker.infra.initScript` | D | system | `infra { initScript { maxRetries = 30; … } }` |
+| **Per-Service Operational** |  |  |  |  |
+| HTTP security (CORS, allowed hosts) | `httpSecurity` | K | service | `httpSecurity { allowedHosts = […]; corsOrigins = […]; … }` |
+| Secrets store layout (Vault/AWS/Azure paths and prefixes) | `secretsStore` | K | service | `secretsStore { vaultMountPoint = "secret"; … }` |
+| Cache operations (TTL, pool size, key limits) | `cache` | H | service | `cache { ttlSeconds = 300; keyMaxLength = 100; … }` |
+| Queue operations (SQS/Service Bus poll settings) | `queue` | H | service | `queue { sqsPollWaitSeconds = 20; … }` |
+| Kafka operations (poll timeouts, max-poll-interval) | `kafka` | H | service | `kafka { consumerPollTimeoutMs = 1000; … }` |
+| RabbitMQ operations (prefetch count) | `messaging` | H | service | `messaging { rabbitmqPrefetchCount = 10; }` |
+| Download operations (timeout, chunk size, retries) | `download` | H | service | `download { timeoutSeconds = 300; chunkSizeBytes = 65536; … }` |
+| Remote config client (Consul/AppConfig timeouts) | `remoteConfig` | H | service | `remoteConfig { consulTimeoutSeconds = 5.0; … }` |
+| Rate limiting (window in seconds) | `rateLimit` | H | service | `rateLimit { windowSeconds = 60; }` |
+| Microservice client (timeout, circuit-breaker, bulkhead) | `microserviceClient` | H | service | `microserviceClient { timeoutSeconds = 300; cbFailMax = 5; … }` |
+| Retry budget (window, ratio) | `retryBudget` | H | service | `retryBudget { window = 100; ratio = 0.1; }` |
+| Transactional outbox (flush batch size) | `outbox` | H | service | `outbox { flushBatchSize = 500; }` |
+| Service credential token skew | `serviceCredential` | H | service | `serviceCredential { tokenExpirySkewSeconds = 30; }` |
+| Payment test mode | `payment.testMode` | K | service | `payment { testMode = true; }` |
+| Job timeouts (replay, compaction, concurrency) | `jobs` | H | service | `jobs { replayTimeoutSeconds = 3600; … }` |
+| **Per-Block Infrastructure Sizing** |  |  |  |  |
+| RDBMS connection pooling | `RdbmsConfig.poolSize` | H | block | `rdbms db { poolSize = 20; maxOverflow = 10; }` |
+| RDBMS SSL | `RdbmsConfig.ssl` | K | block | `rdbms db { ssl = true; }` |
+| RDBMS port (for pooled groups) | `ServerGroupSpec.port` | L | block | Added to pooled server-group sizing |
+| Cache pool sizing | `SearchConfig.replicasCount`, `SearchConfig.partitions` | G | block | `search idx { replicasCount = 3; partitions = 1; }` |
+| NoSQL sizing | `NosqlConfig.instance_count`, `NosqlConfig.engine_version` | L | block | `nosql catalog { instanceCount = 1; engineVersion = "5.0.0"; }` |
+| Resilience timeout defaults | `ResilienceProfileConfig.defaults.timeout` | H | service | `resilience { defaults { timeout = "10s"; } }` |
+| Resilience circuit-breaker timeout | `CircuitBreakerConfig.timeout` | L | service | `resilience { defaults { circuitBreaker { timeout = "30s"; } } }` |
+
+### `.dcfg` Authoring Syntax
+
+All new config surfaces use the ConfigDSL generic block syntax. Here are representative examples:
+
+#### System Config (deployment-wide)
+
+```dcfg
+config system ecommerce.System {
+  profile production as "prod" {
+    language = python;
+    deployment { runtime = ecs-fargate; provider = aws; }
+
+    platforms {
+      aws {
+        # Wave C: AWS alarms
+        alarms {
+          rdsCpuPercent = 80;
+          elasticacheCpuPercent = 75;
+          sqsDepth = 1000;
+        }
+        # Wave C: Lambda sizing
+        lambda {
+          consumerMemoryMb = 512;
+          consumerTimeoutSeconds = 300;
+        }
+        # Wave E: ECS autoscaling
+        ecsScaling {
+          cpuTarget = 70;
+          scaleOutCooldown = 60;
+          scaleInCooldown = 60;
+        }
+      }
+
+      azure {
+        # Wave F: App Insights
+        appInsights {
+          samplingPercent = 100.0;
+          retentionDays = 30;
+        }
+        # Wave G: Database defaults
+        databaseDefaults {
+          haMode = "active";
+          backupRetentionDays = 7;
+          geoRedundant = true;
+        }
+      }
+
+      docker {
+        # Wave D: Infra healthchecks
+        infra {
+          defaultHealthcheck {
+            interval = "30s";
+            timeout = "5s";
+            retries = 3;
+          }
+          pgbouncer {
+            maxClientConn = 200;
+            defaultPoolSize = 20;
+          }
+          elasticsearch {
+            heap = "512m";
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+#### Service Config (per-service)
+
+```dcfg
+config service ecommerce.OrderService {
+  profile production as "prod" {
+    port = 8001;
+
+    # Wave K: HTTP security (required for REST APIs)
+    httpSecurity {
+      allowedHosts = ["api.shop.example.com"];
+      corsOrigins = ["https://shop.example.com"];
+      corsMethods = ["GET", "POST", "PUT", "DELETE"];
+      corsHeaders = ["Content-Type", "Authorization"];
+    }
+
+    # Wave K: Secrets store layout
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "data/ecommerce/order-service/prod";
+    }
+
+    # Wave H: Cache operations
+    cache {
+      ttlSeconds = 300;
+      keyMaxLength = 100;
+      redisPoolSize = 10;
+    }
+
+    # Wave H: Queue operations
+    queue {
+      sqsPollWaitSeconds = 20;
+      sqsMaxMessagesPerPoll = 10;
+    }
+
+    # Wave H: Microservice client resilience
+    microserviceClient {
+      timeoutSeconds = 300;
+      circuitBreakerFailMax = 5;
+      circuitBreakerResetSeconds = 30;
+      bulkheadMaxConcurrent = 10;
+    }
+
+    # Wave K: Payment integration
+    payment {
+      processor = "stripe";
+      testMode = false;
+    }
+  }
+}
+```
+
+#### Datasource Blocks (RDBMS, NoSQL, Search)
+
+```dcfg
+config service ecommerce.InventoryService {
+  profile production as "prod" {
+    rdbms inventoryDb {
+      engine = postgres;
+      platform = rds;
+      # Wave K: SSL requirement (fail-loud when absent for production)
+      ssl = true;
+      # Wave H: Connection pool sizing (fail-loud when absent for pooled groups)
+      poolSize = 20;
+      maxOverflow = 10;
+    }
+
+    nosql catalog {
+      engine = mongodb;
+      platform = documentdb;
+      # Wave L: Sizing (fail-loud when absent)
+      instanceCount = 1;
+      engineVersion = "5.0.0";
+    }
+
+    search index {
+      engine = elasticsearch;
+      platform = opensearch;
+      # Wave G: Search index sizing (fail-loud when absent)
+      replicasCount = 1;
+      partitions = 1;
+    }
+  }
+}
+```
+
+### Secure-by-Authoring
+
+**The permissive test backfill was removed.** 
+
+Wave M removed the helper-function backfill of `httpSecurity` and `secretsStore` defaults that allowed examples and tests to generate without real config values. All `.dcfg` files (examples, tests, and production) must now author **proper, non-wildcard values** at generation time. This prevents:
+- Examples silently deploying with `["*"]` CORS origins
+- Test fixtures masking real config requirements
+- Accidental permissive values reaching production
+
+**Pattern for secure authoring:**
+
+```dcfg
+# ✅ Correct: explicit non-wildcard values
+httpSecurity {
+  allowedHosts = ["localhost", "dev.internal"];
+  corsOrigins = ["http://localhost:3000"];
+  corsMethods = ["GET", "POST"];
+  corsHeaders = ["Content-Type"];
+}
+
+# ❌ Wrong: permissive wildcards
+httpSecurity {
+  allowedHosts = ["*"];
+  corsOrigins = ["*"];
+  corsMethods = ["*"];
+  corsHeaders = ["*"];
+}
+```
+
+### Language-Specific and Platform-Specific Docs
+
+Each generator package publishes detailed docs for its config surfaces:
+
+- **Python:** [Service Configuration — Security Surfaces and Operational Blocks](../../../datrix-codegen-python/docs/service-config-operational-blocks.md) — detailed Wave H/K surface reference and examples
+- **AWS:** [Wave L Sizing Configuration](../../../datrix-codegen-aws/docs/wave-l-sizing-configuration.md) — RDS/OpenSearch/DocumentDB/ElastiCache instance and SKU config
+- **Azure:** [Platforms Azure Configuration](../../../datrix-codegen-azure/docs/platforms-azure-config.md) — database defaults, alarms, resource sizing
+
+**Design reference:** [006-eliminate-hardcoded-app-defaults.md](../../../design/006-eliminate-hardcoded-app-defaults.md) — complete program scope, boundary decisions, and per-wave breakdown (Waves D–L).
 
 ---
 

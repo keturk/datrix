@@ -78,6 +78,19 @@ config service library.BookService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["book-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "book-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "book-service/";
+      azureSecretPrefix = "book-service/";
+    }
   }
 
   profile test as "test" extends base {

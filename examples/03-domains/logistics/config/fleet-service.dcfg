@@ -96,6 +96,19 @@ config service logistics.FleetService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["fleet-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "fleet-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "fleet-service/";
+      azureSecretPrefix = "fleet-service/";
+    }
   }
 
   profile test as "test" extends base {

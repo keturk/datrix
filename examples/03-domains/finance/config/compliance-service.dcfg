@@ -90,6 +90,19 @@ config service finance.ComplianceService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["compliance-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "compliance-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "compliance-service/";
+      azureSecretPrefix = "compliance-service/";
+    }
   }
 
   profile test as "test" extends base {

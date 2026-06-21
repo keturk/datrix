@@ -76,6 +76,19 @@ config service social.UserService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["user-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "user-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "user-service/";
+      azureSecretPrefix = "user-service/";
+    }
   }
 
   profile test as "test" extends base {

@@ -71,6 +71,19 @@ config service library.StorageWriterService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["storage-writer-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "storage-writer-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "storage-writer-service/";
+      azureSecretPrefix = "storage-writer-service/";
+    }
   }
 
   profile test as "test" extends base {

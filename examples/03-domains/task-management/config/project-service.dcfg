@@ -78,6 +78,19 @@ config service taskapp.ProjectService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["project-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "project-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "project-service/";
+      azureSecretPrefix = "project-service/";
+    }
   }
 
   profile test as "test" extends base {

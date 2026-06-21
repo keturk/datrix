@@ -55,6 +55,19 @@ config service library.RegistryService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["registry.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "registry";
+      vaultNamespace = "";
+      awsSecretPrefix = "registry/";
+      azureSecretPrefix = "registry/";
+    }
   }
 
   profile test as "test" extends base {

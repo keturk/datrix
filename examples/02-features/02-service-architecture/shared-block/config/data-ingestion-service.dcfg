@@ -71,6 +71,19 @@ config service library.DataIngestionServiceService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["data-ingestion-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "data-ingestion-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "data-ingestion-service/";
+      azureSecretPrefix = "data-ingestion-service/";
+    }
   }
 
   profile test as "test" extends base {

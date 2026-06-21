@@ -66,6 +66,19 @@ config service library.LoanService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["loan-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "loan-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "loan-service/";
+      azureSecretPrefix = "loan-service/";
+    }
   }
 
   profile test as "test" extends base {

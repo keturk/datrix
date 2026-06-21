@@ -82,6 +82,19 @@ config service ecommerce.PaymentService {
         testMode = false;
       }
     }
+    httpSecurity {
+      allowedHosts = ["payment-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "payment-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "payment-service/";
+      azureSecretPrefix = "payment-service/";
+    }
   }
 
   profile test as "test" extends base {

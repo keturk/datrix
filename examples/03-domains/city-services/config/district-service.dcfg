@@ -76,6 +76,19 @@ config service cityservices.DistrictService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["district-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "district-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "district-service/";
+      azureSecretPrefix = "district-service/";
+    }
   }
 
   profile test as "test" extends base {

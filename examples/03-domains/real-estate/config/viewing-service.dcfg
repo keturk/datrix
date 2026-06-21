@@ -78,6 +78,19 @@ config service realestate.ViewingService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["viewing-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "viewing-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "viewing-service/";
+      azureSecretPrefix = "viewing-service/";
+    }
   }
 
   profile test as "test" extends base {

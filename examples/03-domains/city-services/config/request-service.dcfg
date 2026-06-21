@@ -67,6 +67,19 @@ config service cityservices.RequestService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["request-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "request-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "request-service/";
+      azureSecretPrefix = "request-service/";
+    }
   }
 
   profile test as "test" extends base {

@@ -71,6 +71,19 @@ config service library.ProductCatalogDataService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["product-catalog-data.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "product-catalog-data";
+      vaultNamespace = "";
+      awsSecretPrefix = "product-catalog-data/";
+      azureSecretPrefix = "product-catalog-data/";
+    }
   }
 
   profile test as "test" extends base {

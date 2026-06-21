@@ -67,6 +67,19 @@ config service blog.AuthorService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["author-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "author-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "author-service/";
+      azureSecretPrefix = "author-service/";
+    }
   }
 
   profile test as "test" extends base {

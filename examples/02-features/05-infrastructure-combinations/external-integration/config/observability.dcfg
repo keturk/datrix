@@ -55,6 +55,19 @@ config service library.ObservabilityService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["observability.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "observability";
+      vaultNamespace = "";
+      awsSecretPrefix = "observability/";
+      azureSecretPrefix = "observability/";
+    }
   }
 
   profile test as "test" extends base {

@@ -87,6 +87,19 @@ config service realestate.ContractService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["contract-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "contract-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "contract-service/";
+      azureSecretPrefix = "contract-service/";
+    }
   }
 
   profile test as "test" extends base {

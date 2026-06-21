@@ -90,6 +90,19 @@ config service hr.PayrollService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["payroll-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "payroll-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "payroll-service/";
+      azureSecretPrefix = "payroll-service/";
+    }
   }
 
   profile test as "test" extends base {

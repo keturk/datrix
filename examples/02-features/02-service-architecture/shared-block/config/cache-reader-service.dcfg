@@ -71,6 +71,19 @@ config service library.CacheReaderService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["cache-reader-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "cache-reader-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "cache-reader-service/";
+      azureSecretPrefix = "cache-reader-service/";
+    }
   }
 
   profile test as "test" extends base {

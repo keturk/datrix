@@ -76,6 +76,19 @@ config service iot.DeviceService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["device-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "device-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "device-service/";
+      azureSecretPrefix = "device-service/";
+    }
   }
 
   profile test as "test" extends base {

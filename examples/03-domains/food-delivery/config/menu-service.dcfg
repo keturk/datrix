@@ -93,6 +93,19 @@ config service fooddelivery.MenuService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["menu-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "menu-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "menu-service/";
+      azureSecretPrefix = "menu-service/";
+    }
   }
 
   profile test as "test" extends base {

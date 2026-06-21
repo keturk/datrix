@@ -67,6 +67,19 @@ config service library.IngestionEventsService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["ingestion-events.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "ingestion-events";
+      vaultNamespace = "";
+      awsSecretPrefix = "ingestion-events/";
+      azureSecretPrefix = "ingestion-events/";
+    }
   }
 
   profile test as "test" extends base {

@@ -55,6 +55,19 @@ config service library.MemberService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["member-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "member-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "member-service/";
+      azureSecretPrefix = "member-service/";
+    }
   }
 
   profile test as "test" extends base {

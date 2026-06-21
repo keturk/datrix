@@ -67,6 +67,19 @@ config service blog.CommentService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["comment-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "comment-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "comment-service/";
+      azureSecretPrefix = "comment-service/";
+    }
   }
 
   profile test as "test" extends base {

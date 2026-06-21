@@ -112,6 +112,19 @@ config service healthcare.MedicalRecordService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["medical-record-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "medical-record-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "medical-record-service/";
+      azureSecretPrefix = "medical-record-service/";
+    }
   }
 
   profile test as "test" extends base {

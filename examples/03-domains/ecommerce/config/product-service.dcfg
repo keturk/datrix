@@ -104,6 +104,19 @@ config service ecommerce.ProductService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["product-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "product-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "product-service/";
+      azureSecretPrefix = "product-service/";
+    }
   }
 
   profile test as "test" extends base {

@@ -55,6 +55,19 @@ config service warehouse.WarehouseService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["warehouse-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "warehouse-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "warehouse-service/";
+      azureSecretPrefix = "warehouse-service/";
+    }
   }
 
   profile test as "test" extends base {

@@ -78,6 +78,19 @@ config service finance.AccountService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["account-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "account-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "account-service/";
+      azureSecretPrefix = "account-service/";
+    }
   }
 
   profile test as "test" extends base {

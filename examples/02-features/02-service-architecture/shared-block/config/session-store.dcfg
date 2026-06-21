@@ -64,6 +64,19 @@ config service library.SharedSessionStoreService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["session-store.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "session-store";
+      vaultNamespace = "";
+      awsSecretPrefix = "session-store/";
+      azureSecretPrefix = "session-store/";
+    }
   }
 
   profile test as "test" extends base {

@@ -99,6 +99,19 @@ config service healthcare.AppointmentService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["appointment-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "appointment-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "appointment-service/";
+      azureSecretPrefix = "appointment-service/";
+    }
   }
 
   profile test as "test" extends base {

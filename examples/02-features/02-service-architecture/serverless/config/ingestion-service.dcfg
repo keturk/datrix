@@ -68,6 +68,19 @@ config service examples.IngestionService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["ingestion-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "ingestion-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "ingestion-service/";
+      azureSecretPrefix = "ingestion-service/";
+    }
   }
 
   profile test as "test" extends base {

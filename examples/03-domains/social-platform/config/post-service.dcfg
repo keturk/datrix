@@ -87,6 +87,19 @@ config service social.PostService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["post-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "post-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "post-service/";
+      azureSecretPrefix = "post-service/";
+    }
   }
 
   profile test as "test" extends base {

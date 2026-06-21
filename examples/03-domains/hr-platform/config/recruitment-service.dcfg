@@ -94,6 +94,19 @@ config service hr.RecruitmentService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["recruitment-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "recruitment-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "recruitment-service/";
+      azureSecretPrefix = "recruitment-service/";
+    }
   }
 
   profile test as "test" extends base {

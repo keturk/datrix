@@ -86,6 +86,19 @@ config service taskapp.TaskService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["task-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "task-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "task-service/";
+      azureSecretPrefix = "task-service/";
+    }
   }
 
   profile test as "test" extends base {

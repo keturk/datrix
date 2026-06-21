@@ -102,6 +102,19 @@ config service finance.TransactionService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["transaction-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "transaction-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "transaction-service/";
+      azureSecretPrefix = "transaction-service/";
+    }
   }
 
   profile test as "test" extends base {

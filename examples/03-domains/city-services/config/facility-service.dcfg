@@ -76,6 +76,19 @@ config service cityservices.FacilityService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["facility-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "facility-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "facility-service/";
+      azureSecretPrefix = "facility-service/";
+    }
   }
 
   profile test as "test" extends base {

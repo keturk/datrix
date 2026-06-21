@@ -85,6 +85,19 @@ config service hostdemo.BlogService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["blog-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "blog-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "blog-service/";
+      azureSecretPrefix = "blog-service/";
+    }
   }
 
   profile test as "test" extends base {

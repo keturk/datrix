@@ -55,6 +55,19 @@ config service library.GatewayService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["gateway.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "gateway";
+      vaultNamespace = "";
+      awsSecretPrefix = "gateway/";
+      azureSecretPrefix = "gateway/";
+    }
   }
 
   profile test as "test" extends base {

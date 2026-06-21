@@ -95,6 +95,19 @@ config service iot.FirmwareService {
         }
       }
     }
+    httpSecurity {
+      allowedHosts = ["firmware-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    secretsStore {
+      vaultMountPoint = "secret";
+      vaultPath = "firmware-service";
+      vaultNamespace = "";
+      awsSecretPrefix = "firmware-service/";
+      azureSecretPrefix = "firmware-service/";
+    }
   }
 
   profile test as "test" extends base {
