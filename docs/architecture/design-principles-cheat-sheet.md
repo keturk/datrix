@@ -16,6 +16,7 @@
 12. **Explicit data flow** -- Service-wide config is frozen (`TranspileContext`). Per-file sibling state uses fresh `FileScope` objects. Visit results return `TranspileResult` (merge with `merge_artifacts`) — not hidden mutation on the transpiler for imports/flags.
 13. **Staged transpilation** -- Name resolution and query expansion run as explicit Stages 1–2 (`StagePipeline`); each language emitter is Stage 3. Keep stage boundaries and side-tables (`ResolutionTable`) instead of monolithic “do everything in one visit” growth.
 14. **Construct-mapped platform realization** -- `.dtrx` = platform-agnostic logic; `.dcfg` = deployment target (runtime + provider + sizing); generator maps each DSL block to the target's native primitive. Service shape is derived from declared blocks, not from a service-flavor selector (retired). No silent ignore: unsupported combinations raise with actionable errors. No defaults: every deployment choice must be explicit in config.
+15. **Credentials fail closed** -- A missing/empty credential never silently disables auth (BD5 insecure-fallback applied to secrets). The only valid state for secret-backed auth is "required and present" — fail loud before constructing any unauthenticated client; unauthenticated operation is an explicit config declaration, never implied by an absent value. `.dtrx`/`.dcfg` carry only logical secret **handles** (never values, never derived/fallback); errors and logs name the logical secret + backend class, never the secret value.
 
 ## DSL vs YAML Boundary
 

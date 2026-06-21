@@ -276,6 +276,38 @@ Adding a second storage block does not break the API:
 
 ---
 
+### 9. Credentials Fail Closed
+
+**Principle:** A missing or empty credential must **never** silently disable an authentication check. This is the insecure-fallback anti-pattern (BD5 — see Principle 1, *Fail Fast, Fail Loud*) applied to secrets: an absent env var defaulting to the empty string disables auth instead of failing. Auth on/off must be an explicit, affirmative declaration in config, never the implicit result of an absent value.
+
+**Why:**
+- An empty credential that *disables* auth turns a forgotten deployment variable into silent unauthenticated access — the permissive option masking misconfiguration
+- Auth posture must be auditable from config, not inferred from which env vars happen to be set
+- Secrets cannot leak into source artifacts, logs, or error messages while still being enforced
+
+**Application:**
+
+**Fail-closed enforcement.** For secret-backed auth the only valid state is *"required and present"*. A required secret that is missing or whitespace-only fails loud **before any unauthenticated client is constructed** — not after a permissive default has already been chosen. Unauthenticated operation is not selectable by omission; it must be an explicit, affirmative declaration in config. No `os.environ.get("CRED", "")`-style default may flow into a code path that interprets the empty result as "no auth."
+
+**Logical secret handles, never values.** Secrets never appear as values in `.dtrx` or `.dcfg`. Application config carries only logical secret **handles** — non-secret identifiers that resolve, in the deployment/platform layer, to the target's native secret backend. A logical handle must never be the secret value, be derived from it, or act as a fallback value for it.
+
+**No secret material in diagnostics.** Fail-loud secret errors name the **logical secret** and the **backend class** but never the secret value or a partial value. Neither runtime nor generator logs emit resolved secret values.
+
+| Concern | Fail-closed rule |
+|---------|------------------|
+| Missing / whitespace-only required secret | Hard error before client construction — never empty-string default that disables auth |
+| Selecting unauthenticated operation | Explicit affirmative config declaration only — never implied by an absent value |
+| Secret in `.dtrx` / `.dcfg` | Forbidden — config carries only logical secret handles |
+| Logical handle relationship to secret | Never the value, derived from it, or a fallback for it |
+| Error messages and logs | Name the logical secret + backend class; never the value or a partial value |
+
+**Benefits:**
+- ✅ A forgotten credential fails the deployment loudly instead of silently disabling auth
+- ✅ Auth posture is an affirmative, auditable config declaration
+- ✅ Secret values never reach `.dtrx`/`.dcfg`, logs, or diagnostics
+
+---
+
 ## Language Design Principles
 
 ### 0. Uniform Language Consistency
