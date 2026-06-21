@@ -8,7 +8,7 @@ This guide covers Datrix `.dcfg` ConfigDSL files, their structure, options, and 
 
 ## Table of Contents
 
-1. [Eliminate-Hardcoded-Defaults Program (Waves D–L)](#eliminate-hardcoded-defaults-program-waves-dl)
+1. [Eliminate-Hardcoded-Defaults Program (Waves A–M)](#eliminate-hardcoded-defaults-program-waves-am)
 2. [Configuration Overview](#configuration-overview)
 3. [Configuration Hierarchy](#configuration-hierarchy)
 4. [Profiles and Environments](#profiles-and-environments)
@@ -34,7 +34,7 @@ This guide covers Datrix `.dcfg` ConfigDSL files, their structure, options, and 
 
 ---
 
-## Eliminate-Hardcoded-Defaults Program (Waves D–L)
+## Eliminate-Hardcoded-Defaults Program (Waves A–M)
 
 Datrix implements a **no-hardcoded-app-defaults principle**: every app-specific sizing, cost, operational, or security value is config-authored and **fails loud** at generation time (not silently at runtime). This section covers the entire program surface introduced across Waves D–L.
 
@@ -297,7 +297,7 @@ Each generator package publishes detailed docs for its config surfaces:
 - **AWS:** [Wave L Sizing Configuration](../../../datrix-codegen-aws/docs/wave-l-sizing-configuration.md) — RDS/OpenSearch/DocumentDB/ElastiCache instance and SKU config
 - **Azure:** [Platforms Azure Configuration](../../../datrix-codegen-azure/docs/platforms-azure-config.md) — database defaults, alarms, resource sizing
 
-**Design reference:** [006-eliminate-hardcoded-app-defaults.md](../../../design/006-eliminate-hardcoded-app-defaults.md) — complete program scope, boundary decisions, and per-wave breakdown (Waves D–L).
+**Program status:** Complete (Waves A–M, Phases 84–93). All hardcoded app-specific sizing, cost, operational, and security defaults have been moved to config-authored, fail-loud surfaces. See the language- and platform-specific docs linked above for per-wave field references.
 
 ---
 
