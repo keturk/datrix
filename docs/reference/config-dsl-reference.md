@@ -1,7 +1,7 @@
 # Config DSL Reference
 
-**Version:** 1.0
-**Last Updated:** 2026-05-19
+**Version:** 1.1
+**Last Updated:** 2026-06-22
 
 ---
 
@@ -540,6 +540,104 @@ profile staging as "stg" extends base {
 
 ---
 
+## Logical Secrets (`secrets` block)
+
+The `secrets` block declares a **platform-agnostic logical-secret table** for a service. Each entry is a non-secret *handle* — a stable name that feature configs reference instead of carrying a credential value inline. Think of a logical secret as a foreign key into the deployment secret-binding layer: it names *which* secret is needed, never *what the secret is*.
+
+**Location:** Service config (`config service`). The `secrets` block is a service-level section, a sibling of `integrations`. It may appear in `base` or any `profile`.
+
+**Syntax:**
+
+```dcfg
+secrets {
+  secret search_basic_auth_username {
+    required = true;                          // bool; defaults to true (fail-closed)
+    purpose = "search-basic-auth-username";   // non-secret description only
+  }
+  secret search_basic_auth_password { required = true; purpose = "search-basic-auth-password"; }
+  secret stripe_webhook_secret { required = true; purpose = "webhook-signature-secret"; }
+}
+```
+
+**Secret fields:**
+
+- `required` — Boolean. Defaults to `true` (fail-closed). When `true`, the deployment must bind this handle or the service fails to start; the generator never substitutes an empty or default value.
+- `purpose` — Non-secret, human-readable description of what the handle is for. It is metadata only.
+
+**Handle invariants:**
+
+- A logical secret is a **handle, not a value**. It MUST NEVER carry the secret value, be derived from the value, or act as a fallback for a missing value.
+- The table is service-level; feature configs (e.g. `integrations { search { … } }`) reference these handles by name only.
+- Every reference to a handle must resolve to a `secret` declared in this table (cross-reference validated at generation time).
+
+**Backend selection is out of application config:**
+
+Logical secrets carry **no backend or naming policy**. Which secret store backs a handle (env, vault, AWS Secrets Manager, Azure Key Vault, Docker secret, …) and how handle names map to backend secret names are decided by **deployment/platform configuration**, not by application `.dcfg`. As a consequence:
+
+- The earlier config-store **backend selector** form — `secrets { provider = "env" | "vault" | "keyvault" | "secrets-manager"; path = …; }` — is **removed** from application `.dcfg`. Provider strings (`env`, `vault`, `aws-secrets-manager`, `azure-key-vault`, `docker-secret`, `secrets-manager`, `keyvault`) no longer appear in application config.
+- A legacy inline `secretRef.provider` string inside a new logical-secret config is a **hard error**, not a silent skip. The author must declare a logical handle and let deployment policy choose the backend.
+
+---
+
+## Search Integration (`integrations { search }`)
+
+A `search` integration declares a service's connection to a search engine. Credentials are referenced through **logical secret handles** (see [Logical Secrets](#logical-secrets-secrets-block)) — never as raw literals.
+
+**Location:** Service config integrations block (`config service`).
+
+**Example:**
+
+```dcfg
+integrations {
+  search {
+    provider = "opensearch";
+    authRequired = true;
+    credentials {
+      usernameCredentialRef = "search_basic_auth_username";
+      passwordCredentialRef = "search_basic_auth_password";
+    }
+  }
+}
+```
+
+**Schema fields:**
+
+- `provider` — Required: search engine provider (e.g. `"opensearch"`, `"elasticsearch"`).
+- `authRequired` — Boolean. **Fail-closed: defaults to `true`.** `authRequired = false` is **rejected in all profiles** (hard generation error). There is no unauthenticated branch — generated search clients always resolve credentials and fail loud if a required handle is missing or empty.
+- `credentials.usernameCredentialRef` / `credentials.passwordCredentialRef` — Logical secret handles. Each MUST resolve to a `secret` declared in the service `secrets` table (cross-reference validated). Raw username/password literals are **rejected**.
+
+**Pairing with the `secrets` table:**
+
+```dcfg
+config service ecommerce.OrderService {
+  base {
+    secrets {
+      secret search_basic_auth_username { required = true; purpose = "search-basic-auth-username"; }
+      secret search_basic_auth_password { required = true; purpose = "search-basic-auth-password"; }
+    }
+
+    integrations {
+      search {
+        provider = "opensearch";
+        authRequired = true;
+        credentials {
+          usernameCredentialRef = "search_basic_auth_username";
+          passwordCredentialRef = "search_basic_auth_password";
+        }
+      }
+    }
+  }
+}
+```
+
+**Validation rules:**
+
+- `authRequired = false` is a generation error in **every** profile.
+- A `usernameCredentialRef` or `passwordCredentialRef` that names an **undeclared** logical handle is a generation error.
+- Raw credential literals in `usernameCredentialRef` / `passwordCredentialRef` are rejected.
+
+---
+
 ## Syntax Rules
 
 ### General
@@ -602,6 +700,32 @@ profile staging as "stg" extends base {
 - Guesses alternate profiles
 - Falls back to default values silently
 - Ignores unknown references
+
+**Logical-secret error messages:**
+
+Undeclared logical secret handle:
+
+```
+ConfigValidationError: Credential ref 'search_basic_auth_username' in integrations.search.credentials
+does not resolve to a declared secret. Declare it in the service 'secrets' block, e.g.
+secret search_basic_auth_username { required = true; purpose = "search-basic-auth-username"; }.
+```
+
+Unauthenticated search rejected:
+
+```
+ConfigValidationError: integrations.search.authRequired = false is not allowed in any profile.
+Search auth is fail-closed; declare credential handles in the 'secrets' block and reference them
+via usernameCredentialRef/passwordCredentialRef.
+```
+
+Legacy secret backend selector rejected:
+
+```
+ConfigValidationError: 'secrets { provider = … }' / inline 'secretRef.provider' is not valid in
+application config. Declare logical secret handles in the 'secrets' block; backend selection and
+naming live in the deployment target policy.
+```
 
 ---
 

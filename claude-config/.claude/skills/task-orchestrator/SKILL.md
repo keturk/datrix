@@ -12,7 +12,7 @@ Fully automated multi-wave task orchestrator. Accepts a set of tasks (individual
 - Automated test execution (runs full suite via Bash, does not ask user)
 - Automatic wave advancement (no human intervention between waves)
 - Handles tasks with cross-dependencies (separates into waves instead of blocking)
-- **Sequential multi-phase execution** — given several phases (e.g. `72, 73, 74`), finishes each phase fully before starting the next, with an Opus-recovered phase gate at every boundary (Step 3i)
+- **Sequential multi-phase execution** — given several phases (e.g. `72, 73, 74`), finishes each phase fully before starting the next. At every phase boundary a gate (Step 3i) runs the **full test suite for every package the phase touched** and fixes **all** failures — including pre-existing ones unrelated to the phase's changes — with Opus-led recovery, before the next phase starts
 
 ## When to Use
 
@@ -219,7 +219,7 @@ For each phase (in numeric order):
         local_wave += 1
 ```
 
-4. **Phase boundaries are wave boundaries** — even if a task in phase 35 has no dependencies, it cannot start until ALL phase 34 waves are complete. Each phase boundary is also a **Phase Boundary Gate** (Step 3i): the earlier phase must pass an explicit completion check — with Opus-led recovery on failure — before the next phase's first wave is spawned.
+4. **Phase boundaries are wave boundaries** — even if a task in phase 35 has no dependencies, it cannot start until ALL phase 34 waves are complete. Each phase boundary is also a **Phase Boundary Gate** (Step 3i): the earlier phase must pass an explicit completion check — every package it touched must pass its **full** test suite with all failures fixed, including pre-existing ones unrelated to the phase, with Opus-led recovery on failure — before the next phase's first wave is spawned.
 
 **Example with 2 phases:**
 ```
@@ -407,7 +407,7 @@ For each failing test **and each erroring module** from the full suite:
 
 1. **Attribute:** Cross-reference the failing test file / erroring module against `files_created` and `files_modified` from tasks in this wave.
    - **Quality-gate / integration waves:** when the failing wave is a quality-gate wave (the gate task itself creates no files), the failure is almost always a *cross-task integration* failure introduced by an earlier wave's task in the **same package and phase**. Widen attribution to the `files_created`/`files_modified` of ALL completed tasks for that package across this run, not just the current wave. Attribute to the task whose changed files best match the failing test/code, and apply the fix within that task's scope.
-   - If no task's files match the failing test (failure is in pre-existing, untouched code) → classify as **pre-existing**, do not fix, note it in the checkpoint, and treat it as a non-blocking failure per the gate's "or only pre-existing failures remain" success criterion.
+   - If no task's files match the failing test (failure is in pre-existing, untouched code) → classify as **pre-existing**, do not fix at the wave gate, note it in the checkpoint, and treat it as a non-blocking failure for the wave per the gate's "or only pre-existing failures remain" success criterion. **This wave-level reprieve is temporary in a multi-phase run:** the Phase Boundary Gate (3i) fixes ALL of these pre-existing failures, attribution-agnostic, before the next phase starts — so a pre-existing failure left here must still be driven to zero at the phase boundary.
 2. **Read:** Read the failing test and the code it tests
 3. **Fix:** Modify the code (stay within the attributed task's scope)
 4. **Verify:** Re-run the specific failing test:
@@ -486,15 +486,33 @@ Trigger this gate **after the last wave of a phase completes** (i.e. the next wa
 
 **Gate procedure for completed phase `P`:**
 
-1. **Partition phase `P`'s tasks** into `completed`, `failed`, and `skipped` (using the run-wide state variables, filtered to tasks whose `phase == P`).
+##### Step A — Phase-end full-suite gate (fix ALL failures, attribution-agnostic)
 
-2. **Green phase** — `failed` and `skipped` are both empty:
-   - Emit the Phase Checkpoint (below).
-   - Proceed to the first wave of phase `P+1`.
+This gate is **stricter** than the per-wave gate (3d). At a phase boundary the bar is: **every package this phase touched must pass its FULL test suite with zero failures and zero errors — including failures in pre-existing code that no task in the phase ever touched.** The 3d allowance that lets "pre-existing failures" pass as non-blocking does NOT hold here; at the phase boundary those failures are blocking and must be driven to zero before phase `P+1` starts. This runs **every time a phase completes** — even a "green phase" where every task passed its wave gate still gets a full-suite sweep here, because cross-wave integration and pre-existing rot only surface against the complete phase.
 
-3. **Red phase** — any `failed` or `skipped` task in phase `P`:
+1. **Determine touched packages** — the set of packages appearing in `files_created` / `files_modified` of any task in phase `P` (across all of the phase's waves).
+2. **Run the full suite for every touched package concurrently** — fire all `test.ps1 {package}` calls in a **single message** (one Bash call per package), exactly as 3d. Include `VERIFIED_AGAINST_QUICK_REFERENCE` in each Bash tool description.
+3. **Read each package's `index.json`** (the canonical result, never stdout). A package is GREEN only when `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0` — errors count as red, exactly as the 3d gate rules.
+4. **Fix every red package to GREEN — regardless of attribution.** For each failing test and each erroring module across ALL touched packages, **including failures in code that no task in this phase modified**:
+   - Read the failing test and the code under test, trace to the **root cause**, and fix it there. This is NOT scope-restricted to a task's files the way 3e is — fix whatever is red. NO workarounds, NO `xfail`/skip-to-pass, NO band-aids, NO conditional guards that hide the broken path (CLAUDE.md "No Workarounds").
+   - Re-run the specific test (`test.ps1 {package} -Specific "{path}"`), then re-run the full package suite.
+   - If the first fix attempt fails or the root cause is unclear → **Decision Escalation Protocol** (Opus 4.8, single-task variant). Implement Opus's recommendation; if it still fails, that test/module becomes a blocking item carried into Step C's halt-and-ask.
+   - If a red test traces to a root cause **genuinely outside this repo's control** (e.g. a known-flaky external integration) → do NOT silently skip it; record it as a blocking item and surface it in Step C, letting the user decide. Do not invent this exception to dodge a real fix.
+5. **Re-run until clean** — repeat the full per-package suite after fixes until every touched package is GREEN, or escalation/halt is reached. An error fixed in one module often unhides many tests that never ran, so always re-run the full suite after a fix rather than trusting `-Specific` alone.
+
+##### Step B — Partition and evaluate
+
+Partition phase `P`'s tasks into `completed`, `failed`, and `skipped` (using the run-wide state variables, filtered to tasks whose `phase == P`).
+
+**Green phase** — every touched package passed Step A's full-suite gate (all red driven to zero) AND `failed` and `skipped` are both empty:
+- Emit the Phase Checkpoint (below).
+- Proceed to the first wave of phase `P+1`.
+
+##### Step C — Red phase
+
+Any `failed` or `skipped` task in phase `P`, **OR** any package still red after Step A's fix loop (failures that resisted the fix loop and any recorded out-of-repo blockers):
    - **Do NOT start phase `P+1` yet.**
-   - **First, delegate recovery to Opus** — invoke the **Decision Escalation Protocol** (`model: "opus"`, Opus 4.8) once, scoped to the whole phase. Give Opus: every failed/skipped task in phase `P`, the exact test failures/errors, all prior fix attempts from the wave-level fix loop (3e/3f), and the relevant code excerpts. Ask Opus for a **phase-recovery plan** — root cause(s) across the failed tasks and concrete, per-task remediation steps. Use the phase-recovery prompt variant in the Decision Escalation Protocol.
+   - **First, delegate recovery to Opus** — invoke the **Decision Escalation Protocol** (`model: "opus"`, Opus 4.8) once, scoped to the whole phase. Give Opus: every failed/skipped task in phase `P`, **every still-red test/module from Step A** (including pre-existing failures that resisted the fix loop), the exact test failures/errors, all prior fix attempts (wave-level 3e/3f **and** Step A), and the relevant code excerpts. Ask Opus for a **phase-recovery plan** — root cause(s) across the failed items and concrete, per-item remediation steps. Use the phase-recovery prompt variant in the Decision Escalation Protocol.
    - **Implement Opus's recommendation** with the current model (Sonnet): apply the per-task fixes exactly as specified, then re-run the **full test suite for every affected package** (3d gate rules — GREEN only when `result == "PASSED"` AND `failed == 0` AND `error == 0`). Re-attribute and mark any now-passing tasks complete via `complete.ps1`.
    - **Re-evaluate the phase:**
      - If phase `P` is now green → emit the Phase Checkpoint, proceed to phase `P+1`.
@@ -504,15 +522,18 @@ Trigger this gate **after the last wave of a phase completes** (i.e. the next wa
    ```
    Phase {P} did not complete cleanly — Opus-led recovery still leaves failures.
 
-   Failed / skipped in phase {P}:
+   Failed / skipped tasks in phase {P}:
    - {task_id}: {reason}
+
+   Unresolved test failures (incl. pre-existing, unattributed):
+   - {package} :: {test_or_module}: {error summary}
 
    Opus's analysis:
    {1-2 line summary of Opus's root-cause finding}
 
    Options:
    1. Stop — halt orchestration here; phase {P+1}+ not started. Emit final report.
-   2. Proceed anyway — start phase {P+1}; tasks transitively depending on phase {P}'s failed tasks stay skipped, the rest run.
+   2. Proceed anyway — start phase {P+1}; tasks transitively depending on phase {P}'s failed tasks stay skipped, the rest run. Unresolved package failures are carried forward and reported.
    ```
    - **Stop** → emit final report (Step 4) and halt; later phases are reported as `NOT STARTED`.
    - **Proceed anyway** → carry phase `P`'s `failed`/`skipped` forward into run-wide state and start phase `P+1` (3a's skip logic already prunes downstream dependents).
@@ -630,24 +651,27 @@ When the escalation is triggered by a **red phase gate** rather than a single ta
 You are a senior architect recovering a FAILED PHASE before the next phase may start. Do NOT implement — analyze and recommend only.
 
 PHASE: {P} — {phase title/summary}
-GOAL: bring phase {P} fully green (every task passing its package suite) so phase {P+1} can begin on a complete foundation.
+GOAL: bring every package this phase touched fully green — zero failures AND zero errors across each package's FULL suite, including failures in pre-existing code no task in the phase modified — so phase {P+1} can begin on a complete foundation. At a phase boundary, pre-existing failures are blocking, not excused.
 
 FAILED / SKIPPED TASKS (with the exact test failures/errors and node IDs):
 {per-task: task_id, title, failing tests/erroring modules, error text}
 
-WHAT WAS ALREADY TRIED (wave-level fix loop, per task):
-{per-task fix attempts and outcomes}
+STILL-RED TESTS/MODULES NOT ATTRIBUTABLE TO A PHASE TASK (pre-existing or cross-cutting, surfaced by the phase-end full-suite gate):
+{per-item: package, failing test node ID or erroring module path, error text}
+
+WHAT WAS ALREADY TRIED (wave-level fix loop 3e/3f AND the phase-end full-suite fix loop, per item):
+{per-item fix attempts and outcomes}
 
 RELEVANT CODE (key excerpts across the failing tasks):
 {file paths and actual snippets}
 
 YOUR TASK:
-Find the root cause(s) — there may be ONE shared cause behind several failures (e.g. a cross-task integration mismatch introduced earlier in the phase). Do NOT suggest workarounds. Return:
+Find the root cause(s) — there may be ONE shared cause behind several failures (e.g. a cross-task integration mismatch introduced earlier in the phase, or a pre-existing breakage exposed once the whole phase is in place). Do NOT suggest workarounds. Return:
 1. Root cause(s) — name shared causes explicitly
-2. A per-task remediation plan — for each failed/skipped task, concrete step-by-step fixes
+2. A per-item remediation plan — for each failed/skipped task AND each still-red test/module (attributed or pre-existing), concrete step-by-step fixes
 3. Exact files to modify and what changes to make
 4. Recommended order of remediation (some fixes may unblock others)
-5. Any task that genuinely cannot be recovered here and why (so the orchestrator can halt-and-ask on just that task)
+5. Any item that genuinely cannot be recovered here and why (so the orchestrator can halt-and-ask on just that item)
 
 Be specific. The implementing agent will follow your plan directly, then re-run the full package suites.
 ```
