@@ -12,9 +12,6 @@ config system cityservices {
       CORS_ORIGINS = "[\"*\"]";
       SECRETS_BACKEND = "environment";
     }
-    secrets {
-      provider = "env";
-    }
     platforms {
       docker {
         kafka_default_retention_ms = 604800000;
@@ -157,10 +154,6 @@ config system cityservices {
     deployment {
       runtime = "docker-compose";
       provider = "local";
-    }
-    secrets {
-      provider = "vault";
-      path = "secret/cityservices";
     }
     gateway {
       cors {

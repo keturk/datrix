@@ -12,9 +12,6 @@ config system library.System {
       CORS_ORIGINS = "[\"*\"]";
       SECRETS_BACKEND = "environment";
     }
-    secrets {
-      provider = "env";
-    }
     platforms {
       docker {
         kafka_default_retention_ms = 604800000;
@@ -153,10 +150,6 @@ config system library.System {
     deployment {
       runtime = "docker-compose";
       provider = "local";
-    }
-    secrets {
-      provider = "vault";
-      path = "secret/library";
     }
     gateway {
       cors {

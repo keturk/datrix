@@ -12,9 +12,6 @@ config system shop.System {
       CORS_ORIGINS = "[\"*\"]";
       SECRETS_BACKEND = "environment";
     }
-    secrets {
-      provider = "env";
-    }
     platforms {
       docker {
         kafka_default_retention_ms = 604800000;
@@ -133,10 +130,6 @@ config system shop.System {
     deployment {
       runtime = "docker-compose";
       provider = "local";
-    }
-    secrets {
-      provider = "vault";
-      path = "secret/shop";
     }
     gateway {
       cors {
