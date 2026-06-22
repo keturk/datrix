@@ -7,10 +7,7 @@ config identity workforce {
     mode = "external";
     issuer = "https://auth.shop.example.com";
     clientId = "shop-backoffice";
-    clientSecret {
-      provider = "env";
-      name = "IDENTITY_WORKFORCE_CLIENT_SECRET";
-    }
+    clientSecret = "workforce_identity_client_secret";
     zitadel {
       instanceUrl = "https://auth.shop.example.com";
       projectName = "shop-staff";

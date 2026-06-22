@@ -7,10 +7,7 @@ config identity platformMachine {
     mode = "external";
     issuer = "https://auth.shop.example.com";
     clientId = "shop-service-clients";
-    clientSecret {
-      provider = "env";
-      name = "IDENTITY_PLATFORMMACHINE_CLIENT_SECRET";
-    }
+    clientSecret = "platform_machine_identity_client_secret";
     zitadel {
       instanceUrl = "https://auth.shop.example.com";
       projectName = "shop-machines";

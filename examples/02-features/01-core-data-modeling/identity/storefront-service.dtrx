@@ -138,7 +138,7 @@ service shop.StorefrontService('config/storefront-service.dcfg')
         @path('/webhooks/payment')
         post receivePaymentEvent(PaymentWebhookRequest request)
             : auth(public),
-              verify(signature, provider: stripe, secretRef: paymentWebhookSecret)
+              verify(signature, provider: stripe, secretRef: payment_webhook_secret)
             -> Void {
         }
     }

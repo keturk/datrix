@@ -68,6 +68,24 @@ config service shop.StorefrontService {
       awsSecretPrefix = "storefront-service/";
       azureSecretPrefix = "storefront-service/";
     }
+    secrets {
+      secret payment_webhook_secret {
+        required = true;
+        purpose = "Stripe webhook signature signing key";
+      }
+      secret customer_identity_client_secret {
+        required = true;
+        purpose = "OIDC client secret for the customer identity provider (Zitadel shop-storefront application).";
+      }
+      secret workforce_identity_client_secret {
+        required = true;
+        purpose = "OIDC client secret for the workforce identity provider (Zitadel shop-backoffice application).";
+      }
+      secret platform_machine_identity_client_secret {
+        required = true;
+        purpose = "OIDC client secret for the platform machine identity provider (Zitadel shop-service-clients application).";
+      }
+    }
     cacheOps {
       ttlSeconds = 300;
       keyMaxLength = 100;

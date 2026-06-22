@@ -7,10 +7,7 @@ config identity customer {
     mode = "external";
     issuer = "https://auth.shop.example.com";
     clientId = "shop-storefront";
-    clientSecret {
-      provider = "env";
-      name = "IDENTITY_CUSTOMER_CLIENT_SECRET";
-    }
+    clientSecret = "customer_identity_client_secret";
     zitadel {
       instanceUrl = "https://auth.shop.example.com";
       projectName = "shop-customers";
