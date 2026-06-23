@@ -33,7 +33,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002031DE12510>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -130,7 +130,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002031DDC7700>"
+            "value": "uuid()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -262,7 +262,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000002031D3F0830>"
+            "value": "UserRole.Customer"
           },
           "migration_owned": true,
           "nullable": false,
@@ -306,7 +306,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000002031D3F09F0>"
+            "value": "UserStatus.Pending"
           },
           "migration_owned": true,
           "nullable": false,
@@ -333,7 +333,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002031DE12D60>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -379,7 +379,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002031DE12510>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -401,7 +401,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "True"
+            "value": "true"
           },
           "migration_owned": true,
           "nullable": false,
@@ -423,7 +423,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002031DDC7700>"
+            "value": "uuid()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -445,7 +445,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "en"
+            "value": "'en'"
           },
           "migration_owned": true,
           "nullable": false,
@@ -487,7 +487,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "False"
+            "value": "false"
           },
           "migration_owned": true,
           "nullable": false,
@@ -509,7 +509,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "UTC"
+            "value": "'UTC'"
           },
           "migration_owned": true,
           "nullable": false,
@@ -533,7 +533,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002031DE12D60>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -593,7 +593,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002031DE12510>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -653,7 +653,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002031DDC7700>"
+            "value": "uuid()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -732,7 +732,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002031DE12D60>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -846,7 +846,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "7b1b4bfd-288a-4152-afb4-1272464aa557",
-  "schema_hash": "a9d884a840751b7ba95ec04f6cd9b9ce089a569a575fe71bc11d7840cbb97ab2",
+  "schema_hash": "35ad4e66980103d4e34140390f7883a9bba7acf4a0f8a900559ba0cdf7ddd76c",
   "service": {
     "name": "ecommerce.UserService",
     "version": "1.0.0"

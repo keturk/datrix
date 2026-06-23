@@ -71,7 +71,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000022396FE9160>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -111,7 +111,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000022396FCE820>"
+            "value": "uuid()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -151,7 +151,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x0000022396C8CFA0>"
+            "value": "RequestPriority.Medium"
           },
           "migration_owned": true,
           "nullable": false,
@@ -199,7 +199,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x0000022396C8D160>"
+            "value": "RequestStatus.Open"
           },
           "migration_owned": true,
           "nullable": false,
@@ -247,7 +247,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000022396FE9400>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -321,7 +321,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "53beeb14-ffa8-4396-99de-9cc88438250a",
-  "schema_hash": "5080d7f181fd96744279fc59164b38ddb00b45f7a2cbc32c6a0f6bfa371a314d",
+  "schema_hash": "11f1ec0d683a85f8f63b5ce4efb4f5ad3257b38a4413ed871190d6026e71756f",
   "service": {
     "name": "cityservices.RequestService",
     "version": "1.0.0"

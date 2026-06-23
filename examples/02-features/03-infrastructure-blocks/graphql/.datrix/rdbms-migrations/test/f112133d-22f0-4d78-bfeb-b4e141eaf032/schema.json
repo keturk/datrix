@@ -53,7 +53,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000238C36E1450>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -75,7 +75,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000238C3705E80>"
+            "value": "uuid()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -115,7 +115,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x00000238C36E25D0>"
+            "value": "BookStatus.Available"
           },
           "migration_owned": true,
           "nullable": false,
@@ -161,7 +161,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000238C36E1950>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -203,7 +203,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000238C36E1450>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -225,7 +225,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000238C3705E80>"
+            "value": "uuid()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -268,7 +268,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000238C36E1950>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -306,7 +306,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "f112133d-22f0-4d78-bfeb-b4e141eaf032",
-  "schema_hash": "2ad80da92178cf72ad02e5d4c9ed42c273862e470d6a9b886e3190da25c5d017",
+  "schema_hash": "650b13454a7bc3d26e61c924882203045f56fce2d5d20952117248f6916ce675",
   "service": {
     "name": "library.BookService",
     "version": "1.0.0"

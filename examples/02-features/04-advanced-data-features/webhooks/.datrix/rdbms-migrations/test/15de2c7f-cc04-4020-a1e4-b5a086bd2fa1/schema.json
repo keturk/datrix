@@ -15,7 +15,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000020F7A119B70>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -94,7 +94,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000020F7A0FB230>"
+            "value": "uuid()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -195,7 +195,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x0000020F799B3700>"
+            "value": "MembershipType.Standard"
           },
           "migration_owned": true,
           "nullable": false,
@@ -259,7 +259,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000020F7A119E10>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -298,7 +298,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000020F7A119B70>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -320,7 +320,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "True"
+            "value": "true"
           },
           "migration_owned": true,
           "nullable": false,
@@ -342,7 +342,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000020F7A0FB230>"
+            "value": "uuid()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -364,7 +364,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "en"
+            "value": "'en'"
           },
           "migration_owned": true,
           "nullable": false,
@@ -424,7 +424,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "False"
+            "value": "false"
           },
           "migration_owned": true,
           "nullable": false,
@@ -446,7 +446,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "UTC"
+            "value": "'UTC'"
           },
           "migration_owned": true,
           "nullable": false,
@@ -470,7 +470,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000020F7A119E10>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -520,7 +520,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "15de2c7f-cc04-4020-a1e4-b5a086bd2fa1",
-  "schema_hash": "e5df9189a128d92aca66abc2cd89ff4f72cbf0a0d61dadec97abea47e7e570d1",
+  "schema_hash": "bbd9140ee3f46cb96ea89f726ddb40e67f3acf7a84fc6a049f5675b6edfaac44",
   "service": {
     "name": "library.MemberService",
     "version": "1.0.0"

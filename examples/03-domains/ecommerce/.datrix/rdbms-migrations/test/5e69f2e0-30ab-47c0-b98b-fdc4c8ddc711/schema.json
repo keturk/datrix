@@ -33,7 +33,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002031DE12510>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -109,7 +109,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002031DDC7700>"
+            "value": "uuid()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -190,7 +190,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000002031D34E190>"
+            "value": "PaymentStatus.Pending"
           },
           "migration_owned": true,
           "nullable": false,
@@ -239,7 +239,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002031DE12D60>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -310,7 +310,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002031DE12510>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -350,7 +350,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002031DDC7700>"
+            "value": "uuid()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -446,7 +446,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000002031D343A10>"
+            "value": "PaymentStatus.Pending"
           },
           "migration_owned": true,
           "nullable": false,
@@ -474,7 +474,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002031DE12D60>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -536,7 +536,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "5e69f2e0-30ab-47c0-b98b-fdc4c8ddc711",
-  "schema_hash": "7a6c4a5613ecc4a48b1fa73dfd8f08e794d76d440e5f683dc4410df0fd1fb512",
+  "schema_hash": "5dfa91aa68c6fb18f813d1a0bf3620b0df3b77821f610ad602c858fb7e66fa81",
   "service": {
     "name": "ecommerce.PaymentService",
     "version": "1.0.0"

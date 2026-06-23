@@ -33,7 +33,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001C24E5894E0>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -112,7 +112,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001C24E566BA0>"
+            "value": "uuid()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -170,7 +170,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000001C24D9D4EC0>"
+            "value": "UserRole.Member"
           },
           "migration_owned": true,
           "nullable": false,
@@ -197,7 +197,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000001C24D9D5080>"
+            "value": "UserStatus.Active"
           },
           "migration_owned": true,
           "nullable": false,
@@ -223,7 +223,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001C24E589780>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -323,7 +323,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "485176ee-4001-47ec-b9a6-53807941b2fa",
-  "schema_hash": "7b5a895212a73d17419f104911f6c03745a3a19abee11e19e4c3e3ba7f78228b",
+  "schema_hash": "c884f1a2f59e33de2b7f9d35a4e499ea30876c010d7a6e92d6f17a4d736e6421",
   "service": {
     "name": "taskapp.UserService",
     "version": "1.0.0"

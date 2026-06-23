@@ -33,7 +33,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002B27FE4D390>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -55,7 +55,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002B27FE32AC0>"
+            "value": "uuid()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -95,7 +95,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002B27FE4D630>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -173,7 +173,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002B27FE4D390>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -195,7 +195,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002B27FE32AC0>"
+            "value": "uuid()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -237,7 +237,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002B27FE4D630>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -276,7 +276,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002B27FE4D390>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -298,7 +298,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002B27FE32AC0>"
+            "value": "uuid()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -341,7 +341,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002B27FE4D630>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -369,7 +369,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "0cd3a0fa-7286-4c1c-9c51-2a6df494abca",
-  "schema_hash": "530a1ba56ca641c860610d4b256edca2938ad9051bc0baf52c2d711c32e5fc7b",
+  "schema_hash": "58a3da56e520cc9bd6e745a0ebb3d729b3b5fb42fab41441356e390837971228",
   "service": {
     "name": "hostdemo.BlogService",
     "version": "1.0.0"
