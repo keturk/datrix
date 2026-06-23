@@ -1,12 +1,12 @@
 {
   "format": "datrix.rdbms.ledger",
-  "hash": "8195d972a5a99626578f8cf72f9efd4bfb2e0f3bbc5015366d45e5e2cf75cb7e",
+  "hash": "4155fa4fbd01dc076cba3a138bb7c7ff7a6ba8537c5b3ca195c4c783c763f2e4",
   "latest_revision": "0001_initial",
   "rdbms_id": "f112133d-22f0-4d78-bfeb-b4e141eaf032",
   "revisions": [
     {
       "classification": "baseline",
-      "created_at": "2026-06-21T04:54:52.073435+00:00",
+      "created_at": "2026-06-22T23:29:05.594994+00:00",
       "operations": [
         {
           "details": {
@@ -17,7 +17,7 @@
       ],
       "previous_revision": null,
       "revision": "0001_initial",
-      "schema_hash_after": "b3d1fad3b51ff7f242a6a187dd1d2ce788a51b4cd1a17047ca61b3620bfa5a4b",
+      "schema_hash_after": "7935e63fde101ca28403402656a57c4bfb83cfa60e04a8a096cfd853e56128a3",
       "schema_hash_before": "",
       "sequence": 1
     }

@@ -15,7 +15,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000024854D08A60>"
+            "value": "<abc.CallNode object at 0x000002729F6E2270>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -76,7 +76,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000024854D087C0>"
+            "value": "<abc.CallNode object at 0x000002729F6E1FD0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -139,7 +139,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x0000024854F17EE0>"
+            "value": "<abc.PropertyAccessNode object at 0x000002729F8FD860>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -165,7 +165,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000024854D08D00>"
+            "value": "<abc.CallNode object at 0x000002729F6E2510>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -203,7 +203,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "499e3583-1020-49de-9572-79508c121391",
-  "schema_hash": "c3a67f72d039bc44aa1725fc2c61d1b700c4e491d51a09f1ff20948454278156",
+  "schema_hash": "e29eddb6ba8760a557cf6b2da1dd36cf2ec978ee55fa912390a05a84f3dadd9b",
   "service": {
     "name": "library.MemberService",
     "version": "1.0.0"
