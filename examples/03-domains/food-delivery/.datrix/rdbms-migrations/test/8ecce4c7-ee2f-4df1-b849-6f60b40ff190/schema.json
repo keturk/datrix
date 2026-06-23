@@ -15,7 +15,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001A970AA9010>"
+            "value": "<abc.CallNode object at 0x000002188A52F4D0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -109,7 +109,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001A970AAFD90>"
+            "value": "<abc.CallNode object at 0x000002188A535630>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -152,7 +152,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000001A96FE48360>"
+            "value": "<abc.PropertyAccessNode object at 0x00000218898988A0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -215,7 +215,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000001A96FE48130>"
+            "value": "<abc.PropertyAccessNode object at 0x00000218898989F0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -319,7 +319,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001A970AA8DE0>"
+            "value": "<abc.CallNode object at 0x000002188A52F9A0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -381,7 +381,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001A970AA9010>"
+            "value": "<abc.CallNode object at 0x000002188A52F4D0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -403,7 +403,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001A970AAFD90>"
+            "value": "<abc.CallNode object at 0x000002188A535630>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -555,7 +555,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001A970AA8DE0>"
+            "value": "<abc.CallNode object at 0x000002188A52F9A0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -629,7 +629,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "8ecce4c7-ee2f-4df1-b849-6f60b40ff190",
-  "schema_hash": "5246a5af0d0bbc6aee20e03838089b628e9ced4b7c6e28248f8dbd63d20b2490",
+  "schema_hash": "d7fbd98954df3814f0bb93e28a752fbd1565ebe9b49542986fa2c007d0dac319",
   "service": {
     "name": "fooddelivery.OrderService",
     "version": "1.0.0"
