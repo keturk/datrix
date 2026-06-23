@@ -33,7 +33,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001EFAC2BD0F0>"
+            "value": "<abc.CallNode object at 0x00000294521E1860>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -109,7 +109,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001EFAC2D2740>"
+            "value": "<abc.CallNode object at 0x00000294521F2350>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -190,7 +190,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000001EFAB92D9B0>"
+            "value": "<abc.PropertyAccessNode object at 0x000002945184DF60>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -239,7 +239,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001EFAC2BD780>"
+            "value": "<abc.CallNode object at 0x00000294521E1940>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -310,7 +310,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001EFAC2BD0F0>"
+            "value": "<abc.CallNode object at 0x00000294521E1860>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -350,7 +350,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001EFAC2D2740>"
+            "value": "<abc.CallNode object at 0x00000294521F2350>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -446,7 +446,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000001EFAB923930>"
+            "value": "<abc.PropertyAccessNode object at 0x000002945183F850>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -474,7 +474,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001EFAC2BD780>"
+            "value": "<abc.CallNode object at 0x00000294521E1940>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -536,7 +536,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "5e69f2e0-30ab-47c0-b98b-fdc4c8ddc711",
-  "schema_hash": "405b84066d10bfd0a4b7b60bf89e36d2e5bc0f55233e3a2a9b47a7d6900a0b6f",
+  "schema_hash": "444b4bf38d1323521fe94918ddfe274f014d442902664a28453fac096e8d178c",
   "service": {
     "name": "ecommerce.PaymentService",
     "version": "1.0.0"

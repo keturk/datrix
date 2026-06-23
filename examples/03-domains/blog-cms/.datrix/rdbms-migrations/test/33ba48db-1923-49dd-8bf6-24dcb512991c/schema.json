@@ -53,7 +53,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000258F7051320>"
+            "value": "<abc.CallNode object at 0x000001B93A0F1320>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -150,7 +150,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000258F702A9E0>"
+            "value": "<abc.CallNode object at 0x000001B93A0CA9E0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -228,7 +228,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x00000258F68D0590>"
+            "value": "<abc.PropertyAccessNode object at 0x000001B93996C590>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -254,7 +254,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x00000258F68D0750>"
+            "value": "<abc.PropertyAccessNode object at 0x000001B93996C750>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -281,7 +281,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000258F70515C0>"
+            "value": "<abc.CallNode object at 0x000001B93A0F15C0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -338,7 +338,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000258F7051320>"
+            "value": "<abc.CallNode object at 0x000001B93A0F1320>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -398,7 +398,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000258F702A9E0>"
+            "value": "<abc.CallNode object at 0x000001B93A0CA9E0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -459,7 +459,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x00000258F70515C0>"
+            "value": "<abc.CallNode object at 0x000001B93A0F15C0>"
           },
           "migration_owned": true,
           "nullable": false,
@@ -528,7 +528,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "33ba48db-1923-49dd-8bf6-24dcb512991c",
-  "schema_hash": "9fc6c23d26cf4c8513b19b64639d2a6d1f6266107fe1c97ce632be1c32741664",
+  "schema_hash": "5a545722ed7b23b355ff6b77fd700b20e228bb40157dcc6aa2ada56500704399",
   "service": {
     "name": "blog.AuthorService",
     "version": "1.0.0"
