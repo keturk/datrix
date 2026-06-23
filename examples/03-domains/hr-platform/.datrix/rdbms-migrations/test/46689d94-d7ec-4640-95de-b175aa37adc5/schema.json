@@ -203,7 +203,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000027527373BD0>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -243,7 +243,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000027527371320>"
+            "value": "uuid()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -323,7 +323,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000027527373E70>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -385,7 +385,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000027527373BD0>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -571,7 +571,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000027527371320>"
+            "value": "uuid()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -723,7 +723,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x00000275265B8DE0>"
+            "value": "EmployeeStatus.Active"
           },
           "migration_owned": true,
           "nullable": false,
@@ -788,7 +788,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000027527373E70>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -889,7 +889,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "46689d94-d7ec-4640-95de-b175aa37adc5",
-  "schema_hash": "f78a148378614aa571836239f962b6121f64d0fac467b20835a428b6575a1a14",
+  "schema_hash": "1c4ed81775b6085d16fdd5039634a79a42dd102269bb93daa4a8713522df881e",
   "service": {
     "name": "hr.EmployeeService",
     "version": "1.0.0"

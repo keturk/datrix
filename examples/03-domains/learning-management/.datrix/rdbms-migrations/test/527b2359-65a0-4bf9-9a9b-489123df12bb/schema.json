@@ -1,52 +1,60 @@
 {
   "block": {
-    "name": "complianceDb"
+    "name": "courseDb"
   },
   "container": {
     "kind": "service",
-    "name": "finance.ComplianceService"
+    "name": "lms.CourseService"
   },
   "cqrs_views": {},
   "entities": {
-    "AuditTrail": {
+    "Course": {
       "fields": {
-        "action": {
-          "column_name": "action",
-          "default": null,
-          "migration_owned": true,
-          "nullable": false,
-          "primary_key": false,
-          "storage": {
-            "max_length": 50,
-            "precision": null,
-            "scale": null
+        "averageRating": {
+          "column_name": "average_rating",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "0.0"
           },
-          "type": {
-            "constraints": {
-              "max_length": 50
-            },
-            "kind": "scalar",
-            "name": "String",
-            "values": []
-          }
-        },
-        "changes": {
-          "column_name": "changes",
-          "default": null,
           "migration_owned": true,
           "nullable": false,
           "primary_key": false,
           "storage": {
             "max_length": null,
+            "precision": 3,
+            "scale": 2
+          },
+          "type": {
+            "constraints": {
+              "precision": 3,
+              "scale": 2
+            },
+            "kind": "scalar",
+            "name": "Decimal",
+            "values": []
+          }
+        },
+        "courseCode": {
+          "column_name": "course_code",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": 20,
             "precision": null,
             "scale": null
           },
           "type": {
-            "constraints": {},
+            "constraints": {
+              "max_length": 20
+            },
             "kind": "scalar",
-            "name": "JSON",
+            "name": "String",
             "values": []
-          }
+          },
+          "unique": true
         },
         "createdAt": {
           "column_name": "created_at",
@@ -70,8 +78,30 @@
             "values": []
           }
         },
-        "entityId": {
-          "column_name": "entity_id",
+        "currentEnrollment": {
+          "column_name": "current_enrollment",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "0"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Integer",
+            "values": []
+          }
+        },
+        "description": {
+          "column_name": "description",
           "default": null,
           "migration_owned": true,
           "nullable": false,
@@ -84,27 +114,54 @@
           "type": {
             "constraints": {},
             "kind": "scalar",
-            "name": "UUID",
+            "name": "Text",
             "values": []
           }
         },
-        "entityType": {
-          "column_name": "entity_type",
-          "default": null,
+        "difficulty": {
+          "column_name": "difficulty",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "DifficultyLevel.Beginner"
+          },
           "migration_owned": true,
           "nullable": false,
           "primary_key": false,
           "storage": {
-            "max_length": 100,
+            "max_length": null,
             "precision": null,
             "scale": null
           },
           "type": {
+            "constraints": {},
+            "kind": "enum",
+            "name": "DifficultyLevel",
+            "values": [
+              "Beginner",
+              "Intermediate",
+              "Advanced"
+            ]
+          }
+        },
+        "durationHours": {
+          "column_name": "duration_hours",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": 6,
+            "scale": 2
+          },
+          "type": {
             "constraints": {
-              "max_length": 100
+              "precision": 6,
+              "scale": 2
             },
             "kind": "scalar",
-            "name": "String",
+            "name": "Decimal",
             "values": []
           }
         },
@@ -130,50 +187,8 @@
             "values": []
           }
         },
-        "ipAddress": {
-          "column_name": "ip_address",
-          "default": null,
-          "migration_owned": true,
-          "nullable": true,
-          "primary_key": false,
-          "storage": {
-            "max_length": 45,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {
-              "max_length": 45
-            },
-            "kind": "scalar",
-            "name": "String",
-            "values": []
-          }
-        },
-        "performedAt": {
-          "column_name": "performed_at",
-          "default": {
-            "kind": "literal",
-            "name": "literal",
-            "value": "DateTime.now()"
-          },
-          "migration_owned": true,
-          "nullable": false,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "scalar",
-            "name": "DateTime",
-            "values": []
-          }
-        },
-        "performedBy": {
-          "column_name": "performed_by",
+        "instructorId": {
+          "column_name": "instructor_id",
           "default": null,
           "migration_owned": true,
           "nullable": false,
@@ -187,6 +202,128 @@
             "constraints": {},
             "kind": "scalar",
             "name": "UUID",
+            "values": []
+          }
+        },
+        "maxEnrollment": {
+          "column_name": "max_enrollment",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Integer",
+            "values": []
+          }
+        },
+        "publishedAt": {
+          "column_name": "published_at",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "ratingCount": {
+          "column_name": "rating_count",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "0"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Integer",
+            "values": []
+          }
+        },
+        "status": {
+          "column_name": "status",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "CourseStatus.Draft"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "enum",
+            "name": "CourseStatus",
+            "values": [
+              "Draft",
+              "Published",
+              "Archived"
+            ]
+          }
+        },
+        "tags": {
+          "column_name": "tags",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "JSON",
+            "values": []
+          }
+        },
+        "title": {
+          "column_name": "title",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": 200,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 200
+            },
+            "kind": "scalar",
+            "name": "String",
             "values": []
           }
         },
@@ -211,69 +348,49 @@
             "name": "DateTime",
             "values": []
           }
-        },
-        "userAgent": {
-          "column_name": "user_agent",
-          "default": null,
-          "migration_owned": true,
-          "nullable": true,
-          "primary_key": false,
-          "storage": {
-            "max_length": 500,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {
-              "max_length": 500
-            },
-            "kind": "scalar",
-            "name": "String",
-            "values": []
-          }
         }
       },
       "foreign_keys": [],
       "indexes": [
         {
           "columns": [
-            "entity_id",
-            "performed_at"
+            "status",
+            "difficulty"
           ],
           "fulltext": false,
           "unique": false
         },
         {
           "columns": [
-            "entity_type",
-            "entity_id"
+            "instructor_id",
+            "status"
           ],
           "fulltext": false,
           "unique": false
         },
         {
           "columns": [
-            "performed_by",
-            "performed_at"
+            "course_code"
           ],
           "fulltext": false,
           "unique": false
         },
         {
           "columns": [
-            "performed_at"
+            "title",
+            "description"
           ],
-          "fulltext": false,
+          "fulltext": true,
           "unique": false
         }
       ],
-      "table_name": "audit_trails",
+      "table_name": "courses",
       "table_options": {}
     },
-    "ComplianceAlert": {
+    "CourseModule": {
       "fields": {
-        "accountId": {
-          "column_name": "account_id",
+        "courseId": {
+          "column_name": "course_id",
           "default": null,
           "migration_owned": true,
           "nullable": false,
@@ -287,26 +404,6 @@
             "constraints": {},
             "kind": "scalar",
             "name": "UUID",
-            "values": []
-          }
-        },
-        "auditNote": {
-          "column_name": "audit_note",
-          "default": null,
-          "migration_owned": true,
-          "nullable": true,
-          "primary_key": false,
-          "storage": {
-            "max_length": 500,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {
-              "max_length": 500
-            },
-            "kind": "scalar",
-            "name": "String",
             "values": []
           }
         },
@@ -336,31 +433,7 @@
           "column_name": "description",
           "default": null,
           "migration_owned": true,
-          "nullable": false,
-          "primary_key": false,
-          "storage": {
-            "max_length": 500,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {
-              "max_length": 500
-            },
-            "kind": "scalar",
-            "name": "String",
-            "values": []
-          }
-        },
-        "detectedAt": {
-          "column_name": "detected_at",
-          "default": {
-            "kind": "literal",
-            "name": "literal",
-            "value": "DateTime.now()"
-          },
-          "migration_owned": true,
-          "nullable": false,
+          "nullable": true,
           "primary_key": false,
           "storage": {
             "max_length": null,
@@ -370,27 +443,7 @@
           "type": {
             "constraints": {},
             "kind": "scalar",
-            "name": "DateTime",
-            "values": []
-          }
-        },
-        "escalatedTo": {
-          "column_name": "escalated_to",
-          "default": null,
-          "migration_owned": true,
-          "nullable": true,
-          "primary_key": false,
-          "storage": {
-            "max_length": 500,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {
-              "max_length": 500
-            },
-            "kind": "scalar",
-            "name": "String",
+            "name": "Text",
             "values": []
           }
         },
@@ -416,11 +469,11 @@
             "values": []
           }
         },
-        "performedBy": {
-          "column_name": "performed_by",
+        "orderIndex": {
+          "column_name": "order_index",
           "default": null,
           "migration_owned": true,
-          "nullable": true,
+          "nullable": false,
           "primary_key": false,
           "storage": {
             "max_length": null,
@@ -430,193 +483,28 @@
           "type": {
             "constraints": {},
             "kind": "scalar",
-            "name": "UUID",
+            "name": "Integer",
             "values": []
           }
         },
-        "resolution": {
-          "column_name": "resolution",
+        "title": {
+          "column_name": "title",
           "default": null,
           "migration_owned": true,
-          "nullable": true,
+          "nullable": false,
           "primary_key": false,
           "storage": {
-            "max_length": 1000,
+            "max_length": 200,
             "precision": null,
             "scale": null
           },
           "type": {
             "constraints": {
-              "max_length": 1000
+              "max_length": 200
             },
             "kind": "scalar",
             "name": "String",
             "values": []
-          }
-        },
-        "resolvedAt": {
-          "column_name": "resolved_at",
-          "default": null,
-          "migration_owned": true,
-          "nullable": true,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "scalar",
-            "name": "DateTime",
-            "values": []
-          }
-        },
-        "resolvedBy": {
-          "column_name": "resolved_by",
-          "default": null,
-          "migration_owned": true,
-          "nullable": true,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "scalar",
-            "name": "UUID",
-            "values": []
-          }
-        },
-        "reviewedAt": {
-          "column_name": "reviewed_at",
-          "default": null,
-          "migration_owned": true,
-          "nullable": true,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "scalar",
-            "name": "DateTime",
-            "values": []
-          }
-        },
-        "severity": {
-          "column_name": "severity",
-          "default": null,
-          "migration_owned": true,
-          "nullable": false,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "enum",
-            "name": "AlertSeverity",
-            "values": [
-              "Low",
-              "Medium",
-              "High",
-              "Critical"
-            ]
-          }
-        },
-        "status": {
-          "column_name": "status",
-          "default": {
-            "kind": "literal",
-            "name": "literal",
-            "value": "AlertStatus.Open"
-          },
-          "migration_owned": true,
-          "nullable": false,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "enum",
-            "name": "AlertStatus",
-            "values": [
-              "Open",
-              "UnderReview",
-              "Resolved",
-              "Escalated",
-              "FalsePositive"
-            ]
-          }
-        },
-        "transactionAmount": {
-          "column_name": "transaction_amount",
-          "default": null,
-          "migration_owned": true,
-          "nullable": true,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "scalar",
-            "name": "Money",
-            "values": []
-          }
-        },
-        "transactionId": {
-          "column_name": "transaction_id",
-          "default": null,
-          "migration_owned": true,
-          "nullable": true,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "scalar",
-            "name": "UUID",
-            "values": []
-          }
-        },
-        "type": {
-          "column_name": "type",
-          "default": null,
-          "migration_owned": true,
-          "nullable": false,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "enum",
-            "name": "AlertType",
-            "values": [
-              "LargeTransaction",
-              "SuspiciousPattern",
-              "VelocityExceeded",
-              "GeographicAnomaly",
-              "AccountBehaviorChange"
-            ]
           }
         },
         "updatedAt": {
@@ -642,46 +530,52 @@
           }
         }
       },
-      "foreign_keys": [],
+      "foreign_keys": [
+        {
+          "columns": [
+            "course_id"
+          ],
+          "on_delete": "restrict",
+          "on_update": "restrict",
+          "referred_columns": [
+            "id"
+          ],
+          "referred_table": "courses"
+        }
+      ],
       "indexes": [
         {
           "columns": [
-            "account_id",
-            "detected_at"
-          ],
-          "fulltext": false,
-          "unique": false
-        },
-        {
-          "columns": [
-            "severity",
-            "status"
-          ],
-          "fulltext": false,
-          "unique": false
-        },
-        {
-          "columns": [
-            "status",
-            "detected_at"
-          ],
-          "fulltext": false,
-          "unique": false
-        },
-        {
-          "columns": [
-            "type",
-            "status"
+            "course_id",
+            "order_index"
           ],
           "fulltext": false,
           "unique": false
         }
       ],
-      "table_name": "compliance_alerts",
+      "table_name": "course_modules",
       "table_options": {}
     },
-    "ComplianceReport": {
+    "CourseRating": {
       "fields": {
+        "courseId": {
+          "column_name": "course_id",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
         "createdAt": {
           "column_name": "created_at",
           "default": {
@@ -704,72 +598,6 @@
             "values": []
           }
         },
-        "criticalAlerts": {
-          "column_name": "critical_alerts",
-          "default": {
-            "kind": "literal",
-            "name": "literal",
-            "value": "0"
-          },
-          "migration_owned": true,
-          "nullable": false,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "scalar",
-            "name": "Integer",
-            "values": []
-          }
-        },
-        "escalatedAlerts": {
-          "column_name": "escalated_alerts",
-          "default": {
-            "kind": "literal",
-            "name": "literal",
-            "value": "0"
-          },
-          "migration_owned": true,
-          "nullable": false,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "scalar",
-            "name": "Integer",
-            "values": []
-          }
-        },
-        "generatedAt": {
-          "column_name": "generated_at",
-          "default": {
-            "kind": "literal",
-            "name": "literal",
-            "value": "DateTime.now()"
-          },
-          "migration_owned": true,
-          "nullable": false,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "scalar",
-            "name": "DateTime",
-            "values": []
-          }
-        },
         "id": {
           "column_name": "id",
           "default": {
@@ -792,30 +620,8 @@
             "values": []
           }
         },
-        "largeTransactionCount": {
-          "column_name": "large_transaction_count",
-          "default": {
-            "kind": "literal",
-            "name": "literal",
-            "value": "0"
-          },
-          "migration_owned": true,
-          "nullable": false,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "scalar",
-            "name": "Integer",
-            "values": []
-          }
-        },
-        "largeTransactionTotal": {
-          "column_name": "large_transaction_total",
+        "rating": {
+          "column_name": "rating",
           "default": null,
           "migration_owned": true,
           "nullable": false,
@@ -828,34 +634,12 @@
           "type": {
             "constraints": {},
             "kind": "scalar",
-            "name": "Money",
-            "values": []
-          }
-        },
-        "openAlerts": {
-          "column_name": "open_alerts",
-          "default": {
-            "kind": "literal",
-            "name": "literal",
-            "value": "0"
-          },
-          "migration_owned": true,
-          "nullable": false,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "scalar",
             "name": "Integer",
             "values": []
           }
         },
-        "reportData": {
-          "column_name": "report_data",
+        "review": {
+          "column_name": "review",
           "default": null,
           "migration_owned": true,
           "nullable": true,
@@ -868,12 +652,12 @@
           "type": {
             "constraints": {},
             "kind": "scalar",
-            "name": "JSON",
+            "name": "Text",
             "values": []
           }
         },
-        "reportDate": {
-          "column_name": "report_date",
+        "studentId": {
+          "column_name": "student_id",
           "default": null,
           "migration_owned": true,
           "nullable": false,
@@ -886,71 +670,7 @@
           "type": {
             "constraints": {},
             "kind": "scalar",
-            "name": "DateTime",
-            "values": []
-          }
-        },
-        "reportType": {
-          "column_name": "report_type",
-          "default": null,
-          "migration_owned": true,
-          "nullable": false,
-          "primary_key": false,
-          "storage": {
-            "max_length": 100,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {
-              "max_length": 100
-            },
-            "kind": "scalar",
-            "name": "String",
-            "values": []
-          }
-        },
-        "resolvedAlerts": {
-          "column_name": "resolved_alerts",
-          "default": {
-            "kind": "literal",
-            "name": "literal",
-            "value": "0"
-          },
-          "migration_owned": true,
-          "nullable": false,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "scalar",
-            "name": "Integer",
-            "values": []
-          }
-        },
-        "totalAlerts": {
-          "column_name": "total_alerts",
-          "default": {
-            "kind": "literal",
-            "name": "literal",
-            "value": "0"
-          },
-          "migration_owned": true,
-          "nullable": false,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "scalar",
-            "name": "Integer",
+            "name": "UUID",
             "values": []
           }
         },
@@ -981,57 +701,307 @@
       "indexes": [
         {
           "columns": [
-            "report_date",
-            "report_type"
+            "course_id",
+            "student_id"
+          ],
+          "fulltext": false,
+          "unique": true
+        }
+      ],
+      "table_name": "course_ratings",
+      "table_options": {}
+    },
+    "Lesson": {
+      "fields": {
+        "content": {
+          "column_name": "content",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Text",
+            "values": []
+          }
+        },
+        "contentType": {
+          "column_name": "content_type",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "ContentType.Text"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "enum",
+            "name": "ContentType",
+            "values": [
+              "Text",
+              "Video",
+              "Quiz",
+              "Assignment"
+            ]
+          }
+        },
+        "courseModuleId": {
+          "column_name": "course_module_id",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "createdAt": {
+          "column_name": "created_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "DateTime.now()"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "durationMinutes": {
+          "column_name": "duration_minutes",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "0"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Integer",
+            "values": []
+          }
+        },
+        "id": {
+          "column_name": "id",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "uuid()"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": true,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "orderIndex": {
+          "column_name": "order_index",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Integer",
+            "values": []
+          }
+        },
+        "resourceUrl": {
+          "column_name": "resource_url",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "URL",
+            "values": []
+          }
+        },
+        "title": {
+          "column_name": "title",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": 200,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 200
+            },
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "updatedAt": {
+          "column_name": "updated_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "DateTime.now()"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "videoUrl": {
+          "column_name": "video_url",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "URL",
+            "values": []
+          }
+        }
+      },
+      "foreign_keys": [
+        {
+          "columns": [
+            "course_module_id"
+          ],
+          "on_delete": "restrict",
+          "on_update": "restrict",
+          "referred_columns": [
+            "id"
+          ],
+          "referred_table": "course_modules"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "course_module_id",
+            "order_index"
           ],
           "fulltext": false,
           "unique": false
         }
       ],
-      "table_name": "compliance_reports",
+      "table_name": "lessons",
       "table_options": {}
     }
   },
   "enums": [
     {
-      "database_name": "alert_severity",
-      "name": "AlertSeverity",
+      "database_name": "content_type",
+      "name": "ContentType",
       "values": [
-        "Low",
-        "Medium",
-        "High",
-        "Critical"
+        "Text",
+        "Video",
+        "Quiz",
+        "Assignment"
       ]
     },
     {
-      "database_name": "alert_status",
-      "name": "AlertStatus",
+      "database_name": "course_status",
+      "name": "CourseStatus",
       "values": [
-        "Open",
-        "UnderReview",
-        "Resolved",
-        "Escalated",
-        "FalsePositive"
+        "Draft",
+        "Published",
+        "Archived"
       ]
     },
     {
-      "database_name": "alert_type",
-      "name": "AlertType",
+      "database_name": "difficulty_level",
+      "name": "DifficultyLevel",
       "values": [
-        "LargeTransaction",
-        "SuspiciousPattern",
-        "VelocityExceeded",
-        "GeographicAnomaly",
-        "AccountBehaviorChange"
+        "Beginner",
+        "Intermediate",
+        "Advanced"
       ]
     }
   ],
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
-  "rdbms_id": "11c99334-4634-4934-a5ba-7432e6a980ce",
-  "schema_hash": "a4e8afee734eb26e973d971a0be95062f9d14c381bf692d1880496078dd826e6",
+  "rdbms_id": "527b2359-65a0-4bf9-9a9b-489123df12bb",
+  "schema_hash": "2e89eca3ca96d7c48c743990e930c39538c390d9144a716c3b7068895691b520",
   "service": {
-    "name": "finance.ComplianceService",
+    "name": "lms.CourseService",
     "version": "1.0.0"
   },
   "version": 1

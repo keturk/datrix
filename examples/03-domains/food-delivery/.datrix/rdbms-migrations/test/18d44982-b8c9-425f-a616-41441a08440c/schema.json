@@ -51,7 +51,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002188A52F4D0>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -184,7 +184,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002188A535630>"
+            "value": "uuid()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -262,7 +262,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x0000021889AB4590>"
+            "value": "DeliveryStatus.Pending"
           },
           "migration_owned": true,
           "nullable": false,
@@ -291,7 +291,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002188A52F9A0>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -349,7 +349,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002188A52F4D0>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -433,7 +433,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002188A535630>"
+            "value": "uuid()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -518,7 +518,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x0000021889AF52B0>"
+            "value": "DriverStatus.Offline"
           },
           "migration_owned": true,
           "nullable": false,
@@ -566,7 +566,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000002188A52F9A0>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -651,7 +651,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "18d44982-b8c9-425f-a616-41441a08440c",
-  "schema_hash": "3366a6f943ae02cb4d123001da51d6c4b63bebb44a80e2f45de28cb34ce7bc30",
+  "schema_hash": "1527274308f57df4ce138ec258a9fc9574af9043bf47d7454e660df7891370f7",
   "service": {
     "name": "fooddelivery.DeliveryService",
     "version": "1.0.0"

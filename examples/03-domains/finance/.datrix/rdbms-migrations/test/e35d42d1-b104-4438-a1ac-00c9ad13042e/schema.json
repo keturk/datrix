@@ -112,7 +112,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001A5BA4326D0>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -177,7 +177,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001A5BA403D90>"
+            "value": "uuid()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -199,7 +199,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.CallNode object at 0x000001A5B9762EB0>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -239,7 +239,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000001A5B9762B30>"
+            "value": "AccountStatus.PendingApproval"
           },
           "migration_owned": true,
           "nullable": false,
@@ -289,7 +289,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001A5BA432970>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -375,7 +375,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001A5BA4326D0>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -472,7 +472,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001A5BA403D90>"
+            "value": "uuid()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -494,7 +494,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x000001A5B9760280>"
+            "value": "KycStatus.Pending"
           },
           "migration_owned": true,
           "nullable": false,
@@ -597,7 +597,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x000001A5BA432970>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -683,7 +683,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "e35d42d1-b104-4438-a1ac-00c9ad13042e",
-  "schema_hash": "cbcf2ef1c3f1c33fd553921cd76ac02de288a0c7cba9af5018743aeb811b8698",
+  "schema_hash": "c509d4016d73f910fcb8c1d2a2e3f31512935b1e9388950657970eb187fa13cd",
   "service": {
     "name": "finance.AccountService",
     "version": "1.0.0"

@@ -15,7 +15,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000027527373BD0>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -136,7 +136,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000027527371320>"
+            "value": "uuid()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -194,7 +194,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000027527373E70>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -273,7 +273,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000027527373BD0>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -337,7 +337,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000027527371320>"
+            "value": "uuid()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -474,7 +474,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x0000027526598670>"
+            "value": "PayrollStatus.Pending"
           },
           "migration_owned": true,
           "nullable": false,
@@ -555,7 +555,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000027527373E70>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -642,7 +642,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "128c9bef-31a0-4d10-99c5-8a4ebdbd521e",
-  "schema_hash": "d7f19dbd0b7617e08f5f44d2ce600c34a3b28c7b20212e7aa45bd8e967ed68b5",
+  "schema_hash": "ba290a186adb0d994c6ceafbfd894ffc178a602196c2e2dce329d788138e2e4d",
   "service": {
     "name": "hr.PayrollService",
     "version": "1.0.0"

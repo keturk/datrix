@@ -1,15 +1,76 @@
 {
   "block": {
-    "name": "orderDb"
+    "name": "enrollmentDb"
   },
   "container": {
     "kind": "service",
-    "name": "fooddelivery.OrderService"
+    "name": "lms.EnrollmentService"
   },
   "cqrs_views": {},
   "entities": {
-    "Order": {
+    "Enrollment": {
       "fields": {
+        "averageScore": {
+          "column_name": "average_score",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "0.0"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": 5,
+            "scale": 2
+          },
+          "type": {
+            "constraints": {
+              "precision": 5,
+              "scale": 2
+            },
+            "kind": "scalar",
+            "name": "Decimal",
+            "values": []
+          }
+        },
+        "completedAt": {
+          "column_name": "completed_at",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "courseId": {
+          "column_name": "course_id",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
         "createdAt": {
           "column_name": "created_at",
           "default": {
@@ -32,11 +93,11 @@
             "values": []
           }
         },
-        "customerId": {
-          "column_name": "customer_id",
+        "dropReason": {
+          "column_name": "drop_reason",
           "default": null,
           "migration_owned": true,
-          "nullable": false,
+          "nullable": true,
           "primary_key": false,
           "storage": {
             "max_length": null,
@@ -46,48 +107,12 @@
           "type": {
             "constraints": {},
             "kind": "scalar",
-            "name": "UUID",
+            "name": "String",
             "values": []
           }
         },
-        "deliveryAddress": {
-          "column_name": "delivery_address",
-          "default": null,
-          "migration_owned": true,
-          "nullable": false,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "scalar",
-            "name": "JSON",
-            "values": []
-          }
-        },
-        "deliveryFee": {
-          "column_name": "delivery_fee",
-          "default": null,
-          "migration_owned": true,
-          "nullable": false,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "scalar",
-            "name": "Money",
-            "values": []
-          }
-        },
-        "estimatedDelivery": {
-          "column_name": "estimated_delivery",
+        "droppedAt": {
+          "column_name": "dropped_at",
           "default": null,
           "migration_owned": true,
           "nullable": true,
@@ -101,6 +126,50 @@
             "constraints": {},
             "kind": "scalar",
             "name": "DateTime",
+            "values": []
+          }
+        },
+        "enrolledAt": {
+          "column_name": "enrolled_at",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "DateTime.now()"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "gradeCount": {
+          "column_name": "grade_count",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "0"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Integer",
             "values": []
           }
         },
@@ -126,33 +195,52 @@
             "values": []
           }
         },
-        "orderNumber": {
-          "column_name": "order_number",
+        "lastAccessedAt": {
+          "column_name": "last_accessed_at",
           "default": null,
           "migration_owned": true,
-          "nullable": false,
+          "nullable": true,
           "primary_key": false,
           "storage": {
-            "max_length": 20,
+            "max_length": null,
             "precision": null,
             "scale": null
           },
           "type": {
-            "constraints": {
-              "max_length": 20
-            },
+            "constraints": {},
             "kind": "scalar",
-            "name": "String",
+            "name": "DateTime",
             "values": []
-          },
-          "unique": true
+          }
         },
-        "paymentStatus": {
-          "column_name": "payment_status",
+        "progress": {
+          "column_name": "progress",
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "PaymentStatus.Pending"
+            "value": "0"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Integer",
+            "values": []
+          }
+        },
+        "status": {
+          "column_name": "status",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "EnrollmentStatus.Pending"
           },
           "migration_owned": true,
           "nullable": false,
@@ -165,17 +253,18 @@
           "type": {
             "constraints": {},
             "kind": "enum",
-            "name": "PaymentStatus",
+            "name": "EnrollmentStatus",
             "values": [
               "Pending",
-              "Charged",
-              "Refunded",
-              "Failed"
+              "Active",
+              "Completed",
+              "Dropped",
+              "Expired"
             ]
           }
         },
-        "restaurantId": {
-          "column_name": "restaurant_id",
+        "studentId": {
+          "column_name": "student_id",
           "default": null,
           "migration_owned": true,
           "nullable": false,
@@ -189,128 +278,6 @@
             "constraints": {},
             "kind": "scalar",
             "name": "UUID",
-            "values": []
-          }
-        },
-        "specialInstructions": {
-          "column_name": "special_instructions",
-          "default": null,
-          "migration_owned": true,
-          "nullable": true,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "scalar",
-            "name": "Text",
-            "values": []
-          }
-        },
-        "status": {
-          "column_name": "status",
-          "default": {
-            "kind": "literal",
-            "name": "literal",
-            "value": "OrderStatus.Placed"
-          },
-          "migration_owned": true,
-          "nullable": false,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "enum",
-            "name": "OrderStatus",
-            "values": [
-              "Placed",
-              "Confirmed",
-              "Preparing",
-              "Ready",
-              "PickedUp",
-              "Delivering",
-              "Delivered",
-              "Cancelled",
-              "Refunded"
-            ]
-          }
-        },
-        "subtotal": {
-          "column_name": "subtotal",
-          "default": null,
-          "migration_owned": true,
-          "nullable": false,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "scalar",
-            "name": "Money",
-            "values": []
-          }
-        },
-        "tax": {
-          "column_name": "tax",
-          "default": null,
-          "migration_owned": true,
-          "nullable": false,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "scalar",
-            "name": "Money",
-            "values": []
-          }
-        },
-        "tip": {
-          "column_name": "tip",
-          "default": null,
-          "migration_owned": true,
-          "nullable": true,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "scalar",
-            "name": "Money",
-            "values": []
-          }
-        },
-        "total": {
-          "column_name": "total",
-          "default": null,
-          "migration_owned": true,
-          "nullable": false,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "scalar",
-            "name": "Money",
             "values": []
           }
         },
@@ -341,7 +308,15 @@
       "indexes": [
         {
           "columns": [
-            "customer_id",
+            "student_id",
+            "course_id"
+          ],
+          "fulltext": false,
+          "unique": true
+        },
+        {
+          "columns": [
+            "student_id",
             "status"
           ],
           "fulltext": false,
@@ -349,7 +324,7 @@
         },
         {
           "columns": [
-            "restaurant_id",
+            "course_id",
             "status"
           ],
           "fulltext": false,
@@ -358,24 +333,37 @@
         {
           "columns": [
             "status",
-            "created_at"
-          ],
-          "fulltext": false,
-          "unique": false
-        },
-        {
-          "columns": [
-            "order_number"
+            "enrolled_at"
           ],
           "fulltext": false,
           "unique": false
         }
       ],
-      "table_name": "orders",
+      "table_name": "enrollments",
       "table_options": {}
     },
-    "OrderItem": {
+    "EnrollmentActivity": {
       "fields": {
+        "activityType": {
+          "column_name": "activity_type",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": 100,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {
+              "max_length": 100
+            },
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
         "createdAt": {
           "column_name": "created_at",
           "default": {
@@ -395,6 +383,24 @@
             "constraints": {},
             "kind": "scalar",
             "name": "DateTime",
+            "values": []
+          }
+        },
+        "enrollmentId": {
+          "column_name": "enrollment_id",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
             "values": []
           }
         },
@@ -420,103 +426,247 @@
             "values": []
           }
         },
-        "menuItemId": {
-          "column_name": "menu_item_id",
-          "default": null,
-          "migration_owned": true,
-          "nullable": false,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "scalar",
-            "name": "UUID",
-            "values": []
-          }
-        },
-        "name": {
-          "column_name": "name",
-          "default": null,
-          "migration_owned": true,
-          "nullable": false,
-          "primary_key": false,
-          "storage": {
-            "max_length": 200,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {
-              "max_length": 200
-            },
-            "kind": "scalar",
-            "name": "String",
-            "values": []
-          }
-        },
-        "orderId": {
-          "column_name": "order_id",
-          "default": null,
-          "migration_owned": true,
-          "nullable": false,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "scalar",
-            "name": "UUID",
-            "values": []
-          }
-        },
-        "quantity": {
-          "column_name": "quantity",
-          "default": null,
-          "migration_owned": true,
-          "nullable": false,
-          "primary_key": false,
-          "storage": {
-            "max_length": null,
-            "precision": null,
-            "scale": null
-          },
-          "type": {
-            "constraints": {},
-            "kind": "scalar",
-            "name": "Integer",
-            "values": []
-          }
-        },
-        "specialRequests": {
-          "column_name": "special_requests",
+        "metadata": {
+          "column_name": "metadata",
           "default": null,
           "migration_owned": true,
           "nullable": true,
           "primary_key": false,
           "storage": {
-            "max_length": 500,
+            "max_length": null,
             "precision": null,
             "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "JSON",
+            "values": []
+          }
+        },
+        "occurredAt": {
+          "column_name": "occurred_at",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "DateTime.now()"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "updatedAt": {
+          "column_name": "updated_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "DateTime.now()"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        }
+      },
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "enrollment_id",
+            "occurred_at"
+          ],
+          "fulltext": false,
+          "unique": false
+        }
+      ],
+      "table_name": "enrollment_activities",
+      "table_options": {}
+    },
+    "GradeRecord": {
+      "fields": {
+        "createdAt": {
+          "column_name": "created_at",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "DateTime.now()"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "enrollmentId": {
+          "column_name": "enrollment_id",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "feedback": {
+          "column_name": "feedback",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Text",
+            "values": []
+          }
+        },
+        "gradedAt": {
+          "column_name": "graded_at",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "gradedBy": {
+          "column_name": "graded_by",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "id": {
+          "column_name": "id",
+          "default": {
+            "kind": "server_function",
+            "name": "server_default",
+            "value": "uuid()"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": true,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "moduleId": {
+          "column_name": "module_id",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "score": {
+          "column_name": "score",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": 5,
+            "scale": 2
           },
           "type": {
             "constraints": {
-              "max_length": 500
+              "precision": 5,
+              "scale": 2
             },
             "kind": "scalar",
-            "name": "String",
+            "name": "Decimal",
             "values": []
           }
         },
-        "subtotal": {
-          "column_name": "subtotal",
-          "default": null,
+        "status": {
+          "column_name": "status",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "GradeStatus.NotSubmitted"
+          },
           "migration_owned": true,
           "nullable": false,
           "primary_key": false,
@@ -527,16 +677,21 @@
           },
           "type": {
             "constraints": {},
-            "kind": "scalar",
-            "name": "Money",
-            "values": []
+            "kind": "enum",
+            "name": "GradeStatus",
+            "values": [
+              "NotSubmitted",
+              "Submitted",
+              "Graded",
+              "Returned"
+            ]
           }
         },
-        "unitPrice": {
-          "column_name": "unit_price",
+        "submittedAt": {
+          "column_name": "submitted_at",
           "default": null,
           "migration_owned": true,
-          "nullable": false,
+          "nullable": true,
           "primary_key": false,
           "storage": {
             "max_length": null,
@@ -546,7 +701,7 @@
           "type": {
             "constraints": {},
             "kind": "scalar",
-            "name": "Money",
+            "name": "DateTime",
             "values": []
           }
         },
@@ -576,62 +731,59 @@
       "foreign_keys": [
         {
           "columns": [
-            "order_id"
+            "enrollment_id"
           ],
           "on_delete": "restrict",
           "on_update": "restrict",
           "referred_columns": [
             "id"
           ],
-          "referred_table": "orders"
+          "referred_table": "enrollments"
         }
       ],
       "indexes": [
         {
           "columns": [
-            "order_id"
+            "enrollment_id",
+            "module_id"
           ],
           "fulltext": false,
-          "unique": false
+          "unique": true
         }
       ],
-      "table_name": "order_items",
+      "table_name": "grade_records",
       "table_options": {}
     }
   },
   "enums": [
     {
-      "database_name": "order_status",
-      "name": "OrderStatus",
+      "database_name": "enrollment_status",
+      "name": "EnrollmentStatus",
       "values": [
-        "Placed",
-        "Confirmed",
-        "Preparing",
-        "Ready",
-        "PickedUp",
-        "Delivering",
-        "Delivered",
-        "Cancelled",
-        "Refunded"
+        "Pending",
+        "Active",
+        "Completed",
+        "Dropped",
+        "Expired"
       ]
     },
     {
-      "database_name": "payment_status",
-      "name": "PaymentStatus",
+      "database_name": "grade_status",
+      "name": "GradeStatus",
       "values": [
-        "Pending",
-        "Charged",
-        "Refunded",
-        "Failed"
+        "NotSubmitted",
+        "Submitted",
+        "Graded",
+        "Returned"
       ]
     }
   ],
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
-  "rdbms_id": "8ecce4c7-ee2f-4df1-b849-6f60b40ff190",
-  "schema_hash": "96d49bce4707bdb27ec89a995ba3ef2c45a8ddd14d59b1626fb741b931b2fea9",
+  "rdbms_id": "443b7f40-e304-4f2e-8b0f-b1bd2131ba01",
+  "schema_hash": "36d09154c113834704f9cb7b3ae0764a3837aeaec9b1f4893743541b29c2ff81",
   "service": {
-    "name": "fooddelivery.OrderService",
+    "name": "lms.EnrollmentService",
     "version": "1.0.0"
   },
   "version": 1
