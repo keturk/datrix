@@ -1,4 +1,4 @@
-config system library.System {
+﻿config system library.System {
   base {
     language = "python";
     deployment {
@@ -116,19 +116,36 @@ config system library.System {
       port = 8500;
       datacenter = "dc1";
     }
-    keycloakIdentity {
-      host = "keycloak";
+    zitadelIdentity {
+      host = "zitadel";
       port = 8080;
+      externalDomain = "localhost";
+      externalSecure = false;
       adminUser = "admin";
-      adminPassword {
-        provider = "env";
-        name = "KEYCLOAK_ADMIN_PASSWORD";
-      }
-      dbEngine = "postgres";
+      adminPassword = "identity_zitadel_admin_password";
+      masterKey = "identity_zitadel_master_key";
       providers {
         member {
-          realm = "library-member";
-          clientId = "library-member-client";
+          project = "library";
+          clientId = "library-member-app";
+        }
+      }
+    }
+    configStore {
+      engine = "file";
+      flavor = "container";
+      applicationName = "library-system";
+      environment = "dev";
+      profiles {
+        settings {
+          kind = "freeform";
+          keys {
+            debugMode {
+              type = "Boolean";
+              default = false;
+              description = "Enable debug mode.";
+            }
+          }
         }
       }
     }

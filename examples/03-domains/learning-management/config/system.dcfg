@@ -1,4 +1,4 @@
-config system lms.System {
+﻿config system lms.System {
   base {
     language = "python";
     deployment {
@@ -132,6 +132,24 @@ config system lms.System {
         platform {
           project = "library-platform";
           clientId = "library-platform-app";
+        }
+      }
+    }
+    configStore {
+      engine = "file";
+      flavor = "container";
+      applicationName = "lms-system";
+      environment = "dev";
+      profiles {
+        settings {
+          kind = "freeform";
+          keys {
+            debugMode {
+              type = "Boolean";
+              default = false;
+              description = "Enable debug mode.";
+            }
+          }
         }
       }
     }

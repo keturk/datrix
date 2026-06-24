@@ -1,4 +1,4 @@
-config system taskapp.System {
+﻿config system taskapp.System {
   base {
     language = "python";
     deployment {
@@ -132,6 +132,24 @@ config system taskapp.System {
         platform {
           project = "library-platform";
           clientId = "library-platform-app";
+        }
+      }
+    }
+    configStore {
+      engine = "file";
+      flavor = "container";
+      applicationName = "taskapp-system";
+      environment = "dev";
+      profiles {
+        settings {
+          kind = "freeform";
+          keys {
+            debugMode {
+              type = "Boolean";
+              default = false;
+              description = "Enable debug mode.";
+            }
+          }
         }
       }
     }

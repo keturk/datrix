@@ -1,4 +1,4 @@
-config system library.System {
+﻿config system library.System {
   base {
     language = "python";
     deployment {
@@ -115,6 +115,24 @@ config system library.System {
       host = "localhost";
       port = 8500;
       datacenter = "dc1";
+    }
+    configStore {
+      engine = "file";
+      flavor = "container";
+      applicationName = "library-system";
+      environment = "dev";
+      profiles {
+        settings {
+          kind = "freeform";
+          keys {
+            debugMode {
+              type = "Boolean";
+              default = false;
+              description = "Enable debug mode.";
+            }
+          }
+        }
+      }
     }
   }
 

@@ -1,4 +1,4 @@
-config system cityservices {
+﻿config system cityservices {
   base {
     language = "python";
     deployment {
@@ -132,6 +132,24 @@ config system cityservices {
         platform {
           project = "library-platform";
           clientId = "library-platform-app";
+        }
+      }
+    }
+    configStore {
+      engine = "file";
+      flavor = "container";
+      applicationName = "cityservices";
+      environment = "dev";
+      profiles {
+        settings {
+          kind = "freeform";
+          keys {
+            debugMode {
+              type = "Boolean";
+              default = false;
+              description = "Enable debug mode.";
+            }
+          }
         }
       }
     }

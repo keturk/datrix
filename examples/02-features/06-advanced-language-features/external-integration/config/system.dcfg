@@ -1,4 +1,4 @@
-config system hostdemo.System {
+﻿config system hostdemo.System {
   base {
     language = "python";
     deployment {
@@ -128,6 +128,24 @@ config system hostdemo.System {
         member {
           project = "library";
           clientId = "library-member-app";
+        }
+      }
+    }
+    configStore {
+      engine = "file";
+      flavor = "container";
+      applicationName = "hostdemo-system";
+      environment = "dev";
+      profiles {
+        settings {
+          kind = "freeform";
+          keys {
+            debugMode {
+              type = "Boolean";
+              default = false;
+              description = "Enable debug mode.";
+            }
+          }
         }
       }
     }

@@ -1,4 +1,4 @@
-config system shop.System {
+﻿config system shop.System {
   base {
     language = "python";
     deployment {
@@ -115,6 +115,24 @@ config system shop.System {
       host = "localhost";
       port = 8500;
       datacenter = "dc1";
+    }
+    configStore {
+      engine = "file";
+      flavor = "container";
+      applicationName = "shop-system";
+      environment = "dev";
+      profiles {
+        settings {
+          kind = "freeform";
+          keys {
+            debugMode {
+              type = "Boolean";
+              default = false;
+              description = "Enable debug mode.";
+            }
+          }
+        }
+      }
     }
   }
 

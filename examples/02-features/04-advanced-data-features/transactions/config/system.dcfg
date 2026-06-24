@@ -1,4 +1,4 @@
-config system library.System {
+﻿config system library.System {
   base {
     language = "python";
     deployment {
@@ -132,6 +132,24 @@ config system library.System {
         member {
           project = "library";
           clientId = "library-member-app";
+        }
+      }
+    }
+    configStore {
+      engine = "file";
+      flavor = "container";
+      applicationName = "library-system";
+      environment = "dev";
+      profiles {
+        settings {
+          kind = "freeform";
+          keys {
+            debugMode {
+              type = "Boolean";
+              default = false;
+              description = "Enable debug mode.";
+            }
+          }
         }
       }
     }

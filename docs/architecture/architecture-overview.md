@@ -1,7 +1,7 @@
 # Datrix Architecture Overview
 
-**Version:** 2.0
-**Last Updated:** May 2, 2026
+**Version:** 2.1
+**Last Updated:** June 23, 2026
 
 ---
 
@@ -22,6 +22,7 @@ Datrix is a code generation system that transforms `.dtrx` domain specifications
 ✅ **External library interfacing** - `extern service` declarations generate typed HTTP clients and deployment wiring for user-built services
 ✅ **Serverless block code generation** - `serverless` blocks deploy handlers as Lambda functions, Azure Functions, or container processes with platform-specific entry points and infrastructure provisioning
 ✅ **Centralized runtime config store** - a system-level `configStore` section generates a runtime configuration plane (AWS AppConfig, Azure App Configuration, or self-hosted Consul KV), local JSON defaults, and Python/TypeScript runtime clients for feature flags and operational tuning without rebuilds
+✅ **Zero-environment runtime** - generated services read zero environment variables; all deployment-static values (config-store endpoint, secrets-backend URL, region, credential kind) are baked as literal constants at generation time (see [Decision 14](#decision-14-runtime-configuration--secrets--zero-environment-architecture))
 
 ---
 
@@ -485,6 +486,71 @@ Provider-native runtimes are produced entirely by their provider generator. The 
 **Licensing note (Docker IdP — Zitadel):** Zitadel v3 is licensed under AGPLv3, whereas its predecessor (Keycloak) was Apache-2.0. Datrix deploys Zitadel as an unmodified, standalone server consumed only over standard network protocols (OIDC/OAuth2). AGPLv3's copyleft obligation attaches to *modifications of the Zitadel source code* that are conveyed or served over a network — it does not reach into the separate generated application that merely consumes Zitadel's network API. Because Datrix neither modifies Zitadel nor distributes its source, no copyleft obligation propagates into generated application code. Operators who fork and modify Zitadel itself take on AGPLv3 obligations for their fork; that is outside the scope of Datrix-generated apps.
 
 **Reference:** [API Auth Contracts](../../../datrix-language/docs/reference/access-levels.md) | [Semantic Validators — Identity](../../../datrix-common/docs/architecture/semantic-validators.md)
+
+---
+
+### Decision 14: Runtime Configuration & Secrets — Zero-Environment Architecture
+
+**Rationale:**
+- Prior generated services read runtime connection parameters and secret-backend endpoints from environment variables (`DATRIX_CONFIG_STORE_ENDPOINT`, `AZURE_KEY_VAULT_URL`, `AWS_REGION`, `ENVIRONMENT`, `AWS_SECRET_PREFIX`, etc.), creating an implicit contract that endpoints, regions, and credential mechanisms were supplied by the deployment orchestrator at container start.
+- Design 009 (*datrix-common Config/Secret Hardening*, historical — do not edit) addressed `.dcfg` path-containment and secret-ref allowlist hygiene at generation time; its surrounding context assumed this env-injection contract for runtime endpoint delivery.
+- Env-based endpoint injection is fragile: a misconfigured env var silently falls back to library defaults (boto3 reads `AWS_REGION`; `DefaultAzureCredential` walks the full credential chain including environment credentials), the deployment manifest and the application code have no shared schema, and environment variable injection cannot be statically verified at generation time.
+
+**Result — generated services read ZERO environment variables:**
+
+- **Bootstrap constants (`config/_bootstrap.py`)** are baked at generation time as `typing.Final` literals. They encode every deployment-static value the service needs to reach its config and secrets backends:
+
+  | Constant | Kind | Purpose |
+  |---|---|---|
+  | `PROVIDER` | `str` | `"LOCAL"` / `"AZURE"` / `"AWS"` |
+  | `CREDENTIAL_KIND` | `str` | `"azure-managed-identity"` / `"aws-instance-role"` / `"mounted-file"` |
+  | `ENVIRONMENT` | `str` | Deployment environment label |
+  | `REGION` | `str \| None` | Cloud region / location; `None` for LOCAL |
+  | `CONFIG_STORE_ENDPOINT` | `str \| None` | Azure App Configuration URL or Consul endpoint; `None` for AWS / LOCAL |
+  | `SECRETS_STORE_ENDPOINT` | `str \| None` | Azure Key Vault URL; `None` for AWS / LOCAL |
+  | `SECRET_PREFIX` | `str` | Prefix applied to logical secret handles |
+  | `CONFIG_FILE_PATH` | `str \| None` | Mounted JSON config file path (LOCAL only) |
+  | `SECRETS_DIR_PATH` | `str \| None` | Mounted secrets directory path (LOCAL only) |
+  | `CREDENTIAL_FILE_PATH` | `str \| None` | Mounted credential file path (LOCAL only) |
+
+  None of these are read from environment variables at service startup. The module imports only `typing`.
+
+- **No-environment credential provider (`config/_credentials.py`)** selects the credential mechanism via the baked `CREDENTIAL_KIND` constant and constructs credentials without consulting any environment variable:
+  - `"azure-managed-identity"` → `ManagedIdentityCredential(exclude_environment_credential=True)` — never walks the `DefaultAzureCredential` chain; IMDS only.
+  - `"aws-instance-role"` → `boto3.client(service, region_name=REGION)` — always passes the baked region; never reads `AWS_REGION` or `AWS_DEFAULT_REGION`.
+  - `"mounted-file"` → reads the baked `CREDENTIAL_FILE_PATH` constant; no env lookup.
+
+- **Config store (`connections` namespace + optional application profiles)** is the runtime source for non-secret scalars (host, port, database name, broker addresses, peer-service base URLs). The backend is selected from `PROVIDER` / `CONFIG_STORE_ENDPOINT`:
+  - LOCAL: `FileConfigBackend` reads the baked `CONFIG_FILE_PATH`.
+  - Azure: `AzureAppConfigBackend` authenticates via the managed-identity credential and contacts the baked `CONFIG_STORE_ENDPOINT`.
+  - AWS: `AppConfigBackend` uses the instance-role boto3 client with the baked `REGION`.
+  - Cloud backends receive provisioned config values — including managed-backend hosts assigned at deploy time — via the config store rather than via environment variables. LOCAL deployments receive these values from the mounted config JSON file baked at `CONFIG_FILE_PATH`.
+
+- **Secrets backend (Key Vault / Secrets Manager / SSM / file)** resolves credentials by logical handle. The backend, endpoint, and naming policy are baked constants in `config/secrets_resolver.py`:
+  - Azure: Azure Key Vault via `SECRETS_STORE_ENDPOINT` + managed-identity credential.
+  - AWS: Secrets Manager or SSM Parameter Store via the instance-role boto3 client + baked `REGION`.
+  - LOCAL: file backend reads from `SECRETS_DIR_PATH`; no network, no credentials.
+  - The legacy `env` backend (reading secrets from environment variables) is not supported. Any generated service that inadvertently targets it fails with a hard `RuntimeError` at startup.
+
+- **`AppSettings` (frozen at startup)** is assembled once during the lifespan `startup` phase by `assemble_settings(config_client, secrets_resolver)`. It composes connection strings from the config-store `connections` namespace (non-secret parts) plus `SecretsResolver` (credential parts). No connection string, endpoint URL, or secret value is baked at generation time; all are composed at startup from the two runtime sources. `get_settings()` raises `RuntimeError` if called before `assemble_settings()` completes — there is no silent default or fallback.
+
+**Canonical resolution stack (from baked constants to running service):**
+
+```
+Generation time
+  └─ RuntimeBootstrap baked into config/_bootstrap.py (Final literals; no env)
+
+Service startup
+  1. _bootstrap.py constants — available at import time; no action required
+  2. Config client start — connects to backend using baked PROVIDER / CONFIG_STORE_ENDPOINT
+  3. Secrets resolver — backend / endpoint / naming policy baked; no startup fetch
+  4. assemble_settings() — reads connections namespace + resolves credential secrets
+  5. Engine / client init — uses composed AppSettings fields (URLs already have secrets embedded)
+```
+
+**Supersede note:** This supersedes the env-injection contract documented in Design 009 (*datrix-common Config/Secret Hardening*, historical; see `design/009-datrix-common-config-secret-hardening.md`) and the prior `service-config` docs that assumed env-var delivery of endpoints and regions. Design 009 remains the canonical record for its own scope (`.dcfg` path-containment, secret-ref allowlist, fail-open default hardening) and is not edited. The zero-env runtime model is the canonical Datrix architecture from this point forward.
+
+**Reference:** [Deployment and Runtime Bootstrap](../../../datrix-common/docs/deployment-runtime-bootstrap.md) | [Secret Backend Policy](../../../datrix-common/docs/secret-backend-policy.md) | [Runtime Bootstrap — Python](../../../datrix-codegen-python/docs/runtime-bootstrap.md) | [AppSettings and Startup Assembly](../../../datrix-codegen-python/docs/app-settings.md) | [SecretsResolver](../../../datrix-codegen-python/docs/secrets-resolver.md) | [Config Store Schema](../../../datrix-common/docs/config-store.md)
 
 ---
 

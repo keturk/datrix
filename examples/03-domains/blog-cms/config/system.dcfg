@@ -1,4 +1,4 @@
-config system blog.System {
+﻿config system blog.System {
   base {
     language = "python";
     deployment {
@@ -128,6 +128,24 @@ config system blog.System {
         identity {
           project = "library-identity";
           clientId = "library-identity-app";
+        }
+      }
+    }
+    configStore {
+      engine = "file";
+      flavor = "container";
+      applicationName = "blog-system";
+      environment = "dev";
+      profiles {
+        settings {
+          kind = "freeform";
+          keys {
+            debugMode {
+              type = "Boolean";
+              default = false;
+              description = "Enable debug mode.";
+            }
+          }
         }
       }
     }

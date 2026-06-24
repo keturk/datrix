@@ -1,4 +1,4 @@
-config system social.System {
+﻿config system social.System {
   base {
     language = "python";
     deployment {
@@ -132,6 +132,24 @@ config system social.System {
         platform {
           project = "library-platform";
           clientId = "library-platform-app";
+        }
+      }
+    }
+    configStore {
+      engine = "file";
+      flavor = "container";
+      applicationName = "social-system";
+      environment = "dev";
+      profiles {
+        settings {
+          kind = "freeform";
+          keys {
+            debugMode {
+              type = "Boolean";
+              default = false;
+              description = "Enable debug mode.";
+            }
+          }
         }
       }
     }
