@@ -265,7 +265,7 @@ If you deviated: STOP and explain the deviation to the user.
 **MANDATORY FIRST STEP:** Read `d:\datrix\.claude\skills\generate-tasks\SKILL.md` completely before generating any tasks. This skill follows the same workflow as `/generate-tasks` with one critical override described below.
 
 **BEFORE generating tasks:**
-1. Count total tasks needed from the design (implementation + test + docs + quality gates)
+1. Count total tasks needed from the design: implementation tasks (each carrying its own tests + doc updates), migration tasks, and one quality gate per package with 2+ code tasks. Do NOT plan separate per-task test, verify, or docs tasks.
 2. Re-read this entire Phase 4 section completely
 3. Confirm in your internal reasoning: "I will generate ALL {N} task files now, not a subset or roadmap"
 
@@ -300,38 +300,15 @@ If you deviated: STOP and explain the deviation to the user.
 
 5. **MANDATORY: Tasks span all affected repos.** Do NOT limit task generation to a single "target package." If the design affects `datrix-common` (new code), `datrix` (examples), and `datrix-projects` (project configs), generate tasks in ALL of those repos. A task lives in the repo it modifies.
 
-6. Break the design into tasks. Six categories of tasks MUST be generated:
+6. Break the design into tasks. Generate these categories (lean model — tests and docs ride inside implementation tasks; there are NO standalone per-task test, verify, or docs tasks):
 
-   **a) Implementation tasks:**
-   - One task per discrete unit of work
-   - Each task is independently implementable and testable
-   - Tasks have clear acceptance criteria
-   - Dependencies between tasks are explicit
+   **a) Implementation tasks (self-contained — code + tests + docs in one):**
+   - One task per discrete unit of work; independently implementable and testable; clear acceptance criteria; explicit dependencies
+   - **Each implementation task writes its own unit + integration tests** in the same task (a populated `## Tests` section + a `## Targeted Tests` section), following the conventions in `d:\datrix\datrix-common\docs\contributing\test-guidelines\` (`unit-test-guidelines.md`, `integration-test-guidelines.md`, `e2e-test-guidelines.md`). Do NOT emit a separate `-tests` task.
+   - **Each implementation task updates the docs its feature touches** as part of its scope (target the correct repo `docs/` folder — see the table below). Do NOT emit a separate `-docs` task.
+   - **No separate `-verify` task.** Independent verification is provided by the per-package quality gate (category c), run by a different agent than the implementers.
 
-   **b) Test tasks:**
-   - For each implementation task, generate a corresponding test task
-   - Test tasks follow the conventions in `d:\datrix\datrix-common\docs\contributing\test-guidelines\`:
-     - `unit-test-guidelines.md` — unit tests (real objects, no mocks; index with links to shared sub-documents under `shared/`)
-     - `integration-test-guidelines.md` — integration tests (index with links to shared sub-documents under `shared/`)
-     - `e2e-test-guidelines.md` — end-to-end tests
-   - Each test task specifies which test level(s) are required (unit, integration, e2e)
-   - Test tasks depend on their corresponding implementation task
-   - Test task slug should mirror the implementation task with a `-tests` suffix
-     (e.g., `task-{NN}-{TT}-add-widget.md` → `task-{NN}-{TT+1}-add-widget-tests.md`)
-
-   **c) Verification tasks:**
-   - For each implementation task (or group of 2-3 related implementation tasks), generate a verification task
-   - Verification tasks are executed by a **different agent** than the implementer — this is their core purpose
-   - They confirm: files exist, code is non-trivial (not stubs), tests pass
-   - Verification tasks depend on the corresponding implementation + test tasks
-   - Verification task slug: `-verify` suffix (e.g., `task-{NN}-{TT}-verify-gendsl-parser.md`)
-   - Include `**Category:** Verification` in header metadata
-   - See the Verification Task template in `/generate-tasks` SKILL.md for the full checklist format
-
-   **d) Documentation tasks:**
-   - Generate tasks for updating or adding documentation in the affected repo's `docs/` folder
-   - Each documentation task identifies the target doc file(s) and what content to add/update
-   - Target the correct repo's docs directory based on scope:
+   Docs-folder targets for the in-task doc updates:
 
      | Repo | Docs path |
      |------|-----------|
@@ -349,16 +326,11 @@ If you deviated: STOP and explain the deviation to the user.
      | datrix-extensions | `d:\datrix\datrix-extensions\docs\` |
      | datrix-language | `d:\datrix\datrix-language\docs\` |
 
-   - Documentation tasks should cover:
-     - Architecture docs (`architecture.md`) — when the design changes architectural patterns
-     - API reference docs — when new public APIs are introduced or changed
-     - Extension/integration docs — when extension points are added or modified
-     - Contributing docs — when development workflows change
-   - Documentation tasks depend on the implementation tasks they document
-   - Doc task slug should use a `-docs` suffix
-     (e.g., `task-{NN}-{TT}-update-codegen-docs.md`)
+   **Narrow exceptions (only when the work genuinely cannot live inside one implementation task):**
+   - A standalone **integration/e2e** task is allowed only for a suite that spans multiple implementation tasks (e.g., a cross-service end-to-end fixture). It depends on the tasks it exercises.
+   - A standalone **docs** task is allowed only for a substantial deliverable documenting several tasks at once. Place it OUTSIDE the dependency chain (nothing depends on it) so it never anchors a wave.
 
-   **e) Migration tasks:**
+   **b) Migration tasks:**
    - For each numbered step in the design's migration/rollout/adoption section, generate a task
    - Migration tasks convert existing files from the old format/API to the new one
    - Migration tasks live in the repo whose files they modify (not the repo where the new code lives)
@@ -372,15 +344,14 @@ If you deviated: STOP and explain the deviation to the user.
    - Each migration task must include a verification step: "Confirm the new path is exercised by running X and verifying Y"
    - Do NOT treat migration steps as "future work" unless the design explicitly defers them
 
-   **f) Quality gate tasks:**
-   - For each package that has 2+ code tasks (implementation + test combined) in this phase, generate a quality gate task
-   - Quality gate tasks run the full test suite as final verification — no implementation code
-   - Quality gate tasks depend on ALL other tasks targeting the same package
-   - Quality gate task numbering comes AFTER all other tasks for the phase
-   - Use the quality gate template from `/generate-tasks` (no "Files to Create" section)
-   - Quality gate slug: `quality-gate-{package-name}` (e.g., `task-{NN}-{TT}-quality-gate-datrix-common.md`)
-   - Include `**Category:** Quality Gate` in the header metadata
-   - Do NOT generate quality gates for packages with only 1 code task in the phase
+   **c) Quality gate tasks (one per package — also the independent-verification gate):**
+   - For each package that has 2+ implementation tasks in this phase, generate exactly ONE quality gate task
+   - It runs the full test suite AND carries the anti-stub / coverage-sanity / anti-gap checklist that standalone `-verify` tasks used to provide — no implementation code
+   - **Run by a different agent/session than the implementers** — this is what preserves independent verification
+   - Depends on ALL other tasks targeting the same package; numbered AFTER all other tasks for the phase
+   - Use the enhanced quality gate template from `/generate-tasks` (no "Files to Create" section; includes the embedded verification checklist)
+   - Quality gate slug: `quality-gate-{package-name}` (e.g., `task-{NN}-{TT}-quality-gate-datrix-common.md`); include `**Category:** Quality Gate`
+   - Do NOT generate a quality gate for a package with only 1 code task in the phase (its targeted tests + the executor's gate suffice)
 
 4. Generate task files following the **exact template format** from `/generate-tasks` SKILL.md (lines 127-200+):
 
@@ -406,12 +377,11 @@ If you deviated: STOP and explain the deviation to the user.
 ## Phase 4 Completion Gate
 
 This phase is COMPLETE when:
-- [ ] ALL implementation tasks generated as actual .md files (not a roadmap)
-- [ ] ALL test tasks generated (one per implementation task)
-- [ ] ALL verification tasks generated (one per implementation task or group of 2-3 related tasks)
+- [ ] ALL implementation tasks generated as actual .md files (not a roadmap), each carrying its own `## Tests` and `## Targeted Tests` sections AND its in-scope doc updates
+- [ ] NO standalone per-task `-tests`, `-verify`, or `-docs` tasks generated (tests + docs ride inside impl tasks; verification rides in the quality gate)
 - [ ] ALL migration tasks generated (one per numbered step in the design's migration/rollout section)
-- [ ] ALL documentation tasks generated
-- [ ] ALL quality gate tasks generated (one per package with 2+ code tasks)
+- [ ] ALL quality gate tasks generated (exactly one per package with 2+ code tasks; carries the embedded verification checklist)
+- [ ] Any narrow-exception standalone integration/e2e or substantial-docs task is justified and (for docs) placed OUTSIDE the dependency chain
 - [ ] Tasks span ALL affected repos (not just the primary package)
 - [ ] Every task file is self-contained (no design doc references)
 - [ ] Dependencies document (`dependencies.md`) created with lean format: group numbers and absolute paths only — no headers, tables, inventories, dependency text blocks, or prose
@@ -423,7 +393,7 @@ If any task is described but not generated: Phase 4 is NOT complete.
 **End-of-phase output (lean — counts + paths + pointer to dependencies.md):**
 
 ```
-TASKS: phase {NN}, {N} total ({N} impl, {N} test, {N} verify, {N} migration, {N} docs, {N} QG)
+TASKS: phase {NN}, {N} total ({N} impl, {N} migration, {N} QG, {N} standalone-integration/docs if any)
 
 {task-path}
 {task-path}
@@ -439,11 +409,11 @@ Do NOT duplicate the dependency graph in console output — it is already in `de
 Before proceeding to Phase 5, answer:
 1. Did I generate ALL tasks as actual files (not a summary/roadmap)?
 2. Did I inline design content in tasks (not reference the design doc path)?
-3. Did I create test tasks for every implementation task?
-4. Did I create verification tasks for every implementation task (or group of 2-3)?
+3. Does every implementation task carry its OWN `## Tests` + `## Targeted Tests` and its in-scope doc updates (no separate `-tests`/`-docs` tasks)?
+4. Did I avoid generating any standalone `-verify` task (verification rides in the quality gate)?
 5. Did I create migration tasks for every numbered step in the design's migration/rollout section?
 6. Did I generate tasks in ALL affected repos, not just the primary package?
-7. Did I create quality gates for every package with 2+ code tasks?
+7. Did I create exactly one quality gate (with the embedded verification checklist) for every package with 2+ code tasks?
 8. Did I follow the template from `/generate-tasks` exactly?
 9. **Dual-path check:** If the design introduces a new path alongside an old one, will the old tests still pass without the new path being exercised? If yes, I am missing migration tasks.
 10. **Coverage check:** Count the migration steps in the design. Count the migration tasks I generated. If the second number is less than the first, I stopped early.
@@ -515,9 +485,9 @@ Design: preserved at {path}
 - **NO skipping dependency analysis** — task ordering must reflect real dependencies
 - **NO fabricating decisions** — every decision needs evidence from the codebase
 - **NO task files without acceptance criteria** — every task must be verifiable
-- **NO implementation tasks without corresponding test tasks** — every implementation needs tests
-- **NO implementation tasks without corresponding verification tasks** — every implementation needs independent verification by a different agent
-- **NO skipping documentation tasks** — if a design changes architecture, APIs, or extensions, the relevant repo docs must be updated
+- **NO implementation tasks without inline tests** — every implementation task writes its own `## Tests`; tests are not split into a separate task
+- **NO standalone `-verify` tasks** — independent verification is provided once per package by the quality gate (run by a different agent), not by a per-task verify task
+- **NO separate `-docs` tasks for routine updates** — doc updates ride inside the implementation task whose feature they document; a standalone docs task is only for a substantial multi-task deliverable, placed outside the dependency chain
 - **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
 - **NO bloated dependencies.md** — the dependencies document is for AI agent consumption only; it contains group numbers and absolute task file paths, nothing else. No markdown headers, tables, task inventories, dependency text blocks, category labels, or prose. See generate-tasks Step 7 for the exact format.
 - **NO design document path references in task files** — when operationalizing, tasks must inline design content because Phase 5 deletes the source document

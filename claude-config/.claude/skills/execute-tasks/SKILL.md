@@ -29,6 +29,8 @@ Systematic workflow for implementing tasks from `.tasks/` phase files. Reads eac
 
 **Assumes all tests are passing before starting.** Does not capture baselines.
 
+**Task model.** Current task sets (from `/generate-tasks` and `/operationalize-design`) are lean: each **implementation task carries its own tests** (its `## Tests` / `## Targeted Tests`), so the verify phase's targeted run already exercises the new tests — there are no separate `-tests` tasks. Independent verification lives in the **one per-package quality gate** (run as the `quality_gate` phase here). Standalone `-verify` tasks are legacy; the verification-task handling below remains so older phases that still contain them execute correctly. This skill already runs targeted tests per task and the full suite **once** in the quality gate phase — keep that split; do not add per-task full-suite runs.
+
 ## When to Use
 
 - User provides one or more task file paths and asks to implement them

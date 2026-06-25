@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "datrix"
+version = "0.1.0"
+description = "Datrix monorepo root — examples, scripts, and integration tests"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "datrix-common",
+    "datrix-language",
+    "datrix-cli",
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pytest-xdist>=3.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "--cov-report=term-missing"
+markers = [
+    "unit: Isolated unit tests (fast, should rarely break)",
+    "integration: Integration tests (slower, may need external services)",
+    "e2e: End-to-end tests (may invoke subprocesses or external runtimes)",
+]

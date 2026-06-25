@@ -49,8 +49,8 @@ When invoked, follow these steps:
 2. Identify implementation phases (look for "Implementation Phases", "Phases", or numbered phase sections)
 3. Map each phase item to the correct target repository based on the package it references
 4. Identify dependencies between tasks
-5. Identify test coverage needs — which new modules, classes, or pipelines require dedicated test tasks
-6. Identify documentation impacts — which docs need to be created or updated in the affected packages' `docs/` folders
+5. Identify test coverage needs — which new modules, classes, or pipelines need tests. **Tests ride inside the implementation task that creates the code** (same task, same wave), not as separate `-tests` tasks. Carve out a standalone test task ONLY for an integration/e2e suite that genuinely spans multiple implementation tasks and cannot live inside any one of them.
+6. Identify documentation impacts — which docs need to be created or updated. **Doc updates ride inside the implementation task whose feature they document.** Carve out a standalone docs task ONLY for a substantial doc deliverable that documents several tasks at once — and place it OUTSIDE the dependency chain (nothing depends on it), so it never anchors a wave.
 7. **Read the migration/rollout/adoption section** (look for "Migration", "Rollout", "Adoption", numbered migration steps). List every step. Each step that says "convert X", "migrate Y", or "create Z" is a task — not future work.
 8. **Identify dual-implementation risk** — if the design introduces a new path alongside an old one, inventory all test fixtures, examples, and project configs that currently exercise the old path. These need migration tasks or the new path ships untested.
 
@@ -247,9 +247,9 @@ Key module paths:
 
 ## Targeted Tests
 
-> **Used by `/execute-tasks` Step 3 to run focused verification instead of the full test suite.**
-> When tasks run in parallel, each task runs only its targeted tests to avoid redundant full-suite runs.
-> A quality gate task at the end runs the full suite to catch cross-task integration issues.
+> **Used by the executors to run focused verification instead of the full test suite.**
+> Each task runs only its targeted tests (which cover the code AND the tests this task created) to avoid redundant full-suite runs.
+> The per-package quality gate runs the full suite once to catch cross-task integration issues; intra-phase orchestrator waves run targeted tests only.
 
 **Package:** `{package-name}`
 **Test command:**
@@ -269,6 +269,8 @@ When generating this section:
 - If no targeted tests can be identified, use: `**Scope:** No targeted tests -- falls back to full suite.`
 
 ## Tests
+
+> **MANDATORY for every implementation task.** The task that writes the code also writes its unit + integration tests, in the same task and the same wave. There is no separate `-tests` task. The `## Targeted Tests` section above must list the test files created here.
 
 ### Unit Tests — `tests/unit/{test-path}`
 
@@ -311,12 +313,12 @@ After generating all task files, verify:
 5. No tasks reference non-existent modules from the "Non-existent modules" list
 6. Every task file starts with the agent rules perusal instruction
 7. Task titles follow the `# Task {NN}-{TT}: {Title}` format
-8. Every implementation task that introduces significant new code has a corresponding test task (or justification for why inline tests suffice)
-9. Every implementation task (or group of 2-3 related implementation tasks) has a corresponding verification task with `**Category:** Verification`
-10. Documentation tasks exist for any new user-facing features, APIs, or architectural changes — targeting the correct `docs/` folder per the Documentation Folders table
-11. Every package with 2+ code tasks has a quality gate task that depends on ALL tasks targeting that package
-12. Quality gate tasks include the `**Category:** Quality Gate` marker in their header metadata
-13. Every implementation and test task has a `## Targeted Tests` section specifying which tests to run for focused verification
+8. Every implementation task that introduces significant new code carries its OWN tests inline (a populated `## Tests` section) — NOT a separate `-tests` task. A standalone test task is allowed only for an integration/e2e suite spanning multiple implementation tasks
+9. NO standalone `-verify` tasks are generated — the independent anti-stub / anti-gap / coverage checklist lives in the per-package quality gate (run by a different agent than the implementers). Confirm no task carries `**Category:** Verification`
+10. Documentation updates ride inside the implementation task whose feature they document. A standalone docs task exists only for a substantial multi-task doc deliverable, and it is OUTSIDE the dependency chain (no task depends on it)
+11. Every package with 2+ code tasks has exactly ONE quality gate task that depends on ALL tasks targeting that package
+12. Quality gate tasks include the `**Category:** Quality Gate` marker and carry the embedded verification checklist (anti-stub, coverage sanity, anti-gap, How-Solved self-contradiction scan)
+13. Every implementation task has a `## Targeted Tests` section specifying which tests to run for focused verification
 14. **Migration coverage check:** Count the numbered steps in the design's migration/rollout section. Count the migration tasks generated. If the second number is less than the first, tasks are missing. Every "convert X", "migrate Y", "create Z" step needs a task.
 15. **Dual-path coverage check:** If the design introduces a new path alongside an old one, verify that migration tasks exist to convert old test fixtures, examples, and configs to the new format. Without these, the new path is untested dead code.
 16. **Cross-repo coverage check:** Tasks span all affected repos, not just the primary package. If the design changes `datrix-common` but examples live in `datrix`, migration tasks exist in `datrix`.
@@ -371,7 +373,7 @@ The dependencies document provides a concise execution plan for task orchestrati
 Print a lean summary — counts + task paths + pointer to dependencies.md. Do NOT duplicate the dependency graph in console output (it is already in `dependencies.md`).
 
 ```
-Phase {NN}: {N} tasks ({N} impl, {N} test, {N} verify, {N} migration, {N} docs, {N} QG)
+Phase {NN}: {N} tasks ({N} impl, {N} migration, {N} QG, {N} standalone-docs/integration if any)
 
 {task-path}
 {task-path}
@@ -408,113 +410,13 @@ When an agent finishes a task, it should update the task file:
 Every phase should include tasks from these categories where applicable:
 
 #### Implementation Tasks
-The core work — new code, modifications, refactoring. These follow the standard task template defined in Step 5.
+The core work — new code, modifications, refactoring. These follow the standard task template defined in Step 5. **Each implementation task is self-contained: it writes the code, writes its own unit + integration tests (the `## Tests` section), and updates any docs its feature touches — all in one task, one wave.** It is independently testable via its `## Targeted Tests`. Do NOT split a task's tests or docs into separate tasks.
 
-#### Test Tasks
-Dedicated tasks for adding or updating test coverage. Generate these when:
-- The implementation introduces new modules, classes, or significant logic that warrants standalone test tasks
-- Integration or E2E tests span multiple implementation tasks and are better as their own task
-- Existing test coverage needs to be updated or expanded due to the changes
+**Test coverage rule:** Tests live inside the implementation task that creates the code. The only standalone test task permitted is an **integration/e2e suite that genuinely spans several implementation tasks** and cannot sensibly live inside any one of them (e.g., a cross-service end-to-end fixture). When you do create one, it depends on the implementation tasks it exercises and uses the standard template focused on test files.
 
-Test tasks should:
-- Reference the implementation tasks they cover in "Depends on"
-- Specify the test level (unit, integration, e2e) in the title — e.g., `Task {NN}-{TT}: Unit Tests for TypeResolver`
-- Include complete test code following the test guidelines
-- List test files to create/modify under "Files to Create"
-- Use the same task file template as implementation tasks but focus the "Files to Create" section on test files
+**Documentation rule:** Doc updates ride inside the implementation task whose feature they document — adding/updating the relevant `docs/` file is part of that task's scope. Create a **standalone docs task only** for a substantial doc deliverable that documents several tasks at once; when you do, place it **outside the dependency chain** (no task depends on it) so it runs concurrently with the package quality gate and never anchors a wave. Target the correct `docs/` folder (see Documentation Folders table below) and follow existing doc conventions.
 
-**Note:** Implementation tasks may still include a lightweight "Tests" section for basic smoke tests. Test tasks provide the comprehensive coverage.
-
-#### Documentation Tasks
-Dedicated tasks for adding or updating documentation. Generate these when:
-- The implementation introduces new concepts, APIs, patterns, or user-facing features
-- Existing documentation becomes outdated or inaccurate due to changes
-- New reference docs, guides, or architecture docs are needed
-
-Documentation tasks should:
-- Reference the implementation tasks they document in "Depends on"
-- Use a title like `Task {NN}-{TT}: Document {Feature} API` or `Task {NN}-{TT}: Update Code Generation Docs`
-- Target the `docs/` folder of the relevant package (see Documentation Folders table below)
-- Specify which doc files to create or update under "Files to Create"
-- Include the content outline or draft for each documentation file
-- Follow existing documentation conventions in the target `docs/` folder
-
-#### Verification Tasks
-Independent verification tasks that confirm implementation tasks were actually completed — not just marked complete. These are executed by a **different agent session** than the one that implemented the code. Generate one verification task per implementation task (or per logical group of 2-3 closely related implementation tasks).
-
-Verification tasks should:
-- **Be assigned to a different agent than the implementer** — this is the core purpose
-- Depend on the corresponding implementation task(s) AND their test task(s)
-- Have a title like `Task {NN}-{TT}: Verify {Feature} Implementation`
-- Have a slug with a `-verify` suffix (e.g., `task-{NN}-{TT}-verify-gendsl-parser.md`)
-- Include `**Category:** Verification` in the header metadata
-- NOT contain any implementation code or new tests
-- Specify concrete checks (see template below)
-
-Verification task template:
-
-```markdown
-> **Peruse 'd:\datrix\datrix-common\docs\contributing\ai-agent-rules.md' (and its sub-documents) and follow the rules**
-
-# Task {NN}-{TT}: Verify {Feature} Implementation
-
-## Overview
-
-Independent verification that {implementation task(s)} were completed correctly. This task is executed by a different agent than the implementer.
-
-**Package:** `{package-name}` (`d:\datrix\{repo}\`)
-**Depends on:** {implementation task ID}, {test task ID}
-**Category:** Verification
-
-## Verification Checklist
-
-### 1. File Existence
-Confirm every file listed in the implementation task's "Files to Create" section exists on disk:
-{list each expected file path}
-
-### 2. Non-Trivial Implementation
-For each created file, confirm it contains real implementation (not stubs):
-- File has >10 lines of non-comment, non-import code
-- No `pass` statements in function/method bodies
-- No `# TODO` or `# FIXME` markers
-- No `NotImplementedError` raises in production code
-- Classes/functions have actual logic, not just signatures
-
-### 3. Test Execution
-Run the targeted tests and capture raw output:
-```
-powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{test-path}"
-```
-
-### 4. Test Coverage Sanity
-Confirm tests exercise the implementation (not just import it):
-- At least one test per public class/function
-- Tests include both success and error cases
-- Tests use real objects (no mocks/fakes)
-
-### 5. Test Quality (anti-gap-codification)
-Confirm tests prove the feature works, not that it's broken:
-- No tests that assert `NotImplementedError` or `NotImplemented` on production code paths
-- No tests that only verify shallow behavior while core logic is untested
-- If the task requires "X replaces Y", verify tests prove X works AND no test relies on Y still being present
-- If the task implements a validator/checker, verify at least one test fails when the check is removed (i.e., the check actually does something)
-
-## Success Criteria
-
-1. All files from implementation task exist
-2. No stub/placeholder code detected
-3. All targeted tests pass
-4. Tests exercise actual implementation logic
-5. No tests that codify gaps (asserting NotImplementedError on production paths)
-
-## Evidence Required
-
-Paste the following raw output into "How Solved":
-- `pytest` output (full, including test names and pass/fail)
-- For each file: first 5 lines + line count confirming non-trivial content
-```
-
-**When to group verification tasks:** If 2-3 implementation tasks are closely related (e.g., parser + parser tests for the same module), they can share one verification task. Do NOT group more than 3 implementation tasks into one verification task.
+**No standalone verification tasks.** Independent verification is preserved by the per-package **quality gate** (below), which is run by a different agent than the implementers and carries the full anti-stub / coverage-sanity / anti-gap checklist. Do NOT generate per-implementation `-verify` tasks — they multiply waves without adding coverage the gate doesn't already provide.
 
 #### Migration Tasks
 Dedicated tasks for converting existing files from the old format/API/system to the new one. Generate these when:
@@ -535,23 +437,22 @@ Migration tasks should:
 **Dual-path guard:** Every migration task must include a check that the migrated artifact actually goes through the NEW code path. For example: "Parse this `.dcfg` file and verify the canonical dict matches the expected output" — not just "file exists."
 
 #### Quality Gate Tasks
-Dedicated tasks that run the full test suite for a package as a final verification pass. Generate these when:
-- A phase includes 2+ code tasks (implementation + test combined) targeting the same package
-- The tasks can run in parallel (and would therefore trigger redundant full-suite runs)
-- The full test suite is needed to catch cross-task integration issues
+The single per-package gate that both runs the full suite AND carries the independent verification checklist (the role standalone `-verify` tasks used to play). Generate **exactly one** per package that has 2+ code tasks in the phase. Generate these when:
+- A phase includes 2+ implementation tasks targeting the same package
+- The full test suite is needed to catch cross-task integration issues across those tasks
 
-**When NOT to generate quality gate tasks:**
-- When a package has only 1 code task in the phase (the task's own verification is sufficient)
-- When all tasks in a package must run strictly sequentially (no parallel redundancy)
+**When NOT to generate a quality gate task:**
+- When a package has only 1 code task in the phase (that task's own targeted tests + the executor's gate are sufficient)
 
 Quality gate tasks should:
-- Be the LAST tasks in the dependency graph for their package
-- Depend on ALL implementation, test, and documentation tasks targeting the same package
-- Have a title like `Task {NN}-{TT}: Quality Gate -- {package-name}`
-- Have a slug like `quality-gate-{package-name}`
+- Be the LAST task in the dependency graph for their package (depend on ALL tasks targeting that package)
+- **Be run by a different agent/session than the implementers** — this is what preserves independent verification now that per-task `-verify` tasks are gone
+- Have a title like `Task {NN}-{TT}: Quality Gate -- {package-name}` and a slug like `quality-gate-{package-name}`
 - NOT contain any implementation code, new tests, or "Files to Create" section
 - Include `**Category:** Quality Gate` in the header metadata
-- Run the full test suite as their sole verification step
+- Carry the embedded verification checklist below (static scans + coverage sanity + anti-gap), in addition to the full-suite run
+
+> **Note for orchestrated runs:** `/task-orchestrator`, `/execute-tasks`, and `/execute-tasks-parallel` run the package's full suite themselves as the authoritative gate and **suppress the gate task's own `test.ps1` run** to avoid a duplicate. In those runs the gate agent performs ONLY the static/coverage checklist; the executor owns the pass/fail test verdict.
 
 Quality gate task template:
 
@@ -562,7 +463,7 @@ Quality gate task template:
 
 ## Overview
 
-Final verification pass for {package-name}. Runs the full test suite and behavioral checks to ensure all implementation and test tasks in this phase integrate correctly.
+Final independent verification pass for {package-name}, run by a different agent than the implementers. Runs the full test suite and the anti-stub / coverage / anti-gap checklist to ensure all implementation tasks in this phase integrate correctly and contain real, tested implementation.
 
 **Package:** `{package-name}` (`d:\datrix\{repo}\`)
 **Depends on:** {comma-separated list of ALL tasks targeting this package}
@@ -570,30 +471,34 @@ Final verification pass for {package-name}. Runs the full test suite and behavio
 
 ## Verification Steps
 
-1. Run full test suite:
+1. Run full test suite (skip if the orchestrator/executor runs it as the authoritative gate — see note above):
    ```
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
    ```
 
-2. Scan for completion red flags in all files created/modified by this phase's tasks:
-   - `NotImplementedError` in production code (not test code)
-   - `# TODO` / `# FIXME` / `pass` in function bodies
-   - Always-true/always-false validators or checkers
-   - Legacy code paths that should have been deleted per task requirements
-   - Dual paths (old + new) where tasks required full migration
+2. **Non-trivial-implementation scan** of all files created/modified by this phase's tasks:
+   - File has >10 lines of non-comment, non-import code where a real implementation is expected
+   - No `pass` in function/method bodies, no `# TODO` / `# FIXME`, no `NotImplementedError` in production code
+   - No always-true/always-false validators or checkers (a check that does nothing)
+   - No legacy code paths that should have been deleted per task requirements; no dual (old + new) paths where a task required full migration
 
-3. Verify each task's "How Solved" section does not self-contradict:
-   - Read each COMPLETED task's "How Solved" narrative
-   - Flag any containing: "remains unchanged", "legacy", "future migration", "not yet wired", "partial", "workaround", "dual path"
+3. **Coverage & test-quality sanity** for this phase's changes:
+   - At least one test per new public class/function; both success and error cases; real objects (no mocks/fakes)
+   - No test asserts `NotImplementedError` / `NotImplemented` on a production path (gap-codification)
+   - For any "X replaces Y" task: a test proves X works AND no test relies on Y still existing
+   - For any validator/checker: at least one test fails when the check is removed
 
-4. If any failures: investigate, classify as task-specific regression or pre-existing, report.
+4. **How-Solved self-contradiction scan** — read each COMPLETED task's "How Solved" and flag any containing: "remains unchanged", "legacy", "future migration", "not yet wired", "partial", "workaround", "dual path".
+
+5. If any failures: investigate, classify as task-specific regression or pre-existing, report (identify which implementation task needs rework).
 
 ## Success Criteria
 
 1. Full test suite passes (or only pre-existing failures remain)
-2. No TODO/pass/placeholder/NotImplementedError in production code introduced by this phase's tasks
-3. No self-contradictory "How Solved" sections in completed tasks
-4. No dual code paths where tasks required migration
+2. No stub/placeholder/`NotImplementedError`/`pass`/TODO in production code introduced by this phase
+3. No always-true checks, legacy paths, or dual paths where a task required replacement
+4. Tests exercise real behavior (no gap-codification); "X replaces Y" tasks prove Y is gone
+5. No self-contradictory "How Solved" sections in completed tasks
 
 ## Targeted Tests
 
@@ -622,12 +527,10 @@ When creating documentation tasks, **read the existing docs** in the target fold
 
 ### Ordering
 - Infrastructure/framework tasks come first (base classes, utilities)
-- Feature tasks build on infrastructure (specific generators, handlers)
-- Test tasks follow their corresponding implementation tasks
-- Verification tasks follow their corresponding implementation + test tasks
-- Documentation tasks come after the implementation tasks they document
-- Integration/testing tasks come after unit test tasks (end-to-end, CLI, multi-target)
-- Quality gate tasks come LAST — after ALL implementation, test, verification, and documentation tasks for their package
+- Feature tasks build on infrastructure (specific generators, handlers) — each carries its own tests and doc updates
+- A standalone integration/e2e task (only when it spans multiple impl tasks) comes after the implementation tasks it exercises
+- A standalone docs task (only when substantial/multi-task) sits OUTSIDE the dependency chain — nothing depends on it
+- Quality gate tasks come LAST — after ALL implementation and migration tasks for their package
 - Tasks within a phase can be parallelized if they share no dependencies
 
 ### Repository Assignment

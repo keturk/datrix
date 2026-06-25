@@ -250,6 +250,8 @@ For each wave, check if any two tasks modify the same file:
 
 ### 2f. Present Execution Plan
 
+Once waves are assigned, compute `package_last_touch_wave{}` per phase: for each package, the highest wave number **within that phase** that has a task touching the package. The 3d test gate uses this to run targeted-only tests on a package's earlier waves and the full suite only on its last-touch wave (the phase-boundary gate 3i remains the authoritative full sweep).
+
 Use **TodoWrite** to create the wave execution plan (one todo per wave).
 
 Output a lean execution plan — task IDs + wave assignments, no per-task dependency annotations:
@@ -295,6 +297,7 @@ Maintain these state variables throughout the loop:
 - `in_flight[]` — agents currently running in this wave's rolling pool (rolling dispatch, 3b)
 - `wave_queue[]` — tasks in this wave not yet dispatched (FIFO, respecting 2d file-conflict ordering)
 - `shared_context` — the pre-read digest injected into every agent prompt
+- `package_last_touch_wave{}` — map of `package → the highest wave number within the current phase that touches that package` (computed once from the Step 2 wave plan when a phase's waves are known). Used by 3d to decide targeted-only vs. full-suite gating
 
 ### For Each Wave:
 
@@ -370,22 +373,32 @@ Run this **each time one agent completes**, as its notification arrives (rolling
 
 Then free the agent's slot and refill the pool (3b step 4). Emit a brief progress report at the **wave join** (when the pool has fully drained), not after each completion — keep per-completion output to a one-line status.
 
-#### 3d. Run Full Test Suite Per Package
+#### 3d. Run the Wave Test Gate Per Package (targeted intra-phase, full suite at last-touch)
 
-**HARD RULE — never run a test suite mid-wave.** Do NOT invoke `test.ps1` until the **wave join** — EVERY task in the wave has finished implementing and the rolling pool has fully drained. No per-task, per-completion, or partial-wave test runs. The full suite is the wave's single test gate, and it runs exactly once here after the whole wave is complete.
+**HARD RULE — never run any test mid-wave.** Do NOT invoke `test.ps1` until the **wave join** — EVERY task in the wave has finished implementing and the rolling pool has fully drained. No per-task, per-completion, or partial-wave test runs. The wave's test gate runs exactly once here, after the whole wave is complete.
+
+**Test-scope decision (lever to avoid redundant full-suite reruns).** The phase-boundary gate (3i) already runs each touched package's **full** suite authoritatively at the end of every phase. So re-running the full suite after *every* wave is largely redundant — a package that appears in many waves had its full suite executed many times for no added signal. Instead, at the wave join, for each `package` with completed tasks in this wave:
+
+- **If this wave is the package's last-touch wave** (`current_wave == package_last_touch_wave[package]`) → run the package's **full** suite (the authoritative in-loop gate for that package's last change this phase).
+- **Otherwise (an earlier intra-phase wave)** → run only this wave's **targeted tests** — the union of the `## Targeted Tests` commands from the wave's completed tasks for that package. This catches the wave's own breakage cheaply without a full sweep.
+
+This still gives every package exactly one in-loop full-suite gate (at its last-touch wave) plus the authoritative phase-boundary sweep (3i) — while removing the N−1 redundant early-wave full runs. A single-phase run still hits 3i's full-suite gate at phase end, so nothing ships without a full sweep.
 
 After the **wave join** — the rolling pool has fully drained (`in_flight` and `wave_queue` both empty):
 
 1. Group completed tasks in this wave by `package`
-2. Run the full test suite for **every affected package concurrently**. The package suites are independent, so fire them **all in a single message** as multiple Bash calls (one per package) rather than sequentially — on a multi-package wave this runs the gates in parallel instead of back-to-back:
+2. For each affected package, pick its scope per the decision above, then fire the runs for **all affected packages concurrently** — a single message with multiple Bash calls (one per package), so a multi-package wave gates in parallel instead of back-to-back:
 
    ```bash
+   # last-touch wave for this package → full suite:
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
+   # earlier intra-phase wave → targeted only (one -Specific per wave task in this package):
+   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{wave-task-test-path}"
    ```
 
-   One such Bash call per affected package, all dispatched together. Include `VERIFIED_AGAINST_QUICK_REFERENCE` in each Bash tool description.
+   Include `VERIFIED_AGAINST_QUICK_REFERENCE` in each Bash tool description.
 
-   These runs are the orchestrator's **authoritative, independent** gate — run regardless of any result an agent self-reported, including in a quality-gate wave. (The redundant *agent-side* suite run is suppressed at spawn time — see 3b.) Do not skip them or substitute an agent's self-reported numbers. Each package writes its own `.test_results/` folder, so parallel runs do not collide; read each package's `index.json` separately in step 3.
+   These runs are the orchestrator's **authoritative, independent** gate — run regardless of any result an agent self-reported, including in a quality-gate wave. (The redundant *agent-side* suite run is suppressed at spawn time — see 3b.) Do not skip them or substitute an agent's self-reported numbers. Each package writes its own `.test_results/` folder, so parallel runs do not collide; read each package's `index.json` separately in step 3. A quality-gate wave is by construction a package's last-touch wave, so it always runs the full suite.
 
 3. **Read the canonical result from `index.json`, not the console.** `test.ps1` saves a timestamped folder under `{package}/.test_results/test-results-*/` and prints its path on the final console lines. Read that folder's `index.json` — it is the machine-readable source of truth. Do NOT eyeball-parse stdout. Extract:
    - `result` — `"PASSED"` or `"FAILED"`
@@ -403,7 +416,7 @@ Process **both** red outcomes from `counts`: assertion **failures** (`counts.fai
 - A **failure** has a per-test node ID (`tests/...::test_x`) — fix the code under test.
 - An **error** is reported at module/collection level with no per-test node ID (e.g. an `ImportError`, a fixture error, a syntax error that breaks collection). Read `full.log` for the ERRORS section, attribute by the **erroring module/file path**, and fix the import/fixture/syntax root cause. An error often hides many tests that never ran — resolving it can change the pass count substantially, so always re-run after fixing one.
 
-For each failing test **and each erroring module** from the full suite:
+For each failing test **and each erroring module** from the wave gate run (targeted-only on earlier intra-phase waves, full suite on a package's last-touch wave):
 
 1. **Attribute:** Cross-reference the failing test file / erroring module against `files_created` and `files_modified` from tasks in this wave.
    - **Quality-gate / integration waves:** when the failing wave is a quality-gate wave (the gate task itself creates no files), the failure is almost always a *cross-task integration* failure introduced by an earlier wave's task in the **same package and phase**. Widen attribution to the `files_created`/`files_modified` of ALL completed tasks for that package across this run, not just the current wave. Attribute to the task whose changed files best match the failing test/code, and apply the fix within that task's scope.
@@ -422,7 +435,7 @@ For each failing test **and each erroring module** from the full suite:
 - A fix introduces new failures → revert the fix attempt manually (edit back), then invoke the **Decision Escalation Protocol** before trying again
 - Cascading issues in unrelated subsystems → invoke the **Decision Escalation Protocol** to determine correct fix scope; if Opus recommends stopping → STOP, report
 
-After fix loop, re-run full suite once to verify no regressions:
+After the fix loop, re-run the gate once to verify no regressions. Re-run the **same scope** that gated this wave for the package — targeted on an earlier intra-phase wave, full on a last-touch wave. Escalate to the **full** package suite if a fix modified code outside the wave tasks' own files (a shared-code fix can break tests the targeted set didn't cover):
 ```bash
 powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
 ```

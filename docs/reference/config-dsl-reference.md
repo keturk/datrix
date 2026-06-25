@@ -1024,3 +1024,5 @@ This is useful for inspecting the resolved config without running the full gener
 ## See Also
 
 - **[Configuration System Architecture](../../../datrix-common/docs/architecture/config-system.md)** — Config taxonomy, validation, pipeline integration
+- **[ConfigDSL Reference — Identity Provider Config Keys](../../../datrix-common/docs/config-dsl-reference.md#identity-provider-config-keys-localidentity-profileprojection-profilestore)** — `localIdentity`, `profileProjection`, and `profileStore` config-key reference for provider `.dcfg` files
+- **[Identity Subsystem Architecture](../../../datrix-common/docs/architecture/identity.md#local-identity-resolution-localidentity)** — Architecture rationale for `localIdentity` resolution modes and opt-in profile projection

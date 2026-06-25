@@ -24,6 +24,8 @@ Parallel execution workflow for implementing multiple independent tasks from `.t
 
 **Assumes all tests are passing before starting.** Does not capture baselines.
 
+**Task model.** Current task sets (from `/generate-tasks` and `/operationalize-design`) are lean: each **implementation task carries its own tests**, so each agent's targeted run already covers the new tests — there are no separate `-tests` tasks. Independent verification lives in the **one per-package quality gate**; standalone `-verify` tasks are legacy (handling for them is retained for older phases). This skill already centralizes the full suite to **once per package** in Phase 3 — keep that; do not add per-task or per-agent full-suite runs.
+
 ## When to Use
 
 - User provides **multiple** task file paths and wants parallel execution
