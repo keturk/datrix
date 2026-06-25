@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 from datrix_common.generation.relationship_kind import RelationshipKind
 from datrix_common.paths import ServicePaths
+from datrix_common.utils.text import extract_simple_name
 
 if TYPE_CHECKING:
     from datrix_common.datrix_model.containers import Application, Service
@@ -189,7 +190,7 @@ def _collect_service_data(
                 if rel.target.is_resolved:
                     target_name = str(rel.target.target.name)
                 else:
-                    target_name = rel.target.source_name.split(".")[-1]
+                    target_name = extract_simple_name(rel.target.source_name)
 
                 if target_name not in entity_names:
                     continue

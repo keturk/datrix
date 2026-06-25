@@ -52,7 +52,7 @@ from shared.venv import get_datrix_root
 # Marker kinds
 # ---------------------------------------------------------------------------
 
-MARKER_KINDS = frozenset({"canonical", "pattern", "boundary", "invariant"})
+MARKER_KINDS = frozenset({"canonical", "pattern", "boundary", "invariant", "test-rule"})
 
 # ---------------------------------------------------------------------------
 # Regex patterns
@@ -69,6 +69,14 @@ _MARKER_RE = re.compile(
 _RULE_RE = re.compile(r"^#\s*@rule:\s*(.+)$")
 _ANTI_PATTERN_RE = re.compile(r"^#\s*@anti-pattern:\s*(.+)$")
 _SEE_RE = re.compile(r"^#\s*@see:\s*(.+)$")
+
+# @test-rule sub-directives.
+# @dim: key=value  (repeatable; open vocabulary — e.g. language=typescript, provider=aws, variant=msk-serverless)
+_DIM_RE = re.compile(r"^#\s*@dim:\s*([A-Za-z0-9_.+-]+)\s*=\s*(.+)$")
+# @behavior: target-specific expected outcome
+_BEHAVIOR_RE = re.compile(r"^#\s*@behavior:\s*(.+)$")
+# @differs: free-text note on how this rule diverges from other targets
+_DIFFERS_RE = re.compile(r"^#\s*@differs:\s*(.+)$")
 
 # Matches a plain comment continuation line (not a new marker or sub-directive)
 _CONTINUATION_RE = re.compile(r"^#\s?(.*)$")
@@ -103,11 +111,121 @@ class Marker:
     rules: list[str] = field(default_factory=list)
     anti_patterns: list[str] = field(default_factory=list)
     see_refs: list[str] = field(default_factory=list)
+    behavior: str = ""                                              # test-rule: target-specific expected outcome
+    dimensions: list[tuple[str, str]] = field(default_factory=list)  # test-rule: (key, value) pairs
+    differs: list[str] = field(default_factory=list)               # test-rule: divergence notes
 
 
 # ---------------------------------------------------------------------------
 # Parser
 # ---------------------------------------------------------------------------
+
+@dataclass
+class _BlockParts:
+    """Accumulator for one marker's comment block (sub-directives + description)."""
+
+    description_parts: list[str] = field(default_factory=list)
+    rules: list[str] = field(default_factory=list)
+    anti_patterns: list[str] = field(default_factory=list)
+    see_refs: list[str] = field(default_factory=list)
+    behavior_parts: list[str] = field(default_factory=list)
+    dimensions: list[tuple[str, str]] = field(default_factory=list)
+    differs: list[str] = field(default_factory=list)
+    next_index: int = 0
+
+
+def _apply_directive(bline: str, parts: _BlockParts) -> None:
+    """Route a single comment line to the matching block bucket.
+
+    Specific directives are matched before the generic continuation fallback so a
+    ``# @dim: ...`` line is never swallowed as description text.
+
+    Args:
+        bline: Stripped comment line.
+        parts: Accumulator mutated in place.
+    """
+    rule_m = _RULE_RE.match(bline)
+    if rule_m:
+        parts.rules.append(rule_m.group(1).strip())
+        return
+
+    ap_m = _ANTI_PATTERN_RE.match(bline)
+    if ap_m:
+        parts.anti_patterns.append(ap_m.group(1).strip())
+        return
+
+    behavior_m = _BEHAVIOR_RE.match(bline)
+    if behavior_m:
+        parts.behavior_parts.append(behavior_m.group(1).strip())
+        return
+
+    differs_m = _DIFFERS_RE.match(bline)
+    if differs_m:
+        parts.differs.append(differs_m.group(1).strip())
+        return
+
+    see_m = _SEE_RE.match(bline)
+    if see_m:
+        parts.see_refs.append(see_m.group(1).strip())
+        return
+
+    dim_m = _DIM_RE.match(bline)
+    if dim_m:
+        parts.dimensions.append((dim_m.group(1).strip(), dim_m.group(2).strip()))
+        return
+
+    cont_m = _CONTINUATION_RE.match(bline)
+    if cont_m:
+        parts.description_parts.append(cont_m.group(1))
+        return
+
+    # Unrecognized comment line — treat as description
+    parts.description_parts.append(bline.lstrip("# "))
+
+
+def _collect_block(lines: list[str], start: int, total: int) -> _BlockParts:
+    """Collect the comment block beginning at ``start`` (line after the @marker).
+
+    Args:
+        lines: All file lines.
+        start: Index of the first line after the marker line.
+        total: Number of lines.
+
+    Returns:
+        Accumulated parts; ``next_index`` is the first line not consumed.
+    """
+    parts = _BlockParts()
+    i = start
+    while i < total:
+        bline = lines[i].strip()
+        if not bline.startswith("#") or _MARKER_RE.match(bline):
+            break
+        _apply_directive(bline, parts)
+        i += 1
+    parts.next_index = i
+    return parts
+
+
+def _detect_symbol(lines: list[str], start: int, total: int) -> tuple[str, str]:
+    """Detect a def/class symbol on the first non-blank line at/after ``start``.
+
+    Args:
+        lines: All file lines.
+        start: Index to begin scanning from.
+        total: Number of lines.
+
+    Returns:
+        ``(symbol, signature)``, or ``("", "")`` if none is found.
+    """
+    j = start
+    while j < total and not lines[j].strip():
+        j += 1
+    if j < total:
+        sym_m = _SYMBOL_RE.match(lines[j].strip())
+        if sym_m:
+            return sym_m.group(1), lines[j].strip()
+    return "", ""
+
 
 def parse_markers(lines: list[str], relative_path: str) -> list[Marker]:
     """Parse all markers from the lines of a single file.
@@ -124,9 +242,7 @@ def parse_markers(lines: list[str], relative_path: str) -> list[Marker]:
     total = len(lines)
 
     while i < total:
-        line = lines[i]
-        stripped = line.strip()
-        m = _MARKER_RE.match(stripped)
+        m = _MARKER_RE.match(lines[i].strip())
         if not m:
             i += 1
             continue
@@ -136,76 +252,25 @@ def parse_markers(lines: list[str], relative_path: str) -> list[Marker]:
         summary = m.group(3).strip()
         marker_line = i + 1  # 1-based
 
-        # Collect the block: rules, anti-patterns, see refs, description lines
-        description_parts: list[str] = []
-        rules: list[str] = []
-        anti_patterns: list[str] = []
-        see_refs: list[str] = []
-        i += 1
-        while i < total:
-            bline = lines[i].strip()
-
-            # Stop if we hit a non-comment line or a new marker
-            if not bline.startswith("#"):
-                break
-            if _MARKER_RE.match(bline):
-                break
-
-            rule_m = _RULE_RE.match(bline)
-            if rule_m:
-                rules.append(rule_m.group(1).strip())
-                i += 1
-                continue
-
-            ap_m = _ANTI_PATTERN_RE.match(bline)
-            if ap_m:
-                anti_patterns.append(ap_m.group(1).strip())
-                i += 1
-                continue
-
-            see_m = _SEE_RE.match(bline)
-            if see_m:
-                see_refs.append(see_m.group(1).strip())
-                i += 1
-                continue
-
-            cont_m = _CONTINUATION_RE.match(bline)
-            if cont_m:
-                desc_text = cont_m.group(1)
-                description_parts.append(desc_text)
-                i += 1
-                continue
-
-            # Unrecognized comment line — treat as description
-            description_parts.append(bline.lstrip("# "))
-            i += 1
-
-        # Try to detect the symbol (def/class) on the next non-blank line
-        symbol = ""
-        signature = ""
-        j = i
-        while j < total and not lines[j].strip():
-            j += 1
-        if j < total:
-            sym_m = _SYMBOL_RE.match(lines[j].strip())
-            if sym_m:
-                symbol = sym_m.group(1)
-                signature = lines[j].strip()
-
-        description = "\n".join(description_parts).strip()
+        block = _collect_block(lines, i + 1, total)
+        i = block.next_index
+        symbol, signature = _detect_symbol(lines, i, total)
 
         markers.append(Marker(
             kind=kind,
             topic=topic,
             summary=summary,
-            description=description,
+            description="\n".join(block.description_parts).strip(),
             file=relative_path,
             line=marker_line,
             symbol=symbol,
             signature=signature,
-            rules=rules,
-            anti_patterns=anti_patterns,
-            see_refs=see_refs,
+            rules=block.rules,
+            anti_patterns=block.anti_patterns,
+            see_refs=block.see_refs,
+            behavior=" ".join(block.behavior_parts).strip(),
+            dimensions=block.dimensions,
+            differs=block.differs,
         ))
 
     return markers
@@ -308,7 +373,8 @@ CREATE TABLE IF NOT EXISTS markers (
     file          TEXT NOT NULL,
     line          INTEGER NOT NULL,
     symbol        TEXT,
-    signature     TEXT
+    signature     TEXT,
+    behavior      TEXT
 );
 
 CREATE TABLE IF NOT EXISTS rules (
@@ -329,9 +395,24 @@ CREATE TABLE IF NOT EXISTS see_refs (
     target_topic  TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS dimensions (
+    id         INTEGER PRIMARY KEY,
+    marker_id  INTEGER NOT NULL REFERENCES markers(id) ON DELETE CASCADE,
+    key        TEXT NOT NULL,
+    value      TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS differs (
+    id         INTEGER PRIMARY KEY,
+    marker_id  INTEGER NOT NULL REFERENCES markers(id) ON DELETE CASCADE,
+    text       TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_markers_topic ON markers(topic);
 CREATE INDEX IF NOT EXISTS idx_markers_kind ON markers(kind);
 CREATE INDEX IF NOT EXISTS idx_markers_file ON markers(file);
+CREATE INDEX IF NOT EXISTS idx_dimensions_kv ON dimensions(key, value);
+CREATE INDEX IF NOT EXISTS idx_dimensions_marker ON dimensions(marker_id);
 """
 
 
@@ -352,6 +433,8 @@ def build_database(db_path: Path, markers: list[Marker]) -> None:
         cur = conn.cursor()
         # Drop existing tables for a clean rebuild
         cur.execute("DROP TABLE IF EXISTS dependencies")  # legacy table, removed
+        cur.execute("DROP TABLE IF EXISTS differs")
+        cur.execute("DROP TABLE IF EXISTS dimensions")
         cur.execute("DROP TABLE IF EXISTS see_refs")
         cur.execute("DROP TABLE IF EXISTS anti_patterns")
         cur.execute("DROP TABLE IF EXISTS rules")
@@ -360,8 +443,8 @@ def build_database(db_path: Path, markers: list[Marker]) -> None:
 
         for marker in markers:
             cur.execute(
-                "INSERT INTO markers (kind, topic, summary, description, file, line, symbol, signature) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO markers (kind, topic, summary, description, file, line, symbol, signature, behavior) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     marker.kind,
                     marker.topic,
@@ -371,6 +454,7 @@ def build_database(db_path: Path, markers: list[Marker]) -> None:
                     marker.line,
                     marker.symbol,
                     marker.signature,
+                    marker.behavior,
                 ),
             )
             marker_id = cur.lastrowid
@@ -391,6 +475,18 @@ def build_database(db_path: Path, markers: list[Marker]) -> None:
                 cur.execute(
                     "INSERT INTO see_refs (from_marker, target_topic) VALUES (?, ?)",
                     (marker_id, see_topic),
+                )
+
+            for dim_key, dim_value in marker.dimensions:
+                cur.execute(
+                    "INSERT INTO dimensions (marker_id, key, value) VALUES (?, ?, ?)",
+                    (marker_id, dim_key, dim_value),
+                )
+
+            for differs_text in marker.differs:
+                cur.execute(
+                    "INSERT INTO differs (marker_id, text) VALUES (?, ?)",
+                    (marker_id, differs_text),
                 )
 
         conn.commit()
@@ -417,6 +513,7 @@ def print_summary(markers: list[Marker], db_path: Path, scan_pairs: list[tuple[s
     unique_projects = sorted({name for name, _ in scan_pairs})
     total_rules = sum(len(m.rules) for m in markers)
     total_anti_patterns = sum(len(m.anti_patterns) for m in markers)
+    total_dimensions = sum(len(m.dimensions) for m in markers)
     unique_topics = sorted({m.topic for m in markers})
 
     print()
@@ -430,6 +527,7 @@ def print_summary(markers: list[Marker], db_path: Path, scan_pairs: list[tuple[s
         print(f"    {kind}: {by_kind[kind]}")
     print(f"  Rules:           {total_rules}")
     print(f"  Anti-patterns:   {total_anti_patterns}")
+    print(f"  Dimensions:      {total_dimensions}")
     print(f"  Unique topics:   {len(unique_topics)}")
     if unique_topics:
         for topic in unique_topics:

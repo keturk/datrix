@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from datrix_common.generation.relationship_kind import RelationshipKind
 from datrix_common.paths import ServicePaths
-from datrix_common.utils.text import to_snake_case
+from datrix_common.utils.text import extract_simple_name, to_snake_case
 
 from .traversal import (
     all_cqrs_with_service,
@@ -402,7 +402,7 @@ def build_erd(app: Application, service_name: str | None = None) -> str:
         if relationship.target.is_resolved:
             target_name = str(relationship.target.target.name)
         else:
-            target_name = relationship.target.source_name.split(".")[-1]
+            target_name = extract_simple_name(relationship.target.source_name)
         source_name = str(entity.name)
 
         if target_name not in entity_names:

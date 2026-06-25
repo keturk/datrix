@@ -39,9 +39,39 @@ sqlite3 d:/datrix/.logic-map/markers.db "SELECT topic, summary FROM markers WHER
 def canonical_function(...):
 ```
 
-**Kinds:** `@canonical` (source-of-truth), `@pattern` (approved approach), `@boundary` (data transformation point), `@invariant` (system-wide rule)
+**Kinds:** `@canonical` (source-of-truth), `@pattern` (approved approach), `@boundary` (data transformation point), `@invariant` (system-wide rule), `@test-rule` (conformance rule on a test function)
 
 **Sub-directives:** `@rule:` (constraint), `@anti-pattern:` (common mistake), `@see:` (cross-reference)
+
+## Test Rules (conformance matrix)
+
+Annotate **test functions** to record what rule the test enforces and how it differs across targets. The shared `topic` is the join key; one `@test-rule` per target.
+
+```python
+# @test-rule(operators/equality): Equality maps to the target strict-equality operator.
+# @dim: language=typescript
+# @behavior: == → ===, != → !==
+# @differs: python keeps ==/!= ; sql uses =/<>
+# @see: operators/logical
+def test_equality_maps_to_strict(self) -> None:
+```
+
+**Test-rule sub-directives:**
+- `@dim: key=value` — repeatable, **open vocabulary**. Use whatever dimensions a rule varies on (e.g. `language=typescript`, `provider=aws`, `variant=msk-serverless`). Never hardcode a fixed language/provider set — Datrix is multi-language, multi-platform.
+- `@behavior:` — this target's expected outcome (the matrix cell).
+- `@differs:` — free-text note on how it diverges from other targets.
+
+Reuse the **same `topic`** on each target's test so the report can pivot them into one row group. Query the matrix:
+
+```sql
+-- All targets + behaviors for a rule
+SELECT m.topic, d.key||'='||d.value AS target, m.behavior, m.file, m.line
+FROM markers m JOIN dimensions d ON d.marker_id = m.id
+WHERE m.kind='test-rule' AND m.topic LIKE 'operators/%'
+ORDER BY m.topic, target;
+```
+
+The `logic-map-report.ps1` report renders a **Rule Matrix** section (one pivot table per topic) plus a "single-target rules" list flagging rules asserted for only one target.
 
 ## Scripts
 

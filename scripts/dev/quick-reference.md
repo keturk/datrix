@@ -357,6 +357,22 @@ Dumps the logic map SQLite database to a readable Markdown report for human veri
 
 **Parameters:** `-Output` (positional 0)
 
+### `dev\generate-test-rules.ps1`
+
+Generates `@test-rule` conformance annotations for test functions using a local LLM (Ollama at `10.94.0.100`). Two phases: default **propose** writes reviewable proposals to `.test-output/test-rules/<model>/<package>.json` (+ `.md` preview) and touches no source; **-Apply** inserts the reviewed markers above the test functions. After generation, a **topic-consolidation pass** merges near-duplicate topic slugs and kebab-normalizes them (skip with `-NoConsolidate`). `tests/e2e` and `tests/integration` are **excluded by default** (opt in with `-IncludeE2e` / `-IncludeIntegration`, or target via `-Path`). Resumable — already-annotated and already-proposed functions are skipped. Output is per-model so different models don't clobber. Markers feed the logic-map Rule Matrix (`logic-map.ps1`).
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Propose (one package)** | `.\dev\generate-test-rules.ps1 datrix-codegen-python` | Propose for one package's tests |
+| **Propose (sample)** | `.\dev\generate-test-rules.ps1 datrix-codegen-python -Limit 20` | Cap functions this run |
+| **Propose (one file/subtree)** | `.\dev\generate-test-rules.ps1 -Path datrix-codegen-typescript\tests\unit\transpiler\test_operators.py -NoSeed` | Target a file/dir; package derived from path |
+| **Propose (all)** | `.\dev\generate-test-rules.ps1 -All` | Every package's tests tree |
+| **Apply** | `.\dev\generate-test-rules.ps1 datrix-codegen-python -Apply` | Insert reviewed proposals |
+| **Custom model** | `.\dev\generate-test-rules.ps1 -All -Model qwen3-coder:30b-ctx32k` | Override the model |
+| **Debug** | `.\dev\generate-test-rules.ps1 datrix-codegen-python -Limit 5 -Dbg` | Debug logging |
+
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Apply`, `-Model` (default: exaone-deep:32b), `-Endpoint` (default: http://10.94.0.100:11434), `-Parallel` (default: 4), `-Limit` (default: 0 = no limit), `-Path` (file/dir filter, repeatable; package derived if no project given), `-NoSeed` (don't seed topic vocabulary from existing markers), `-NoConsolidate` (skip topic-merge pass), `-IncludeE2e`, `-IncludeIntegration` (e2e/integration excluded by default), `-Dbg`
+
 ### `dev\run-codemod.ps1`
 
 Runs a Bowler codemod from `scripts/dev/codemods/`. All arguments after codemod name are passed through.
