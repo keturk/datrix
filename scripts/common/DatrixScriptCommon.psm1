@@ -7,7 +7,7 @@
 
  Project list semantics (see datrix/scripts/README.md):
  - Get-DatrixPackageNamesGlob: metrics -All; filesystem directories under the workspace matching datrix-*.
- - Get-DatrixTestablePackageNames: test runner; workspace datrix-* dirs with a tests/ folder (excludes retired); matches status_tests.py discovery.
+ - Get-DatrixTestablePackageNames: test runner; workspace datrix-* dirs with a tests/ folder (excludes retired and the test-free datrix showcase repo); matches status_tests.py discovery.
  - Get-DatrixMonoProjectNames: full-monorepo scans (e.g. duplicate -Mono); canonical repo names in order where the directory exists.
 #>
 
@@ -125,9 +125,15 @@ function Get-DatrixTestablePackageNames {
  Discovers packages by scanning the workspace root (same idea as status_tests.py get_datrix_projects), not only
  the hardcoded Get-DatrixDirectories list, so packages like datrix-codegen-common are included.
 
- Matches both "datrix" (the monorepo showcase package) and "datrix-*" packages.
+ Matches "datrix-*" toolchain packages only. The "datrix" showcase repo is NOT a testable
+ package — it holds docs, examples, and scripts and hosts no test suite by design — so it is
+ never matched here even if a stray tests/ directory appears.
 
  Retired names merged into datrix-common are excluded: datrix-core, datrix-codegen.
+
+ Customer-project containers are excluded too: datrix-projects holds generated/customer
+ projects (e.g. curvaero) whose tests live with the generated project, not in the Datrix
+ toolchain test suite — so it is never matched here even if a stray tests/ directory appears.
 
  .PARAMETER WorkspaceRoot
  Monorepo workspace root. Defaults to Get-DatrixWorkspaceRoot.
@@ -143,12 +149,16 @@ function Get-DatrixTestablePackageNames {
  }
 
  $retired = @("datrix-core", "datrix-codegen")
+ # Customer-project containers are not toolchain test packages; their tests live with the
+ # generated project, never in the Datrix test suite. Excluded even if a tests/ dir appears.
+ $nonToolchain = @("datrix-projects")
  $projects = @()
  if (Test-Path $WorkspaceRoot) {
   Get-ChildItem -Path $WorkspaceRoot -Directory |
    Where-Object {
-    ($_.Name -like "datrix-*" -or $_.Name -eq "datrix") -and
+    $_.Name -like "datrix-*" -and
     $retired -notcontains $_.Name -and
+    $nonToolchain -notcontains $_.Name -and
     (Test-Path (Join-Path $_.FullName "tests"))
    } |
    ForEach-Object { $projects += $_.Name }

@@ -33,6 +33,8 @@ Optional **datrix-extensions** (domain packs, `datrix.extensions` entry points) 
 | datrix-cli | CLI. Discovers generator plugins dynamically via entry points |
 | datrix-extensions | Optional domain extension packs (`datrix.extensions`). Depends on datrix-common |
 
+**Not a package:** the **datrix** showcase repo (`D:\datrix\datrix`) holds only docs/examples/scripts — not installable, **no test suite**. Never put a `tests/` pytest suite, product tests, cross-package tests, or language/provider matrix tests in it. Datrix generates for **many languages and platforms** (not just Python/TypeScript, not just Docker/AWS/Azure); each `datrix-*` package tests only its own surface, and repo-level validation lives as scripts under `datrix/scripts/test/`.
+
 ## Entity Access (CRITICAL)
 
 Entities are **block-scoped**, not flat. Always iterate per-service, per-block:

@@ -327,7 +327,7 @@ If you deviated: STOP and explain the deviation to the user.
      | datrix-language | `d:\datrix\datrix-language\docs\` |
 
    **Narrow exceptions (only when the work genuinely cannot live inside one implementation task):**
-   - A standalone **integration/e2e** task is allowed only for a suite that spans multiple implementation tasks (e.g., a cross-service end-to-end fixture). It depends on the tasks it exercises.
+   - A standalone **integration/e2e** task is allowed only for a suite that spans multiple implementation tasks (e.g., a cross-service end-to-end fixture) **within a single `datrix-*` package**. It depends on the tasks it exercises. **Never operationalize a cross-package or language/provider matrix test** (a suite importing more than one generator package, or enumerating languages/providers like a LOCAL/AWS/Azure gate): Datrix is a multi-language, multi-platform generator, each package tests only its own surface, and the public `datrix` repo hosts no test suite. Genuine repo-level cross-cutting validation becomes a **script task under `datrix/scripts/test/`**, not a pytest suite.
    - A standalone **docs** task is allowed only for a substantial deliverable documenting several tasks at once. Place it OUTSIDE the dependency chain (nothing depends on it) so it never anchors a wave.
 
    **b) Migration tasks:**

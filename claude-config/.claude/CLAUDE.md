@@ -12,6 +12,7 @@
 
 - Own every issue (when reviewing, stay in task scope). Never assume/fabricate — look it up.
 - No GitHub Actions. No backward compat (delete old code). Editor context: don't act on open file unless mentioned.
+- **Datrix is a multi-language, multi-platform generator** — NOT limited to Python/TypeScript, NOT limited to Docker/AWS/Azure. **Never generate cross-package or language/provider matrix tests** (in any skill, agent, or task): each `datrix-*` package tests only its own surface, and the public `datrix` repo hosts no test suite. See "Datrix Showcase Repo Boundaries" below and prohibited-patterns Pattern 9.
 - **No git reverts.** Never use `git checkout`, `git restore`, `git reset`, `git stash`, `git revert`, or any variant to revert or discard changes. The agent does not know how many prior tasks have modified working tree files — reverting may destroy uncommitted work. Undo your own edits manually.
 
 ## Temporary File Policy
@@ -90,6 +91,15 @@ Customer/project domain language MUST NOT appear in framework packages (datrix, 
 **CurvAero prohibited terms:** aviation, airport, runway, airspace, navaid, taxiway, waypoint (aviation context), curvaero/CurvAero, AIRAC, NASR, TFR, NOTAM, any CurvAero service name.
 
 **Framework docs/tests/examples:** use neutral e-commerce domain (Product, Order, Customer, Warehouse, Variant, LineItem) or fictional domain.
+
+## Datrix Showcase Repo Boundaries
+
+`D:\datrix\datrix` (the public **datrix** showcase repo) holds **only docs, examples, and scripts**. It is NOT an installable toolchain package and **hosts no test suite of any kind**. Do not create `D:\datrix\datrix\tests\`, do not add pytest config to its `pyproject.toml`, and do not write docs claiming datrix "can have tests." If you find such a directory, file, or claim, treat it as a defect to remove.
+
+- **No product tests.** Tests of generated/customer projects never live in the framework. Generated-project tests live with the generated project; generator behavior is tested in the owning `datrix-*` package.
+- **No cross-package tests.** Each `datrix-*` package tests only its own surface (see test guidelines: per-language conformance, not cross-language parity). A test that imports two generator packages, or asserts on the combined output of several, does not belong in datrix — or anywhere.
+- **No language/provider matrix tests.** Datrix is a **multi-language, multi-platform generator** — NOT limited to Python/TypeScript and NOT limited to Docker/AWS/Azure. Never bake a test that enumerates specific languages or providers (a "LOCAL/AWS/Azure matrix gate", a "python+typescript parity" suite, etc.) into datrix. Such a test silently asserts the generator is only those targets.
+- **Repo-level validation = scripts, not pytest.** Genuine cross-cutting checks (example generation, type-map completeness) belong as **scripts under `datrix/scripts/test/`**, invoked by the runner — never as a `datrix/tests/` pytest suite.
 
 ## Cannot Complete?
 

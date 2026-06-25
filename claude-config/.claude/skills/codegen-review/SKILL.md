@@ -13,6 +13,7 @@ disable-model-invocation: true
 - [ ] No silent fallbacks
 - [ ] All tests pass (pytest)
 - [ ] Tests follow test guidelines (real objects, output validation, error cases)
+- [ ] No cross-package or language/provider matrix tests — each `datrix-*` package tests only its own surface; no `datrix/tests/` suite (Datrix is multi-language, multi-platform)
 - [ ] Generated code valid (if applicable)
 - [ ] Docstrings on public APIs
 - [ ] Standard logging with key=value format
