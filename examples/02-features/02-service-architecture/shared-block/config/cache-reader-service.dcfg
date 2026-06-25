@@ -1,4 +1,4 @@
-config service library.CacheReaderService {
+﻿config service library.CacheReaderService {
   base {
     port = 8001;
     flavor = "compose";
@@ -76,13 +76,6 @@ config service library.CacheReaderService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "cache-reader-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "cache-reader-service/";
-      azureSecretPrefix = "cache-reader-service/";
     }
     cacheOps {
       ttlSeconds = 300;

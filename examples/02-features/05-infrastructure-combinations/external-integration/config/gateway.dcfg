@@ -1,4 +1,4 @@
-config service library.GatewayService {
+﻿config service library.GatewayService {
   base {
     port = 8001;
     flavor = "compose";
@@ -60,13 +60,6 @@ config service library.GatewayService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "gateway";
-      vaultNamespace = "";
-      awsSecretPrefix = "gateway/";
-      azureSecretPrefix = "gateway/";
     }
     cacheOps {
       ttlSeconds = 300;

@@ -1,4 +1,4 @@
-config service ecommerce.PaymentService {
+﻿config service ecommerce.PaymentService {
   base {
     port = 8003;
     flavor = "compose";
@@ -87,13 +87,6 @@ config service ecommerce.PaymentService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "payment-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "payment-service/";
-      azureSecretPrefix = "payment-service/";
     }
     cacheOps {
       ttlSeconds = 300;

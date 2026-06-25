@@ -1,4 +1,4 @@
-config service social.NotificationService {
+﻿config service social.NotificationService {
   template standardServicePolicy() {
     availability = "required";
     health = "ready";
@@ -83,13 +83,6 @@ config service social.NotificationService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "notification-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "notification-service/";
-      azureSecretPrefix = "notification-service/";
     }
     cacheOps {
       ttlSeconds = 300;

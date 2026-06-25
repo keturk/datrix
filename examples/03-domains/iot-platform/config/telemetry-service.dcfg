@@ -1,4 +1,4 @@
-config service iot.TelemetryService {
+﻿config service iot.TelemetryService {
   template standardServicePolicy() {
     availability = "required";
     health = "ready";
@@ -130,13 +130,6 @@ config service iot.TelemetryService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "telemetry-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "telemetry-service/";
-      azureSecretPrefix = "telemetry-service/";
     }
     cacheOps {
       ttlSeconds = 300;

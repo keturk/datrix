@@ -1,4 +1,4 @@
-config service ecommerce.ProductService {
+﻿config service ecommerce.ProductService {
   base {
     port = 8004;
     flavor = "compose";
@@ -109,13 +109,6 @@ config service ecommerce.ProductService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "product-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "product-service/";
-      azureSecretPrefix = "product-service/";
     }
     cacheOps {
       ttlSeconds = 300;

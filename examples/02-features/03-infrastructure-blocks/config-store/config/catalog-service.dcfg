@@ -1,4 +1,4 @@
-config service shop.CatalogService {
+﻿config service shop.CatalogService {
   base {
     port = 8000;
     flavor = "compose";
@@ -64,13 +64,6 @@ config service shop.CatalogService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "catalog-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "catalog-service/";
-      azureSecretPrefix = "catalog-service/";
     }
     cacheOps {
       ttlSeconds = 300;

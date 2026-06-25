@@ -1,4 +1,4 @@
-config service library.AnalysisServiceService {
+﻿config service library.AnalysisServiceService {
   base {
     port = 8001;
     flavor = "compose";
@@ -60,13 +60,6 @@ config service library.AnalysisServiceService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "analysis-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "analysis-service/";
-      azureSecretPrefix = "analysis-service/";
     }
     cacheOps {
       ttlSeconds = 300;

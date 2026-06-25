@@ -1,4 +1,4 @@
-config service finance.TransactionService {
+﻿config service finance.TransactionService {
   template standardServicePolicy() {
     availability = "required";
     health = "ready";
@@ -107,13 +107,6 @@ config service finance.TransactionService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "transaction-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "transaction-service/";
-      azureSecretPrefix = "transaction-service/";
     }
     cacheOps {
       ttlSeconds = 300;

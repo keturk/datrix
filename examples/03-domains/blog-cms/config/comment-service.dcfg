@@ -1,4 +1,4 @@
-config service blog.CommentService {
+﻿config service blog.CommentService {
   base {
     port = 8002;
     flavor = "compose";
@@ -72,13 +72,6 @@ config service blog.CommentService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "comment-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "comment-service/";
-      azureSecretPrefix = "comment-service/";
     }
     cacheOps {
       ttlSeconds = 300;

@@ -1,4 +1,4 @@
-config service library.RegistryService {
+﻿config service library.RegistryService {
   base {
     port = 8001;
     flavor = "compose";
@@ -60,13 +60,6 @@ config service library.RegistryService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "registry";
-      vaultNamespace = "";
-      awsSecretPrefix = "registry/";
-      azureSecretPrefix = "registry/";
     }
     cacheOps {
       ttlSeconds = 300;

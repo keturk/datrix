@@ -1,4 +1,4 @@
-config service ecommerce.UserService {
+﻿config service ecommerce.UserService {
   base {
     port = 8006;
     flavor = "compose";
@@ -81,13 +81,6 @@ config service ecommerce.UserService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "user-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "user-service/";
-      azureSecretPrefix = "user-service/";
     }
     cacheOps {
       ttlSeconds = 300;

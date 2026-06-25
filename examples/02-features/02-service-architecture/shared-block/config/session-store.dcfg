@@ -1,4 +1,4 @@
-config service library.SharedSessionStoreService {
+﻿config service library.SharedSessionStoreService {
   base {
     port = 8001;
     flavor = "compose";
@@ -69,13 +69,6 @@ config service library.SharedSessionStoreService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "session-store";
-      vaultNamespace = "";
-      awsSecretPrefix = "session-store/";
-      azureSecretPrefix = "session-store/";
     }
     cacheOps {
       ttlSeconds = 300;

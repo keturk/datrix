@@ -1,4 +1,4 @@
-config service library.StorageWriterService {
+﻿config service library.StorageWriterService {
   base {
     port = 8001;
     flavor = "compose";
@@ -76,13 +76,6 @@ config service library.StorageWriterService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "storage-writer-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "storage-writer-service/";
-      azureSecretPrefix = "storage-writer-service/";
     }
     cacheOps {
       ttlSeconds = 300;

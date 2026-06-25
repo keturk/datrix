@@ -1,4 +1,4 @@
-config service realestate.ListingService {
+﻿config service realestate.ListingService {
   base {
     port = 8002;
     flavor = "compose";
@@ -81,13 +81,6 @@ config service realestate.ListingService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "listing-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "listing-service/";
-      azureSecretPrefix = "listing-service/";
     }
     cacheOps {
       ttlSeconds = 300;

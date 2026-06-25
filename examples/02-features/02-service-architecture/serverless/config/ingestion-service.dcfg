@@ -1,4 +1,4 @@
-config service examples.IngestionService {
+﻿config service examples.IngestionService {
   base {
     port = 8002;
     flavor = "compose";
@@ -73,13 +73,6 @@ config service examples.IngestionService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "ingestion-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "ingestion-service/";
-      azureSecretPrefix = "ingestion-service/";
     }
     cacheOps {
       ttlSeconds = 300;

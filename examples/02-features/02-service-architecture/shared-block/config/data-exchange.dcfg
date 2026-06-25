@@ -1,4 +1,4 @@
-config service library.SharedDataExchangeService {
+﻿config service library.SharedDataExchangeService {
   base {
     port = 8001;
     flavor = "compose";
@@ -69,13 +69,6 @@ config service library.SharedDataExchangeService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "data-exchange";
-      vaultNamespace = "";
-      awsSecretPrefix = "data-exchange/";
-      azureSecretPrefix = "data-exchange/";
     }
     cacheOps {
       ttlSeconds = 300;

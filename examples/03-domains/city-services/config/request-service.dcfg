@@ -1,4 +1,4 @@
-config service cityservices.RequestService {
+﻿config service cityservices.RequestService {
   base {
     port = 8003;
     flavor = "compose";
@@ -72,13 +72,6 @@ config service cityservices.RequestService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "request-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "request-service/";
-      azureSecretPrefix = "request-service/";
     }
     cacheOps {
       ttlSeconds = 300;

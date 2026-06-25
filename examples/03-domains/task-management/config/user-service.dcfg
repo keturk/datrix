@@ -1,4 +1,4 @@
-config service taskapp.UserService {
+﻿config service taskapp.UserService {
   base {
     port = 8003;
     flavor = "compose";
@@ -60,13 +60,6 @@ config service taskapp.UserService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "user-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "user-service/";
-      azureSecretPrefix = "user-service/";
     }
     cacheOps {
       ttlSeconds = 300;

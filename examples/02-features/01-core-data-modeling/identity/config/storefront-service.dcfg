@@ -1,4 +1,4 @@
-config service shop.StorefrontService {
+﻿config service shop.StorefrontService {
   base {
     port = 8000;
     flavor = "compose";
@@ -60,13 +60,6 @@ config service shop.StorefrontService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "storefront-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "storefront-service/";
-      azureSecretPrefix = "storefront-service/";
     }
     secrets {
       secret payment_webhook_secret {

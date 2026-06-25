@@ -1,4 +1,4 @@
-config service library.DataIngestionServiceService {
+﻿config service library.DataIngestionServiceService {
   base {
     port = 8001;
     flavor = "compose";
@@ -76,13 +76,6 @@ config service library.DataIngestionServiceService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "data-ingestion-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "data-ingestion-service/";
-      azureSecretPrefix = "data-ingestion-service/";
     }
     cacheOps {
       ttlSeconds = 300;

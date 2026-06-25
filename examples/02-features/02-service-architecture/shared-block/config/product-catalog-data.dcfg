@@ -1,4 +1,4 @@
-config service library.ProductCatalogDataService {
+﻿config service library.ProductCatalogDataService {
   base {
     port = 8001;
     flavor = "compose";
@@ -76,13 +76,6 @@ config service library.ProductCatalogDataService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "product-catalog-data";
-      vaultNamespace = "";
-      awsSecretPrefix = "product-catalog-data/";
-      azureSecretPrefix = "product-catalog-data/";
     }
     cacheOps {
       ttlSeconds = 300;

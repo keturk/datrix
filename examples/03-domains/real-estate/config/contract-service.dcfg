@@ -1,4 +1,4 @@
-config service realestate.ContractService {
+﻿config service realestate.ContractService {
   template standardServicePolicy() {
     availability = "required";
     health = "ready";
@@ -92,13 +92,6 @@ config service realestate.ContractService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "contract-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "contract-service/";
-      azureSecretPrefix = "contract-service/";
     }
     cacheOps {
       ttlSeconds = 300;

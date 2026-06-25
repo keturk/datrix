@@ -1,4 +1,4 @@
-config service blog.ContentService {
+﻿config service blog.ContentService {
   base {
     port = 8003;
     flavor = "compose";
@@ -81,13 +81,6 @@ config service blog.ContentService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "content-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "content-service/";
-      azureSecretPrefix = "content-service/";
     }
     cacheOps {
       ttlSeconds = 300;

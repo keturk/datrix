@@ -1,4 +1,4 @@
-config service catalog.SupplierFeedService {
+﻿config service catalog.SupplierFeedService {
   base {
     port = 8000;
     flavor = "compose";
@@ -89,13 +89,6 @@ config service catalog.SupplierFeedService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "supplier-feed-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "supplier-feed-service/";
-      azureSecretPrefix = "supplier-feed-service/";
     }
     cacheOps {
       ttlSeconds = 300;

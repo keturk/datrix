@@ -1,4 +1,4 @@
-config service hr.EmployeeService {
+﻿config service hr.EmployeeService {
   base {
     port = 8001;
     flavor = "compose";
@@ -72,13 +72,6 @@ config service hr.EmployeeService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "employee-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "employee-service/";
-      azureSecretPrefix = "employee-service/";
     }
     cacheOps {
       ttlSeconds = 300;

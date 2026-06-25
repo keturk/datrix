@@ -1,4 +1,4 @@
-config service ecommerce.ShippingService {
+﻿config service ecommerce.ShippingService {
   base {
     port = 8005;
     flavor = "compose";
@@ -89,13 +89,6 @@ config service ecommerce.ShippingService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "shipping-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "shipping-service/";
-      azureSecretPrefix = "shipping-service/";
     }
     cacheOps {
       ttlSeconds = 300;

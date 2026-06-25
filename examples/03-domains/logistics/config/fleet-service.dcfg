@@ -1,4 +1,4 @@
-config service logistics.FleetService {
+﻿config service logistics.FleetService {
   base {
     port = 8001;
     flavor = "compose";
@@ -101,13 +101,6 @@ config service logistics.FleetService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "fleet-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "fleet-service/";
-      azureSecretPrefix = "fleet-service/";
     }
     cacheOps {
       ttlSeconds = 300;

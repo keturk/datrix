@@ -1,4 +1,4 @@
-config service taskapp.ProjectService {
+﻿config service taskapp.ProjectService {
   template standardServicePolicy() {
     availability = "required";
     health = "ready";
@@ -83,13 +83,6 @@ config service taskapp.ProjectService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "project-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "project-service/";
-      azureSecretPrefix = "project-service/";
     }
     cacheOps {
       ttlSeconds = 300;

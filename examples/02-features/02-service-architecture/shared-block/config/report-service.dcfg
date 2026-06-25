@@ -1,4 +1,4 @@
-config service library.ReportServiceService {
+﻿config service library.ReportServiceService {
   base {
     port = 8001;
     flavor = "compose";
@@ -76,13 +76,6 @@ config service library.ReportServiceService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "report-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "report-service/";
-      azureSecretPrefix = "report-service/";
     }
     cacheOps {
       ttlSeconds = 300;

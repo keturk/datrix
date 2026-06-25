@@ -1,4 +1,4 @@
-config service hr.RecruitmentService {
+﻿config service hr.RecruitmentService {
   template standardServicePolicy() {
     availability = "required";
     health = "ready";
@@ -99,13 +99,6 @@ config service hr.RecruitmentService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "recruitment-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "recruitment-service/";
-      azureSecretPrefix = "recruitment-service/";
     }
     cacheOps {
       ttlSeconds = 300;

@@ -1,4 +1,4 @@
-config service logistics.RouteService {
+﻿config service logistics.RouteService {
   base {
     port = 8002;
     flavor = "compose";
@@ -89,13 +89,6 @@ config service logistics.RouteService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "route-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "route-service/";
-      azureSecretPrefix = "route-service/";
     }
     cacheOps {
       ttlSeconds = 300;

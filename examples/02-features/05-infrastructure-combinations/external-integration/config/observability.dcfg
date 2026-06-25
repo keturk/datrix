@@ -1,4 +1,4 @@
-config service library.ObservabilityService {
+﻿config service library.ObservabilityService {
   base {
     port = 8001;
     flavor = "compose";
@@ -60,13 +60,6 @@ config service library.ObservabilityService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "observability";
-      vaultNamespace = "";
-      awsSecretPrefix = "observability/";
-      azureSecretPrefix = "observability/";
     }
     cacheOps {
       ttlSeconds = 300;

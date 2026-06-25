@@ -1,4 +1,4 @@
-config service realestate.ViewingService {
+﻿config service realestate.ViewingService {
   template standardServicePolicy() {
     availability = "required";
     health = "ready";
@@ -83,13 +83,6 @@ config service realestate.ViewingService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "viewing-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "viewing-service/";
-      azureSecretPrefix = "viewing-service/";
     }
     cacheOps {
       ttlSeconds = 300;

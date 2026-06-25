@@ -1,4 +1,4 @@
-config service iot.FirmwareService {
+﻿config service iot.FirmwareService {
   template standardServicePolicy() {
     availability = "required";
     health = "ready";
@@ -100,13 +100,6 @@ config service iot.FirmwareService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "firmware-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "firmware-service/";
-      azureSecretPrefix = "firmware-service/";
     }
     cacheOps {
       ttlSeconds = 300;

@@ -1,4 +1,4 @@
-config service warehouse.WarehouseService {
+﻿config service warehouse.WarehouseService {
   base {
     port = 8000;
     flavor = "compose";
@@ -60,13 +60,6 @@ config service warehouse.WarehouseService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "warehouse-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "warehouse-service/";
-      azureSecretPrefix = "warehouse-service/";
     }
     cacheOps {
       ttlSeconds = 300;

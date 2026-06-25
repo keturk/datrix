@@ -1,4 +1,4 @@
-config service cityservices.FacilityService {
+﻿config service cityservices.FacilityService {
   base {
     port = 8002;
     flavor = "compose";
@@ -81,13 +81,6 @@ config service cityservices.FacilityService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "facility-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "facility-service/";
-      azureSecretPrefix = "facility-service/";
     }
     cacheOps {
       ttlSeconds = 300;

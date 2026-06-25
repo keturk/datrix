@@ -1,4 +1,4 @@
-config service finance.ComplianceService {
+﻿config service finance.ComplianceService {
   template standardServicePolicy() {
     availability = "required";
     health = "ready";
@@ -95,13 +95,6 @@ config service finance.ComplianceService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "compliance-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "compliance-service/";
-      azureSecretPrefix = "compliance-service/";
     }
     cacheOps {
       ttlSeconds = 300;

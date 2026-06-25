@@ -1,4 +1,4 @@
-config service library.BookService {
+﻿config service library.BookService {
   base {
     port = 8000;
     flavor = "compose";
@@ -103,13 +103,6 @@ config service library.BookService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "book-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "book-service/";
-      azureSecretPrefix = "book-service/";
     }
     cacheOps {
       ttlSeconds = 300;

@@ -1,4 +1,4 @@
-config service fooddelivery.RestaurantService {
+﻿config service fooddelivery.RestaurantService {
   base {
     port = 8004;
     flavor = "compose";
@@ -81,13 +81,6 @@ config service fooddelivery.RestaurantService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "restaurant-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "restaurant-service/";
-      azureSecretPrefix = "restaurant-service/";
     }
     cacheOps {
       ttlSeconds = 300;

@@ -1,4 +1,4 @@
-config service library.NotificationService {
+﻿config service library.NotificationService {
   base {
     port = 8001;
     flavor = "compose";
@@ -76,13 +76,6 @@ config service library.NotificationService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "notification-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "notification-service/";
-      azureSecretPrefix = "notification-service/";
     }
     cacheOps {
       ttlSeconds = 300;

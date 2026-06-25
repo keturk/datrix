@@ -1,4 +1,4 @@
-config service hr.PayrollService {
+﻿config service hr.PayrollService {
   template standardServicePolicy() {
     availability = "required";
     health = "ready";
@@ -95,13 +95,6 @@ config service hr.PayrollService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "payroll-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "payroll-service/";
-      azureSecretPrefix = "payroll-service/";
     }
     cacheOps {
       ttlSeconds = 300;

@@ -1,4 +1,4 @@
-config service library.LoanService {
+﻿config service library.LoanService {
   template standardServicePolicy() {
     availability = "required";
     health = "ready";
@@ -71,13 +71,6 @@ config service library.LoanService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "loan-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "loan-service/";
-      azureSecretPrefix = "loan-service/";
     }
     cacheOps {
       ttlSeconds = 300;

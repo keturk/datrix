@@ -1,4 +1,4 @@
-config service lms.CourseService {
+﻿config service lms.CourseService {
   template standardServicePolicy() {
     availability = "required";
     health = "ready";
@@ -92,13 +92,6 @@ config service lms.CourseService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "course-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "course-service/";
-      azureSecretPrefix = "course-service/";
     }
     cacheOps {
       ttlSeconds = 300;

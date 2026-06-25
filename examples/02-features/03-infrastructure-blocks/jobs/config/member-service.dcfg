@@ -1,4 +1,4 @@
-config service library.MemberService {
+﻿config service library.MemberService {
   base {
     port = 8002;
     flavor = "compose";
@@ -60,13 +60,6 @@ config service library.MemberService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "member-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "member-service/";
-      azureSecretPrefix = "member-service/";
     }
     cacheOps {
       ttlSeconds = 300;

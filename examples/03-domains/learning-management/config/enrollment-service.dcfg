@@ -1,4 +1,4 @@
-config service lms.EnrollmentService {
+﻿config service lms.EnrollmentService {
   template standardServicePolicy() {
     availability = "required";
     health = "ready";
@@ -83,13 +83,6 @@ config service lms.EnrollmentService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "enrollment-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "enrollment-service/";
-      azureSecretPrefix = "enrollment-service/";
     }
     cacheOps {
       ttlSeconds = 300;

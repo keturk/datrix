@@ -1,4 +1,4 @@
-config service lms.StudentService {
+﻿config service lms.StudentService {
   base {
     port = 8003;
     flavor = "compose";
@@ -60,13 +60,6 @@ config service lms.StudentService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "student-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "student-service/";
-      azureSecretPrefix = "student-service/";
     }
     cacheOps {
       ttlSeconds = 300;

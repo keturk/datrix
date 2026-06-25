@@ -1,4 +1,4 @@
-config service library.IngestionEventsService {
+﻿config service library.IngestionEventsService {
   base {
     port = 8001;
     flavor = "compose";
@@ -72,13 +72,6 @@ config service library.IngestionEventsService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "ingestion-events";
-      vaultNamespace = "";
-      awsSecretPrefix = "ingestion-events/";
-      azureSecretPrefix = "ingestion-events/";
     }
     cacheOps {
       ttlSeconds = 300;

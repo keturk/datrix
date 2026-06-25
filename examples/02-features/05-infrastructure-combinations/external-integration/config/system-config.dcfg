@@ -1,4 +1,4 @@
-config service library.SystemConfigService {
+﻿config service library.SystemConfigService {
   base {
     port = 8001;
     flavor = "compose";
@@ -60,13 +60,6 @@ config service library.SystemConfigService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "system-config";
-      vaultNamespace = "";
-      awsSecretPrefix = "system-config/";
-      azureSecretPrefix = "system-config/";
     }
     cacheOps {
       ttlSeconds = 300;

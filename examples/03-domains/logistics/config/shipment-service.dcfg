@@ -1,4 +1,4 @@
-config service logistics.ShipmentService {
+﻿config service logistics.ShipmentService {
   base {
     port = 8003;
     flavor = "compose";
@@ -91,13 +91,6 @@ config service logistics.ShipmentService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "shipment-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "shipment-service/";
-      azureSecretPrefix = "shipment-service/";
     }
     cacheOps {
       ttlSeconds = 300;

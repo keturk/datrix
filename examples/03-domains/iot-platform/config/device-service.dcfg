@@ -1,4 +1,4 @@
-config service iot.DeviceService {
+﻿config service iot.DeviceService {
   base {
     port = 8001;
     flavor = "compose";
@@ -81,13 +81,6 @@ config service iot.DeviceService {
       corsOrigins = ["https://app.example.com"];
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
-    }
-    secretsStore {
-      vaultMountPoint = "secret";
-      vaultPath = "device-service";
-      vaultNamespace = "";
-      awsSecretPrefix = "device-service/";
-      azureSecretPrefix = "device-service/";
     }
     cacheOps {
       ttlSeconds = 300;
