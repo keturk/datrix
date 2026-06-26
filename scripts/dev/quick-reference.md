@@ -10,13 +10,13 @@
 
 ### `dev\generate.ps1`
 
-Generates Datrix projects from `.dtrx` source files. `-Language`/`-L`, `-Runtime`/`-R`, and `-Provider`/`-P` are wrapper-only output-path selectors. The actual language, runtime, provider, service flavor, and infrastructure flavor used for generation are read from project config.
+Generates Datrix projects from `.dtrx` source files. `-Language`/`-L` and `-Runtime`/`-R` are wrapper-only output-path selectors. The output-path provider segment is read from each project's `config/system.dcfg` deployment block (active `-ConfigProfile`, default `test`), not a flag. The actual language, runtime, provider, service flavor, and infrastructure flavor used for generation are read from project config.
 
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Single project (auto output)** | `.\dev\generate.ps1 <source.dtrx> -L python` | Output path derived from test-projects.json |
 | **Single project (explicit output)** | `.\dev\generate.ps1 <source.dtrx> <output-dir> -L python` | Explicit output directory |
-| **Single + output target path** | `.\dev\generate.ps1 <source.dtrx> <output-dir> -L typescript -R azure-container-apps -P existing` | Use explicit output path segments |
+| **Single + output target path** | `.\dev\generate.ps1 <source.dtrx> <output-dir> -L typescript -R azure-app-service` | Use explicit output path / runtime segment |
 | **All examples** | `.\dev\generate.ps1 -All -L python` | Generate all (test set all) |
 | **All + TypeScript** | `.\dev\generate.ps1 -All -L typescript` | All examples for TypeScript |
 | **All + custom output base** | `.\dev\generate.ps1 -All -L python -OutputBase .generated2` | Custom output root |
@@ -29,7 +29,7 @@ Generates Datrix projects from `.dtrx` source files. `-Language`/`-L`, `-Runtime
 | **Debug logging** | `.\dev\generate.ps1 -All -L python -Dbg` | Enable DEBUG level logging |
 | **Config profile** | `.\dev\generate.ps1 <source.dtrx> -L python -ConfigProfile production` | Select non-default config profile |
 
-**Parameters:** `-Source` (positional 0), `-Output` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (python\|typescript, output path), `-Runtime`/`-R` (docker-compose\|azure-container-apps\|azure-app-service\|ecs-fargate\|app-runner, output path), `-Provider`/`-P` (local\|existing\|aws\|azure, output path), `-ConfigProfile` (config profile for YAML resolution, e.g. test\|development\|production; default: config default), `-OutputBase` (default: .generated), `-TestSet` (default: all), `-VerboseOutput`, `-Dbg`
+**Parameters:** `-Source` (positional 0), `-Output` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (python\|typescript, output path), `-Runtime`/`-R` (docker-compose\|azure-container-apps\|azure-app-service\|ecs-fargate\|app-runner, output path), `-ConfigProfile` (config profile that also selects the provider segment read from `config/system.dcfg`, e.g. test\|development\|production; default: test), `-OutputBase` (default: .generated), `-TestSet` (default: all), `-VerboseOutput`, `-Dbg`
 
 ### `dev\syntax-checker.ps1`
 

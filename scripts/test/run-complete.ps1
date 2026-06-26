@@ -11,7 +11,7 @@
  Path to the .dtrx file to generate (required when -All is not specified).
 
 .PARAMETER OutputPath
- Output directory path for the generated project. When omitted, run_complete.py derives it from scripts/config/test-projects.json (defaultLanguage, defaultPlatform) and the example path.
+ Output directory path for the generated project. When omitted, run_complete.py derives it from scripts/config/test-projects.json (defaultLanguage), the -Platform runtime, the example path, and the provider read from the example's config/system.dcfg.
 
 .PARAMETER All
  Run all examples instead of a single example.
@@ -25,8 +25,10 @@
  Can be abbreviated as -L.
 
 .PARAMETER Platform
- Target platform for output path derivation (default: docker-compose/local).
- Should match the runtime/provider used during generation (e.g., docker-compose/local, azure-container-apps/existing).
+ Target runtime for output path derivation (default: docker-compose).
+ The provider segment of the output path is read from each project's config/system.dcfg
+ deployment block for the active profile -- it is NOT specified here. A legacy
+ "runtime/provider" value is accepted; only the runtime half is used.
  Can be abbreviated as -P.
 
 .PARAMETER TestSet
@@ -161,7 +163,7 @@ param(
 
  [Parameter()]
  [Alias("P")]
- [string]$Platform = "docker-compose/local",
+ [string]$Platform = "docker-compose",
 
  [Parameter()]
  [Alias("H")]
@@ -221,6 +223,11 @@ if ([string]::IsNullOrWhiteSpace($Language)) {
  exit 1
 }
 
+# -Platform now carries only the runtime segment; the provider segment of the
+# output path comes from each project's config/system.dcfg. Accept a legacy
+# "runtime/provider" value by keeping only the runtime half.
+$Platform = $Platform.Split('/')[0]
+
 # Script setup
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -252,7 +259,8 @@ if (-not $batchMode) {
   Write-ErrorMsg " Or: .\run-complete.ps1 -All | -Domains | -TestSet <set> | -Rerun -Language <lang>"
   exit 1
  }
- # When OutputPath is omitted, run_complete.py derives it from test-projects.json (defaultLanguage, defaultPlatform)
+ # When OutputPath is omitted, run_complete.py derives it from test-projects.json (defaultLanguage),
+ # the -Platform runtime, and the provider read from the example's config/system.dcfg.
 }
 
 Write-Info "=========================================="
@@ -347,7 +355,7 @@ if ($Rerun) {
   if (-not $allProjectsDict.ContainsKey($projName)) { continue }
   $proj = $allProjectsDict[$projName]
 
-  # Build output path: remove "examples/" prefix, remove "/system.dtrx" suffix, prepend language/platform
+  # Build output path: remove "examples/" prefix, remove "/system.dtrx" suffix.
   $sourcePath = ($proj.path -replace '\\', '/')
   $relative = $sourcePath -replace '^examples/', ''
   if ($relative -match '/system\.dtrx$') {
@@ -357,8 +365,21 @@ if ($Rerun) {
   } else {
    $base = $relative
   }
-  $outputRelative = "$Language/$Platform/$base"
-  $projectOutputDir = Join-Path $generatedBase $outputRelative
+  # Layout is {language}/{runtime}/{provider}/{base}. The provider segment is set
+  # by each project's config/system.dcfg at generation time, so discover it on
+  # disk rather than assuming a value.
+  $runtimeDir = Join-Path $generatedBase (Join-Path $Language $Platform)
+  $projectOutputDir = $null
+  if (Test-Path $runtimeDir) {
+   $projectOutputDir = Get-ChildItem -Path $runtimeDir -Directory -ErrorAction SilentlyContinue |
+    ForEach-Object { Join-Path $_.FullName $base } |
+    Where-Object { Test-Path $_ } |
+    Select-Object -First 1
+  }
+  if (-not $projectOutputDir) {
+   # Nothing generated yet — fall back to the default 'local' provider layout.
+   $projectOutputDir = Join-Path $generatedBase "$Language/$Platform/local/$base"
+  }
 
   # Check .test_results for latest result of each enabled test type (unit-tests, deploy-test)
   # A project needs re-run if ANY enabled test type is missing or not PASSED.

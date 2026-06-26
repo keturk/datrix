@@ -5,6 +5,7 @@ Loads and processes test project definitions from test-projects.json.
 """
 
 import json
+import logging
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -18,8 +19,73 @@ if _datrix_common_src.exists() and str(_datrix_common_src) not in sys.path:
     sys.path.insert(0, str(_datrix_common_src))
 from datrix_common import DATRIX_FILE_EXTENSION
 
+logger = logging.getLogger(__name__)
+
 FOUNDATION_EXAMPLES_PREFIX = "examples/01-foundation/"
 ALL_TEST_SET = "all"
+
+# Output paths are organized as {language}/{runtime}/{provider}/{project}. The
+# runtime segment is supplied by the caller (CLI flag); the provider segment is
+# read from each project's config/system.dcfg so generation and downstream
+# tooling always agree on where a project's output lives.
+DEFAULT_RUNTIME = "docker-compose"
+DEFAULT_PROVIDER = "local"
+DEFAULT_PROFILE = "test"
+
+# Cache resolved providers per (project_dir, profile) so a single run does not
+# re-parse the same system.dcfg for every helper call.
+_provider_cache: dict[tuple[str, str], str] = {}
+
+
+def resolve_provider(project_dir: Path, profile: str = DEFAULT_PROFILE) -> str:
+    """Resolve the deployment provider path segment for a project.
+
+    Reads ``<project_dir>/config/system.dcfg`` and returns the resolved
+    ``deployment.provider`` of the active *profile* (profiles extend ``base``).
+    This is the same value generation uses, so output paths always match the
+    project's configured provider instead of a separate CLI flag.
+
+    Args:
+        project_dir: Project directory containing ``config/system.dcfg``.
+        profile: Config profile to resolve (datrix's default is ``test``).
+
+    Returns:
+        Provider segment string (e.g. ``"local"``, ``"aws"``, ``"azure"``).
+        Falls back to ``"local"`` when the project has no system.dcfg. A config
+        that exists but fails to load is reported and also falls back to
+        ``"local"`` so path-deriving tooling never crashes on one bad project.
+    """
+    cache_key = (str(project_dir), profile)
+    cached = _provider_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    config_path = project_dir / "config" / "system.dcfg"
+    if not config_path.exists():
+        provider = DEFAULT_PROVIDER
+    else:
+        from datrix_common.config.unified_loader import load_system_config
+        from datrix_common.errors.base import DatrixError
+
+        try:
+            unified = load_system_config(
+                config_path=config_path,
+                project_root=project_dir,
+                profile=profile,
+            )
+            provider = str(unified.system.deployment.provider)
+        except DatrixError as exc:
+            logger.warning(
+                "Could not resolve provider from %s (profile=%s): %s; using '%s'",
+                config_path,
+                profile,
+                exc,
+                DEFAULT_PROVIDER,
+            )
+            provider = DEFAULT_PROVIDER
+
+    _provider_cache[cache_key] = provider
+    return provider
 
 
 def normalize_path(path: str) -> str:
@@ -105,38 +171,41 @@ def load_config() -> dict:
 def get_default_output_path(
  example_path: str,
  language: str | None = None,
- platform: str | None = None,
+ runtime: str | None = None,
+ profile: str = DEFAULT_PROFILE,
 ) -> Path:
  """
  Derive the default output path for a single example.
 
- When *language* or *platform* are provided they override the defaults
- from test-projects.json, so ``-L typescript`` produces an output path
- under ``.generated/typescript/…`` instead of ``.generated/python/…``.
+ The path is ``{language}/{runtime}/{provider}/{project}``. The provider
+ segment is read from the example's ``config/system.dcfg`` (active *profile*),
+ not supplied by the caller. When *language* or *runtime* are provided they
+ override the defaults, so ``-L typescript`` produces an output path under
+ ``.generated/typescript/…`` instead of ``.generated/python/…``.
 
  Args:
   example_path: Path to the .dtrx file (absolute or relative, must be under examples/).
   language: Override target language (e.g. "typescript").  Falls back to
             ``defaultLanguage`` in test-projects.json when *None*.
-  platform: Override target platform (e.g. "docker").  Falls back to
-            ``defaultPlatform`` in test-projects.json when *None*.
+  runtime: Override target runtime (e.g. "docker-compose").  Falls back to
+            ``DEFAULT_RUNTIME`` when *None*.
+  profile: Config profile used to resolve the provider (default ``test``).
 
  Returns:
-  Absolute path under datrix_root/.generated/ for the resolved language/platform.
+  Absolute path under datrix_root/.generated/ for the resolved language/runtime/provider.
 
  Raises:
   FileNotFoundError: If the config file does not exist.
-  ValueError: If config lacks defaultLanguage/defaultPlatform or example_path is not under examples/.
+  ValueError: If config lacks defaultLanguage or example_path is not under examples/.
  """
  config = load_config()
  resolved_language = language or config.get("defaultLanguage")
- resolved_platform = platform or config.get("defaultPlatform")
- if not resolved_language or not resolved_platform:
-  available = [k for k in ("defaultLanguage", "defaultPlatform") if config.get(k)]
+ if not resolved_language:
   raise ValueError(
-   "test-projects.json must define defaultLanguage and defaultPlatform. "
-   f"Present: {available}"
+   "test-projects.json must define defaultLanguage."
   )
+ resolved_runtime = runtime or DEFAULT_RUNTIME
+ provider = resolve_provider(Path(example_path).resolve().parent, profile)
  normalized = normalize_path(example_path)
  examples_marker = "examples/"
  idx = normalized.lower().find(examples_marker)
@@ -146,7 +215,7 @@ def get_default_output_path(
   )
  source_path = normalized[idx:]  # "examples/..." (with or without leading path)
  output_relative = build_output_path(
-  source_path, resolved_language, resolved_platform
+  source_path, resolved_language, f"{resolved_runtime}/{provider}"
  )
  datrix_root = get_datrix_root()
  return datrix_root / ".generated" / output_relative
@@ -156,16 +225,22 @@ def get_test_projects(
  test_set: str | None = None,
  all_projects: bool = False,
  language: str = "python",
- platform: str = "docker",
+ runtime: str = DEFAULT_RUNTIME,
+ profile: str = DEFAULT_PROFILE,
 ) -> List[dict]:
  """
  Get project definitions for a test set.
+
+ Output paths are ``{language}/{runtime}/{provider}/{project}``. The provider
+ segment is resolved per project from its ``config/system.dcfg`` (active
+ *profile*), so the path always matches the project's configured provider.
 
  Args:
  test_set: Name of the test set (e.g., "default", "all", "quick", "domains")
  all_projects: If True, use "all" test set
  language: Target language (default: "python")
- platform: Target platform (default: "docker")
+ runtime: Target runtime segment (default: "docker-compose")
+ profile: Config profile used to resolve each project's provider (default: "test")
 
  Returns:
  List of project dictionaries with keys: name, path, language, platform, output, description
@@ -211,6 +286,10 @@ def get_test_projects(
   # Examples are in datrix/examples, paths in JSON are relative to examples/
   # So examples/02-features/... becomes datrix/examples/02-features/...
   full_path = datrix_root / "datrix" / project_path
+
+  # Resolve the provider segment from the project's own config/system.dcfg.
+  provider = resolve_provider(full_path.parent, profile)
+  platform = f"{runtime}/{provider}"
 
   # Build output path - handle both system.dtrx and standalone .dtrx files
   output_relative = build_output_path(project["path"], language, platform)

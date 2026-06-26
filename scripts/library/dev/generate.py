@@ -3,11 +3,14 @@ r"""
 Generate all example projects.
 
 Usage:
-    python scripts/library/dev/generate.py [--language python] [--runtime docker-compose] [--provider local]
-    [--output-base .generated] [--test-set all]
+    python scripts/library/dev/generate.py [--language python] [--runtime docker-compose]
+    [--output-base .generated] [--test-set all] [--profile test]
+
+    The output-path provider segment is read from each project's
+    config/system.dcfg (active --profile), not passed as a flag.
 
     Or use the PowerShell wrapper:
-        .\scripts\dev\generate.ps1 -All [-Language <lang>] [-Runtime <runtime>] [-Provider <provider>] [-TestSet <set>]
+        .\scripts\dev\generate.ps1 -All [-Language <lang>] [-Runtime <runtime>] [-TestSet <set>]
 """
 
 import argparse
@@ -39,7 +42,12 @@ if library_dir.exists() and str(library_dir) not in sys.path:
 
 from shared.venv import get_datrix_root, get_venv_python
 from shared.logging_utils import LogConfig, TeeLogger, ColorCodes, colorize, strip_ansi
-from shared.test_projects import get_test_projects, get_default_output_path
+from shared.test_projects import (
+    build_output_path,
+    get_test_projects,
+    get_default_output_path,
+    resolve_provider,
+)
 
 # Add datrix-common to path so we can use DATRIX_FILE_EXTENSION
 _datrix_root = get_datrix_root()
@@ -52,6 +60,14 @@ def _append_datrix_generate_cli_options(cmd_args: list[str], args: argparse.Name
     """Append non-target datrix generate options from script args."""
     if getattr(args, "profile", None) is not None:
         cmd_args.extend(["--profile", args.profile])
+
+
+def _active_profile(args: argparse.Namespace) -> str:
+    """Return the config profile used to resolve the provider path segment.
+
+    Mirrors datrix's own default (``test``) when ``--profile`` is not supplied.
+    """
+    return getattr(args, "profile", None) or "test"
 
 
 # Pattern to detect spinner/progress lines that should be filtered from logs
@@ -147,7 +163,14 @@ def generate_single_project(
             if migration_dir.exists():
                 shutil.rmtree(migration_dir)
 
-        # Calculate output path
+        # Calculate output path. The path is {language}/{runtime}/{provider}/...:
+        # the runtime segment comes from the CLI flag (default docker-compose),
+        # the provider segment is read from this project's config/system.dcfg
+        # (active profile) so the path matches the configured provider.
+        runtime_segment = args.runtime or "docker-compose"
+        provider_segment = resolve_provider(project_path.parent, _active_profile(args))
+        platform_segment = f"{runtime_segment}/{provider_segment}"
+
         # Use custom output base if provided, otherwise use default from project config
         if args.output_base and args.output_base != ".generated":
             output_base = Path(args.output_base)
@@ -155,19 +178,12 @@ def generate_single_project(
             examples_dir = datrix_root / "datrix" / "examples"
             if examples_dir in project_path.parents:
                 rel_path = project_path.relative_to(examples_dir)
-                from shared.test_projects import build_output_path
                 rel_path_str = f"examples/{rel_path}"
-                # Use runtime and provider for output path (defaults: docker-compose, local)
-                runtime_segment = args.runtime or "docker-compose"
-                provider_segment = args.provider or "local"
-                output_relative = build_output_path(rel_path_str, args.language, f"{runtime_segment}/{provider_segment}")
+                output_relative = build_output_path(rel_path_str, args.language, platform_segment)
                 output_path = datrix_root / output_base / output_relative
             else:
-                # Fallback: use project name under language/platform
-                # Use runtime and provider for output path (defaults: docker-compose, local)
-                runtime_segment = args.runtime or "docker-compose"
-                provider_segment = args.provider or "local"
-                output_name = f"{args.language}/{runtime_segment}/{provider_segment}/{project_name}"
+                # Fallback: use project name under language/runtime/provider
+                output_name = f"{args.language}/{platform_segment}/{project_name}"
                 output_path = datrix_root / output_base / output_name
         else:
             # Use default from project config if available (from get_test_projects)
@@ -175,26 +191,19 @@ def generate_single_project(
                 output_path = Path(project["output"])
             else:
                 # Fallback: build from source path
-                from shared.test_projects import build_output_path
                 examples_dir = datrix_root / "datrix" / "examples"
                 if examples_dir in project_path.parents:
                     rel_path = project_path.relative_to(examples_dir)
                     rel_path_str = f"examples/{rel_path}"
-                    # Use runtime and provider for output path (defaults: docker-compose, local)
-                    runtime_segment = args.runtime or "docker-compose"
-                    provider_segment = args.provider or "local"
-                    output_relative = build_output_path(rel_path_str, args.language, f"{runtime_segment}/{provider_segment}")
+                    output_relative = build_output_path(rel_path_str, args.language, platform_segment)
                     output_path = datrix_root / ".generated" / output_relative
                 else:
-                    # Use runtime and provider for output path (defaults: docker-compose, local)
-                    runtime_segment = args.runtime or "docker-compose"
-                    provider_segment = args.provider or "local"
-                    output_name = f"{args.language}/{runtime_segment}/{provider_segment}/{project_name}"
+                    output_name = f"{args.language}/{platform_segment}/{project_name}"
                     output_path = datrix_root / ".generated" / output_name
 
-        # Build datrix generate command. Language, runtime, and provider are used
-        # only for output path derivation and are not forwarded to datrix generate.
-        # The generation target (language and deployment runtime/provider) comes from
+        # Build datrix generate command. Language and runtime are used only for
+        # output path derivation and are not forwarded to datrix generate. The
+        # generation target (language and deployment runtime/provider) comes from
         # config/system.dcfg for the active profile (--profile; datrix's default is test).
         import os
         import tempfile
@@ -473,14 +482,14 @@ def main():
         "--output",
         type=str,
         default=None,
-        help="Output directory. When omitted, derived as .generated/<language>/<platform>/… "
-        "from the source path using --language, --runtime, and --provider (see test-projects path rules).",
+        help="Output directory. When omitted, derived as .generated/<language>/<runtime>/<provider>/… "
+        "from the source path using --language and --runtime, with the provider read from the "
+        "project's config/system.dcfg (active --profile). See test-projects path rules.",
     )
  
     # Batch mode
     parser.add_argument("--language", type=str.lower, default="python", choices=["python", "typescript"], help="Target language")
     parser.add_argument("--runtime", type=str.lower, default=None, choices=["docker-compose", "azure-app-service", "ecs-fargate", "app-runner"], help="Optional output path runtime segment; generation reads runtime from resolved config")
-    parser.add_argument("--provider", type=str.lower, default=None, choices=["local", "existing", "aws", "azure"], help="Optional output path provider segment; generation reads provider from resolved config")
     parser.add_argument("--output-base", type=str, default=".generated", help="Output base directory")
     parser.add_argument("--test-set", type=str, default="all", help="Test set to use (e.g. all, foundation, non-foundation, features, domains)")
     parser.add_argument("--profile", type=str, default=None, help="Config profile for YAML resolution (e.g., test, development, production)")
@@ -538,12 +547,12 @@ def main():
             if not args.output:
                 try:
                     runtime_seg = args.runtime or "docker-compose"
-                    provider_seg = args.provider or "local"
                     args.output = str(
                         get_default_output_path(
                             str(source_path),
                             language=args.language,
-                            platform=f"{runtime_seg}/{provider_seg}",
+                            runtime=runtime_seg,
+                            profile=_active_profile(args),
                         )
                     )
                 except (ValueError, FileNotFoundError):
@@ -591,7 +600,7 @@ def main():
                 "description": f"Single project: {project_name}",
             }]
             runtime_display = args.runtime or "config/default"
-            provider_display = args.provider or "config/default"
+            provider_display = resolve_provider(source_path.parent, _active_profile(args))
             if logger:
                 logger.write(f"Generating single project: {project_name}")
                 logger.write(f" Source: {source_path}")
@@ -613,11 +622,11 @@ def main():
         else:
             try:
                 runtime_seg = args.runtime or "docker-compose"
-                provider_seg = args.provider or "local"
                 projects = get_test_projects(
                     test_set=args.test_set,
                     language=args.language,
-                    platform=f"{runtime_seg}/{provider_seg}",
+                    runtime=runtime_seg,
+                    profile=_active_profile(args),
                 )
             except Exception as e:
                 error_msg = f"Error loading test projects: {e}"

@@ -53,7 +53,7 @@ Main code generation script. Generates Python/TypeScript code from .dtrx source 
 .\generate.ps1 -TestSet foundation -L python  # examples/01-foundation
 .\generate.ps1 -Domains # examples/03-domains
 # With options
-.\generate.ps1 -All -Language typescript -Platform azure-container-apps
+.\generate.ps1 -All -Language typescript -Runtime azure-app-service -ConfigProfile pilot
 ```
 
 ### Parameters
@@ -65,10 +65,13 @@ Main code generation script. Generates Python/TypeScript code from .dtrx source 
 | `-All` | | | Generate all projects |
 | `-TestSet` | | `all` | Test set name (batch mode) |
 | `-Domains` | | | Generate domain examples only |
-| `-Language` | `-L` | `python` | Target language (python, typescript) |
-| `-Platform` | `-P` | `docker` | Target platform (docker, azure-container-apps) |
+| `-Language` | `-L` | `python` | Target language (python, typescript), output-path segment |
+| `-Runtime` | `-R` | (config) | Output-path runtime segment (docker-compose, azure-container-apps, azure-app-service, ecs-fargate, app-runner) |
+| `-ConfigProfile` | | `test` | Config profile that selects the deployment target; also selects the provider segment read from `config/system.dcfg` |
 | `-OutputBase` | | `.generated` | Output base directory (batch mode) |
 | `-Dbg` | | | Enable debug logging |
+
+The output-path provider segment (`local`/`existing`/`aws`/`azure`) is read from each project's `config/system.dcfg` deployment block for the active `-ConfigProfile`; it is not a flag.
 
 ### Logs
 

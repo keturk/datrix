@@ -575,15 +575,11 @@ def step2_generate(
 
     cmd: list[str] = [pwsh_exe, "-File", str(script_path)]
 
-    # Parse platform into runtime and provider (format: "runtime/provider" e.g. "docker-compose/local")
-    runtime = None
-    provider = None
-    if platform and "/" in platform:
-        parts = platform.split("/", 1)
-        runtime = parts[0]
-        provider = parts[1]
-    elif platform:
-        runtime = platform  # If no slash, treat entire value as runtime
+    # `platform` carries only the runtime segment now. The provider segment of
+    # the output path is read from each project's config/system.dcfg by
+    # generate.ps1, so we never pass a provider here. Tolerate a legacy
+    # "runtime/provider" value by keeping only the runtime half.
+    runtime = platform.split("/", 1)[0] if platform else None
 
     if all_examples:
         print_step(2, "Generate Examples")
@@ -591,8 +587,6 @@ def step2_generate(
         cmd.extend(["-Language", language])
         if runtime:
             cmd.extend(["-Runtime", runtime])
-        if provider:
-            cmd.extend(["-Provider", provider])
         if test_set != "all":
             cmd.extend(["-TestSet", test_set])
     else:
@@ -613,8 +607,6 @@ def step2_generate(
         cmd.extend(["-Language", language])
         if runtime:
             cmd.extend(["-Runtime", runtime])
-        if provider:
-            cmd.extend(["-Provider", provider])
 
     if hosting:
         cmd.extend(["-Hosting", hosting])
@@ -1433,12 +1425,12 @@ def _produce_structured_output(
         project_name = project.name
 
     # Derive .dtrx source from the project path
-    # Pattern: .generated/{language}/{platform}/{category}/{example}
+    # Pattern: .generated/{language}/{runtime}/{provider}/{category}/{example}
     # -> datrix/examples/{category}/{example}/system.dtrx
     parts = project_name.replace("\\", "/").split("/")
-    # Remove language/platform prefix if present
-    if len(parts) >= 3:
-        example_parts = parts[2:]  # skip language/platform
+    # Remove language/runtime/provider prefix (3 segments) if present
+    if len(parts) >= 4:
+        example_parts = parts[3:]  # skip language/runtime/provider
     else:
         example_parts = parts
     example = "/".join(example_parts)
@@ -1738,7 +1730,7 @@ def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path
         # Find generated projects: by test set or by scanning .generated
         projects = []
         if test_set:
-            proj_list = get_test_projects(test_set=test_set, language=language, platform=platform)
+            proj_list = get_test_projects(test_set=test_set, language=language, runtime=platform)
             projects = [Path(p["output"]) for p in proj_list if Path(p["output"]).exists()]
         elif generated_base.exists():
             # Scan for Python projects (tests/unit_tests.py)
@@ -2005,7 +1997,7 @@ def step4_run_deployment_tests(all_examples: bool, paths: dict[str, Path], outpu
         # Find generated projects: by test set or by scanning .generated
         projects = []
         if test_set:
-            proj_list = get_test_projects(test_set=test_set, language=language, platform=platform)
+            proj_list = get_test_projects(test_set=test_set, language=language, runtime=platform)
             projects = [Path(p["output"]) for p in proj_list if Path(p["output"]).exists()]
         elif generated_base.exists():
             # Scan for Python projects (tests/deploy_test.py)
@@ -2267,11 +2259,11 @@ def _write_deploy_structured_output(
     """
     try:
         generated_base = paths["datrix_root"] / ".generated"
-        # Derive example path from project relative to generated_base/language/platform
+        # Derive example path from project relative to generated_base/language/runtime/provider
         try:
             rel_parts = project.relative_to(generated_base).parts
-            # Skip language/platform prefix (e.g. "python/docker/")
-            example = "/".join(rel_parts[2:]) if len(rel_parts) > 2 else str(project.name)
+            # Skip language/runtime/provider prefix (3 segments, e.g. "python/docker-compose/local/")
+            example = "/".join(rel_parts[3:]) if len(rel_parts) > 3 else str(project.name)
         except ValueError:
             example = str(project.name)
 
@@ -2662,7 +2654,7 @@ def step5_run_deployment_tests(all_examples: bool, paths: dict[str, Path], outpu
         generated_base = paths["datrix_root"] / ".generated"
         projects = []
         if test_set:
-            proj_list = get_test_projects(test_set=test_set, language=language, platform=platform)
+            proj_list = get_test_projects(test_set=test_set, language=language, runtime=platform)
             projects = [Path(p["output"]) for p in proj_list if Path(p["output"]).exists()]
         elif generated_base.exists():
             # Scan for Python projects (tests/deploy_test.py)
@@ -2889,8 +2881,11 @@ Examples:
     "-Platform",
     "--platform",
     dest="platform",
-    default="docker-compose/local",
-    help="Target platform (default: docker-compose/local). Common values: docker-compose/local, azure-container-apps/existing, etc."
+    default="docker-compose",
+    help="Target runtime for output-path derivation (default: docker-compose). "
+         "Options: docker-compose, azure-app-service, ecs-fargate, app-runner. "
+         "The provider segment is read from each project's config/system.dcfg, not this flag. "
+         "A legacy 'runtime/provider' value is accepted; only the runtime half is used."
     )
     parser.add_argument(
     "-Hosting",
@@ -2936,6 +2931,11 @@ Examples:
     parser.add_argument("--llm-keep-alive", default=DEFAULT_LLM_KEEP_ALIVE, help=f"Ollama keep_alive (default: {DEFAULT_LLM_KEEP_ALIVE})")
     args = parser.parse_args()
 
+    # --platform now carries only the runtime segment. The provider segment of
+    # the output path is read from each project's config/system.dcfg. Tolerate a
+    # legacy "runtime/provider" value by keeping only the runtime half.
+    args.platform = args.platform.split("/", 1)[0]
+
     # Validate arguments: when not -All, example_path is required; output_path is derived from config if omitted
     if not args.All:
         if not args.example_path:
@@ -2945,7 +2945,7 @@ Examples:
                 args.output_path = str(get_default_output_path(
                     args.example_path,
                     language=args.language,
-                    platform=args.platform,
+                    runtime=args.platform,
                 ))
             except (ValueError, FileNotFoundError) as e:
                 parser.error(str(e))
@@ -2974,7 +2974,7 @@ Examples:
         print_info(f" Example: {args.example_path}")
         print_info(f" Output: {args.output_path}")
         print_info(f" Language: {args.language}")
-        print_info(f" Platform: {args.platform}")
+        print_info(f" Runtime: {args.platform}")
 
     # Show which steps will be skipped
     skip_info = []

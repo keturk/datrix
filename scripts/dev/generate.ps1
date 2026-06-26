@@ -36,11 +36,6 @@
  The actual runtime used for generation comes from the config/system.dcfg deployment block of the active profile -- NOT from this flag.
  Can be abbreviated as -R.
 
-.PARAMETER Provider
-  Optional provider for output path derivation (options: local, existing, aws, azure).
-  The actual provider used for generation comes from the config/system.dcfg deployment block of the active profile -- NOT from this flag.
-  Can be abbreviated as -P.
-
 .PARAMETER ConfigProfile
   ConfigDSL profile that selects the deployment target (e.g. test, development, staging, production, pilot).
   This is the ONLY flag that changes what is generated. When omitted, datrix generate uses its default profile 'test',
@@ -72,8 +67,9 @@
  Generate all projects for Python.
 
 .EXAMPLE
- .\generate.ps1 -All -Language typescript -Runtime azure-container-apps -Provider existing
- Generate all projects for TypeScript with output paths using azure-container-apps/existing.
+ .\generate.ps1 -All -Language typescript -Runtime azure-app-service -ConfigProfile pilot
+ Generate all projects for TypeScript; the output-path provider segment is read from each
+ project's config/system.dcfg deployment block for the 'pilot' profile.
 
 .EXAMPLE
  .\generate.ps1 -Domains -L typescript
@@ -104,11 +100,6 @@ param(
  [Alias("R")]
  [ValidateSet("docker-compose", "azure-container-apps", "azure-app-service", "ecs-fargate", "app-runner")]
  [string]$Runtime = "",
-
-  [Parameter()]
-  [Alias("P")]
-  [ValidateSet("local", "existing", "aws", "azure")]
-  [string]$Provider = "",
 
  [Parameter()]
  [string]$ConfigProfile = "",
@@ -169,19 +160,19 @@ function Show-HelpMessage {
  Write-Host ""
  Write-Host "Usage:" -ForegroundColor Yellow
  Write-Host " Generate single project:" -ForegroundColor Cyan
- Write-Host " .\generate.ps1 <Source> [Output] -Language <lang> [-Runtime <runtime>] [-Provider <provider>] [-Dbg]" -ForegroundColor White
+ Write-Host " .\generate.ps1 <Source> [Output] -Language <lang> [-Runtime <runtime>] [-ConfigProfile <profile>] [-Dbg]" -ForegroundColor White
  Write-Host "   (Output optional; derived from test-projects.json when omitted)" -ForegroundColor Gray
  Write-Host ""
  Write-Host " Generate all projects:" -ForegroundColor Cyan
- Write-Host " .\generate.ps1 -All -Language <lang> [-Runtime <runtime>] [-Provider <provider>] [-OutputBase <dir>] [-TestSet <set>] [-Dbg]" -ForegroundColor White
+ Write-Host " .\generate.ps1 -All -Language <lang> [-Runtime <runtime>] [-ConfigProfile <profile>] [-OutputBase <dir>] [-TestSet <set>] [-Dbg]" -ForegroundColor White
  Write-Host " Generate by example folder:" -ForegroundColor Cyan
- Write-Host " .\generate.ps1 -Domains -Language <lang> [-Runtime <runtime>] [-Provider <provider>] [-Dbg]" -ForegroundColor White
+ Write-Host " .\generate.ps1 -Domains -Language <lang> [-Runtime <runtime>] [-ConfigProfile <profile>] [-Dbg]" -ForegroundColor White
  Write-Host ""
  Write-Host "Examples:" -ForegroundColor Yellow
  Write-Host " .\generate.ps1 examples/02-features/01-core-data-modeling/entities/system.dtrx -L python" -ForegroundColor Gray
  Write-Host " .\generate.ps1 -All -L python" -ForegroundColor Gray
  Write-Host " .\generate.ps1 -Domains -L python" -ForegroundColor Gray
- Write-Host " .\generate.ps1 -All -Language typescript -Runtime azure-container-apps -Provider existing -Dbg" -ForegroundColor Gray
+ Write-Host " .\generate.ps1 -All -Language typescript -Runtime azure-app-service -ConfigProfile pilot -Dbg" -ForegroundColor Gray
  Write-Host ""
  Write-Host "Use Get-Help .\generate.ps1 -Full for detailed help." -ForegroundColor Yellow
  Write-Host ""
@@ -544,10 +535,6 @@ $("=" * 80)
  $pythonArgs += "--runtime"
  $pythonArgs += $Runtime
  }
- if (-not [string]::IsNullOrWhiteSpace($Provider)) {
- $pythonArgs += "--provider"
- $pythonArgs += $Provider
- }
  if (-not [string]::IsNullOrWhiteSpace($ConfigProfile)) {
  $pythonArgs += "--profile"
  $pythonArgs += $ConfigProfile
@@ -602,10 +589,6 @@ $("=" * 80)
  if (-not [string]::IsNullOrWhiteSpace($Runtime)) {
  $pythonArgs += "--runtime"
  $pythonArgs += $Runtime
- }
- if (-not [string]::IsNullOrWhiteSpace($Provider)) {
- $pythonArgs += "--provider"
- $pythonArgs += $Provider
  }
  if (-not [string]::IsNullOrWhiteSpace($ConfigProfile)) {
  $pythonArgs += "--profile"
