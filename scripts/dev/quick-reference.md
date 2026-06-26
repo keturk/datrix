@@ -366,12 +366,15 @@ Generates `@test-rule` conformance annotations for test functions using a local 
 | **Propose (one package)** | `.\dev\generate-test-rules.ps1 datrix-codegen-python` | Propose for one package's tests |
 | **Propose (sample)** | `.\dev\generate-test-rules.ps1 datrix-codegen-python -Limit 20` | Cap functions this run |
 | **Propose (one file/subtree)** | `.\dev\generate-test-rules.ps1 -Path datrix-codegen-typescript\tests\unit\transpiler\test_operators.py -NoSeed` | Target a file/dir; package derived from path |
+| **Propose (multiple subtrees)** | run once per `-Path` (e.g. `tests\transpiler` then `tests\unit\transpiler`) | Same package's runs share one proposal file and consolidate together; `powershell -File` can't pass `-Path` as an array |
 | **Propose (all)** | `.\dev\generate-test-rules.ps1 -All` | Every package's tests tree |
+| **Review (triage)** | `.\dev\generate-test-rules.ps1 datrix-codegen-typescript -Review` | Print triage: suspicious dims, weak behaviors, over-grouped/single-target topics (no LLM, no edits) |
 | **Apply** | `.\dev\generate-test-rules.ps1 datrix-codegen-python -Apply` | Insert reviewed proposals |
+| **Apply one file/subtree** | `.\dev\generate-test-rules.ps1 datrix-codegen-typescript -Apply -Path datrix-codegen-typescript\tests\unit\transpiler\test_operators.py` | Apply only proposals under the path |
 | **Custom model** | `.\dev\generate-test-rules.ps1 -All -Model qwen3-coder:30b-ctx32k` | Override the model |
 | **Debug** | `.\dev\generate-test-rules.ps1 datrix-codegen-python -Limit 5 -Dbg` | Debug logging |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Apply`, `-Model` (default: exaone-deep:32b), `-Endpoint` (default: http://10.94.0.100:11434), `-Parallel` (default: 4), `-Limit` (default: 0 = no limit), `-Path` (file/dir filter, repeatable; package derived if no project given), `-NoSeed` (don't seed topic vocabulary from existing markers), `-NoConsolidate` (skip topic-merge pass), `-IncludeE2e`, `-IncludeIntegration` (e2e/integration excluded by default), `-Dbg`
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Apply`, `-Review` (triage existing proposals; no LLM/edits), `-Model` (default: exaone-deep:32b), `-Endpoint` (default: http://10.94.0.100:11434), `-Parallel` (default: 4), `-Limit` (default: 0 = no limit), `-Path` (file/dir filter, repeatable; also scopes `-Apply`/`-Review`), `-NoSeed` (don't seed topic vocabulary from existing markers), `-NoConsolidate` (skip topic-merge pass), `-IncludeE2e`, `-IncludeIntegration` (e2e/integration excluded by default), `-Dbg`
 
 ### `dev\run-codemod.ps1`
 

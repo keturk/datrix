@@ -62,6 +62,8 @@ param(
 
     [switch]$Apply,
 
+    [switch]$Review,
+
     [string]$Model,
 
     [string]$Endpoint,
@@ -140,6 +142,9 @@ try {
     }
     if ($Apply) {
         $pyArgs += "--apply"
+    }
+    if ($Review) {
+        $pyArgs += "--review"
     }
     if ($Model) {
         $pyArgs += "--model", $Model

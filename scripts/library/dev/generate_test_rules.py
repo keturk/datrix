@@ -155,6 +155,15 @@ Rules: Output ONLY the JSON object. Keep strings short. Use NEUTRAL domain terms
 # JSON coercion helpers (model output / proposal files are untrusted)
 # ---------------------------------------------------------------------------
 
+def _oneline(text: str) -> str:
+    """Collapse all whitespace (incl. newlines) to single spaces.
+
+    A marker field with an embedded newline would otherwise render as a bare,
+    non-comment line and break the test file's Python syntax.
+    """
+    return " ".join(text.split())
+
+
 def _as_int(value: object) -> int:
     """Coerce a JSON value to int (0 on anything non-numeric)."""
     return int(value) if isinstance(value, (int, str)) and str(value).lstrip("-").isdigit() else 0
@@ -434,13 +443,13 @@ def build_user_prompt(pkg: str, rel: str, tf: TestFunc, known_topics: list[str])
 def render_marker(prop: Proposal) -> list[str]:
     """Render the ready-to-insert comment lines for an applicable proposal."""
     ind = " " * prop.col
-    lines = [f"{ind}# @test-rule({prop.topic}): {prop.summary}"]
-    lines.extend(f"{ind}# @dim: {k}={v}" for k, v in prop.dimensions)
+    lines = [f"{ind}# @test-rule({_oneline(prop.topic)}): {_oneline(prop.summary)}"]
+    lines.extend(f"{ind}# @dim: {_oneline(k)}={_oneline(v)}" for k, v in prop.dimensions)
     if prop.behavior:
-        lines.append(f"{ind}# @behavior: {prop.behavior}")
+        lines.append(f"{ind}# @behavior: {_oneline(prop.behavior)}")
     if prop.differs:
-        lines.append(f"{ind}# @differs: {prop.differs}")
-    lines.extend(f"{ind}# @see: {ref}" for ref in prop.see)
+        lines.append(f"{ind}# @differs: {_oneline(prop.differs)}")
+    lines.extend(f"{ind}# @see: {_oneline(ref)}" for ref in prop.see)
     return lines
 
 
@@ -622,8 +631,8 @@ class _Vocabulary:
 
 def _result_to_proposal(rel: str, tf: TestFunc, result: dict[str, object]) -> Proposal:
     """Convert a raw LLM result into a Proposal."""
-    topic = str(result.get("topic", "")).strip().lower()
-    see = [s for s in _as_str_list(result.get("see")) if s.lower() != topic]
+    topic = _oneline(str(result.get("topic", ""))).lower()
+    see = [_oneline(s) for s in _as_str_list(result.get("see")) if _oneline(s).lower() != topic]
     return Proposal(
         file=rel,
         qualname=tf.qualname,
@@ -632,10 +641,10 @@ def _result_to_proposal(rel: str, tf: TestFunc, result: dict[str, object]) -> Pr
         col=tf.col,
         applicable=bool(result.get("applicable")),
         topic=topic,
-        summary=str(result.get("summary", "")).strip(),
+        summary=_oneline(str(result.get("summary", ""))),
         dimensions=_as_pairs(result.get("dimensions")),
-        behavior=str(result.get("behavior", "")).strip(),
-        differs=str(result.get("differs", "")).strip(),
+        behavior=_oneline(str(result.get("behavior", ""))),
+        differs=_oneline(str(result.get("differs", ""))),
         see=see,
     )
 
@@ -786,19 +795,22 @@ def propose_package(
 # Apply phase
 # ---------------------------------------------------------------------------
 
-def apply_package(pkg: str, datrix_root: Path, model: str) -> tuple[int, int]:
+def apply_package(pkg: str, datrix_root: Path, model: str, filters: list[Path]) -> tuple[int, int]:
     """Insert reviewed applicable markers into the package's test files.
 
     Args:
         pkg: Package name.
         datrix_root: Workspace root.
         model: Model whose proposal set to apply (selects the per-model dir).
+        filters: --path filters; when non-empty, only proposals under them are applied.
 
     Returns:
         (inserted, skipped) counts.
     """
     out_json = _output_dir(datrix_root, model) / f"{pkg}.json"
     proposals = [p for p in _load_proposals(out_json) if p.applicable and not p.error]
+    if filters:
+        proposals = [p for p in proposals if _file_allowed(datrix_root / p.file, filters)]
     if not proposals:
         LOG.info("[%s] no applicable proposals at %s", pkg, out_json)
         return (0, 0)
@@ -955,6 +967,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                         help="Scan every datrix* package's tests tree")
     parser.add_argument("--apply", action="store_true",
                         help="Insert reviewed proposals into the test files (default: propose only)")
+    parser.add_argument("--review", action="store_true",
+                        help="Print a triage report of existing proposals (no LLM, no source changes)")
     parser.add_argument("--model", default=DEFAULT_MODEL, help=f"Ollama model (default: {DEFAULT_MODEL})")
     parser.add_argument("--endpoint", default=DEFAULT_ENDPOINT,
                         help=f"Ollama base URL (default: {DEFAULT_ENDPOINT})")
@@ -1021,8 +1035,10 @@ def main() -> int:
         LOG.info("No tests/ directories found to scan.")
         return 0
 
+    if cfg.review:
+        return _run_review(pairs, datrix_root, cfg)
     if cfg.apply:
-        return _run_apply(pairs, datrix_root, cfg.model)
+        return _run_apply(pairs, datrix_root, cfg.model, cfg.filters)
     return _run_propose(pairs, datrix_root, cfg)
 
 
@@ -1061,11 +1077,84 @@ def _consolidate_and_rewrite(
         _write_preview(out_dir / f"{pkg}.md", pkg, rs, cfg)
 
 
-def _run_apply(pairs: list[tuple[str, Path]], datrix_root: Path, model: str) -> int:
+# ---------------------------------------------------------------------------
+# Review (triage) phase
+# ---------------------------------------------------------------------------
+
+# Dimension values that are almost never a real target (template leaks, vague, topic-like).
+_SUSPICIOUS_DIM_VALUES = frozenset({
+    "any", "none", "external", "customer", "builtin", "invalid_lang", "rdbms",
+    "nosql", "cloud-managed", "self-hosted", "multi-provider", "worker",
+    "directory-structure", "documentation-content", "auth", "auth-provider",
+})
+
+
+def _dim_is_suspicious(value: str) -> bool:
+    """Heuristic: a dimension value that probably isn't a real target."""
+    return (
+        "${" in value
+        or value in _SUSPICIOUS_DIM_VALUES
+        or value.endswith("-mapping")
+        or value.endswith("-default")
+    )
+
+
+def _print_review(pkg: str, proposals: list[Proposal]) -> None:
+    """Log a triage report: counts, suspicious dims, weak behaviors, over-grouping."""
+    ap = [p for p in proposals if p.applicable]
+    errs = [p for p in proposals if p.error]
+    counts: dict[str, int] = {}
+    targets: dict[str, set[str]] = {}
+    for p in ap:
+        counts[p.topic] = counts.get(p.topic, 0) + 1
+        key = ", ".join(f"{k}={v}" for k, v in sorted(p.dimensions)) or "—"
+        targets.setdefault(p.topic, set()).add(key)
+
+    LOG.info("\n=== review: %s ===", pkg)
+    LOG.info("examined=%d  applicable=%d  skipped=%d  errors=%d  distinct-topics=%d",
+             len(proposals), len(ap), len(proposals) - len(ap) - len(errs), len(errs), len(counts))
+
+    suspicious = [(p, k, v) for p in ap for k, v in p.dimensions if _dim_is_suspicious(v)]
+    LOG.info("\nsuspicious dimensions (%d):", len(suspicious))
+    for p, k, v in suspicious[:30]:
+        LOG.info("  %s=%s  <- %s", k, v, p.qualname)
+
+    weak = [p for p in ap if len(p.behavior) < 8]
+    LOG.info("\nweak/empty behavior (%d):", len(weak))
+    for p in weak[:20]:
+        LOG.info("  %r  <- %s", p.behavior, p.qualname)
+
+    over = sorted(((t, n) for t, n in counts.items() if n >= 15), key=lambda x: -x[1])
+    LOG.info("\nhigh-count topics — review for over-grouping (%d):", len(over))
+    for topic, n in over:
+        LOG.info("  %3d  %s", n, topic)
+
+    single = sorted(t for t, ts in targets.items() if len(ts) == 1)
+    LOG.info("\nsingle-target topics (%d): possible coverage gaps", len(single))
+
+
+def _run_review(pairs: list[tuple[str, Path]], datrix_root: Path, cfg: argparse.Namespace) -> int:
+    """Print a triage report of existing proposals (no LLM, no source changes)."""
+    seen: set[str] = set()
+    for pkg, _tests_dir in pairs:
+        if pkg in seen:
+            continue
+        seen.add(pkg)
+        proposals = _load_proposals(_output_dir(datrix_root, cfg.model) / f"{pkg}.json")
+        if cfg.filters:
+            proposals = [p for p in proposals if _file_allowed(datrix_root / p.file, cfg.filters)]
+        if not proposals:
+            LOG.info("\n=== review: %s === (no proposals found)", pkg)
+            continue
+        _print_review(pkg, proposals)
+    return 0
+
+
+def _run_apply(pairs: list[tuple[str, Path]], datrix_root: Path, model: str, filters: list[Path]) -> int:
     """Apply phase across all resolved packages."""
     total_ins = total_skip = 0
     for pkg, _tests_dir in pairs:
-        ins, skp = apply_package(pkg, datrix_root, model)
+        ins, skp = apply_package(pkg, datrix_root, model, filters)
         total_ins += ins
         total_skip += skp
     LOG.info("\n[OK] Inserted %d marker(s); skipped %d. Rebuild: logic-map.ps1 -All",

@@ -63,7 +63,9 @@
       "PowerShell(& \"d:/datrix/datrix/scripts/test/test-single.ps1\" \"tests/unit/generators/test_pipeline_generation.py\" -Project datrix-codegen-azure 2>&1)",
       "PowerShell(& \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-common -Specific \"tests/integration/test_ungrouped_byte_identical.py\" 2>&1)",
       "PowerShell(& \"d:/datrix/datrix/scripts/test/test-single.ps1\" \"d:/datrix/datrix-codegen-python/tests/unit/helpers/test_json_helpers_template.py\" -Project datrix-codegen-python -Verbose)",
-      "PowerShell(powershell -File \"d:/datrix/datrix/scripts/tasks/latest-phase.ps1\" -BaseDir \"D:\\\\datrix\")"
+      "PowerShell(powershell -File \"d:/datrix/datrix/scripts/tasks/latest-phase.ps1\" -BaseDir \"D:\\\\datrix\")",
+      "mcp__azure__bicepschema",
+      "PowerShell(powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-azure)"
     ],
     "additionalDirectories": [
       "d:\\datrix\\$repo\\tests",
