@@ -21,7 +21,8 @@
       "PowerShell(& \"d:\\\\datrix\\\\datrix-projects\\\\curvaero\\\\generate-curvaero-staging.ps1\")",
       "PowerShell(powershell -File \"d:/datrix/datrix/scripts/tasks/latest-phase.ps1\" -BaseDir \"D:\\\\datrix\")",
       "PowerShell(powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-python -Specific \"tests/integration/test_cross_platform_datasource_parity.py\")",
-      "PowerShell(powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-azure)"
+      "PowerShell(powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-azure)",
+      "PowerShell(Get-ChildItem d:\\\\datrix\\\\issues\\\\ -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name; if \\(-not \\(Test-Path d:\\\\datrix\\\\issues\\\\\\)\\) { \"DIRECTORY MISSING\" } else { \"EXISTS \\($\\(Get-ChildItem d:\\\\datrix\\\\issues\\\\ | Measure-Object\\).Count files\\)\" })"
     ],
     "additionalDirectories": [
       "C:\\Users\\KErca\\.claude"
