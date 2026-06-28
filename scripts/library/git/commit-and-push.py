@@ -351,6 +351,10 @@ def invoke_claude_generate(
     Claude runs non-interactively with read-only investigation tools scoped to
     the repo, and returns JSON so the final assistant text is read from
     ``.result`` regardless of any intermediate tool use.
+
+    The prompt is fed via stdin rather than a ``-p`` argument: a large diff
+    bundle would otherwise overflow the OS command-line length limit (~32K
+    characters on Windows).
     """
     exe = resolve_claude_exe()
     if not exe:
@@ -361,7 +365,6 @@ def invoke_claude_generate(
     args = [
         exe,
         "-p",
-        prompt,
         "--model",
         model,
         "--output-format",
@@ -382,6 +385,7 @@ def invoke_claude_generate(
     try:
         result = subprocess.run(
             args,
+            input=prompt,
             capture_output=True,
             text=True,
             encoding="utf-8",
