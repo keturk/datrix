@@ -1,15 +1,31 @@
 #!/usr/bin/env python
-"""Generate per-repo Datrix commit messages with local Ollama."""
+"""Generate per-repo Datrix commit messages and commit+push every dirty repo.
+
+Commit messages come from one of two backends:
+
+* **Ollama** (preferred) -- a local model reached over HTTP. Used when the Ollama
+  endpoint is reachable.
+* **Claude Code CLI** -- the ``claude`` command. Used as the fallback when Ollama
+  is not reachable (or when ``--message-source claude`` is forced).
+
+The chosen backend produces one commit message per repository that has
+uncommitted changes; the script then stages, commits, and pushes each of those
+repositories directly. No intermediate ``commit-messages.json`` file is written.
+"""
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -49,6 +65,13 @@ TEXT_SNIPPET_EXTENSIONS = {
     ".yaml",
     ".yml",
 }
+
+# Git identity used for the commits this script creates.
+GIT_USER_EMAIL = "kercan@outlook.com"
+GIT_USER_NAME = "Kamil Ercan Turkarslan"
+
+# A message-generating backend: (user_prompt, system_prompt) -> raw model text.
+Generator = Callable[[str, str], str]
 
 
 @dataclass(frozen=True)
@@ -260,6 +283,16 @@ def dirty_repo_bundle_paths_only(dr: DirtyRepo) -> str:
     return "\n".join(parts)
 
 
+def ollama_reachable(base_url: str, timeout_ms: int) -> bool:
+    """Return True if the Ollama endpoint answers its tag-list query in time."""
+    uri = f"{base_url.rstrip('/')}/api/tags"
+    try:
+        with urllib.request.urlopen(uri, timeout=max(1, timeout_ms / 1000.0)) as resp:
+            return 200 <= resp.status < 300
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return False
+
+
 def invoke_ollama_generate(
     base_url: str,
     model: str,
@@ -294,6 +327,81 @@ def invoke_ollama_generate(
     response = data.get("response")
     if not response:
         raise ScriptError("Ollama returned no .response field")
+    return str(response)
+
+
+def resolve_claude_exe() -> str | None:
+    """Locate the Claude Code CLI, preferring the cmd/exe shims on Windows."""
+    for name in ("claude.cmd", "claude.exe", "claude"):
+        path = shutil.which(name)
+        if path:
+            return path
+    return None
+
+
+def invoke_claude_generate(
+    repo_path: Path,
+    model: str,
+    prompt: str,
+    timeout_ms: int,
+    system: str,
+) -> str:
+    """Generate a commit message with the Claude Code CLI for one repo.
+
+    Claude runs non-interactively with read-only investigation tools scoped to
+    the repo, and returns JSON so the final assistant text is read from
+    ``.result`` regardless of any intermediate tool use.
+    """
+    exe = resolve_claude_exe()
+    if not exe:
+        raise ScriptError(
+            "Claude Code CLI not found in PATH. Install with "
+            "'npm install -g @anthropic-ai/claude-code' or add 'claude' to PATH."
+        )
+    args = [
+        exe,
+        "-p",
+        prompt,
+        "--model",
+        model,
+        "--output-format",
+        "json",
+        "--permission-mode",
+        "acceptEdits",
+        "--allowedTools",
+        "Read",
+        "Glob",
+        "Grep",
+        "Bash(git:*)",
+        "--add-dir",
+        str(repo_path),
+        "--append-system-prompt",
+        system,
+    ]
+    env = {**os.environ, "NO_COLOR": "1"}
+    try:
+        result = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=str(repo_path),
+            env=env,
+            timeout=max(1, timeout_ms / 1000.0),
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ScriptError(f"Claude CLI timed out for {repo_path.name}") from exc
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        raise ScriptError(f"Claude CLI failed ({result.returncode}) for {repo_path.name}: {detail}")
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise ScriptError(f"Claude CLI returned non-JSON output for {repo_path.name}: {exc}") from exc
+    response = data.get("result")
+    if not response:
+        raise ScriptError(f"Claude CLI returned no .result field for {repo_path.name}")
     return str(response)
 
 
@@ -521,13 +629,8 @@ Bullets are allowed only when there are separate semantic areas to describe, and
 """
 
 
-def request_commit_message(
-    dr: DirtyRepo,
-    base_url: str,
-    model: str,
-    timeout_ms: int,
-    num_predict: int,
-) -> str:
+def request_commit_message(dr: DirtyRepo, generate: Generator) -> str:
+    """Drive the chosen backend through escalating bundles until output passes QA."""
     attempts = [
         ("full", dirty_repo_bundle(dr), SYSTEM_PROMPT),
         (
@@ -551,14 +654,7 @@ def request_commit_message(
     for label, bundle, system in attempts:
         if last_problem:
             print(f"Warning: repo '{dr.name}' retrying with {label}: {last_problem}", file=sys.stderr)
-        raw = invoke_ollama_generate(
-            base_url=base_url,
-            model=model,
-            prompt=build_user_prompt(dr.name, bundle, last_problem),
-            timeout_ms=timeout_ms,
-            num_predict=num_predict,
-            system=system,
-        )
+        raw = generate(build_user_prompt(dr.name, bundle, last_problem), system)
         message = normalize_message(raw)
         problem = message_quality_problem(message, dr.name)
         if problem is None:
@@ -572,72 +668,183 @@ def request_commit_message(
     return fallback_commit_message(dr)
 
 
-def write_messages(path: Path, messages: dict[str, str]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(messages, indent=4), encoding="utf-8")
-
-
-def run_commit_and_push(script_path: Path, messages_path: Path) -> int:
-    result = subprocess.run(
-        ["powershell", "-File", str(script_path), str(messages_path)],
-        text=True,
+def make_generator(source: str, args: argparse.Namespace, dr: DirtyRepo) -> Generator:
+    """Bind the selected backend to a (prompt, system) -> text callable for one repo."""
+    if source == "ollama":
+        return lambda prompt, system: invoke_ollama_generate(
+            base_url=args.ollama_base_url,
+            model=args.ollama_model,
+            prompt=prompt,
+            timeout_ms=args.ollama_timeout_ms,
+            num_predict=args.ollama_num_predict,
+            system=system,
+        )
+    return lambda prompt, system: invoke_claude_generate(
+        repo_path=dr.path,
+        model=args.claude_model,
+        prompt=prompt,
+        timeout_ms=args.claude_timeout_ms,
+        system=system,
     )
-    return result.returncode
+
+
+def decide_source(args: argparse.Namespace) -> str:
+    """Resolve which backend to use, honoring a forced choice or auto-detecting Ollama."""
+    if args.message_source == "ollama":
+        if not ollama_reachable(args.ollama_base_url, args.ollama_reachable_timeout_ms):
+            raise ScriptError(
+                f"Ollama not reachable at {args.ollama_base_url} but --message-source=ollama was forced."
+            )
+        print(f"Using local Ollama model '{args.ollama_model}' at {args.ollama_base_url}.")
+        return "ollama"
+    if args.message_source == "claude":
+        print(f"Using Claude Code CLI model '{args.claude_model}'.")
+        return "claude"
+
+    # auto: prefer local Ollama when reachable, otherwise fall back to Claude.
+    if ollama_reachable(args.ollama_base_url, args.ollama_reachable_timeout_ms):
+        print(f"Ollama reachable at {args.ollama_base_url} -- using local model '{args.ollama_model}'.")
+        return "ollama"
+    print(
+        f"Ollama not reachable at {args.ollama_base_url} -- "
+        f"falling back to Claude Code CLI model '{args.claude_model}'."
+    )
+    return "claude"
+
+
+def set_git_identity() -> None:
+    subprocess.run(["git", "config", "--global", "user.email", GIT_USER_EMAIL], check=False)
+    subprocess.run(["git", "config", "--global", "user.name", GIT_USER_NAME], check=False)
+
+
+def clean_git_locks(repo_path: Path) -> None:
+    git_dir = repo_path / ".git"
+    if not git_dir.exists():
+        return
+    for lock in git_dir.rglob("*.lock"):
+        try:
+            lock.unlink()
+        except OSError:
+            pass
+
+
+def commit_and_push_repo(repo_path: Path, message: str) -> str:
+    """Stage, commit, and push one repo. Returns 'pushed' or 'clean'."""
+    name = repo_path.name
+    add = subprocess.run(
+        ["git", "-C", str(repo_path), "add", "-A"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if add.returncode != 0:
+        raise ScriptError(f"{name}: git add failed ({add.returncode}): {add.stderr or add.stdout}")
+
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".txt", delete=False, encoding="utf-8", newline="\n"
+    ) as handle:
+        handle.write(message)
+        temp_path = handle.name
+    try:
+        commit = subprocess.run(
+            ["git", "-C", str(repo_path), "commit", "-F", temp_path],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    finally:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+
+    if commit.returncode == 1:
+        return "clean"
+    if commit.returncode != 0:
+        raise ScriptError(f"{name}: git commit failed ({commit.returncode}): {commit.stderr or commit.stdout}")
+
+    push = subprocess.run(
+        ["git", "-C", str(repo_path), "push"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if push.returncode != 0:
+        raise ScriptError(f"{name}: git push failed ({push.returncode}): {push.stderr or push.stdout}")
+    return "pushed"
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--message-source",
+        choices=["auto", "ollama", "claude"],
+        default="auto",
+        help="Backend for commit messages: auto (Ollama if reachable, else Claude), or force one.",
+    )
     parser.add_argument("--ollama-base-url", default="http://10.94.0.100:11434")
     parser.add_argument("--ollama-model", default="qwen3-coder:30b-ctx32k")
     parser.add_argument("--ollama-timeout-ms", type=int, default=180000)
-    parser.add_argument("--messages-path", default="")
-    parser.add_argument("--max-diff-chars-per-repo", type=int, default=45000)
+    parser.add_argument(
+        "--ollama-reachable-timeout-ms",
+        type=int,
+        default=3000,
+        help="Timeout for the quick Ollama reachability probe.",
+    )
     parser.add_argument("--ollama-num-predict", type=int, default=896)
-    parser.add_argument("--commit-and-push", action="store_true")
+    parser.add_argument("--claude-model", default="sonnet")
+    parser.add_argument("--claude-timeout-ms", type=int, default=300000)
+    parser.add_argument("--max-diff-chars-per-repo", type=int, default=45000)
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Generate and print commit messages but do not commit or push.",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
     workspace_root = workspace_root_from_script()
-    messages_path = (
-        Path(args.messages_path)
-        if args.messages_path
-        else workspace_root / "commit-messages.json"
-    )
-    if not messages_path.is_absolute():
-        messages_path = workspace_root / messages_path
+
+    source = decide_source(args)
 
     dirty_repos = collect_dirty_repos(workspace_root, args.max_diff_chars_per_repo)
     if not dirty_repos:
-        write_messages(messages_path, {})
-        print(f"No uncommitted changes. Wrote empty object to {messages_path}")
-        if args.commit_and_push:
-            return run_commit_and_push(workspace_root / "datrix/scripts/git/commit-and-push.ps1", messages_path)
+        print("No uncommitted changes in any Datrix repo. Nothing to commit.")
         return 0
 
-    messages: dict[str, str] = {}
+    if not args.dry_run:
+        set_git_identity()
+
     for dr in dirty_repos:
-        print(f"Calling Ollama ({args.ollama_model}) for {dr.name}...")
-        message = request_commit_message(
-            dr=dr,
-            base_url=args.ollama_base_url,
-            model=args.ollama_model,
-            timeout_ms=args.ollama_timeout_ms,
-            num_predict=args.ollama_num_predict,
-        )
-        messages[dr.name] = message
+        print(f"Generating commit message for {dr.name} via {source}...")
+        message = request_commit_message(dr, make_generator(source, args, dr))
         print("")
         print(f"========== Commit message: {dr.name} ==========")
         print(message)
         print(f"========== end {dr.name} ==========")
         print("")
 
-    write_messages(messages_path, messages)
-    print(f"Wrote {messages_path}")
-    if args.commit_and_push:
-        return run_commit_and_push(workspace_root / "datrix/scripts/git/commit-and-push.ps1", messages_path)
-    print("Skipping commit-and-push.ps1 (pass -CommitAndPush to run it after writing JSON).")
+        if args.dry_run:
+            continue
+
+        clean_git_locks(dr.path)
+        print(f"Committing and pushing {dr.name}...")
+        outcome = commit_and_push_repo(dr.path, message)
+        if outcome == "clean":
+            print(f"{dr.name}: nothing to commit (working tree clean)")
+        else:
+            print(f"{dr.name}: committed and pushed successfully")
+        print("")
+
+    if args.dry_run:
+        print("Dry run complete; no commits were made.")
+    else:
+        print("Commit-and-push completed.")
     return 0
 
 

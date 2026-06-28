@@ -10,9 +10,7 @@ Git operations across all Datrix repositories.
 |--------|-------------|
 | `status.ps1` | Show git status for all repositories |
 | `pull.ps1` | Pull latest changes for all repositories |
-| `auto-commit-and-push.ps1` | **Recommended:** Fully automated commit-and-push using Claude Code CLI |
-| `l-commit-and-push.ps1` | Build `commit-messages.json` via local Ollama; optional `-CommitAndPush` runs `commit-and-push.ps1` |
-| `commit-and-push.ps1` | Batch commit and push using a JSON message file |
+| `commit-and-push.ps1` | One-pass commit-and-push for all dirty repos; messages from local Ollama (if reachable) or the Claude Code CLI |
 
 ## status.ps1
 
@@ -47,98 +45,47 @@ Pulls latest changes from remote for all repositories.
 .\pull.ps1
 ```
 
-## auto-commit-and-push.ps1
+## commit-and-push.ps1
 
-**Recommended approach for committing and pushing across all Datrix repos.**
+**The single way to commit and push across all Datrix repos.**
 
-Fully automated workflow that invokes Claude Code CLI to analyze uncommitted changes, generate detailed commit messages, and automatically commit and push.
+For every repository with uncommitted changes, it generates a commit message and then stages, commits, and pushes that repo — in one pass, with no intermediate `commit-messages.json` file. A thin PowerShell wrapper delegates to `scripts/library/git/commit-and-push.py`, which holds the shared logic (change collection, message generation, and git commit/push).
 
 ```powershell
-# Fully automated: Claude analyzes → generates JSON → commits → pushes
-.\auto-commit-and-push.ps1
+# Auto: local Ollama if reachable, else Claude Code CLI; commit + push
+.\commit-and-push.ps1
 
-# With debug output during commit/push phase
-.\auto-commit-and-push.ps1 -Dbg
+# Force the local Ollama model (errors if Ollama is unreachable)
+.\commit-and-push.ps1 -MessageSource ollama
+
+# Force the Claude Code CLI
+.\commit-and-push.ps1 -MessageSource claude
+
+# Preview the generated messages without committing
+.\commit-and-push.ps1 -DryRun
 ```
 
 ### How It Works
 
-1. Invokes `claude --print` in CLI mode with prompt to analyze all repos
-2. Claude scans for changes using git status and diff
-3. Claude generates `D:\datrix\commit-messages.json` with detailed messages
-4. Script verifies JSON was created successfully
-5. Script automatically runs `commit-and-push.ps1` to commit and push
+1. Probes the configured Ollama endpoint for reachability.
+2. **Message source:**
+   - If Ollama is reachable → one local-model generate call per dirty repo.
+   - Otherwise → the Claude Code CLI generates the message per dirty repo (with read-only git/read tools scoped to that repo).
+   - Generated messages pass a quality gate (no path dumps, no chat-style prose, concrete subject); a deterministic fallback is used if a model cannot produce a usable message.
+3. For each dirty repo: removes stale `.lock` files, then `git add -A`, `git commit -F <temp-file>` (handles multi-line messages), `git push`.
+4. Stops on the first git failure.
 
 ### Prerequisites
 
-Claude Code CLI must be installed and available in PATH:
+- **Ollama path:** the configured Ollama endpoint (default `http://10.94.0.100:11434`) must be reachable.
+- **Claude fallback:** the Claude Code CLI must be installed and available in PATH:
 
-```bash
-npm install -g @anthropic-ai/claude-code
-```
+  ```bash
+  npm install -g @anthropic-ai/claude-code
+  ```
 
-Verify with: `claude --version`
+  Verify with: `claude --version`
 
-### When to Use
+### Parameters
 
-- **Use auto-commit-and-push.ps1 when:** You want Claude to analyze changes and write commit messages automatically
-- **Use commit-and-push.ps1 when:** You already have a pre-generated `commit-messages.json`
-- **Use l-commit-and-push.ps1 when:** You prefer local Ollama models over Claude API
-
-## l-commit-and-push.ps1
-
-Generates `commit-messages.json` at the workspace root using a local Ollama model (one generate call per repo with changes). Prints each message to the console. Git commit and push is opt-in.
-
-```powershell
-# Write commit-messages.json only (from repo root)
-.\l-commit-and-push.ps1
-
-# Same, then run commit-and-push.ps1 with that file
-.\l-commit-and-push.ps1 -CommitAndPush
-```
-
-See script comment-based help for `-OllamaBaseUrl`, `-OllamaModel`, `-MessagesPath`, and other parameters.
-
-## commit-and-push.ps1
-
-Commits and pushes changes across multiple repositories using a JSON file for commit messages.
-
-### Usage
-
-```powershell
-# Use default commit-messages.json in current directory
-.\commit-and-push.ps1
-
-# Specify custom messages file
-.\commit-and-push.ps1 D:\datrix\commit-messages.json
-
-# Debug mode
-.\commit-and-push.ps1 -Dbg
-```
-
-### Messages File Format
-
-Create a `commit-messages.json` file:
-
-```json
-{
- "datrix-common": "feat: add new validation rules\n\nAdded email and URL validation.",
- "datrix-language": "fix: parser edge case with nested blocks",
- "datrix-common": "refactor: simplify template rendering"
-}
-```
-
-- Keys are repository directory names
-- Values are commit messages (can be multi-line)
-- Only repositories with entries are committed
-- Repositories without entries are skipped
-
-### Behavior
-
-1. Validates all repository keys exist in workspace
-2. Removes any `.lock` files in `.git` folders
-3. For each repo with a message:
- - `git add -A`
- - `git commit -F <temp-file>` (handles multi-line messages)
- - `git push`
-4. Stops on first failure
+`-MessageSource` (`auto`\|`ollama`\|`claude`, default `auto`), `-OllamaBaseUrl`, `-OllamaModel`, `-OllamaTimeoutMs`, `-OllamaNumPredict`, `-ClaudeModel`, `-ClaudeTimeoutMs`, `-MaxDiffCharsPerRepo`, `-DryRun`. See the script comment-based help for defaults.

@@ -31,44 +31,17 @@ Pulls all git repositories under the workspace root.
 
 ---
 
-## `git\l-commit-and-push.ps1`
-
-Builds `commit-messages.json` using a local Ollama model for each repo with uncommitted changes (plain-text messages; printed to console). Optional `-CommitAndPush` runs `commit-and-push.ps1` after writing the JSON.
-
-| Mode | Command | Description |
-|------|---------|-------------|
-| **Generate JSON only** | `.\git\l-commit-and-push.ps1` | Default output: `commit-messages.json` under workspace root |
-| **Generate then commit/push** | `.\git\l-commit-and-push.ps1 -CommitAndPush` | Writes JSON, then `commit-and-push.ps1` |
-
-**Parameters:** `-OllamaBaseUrl`, `-OllamaModel`, `-OllamaTimeoutMs`, `-MessagesPath`, `-MaxDiffCharsPerRepo`, `-OllamaNumPredict`, `-CommitAndPush`
-
----
-
-## `git\auto-commit-and-push.ps1`
-
-**Fully automated commit-and-push workflow.** Invokes Claude Code CLI to analyze all repos, generate `commit-messages.json`, then automatically commits and pushes. This is the recommended way to commit across all Datrix repos.
-
-| Mode | Command | Description |
-|------|---------|-------------|
-| **Auto (default)** | `.\git\auto-commit-and-push.ps1` | Claude analyzes, generates JSON, commits/pushes |
-| **Auto with debug** | `.\git\auto-commit-and-push.ps1 -Dbg` | Same with verbose git output |
-
-**Parameters:** `-MessagesPath` (default: D:\datrix\commit-messages.json), `-Dbg`
-
-**Prerequisites:** Claude Code CLI must be installed and available in PATH (`claude` command).
-
----
-
 ## `git\commit-and-push.ps1`
 
-Batch commits and pushes repos using messages from a JSON file. Format: `{ "datrix": "message", "datrix-common": "message", ... }`. Only repos with entries in the JSON are committed. Stops on first failure.
-
-**Note:** This script is now called automatically by `auto-commit-and-push.ps1`. Use this directly only if you already have a pre-generated `commit-messages.json`.
+**One-pass commit-and-push across all Datrix repos.** For every repo with uncommitted changes, it generates a commit message and then stages, commits, and pushes it. No `commit-messages.json` is written. The message source is chosen automatically: if a local Ollama endpoint is reachable, messages come from the local model; otherwise it falls back to the Claude Code CLI. Stops on the first git failure.
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Default file** | `.\git\commit-and-push.ps1` | Uses `commit-messages.json` in current dir |
-| **Explicit file** | `.\git\commit-and-push.ps1 commit-messages.json` | Specified JSON file |
-| **Absolute path** | `.\git\commit-and-push.ps1 D:\datrix\commit-messages.json` | Full path to JSON |
+| **Auto (default)** | `.\git\commit-and-push.ps1` | Ollama if reachable, else Claude; commit + push |
+| **Force local model** | `.\git\commit-and-push.ps1 -MessageSource ollama` | Require Ollama; error if unreachable |
+| **Force Claude** | `.\git\commit-and-push.ps1 -MessageSource claude` | Use the Claude Code CLI |
+| **Preview only** | `.\git\commit-and-push.ps1 -DryRun` | Print generated messages; do not commit |
 
-**Parameters:** `-MessagesPath` (positional, default: commit-messages.json), `-Dbg`
+**Parameters:** `-MessageSource` (`auto`\|`ollama`\|`claude`, default `auto`), `-OllamaBaseUrl`, `-OllamaModel`, `-OllamaTimeoutMs`, `-OllamaNumPredict`, `-ClaudeModel`, `-ClaudeTimeoutMs`, `-MaxDiffCharsPerRepo`, `-DryRun`
+
+**Prerequisites:** For the Claude fallback, the Claude Code CLI must be installed and available in PATH (`claude` command). For the Ollama path, the configured Ollama endpoint must be reachable.

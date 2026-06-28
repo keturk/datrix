@@ -1,194 +1,119 @@
-﻿<#
+#!/usr/bin/env pwsh
+<#
 .SYNOPSIS
- Commits and pushes all Datrix repositories using messages from a JSON file.
+Generate commit messages for every dirty Datrix repo and commit+push them.
 
 .DESCRIPTION
- Reads commit messages from a JSON file (key = repo directory name, value = commit message).
- Sets global git user.email and user.name for commits, then deletes all .lock files under
- each repo's .git folder. Only repos that have an entry in the JSON are committed and pushed.
- Commit messages can be long and multi-line; they are passed to git via a temp file (-F).
+Single entry point that wraps scripts\library\git\commit-and-push.py. The Python
+implementation collects changes from each dirty Datrix repository, generates one
+commit message per repo, then stages, commits, and pushes it.
 
-.PARAMETER MessagesPath
- Optional. Path to the JSON file. Default: commit-messages.json (relative to current directory).
- Accepts either schema:
-   Flat: { "datrix": "message", "datrix-common": "message", ... }
-   Rich: { "commits": [ { "repo": "datrix", "message": "..." }, ... ], ... }
- In the rich schema, each commit entry may supply the message either as a single
- "message" field, or as a structured "subject" + "body" pair (the body is appended
- after a blank line). Sibling metadata keys (generated, workspace, summary, files,
- repositoriesClean, etc.) are ignored; only the commits[] entries drive commits.
+Message source is chosen automatically:
+ * If a local Ollama endpoint is reachable, messages come from the local model.
+ * Otherwise the script falls back to the Claude Code CLI.
+
+Force a backend with -MessageSource ollama|claude. No commit-messages.json is
+written -- generation and commit/push happen in one pass.
+
+.PARAMETER MessageSource
+auto (default), ollama, or claude. auto probes Ollama and falls back to Claude.
+
+.PARAMETER OllamaBaseUrl
+Base URL for Ollama (no trailing path). Default matches the local Act Mode setup.
+
+.PARAMETER OllamaModel
+Ollama model name. Default: qwen3-coder:30b-ctx32k
+
+.PARAMETER OllamaTimeoutMs
+HTTP timeout (ms) for each Ollama generate request.
+
+.PARAMETER OllamaNumPredict
+Ollama option num_predict (max tokens). Default 896.
+
+.PARAMETER ClaudeModel
+Claude model used by the Claude Code CLI fallback. Default: sonnet
+
+.PARAMETER ClaudeTimeoutMs
+Timeout (ms) for each Claude CLI invocation. Default 300000.
+
+.PARAMETER MaxDiffCharsPerRepo
+Maximum prompt characters of tracked diff context to include per repo.
+
+.PARAMETER DryRun
+Generate and print commit messages but do not commit or push.
 
 .EXAMPLE
- .\commit-and-push.ps1
- Uses commit-messages.json in the current directory.
+.\commit-and-push.ps1
+Auto-detect backend, generate messages, commit and push every dirty repo.
 
 .EXAMPLE
- .\commit-and-push.ps1 commit-messages.json
+.\commit-and-push.ps1 -MessageSource claude
+Force the Claude Code CLI as the message source.
+
 .EXAMPLE
- .\commit-and-push.ps1 D:\datrix\commit-messages.json
+.\commit-and-push.ps1 -DryRun
+Print the generated messages without committing.
 #>
 [CmdletBinding()]
 param(
- [Parameter(Mandatory = $false, Position = 0)]
- [string]$MessagesPath = 'commit-messages.json',
+    [Parameter(Mandatory = $false)]
+    [ValidateSet('auto', 'ollama', 'claude')]
+    [string]$MessageSource = 'auto',
 
- [switch]$Dbg
+    [Parameter(Mandatory = $false)]
+    [string]$OllamaBaseUrl = 'http://10.94.0.100:11434',
+
+    [Parameter(Mandatory = $false)]
+    [string]$OllamaModel = 'qwen3-coder:30b-ctx32k',
+
+    [Parameter(Mandatory = $false)]
+    [int]$OllamaTimeoutMs = 180000,
+
+    [Parameter(Mandatory = $false)]
+    [int]$OllamaNumPredict = 896,
+
+    [Parameter(Mandatory = $false)]
+    [string]$ClaudeModel = 'sonnet',
+
+    [Parameter(Mandatory = $false)]
+    [int]$ClaudeTimeoutMs = 300000,
+
+    [Parameter(Mandatory = $false)]
+    [int]$MaxDiffCharsPerRepo = 45000,
+
+    [switch]$DryRun
 )
 
 $ErrorActionPreference = 'Stop'
 
-# Resolve path to messages file
-if (-not (Test-Path -LiteralPath $MessagesPath)) {
- Write-Error "Messages file not found: $MessagesPath"
-}
-$MessagesPath = Resolve-Path -LiteralPath $MessagesPath
+$scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+$datrixRoot = Split-Path -Parent (Split-Path -Parent $scriptDir)
+$pythonScript = Join-Path $datrixRoot 'scripts\library\git\commit-and-push.py'
 
-# Read and parse JSON; fail if invalid or not an object
-$jsonText = Get-Content -LiteralPath $MessagesPath -Raw -Encoding UTF8
-try {
- $messages = $jsonText | ConvertFrom-Json
-} catch {
- Write-Error "Invalid JSON in messages file: $_"
-}
-if ($messages -isnot [PSCustomObject]) {
- Write-Error "Messages file root must be a JSON object (repo name -> message)."
+if (-not (Test-Path -LiteralPath $pythonScript)) {
+    Write-Error "Python implementation not found at: $pythonScript"
+    exit 1
 }
 
-# Normalize to a flat { repoName -> message } map. Two schemas are accepted:
-#  1. Flat:  { "datrix": "msg", "datrix-common": "msg", ... }
-#  2. Rich:  { "commits": [ { "repo": "datrix", "message": "msg" }, ... ], ... }
-#            Each rich entry may instead carry "subject" + "body" (the body is
-#            appended after a blank line) — this is the structure the Claude
-#            generator emits. The rich schema also carries metadata keys like
-#            "generated", "summary", "files", "repositoriesClean" that must NOT
-#            be treated as repos.
-$repoMessages = [ordered]@{}
-if ($null -ne $messages.commits) {
- if ($messages.commits -isnot [System.Collections.IEnumerable] -or $messages.commits -is [string]) {
- Write-Error "Messages file has a 'commits' key but it is not an array."
- }
- foreach ($entry in $messages.commits) {
- if ([string]::IsNullOrWhiteSpace($entry.repo)) {
- Write-Error "A 'commits' entry is missing a 'repo' name."
- }
- # Resolve the commit message: prefer an explicit 'message' field, else
- # synthesize it from a structured 'subject' + 'body' pair (the rich schema
- # the Claude generator emits). Body is appended after a blank line.
- $entryMessage = $entry.message
- if ([string]::IsNullOrWhiteSpace($entryMessage)) {
- $subject = $entry.subject
- $body = $entry.body
- if (-not [string]::IsNullOrWhiteSpace($subject)) {
- if (-not [string]::IsNullOrWhiteSpace($body)) {
- $entryMessage = "$subject`n`n$body"
- } else {
- $entryMessage = $subject
- }
- }
- }
- if ([string]::IsNullOrWhiteSpace($entryMessage)) {
- Write-Error "Commit entry for repo '$($entry.repo)' is missing a 'message' (or a 'subject'/'body' pair)."
- }
- $repoMessages[$entry.repo] = $entryMessage
- }
-} else {
- foreach ($prop in $messages.PSObject.Properties) {
- $repoMessages[$prop.Name] = $prop.Value
- }
+$workspaceRoot = Split-Path -Parent $datrixRoot
+$venvPython = Join-Path $workspaceRoot '.venv\Scripts\python.exe'
+$pythonExe = if (Test-Path -LiteralPath $venvPython) { $venvPython } else { 'python' }
+
+$pyArgs = @(
+    $pythonScript,
+    '--message-source', $MessageSource,
+    '--ollama-base-url', $OllamaBaseUrl,
+    '--ollama-model', $OllamaModel,
+    '--ollama-timeout-ms', $OllamaTimeoutMs,
+    '--ollama-num-predict', $OllamaNumPredict,
+    '--claude-model', $ClaudeModel,
+    '--claude-timeout-ms', $ClaudeTimeoutMs,
+    '--max-diff-chars-per-repo', $MaxDiffCharsPerRepo
+)
+
+if ($DryRun) {
+    $pyArgs += '--dry-run'
 }
 
-# Navigate to workspace root and load repo list (common is under scripts, one level up from git)
-$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
-$scriptsDir = Join-Path $scriptPath ".."
-$datrixCommon = Join-Path $scriptsDir "common\DatrixPaths.psm1"
-if (-not (Test-Path $datrixCommon)) {
- Write-Error "DatrixPaths.psm1 not found at $datrixCommon"
-}
-Import-Module $datrixCommon -Force
-$root = Get-DatrixWorkspaceRoot -ScriptPath $MyInvocation.MyCommand.Path
-$repoPaths = Get-DatrixDirectoryPaths -WorkspaceRoot $root
-Set-Location $root
-
-# Ensure git user identity is set for commits
-git config --global user.email "kercan@outlook.com"
-git config --global user.name "Kamil Ercan Turkarslan"
-
-# Ensure every repo key in the JSON exists in the workspace (fail fast)
-$messageKeys = @($repoMessages.Keys)
-$existingNames = @($repoPaths | ForEach-Object { Split-Path -Leaf $_ })
-foreach ($key in $messageKeys) {
- if ($key -notin $existingNames) {
- Write-Error "Repo '$key' in messages file not found in workspace. Existing: $($existingNames -join ', ')"
- }
-}
-
-# Delete all .lock files under each repo's .git
-foreach ($repoPath in $repoPaths) {
- $gitDir = Join-Path $repoPath '.git'
- if (-not (Test-Path $gitDir)) {
- Write-Host "$(Split-Path -Leaf $repoPath): no .git, skipping lock cleanup" -ForegroundColor Yellow
- continue
- }
- $locks = Get-ChildItem -Path $gitDir -Recurse -Filter '*.lock' -File -ErrorAction SilentlyContinue
- foreach ($f in $locks) {
- Remove-Item -LiteralPath $f.FullName -Force
- if ($Dbg) { Write-Host " Removed $($f.FullName)" -ForegroundColor Gray }
- }
-}
-
-# Commit and push only repos that have a message in the JSON
-foreach ($repoPath in $repoPaths) {
- $repoName = Split-Path -Leaf $repoPath
- $message = $repoMessages[$repoName]
- if (-not $message) {
- Write-Host "${repoName}: no message in file, skipping" -ForegroundColor Yellow
- continue
- }
- if ([string]::IsNullOrWhiteSpace($message)) {
- Write-Host "${repoName}: empty message, skipping" -ForegroundColor Yellow
- continue
- }
-
- if (-not (Test-Path (Join-Path $repoPath '.git'))) {
- Write-Host "${repoName}: not a git repo, skipping" -ForegroundColor Yellow
- continue
- }
-
- Write-Host "Committing and pushing $repoName..." -ForegroundColor Cyan
-
- # Use temp file for message so long and multi-line descriptions work correctly
- $tempFile = [System.IO.Path]::GetTempFileName()
- try {
- [System.IO.File]::WriteAllText($tempFile, $message, [System.Text.UTF8Encoding]::new($false))
- git -C $repoPath add -A
- if ($LASTEXITCODE -ne 0) {
- Write-Host "${repoName}: git add failed with exit code $LASTEXITCODE" -ForegroundColor Red
- Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue
- throw "Stopping on first git failure."
- }
- git -C $repoPath commit -F $tempFile
- $commitExit = $LASTEXITCODE
- if ($commitExit -eq 0) {
- git -C $repoPath push
- if ($LASTEXITCODE -ne 0) {
- Write-Host "${repoName}: git push failed with exit code $LASTEXITCODE" -ForegroundColor Red
- Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue
- throw "Stopping on first git failure."
- }
- Write-Host "${repoName}: committed and pushed successfully" -ForegroundColor Green
- } elseif ($commitExit -eq 1) {
- Write-Host "${repoName}: nothing to commit (working tree clean)" -ForegroundColor Gray
- } else {
- Write-Host "${repoName}: git commit failed with exit code $commitExit" -ForegroundColor Red
- Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue
- throw "Stopping on first git failure."
- }
- } finally {
- if (Test-Path -LiteralPath $tempFile) {
- Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue
- }
- }
- Write-Host ""
-}
-
-Write-Host "Commit-and-push completed."
+& $pythonExe @pyArgs
+exit $LASTEXITCODE
