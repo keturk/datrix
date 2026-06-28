@@ -9,7 +9,7 @@
 // Product table can be rebuilt from storage at any time without re-fetching from
 // the supplier API.
 //
-// Neutral domain: supplier catalog feed → warehouse product table (no aviation terms).
+// Neutral domain: supplier catalog feed → warehouse product table.
 //
 // Key design contracts demonstrated:
 //   D39  Storage is the system-of-record; Kafka is transport only.

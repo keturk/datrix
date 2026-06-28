@@ -90,7 +90,6 @@ Valid project names for `-Projects` parameter:
 - `datrix-codegen-aws`
 - `datrix-codegen-azure`
 - `datrix-extensions`
-- `datrix-projects`
 
 ---
 

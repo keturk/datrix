@@ -131,10 +131,6 @@ function Get-DatrixTestablePackageNames {
 
  Retired names merged into datrix-common are excluded: datrix-core, datrix-codegen.
 
- Customer-project containers are excluded too: datrix-projects holds generated/customer
- projects (e.g. curvaero) whose tests live with the generated project, not in the Datrix
- toolchain test suite — so it is never matched here even if a stray tests/ directory appears.
-
  .PARAMETER WorkspaceRoot
  Monorepo workspace root. Defaults to Get-DatrixWorkspaceRoot.
  #>
@@ -149,16 +145,12 @@ function Get-DatrixTestablePackageNames {
  }
 
  $retired = @("datrix-core", "datrix-codegen")
- # Customer-project containers are not toolchain test packages; their tests live with the
- # generated project, never in the Datrix test suite. Excluded even if a tests/ dir appears.
- $nonToolchain = @("datrix-projects")
  $projects = @()
  if (Test-Path $WorkspaceRoot) {
   Get-ChildItem -Path $WorkspaceRoot -Directory |
    Where-Object {
     $_.Name -like "datrix-*" -and
     $retired -notcontains $_.Name -and
-    $nonToolchain -notcontains $_.Name -and
     (Test-Path (Join-Path $_.FullName "tests"))
    } |
    ForEach-Object { $projects += $_.Name }

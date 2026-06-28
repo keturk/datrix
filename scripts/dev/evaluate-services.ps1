@@ -29,11 +29,11 @@
     If not specified, uses the current directory.
 
 .EXAMPLE
-    cd d:\datrix\eval\2026-05-16-100000-curvaero
-    d:\datrix\datrix\scripts\dev\run-service-evaluations.ps1 -SourceDir "d:\datrix\datrix-projects\curvaero\curvaero-backend" -GeneratedDir "d:\datrix\.generated\python\docker\curvaero"
+    cd d:\datrix\eval\2026-05-16-100000-ecommerce
+    d:\datrix\datrix\scripts\dev\run-service-evaluations.ps1 -SourceDir "d:\datrix\datrix\examples\03-domains\ecommerce" -GeneratedDir "d:\datrix\.generated\python\docker-compose\local\03-domains\ecommerce"
 
 .EXAMPLE
-    d:\datrix\datrix\scripts\dev\run-service-evaluations.ps1 -SourceDir "d:\datrix\datrix-projects\curvaero\curvaero-backend" -GeneratedDir "d:\datrix\.generated\python\docker\curvaero" -EvalDir "d:\datrix\eval\2026-05-16-100000-curvaero" -Parallel 3 -Model sonnet
+    d:\datrix\datrix\scripts\dev\run-service-evaluations.ps1 -SourceDir "d:\datrix\datrix\examples\03-domains\ecommerce" -GeneratedDir "d:\datrix\.generated\python\docker-compose\local\03-domains\ecommerce" -EvalDir "d:\datrix\eval\2026-05-16-100000-ecommerce" -Parallel 3 -Model sonnet
 #>
 
 param(

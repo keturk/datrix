@@ -25,21 +25,21 @@ Primary invocation with both paths:
 ```
 /evaluate-generated
 
-SOURCE: D:\datrix\datrix\examples\02-domains\ecommerce\system.dtrx
-GENERATED: D:\datrix\.generated\python\docker\02-domains\ecommerce
+SOURCE: D:\datrix\datrix\examples\03-domains\ecommerce\system.dtrx
+GENERATED: D:\datrix\.generated\python\docker-compose\local\03-domains\ecommerce
 ```
 
 Example project invocation:
 ```
 /evaluate-generated
 
-SOURCE: D:\datrix\datrix-projects\curvaero\datrix-app\system.dtrx
-GENERATED: D:\datrix\.generated\python\docker\curvaero
+SOURCE: D:\datrix\datrix\examples\03-domains\ecommerce\system.dtrx
+GENERATED: D:\datrix\.generated\python\docker-compose\local\03-domains\ecommerce
 ```
 
 Alternative natural language:
 ```
-"Evaluate generated output for the curvaero project"
+"Evaluate generated output for the ecommerce project"
 "Check deployment readiness of the ecommerce example"
 "Compare ecommerce source against its generated code"
 ```
@@ -90,7 +90,7 @@ Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `p
 **Goal:** Create timestamped directory for this evaluation session.
 
 1. Generate timestamp: `{YYYY-MM-DD-HHMMSS}` (e.g., `2026-05-11-143022`)
-2. Extract project slug from SOURCE path or system.dtrx system name (e.g., `curvaero`, `ecommerce`)
+2. Extract project slug from SOURCE path or system.dtrx system name (e.g., `ecommerce`, `inventory`)
 3. Create directory: `D:\datrix\eval\{timestamp}-{project-slug}\`
 4. Set this as the **evaluation directory** for all output files
 
@@ -107,7 +107,7 @@ Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `p
 1. Read `system.dtrx` from SOURCE path
 2. Identify system name and version
 3. Identify all `include` statements (these are service .dtrx files)
-4. Extract service names from include paths (e.g., `"aviation-data-service.dtrx"` → `aviation-data-service`)
+4. Extract service names from include paths (e.g., `"product-service.dtrx"` → `product-service`)
 5. Identify system config references:
    - System config path (e.g., `config/system.dcfg`)
    - Registry config path
@@ -130,8 +130,8 @@ Build a table of services:
 
 | Service Name | .dtrx File Path | Expected Generated Dir |
 |--------------|----------------|----------------------|
-| aviation-data-service | {SOURCE_DIR}/aviation-data-service.dtrx | {GENERATED}/curvaero_aviation_data_service |
-| airspace-service | {SOURCE_DIR}/airspace-service.dtrx | {GENERATED}/curvaero_airspace_service |
+| product-service | {SOURCE_DIR}/product-service.dtrx | {GENERATED}/ecommerce_product_service |
+| order-service | {SOURCE_DIR}/order-service.dtrx | {GENERATED}/ecommerce_order_service |
 | ... | ... | ... |
 
 **End-of-phase output:** Service inventory table with SOURCE and GENERATED paths for each service.
@@ -174,8 +174,8 @@ For each service in the service inventory (from Phase 1), check if the expected 
 
 | Service Name | Expected Dir | Exists? |
 |--------------|-------------|---------|
-| aviation-data-service | curvaero_aviation_data_service | Yes/No |
-| airspace-service | curvaero_airspace_service | Yes/No |
+| product-service | ecommerce_product_service | Yes/No |
+| order-service | ecommerce_order_service | Yes/No |
 | ... | ... | ... |
 
 Flag any services defined in `system.dtrx` that have no corresponding generated directory.
@@ -515,7 +515,7 @@ The report should include:
 #### 6b: Generate Prompt Files
 
 For each service in the service inventory:
-1. Determine service name (from .dtrx filename, e.g., `aviation-data-service.dtrx` → `aviation-data-service`)
+1. Determine service name (from .dtrx filename, e.g., `product-service.dtrx` → `product-service`)
 2. Determine paths (source .dtrx, generated directory, system.dtrx)
 3. Create prompt file using template above
 4. Save to `{EVAL_DIR}/service-{service-name}.prompt.md`

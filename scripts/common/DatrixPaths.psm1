@@ -79,8 +79,7 @@ function Get-DatrixDirectories {
  "datrix-codegen-aws",
  "datrix-codegen-azure",
  "datrix-codegen-docker",
- "datrix-extensions",
- "datrix-projects"
+ "datrix-extensions"
  )
 }
 

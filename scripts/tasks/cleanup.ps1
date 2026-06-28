@@ -1,7 +1,7 @@
-# Cleanup Task Files from .tasks Folders
-# Lists all task files under .tasks folders of each datrix project
+# Cleanup Task Artifacts from .tasks Folders
+# Lists all task artifacts under .tasks folders of each datrix project
 # If -Force parameter is provided, asks for confirmation before deletion
-# If -Phase <number> is provided, only task files in phases before that number are considered (e.g. -Phase 60 deletes phases 1..59).
+# If -Phase <number> is provided, only task artifacts in phases before that number are considered (e.g. -Phase 60 deletes phases 1..59).
 # Usage: .\scripts\tasks\cleanup.ps1 [-BaseDir <path>] [-Force] [-Phase <number>] [-Dbg]
 # Example: .\scripts\tasks\cleanup.ps1 -Force -Phase 60
 
@@ -23,11 +23,11 @@ Import-Module $commonModulePath -Force
 $projects = Get-ChildItem -Path $BaseDir -Directory | Where-Object { $_.Name -like "datrix*" }
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Task Files Cleanup" -ForegroundColor Cyan
+Write-Host "Task Artifacts Cleanup" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-$allTaskFiles = @()
+$allTaskArtifacts = @()
 
 # Function to remove empty folders recursively (depth-first)
 function Remove-EmptyFoldersRecursive {
@@ -102,8 +102,8 @@ function Remove-EmptyFoldersRecursive {
  }
 }
 
-# Function to collect task files from a folder
-function Get-TaskFiles {
+# Function to collect task artifacts from a folder
+function Get-TaskArtifacts {
  param(
  [string]$TasksFolderPath,
  [string]$ProjectName
@@ -113,36 +113,36 @@ function Get-TaskFiles {
  return
  }
  
- # Find task artifact files recursively (task markdown, review JSON, debug attempts, backups, etc.)
- $taskFiles = Get-ChildItem -Path $TasksFolderPath -Recurse -File -ErrorAction SilentlyContinue |
- Where-Object { $_.Name -like "task-*" }
+ # Find task artifact files recursively (task markdown, dependencies, review JSON, debug attempts, backups, etc.)
+ $taskArtifacts = Get-ChildItem -Path $TasksFolderPath -Recurse -File -ErrorAction SilentlyContinue |
+ Where-Object { $_.Name -like "task-*" -or $_.Name -ieq "dependencies.md" }
 
  # Handle case where Get-ChildItem returns a single object instead of an array
- if ($null -eq $taskFiles) {
+ if ($null -eq $taskArtifacts) {
  return
  }
- if ($taskFiles -isnot [System.Array]) {
- $taskFiles = @($taskFiles)
+ if ($taskArtifacts -isnot [System.Array]) {
+ $taskArtifacts = @($taskArtifacts)
  }
- if ($taskFiles.Count -eq 0) {
+ if ($taskArtifacts.Count -eq 0) {
  return
  }
  
- foreach ($taskFile in $taskFiles) {
+ foreach ($taskArtifact in $taskArtifacts) {
  $phase = $null
  $tasksFolderNorm = [System.IO.Path]::GetFullPath($TasksFolderPath).TrimEnd('\', '/')
- $filePathNorm = [System.IO.Path]::GetFullPath($taskFile.FullName)
+ $filePathNorm = [System.IO.Path]::GetFullPath($taskArtifact.FullName)
  if ($filePathNorm.StartsWith($tasksFolderNorm, [System.StringComparison]::OrdinalIgnoreCase)) {
  $relativePath = $filePathNorm.Substring($tasksFolderNorm.Length).TrimStart('\', '/')
  if ($relativePath -match 'phase-(\d+)') {
  $phase = [int]$matches[1]
  }
  }
- $script:allTaskFiles += [PSCustomObject]@{
+ $script:allTaskArtifacts += [PSCustomObject]@{
  Project = $ProjectName
- FullPath = $taskFile.FullName
- Name = $taskFile.Name
- Directory = $taskFile.DirectoryName
+ FullPath = $taskArtifact.FullName
+ Name = $taskArtifact.Name
+ Directory = $taskArtifact.DirectoryName
  Phase = $phase
  }
  }
@@ -150,17 +150,17 @@ function Get-TaskFiles {
 
 # Process root .tasks folder
 $rootTasksFolder = Join-Path $BaseDir ".tasks"
-Get-TaskFiles -TasksFolderPath $rootTasksFolder -ProjectName "(root)"
+Get-TaskArtifacts -TasksFolderPath $rootTasksFolder -ProjectName "(root)"
 
 # Process all datrix projects
 foreach ($project in $projects) {
  $tasksFolder = Join-Path $project.FullName ".tasks"
- Get-TaskFiles -TasksFolderPath $tasksFolder -ProjectName $project.Name
+ Get-TaskArtifacts -TasksFolderPath $tasksFolder -ProjectName $project.Name
 }
 
-# When -Phase is specified, keep only task files in phases before that number
+# When -Phase is specified, keep only task artifacts in phases before that number
 if ($Phase -gt 0) {
- $allTaskFiles = @($allTaskFiles | Where-Object { $null -ne $_.Phase -and $_.Phase -lt $Phase })
+ $allTaskArtifacts = @($allTaskArtifacts | Where-Object { $null -ne $_.Phase -and $_.Phase -lt $Phase })
 }
 
 # Collect all .tasks folders for cleanup (even if empty)
@@ -181,9 +181,9 @@ foreach ($project in $projects) {
  }
 }
 
-# Display all task files
-if ($allTaskFiles.Count -eq 0) {
- Write-Host "No task files found in .tasks folders." -ForegroundColor Green
+# Display all task artifacts
+if ($allTaskArtifacts.Count -eq 0) {
+ Write-Host "No task artifacts found in .tasks folders." -ForegroundColor Green
  Write-Host ""
  
  # Still show .tasks folders if they exist
@@ -208,17 +208,17 @@ if ($allTaskFiles.Count -eq 0) {
  }
  }
 } else {
- Write-Host "Found $($allTaskFiles.Count) task file(s):" -ForegroundColor Cyan
+ Write-Host "Found $($allTaskArtifacts.Count) task artifact(s):" -ForegroundColor Cyan
  if ($Phase -gt 0) {
- Write-Host "Only task files in phases < $Phase will be deleted." -ForegroundColor Cyan
+ Write-Host "Only task artifacts in phases < $Phase will be deleted." -ForegroundColor Cyan
  }
  Write-Host ""
 
- # Display full list of all task files found
- Write-Host "Full list of task files:" -ForegroundColor Yellow
+ # Display full list of all task artifacts found
+ Write-Host "Full list of task artifacts:" -ForegroundColor Yellow
  Write-Host "----------------------------------------" -ForegroundColor Yellow
  $fileNumber = 1
- foreach ($file in $allTaskFiles) {
+ foreach ($file in $allTaskArtifacts) {
  Write-Host "$fileNumber. [$($file.Project)] $($file.FullPath)" -ForegroundColor White
  $fileNumber++
  }
@@ -226,7 +226,7 @@ if ($allTaskFiles.Count -eq 0) {
  Write-Host ""
 
  # Group by project for display
- $groupedByProject = $allTaskFiles | Group-Object -Property Project
+ $groupedByProject = $allTaskArtifacts | Group-Object -Property Project
 
  foreach ($group in $groupedByProject) {
  Write-Host "=== $($group.Name) ===" -ForegroundColor Cyan
@@ -260,15 +260,15 @@ if ($allTaskFiles.Count -eq 0) {
 
 # If -Force is provided, ask for confirmation and delete
 if ($Force) {
- $fileCount = $allTaskFiles.Count
+ $fileCount = $allTaskArtifacts.Count
  $folderCount = $allTasksFolders.Count
  
  Write-Host "========================================" -ForegroundColor Yellow
  if ($Phase -gt 0) {
- Write-Host "Only task files in phases < $Phase will be deleted." -ForegroundColor Yellow
+ Write-Host "Only task artifacts in phases < $Phase will be deleted." -ForegroundColor Yellow
  }
  if ($fileCount -gt 0) {
- Write-Host "WARNING: You are about to delete $fileCount task file(s)" -ForegroundColor Yellow
+ Write-Host "WARNING: You are about to delete $fileCount task artifact(s)" -ForegroundColor Yellow
  }
  if ($folderCount -gt 0) {
  if ($fileCount -gt 0) {
@@ -290,10 +290,10 @@ if ($Force) {
  $deletedCount = 0
  $errorCount = 0
 
- # First, delete all task files
+ # First, delete all task artifacts
  if ($fileCount -gt 0) {
- Write-Host "Deleting task files..." -ForegroundColor Yellow
- foreach ($file in $allTaskFiles) {
+ Write-Host "Deleting task artifacts..." -ForegroundColor Yellow
+ foreach ($file in $allTaskArtifacts) {
  try {
  Remove-Item -Path $file.FullPath -Force -ErrorAction Stop
  Write-Host " Deleted: $($file.FullPath)" -ForegroundColor Green
@@ -336,9 +336,9 @@ if ($Force) {
  Write-Host "========================================" -ForegroundColor Cyan
  if ($fileCount -gt 0) {
  if ($errorCount -eq 0) {
- Write-Host "Successfully deleted $deletedCount file(s)" -ForegroundColor Green
+ Write-Host "Successfully deleted $deletedCount artifact(s)" -ForegroundColor Green
  } else {
- Write-Host "Deleted $deletedCount file(s), $errorCount error(s)" -ForegroundColor Yellow
+ Write-Host "Deleted $deletedCount artifact(s), $errorCount error(s)" -ForegroundColor Yellow
  }
  }
  if ($allTasksFolders.Count -gt 0) {

@@ -129,7 +129,7 @@ Issue files follow this structure:
    - **If issue affects a codegen package:** Run that package's test suite
    - **If issue affects generated code:** Regenerate the affected example(s) and run their tests
 2. **For generated code issues:**
-   - If affected example is from CurvAero project, regenerate it using the appropriate generation script
+   - If affected example is from the ecommerce project, regenerate it using the appropriate generation script
    - Check that the generated code now matches expectations (no more errors in generated files)
    - Run the example's unit tests
 3. **Run the relevant tests:**

@@ -75,7 +75,7 @@ See [quick-reference.md](quick-reference.md) for the full conversion table and l
 .\test\test.ps1 datrix-language -Coverage
 
 # Compare timestamped unit/deploy results for one generated project
-.\test\compare-tests.ps1 D:\datrix\.projects\curvaero\python\.test_results
+.\test\compare-tests.ps1 D:\datrix\.generated\python\docker-compose\local\03-domains\ecommerce\python\.test_results
 ```
 
 ### Generate Code

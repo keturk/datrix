@@ -49,7 +49,7 @@
  Lint all projects and fail on warnings too.
 
 .EXAMPLE
- .\datrix-linter.ps1 datrix-projects\curvaero\curvaero-backend\system.dtrx
+ .\datrix-linter.ps1 datrix\examples\03-domains\ecommerce\system.dtrx
  Lint a specific system.dtrx file directly.
 #>
 

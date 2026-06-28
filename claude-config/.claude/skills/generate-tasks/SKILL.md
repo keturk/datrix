@@ -591,6 +591,6 @@ When creating tasks, point agents to relevant example `.dtrx` files:
 9. **All module paths must be valid** — check against the canonical and non-existent module lists
 10. **ALL file paths in generated task files MUST be absolute paths** — use `d:\datrix\...` format, never relative paths like `docs/...` or `examples/...`
 11. **Migration steps are tasks, not aspirations.** If the design's migration section says "convert X to Y", generate a task for it. Do not defer migration to "future work" unless the design explicitly says so.
-12. **Tasks span all affected repos.** Do not limit task generation to a single package. If the design changes `datrix-common` but examples live in `datrix` and project configs live in `datrix-projects`, generate tasks in all three repos.
+12. **Tasks span all affected repos.** Do not limit task generation to a single package. If the design changes `datrix-common` but examples live in `datrix` and CLI wiring lives in `datrix-cli`, generate tasks in all three repos.
 13. **No untested new paths.** If the design introduces a new subsystem alongside an old one, generate migration tasks that convert existing test fixtures, examples, and configs to use the new path. Without these, the new code compiles but nothing exercises it end-to-end.
 14. **No bloated outputs.** dependencies.md contains group numbers and absolute paths only — no headers, tables, or prose. Console summaries are data-dense one-liners — no dependency graphs (already in dependencies.md), no "Next steps", no category breakdowns.

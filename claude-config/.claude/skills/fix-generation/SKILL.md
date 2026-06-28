@@ -5,12 +5,12 @@ model: claude-sonnet-4-6
 
 # Fix Generation
 
-Diagnose and fix **generation-time** failures captured in a `generate-results-*.log` produced by `generate.ps1` (directly or via a project wrapper such as the CurvAero scripts). These are failures of the generation pipeline itself (parse → transform → generate), **not** test failures of already-generated code. For test failures use `/troubleshoot-and-fix` or `/fix-codegen-*` instead.
+Diagnose and fix **generation-time** failures captured in a `generate-results-*.log` produced by `generate.ps1`. These are failures of the generation pipeline itself (parse → transform → generate), **not** test failures of already-generated code. For test failures use `/troubleshoot-and-fix` or `/fix-codegen-*` instead.
 
 **Reasoning effort: HIGH.** Apply STOP AND THINK on every cluster — read the generator/template/transformer and the offending `.dtrx`/`.dcfg` before forming a hypothesis. One correct root-cause fix beats five quick patches. Generation failures fan out: a single root cause typically fails dozens of projects with an identical signature, so misdiagnosing one cluster wastes the whole batch.
 
 **Two failure classes (every cluster is exactly one):**
-1. **App-definition** — the generated project's own source is wrong or incomplete (missing `.dcfg`, invalid `.dtrx`, semantic violation in user-defined entities/services). Fix the project source (a framework example under `datrix/examples/...`, or a customer project under `datrix-projects/...`).
+1. **App-definition** — the generated project's own source is wrong or incomplete (missing `.dcfg`, invalid `.dtrx`, semantic violation in user-defined entities/services). Fix the project source (a framework example under `datrix/examples/...`).
 2. **Generator / framework** — the generator, template, transformer, or config resolver crashes or emits invalid output. Fix the framework codegen package source/template.
 
 Deciding **which** class a cluster belongs to is the central judgment call — see [Classification](#classification).
@@ -113,9 +113,7 @@ Config resolution and `.dcfg` loading live in `datrix-common` / `datrix-cli` —
 
 ### Generation / Regeneration Commands
 
-**ALWAYS verify parameters against `datrix/scripts/dev/quick-reference.md` before running** (a pre-tool hook blocks the call otherwise). The two generation surfaces:
-
-**A. Framework examples** — `generate.ps1` (run from bash with `powershell -File`):
+**ALWAYS verify parameters against `datrix/scripts/dev/quick-reference.md` before running** (a pre-tool hook blocks the call otherwise). Framework examples are generated with `generate.ps1` (run from bash with `powershell -File`):
 
 | Target | Command |
 |---|---|
@@ -128,16 +126,6 @@ Config resolution and `.dcfg` loading live in `datrix-common` / `datrix-cli` —
 | **Debug logging** | append `-Dbg` |
 
 `-L`/`-Runtime`/`-Provider` are output-path selectors only; the real language/runtime/provider come from project config. Use `-ConfigProfile {test\|staging\|production}` to select a non-default profile.
-
-**B. CurvAero backend** (`datrix-projects/curvaero/curvaero-backend/system.dtrx`) — dedicated wrappers around `generate.ps1`. Each pins a config profile and output root. Pick the one matching the **Output** path in the log:
-
-| Wrapper script | Config profile | Output root |
-|---|---|---|
-| `D:\datrix\datrix-projects\curvaero\generate-curvaero.ps1` | (default) | `.projects\curvaero\python\` |
-| `D:\datrix\datrix-projects\curvaero\generate-curvaero-staging.ps1` | `staging` | `.projects\curvaero_staging\` |
-| `D:\datrix\datrix-projects\curvaero\generate-curvaero-azure.ps1` | `production` | `.projects\curvaero_azure\` |
-
-Run (from bash): `powershell -File "D:/datrix/datrix-projects/curvaero/generate-curvaero-staging.ps1"` (add `-Dbg` for debug). These generate the **full** CurvAero system. Per CLAUDE.md, do **not** run a full CurvAero generation just to verify a single-service change — limit verification to the affected service (regenerate the service's source via `generate.ps1`), and reserve the full wrappers for system-wide fixes or when Jon explicitly asks for a full regen.
 
 ### Triage Helper (optional, fast pre-clustering)
 
@@ -164,7 +152,7 @@ powershell -File "d:/datrix/datrix/scripts/dev/status-generation.ps1"
 
 1. **Read the log** at the provided path (or the latest `generate-results-*.log` if none given).
 2. For each `=== Detailed output for {name} ===` block whose footer is `Failed`, extract:
-   - `name`, `Source` (`.dtrx` path), `Output` (→ language + which generation surface: framework example vs CurvAero), `{generator}` from `stage=generate:`, and the full `Pipeline error:` message.
+   - `name`, `Source` (`.dtrx` path), `Output` (→ language and output surface), `{generator}` from `stage=generate:`, and the full `Pipeline error:` message.
 3. **Skip** every `Success` project entirely.
 
 ### Step 2: Cluster by Error Signature
@@ -217,7 +205,6 @@ Choose the regeneration command from each failing project's `Source` / `Output` 
 - **Framework example** → regenerate that single `Source`, one at a time:
   `powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" "{source-dtrx-path}" -L {language}`
   If the cluster's root cause spans several examples, loop over them individually — regenerate the first, confirm SUCCESS, then the next, and so on. Do **NOT** use `-TestSet` / `-Domains` / `-All` to verify a fix.
-- **CurvAero backend** → for a single-service fix, regenerate only the affected service's source (CLAUDE.md single-service rule). For a system-wide fix, run the wrapper matching the log's Output profile (`generate-curvaero.ps1` / `-staging` / `-azure`) only when Jon explicitly asks for a full regen.
 
 Assess after **each** project's regeneration:
 - **Generation succeeds** → fix confirmed for that project. Move to the next affected project.
@@ -306,7 +293,7 @@ On abort, write a partial issue report and report what was diagnosed, attempted,
 ## Anti-Patterns
 
 - **NO editing generated output** under `.generated/` or `.projects/` — fix the generator/template/project source; regeneration overwrites it.
-- **NO over-regenerating to verify** — regenerate **one project/example at a time**; never run a group (`-TestSet`/`-Domains`) or `-All` to verify a fix, and never the full CurvAero system for a single-service change (CLAUDE.md). When several projects are affected, verify each individually, one by one.
+- **NO over-regenerating to verify** — regenerate **one project/example at a time**; never run a group (`-TestSet`/`-Domains`) or `-All` to verify a fix, and never a full project system for a single-service change (CLAUDE.md). When several projects are affected, verify each individually, one by one.
 - **NO running a datrix script without checking** `datrix/scripts/dev/quick-reference.md` first — a pre-tool hook enforces this.
 - **NO exploring the repo from scratch** — read `.project-structure.md` and the context above.
 - **NO trusting triage grouping blindly** — confirm clusters against the raw log.

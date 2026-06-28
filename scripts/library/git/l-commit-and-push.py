@@ -28,7 +28,6 @@ DATRIX_REPOS = [
     "datrix-codegen-azure",
     "datrix-codegen-docker",
     "datrix-extensions",
-    "datrix-projects",
 ]
 
 TEXT_SNIPPET_EXTENSIONS = {
@@ -442,11 +441,11 @@ def fallback_body_from_repo(dr: DirtyRepo) -> str:
             "keeping the existing PowerShell entry point. Add stronger prompt handling, "
             "message validation, balanced diff context, and deterministic fallback behavior."
         )
-    if "aviation" in text or "curvaero" in text or "airport" in text:
+    if "product" in text or "order" in text or "ecommerce" in text:
         return (
-            "Extend the CurvAero service definitions and configuration for service-facing "
-            "aviation data workflows. Add backend support for airport lookup, nearby-airport "
-            "search, and brief retrieval paths used by downstream services."
+            "Extend the ecommerce service definitions and configuration for service-facing "
+            "catalog data workflows. Add backend support for product lookup, related-product "
+            "search, and detail retrieval paths used by downstream services."
         )
     if ("access_level" in text or "access level" in text or "service" in text) and (
         "parser" in text or "transformer" in text or "grammar" in text
@@ -516,7 +515,7 @@ Line 1: one short, concrete summary of the semantic change. Do not use a generic
 Line 2: completely empty.
 Lines 3+: one short paragraph, 1 to 4 sentences, describing what behavior, contract, validation, generation, or workflow changed and why it matters. Prefer prose over bullets.
 
-Do not list filenames or paths. Git already records changed files. Mention a module or product area only when it explains the behavior, such as "service access parsing" or "CurvAero aviation endpoints".
+Do not list filenames or paths. Git already records changed files. Mention a module or product area only when it explains the behavior, such as "service access parsing" or "product catalog endpoints".
 
 Bullets are allowed only when there are separate semantic areas to describe, and then max 4 bullets. Never use bullets that are just file paths. Whole message max 3200 characters.
 """

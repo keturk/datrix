@@ -126,9 +126,9 @@ Compares timestamped test runs inside one explicit `.test_results` folder. It do
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Compare project runs** | `.\test\compare-tests.ps1 D:\datrix\.projects\curvaero\python\.test_results` | Compare unit/deploy runs for one project |
-| **Write Markdown report** | `.\test\compare-tests.ps1 D:\datrix\.projects\curvaero\python\.test_results -Report D:\datrix\curvaero-test-comparison.md` | Save report to a file |
-| **Debug logging** | `.\test\compare-tests.ps1 D:\datrix\.projects\curvaero\python\.test_results -Dbg` | Enable debug output |
+| **Compare project runs** | `.\test\compare-tests.ps1 D:\datrix\.generated\python\docker-compose\local\03-domains\ecommerce\python\.test_results` | Compare unit/deploy runs for one project |
+| **Write Markdown report** | `.\test\compare-tests.ps1 D:\datrix\.generated\python\docker-compose\local\03-domains\ecommerce\python\.test_results -Report D:\datrix\ecommerce-test-comparison.md` | Save report to a file |
+| **Debug logging** | `.\test\compare-tests.ps1 D:\datrix\.generated\python\docker-compose\local\03-domains\ecommerce\python\.test_results -Dbg` | Enable debug output |
 
 **Parameters:** `-TestResults` (positional, required; must be a `.test_results` folder), `-Report`, `-Dbg`
 

@@ -5,7 +5,7 @@
 
 [CmdletBinding()]
 param(
- # Relative to workspace root, or an absolute path. Example: .projects\ecommerce\python\.results
+ # Relative to workspace root, or an absolute path. Example: .generated\python\docker-compose\local\03-domains\ecommerce\python\.results
  [string]$ResultsDir = ""
 )
 

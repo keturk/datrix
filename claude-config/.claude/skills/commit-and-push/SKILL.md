@@ -29,7 +29,6 @@ datrix-codegen-aws
 datrix-codegen-azure
 datrix-codegen-docker
 datrix-extensions
-datrix-projects
 ```
 
 Workspace root: `d:\datrix` (parent of `datrix/`).

@@ -141,7 +141,6 @@ If a PHASE directory is given:
      - `d:\datrix\datrix-codegen-python\.tasks\phase-{NN}\`
      - `d:\datrix\datrix-codegen-aws\.tasks\phase-{NN}\`
      - `d:\datrix\datrix-extensions\.tasks\phase-{NN}\`
-     - `d:\datrix\datrix-projects\.tasks\phase-{NN}\`
      - etc. (all packages with `.tasks` directories)
    - Read each task file to extract metadata (see below)
 

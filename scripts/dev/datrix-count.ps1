@@ -18,7 +18,6 @@
  - datrix-codegen-azure
  - datrix-codegen-docker
  - datrix-extensions
- - datrix-projects
 
 .EXAMPLE
  .\datrix-count.ps1

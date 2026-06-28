@@ -195,11 +195,11 @@ Fix issues from structured issue reports with Root Cause Analysis and Recommende
 
 ### `/fix-bug-report`
 
-Analyze structured bug reports from project repositories (e.g., CurvAero), classify each bug as an app-definition fix or generator-level fix, implement the appropriate changes, and update each bug report with the resolution.
+Analyze structured bug reports from project repositories, classify each bug as an app-definition fix or generator-level fix, implement the appropriate changes, and update each bug report with the resolution.
 
 **Phases:** Triage → Fix → Update → Report
 
-**Workflow reference:** `D:\datrix\datrix-projects\curvaero\claude\fix-bug-report.md`
+**Workflow reference:** `D:\<project-repo>\claude\fix-bug-report.md`
 
 ### `/evaluate-generated-service`
 

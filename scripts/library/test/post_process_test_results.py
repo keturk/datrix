@@ -6,13 +6,13 @@ Reads JUnit XML files from a test results directory and generates structured
 index.json using GeneratedTestLogWriter. This enables troubleshooting skills
 to consume the results.
 
-This script is used by project test wrappers (e.g., test-curvaero.ps1) to
+This script is used by project test wrappers (e.g., test-ecommerce.ps1) to
 automatically generate index.json after running tests, making test results
 compatible with datrix troubleshooting skills.
 
 Usage:
     python post_process_test_results.py <test_results_dir> [--project-name NAME] [--source-dtrx PATH]
-    python post_process_test_results.py D:/.projects/curvaero/python/.test_results/unit-tests-20260514-224028
+    python post_process_test_results.py D:/.generated/python/docker-compose/local/03-domains/ecommerce/python/.test_results/unit-tests-20260514-224028
 
 Options:
     --project-name NAME    Override project name detection (default: auto-detect from path)
@@ -66,13 +66,8 @@ def detect_metadata(results_dir: Path) -> dict[str, str]:
     # Try to find source .dtrx file
     datrix_root = get_datrix_root()
 
-    # Check datrix-projects/{project}/datrix-app/system.dtrx
-    source_dtrx = (
-        datrix_root / "datrix-projects" / project_name / "datrix-app" / "system.dtrx"
-    )
-    if not source_dtrx.exists():
-        # Check examples/{project}/system.dtrx
-        source_dtrx = datrix_root / "datrix" / "examples" / project_name / "system.dtrx"
+    # Check examples/{project}/system.dtrx
+    source_dtrx = datrix_root / "datrix" / "examples" / project_name / "system.dtrx"
 
     return {
         "project_name": project_name,

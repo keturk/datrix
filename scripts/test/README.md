@@ -786,7 +786,7 @@ Unlike the status scripts, this command does not scan multiple projects. Pass th
 `.test_results` folder for the generated or package project you want to inspect.
 
 ```powershell
-.\compare-tests.ps1 D:\datrix\.projects\curvaero\python\.test_results
+.\compare-tests.ps1 D:\datrix\.generated\python\docker-compose\local\03-domains\ecommerce\python\.test_results
 ```
 
 It compares run types separately:
@@ -800,7 +800,7 @@ It compares run types separately:
 Write a Markdown report with `-Report`:
 
 ```powershell
-.\compare-tests.ps1 D:\datrix\.projects\curvaero\python\.test_results -Report D:\datrix\curvaero-test-comparison.md
+.\compare-tests.ps1 D:\datrix\.generated\python\docker-compose\local\03-domains\ecommerce\python\.test_results -Report D:\datrix\ecommerce-test-comparison.md
 ```
 
 ### Parameters

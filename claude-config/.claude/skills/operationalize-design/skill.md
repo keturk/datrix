@@ -298,7 +298,7 @@ If you deviated: STOP and explain the deviation to the user.
 
 4. **MANDATORY: Inventory dual-implementation risk.** If the design introduces a new path alongside an old one (new format, new API, new config system), identify every test fixture, example, and project config that currently exercises the OLD path. Generate migration tasks to convert these to the NEW path. Without these tasks, the new implementation ships untested — old tests continue to pass on the old path, creating false confidence.
 
-5. **MANDATORY: Tasks span all affected repos.** Do NOT limit task generation to a single "target package." If the design affects `datrix-common` (new code), `datrix` (examples), and `datrix-projects` (project configs), generate tasks in ALL of those repos. A task lives in the repo it modifies.
+5. **MANDATORY: Tasks span all affected repos.** Do NOT limit task generation to a single "target package." If the design affects `datrix-common` (new code), `datrix` (examples), and `datrix-cli` (CLI wiring), generate tasks in ALL of those repos. A task lives in the repo it modifies.
 
 6. Break the design into tasks. Generate these categories (lean model — tests and docs ride inside implementation tasks; there are NO standalone per-task test, verify, or docs tasks):
 
@@ -339,7 +339,7 @@ If you deviated: STOP and explain the deviation to the user.
      - **Fixture conversion** — convert test fixtures from old format to new (e.g., YAML → `.dcfg`)
      - **Example conversion** — convert example files to demonstrate the new way
      - **Template/library creation** — create reusable shared templates or libraries the design calls for
-     - **Project config conversion** — convert real project configs (these may live in `datrix-projects` or similar)
+     - **Project config conversion** — convert real project configs to the new format
      - **Test path verification** — ensure tests actually exercise the NEW path, not just the old one
    - Each migration task must include a verification step: "Confirm the new path is exercised by running X and verifying Y"
    - Do NOT treat migration steps as "future work" unless the design explicitly defers them

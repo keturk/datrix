@@ -51,7 +51,7 @@ Understand→Fix→Verify (`/fix` for full workflow). Implement "Recommended Fix
 
 **Pipeline skills and optional deps:** In pipeline skills like `/operationalize-design`, when an optional dependency is absent but the pipeline can still produce its core deliverable, take the graceful-degradation path, note the degradation in the summary, and continue. Do not halt with an AskUserQuestion gate for missing optional validators. STOP only for genuinely blocking conditions (unresolved required decisions, missing required inputs, technical impossibility).
 
-**Single-service verification:** Do not run `generate.ps1` on the full curvaero-backend system to verify a single-service change. Limit generation to the affected service only.
+**Single-service verification:** Do not run `generate.ps1` on a full multi-service system to verify a single-service change. Limit generation to the affected service only.
 
 ## Design Doc Workflow
 
@@ -86,11 +86,9 @@ No placeholders/TODOs. No silent fallbacks (`dict.get(key, None)`). No default t
 
 ## Project Domain Isolation
 
-Customer/project domain language MUST NOT appear in framework packages (datrix, datrix-cli, datrix-codegen-*, datrix-common, datrix-extensions, datrix-language).
+Customer/project domain language MUST NOT appear in framework packages (datrix, datrix-cli, datrix-codegen-*, datrix-common, datrix-extensions, datrix-language). No customer name, no customer-specific service names, and no terms from a customer's business domain may leak into framework code, docs, tests, or examples.
 
-**CurvAero prohibited terms:** aviation, airport, runway, airspace, navaid, taxiway, waypoint (aviation context), curvaero/CurvAero, AIRAC, NASR, TFR, NOTAM, any CurvAero service name.
-
-**Framework docs/tests/examples:** use neutral e-commerce domain (Product, Order, Customer, Warehouse, Variant, LineItem) or fictional domain.
+**Framework docs/tests/examples:** use the neutral e-commerce domain (Product, Order, Customer, Warehouse, Variant, LineItem) or a fictional domain.
 
 ## Datrix Showcase Repo Boundaries
 

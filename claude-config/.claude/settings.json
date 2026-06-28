@@ -18,7 +18,6 @@
       "Edit(/.claude/skills/task-orchestrator/**)",
       "PowerShell(powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-docker -Specific \"tests/unit/test_keycloak_compose.py\" 2>&1 | Select-Object -Last 30)",
       "mcp__azure__subscription_list",
-      "PowerShell(& \"d:\\\\datrix\\\\datrix-projects\\\\curvaero\\\\generate-curvaero-staging.ps1\")",
       "PowerShell(powershell -File \"d:/datrix/datrix/scripts/tasks/latest-phase.ps1\" -BaseDir \"D:\\\\datrix\")",
       "PowerShell(powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-python -Specific \"tests/integration/test_cross_platform_datasource_parity.py\")",
       "PowerShell(powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-azure)",
