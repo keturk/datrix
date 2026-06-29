@@ -293,7 +293,7 @@ On abort, write a partial issue report and report what was diagnosed, attempted,
 ## Anti-Patterns
 
 - **NO editing generated output** under `.generated/` or `.projects/` — fix the generator/template/project source; regeneration overwrites it.
-- **NO over-regenerating to verify** — regenerate **one project/example at a time**; never run a group (`-TestSet`/`-Domains`) or `-All` to verify a fix, and never a full project system for a single-service change (CLAUDE.md). When several projects are affected, verify each individually, one by one.
+- **NO over-regenerating to verify** — regenerate **one project/example at a time** (a project = one `system.dtrx`; there is no single-service generation mode, so a single-service change still regenerates that whole project — CLAUDE.md); never run a group (`-TestSet`/`-Domains`) or `-All` to verify a fix. When several projects are affected, verify each individually, one by one.
 - **NO running a datrix script without checking** `datrix/scripts/dev/quick-reference.md` first — a pre-tool hook enforces this.
 - **NO exploring the repo from scratch** — read `.project-structure.md` and the context above.
 - **NO trusting triage grouping blindly** — confirm clusters against the raw log.

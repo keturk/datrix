@@ -28,9 +28,8 @@ This guide covers Datrix `.dcfg` ConfigDSL files, their structure, options, and 
 18. [Extern Service Configuration](#extern-service-configuration)
 19. [Platform-Specific Configuration](#platform-specific-configuration)
 20. [Seed Configuration](#seed-configuration)
-21. [Environment Variables](#environment-variables)
-22. [Secrets Management](#secrets-management)
-23. [Runtime Config Store](#runtime-config-store)
+21. [Secrets Management](#secrets-management)
+22. [Runtime Config Store](#runtime-config-store)
 
 ---
 
@@ -2008,55 +2007,123 @@ For the full SeedDSL syntax and authoring guidelines, see [Seed Data Guidelines]
 
 ---
 
-## Environment Variables
-
-Use environment variables for sensitive values:
-
-```yaml
-rdbms:
-  password: ${POSTGRES_PASSWORD}
-  # Or with default: ${POSTGRES_PASSWORD:defaultpass}
-```
-
-**Best practices:**
-
-✅ Always use env vars for secrets (passwords, API keys, tokens)
-✅ Use `${VAR}` syntax without defaults for required secrets
-✅ Use `${VAR:default}` syntax only for non-sensitive optional values
-✅ Never commit secrets to version control
-
----
-
 ## Secrets Management
 
-### AWS Secrets Manager
+Generated services follow a **zero-environment contract**: they read **no environment
+variables** for secrets, credentials, or connection passwords at runtime. Credentials
+are never written into application config, generated code, or infrastructure-as-code.
+Instead, secrets are declared as **logical handles** in application config and bound to
+a concrete secret store by **deployment-level policy**.
 
-```yaml
-production:
-  secrets:
-    provider: aws-secrets-manager
-    region: us-east-1
-    secrets:
-      database_password: /ecommerce/prod/db-password
-      jwt_secret: /ecommerce/prod/jwt-secret
+> Do **not** put passwords, API keys, or tokens in `.dcfg` as literals or as `${ENV_VAR}`
+> placeholders. Raw credential literals are rejected at generation time, and generated
+> services do not read credential env vars. Declare a logical secret handle instead.
+
+### 1. Declare logical secret handles (service config)
+
+A logical secret is a stable **handle** — a name that says *which* secret is needed,
+never *what it is*. Declare handles in the service-level `secrets` block:
+
+```dcfg
+config service ecommerce.OrderService {
+  base {
+    secrets {
+      secret db_password    { required = true; purpose = "rdbms-connection-password"; }
+      secret jwt_secret     { required = true; purpose = "jwt-signing-secret"; }
+      secret stripe_api_key { required = true; purpose = "payment-provider-api-key"; }
+    }
+  }
+}
 ```
 
-### Azure Key Vault
+- `required` — Boolean, defaults to `true` (fail-closed). A required handle that the
+  deployment does not bind makes the service fail to start; no empty/default substitution.
+- `purpose` — Non-secret, human-readable description (metadata only).
 
-```yaml
-production:
-  secrets:
-    provider: azure-key-vault
-    vaultUrl: https://ecommerce-vault.vault.azure.net
-    secrets:
-      database-password: db-password
-      jwt-secret: jwt-secret
+Connection passwords are auto-derived: a declared `rdbms orders { … }` datasource emits
+non-secret `orders_host` / `orders_port` / `orders_database` config keys plus an
+`orders_password` **secret handle** — you do not declare the password by hand.
+
+Application config carries **no backend or naming policy**. The legacy
+`secrets { provider = "aws-secrets-manager" | "azure-key-vault" | … }` selector form has
+been **removed** — provider strings in application `.dcfg` are a hard generation error.
+
+### 2. Bind handles to a backend (system profile)
+
+Which store backs a handle, and how handle names map to backend names, is chosen by
+`secretBackendPolicy` on the **system** deployment profile — not in the service `.dcfg`:
+
+```dcfg
+config system ecommerce.System {
+  profile production as "prod" {
+    deployment { runtime = ecs-fargate; provider = aws; }
+
+    secretBackendPolicy {
+      defaultBackend = aws-secrets-manager;   // or azure-key-vault | file | docker-secret
+      namePrefix     = "/prod/orders/";        // db_password -> /prod/orders/db_password
+      nameSeparator  = "/";
+    }
+  }
+}
 ```
 
-**Generated code:**
-- Fetches secrets at runtime
-- Caches secrets with TTL
-- Automatic rotation support
+Runtime-valid backends are `aws-secrets-manager`, `azure-key-vault`, `file`, and
+`docker-secret`. The `env` and `aws-ssm` backends are **rejected at generation time**
+(they would break the zero-env contract).
+
+| Deployment target | Secret store | How the app authenticates |
+|---|---|---|
+| AWS ECS Fargate / App Runner | AWS Secrets Manager | task/instance role via IMDS (region baked) |
+| Azure App Service | Azure Key Vault | system-assigned managed identity |
+| LOCAL / docker-compose | Mounted files under `/run/secrets/` | file read (no network) |
+
+### 3. What the generated code actually does
+
+- **Provisions named, empty placeholders** in the store (CDK for AWS, Bicep for Azure,
+  mounted files for Docker). No secret value is ever emitted into code or IaC.
+- **Resolves each handle at startup** by rendering the backend name from the policy and
+  fetching it with the baked credential mechanism (managed identity / instance role /
+  mounted file). Missing required secrets **fail closed** with an error naming the handle
+  and rendered name — never the value.
+- **Caches each resolved secret for the lifetime of the process.** There is **no TTL and
+  no background refresh** — a rotated secret is not observed until the process restarts
+  (see [Rotating secrets](#rotating-secrets-and-keys)).
+
+You supply the real values **after** infrastructure is provisioned (they are never in
+git):
+
+```bash
+# AWS
+aws secretsmanager put-secret-value --secret-id /prod/orders/db_password --secret-string "$VALUE"
+# Azure
+az keyvault secret set --vault-name <app-kv> --name db-password --value "$VALUE"
+# LOCAL / docker (file backend)
+printf '%s' "$VALUE" > ./secrets/db_password   # mounted read-only at /run/secrets/db_password
+```
+
+### Rotating secrets and keys
+
+Rotation is **operator-owned and requires a restart** — generated services resolve each
+secret once and cache it for the process lifetime:
+
+1. **Write the new value** to the backend (the `put-secret-value` / `az keyvault secret set`
+   / file-write commands above).
+2. **Restart the service** so new process instances re-read the secret (rolling restart,
+   redeploy, or task/pod recycle). Until then, running instances keep using the old value.
+
+For database credentials, rotate **dual-valid**: add the new credential, roll the service
+to pick it up, then retire the old one — so instances still on the old value keep working
+until they cycle.
+
+**Exception — JWT signing keys.** The self-hosted identity provider (`provider self`,
+engine Zitadel) rotates its asymmetric token-signing keys natively and publishes them via
+`/.well-known/jwks.json`; verifiers refresh from JWKS, so issuer signing-key rotation does
+not require the write-and-restart sequence above. This applies to the *issuer's* signing
+keys, not to application secrets like database passwords.
+
+> **Reference:** [Secret Backend Policy](../../../datrix-common/docs/secret-backend-policy.md),
+> [ConfigDSL Reference — Logical Secrets](../reference/config-dsl-reference.md),
+> and the runtime resolver in `datrix-codegen-python` (`templates/service/secrets_resolver.py.j2`).
 
 ---
 
@@ -2185,17 +2252,25 @@ production:
     provider: aws  # Missing language!
 ```
 
-### 2. Environment Variables for Secrets
+### 2. Logical Handles for Secrets
 
-```yaml
-# ✅ Good
-rdbms:
-  password: ${POSTGRES_PASSWORD}
+Declare a logical secret handle and let deployment policy bind it to a backend — never
+put a credential (literal or `${ENV_VAR}`) in config:
 
-# ❌ Bad
-rdbms:
-  password: mypassword123
+```dcfg
+// ✅ Good: a logical handle; the value lives only in the secret store
+secrets {
+  secret db_password { required = true; purpose = "rdbms-connection-password"; }
+}
+
+// ❌ Bad: raw literal (rejected at generation time)
+rdbms { password = "mypassword123"; }
+
+// ❌ Bad: env placeholder (generated services read no credential env vars)
+rdbms { password = "${POSTGRES_PASSWORD}"; }
 ```
+
+See [Secrets Management](#secrets-management) for the full handle → backend flow.
 
 ### 3. Explicit Over Implicit
 

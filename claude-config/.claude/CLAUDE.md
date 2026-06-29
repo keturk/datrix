@@ -51,7 +51,7 @@ Understand→Fix→Verify (`/fix` for full workflow). Implement "Recommended Fix
 
 **Pipeline skills and optional deps:** In pipeline skills like `/operationalize-design`, when an optional dependency is absent but the pipeline can still produce its core deliverable, take the graceful-degradation path, note the degradation in the summary, and continue. Do not halt with an AskUserQuestion gate for missing optional validators. STOP only for genuinely blocking conditions (unresolved required decisions, missing required inputs, technical impossibility).
 
-**Single-service verification:** Do not run `generate.ps1` on a full multi-service system to verify a single-service change. Limit generation to the affected service only.
+**Generation granularity:** `generate.ps1` generates a whole project from its `system.dtrx` — there is **no** single-service generation mode (a per-service `.dtrx` is part of the system, not independently generable). A change affecting one service still requires regenerating that project's full system. To verify, regenerate only the affected project (its `system.dtrx`); do not regenerate unrelated projects or run group/`-All`/`-TestSet`/`-Domains` generation.
 
 ## Design Doc Workflow
 
