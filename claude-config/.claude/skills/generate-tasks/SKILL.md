@@ -174,7 +174,8 @@ Every task file MUST follow this template:
 {2-3 sentence description of what this task accomplishes and its architectural context.}
 
 **Package:** `{package-name}` (`d:\datrix\{repo}\`)
-**Design reference:** `{design-doc-path}` -- Section(s) {X.Y}
+**Design reference:** `{design-doc-path}` -- Section(s) {X.Y}; implements design decision(s)/invariant(s) {D#/G#/numbered-decision}
+**Design acceptance property:** {the observable end-state that proves this task satisfies the design — e.g. "no `env(...)` survives on any secret position in the migrated tree AND each resolves via `get_secret(<handle>)`". This is what "done" means, verified by an executable check — NOT "it generates" / "suite green".}
 **Depends on:** {List of prerequisite tasks or "None"}
 
 ## Codebase Context
@@ -262,6 +263,8 @@ Key module paths:
 1. {Concrete, testable outcome}
 2. {Measurable quality threshold}
 {... 8-15 specific criteria}
+- **Design conformance (MANDATORY):** the design invariant(s) this task implements (the `**Design acceptance property:**` above) hold, proven by an **executable check whose command + output are pasted** — typically a NEGATIVE check (the old construct / forbidden state is gone everywhere on the affected surface) AND a POSITIVE check (the new path is actually exercised). "It generates", "0 warnings", and "suite green" are necessary but NOT sufficient and never substitute for this.
+- For any "X replaces Y" scope: a check **FAILS if Y still exists anywhere** in the affected surface (not just "X works").
 - All tests pass: `python -m pytest tests/ -q`
 - >90% test coverage
 - No TODO/pass/placeholder code
@@ -351,6 +354,9 @@ After generating all task files, verify:
 14. **Migration coverage check:** Count the numbered steps in the design's migration/rollout section. Count the migration tasks generated. If the second number is less than the first, tasks are missing. Every "convert X", "migrate Y", "create Z" step needs a task.
 15. **Dual-path coverage check:** If the design introduces a new path alongside an old one, verify that migration tasks exist to convert old test fixtures, examples, and configs to the new format. Without these, the new path is untested dead code.
 16. **Cross-repo coverage check:** Tasks span all affected repos, not just the primary package. If the design changes `datrix-common` but examples live in `datrix`, migration tasks exist in `datrix`.
+16a. **Design-conformance check:** every task cites the specific design decision(s)/invariant(s) it implements in `**Design reference:**`, carries a concrete `**Design acceptance property:**`, and has at least one Success Criterion that proves that property via an executable check (negative + positive) — not merely "tests pass" / "generates clean". A task with no provable design acceptance property is under-specified; fix it before emitting.
+16b. **Enforcement-ordering check:** every task that enforces a design invariant (guard / validator / rejection / conformance check) precedes — and is listed in `Depends on` of — the tasks that rely on it or migrate content it governs. No migration task may be in an earlier or equal wave to the guard that polices its surface.
+16c. **Invariant-surface coverage check:** if the design states an invariant over a SET of surfaces (e.g. "fail-loud on integration/CDN/auth/datasource positions"), there is a task (or explicit QG criterion) covering EVERY surface in that set. Enumerate the design's surfaces; confirm none is silently dropped.
 17. **Dependencies document validation:**
     - Verify the dependencies document includes ALL tasks from the phase
     - Verify each task appears in exactly one group
@@ -511,6 +517,11 @@ Final independent verification pass for {package-name}, run by a different agent
    - No always-true/always-false validators or checkers (a check that does nothing)
    - No legacy code paths that should have been deleted per task requirements; no dual (old + new) paths where a task required full migration
 
+2b. **Design-conformance scan (per the phase's design reference) — the gate that catches half-implemented invariants:**
+   - For EACH design invariant/decision (D#/G#/numbered) the phase implements, verify the generator ENFORCES it on **every surface the design names** — not just the easiest one. (A design that says "fail-loud on integration/CDN/auth positions" is NOT satisfied by guarding integration only.) Enumerate the surfaces from the design, check each, list any unguarded.
+   - Run the design's **acceptance check** (negative + positive) against REAL generated output / migrated source, and paste the command + output. A surface the design lists but no code guards is an **unmet criterion even if the full suite is green**.
+   - Confirm each task's `**Design acceptance property:**` was actually proven (not asserted). A task whose acceptance property is unproven is NOT complete regardless of suite status.
+
 3. **Coverage & test-quality sanity** for this phase's changes:
    - At least one test per new public class/function; both success and error cases; real objects (no mocks/fakes)
    - No test asserts `NotImplementedError` / `NotImplemented` on a production path (gap-codification)
@@ -528,6 +539,7 @@ Final independent verification pass for {package-name}, run by a different agent
 3. No always-true checks, legacy paths, or dual paths where a task required replacement
 4. Tests exercise real behavior (no gap-codification); "X replaces Y" tasks prove Y is gone
 5. No self-contradictory "How Solved" sections in completed tasks
+6. **Every design invariant/decision named in the phase's design reference is enforced on every surface the design lists**, proven by an executable acceptance check (negative + positive) against real output — NOT by suite-green or clean generation. Any design-named surface left unguarded is a phase-level failure to report, even with a green suite.
 
 ## Targeted Tests
 
@@ -555,6 +567,7 @@ This finds every `docs/` folder across all Datrix repositories. Use the results 
 When creating documentation tasks, **read the existing docs** in the target folder first to understand the conventions, structure, and what already exists. Do not duplicate existing content — update it.
 
 ### Ordering
+- **Enforcement before what it governs (HARD RULE):** a task that establishes or enforces a design invariant — a validator, a fail-loud guard, a parser-level rejection, a conformance check — comes BEFORE, and is a `Depends on` of, every task that relies on that invariant or migrates content subject to it. Never order a migration ahead of the guard meant to police it: otherwise the migration "passes" against an absent check and the invariant ships half-enforced. (Phase-01's env()-third-path escape was exactly this: migrations ran while the fail-loud guard was still partial.)
 - Infrastructure/framework tasks come first (base classes, utilities)
 - Feature tasks build on infrastructure (specific generators, handlers) — each carries its own tests and doc updates
 - A standalone integration/e2e task (only when it spans multiple impl tasks) comes after the implementation tasks it exercises

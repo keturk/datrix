@@ -1,4 +1,4 @@
-﻿config service iot.FirmwareService {
+config service iot.FirmwareService {
   template standardServicePolicy() {
     availability = "required";
     health = "ready";
@@ -57,8 +57,6 @@
       endpoint = "http://localhost:9000";
       bucket = "store";
       region = "us-east-1";
-      accessKey = "minioadmin";
-      secretKey = "minioadmin";
     }
     jobs {
       jobs {

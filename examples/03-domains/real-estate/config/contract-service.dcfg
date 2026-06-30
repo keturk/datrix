@@ -1,4 +1,4 @@
-﻿config service realestate.ContractService {
+config service realestate.ContractService {
   template standardServicePolicy() {
     availability = "required";
     health = "ready";
@@ -57,8 +57,6 @@
       endpoint = "http://localhost:9000";
       bucket = "store";
       region = "us-east-1";
-      accessKey = "minioadmin";
-      secretKey = "minioadmin";
     }
     registration {
       tags = ["api", "library", "v1"];

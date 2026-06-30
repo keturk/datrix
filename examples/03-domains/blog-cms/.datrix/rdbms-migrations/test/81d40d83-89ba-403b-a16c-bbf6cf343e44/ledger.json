@@ -1,0 +1,25 @@
+{
+  "format": "datrix.rdbms.ledger",
+  "hash": "92c27efb160f20e010b643bb907c9ca7e321780d85ebb3b6037ea2957e0508e1",
+  "latest_revision": "0001_initial",
+  "rdbms_id": "81d40d83-89ba-403b-a16c-bbf6cf343e44",
+  "revisions": [
+    {
+      "classification": "baseline",
+      "operations": [
+        {
+          "details": {
+            "description": "baseline schema"
+          },
+          "op": "create_table"
+        }
+      ],
+      "previous_revision": null,
+      "revision": "0001_initial",
+      "schema_hash_after": "000fe7fab12b67e3974daf4d2d60898d737974b6339cbacf878f5f270c44d083",
+      "schema_hash_before": "",
+      "sequence": 1
+    }
+  ],
+  "version": 3
+}

@@ -485,14 +485,22 @@ After all fix attempts are exhausted:
 
 For each task with status IMPLEMENTED:
 
-- **If all tests pass (including full suite):**
+- **A task is eligible for COMPLETED only when ALL of these hold** (a green suite satisfies only the first — it is necessary, NOT sufficient):
+  1. **All tests pass** (including full suite) for the package.
+  2. **Not BLOCKED (terminal rule).** Agent status is IMPLEMENTED — never BLOCKED/FAILED/NEEDS_CONTEXT. A BLOCKED task can NEVER become COMPLETED.
+  3. **How-Solved is clean.** Read the task's `## How Solved`; if it contains `BLOCKED`/`Status: BLOCKED`/`partial`/`out of scope`/`workaround`/`dual path`/`not yet wired` or any unmet-criterion statement → NOT complete (the self-report overrides the IMPLEMENTED status — phase-01's 01-20 was COMPLETED with `Status: BLOCKED` in its body).
+  4. **Design-acceptance property proven.** Read the task's `**Design reference:**` + `**Design acceptance property:**` and run the proving check yourself (negative: old pattern gone on the affected surface; positive: new path exercised). Paste command + output. Do NOT trust the agent's claim. For "X replaces Y", prove **Y is gone everywhere**. If it cannot be proven (or a non-trivial task has no acceptance property) → NOT complete.
+
+  **If all 4 hold:**
   - Mark task as completed using the script:
     ```bash
     powershell -File "d:/datrix/datrix/scripts/tasks/complete.ps1" "{task_path}"
     ```
     This changes the title from `# Task {NN}-{TT}: {Title}` to `# COMPLETED: Task {NN}-{TT}: {Title}`.
-  - Add `## How Solved` section with proof-of-work (raw pytest output from final full suite, file line counts)
+  - Add `## How Solved` section with proof-of-work (raw pytest output from final full suite, **the design-acceptance check command + its output**, file line counts)
   - Status → COMPLETED
+
+  **If any of 2–4 fail:** do NOT run `complete.ps1`. Record the unmet condition, mark the task BLOCKED/FAILED honestly, and (if the blocker is a separate defect) note it so a follow-up task can be created. NEVER mark complete because "the suite is green."
 
 - **If tests still fail after fix loop:**
   - Update task file: change title to `# FAILED: Task {NN}-{TT}: {Title}`

@@ -491,13 +491,21 @@ If verification PASSED:
    - Tests must NOT only test shallow/happy paths while leaving the core behavior untested
    - If the task requires "X replaces Y", tests must prove X works AND Y is gone — not just that the code doesn't crash
 
-3. **Self-contradiction check on "How Solved" narrative:**
+3. **Design-acceptance verification (MANDATORY — suite-green is not enough):**
+   Read the task's `**Design reference:**` and `**Design acceptance property:**`. Prove the property with an executable check and **paste the command + output** into "How Solved":
+   - *Negative check:* the forbidden construct/old state is gone on the affected surface (e.g. `grep` finds zero of the old pattern in the migrated tree).
+   - *Positive check:* the new path is actually exercised (e.g. the generated output resolves via the new mechanism; no old-path remnant).
+   - For any "X replaces Y" scope, the negative check must prove **Y is gone everywhere on the surface**, not just that X works.
+   - If the property cannot be proven — or the task has a non-trivial design impact but no acceptance property — the task is NOT complete. Do NOT mark complete on "it generates" / "tests pass" alone. Mark BLOCKED, or fix until the property holds. (This is the gate phase-01 lacked: a green suite over a half-enforced invariant is a false pass.)
+
+4. **Self-contradiction check on "How Solved" narrative:**
    Before writing the "How Solved" section, re-read the task's acceptance criteria. Then check: does your narrative contain any of these red flags?
    - "remains unchanged" / "original path still used" / "legacy code preserved"
    - "future migration" / "when executor supports X" / "not yet wired"
    - "partial" / "workaround" / "fallback to old path"
    - "dual path" / "both old and new" / "backward compatibility layer"
-   If ANY of these appear in your narrative, the task is NOT complete. Mark it BLOCKED with an honest explanation.
+   - "BLOCKED" / "Status: BLOCKED" / "out of scope" / any statement that a success criterion is unmet
+   If ANY of these appear in your narrative, the task is NOT complete — **BLOCKED is terminal, it never becomes COMPLETED.** Mark it BLOCKED with an honest explanation and (if the blocker is a separate defect) note it so a follow-up task can be created.
 
 2. **Mark task as completed using the script:**
    ```bash
@@ -519,6 +527,12 @@ If verification PASSED:
 **pytest output:**
 ```
 {paste RAW pytest output here — full output, not a summary}
+```
+
+**Design-acceptance proof** (the invariant from `**Design acceptance property:**`, proven — not asserted):
+```
+{paste the negative + positive check commands AND their output —
+ e.g. the grep showing the old pattern is gone, and the check showing the new path is exercised}
 ```
 
 **Files created (with line counts):**

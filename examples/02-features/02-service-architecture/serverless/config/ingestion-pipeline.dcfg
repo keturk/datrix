@@ -18,8 +18,6 @@ config shared IngestionPipeline {
       endpoint = "http://localhost:9000";
       bucket = "files";
       region = "us-east-1";
-      accessKey = "minioadmin";
-      secretKey = "minioadmin";
     }
   }
 

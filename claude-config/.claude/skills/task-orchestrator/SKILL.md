@@ -7,6 +7,10 @@ model: claude-sonnet-4-6
 
 Fully automated multi-wave task orchestrator. Accepts a set of tasks (individual files, multiple files, or an entire phase directory), analyzes dependencies, topologically sorts tasks into execution waves, and executes each wave with parallel agents. Runs test suites automatically between waves. No human intervention except on task failure after exhausting fix attempts.
 
+**The orchestrator's mandate is conformance, not throughput.** It does NOT blindly run tasks and report "all agents returned". It is responsible for ensuring each task and each phase actually satisfies the **design document** the tasks implement. Two consequences bind every wave and phase boundary:
+- **A green test suite is necessary but NOT sufficient.** "It generates", "0 warnings", and "suite passed" never substitute for proving the design invariant. Phase-01 shipped a half-enforced invariant under a fully-green suite precisely because the gate checked "does it run" instead of "does the design hold". The orchestrator runs an explicit **design-conformance gate** (3d-conformance, 3i Step B) in addition to the test gate.
+- **BLOCKED is terminal — it can never become COMPLETED.** An agent that self-reports BLOCKED, or a task whose design-acceptance property is unproven, or a How-Solved that contains "BLOCKED"/"partial"/"out of scope"/unmet-criterion language, is NOT marked complete — no matter how green the suite is. The blocker is spawned as a tracked task. (Phase-01's 01-20 was marked COMPLETED while its own How-Solved said `Status: BLOCKED`; this gate exists to make that impossible.)
+
 **Key differences from `/execute-tasks-parallel`:**
 - Dependency-aware grouping (builds a DAG, topologically sorts into waves)
 - Automated test execution (runs full suite via Bash, does not ask user)
@@ -155,6 +159,8 @@ See `d:\datrix\datrix\claude-config\.claude\agent-templates\dependencies-format.
    - `package` — from `**Package:**` field
    - `dependencies` — from `**Depends on:**` field (list of task ID slugs, or "None")
    - `category` — from header (Implementation / Tests / Documentation / Quality Gate / Verification)
+   - `design_reference` — from `**Design reference:**` field (design-doc path + section(s) + the D#/G#/numbered invariant the task implements)
+   - `design_acceptance_property` — from `**Design acceptance property:**` field (the observable end-state that proves the task satisfies the design, and the check that proves it)
 
 3. **Skip completed tasks** — if `is_completed == true`, exclude from execution but keep in the graph (dependencies of other tasks may reference them)
 
@@ -170,6 +176,17 @@ See `d:\datrix\datrix\claude-config\.claude\agent-templates\dependencies-format.
 - If ANY referenced dependency task file does not exist on disk → STOP, report missing file
 - If ANY task mixes `.py` and `.ts` files in files to create/modify → STOP, report scope error
 - If zero non-completed tasks remain → report "All tasks already completed" and exit
+
+### 1d. Build the Design-Conformance Contract (the orchestrator's source of truth for "done")
+
+The orchestrator gates on the design, so it must hold the design in hand — not just the task list. Before execution:
+
+1. **Collect the design reference(s).** Read the `**Design reference:**` of every task. Resolve the distinct design-doc path(s) the phase implements.
+2. **Read the design doc(s)** and extract, per phase, the **design contract**: the list of invariants / numbered decisions (D#/G#) the phase must satisfy, and for each invariant **the full SET of surfaces it ranges over** (e.g. "fail-loud applies to integration AND CDN AND auth AND datasource positions"). This surface set is what catches a half-implemented invariant — a phase that guards one surface and silently drops the rest.
+3. **Per task, record its `design_acceptance_property`** — the observable end-state + the executable check (negative + positive) that proves it. If a non-trivial implementation/migration task has NO design acceptance property (blank or "tests pass"), flag it: it is under-specified and its completion cannot be verified. Note it for the gate; do not silently let it pass on suite-green alone.
+4. **Map invariant → tasks.** For every invariant surface in the contract, identify which task covers it. If a surface in the design's set has NO task covering it → record a **conformance gap** now (a design-named surface with no implementer). This is reported at the phase boundary (3i Step B) as a phase-level failure, even if every task and the suite are green.
+
+`design_contract` (invariants + surface sets) and per-task `design_acceptance_property` are checked by 3g (completion) and 3i Step B (phase conformance). Without this contract, the orchestrator can only check "did it run", which is exactly the phase-01 failure.
 
 ---
 
@@ -461,9 +478,19 @@ Options:
 - If **Continue**: add task to `failed_tasks`, compute transitive dependents and add to `skipped_tasks`
 - If **Stop**: emit final report (Step 4) and halt execution
 
-#### 3g. Mark Tasks Complete
+#### 3g. Mark Tasks Complete — only after the design-acceptance + BLOCKED-terminal checks pass
 
-For each successfully verified task in this wave:
+A task is eligible to be marked COMPLETED only when ALL of the following hold. The wave test gate being GREEN satisfies only the first bullet — it is necessary, not sufficient.
+
+**Completion eligibility (ALL required):**
+1. **Wave test gate GREEN** for the task's package (3d) — `result == "PASSED"`, `failed == 0`, `error == 0`.
+2. **Not BLOCKED (terminal rule).** The agent's status is IMPLEMENTED — not BLOCKED, FAILED, or NEEDS_CONTEXT. A BLOCKED task can NEVER be marked COMPLETED, regardless of suite color.
+3. **How-Solved is clean.** Read the task's `## How Solved`. If it contains any of `BLOCKED`, `Status: BLOCKED`, `partial`, `out of scope`, `not yet wired`, `future migration`, `workaround`, `dual path`, or any statement that a success criterion is unmet → the task is NOT complete. Treat it exactly like a BLOCKED return (the self-report overrides the agent's IMPLEMENTED status — phase-01's 01-20 was marked COMPLETED with `Status: BLOCKED` in its body; this check makes that impossible).
+4. **Design-acceptance property proven.** Run the task's `design_acceptance_property` check yourself (the negative + positive executable check — e.g. a `grep`/parse showing the forbidden construct is gone on the affected surface AND the new path is exercised). Do NOT trust the agent's self-report that it passed. Paste the command + output into the How-Solved. If the property cannot be proven (or the task had none and is a non-trivial impl/migration) → NOT complete; route to 3e/escalation as a conformance failure, not a pass.
+
+**If a task fails any of 2–4:** it does not get `complete.ps1`. Record it in `failed_tasks` with the specific unmet condition, spawn its blocker as a tracked follow-up task (a real task file, not a footnote), compute transitive dependents into `skipped_tasks`, and continue. NEVER paper over it by marking complete because "the suite is green."
+
+**For each task that passes ALL of 1–4:**
 
 1. Mark as completed:
    ```bash
@@ -474,6 +501,7 @@ For each successfully verified task in this wave:
 2. Add `## How Solved` section to the task file with proof-of-work:
    - Files created/modified (with line counts)
    - Raw test output (summary from full suite)
+   - **The design-acceptance check command + its output** (proof the invariant holds, not just that tests pass)
    - Design decisions
 
 3. Add to `completed_tasks`
@@ -490,9 +518,9 @@ If failed or skipped tasks exist, list only those (one ID per line). Do NOT list
 
 Mark the wave's todo as completed in TodoWrite.
 
-#### 3i. Phase Boundary Gate (multi-phase runs only)
+#### 3i. Phase Boundary Gate (runs at the end of EVERY phase, single- or multi-phase)
 
-When the run spans more than one phase (e.g. `PHASES: 72, 73, 74`), phases execute **strictly sequentially**: every wave of phase 72 must complete before the first wave of phase 73 begins, and 73 before 74. This is already enforced structurally — phase boundaries are wave boundaries (Step 2c) — but the **phase gate** adds an explicit completion check at each boundary so a later phase never starts on top of an incompletely-built earlier phase.
+This gate runs at the end of **every** phase, not only multi-phase runs. In a multi-phase run (e.g. `PHASES: 72, 73, 74`) phases execute **strictly sequentially** and the gate guards each boundary; in a single-phase run it runs once at the end of the run. Either way, the phase is not declared complete until it passes BOTH the full-suite gate (Step A) AND the design-conformance gate (Step A2). The gate exists so a later phase never starts on top of an incompletely-built earlier phase, and so no phase is ever reported "done" while a design invariant it owns is unenforced.
 
 Trigger this gate **after the last wave of a phase completes** (i.e. the next wave in the sequence belongs to a higher phase number, or there are no more waves) and **before spawning the first wave of the next phase**.
 
@@ -512,17 +540,32 @@ This gate is **stricter** than the per-wave gate (3d). At a phase boundary the b
    - If a red test traces to a root cause **genuinely outside this repo's control** (e.g. a known-flaky external integration) → do NOT silently skip it; record it as a blocking item and surface it in Step C, letting the user decide. Do not invent this exception to dodge a real fix.
 5. **Re-run until clean** — repeat the full per-package suite after fixes until every touched package is GREEN, or escalation/halt is reached. An error fixed in one module often unhides many tests that never ran, so always re-run the full suite after a fix rather than trusting `-Specific` alone.
 
+##### Step A2 — Phase-end DESIGN-CONFORMANCE gate (runs at EVERY phase end, including single-phase runs)
+
+A green suite proves the code runs; it does NOT prove the design holds. This gate verifies phase `P` actually satisfied the `design_contract` built in Step 1d. **It runs at the end of every phase — including a single-phase run — and a phase cannot be declared complete without it, even when Step A is fully green.** This is the gate phase-01 lacked.
+
+For each invariant / numbered decision (D#/G#) in phase `P`'s `design_contract`:
+
+1. **Enumerate the invariant's full surface set** (from Step 1d). For each surface the design names, run the invariant's **acceptance check** (negative + positive) against REAL generated output / migrated source — not against an agent's self-report. Paste the command + output.
+   - *Negative:* the forbidden construct/state is gone on that surface (e.g. `grep` finds zero raw `env(...)` on secret positions in the migrated tree).
+   - *Positive:* the new path is actually exercised (e.g. the generated service resolves each secret via `get_secret(<handle>)`; no `${VAR}`/literal secret remains).
+2. **Any surface in the design's set that is unguarded / unconverted is a CONFORMANCE FAILURE** — even if every task is COMPLETED and every suite is GREEN. A half-implemented invariant (guarded on the easy surface, silently dropped on the rest) is exactly the phase-01 escape; this step is built to catch it.
+3. **Verify every task's `design_acceptance_property` was actually proven** (its check + output is in its How-Solved). A COMPLETED task whose property is unproven is a conformance failure — reopen it.
+4. **Check the conformance gaps recorded in Step 1d** (design-named surfaces with no covering task). Any unresolved gap is a phase-level failure.
+
+A conformance failure is handled like a red package: fix it to conformance within the phase (spawn a follow-up task for an out-of-scope root cause), or carry it to Step C's halt-and-ask. **NO declaring the phase done with a known unenforced design surface.** Report each conformance failure explicitly — never let it pass silently under a green suite.
+
 ##### Step B — Partition and evaluate
 
 Partition phase `P`'s tasks into `completed`, `failed`, and `skipped` (using the run-wide state variables, filtered to tasks whose `phase == P`).
 
-**Green phase** — every touched package passed Step A's full-suite gate (all red driven to zero) AND `failed` and `skipped` are both empty:
+**Green phase** — every touched package passed Step A's full-suite gate (all red driven to zero) **AND Step A2's design-conformance gate passed (every design-named surface enforced, every task's acceptance property proven, no open conformance gap)** AND `failed` and `skipped` are both empty:
 - Emit the Phase Checkpoint (below).
 - Proceed to the first wave of phase `P+1`.
 
 ##### Step C — Red phase
 
-Any `failed` or `skipped` task in phase `P`, **OR** any package still red after Step A's fix loop (failures that resisted the fix loop and any recorded out-of-repo blockers):
+Any `failed` or `skipped` task in phase `P`, **OR** any package still red after Step A's fix loop, **OR any unresolved design-conformance failure from Step A2** (an unenforced design-named surface, an unproven task acceptance property, or an open conformance gap):
    - **Do NOT start phase `P+1` yet.**
    - **First, delegate recovery to Opus** — invoke the **Decision Escalation Protocol** (`model: "opus"`, Opus 4.8) once, scoped to the whole phase. Give Opus: every failed/skipped task in phase `P`, **every still-red test/module from Step A** (including pre-existing failures that resisted the fix loop), the exact test failures/errors, all prior fix attempts (wave-level 3e/3f **and** Step A), and the relevant code excerpts. Ask Opus for a **phase-recovery plan** — root cause(s) across the failed items and concrete, per-item remediation steps. Use the phase-recovery prompt variant in the Decision Escalation Protocol.
    - **Implement Opus's recommendation** with the current model (Sonnet): apply the per-task fixes exactly as specified, then re-run the **full test suite for every affected package** (3d gate rules — GREEN only when `result == "PASSED"` AND `failed == 0` AND `error == 0`). Re-attribute and mark any now-passing tasks complete via `complete.ps1`.
@@ -580,6 +623,9 @@ Do NOT list completed tasks — success is the default. Only list failures and s
 
 All rules from `d:\datrix\.claude\CLAUDE.md` apply. Key rules for the orchestrator:
 
+- **CONFORMANCE OVER THROUGHPUT** — the orchestrator's job is to ensure tasks satisfy the **design**, not to run them and report green. A green suite is necessary, never sufficient. Gate every wave (3g) and every phase boundary (3i Step A2) on the design-acceptance property, proven by an executable check you run yourself — not on suite color or an agent's self-report.
+- **BLOCKED IS TERMINAL** — never mark a task COMPLETED when the agent returned BLOCKED, when its `## How Solved` contains `BLOCKED`/`partial`/`out of scope`/`workaround`/unmet-criterion language, or when its design-acceptance property is unproven. Spawn the blocker as a tracked task; do NOT let suite-green override a BLOCKED self-report (the phase-01 01-20 failure).
+- **NO ASSUMING — ENUMERATE AND VERIFY STATE** — characterize a corpus by enumerating ALL of it (counted), not a sample; reason about git/working-tree from the CURRENT on-disk state you just read, never a remembered snapshot. Paste real command output for every conformance claim.
 - **GENUINE agent monitoring, never assumption** — when agents run in the background pool, drive them with the Agent Progress Polling Protocol: check every ~5 minutes what each agent is *actually* doing (status **and** on-disk artifacts). Never report an agent as "working" without that evidence, and never rely on a completion notification to know an agent finished.
 - **NO workarounds** — fix root causes, not symptoms. If something is broken, trace to root cause
 - **NO git reverts** — never use `git checkout`, `git restore`, `git reset`, `git stash`, `git revert`

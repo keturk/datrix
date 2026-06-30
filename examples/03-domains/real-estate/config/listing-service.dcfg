@@ -1,4 +1,4 @@
-﻿config service realestate.ListingService {
+config service realestate.ListingService {
   base {
     port = 8002;
     flavor = "compose";
@@ -51,8 +51,6 @@
       endpoint = "http://localhost:9000";
       bucket = "store";
       region = "us-east-1";
-      accessKey = "minioadmin";
-      secretKey = "minioadmin";
     }
     registration {
       tags = ["api", "library", "v1"];

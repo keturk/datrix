@@ -1,4 +1,4 @@
-﻿config service hostdemo.BlogService {
+config service hostdemo.BlogService {
   base {
     port = 8001;
     flavor = "compose";
@@ -60,8 +60,6 @@
       endpoint = "http://localhost:9000";
       bucket = "media";
       region = "us-east-1";
-      accessKey = "minioadmin";
-      secretKey = "minioadmin";
     }
     registration {
       tags = ["api", "library", "v1"];

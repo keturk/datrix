@@ -1,4 +1,4 @@
-﻿config service library.SharedDataExchangeService {
+config service library.SharedDataExchangeService {
   base {
     port = 8001;
     flavor = "compose";
@@ -39,8 +39,6 @@
       endpoint = "http://localhost:9000";
       bucket = "landing";
       region = "us-east-1";
-      accessKey = "minioadmin";
-      secretKey = "minioadmin";
     }
     registration {
       tags = ["api", "library", "v1"];

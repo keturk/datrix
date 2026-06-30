@@ -1,4 +1,4 @@
-﻿config service healthcare.MedicalRecordService {
+config service healthcare.MedicalRecordService {
   template standardServicePolicy() {
     availability = "required";
     health = "ready";
@@ -82,8 +82,6 @@
       endpoint = "http://localhost:9000";
       bucket = "store";
       region = "us-east-1";
-      accessKey = "minioadmin";
-      secretKey = "minioadmin";
     }
     registration {
       tags = ["api", "library", "v1"];

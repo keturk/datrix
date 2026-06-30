@@ -296,12 +296,12 @@ Every task file path AND the `dependencies.md` path MUST begin with `D:\datrix\{
 - Stop task generation before all tasks are created
 - Create a TASK-GENERATION-SUMMARY.md instead of actual task files
 
-**Self-containment requirement (critical):** Because Phase 5 deletes the design document, every task file generated in this phase MUST be fully self-contained. Specifically:
+**Reference-AND-inline requirement (critical):** Phase 5 **preserves** the design document (see Phase 5 — its goal is "Verify Design Document Preservation"). So every task file generated in this phase both **references** the preserved design doc and is **self-contained**:
 
-- **Inline, do not reference.** Where `/generate-tasks` uses `**Design reference:** {path} -- Section(s) {X.Y}`, replace the path and section reference with the actual content from those sections. The task must contain the relevant design details (requirements, rationale, constraints, examples) directly in its body.
-- **No file path references to the design document.** Task files must NOT contain any path pointing to the design document being operationalized — not in the header, not in "Files to Review", not in prose. The design document will not exist when the task is executed.
-- **Include "why" context.** Each task must include enough rationale and design-decision context that an implementer understands not just what to build but why it was designed that way — without needing the original design doc.
-- **Replace "Files to Review" design-doc entries.** Instead of listing the design document under "Files to Review Before Starting", list only the architecture docs, code files, and test guidelines that the implementer actually needs. If specific design content is needed, inline it in the task body.
+- **Reference the design (MANDATORY).** Keep the `/generate-tasks` header lines `**Design reference:** {absolute-design-doc-path} -- Section(s) {X.Y}; implements design decision(s)/invariant(s) {D#/G#/numbered}` and `**Design acceptance property:** {observable end-state proving the task satisfies the design}`. The design doc remains on disk as the durable source of the invariant the task must satisfy — point at it for traceability and re-verification. (Earlier guidance to strip design-doc references stemmed from a since-removed "Phase 5 deletes the doc" behavior; the doc is now preserved, so reference it.)
+- **Inline the content too (MANDATORY).** In addition to the reference, inline the relevant design details (requirements, rationale, constraints, examples, and the specific D#/G#/numbered invariant) directly in the task body, so the implementer has full context without opening the doc. Reference for traceability; inline for self-sufficiency.
+- **Include "why" context.** Each task must include enough rationale and design-decision context that an implementer understands not just what to build but why it was designed that way.
+- **List the design doc in "Files to Review".** Include the absolute design-doc path (with the specific sections) under "Files to Review Before Starting", alongside the architecture docs, code files, and test guidelines the implementer needs.
 - **All file paths MUST be absolute.** Every file path in the generated task files must use absolute paths (e.g., `d:\datrix\datrix\docs\architecture\...`), never relative paths (e.g., `docs/architecture/...`). This applies to all sections: "Files to Review Before Starting", "Design reference", example file references, etc.
 
 **Pre-requisite:** Verify you have read `/generate-tasks` SKILL.md. If not, STOP and read it now.
@@ -409,6 +409,9 @@ This phase is COMPLETE when:
 - [ ] Dependencies document (`dependencies.md`) created with lean format: group numbers and absolute paths only — no headers, tables, inventories, dependency text blocks, or prose
 - [ ] Output lists ALL task file paths (not "23 tasks remaining")
 - [ ] No dual-implementation gap: if the design introduces a new path, migration tasks ensure the new path is exercised by tests/examples
+- [ ] **Every task carries `**Design reference:**` + `**Design acceptance property:**`** with the specific D#/G#/numbered invariant and a provable (negative + positive) acceptance check — not "tests pass"/"generates clean"
+- [ ] **Enforcement before what it governs:** any task that enforces a design invariant (guard/validator/rejection/conformance check) precedes — and is in `Depends on` of — every task that relies on it or migrates content it governs. No migration is in an earlier or equal wave to its guard
+- [ ] **Invariant-surface coverage:** if the design states an invariant over a SET of surfaces, a task or QG criterion covers EVERY surface in that set — none silently dropped
 
 If any task is described but not generated: Phase 4 is NOT complete.
 
@@ -440,6 +443,9 @@ Before proceeding to Phase 5, answer:
 8. Did I follow the template from `/generate-tasks` exactly?
 9. **Dual-path check:** If the design introduces a new path alongside an old one, will the old tests still pass without the new path being exercised? If yes, I am missing migration tasks.
 10. **Coverage check:** Count the migration steps in the design. Count the migration tasks I generated. If the second number is less than the first, I stopped early.
+10a. **Design-reference check:** Does every task carry `**Design reference:**` + `**Design acceptance property:**` naming the specific D#/G#/numbered invariant, with a provable (negative + positive) acceptance check — not just "tests pass"?
+10b. **Enforcement-ordering check:** Does every invariant-enforcing task (guard/validator/rejection) precede and gate the tasks that rely on it? Is any migration in an earlier-or-equal wave to its guard? If yes, reorder.
+10c. **Invariant-surface check:** If the design states an invariant over a SET of surfaces, did I create a task (or QG criterion) for EVERY surface — or did I cover the easy ones and silently drop the rest (the phase-01 failure mode)?
 11. Did I deviate from any instruction in this phase? If yes, why?
 
 If you deviated: STOP and explain the deviation to the user.
@@ -513,7 +519,8 @@ Design: preserved at {path}
 - **NO separate `-docs` tasks for routine updates** — doc updates ride inside the implementation task whose feature they document; a standalone docs task is only for a substantial multi-task deliverable, placed outside the dependency chain
 - **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
 - **NO bloated dependencies.md** — the dependencies document is for AI agent consumption only; it contains group numbers and absolute task file paths, nothing else. No markdown headers, tables, task inventories, dependency text blocks, category labels, or prose. See generate-tasks Step 7 for the exact format.
-- **NO design document path references in task files** — when operationalizing, tasks must inline design content because Phase 5 deletes the source document
+- **YES design document references in task files** — Phase 5 preserves the design doc, so every task carries `**Design reference:**` + `**Design acceptance property:**` pointing at it AND inlines the relevant content. (Reference for traceability, inline for self-sufficiency.) Do NOT strip the reference.
+- **NO marking a task/phase done on "generates clean" or "suite green" alone** — a task is done only when its `**Design acceptance property:**` is PROVEN by an executable check (negative + positive) whose output is pasted. A green suite over a half-enforced invariant is a false pass (the phase-01 env()-third-path failure).
 - **NO tasks without targeted tests** — every implementation and test task must have a `## Targeted Tests` section specifying which tests to run for focused verification
 - **NO missing quality gates** — every package with 2+ code tasks must have a quality gate task as the final dependency
 - **NO partial task generation** — generate ALL tasks in Phase 4, not a subset with a "roadmap"

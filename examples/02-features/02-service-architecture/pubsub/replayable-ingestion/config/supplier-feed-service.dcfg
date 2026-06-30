@@ -1,4 +1,4 @@
-﻿config service catalog.SupplierFeedService {
+config service catalog.SupplierFeedService {
   base {
     port = 8000;
     flavor = "compose";
@@ -51,8 +51,6 @@
       endpoint = "http://localhost:9000";
       bucket = "catalog-archive";
       region = "us-east-1";
-      accessKey = "minioadmin";
-      secretKey = "minioadmin";
     }
     jobs {
       jobs {
