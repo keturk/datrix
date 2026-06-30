@@ -144,11 +144,7 @@
         settings {
           kind = "freeform";
           keys {
-            debugMode {
-              type = "Boolean";
-              default = false;
-              description = "Enable debug mode.";
-            }
+            Boolean debugMode : description("Enable debug mode.") = false;
           }
         }
       }

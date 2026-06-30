@@ -135,26 +135,14 @@ config system shop.System {
         featureFlags {
           kind = "featureFlag";
           keys {
-            enableNewCheckout {
-              type = "Boolean";
-              default = false;
-              description = "Enable the new checkout flow for all shoppers.";
-            }
+            Boolean enableNewCheckout : description("Enable the new checkout flow for all shoppers.") = false;
           }
         }
 
         rateLimits {
           kind = "freeform";
           keys {
-            apiRequestsPerMinute {
-              type = "Integer";
-              default = 1000;
-              description = "Max catalog API requests per shopper per minute.";
-              constraints {
-                min = 1;
-                max = 10000;
-              }
-            }
+            Int apiRequestsPerMinute : description("Max catalog API requests per shopper per minute."), min(1), max(10000) = 1000;
           }
         }
       }

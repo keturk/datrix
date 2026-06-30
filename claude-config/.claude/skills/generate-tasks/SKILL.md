@@ -39,6 +39,33 @@ The user provides:
 
 All skill outputs (summaries, generated artifacts like dependencies.md) must be lean and data-dense. No decorative headers, horizontal rules, or verbose markdown formatting in console output. No "Next steps" sections. No dependency graphs in console output — that data lives in dependencies.md. One line per data point. If it fits on one line, don't use three.
 
+## Task Location Allowlist — HARD CONSTRAINT
+
+**`.tasks` folders may ONLY be created at the root of one of these 13 framework projects, all of which live directly under `D:\datrix\`:**
+
+```
+D:\datrix\datrix\.tasks
+D:\datrix\datrix-cli\.tasks
+D:\datrix\datrix-codegen-aws\.tasks
+D:\datrix\datrix-codegen-azure\.tasks
+D:\datrix\datrix-codegen-common\.tasks
+D:\datrix\datrix-codegen-component\.tasks
+D:\datrix\datrix-codegen-docker\.tasks
+D:\datrix\datrix-codegen-python\.tasks
+D:\datrix\datrix-codegen-sql\.tasks
+D:\datrix\datrix-codegen-typescript\.tasks
+D:\datrix\datrix-common\.tasks
+D:\datrix\datrix-extensions\.tasks
+D:\datrix\datrix-language\.tasks
+```
+
+**Rules — no exceptions:**
+1. Every task file path AND the `dependencies.md` path MUST begin with `D:\datrix\{project}\.tasks\`, where `{project}` is exactly one of the 13 names above. Validate every path against this list before writing.
+2. **Fallback:** If a task does not clearly belong to a specific framework package, place it under **`D:\datrix\datrix\.tasks`** (the `datrix` showcase repo's task folder). This is the default bucket — never invent a new location for an "uncategorized" task.
+3. **NEVER create a `.tasks` folder anywhere else.** In particular, never under a customer/generated project such as `D:\g\CurvAero\curvaero-backend\`, `D:\g\...`, or any path outside `D:\datrix\{one-of-the-13}\`. A design document may live inside a customer project, but the tasks it produces still go in one of the 13 framework `.tasks` folders above (use the fallback if no specific package fits).
+
+**Why this matters:** Task tooling (`todo.ps1`, `complete.ps1`, `latest-phase.ps1`, the orchestrator skills) only scans `D:\datrix\*/.tasks`. A `.tasks` folder created in a customer project directory (e.g. `D:\g\CurvAero\curvaero-backend\.tasks`) is invisible to every one of these scripts — the tasks silently never run. Placing tasks outside the allowlist is a defect, not a style choice.
+
 ## Workflow
 
 When invoked, follow these steps:
@@ -128,6 +155,7 @@ For each task, create a file following this exact structure:
 
 #### File Naming
 - Path: `d:\datrix\{repo}\.tasks\phase-{NN}\task-{NN}-{TT}-{slug}.md`
+- `{repo}` MUST be one of the 13 framework projects in the **Task Location Allowlist** above — never a customer/generated project. If the task fits no specific package, use `datrix` (the fallback bucket).
 - `{NN}` = zero-padded phase number (e.g., `01`, `02`)
 - `{TT}` = zero-padded task number within phase (e.g., `01`, `02`)
 - `{slug}` = kebab-case description (e.g., `generator-base-and-file-writer`)
@@ -310,6 +338,7 @@ After generating all task files, verify:
 2. Task numbers are sequential (no gaps) within the phase
 3. Dependencies reference valid task IDs
 4. All files are placed in the correct repo's `.tasks/phase-{NN}/` directory
+4a. **Allowlist check:** Every task file path AND the `dependencies.md` path begins with `D:\datrix\{project}\.tasks\` where `{project}` is one of the 13 in the **Task Location Allowlist**. No path points into a customer/generated project or any directory outside the allowlist. Tasks with no specific package land in `datrix\.tasks\`.
 5. No tasks reference non-existent modules from the "Non-existent modules" list
 6. Every task file starts with the agent rules perusal instruction
 7. Task titles follow the `# Task {NN}-{TT}: {Title}` format
@@ -534,12 +563,13 @@ When creating documentation tasks, **read the existing docs** in the target fold
 - Tasks within a phase can be parallelized if they share no dependencies
 
 ### Repository Assignment
-- Tasks go in the `.tasks/` folder of the repository they modify
+- Tasks go in the `.tasks/` folder of the **framework project** they modify — and that project MUST be one of the 13 in the **Task Location Allowlist** above. Never place a `.tasks` folder in a customer/generated project (e.g. `D:\g\CurvAero\curvaero-backend\`), even when the design document being decomposed lives there.
 - If a task spans multiple repos, create separate tasks per repo with cross-references
 - Common framework and core code: `datrix-common/.tasks/`
 - Target-specific code: `datrix-codegen-{target}/.tasks/`
 - Parser/model changes: `datrix-language/.tasks/`
 - CLI changes: `datrix-cli/.tasks/`
+- **No specific framework package fits:** put the task under `datrix/.tasks/` (the fallback bucket from the allowlist). Do not leave it in, or create a `.tasks` folder under, any non-framework directory.
 
 ### Example Files to Reference
 
@@ -580,7 +610,7 @@ When creating tasks, point agents to relevant example `.dtrx` files:
 
 ## Important Rules
 
-1. **Tasks MUST be created inside the `.tasks/` folder of the project they belong to** — never under `d:\datrix\.tasks\` or `d:\datrix\datrix\.tasks\`
+1. **Tasks MUST be created inside the `.tasks/` folder of one of the 13 framework projects** in the **Task Location Allowlist** (top of this skill) — never under `d:\datrix\.tasks\` (the repo root has no `.tasks` of its own) and never under any customer/generated project (`D:\g\...`, etc.). A task that fits no specific package goes in the **`datrix\.tasks\`** fallback bucket; that is the ONLY use of `datrix\.tasks\` for catch-all task files (and the home of `dependencies.md`)
 2. **Do NOT generate summary documents** — only task files
 3. **Every task file MUST start with the agent rules perusal instruction**
 4. **Task title format is strict:** `# Task {NN}-{TT}: {Title}` — scripts detect the "Task " prefix

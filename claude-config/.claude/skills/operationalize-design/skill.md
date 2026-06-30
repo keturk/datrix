@@ -264,6 +264,26 @@ If you deviated: STOP and explain the deviation to the user.
 
 **MANDATORY FIRST STEP:** Read `d:\datrix\.claude\skills\generate-tasks\SKILL.md` completely before generating any tasks. This skill follows the same workflow as `/generate-tasks` with one critical override described below.
 
+**HARD CONSTRAINT — Task Location Allowlist:** `.tasks` folders may ONLY be created at the root of one of these 13 framework projects, all directly under `D:\datrix\`:
+
+```
+D:\datrix\datrix\.tasks
+D:\datrix\datrix-cli\.tasks
+D:\datrix\datrix-codegen-aws\.tasks
+D:\datrix\datrix-codegen-azure\.tasks
+D:\datrix\datrix-codegen-common\.tasks
+D:\datrix\datrix-codegen-component\.tasks
+D:\datrix\datrix-codegen-docker\.tasks
+D:\datrix\datrix-codegen-python\.tasks
+D:\datrix\datrix-codegen-sql\.tasks
+D:\datrix\datrix-codegen-typescript\.tasks
+D:\datrix\datrix-common\.tasks
+D:\datrix\datrix-extensions\.tasks
+D:\datrix\datrix-language\.tasks
+```
+
+Every task file path AND the `dependencies.md` path MUST begin with `D:\datrix\{project}\.tasks\` where `{project}` is exactly one of the 13 names above. **The design document being operationalized often lives inside a customer/generated project (e.g. `D:\g\CurvAero\curvaero-backend\`) — the tasks it produces NEVER go there.** If a task does not clearly belong to a specific framework package, place it under the **`D:\datrix\datrix\.tasks`** fallback bucket. NEVER create a `.tasks` folder under a customer project, under `D:\g\...`, or under any path outside `D:\datrix\{one-of-the-13}\`. Task tooling (`todo.ps1`, `complete.ps1`, `latest-phase.ps1`, the orchestrator skills) only scans `D:\datrix\*/.tasks`; a `.tasks` folder anywhere else is invisible and its tasks silently never run.
+
 **BEFORE generating tasks:**
 1. Count total tasks needed from the design: implementation tasks (each carrying its own tests + doc updates), migration tasks, and one quality gate per package with 2+ code tasks. Do NOT plan separate per-task test, verify, or docs tasks.
 2. Re-read this entire Phase 4 section completely
@@ -359,6 +379,7 @@ If you deviated: STOP and explain the deviation to the user.
    ```
    d:\datrix\{repo}\.tasks\phase-{NN}\task-{NN}-{TT}-{slug}.md
    ```
+   `{repo}` MUST be one of the 13 framework projects in the **Task Location Allowlist** above — never a customer/generated project, even when the design doc lives in one. Use `datrix` as the fallback bucket when no specific package fits.
 
    **File structure (from `/generate-tasks`):**
    ```markdown
@@ -383,6 +404,7 @@ This phase is COMPLETE when:
 - [ ] ALL quality gate tasks generated (exactly one per package with 2+ code tasks; carries the embedded verification checklist)
 - [ ] Any narrow-exception standalone integration/e2e or substantial-docs task is justified and (for docs) placed OUTSIDE the dependency chain
 - [ ] Tasks span ALL affected repos (not just the primary package)
+- [ ] **Every task file path and `dependencies.md` begins with `D:\datrix\{project}\.tasks\` where `{project}` is one of the 13 in the Task Location Allowlist** — no `.tasks` folder under a customer/generated project or any path outside the allowlist; tasks with no specific package use the `datrix\.tasks` fallback
 - [ ] Every task file is self-contained (no design doc references)
 - [ ] Dependencies document (`dependencies.md`) created with lean format: group numbers and absolute paths only — no headers, tables, inventories, dependency text blocks, or prose
 - [ ] Output lists ALL task file paths (not "23 tasks remaining")
@@ -413,6 +435,7 @@ Before proceeding to Phase 5, answer:
 4. Did I avoid generating any standalone `-verify` task (verification rides in the quality gate)?
 5. Did I create migration tasks for every numbered step in the design's migration/rollout section?
 6. Did I generate tasks in ALL affected repos, not just the primary package?
+6a. **Allowlist check:** Does every task file and `dependencies.md` live under `D:\datrix\{one-of-the-13}\.tasks\`? Did I avoid creating any `.tasks` folder inside the (possibly customer-owned) directory where the design document lives? Did unmatched tasks land in the `datrix\.tasks` fallback?
 7. Did I create exactly one quality gate (with the embedded verification checklist) for every package with 2+ code tasks?
 8. Did I follow the template from `/generate-tasks` exactly?
 9. **Dual-path check:** If the design introduces a new path alongside an old one, will the old tests still pass without the new path being exercised? If yes, I am missing migration tasks.
@@ -497,6 +520,7 @@ Design: preserved at {path}
 - **NO asking mid-phase** — complete each phase fully before asking user questions (unless blocked)
 - **NO roadmap/summary files** — generate actual task .md files, not summaries of future work
 - **NO single-package scoping** — if the design affects multiple repos, generate tasks in ALL of them. The design's migration strategy tells you which repos have work.
+- **NO `.tasks` outside the allowlist** — task files and `dependencies.md` go ONLY under `D:\datrix\{one-of-the-13-framework-projects}\.tasks\`. Never create a `.tasks` folder in the customer/generated project the design doc lives in (e.g. `D:\g\CurvAero\curvaero-backend\`), under `D:\g\...`, or anywhere outside `D:\datrix\`. A task with no specific framework package goes in the `datrix\.tasks` fallback. Tooling only scans `D:\datrix\*/.tasks` — anything else is invisible.
 - **NO skipping migration tasks** — if the design has a migration/rollout section with numbered steps, every step becomes a task. "Convert X to Y" is not a suggestion — it is implementation work.
 - **NO leaving dual implementations untested** — if the design introduces a new path alongside an old one, old tests will pass on the old path regardless of whether the new path works. Migration tasks must convert fixtures, examples, and configs to the new path so the new implementation is actually exercised.
 - **NO treating migration as "future work"** — unless the design explicitly defers a migration step to a later phase, it belongs in THIS phase. The design document is the scope boundary.
