@@ -82,10 +82,11 @@ Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `p
 
 When phases are delegated to sub-agents (per the delegation-strategy metadata):
 
-- **max_turns:** Set `max_turns: 40` on each delegated agent. Do NOT leave agents uncapped — unbounded agents become unmonitorable and block question relay.
-- **No background delegation:** Do NOT use `run_in_background: true` for delegated phases. Keep agents foreground so the orchestrator can receive results, relay questions, and report progress promptly.
-- **Question relay:** If a delegated agent returns with questions or ambiguities (status BLOCKED or NEEDS_CONTEXT), the orchestrator MUST immediately relay those questions to the user via `AskUserQuestion`. After receiving answers, resume the agent with the context. Do NOT guess answers or silently skip the agent.
-- **Progress reporting:** After each phase completes (or each task within a phase), emit a brief status update to the user. Do NOT run through all phases silently and dump a wall of text at the end.
+- **max_turns:** Set `max_turns: 40` on each delegated agent. Do NOT leave agents uncapped — unbounded agents become unmonitorable.
+- **Background delegation + genuine polling (NOT completion notifications):** Spawn each delegated agent with `run_in_background: true` and drive it with the **Agent Progress Polling Protocol** (read `d:\datrix\datrix\claude-config\.claude\agent-templates\agent-progress-polling-protocol.md`). Do NOT wait passively for a completion notification and do NOT assume the agent is working. Every ~5 minutes, perform a **genuine** check of each in-flight agent — its status **and** the on-disk artifacts it is supposed to be producing — and classify it (completed / progressing / stalled / errored). Record each agent's `task_id` and assigned `files_to_create`/`files_to_modify`, and snapshot those files' line counts at dispatch.
+- **Question relay (surfaced at poll time):** If a poll's genuine check finds a delegated agent with questions or ambiguities (status BLOCKED or NEEDS_CONTEXT), the orchestrator MUST immediately relay those questions to the user via `AskUserQuestion`. After receiving answers, re-dispatch the agent (background) with the context. Do NOT guess answers or silently skip the agent.
+- **Stalled agents:** A delegated agent whose assigned files have not changed across two consecutive polls (~10 min), or that the poll shows is hung, is investigated — `TaskStop` it and re-dispatch with corrective context or mark BLOCKED. Never leave a stalled agent counted as in-flight.
+- **Progress reporting:** Emit the one-line poll heartbeat each cycle, and a brief status update after each phase (or each task within a phase). Do NOT run through all phases silently and dump a wall of text at the end.
 - **Test execution split:** Delegated agents run ONLY targeted tests (from each task's `## Targeted Tests` section). The orchestrator runs the full test suite once in the quality gate phase. This prevents redundant full-suite runs when multiple tasks are being processed. If a task has no targeted tests section, the agent skips test execution and reports `no_targeted_tests: true`.
 
 <!-- PHASE: pre_check -->
@@ -863,6 +864,7 @@ Be specific. The implementing agent will follow your recommendation directly.
 
 ## Anti-Patterns
 
+- **NO assuming a delegated agent is working** — when a phase is delegated to a background sub-agent, drive it with the Agent Progress Polling Protocol: a genuine status + on-disk artifact check every ~5 minutes. Never report an agent as "in progress" without that evidence, and never rely on a completion notification to learn it finished.
 - **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
 - **NO debug scatter** — zero temporary logging statements
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

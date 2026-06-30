@@ -272,7 +272,7 @@ Do NOT wait for user confirmation — proceed directly to execution. The plan is
 
 ## Step 3: Wave Execution Loop
 
-Execute each wave sequentially. Within each wave, tasks run concurrently against a **rolling pool of up to 5 in-flight agents** (Step 3b) — a freed slot is refilled the instant an agent finishes, rather than waiting for a fixed batch to drain.
+Execute each wave sequentially. Within each wave, tasks run concurrently against a **rolling pool of up to 5 in-flight agents** (Step 3b) — a freed slot is refilled as soon as the genuine 5-minute poll (Agent Progress Polling Protocol) detects an agent has finished, rather than waiting for a fixed batch to drain or for a completion notification.
 
 ### Shared Context Pre-Read (once per run, before the wave loop)
 
@@ -315,8 +315,8 @@ Run the wave through a **rolling pool of up to 5 concurrent agents** (`CAP = 5`)
 **Dispatch loop:**
 
 1. Seed `wave_queue` with all non-skipped tasks in the wave, ordered so that any **2d file-conflict** pair is sequenced (the second task of a conflicting pair must not be dispatchable until the first leaves `in_flight`). Treat such a pair as an intra-wave dependency edge inside the pool.
-2. Fill the pool: dispatch tasks from the head of `wave_queue` until `len(in_flight) == CAP` or the queue is empty. Each dispatch spawns **one** background agent (`run_in_background: true`).
-3. When a completion notification arrives, immediately run 3c **for that one agent** (parse its result, handle BLOCKED/NEEDS_CONTEXT/re-spawn). Remove it from `in_flight`.
+2. Fill the pool: dispatch tasks from the head of `wave_queue` until `len(in_flight) == CAP` or the queue is empty. Each dispatch spawns **one** background agent (`run_in_background: true`). Record each agent's `task_id` and assigned `files_to_create`/`files_to_modify`, and snapshot those files' line counts (per the polling protocol's dispatch step).
+3. **Drive the pool with the Agent Progress Polling Protocol — do NOT wait for completion notifications.** Read `d:\datrix\datrix\claude-config\.claude\agent-templates\agent-progress-polling-protocol.md` and run its poll loop over `in_flight`: every ~5 minutes (paced by a bounded `TaskOutput(block=true, timeout=300000)` on one in-flight agent), perform a **genuine** check of every in-flight agent — its status **and** its on-disk artifacts — and classify it (completed / progressing / stalled / errored). Never assume an agent is working because no notification arrived. When the genuine check shows an agent has **completed**, immediately run 3c **for that one agent** (parse its result, handle BLOCKED/NEEDS_CONTEXT/re-spawn) and remove it from `in_flight`. A stalled agent (no assigned-artifact change across two consecutive polls, ~10 min) is investigated and, if hung, `TaskStop`-ped and re-dispatched or marked BLOCKED — never left counted as in-flight.
 4. Refill: dispatch the next eligible task from `wave_queue` (skip any task whose 2d-conflict predecessor is still in flight; take the next eligible one). Repeat 3–4 until `wave_queue` is empty **and** `in_flight` is empty.
 5. **Wave join:** the pool being fully drained (`in_flight` empty, `wave_queue` empty) is the barrier before the test gate. Do NOT start 3d until the join — this preserves the "never test mid-wave" hard rule.
 
@@ -326,7 +326,7 @@ A re-spawn (NEEDS_CONTEXT answered, or escalation recommendation ready) goes bac
 - `subagent_type: "general-purpose"`
 - `model:` — tier per task (see **Model tiering** below)
 - `max_turns: 40`
-- `run_in_background: true` — required for the rolling pool (the orchestrator is re-invoked on each completion, freeing a slot)
+- `run_in_background: true` — required so each agent can be **polled** while running (see the Agent Progress Polling Protocol). A freed slot is detected by the genuine 5-minute poll, not by a passively-awaited completion notification.
 - `description: "Implement task: {task_id}"`
 
 **Model tiering (per task):**
@@ -334,7 +334,7 @@ A re-spawn (NEEDS_CONTEXT answered, or escalation recommendation ready) goes bac
 - `"claude-sonnet-4-6"` — all substantive code tasks (default for anything touching logic, new files, multi-file edits, or anything you are not certain is trivial). When in doubt, use Sonnet, not Haiku.
 - `"opus"` — **never** for implementation here; Opus is reserved for the Decision Escalation Protocol and the phase-recovery path.
 
-**Fallback when background agents are unavailable** (e.g. the harness can't notify on completion, or a deterministic run is required): fall back to foreground batches, but size them to **balance**, not rigid 5s — e.g. dispatch 6 tasks as 3+3, not 5+1, so a lone trailer never wastes a whole barrier. Aim for `ceil(N / ceil(N / CAP))` per batch. The rolling pool is preferred; this is only the degraded path.
+**Fallback when background agents are genuinely unavailable** (the harness cannot spawn background tasks at all, or a deterministic run is required): fall back to foreground batches, but size them to **balance**, not rigid 5s — e.g. dispatch 6 tasks as 3+3, not 5+1, so a lone trailer never wastes a whole barrier. Aim for `ceil(N / ceil(N / CAP))` per batch. The polled rolling pool is preferred; this is only the degraded path. Note: a flaky or absent **completion-notification** channel is NOT a reason to fall back — the polling protocol does not depend on notifications, so the background rolling pool still works.
 
 **Agent prompt template:**
 
@@ -360,7 +360,7 @@ The rolling pool (above) governs when the next task is dispatched — a freed sl
 
 #### 3c. Collect Agent Results (per completion)
 
-Run this **each time one agent completes**, as its notification arrives (rolling pool) — not once per sub-group:
+Run this **each time a poll detects that one agent has completed** (the genuine check in 3b step 3 — never triggered by passively awaiting a notification) — not once per sub-group:
 
 1. Parse the JSON report from the agent's output
 2. Record status: IMPLEMENTED / BLOCKED / NEEDS_CONTEXT / FAILED
@@ -580,6 +580,7 @@ Do NOT list completed tasks — success is the default. Only list failures and s
 
 All rules from `d:\datrix\.claude\CLAUDE.md` apply. Key rules for the orchestrator:
 
+- **GENUINE agent monitoring, never assumption** — when agents run in the background pool, drive them with the Agent Progress Polling Protocol: check every ~5 minutes what each agent is *actually* doing (status **and** on-disk artifacts). Never report an agent as "working" without that evidence, and never rely on a completion notification to know an agent finished.
 - **NO workarounds** — fix root causes, not symptoms. If something is broken, trace to root cause
 - **NO git reverts** — never use `git checkout`, `git restore`, `git reset`, `git stash`, `git revert`
 - **NO debug scatter** — zero temporary logging statements left behind

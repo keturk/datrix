@@ -232,10 +232,11 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
 
 ### Delegation Constraints
 
-- **max_turns:** Set `max_turns: 40` on each spawned agent. Do NOT leave agents uncapped — an agent that runs for hundreds of turns without returning is unmonitorable and blocks question relay.
-- **No background agents:** Do NOT use `run_in_background: true`. Spawn agents in the foreground so the orchestrator can receive their results (including questions and status) promptly. Since multiple foreground agents are spawned in a single message, they still execute concurrently.
-- **Question relay:** If an agent returns with status BLOCKED or NEEDS_CONTEXT and includes questions/ambiguities, the orchestrator MUST immediately relay those questions to the user via `AskUserQuestion`. After receiving answers, resume the agent with the context. Do NOT silently skip blocked agents or guess answers on behalf of the user.
-- **Progress reporting:** After all agents return (or after resuming any that had questions), emit a progress summary to the user before proceeding to the quality gate phase. If any agent is still outstanding, report which tasks are pending and what's holding them up.
+- **max_turns:** Set `max_turns: 40` on each spawned agent. Do NOT leave agents uncapped — an agent that runs for hundreds of turns without returning is unmonitorable.
+- **Background agents + genuine polling (NOT completion notifications):** Spawn every agent with `run_in_background: true` and drive them with the **Agent Progress Polling Protocol** (read `d:\datrix\datrix\claude-config\.claude\agent-templates\agent-progress-polling-protocol.md`). Do NOT wait passively for completion notifications and do NOT assume an agent is working. Every ~5 minutes, perform a **genuine** check of every in-flight agent — its status **and** the on-disk artifacts it is supposed to be producing — and classify it (completed / progressing / stalled / errored). Background dispatch is what makes this polling possible; the agents still execute concurrently.
+- **Question relay (surfaced at poll time):** If a poll's genuine check finds an agent BLOCKED or NEEDS_CONTEXT with questions/ambiguities, the orchestrator MUST immediately relay those questions to the user via `AskUserQuestion`. After receiving answers, re-dispatch the agent (in background) with the context. Do NOT silently skip blocked agents or guess answers on behalf of the user.
+- **Stalled agents:** An agent whose assigned files have not changed across two consecutive polls (~10 min), or that the poll shows is hung/looping, is investigated — `TaskStop` it and re-dispatch with corrective context or mark BLOCKED. Never leave a stalled agent counted as in-flight.
+- **Progress reporting:** Emit the one-line poll heartbeat each cycle, and a fuller progress summary once all agents reach a terminal state (before proceeding to the quality gate phase). If any agent is still outstanding, report which tasks are pending and the evidence of what's holding them up.
 
 1. **For each task in the batch, spawn a Task agent with subagent_type="general-purpose":**
 
@@ -246,7 +247,7 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
 
    **Critical Task tool parameters:**
    - `max_turns: 40` — hard limit per agent
-   - Do NOT set `run_in_background: true`
+   - `run_in_background: true` — required so each agent can be polled while running (Agent Progress Polling Protocol). Record each agent's `task_id` and assigned `files_to_create`/`files_to_modify`, and snapshot those files' line counts at dispatch.
 
    **Agent prompt template:**
 
@@ -273,20 +274,21 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
    - STUCK protocol
    - JSON result format
 
-2. **Spawn all agents in parallel** using a single message with multiple Task tool calls (all foreground, `max_turns: 40`)
+2. **Spawn all agents in parallel** using a single message with multiple Task tool calls (all `run_in_background: true`, `max_turns: 40`)
 
-3. **Collect results as agents return:**
+3. **Drive the agents with the Agent Progress Polling Protocol — do NOT wait for completion notifications.** Run the poll loop over all in-flight agents: every ~5 minutes, perform the genuine status + on-disk artifact check, never assuming an agent is working. As each poll detects an agent has **completed**, collect its result:
    - Task status (IMPLEMENTED / BLOCKED / NEEDS_CONTEXT / FAILED)
    - Files created/modified
    - Targeted test results (pass/fail, fix attempts made)
    - Any errors or questions encountered
 
-4. **Handle agent questions immediately:**
-   - If ANY agent returns with **spec gap or missing user input** (NEEDS_CONTEXT — unclear requirement, missing path, credential): use `AskUserQuestion` to relay to the user; resume the agent after receiving answers; do NOT proceed to quality gate while questions are outstanding
-   - If ANY agent returns with **technical ambiguity** (BLOCKED or NEEDS_CONTEXT with a design choice, conflicting patterns, or unclear root cause): invoke the **Decision Escalation Protocol** — spawn an Opus 4.8 agent to analyze and recommend; resume the implementation agent with Opus's recommendation
-   - If ANY agent returns with a **hard blocker** (BLOCKED due to missing dependency, missing file, incomplete prereq): record the failure, report to user, do not re-attempt
+4. **Handle agent questions immediately (at the poll that surfaces them):**
+   - If a poll finds an agent with a **spec gap or missing user input** (NEEDS_CONTEXT — unclear requirement, missing path, credential): use `AskUserQuestion` to relay to the user; re-dispatch the agent (background) after receiving answers; do NOT proceed to quality gate while questions are outstanding
+   - If a poll finds an agent with **technical ambiguity** (BLOCKED or NEEDS_CONTEXT with a design choice, conflicting patterns, or unclear root cause): invoke the **Decision Escalation Protocol** — spawn an Opus 4.8 agent to analyze and recommend; re-dispatch the implementation agent with Opus's recommendation
+   - If a poll finds an agent with a **hard blocker** (BLOCKED due to missing dependency, missing file, incomplete prereq): record the failure, report to user, do not re-attempt
+   - If a poll finds an agent **stalled** (no assigned-artifact change across two consecutive polls): investigate per the protocol — `TaskStop` and re-dispatch with corrective context, or mark BLOCKED
 
-5. **Report progress to user** after all agents have returned (or been resumed and re-completed):
+5. **Report progress to user** after all agents have reached a terminal state (completed / blocked / failed, including any re-dispatched and re-completed):
    - Which tasks completed implementation
    - Brief summary of each result including targeted test outcomes
    - Which targeted tests passed/failed per agent
@@ -368,16 +370,16 @@ Proceeding to full-suite quality gate...
 
 ### Error Handling
 
-If an agent crashes, times out, or hits `max_turns`:
+If a poll detects an agent crashed, timed out, hit `max_turns`, or stalled (no assigned-artifact change across two consecutive polls):
 - Record the error in results
-- Mark task as BLOCKED with explanation (e.g., "Agent hit max_turns limit — task may need to be broken down or retried")
-- Report the issue to the user immediately — do NOT silently skip
-- Continue with other agents
+- `TaskStop` it if still in-flight, then mark task as BLOCKED with explanation (e.g., "Agent hit max_turns limit — task may need to be broken down or retried")
+- Report the issue to the user immediately — do NOT silently skip and do NOT assume it is still working
+- Continue polling the other agents
 - Report the issue in quality gate phase
 
-If an agent returns with questions (NEEDS_CONTEXT):
+If a poll finds an agent with questions (NEEDS_CONTEXT):
 - Relay questions to user via AskUserQuestion
-- Resume agent after user provides answers
+- Re-dispatch the agent (background) after user provides answers
 - If user cannot answer, mark task BLOCKED
 <!-- END_PHASE: spawn_agents -->
 
@@ -708,6 +710,7 @@ Use `/execute-tasks` instead if:
 
 ## Anti-Patterns
 
+- **NO assuming agents are working** — background agents are driven by the Agent Progress Polling Protocol: a genuine status + on-disk artifact check every ~5 minutes. Never report an agent as "in progress" without that evidence, and never rely on a completion notification to learn an agent finished.
 - **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
 - **NO debug scatter** — zero temporary logging statements
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)
