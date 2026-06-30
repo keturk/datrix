@@ -1,4 +1,4 @@
-config service library.BookService {
+﻿config service library.BookService {
   base {
     port = 8000;
     flavor = "compose";
@@ -141,7 +141,7 @@ config service library.BookService {
       id = "c755b1b1-4f35-40ef-82bb-da7099de02e3";
       engine = "postgres";
       flavor = "rds";
-      host = env("DB_HOST");
+      host = "postgres.internal";
       database = "library_books";
       poolSize = 40;
       maxOverflow = 20;

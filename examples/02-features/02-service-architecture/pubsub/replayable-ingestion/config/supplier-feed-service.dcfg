@@ -1,4 +1,4 @@
-config service catalog.SupplierFeedService {
+﻿config service catalog.SupplierFeedService {
   base {
     port = 8000;
     flavor = "compose";
@@ -161,7 +161,7 @@ config service catalog.SupplierFeedService {
       id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
       engine = "postgres";
       flavor = "rds";
-      host = env("DB_HOST");
+      host = "postgres.internal";
       database = "catalog_products";
       poolSize = 40;
       maxOverflow = 20;

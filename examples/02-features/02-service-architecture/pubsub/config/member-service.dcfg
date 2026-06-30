@@ -134,7 +134,7 @@
       id = "9faa43ea-466d-4f08-adc6-c8c10890abfc";
       engine = "postgres";
       flavor = "rds";
-      host = env("DB_HOST");
+      host = "postgres.internal";
       port = 5432;
       database = "library_members";
       instanceClass = "db.t3.micro";
@@ -161,7 +161,7 @@
       id = "9faa43ea-466d-4f08-adc6-c8c10890abfc";
       engine = "postgres";
       flavor = "rds";
-      host = env("DB_HOST");
+      host = "postgres.internal";
       port = 5432;
       database = "library_members";
       instanceClass = "db.t3.micro";

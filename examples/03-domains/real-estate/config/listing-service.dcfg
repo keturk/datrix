@@ -1,4 +1,4 @@
-config service realestate.ListingService {
+﻿config service realestate.ListingService {
   base {
     port = 8002;
     flavor = "compose";
@@ -153,7 +153,7 @@ config service realestate.ListingService {
       id = "3bd1a12a-1386-49bd-8454-06f9fb0279ff";
       engine = "postgres";
       flavor = "rds";
-      host = env("DB_HOST");
+      host = "postgres.internal";
       database = "library_books";
       poolSize = 40;
       maxOverflow = 20;

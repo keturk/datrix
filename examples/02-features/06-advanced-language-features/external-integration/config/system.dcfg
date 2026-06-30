@@ -167,7 +167,7 @@
     }
     observability {
       tracing {
-        endpoint = env("JAEGER_URL");
+        endpoint = "http://jaeger:4317";
       }
     }
     serviceDiscovery {

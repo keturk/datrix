@@ -1,4 +1,4 @@
-config service healthcare.MedicalRecordService {
+﻿config service healthcare.MedicalRecordService {
   template standardServicePolicy() {
     availability = "required";
     health = "ready";
@@ -189,7 +189,7 @@ config service healthcare.MedicalRecordService {
       id = "ee3a460f-5430-4d4e-b1a6-d3b82b457b97";
       engine = "postgres";
       flavor = "rds";
-      host = env("DB_HOST");
+      host = "postgres.internal";
       database = "library_books";
       poolSize = 40;
       maxOverflow = 20;

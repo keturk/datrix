@@ -152,7 +152,7 @@
       id = "7c2a1f4e-9b3d-4e21-8a77-2f0c5d61e8aa";
       engine = "postgres";
       flavor = "rds";
-      host = env("DB_HOST");
+      host = "postgres.internal";
       database = "shop_store";
       poolSize = 40;
       maxOverflow = 20;

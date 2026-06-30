@@ -146,7 +146,7 @@
       id = "739c610a-ab42-4bde-823e-3c6d5049f594";
       engine = "postgres";
       flavor = "rds";
-      host = env("DB_HOST");
+      host = "postgres.internal";
       port = 5432;
       database = "library_books";
       instanceClass = "db.t3.micro";
@@ -160,7 +160,7 @@
     replace pubsub mq {
       engine = "kafka";
       flavor = "msk-serverless";
-      brokers = [env("MSK_BOOTSTRAP_SERVERS")];
+      brokers = ["b-1.msk.example.internal:9092"];
       partitions = 3;
       replicationFactor = 3;
       retention = "7d";
@@ -181,7 +181,7 @@
       id = "739c610a-ab42-4bde-823e-3c6d5049f594";
       engine = "postgres";
       flavor = "rds";
-      host = env("DB_HOST");
+      host = "postgres.internal";
       port = 5432;
       database = "library_books";
       instanceClass = "db.t3.micro";
@@ -195,7 +195,7 @@
     replace pubsub mq {
       engine = "kafka";
       flavor = "msk-serverless";
-      brokers = [env("MSK_BOOTSTRAP_SERVERS")];
+      brokers = ["b-1.msk.example.internal:9092"];
       partitions = 3;
       replicationFactor = 3;
       retention = "7d";

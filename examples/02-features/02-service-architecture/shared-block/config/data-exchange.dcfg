@@ -1,4 +1,4 @@
-config service library.SharedDataExchangeService {
+﻿config service library.SharedDataExchangeService {
   base {
     port = 8001;
     flavor = "compose";
@@ -141,7 +141,7 @@ config service library.SharedDataExchangeService {
       id = "4ec7a356-a6cf-4a63-b26a-9dcbb8395553";
       engine = "postgres";
       flavor = "rds";
-      host = env("DB_HOST");
+      host = "postgres.internal";
       database = "library_books";
       poolSize = 40;
       maxOverflow = 20;

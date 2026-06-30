@@ -134,7 +134,7 @@
       id = "fdf73b11-5ea8-437a-b6ef-0a6ab56ddf61";
       engine = "postgres";
       flavor = "rds";
-      host = env("DB_HOST");
+      host = "postgres.internal";
       port = 5432;
       database = "warehouse_geo";
       instanceClass = "db.t3.micro";

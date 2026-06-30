@@ -1,4 +1,4 @@
-config service iot.FirmwareService {
+﻿config service iot.FirmwareService {
   template standardServicePolicy() {
     availability = "required";
     health = "ready";
@@ -172,7 +172,7 @@ config service iot.FirmwareService {
       id = "032c3352-0126-40ff-817a-57ede0421f74";
       engine = "postgres";
       flavor = "rds";
-      host = env("DB_HOST");
+      host = "postgres.internal";
       database = "library_books";
       poolSize = 40;
       maxOverflow = 20;

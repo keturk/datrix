@@ -1,4 +1,4 @@
-config service hostdemo.BlogService {
+﻿config service hostdemo.BlogService {
   base {
     port = 8001;
     flavor = "compose";
@@ -162,7 +162,7 @@ config service hostdemo.BlogService {
       id = "0cd3a0fa-7286-4c1c-9c51-2a6df494abca";
       engine = "postgres";
       flavor = "rds";
-      host = env("DB_HOST");
+      host = "postgres.internal";
       database = "library_books";
       poolSize = 40;
       maxOverflow = 20;

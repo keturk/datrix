@@ -155,7 +155,7 @@
       id = "585ce0ad-e9f6-4b41-8f2c-2d1bf27a8e69";
       engine = "postgres";
       flavor = "rds";
-      host = env("DB_HOST");
+      host = "postgres.internal";
       database = "library_books";
       poolSize = 40;
       maxOverflow = 20;

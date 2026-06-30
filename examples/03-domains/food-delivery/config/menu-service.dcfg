@@ -1,4 +1,4 @@
-config service fooddelivery.MenuService {
+﻿config service fooddelivery.MenuService {
   base {
     port = 8002;
     flavor = "compose";
@@ -170,7 +170,7 @@ config service fooddelivery.MenuService {
       id = "64272da0-74ef-481f-807b-186c76319624";
       engine = "postgres";
       flavor = "rds";
-      host = env("DB_HOST");
+      host = "postgres.internal";
       database = "library_books";
       poolSize = 40;
       maxOverflow = 20;

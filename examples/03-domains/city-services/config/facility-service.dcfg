@@ -155,7 +155,7 @@
       id = "c4ad569c-c10c-46bd-a4a7-cb62bd9904d5";
       engine = "postgres";
       flavor = "rds";
-      host = env("DB_HOST");
+      host = "postgres.internal";
       database = "cityservices_facilities";
       poolSize = 40;
       maxOverflow = 20;

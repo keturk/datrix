@@ -1,4 +1,4 @@
-config service realestate.ContractService {
+﻿config service realestate.ContractService {
   template standardServicePolicy() {
     availability = "required";
     health = "ready";
@@ -164,7 +164,7 @@ config service realestate.ContractService {
       id = "5fca26be-a863-4fcf-a9c3-026d72a0f9dc";
       engine = "postgres";
       flavor = "rds";
-      host = env("DB_HOST");
+      host = "postgres.internal";
       database = "library_books";
       poolSize = 40;
       maxOverflow = 20;

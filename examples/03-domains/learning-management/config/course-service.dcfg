@@ -1,4 +1,4 @@
-config service lms.CourseService {
+﻿config service lms.CourseService {
   template standardServicePolicy() {
     availability = "required";
     health = "ready";
@@ -164,7 +164,7 @@ config service lms.CourseService {
       id = "527b2359-65a0-4bf9-9a9b-489123df12bb";
       engine = "postgres";
       flavor = "rds";
-      host = env("DB_HOST");
+      host = "postgres.internal";
       database = "library_books";
       poolSize = 40;
       maxOverflow = 20;
