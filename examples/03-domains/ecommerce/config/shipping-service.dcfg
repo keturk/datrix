@@ -1,4 +1,14 @@
 ﻿config service ecommerce.ShippingService {
+  template standardCachePolicy() {
+    availability = "required";
+    health = "ready";
+    operations {
+      read       { onFailure = "raise"; }
+      write      { onFailure = "raise"; }
+      invalidate { onFailure = "warn"; }
+    }
+  }
+
   base {
     port = 8005;
     flavor = "compose";
@@ -81,6 +91,11 @@
             initial = "100ms";
             multiplier = 2;
           }
+        }
+      }
+      dependencyPolicy {
+        defaults {
+          cache from standardCachePolicy();
         }
       }
     }

@@ -13,6 +13,8 @@
 - Own every issue (when reviewing, stay in task scope). Never assume/fabricate — look it up.
 - No GitHub Actions. No backward compat (delete old code). Editor context: don't act on open file unless mentioned.
 - **Datrix is a multi-language, multi-platform generator** — NOT limited to Python/TypeScript, NOT limited to Docker/AWS/Azure. **Never generate cross-package or language/provider matrix tests** (in any skill, agent, or task): each `datrix-*` package tests only its own surface, and the public `datrix` repo hosts no test suite. See "Datrix Showcase Repo Boundaries" below and prohibited-patterns Pattern 9.
+- **Cross-surface impact rule:** shared layers (`datrix-common`, `datrix-codegen-common`, any shared contract) are consumed by EVERY generator. A fix for one language/platform must never break another: when touching a shared layer, identify all consuming packages and pass each one's test suite — not just the package you were fixing. There is no cross-language parity suite to catch this for you.
+- **Generality-preserving design rule:** place fixes and features at the most language/platform-agnostic layer that can own them; language/provider specifics live only in the owning codegen package. Never hardcode the assumption that currently-shipped languages/providers are the only targets.
 - **No git reverts.** Never use `git checkout`, `git restore`, `git reset`, `git stash`, `git revert`, or any variant to revert or discard changes. The agent does not know how many prior tasks have modified working tree files — reverting may destroy uncommitted work. Undo your own edits manually.
 
 ## Temporary File Policy

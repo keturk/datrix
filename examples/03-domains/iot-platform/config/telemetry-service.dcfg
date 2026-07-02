@@ -5,6 +5,16 @@
     timeout = 5000;
   }
 
+  template standardCachePolicy() {
+    availability = "required";
+    health = "ready";
+    operations {
+      read       { onFailure = "raise"; }
+      write      { onFailure = "raise"; }
+      invalidate { onFailure = "warn"; }
+    }
+  }
+
   base {
     port = 8003;
     flavor = "compose";
@@ -121,6 +131,7 @@
       }
       dependencyPolicy {
         defaults {
+          cache from standardCachePolicy();
           service from standardServicePolicy();
         }
       }

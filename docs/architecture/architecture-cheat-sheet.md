@@ -1,5 +1,7 @@
 # Architecture Cheat Sheet
 
+**What Datrix is:** a **multi-language, multi-platform code generator** that transforms `.dtrx` domain specifications into production-ready applications — NOT limited to Python/TypeScript, NOT limited to Docker/AWS/Azure. The shipped generator packages below are the *current* targets, never the boundary of the system. Two invariants follow: a fix for one language/platform must never break another (shared layers are consumed by every generator — test all consuming packages), and solutions must live at the most language/platform-agnostic layer that can own them.
+
 Pipeline (user sources): `.dtrx -> Parser (datrix-language) -> extension directives on AST -> extension resolution (registry / TypeRegistry when invoked) -> Semantic Analysis -> Config Resolution -> Application (AST) -> Generators`
 
 **Builtins and stdlib (language layer, before generators):** builtins ship as pre-parsed ASTs (traits, scalars, enums, and the four builtin domain exceptions in `builtins.dtrx`). Eight stdlib `.dtrx` modules ship as pre-parsed ASTs under `datrix-language/src/datrix_language/stdlib/` and stay lazy until semantic analysis needs them. User files still go through Tree-sitter parse + transformers into `Application`; stdlib symbols are registered as placeholders on the app scope and the owning stdlib module is deserialized on first reference during semantic analysis.

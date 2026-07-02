@@ -1,5 +1,7 @@
 # Design Principles Cheat Sheet
 
+**What Datrix is:** a **multi-language, multi-platform code generator** (`.dtrx` domain specs → production-ready applications) — NOT limited to Python/TypeScript, NOT limited to Docker/AWS/Azure. Every principle below is read through that lens: fixes for one language/platform must not break another, and designs must preserve the generator's multi-language, multi-platform nature.
+
 ## Core Principles
 
 1. **Fail Fast, Fail Loud** -- Errors at generation time, not runtime. Raise with context, never return None.

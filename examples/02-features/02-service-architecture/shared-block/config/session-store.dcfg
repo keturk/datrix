@@ -1,4 +1,14 @@
 ﻿config service library.SharedSessionStoreService {
+  template authCachePolicy() {
+    availability = "required";
+    health = "ready";
+    operations {
+      read       { onFailure = "raise"; }
+      write      { onFailure = "raise"; }
+      invalidate { onFailure = "raise"; }
+    }
+  }
+
   base {
     port = 8001;
     flavor = "compose";
@@ -61,6 +71,12 @@
             initial = "100ms";
             multiplier = 2;
           }
+        }
+      }
+
+      dependencyPolicy {
+        defaults {
+          cache from authCachePolicy();
         }
       }
     }
