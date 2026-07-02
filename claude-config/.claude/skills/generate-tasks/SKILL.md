@@ -62,9 +62,9 @@ D:\datrix\datrix-language\.tasks
 **Rules — no exceptions:**
 1. Every task file path AND the `dependencies.md` path MUST begin with `D:\datrix\{project}\.tasks\`, where `{project}` is exactly one of the 13 names above. Validate every path against this list before writing.
 2. **Fallback:** If a task does not clearly belong to a specific framework package, place it under **`D:\datrix\datrix\.tasks`** (the `datrix` showcase repo's task folder). This is the default bucket — never invent a new location for an "uncategorized" task.
-3. **NEVER create a `.tasks` folder anywhere else.** In particular, never under a customer/generated project such as `D:\g\CurvAero\curvaero-backend\`, `D:\g\...`, or any path outside `D:\datrix\{one-of-the-13}\`. A design document may live inside a customer project, but the tasks it produces still go in one of the 13 framework `.tasks` folders above (use the fallback if no specific package fits).
+3. **NEVER create a `.tasks` folder anywhere else.** In particular, never under a customer/generated project such as `D:\g\<customer-project>\`, `D:\g\...`, or any path outside `D:\datrix\{one-of-the-13}\`. A design document may live inside a customer project, but the tasks it produces still go in one of the 13 framework `.tasks` folders above (use the fallback if no specific package fits).
 
-**Why this matters:** Task tooling (`todo.ps1`, `complete.ps1`, `latest-phase.ps1`, the orchestrator skills) only scans `D:\datrix\*/.tasks`. A `.tasks` folder created in a customer project directory (e.g. `D:\g\CurvAero\curvaero-backend\.tasks`) is invisible to every one of these scripts — the tasks silently never run. Placing tasks outside the allowlist is a defect, not a style choice.
+**Why this matters:** Task tooling (`todo.ps1`, `complete.ps1`, `latest-phase.ps1`, the orchestrator skills) only scans `D:\datrix\*/.tasks`. A `.tasks` folder created in a customer project directory (e.g. `D:\g\<customer-project>\.tasks`) is invisible to every one of these scripts — the tasks silently never run. Placing tasks outside the allowlist is a defect, not a style choice.
 
 ## Workflow
 
@@ -576,7 +576,7 @@ When creating documentation tasks, **read the existing docs** in the target fold
 - Tasks within a phase can be parallelized if they share no dependencies
 
 ### Repository Assignment
-- Tasks go in the `.tasks/` folder of the **framework project** they modify — and that project MUST be one of the 13 in the **Task Location Allowlist** above. Never place a `.tasks` folder in a customer/generated project (e.g. `D:\g\CurvAero\curvaero-backend\`), even when the design document being decomposed lives there.
+- Tasks go in the `.tasks/` folder of the **framework project** they modify — and that project MUST be one of the 13 in the **Task Location Allowlist** above. Never place a `.tasks` folder in a customer/generated project (e.g. `D:\g\<customer-project>\`), even when the design document being decomposed lives there.
 - If a task spans multiple repos, create separate tasks per repo with cross-references
 - Common framework and core code: `datrix-common/.tasks/`
 - Target-specific code: `datrix-codegen-{target}/.tasks/`

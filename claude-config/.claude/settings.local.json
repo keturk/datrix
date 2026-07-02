@@ -65,7 +65,7 @@
       "mcp__azure__bicepschema",
       "PowerShell(powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-azure)",
       "PowerShell(powershell -File d:/datrix/datrix/scripts/test/mypy.ps1 datrix-codegen-azure)",
-      "Read(//d/g/CurvAero/curvaero-backend/**)"
+      "Read(//d/g/<customer-project>/**)"
     ],
     "additionalDirectories": [
       "d:\\datrix\\$repo\\tests",
