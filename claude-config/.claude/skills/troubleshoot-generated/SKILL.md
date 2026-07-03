@@ -1,8 +1,10 @@
 ---
-model: claude-sonnet-4-6
+model: claude-opus-4-8
 ---
 
 # Troubleshoot Generated Code Skill
+
+**Reasoning effort: HIGH.** Apply STOP AND THINK throughout — trace the full causal chain from symptom to codegen root cause before writing anything. Read the generator/template/transformer and the offending `.dtrx` source before forming a hypothesis. One correctly diagnosed root cause beats five plausible-sounding guesses.
 
 Diagnose failures in generated code tests, trace errors back to Datrix codegen sources (templates, generators, .dtrx files), and produce a detailed timestamped situation report under `d:\datrix\issues`.
 

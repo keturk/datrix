@@ -21,7 +21,10 @@
       "PowerShell(powershell -File \"d:/datrix/datrix/scripts/tasks/latest-phase.ps1\" -BaseDir \"D:\\\\datrix\")",
       "PowerShell(powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-python -Specific \"tests/integration/test_cross_platform_datasource_parity.py\")",
       "PowerShell(powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-azure)",
-      "PowerShell(Get-ChildItem d:\\\\datrix\\\\issues\\\\ -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name; if \\(-not \\(Test-Path d:\\\\datrix\\\\issues\\\\\\)\\) { \"DIRECTORY MISSING\" } else { \"EXISTS \\($\\(Get-ChildItem d:\\\\datrix\\\\issues\\\\ | Measure-Object\\).Count files\\)\" })"
+      "PowerShell(Get-ChildItem d:\\\\datrix\\\\issues\\\\ -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name; if \\(-not \\(Test-Path d:\\\\datrix\\\\issues\\\\\\)\\) { \"DIRECTORY MISSING\" } else { \"EXISTS \\($\\(Get-ChildItem d:\\\\datrix\\\\issues\\\\ | Measure-Object\\).Count files\\)\" })",
+      "PowerShell(az keyvault secret set --vault-name curvaero-system-kv-dev --name jwt-private-key --file \"C:\\\\Users\\\\KErca\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--datrix\\\\d2e93cd9-3842-4be3-b188-a82bf8aa0263\\\\scratchpad\\\\jwt-private.pem\" --query \"name\" -o tsv)",
+      "PowerShell(az keyvault secret set --vault-name curvaero-system-kv-dev --name jwt-public-key --file \"C:\\\\Users\\\\KErca\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--datrix\\\\d2e93cd9-3842-4be3-b188-a82bf8aa0263\\\\scratchpad\\\\jwt-public.pem\" --query \"name\" -o tsv)",
+      "Read(//d/g/CurvAero/generated/dev/infra/modules/identity/**)"
     ],
     "additionalDirectories": [
       "C:\\Users\\KErca\\.claude"
