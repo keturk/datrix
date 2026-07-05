@@ -74,7 +74,6 @@
       }
     }
     serverless eventHandlers {
-      flavor = "container";
       defaults {
         timeout = 300;
         memory = 512;
@@ -83,7 +82,6 @@
       }
     }
     serverless scheduledTasks {
-      flavor = "container";
       defaults {
         timeout = 600;
         memory = 512;
@@ -92,7 +90,6 @@
       }
     }
     serverless queueWorkers {
-      flavor = "container";
       defaults {
         timeout = 300;
         memory = 512;

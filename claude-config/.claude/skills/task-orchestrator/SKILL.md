@@ -16,7 +16,7 @@ Fully automated multi-wave task orchestrator. Accepts a set of tasks (individual
 - Automated test execution (runs full suite via Bash, does not ask user)
 - Automatic wave advancement (no human intervention between waves)
 - Handles tasks with cross-dependencies (separates into waves instead of blocking)
-- **Sequential multi-phase execution** — given several phases (e.g. `72, 73, 74`), finishes each phase fully before starting the next. At every phase boundary a gate (Step 3i) runs the **full test suite for every package the phase touched** and fixes **all** failures — including pre-existing ones unrelated to the phase's changes — with Opus-led recovery, before the next phase starts
+- **Sequential multi-phase execution** — given several phases (e.g. `72, 73, 74`), finishes each phase fully before starting the next. At every phase boundary a gate (Step 3i) runs the **full test suite for every package the phase touched** and fixes **all** failures — including pre-existing ones unrelated to the phase's changes — with Fable-led recovery, before the next phase starts
 
 ## When to Use
 
@@ -235,7 +235,7 @@ For each phase (in numeric order):
         local_wave += 1
 ```
 
-4. **Phase boundaries are wave boundaries** — even if a task in phase 35 has no dependencies, it cannot start until ALL phase 34 waves are complete. Each phase boundary is also a **Phase Boundary Gate** (Step 3i): the earlier phase must pass an explicit completion check — every package it touched must pass its **full** test suite with all failures fixed, including pre-existing ones unrelated to the phase, with Opus-led recovery on failure — before the next phase's first wave is spawned.
+4. **Phase boundaries are wave boundaries** — even if a task in phase 35 has no dependencies, it cannot start until ALL phase 34 waves are complete. Each phase boundary is also a **Phase Boundary Gate** (Step 3i): the earlier phase must pass an explicit completion check — every package it touched must pass its **full** test suite with all failures fixed, including pre-existing ones unrelated to the phase, with Fable-led recovery on failure — before the next phase's first wave is spawned.
 
 **Example with 2 phases:**
 ```
@@ -349,7 +349,7 @@ A re-spawn (NEEDS_CONTEXT answered, or escalation recommendation ready) goes bac
 **Model tiering (per task):**
 - `"haiku"` — **documentation-only** tasks, **and** trivial mechanical code tasks where the change is unambiguous and self-contained: pure renames, moving/extracting a named constant, a single-import or single-symbol edit, mechanical signature propagation. Only when you are confident the task carries no design judgment.
 - `"claude-sonnet-4-6"` — all substantive code tasks (default for anything touching logic, new files, multi-file edits, or anything you are not certain is trivial). When in doubt, use Sonnet, not Haiku.
-- `"opus"` — **never** for implementation here; Opus is reserved for the Decision Escalation Protocol and the phase-recovery path.
+- `"fable"` — **never** for implementation here; Fable is reserved for the Decision Escalation Protocol and the phase-recovery path.
 
 **Fallback when background agents are genuinely unavailable** (the harness cannot spawn background tasks at all, or a deterministic run is required): fall back to foreground batches, but size them to **balance**, not rigid 5s — e.g. dispatch 6 tasks as 3+3, not 5+1, so a lone trailer never wastes a whole barrier. Aim for `ceil(N / ceil(N / CAP))` per batch. The polled rolling pool is preferred; this is only the degraded path. Note: a flaky or absent **completion-notification** channel is NOT a reason to fall back — the polling protocol does not depend on notifications, so the background rolling pool still works.
 
@@ -382,7 +382,7 @@ Run this **each time a poll detects that one agent has completed** (the genuine 
 1. Parse the JSON report from the agent's output
 2. Record status: IMPLEMENTED / BLOCKED / NEEDS_CONTEXT / FAILED
 3. If **NEEDS_CONTEXT** with a **spec gap or missing user input** (credentials, file path, unclear requirement): relay questions to user via `AskUserQuestion`, then re-queue the agent (re-enters the pool) with the answer
-4. If **NEEDS_CONTEXT** with a **technical ambiguity** (design choice, conflicting patterns, unclear root cause): invoke the **Decision Escalation Protocol** — spawn an Opus 4.8 agent to analyze and recommend, then re-queue the implementation agent with Opus's recommendation
+4. If **NEEDS_CONTEXT** with a **technical ambiguity** (design choice, conflicting patterns, unclear root cause): invoke the **Decision Escalation Protocol** — spawn a Fable 5 agent to analyze and recommend, then re-queue the implementation agent with Fable's recommendation
 5. If **BLOCKED** with a **technical root cause**: invoke the **Decision Escalation Protocol** before adding to `failed_tasks`
 6. If **BLOCKED** with a **hard blocker** (missing dependency, missing file, incomplete prereq): record the reason, add to `failed_tasks` directly
 7. If **FAILED**: record targeted test failures, add to `failed_tasks`
@@ -444,12 +444,12 @@ For each failing test **and each erroring module** from the wave gate run (targe
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{failing-test-path}"
    ```
    Include `VERIFIED_AGAINST_QUICK_REFERENCE` in the Bash tool description.
-5. **If the fix fails:** immediately invoke the **Decision Escalation Protocol** — spawn Opus 4.8 with full context (failing test, root cause hypothesis, code read, what was tried). Implement Opus's recommendation. If it still fails → mark the task FAILED.
+5. **If the fix fails:** immediately invoke the **Decision Escalation Protocol** — spawn Fable 5 with full context (failing test, root cause hypothesis, code read, what was tried). Implement Fable's recommendation. If it still fails → mark the task FAILED.
 
 **Stop conditions:**
-- **first attempt** with no progress and root cause is unclear → invoke the **Decision Escalation Protocol** (Opus 4.8); if Opus's recommendation also fails → mark that task FAILED
+- **first attempt** with no progress and root cause is unclear → invoke the **Decision Escalation Protocol** (Fable 5); if Fable's recommendation also fails → mark that task FAILED
 - A fix introduces new failures → revert the fix attempt manually (edit back), then invoke the **Decision Escalation Protocol** before trying again
-- Cascading issues in unrelated subsystems → invoke the **Decision Escalation Protocol** to determine correct fix scope; if Opus recommends stopping → STOP, report
+- Cascading issues in unrelated subsystems → invoke the **Decision Escalation Protocol** to determine correct fix scope; if Fable recommends stopping → STOP, report
 
 After the fix loop, re-run the gate once to verify no regressions. Re-run the **same scope** that gated this wave for the package — targeted on an earlier intra-phase wave, full on a last-touch wave. Escalate to the **full** package suite if a fix modified code outside the wave tasks' own files (a shared-code fix can break tests the targeted set didn't cover):
 ```bash
@@ -460,8 +460,8 @@ powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
 
 If the first fix attempt fails:
 
-1. **First: invoke the Decision Escalation Protocol** — spawn an Opus 4.8 agent with full context (task spec, all fix attempts, exact failures). Attempt Opus's recommendation once. If it succeeds, proceed normally.
-2. **If Opus's recommendation also fails**: surface to the user with Opus's analysis included as context.
+1. **First: invoke the Decision Escalation Protocol** — spawn a Fable 5 agent with full context (task spec, all fix attempts, exact failures). Attempt Fable's recommendation once. If it succeeds, proceed normally.
+2. **If Fable's recommendation also fails**: surface to the user with Fable's analysis included as context.
 
 Use `AskUserQuestion` to ask the user:
 ```
@@ -536,7 +536,7 @@ This gate is **stricter** than the per-wave gate (3d). At a phase boundary the b
 4. **Fix every red package to GREEN — regardless of attribution.** For each failing test and each erroring module across ALL touched packages, **including failures in code that no task in this phase modified**:
    - Read the failing test and the code under test, trace to the **root cause**, and fix it there. This is NOT scope-restricted to a task's files the way 3e is — fix whatever is red. NO workarounds, NO `xfail`/skip-to-pass, NO band-aids, NO conditional guards that hide the broken path (CLAUDE.md "No Workarounds").
    - Re-run the specific test (`test.ps1 {package} -Specific "{path}"`), then re-run the full package suite.
-   - If the first fix attempt fails or the root cause is unclear → **Decision Escalation Protocol** (Opus 4.8, single-task variant). Implement Opus's recommendation; if it still fails, that test/module becomes a blocking item carried into Step C's halt-and-ask.
+   - If the first fix attempt fails or the root cause is unclear → **Decision Escalation Protocol** (Fable 5, single-task variant). Implement Fable's recommendation; if it still fails, that test/module becomes a blocking item carried into Step C's halt-and-ask.
    - If a red test traces to a root cause **genuinely outside this repo's control** (e.g. a known-flaky external integration) → do NOT silently skip it; record it as a blocking item and surface it in Step C, letting the user decide. Do not invent this exception to dodge a real fix.
 5. **Re-run until clean** — repeat the full per-package suite after fixes until every touched package is GREEN, or escalation/halt is reached. An error fixed in one module often unhides many tests that never ran, so always re-run the full suite after a fix rather than trusting `-Specific` alone.
 
@@ -567,15 +567,15 @@ Partition phase `P`'s tasks into `completed`, `failed`, and `skipped` (using the
 
 Any `failed` or `skipped` task in phase `P`, **OR** any package still red after Step A's fix loop, **OR any unresolved design-conformance failure from Step A2** (an unenforced design-named surface, an unproven task acceptance property, or an open conformance gap):
    - **Do NOT start phase `P+1` yet.**
-   - **First, delegate recovery to Opus** — invoke the **Decision Escalation Protocol** (`model: "opus"`, Opus 4.8) once, scoped to the whole phase. Give Opus: every failed/skipped task in phase `P`, **every still-red test/module from Step A** (including pre-existing failures that resisted the fix loop), the exact test failures/errors, all prior fix attempts (wave-level 3e/3f **and** Step A), and the relevant code excerpts. Ask Opus for a **phase-recovery plan** — root cause(s) across the failed items and concrete, per-item remediation steps. Use the phase-recovery prompt variant in the Decision Escalation Protocol.
-   - **Implement Opus's recommendation** with the current model (Sonnet): apply the per-task fixes exactly as specified, then re-run the **full test suite for every affected package** (3d gate rules — GREEN only when `result == "PASSED"` AND `failed == 0` AND `error == 0`). Re-attribute and mark any now-passing tasks complete via `complete.ps1`.
+   - **First, delegate recovery to Fable** — invoke the **Decision Escalation Protocol** (`model: "fable"`, Fable 5) once, scoped to the whole phase. Give Fable: every failed/skipped task in phase `P`, **every still-red test/module from Step A** (including pre-existing failures that resisted the fix loop), the exact test failures/errors, all prior fix attempts (wave-level 3e/3f **and** Step A), and the relevant code excerpts. Ask Fable for a **phase-recovery plan** — root cause(s) across the failed items and concrete, per-item remediation steps. Use the phase-recovery prompt variant in the Decision Escalation Protocol.
+   - **Implement Fable's recommendation** with the current model (Sonnet): apply the per-task fixes exactly as specified, then re-run the **full test suite for every affected package** (3d gate rules — GREEN only when `result == "PASSED"` AND `failed == 0` AND `error == 0`). Re-attribute and mark any now-passing tasks complete via `complete.ps1`.
    - **Re-evaluate the phase:**
      - If phase `P` is now green → emit the Phase Checkpoint, proceed to phase `P+1`.
-     - If phase `P` is **still red** after implementing Opus's plan → **HALT at the phase boundary** and `AskUserQuestion` (below). Do not auto-advance.
+     - If phase `P` is **still red** after implementing Fable's plan → **HALT at the phase boundary** and `AskUserQuestion` (below). Do not auto-advance.
 
    `AskUserQuestion` on unresolved phase failure:
    ```
-   Phase {P} did not complete cleanly — Opus-led recovery still leaves failures.
+   Phase {P} did not complete cleanly — Fable-led recovery still leaves failures.
 
    Failed / skipped tasks in phase {P}:
    - {task_id}: {reason}
@@ -583,8 +583,8 @@ Any `failed` or `skipped` task in phase `P`, **OR** any package still red after 
    Unresolved test failures (incl. pre-existing, unattributed):
    - {package} :: {test_or_module}: {error summary}
 
-   Opus's analysis:
-   {1-2 line summary of Opus's root-cause finding}
+   Fable's analysis:
+   {1-2 line summary of Fable's root-cause finding}
 
    Options:
    1. Stop — halt orchestration here; phase {P+1}+ not started. Emit final report.
@@ -641,7 +641,7 @@ All rules from `d:\datrix\.claude\CLAUDE.md` apply. Key rules for the orchestrat
 
 ## Decision Escalation Protocol
 
-When execution reaches a genuine design or architectural decision — one where multiple valid approaches exist, the root cause is unclear after investigation, or the right scope of a fix is ambiguous — escalate to an Opus 4.8 agent **before** pausing for the user or marking a task failed.
+When execution reaches a genuine design or architectural decision — one where multiple valid approaches exist, the root cause is unclear after investigation, or the right scope of a fix is ambiguous — escalate to a Fable 5 agent **before** pausing for the user or marking a task failed.
 
 ### When to Escalate
 
@@ -659,16 +659,16 @@ When execution reaches a genuine design or architectural decision — one where 
 
 ### How to Escalate
 
-Spawn a subagent with `model: "opus"`:
+Spawn a subagent with `model: "fable"`:
 
 ```
 Agent tool parameters:
   subagent_type: "general-purpose"
-  model: "opus"
-  description: "Opus decision: {brief problem description}"
+  model: "fable"
+  description: "Fable decision: {brief problem description}"
 ```
 
-**Opus agent prompt template:**
+**Fable agent prompt template:**
 ```
 You are a senior architect making a high-stakes implementation decision. Do NOT implement — analyze and recommend only.
 
@@ -686,7 +686,7 @@ RELEVANT CODE (key excerpts):
 {file paths and relevant snippets — paste actual code, not descriptions}
 
 YOUR TASK:
-Analyze this problem for long-term correctness. Do NOT suggest workarounds, band-aids, or "good enough for now" solutions. Consider:
+Analyze this problem for long-term correctness. Decide what is genuinely best for the LONG-TERM health of this production system. This is NOT a hackathon and you are NOT trying to save the day — never pick the simple or expedient option and defer the correct one to a "future" that never arrives. Do NOT suggest workarounds, band-aids, or "good enough for now" solutions. Consider:
 - Root cause (not symptom)
 - Impact on other components
 - Consistency with existing patterns
@@ -704,7 +704,7 @@ Be specific. The implementing agent will follow your recommendation directly.
 
 ### Phase-Recovery Variant (Phase Boundary Gate, 3i)
 
-When the escalation is triggered by a **red phase gate** rather than a single task, the problem spans every failed/skipped task in the phase. Use the same `model: "opus"` spawn, but swap the single-task framing for a phase-wide one:
+When the escalation is triggered by a **red phase gate** rather than a single task, the problem spans every failed/skipped task in the phase. Use the same `model: "fable"` spawn, but swap the single-task framing for a phase-wide one:
 
 ```
 You are a senior architect recovering a FAILED PHASE before the next phase may start. Do NOT implement — analyze and recommend only.
@@ -725,7 +725,7 @@ RELEVANT CODE (key excerpts across the failing tasks):
 {file paths and actual snippets}
 
 YOUR TASK:
-Find the root cause(s) — there may be ONE shared cause behind several failures (e.g. a cross-task integration mismatch introduced earlier in the phase, or a pre-existing breakage exposed once the whole phase is in place). Do NOT suggest workarounds. Return:
+Find the root cause(s) — there may be ONE shared cause behind several failures (e.g. a cross-task integration mismatch introduced earlier in the phase, or a pre-existing breakage exposed once the whole phase is in place). Decide what is genuinely best for the LONG-TERM health of this production system — this is NOT a hackathon and not a save-the-day exercise; never pick the expedient fix and defer the correct one to the future. Do NOT suggest workarounds. Return:
 1. Root cause(s) — name shared causes explicitly
 2. A per-item remediation plan — for each failed/skipped task AND each still-red test/module (attributed or pre-existing), concrete step-by-step fixes
 3. Exact files to modify and what changes to make
@@ -735,12 +735,12 @@ Find the root cause(s) — there may be ONE shared cause behind several failures
 Be specific. The implementing agent will follow your plan directly, then re-run the full package suites.
 ```
 
-### After Opus Returns
+### After Fable Returns
 
 - Resume implementation with the current model (Sonnet)
-- Implement exactly what Opus recommended — do NOT improvise beyond the recommendation
+- Implement exactly what Fable recommended — do NOT improvise beyond the recommendation
 - For a phase-recovery plan: apply the per-task fixes, then re-run the full suite for **every affected package** (3d gate rules) before re-evaluating the phase gate
-- If Opus recommends stopping and asking the user, surface Opus's full analysis as context when asking
+- If Fable recommends stopping and asking the user, surface Fable's full analysis as context when asking
 
 ---
 

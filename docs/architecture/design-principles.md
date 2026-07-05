@@ -293,6 +293,8 @@ Adding a second storage block does not break the API:
 
 **No secret material in diagnostics.** Fail-loud secret errors name the **logical secret** and the **backend class** but never the secret value or a partial value. Neither runtime nor generator logs emit resolved secret values.
 
+**Datrix-owned secrets are seeded by a deploy-time identity the IaC provisions and authorizes — never by the operator's ambient credentials.** Framework-generated secret material (JWT/token-signing keypairs, generated shared/SASL/cache secrets) and operator-secret placeholders are written into the secret backend by a deploy-time execution identity that the infrastructure-as-code itself provisions and grants the minimal secret-write role — not by whatever human or service-principal credentials happen to be running the deploy. This keeps the deploy hands-free, works identically for any deployer identity (user or service principal), and is provider-portable: each provider realizes it with its native deploy-time primitive (Azure → a Key-Vault-authorized `deploymentScript` managed identity; AWS → a deploy-time role authorized to write Secrets Manager). The operator never needs data-plane secret-write access to complete a deploy. This is the seeding-side companion to *logical handles, never values*: handles keep secrets out of config; deploy-time-identity seeding keeps secret provisioning out of the operator's hands. Two secret classes remain distinct under this rule — **datrix-owned** (both ends are our own generated services; an auto-generated strong value works, so seed generate-if-missing and never overwrite an operator-supplied value) versus **operator-owned** (external third-party credentials that no generated value can authenticate; seed a self-describing placeholder to let the deploy complete, then report every placeholder so a green deploy can never be mistaken for a working integration).
+
 | Concern | Fail-closed rule |
 |---------|------------------|
 | Missing / whitespace-only required secret | Hard error before client construction — never empty-string default that disables auth |
@@ -300,6 +302,8 @@ Adding a second storage block does not break the API:
 | Secret in `.dtrx` / `.dcfg` | Forbidden — config carries only logical secret handles |
 | Logical handle relationship to secret | Never the value, derived from it, or a fallback for it |
 | Error messages and logs | Name the logical secret + backend class; never the value or a partial value |
+| Seeding datrix-owned secrets | A deploy-time IaC-provisioned + IaC-authorized identity writes them — never the operator's ambient credentials; generate-if-missing, never overwrite an operator value |
+| Missing operator-owned (external) secret | Seed a self-describing placeholder so the deploy completes, then report it — never a silent green deploy over a broken integration |
 
 **Benefits:**
 - ✅ A forgotten credential fails the deployment loudly instead of silently disabling auth
