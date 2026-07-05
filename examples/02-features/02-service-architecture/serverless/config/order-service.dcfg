@@ -1,7 +1,6 @@
 ﻿config service examples.OrderService {
   base {
     port = 8001;
-    flavor = "compose";
     replicas = 1;
     resources {
       requests {
@@ -61,19 +60,31 @@
       dockerImage = "confluentinc/cp-kafka:7.6.0";
       volumePath = "/var/lib/kafka/data";
     }
+    queues {
+      engine = "rabbitmq";
+      flavor = "container";
+      host = "localhost";
+      port = 5672;
+      managementPort = 15672;
+      defaultUser = "guest";
+      dockerImage = "rabbitmq:3-management-alpine";
+      volumePath = "/var/lib/rabbitmq";
+      healthCheckCmd = "rabbitmq-diagnostics -q ping";
+    }
     jobs {
       jobs {
-        QuickCleanup {
-          schedule = "0 * * * *";
-          timeout = "300s";
-        }
         DailyOrderReport {
           schedule = "0 6 * * *";
           timeout = "600s";
         }
+        ReconcileOrders {
+          schedule = "0 2 * * *";
+          timeout = "300s";
+        }
       }
     }
     serverless eventHandlers {
+      port = 8003;
       defaults {
         timeout = 300;
         memory = 512;
@@ -192,7 +203,6 @@
     alias env = "PROD";
     alias resource = "prod";
 
-    flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms orderDb {
       id = "54d9da12-68d2-4ae6-bfe4-6129f36c767b";

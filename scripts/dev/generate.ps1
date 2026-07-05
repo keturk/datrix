@@ -407,37 +407,49 @@ function Write-GenerationSummaryToLog {
  }
 
  $sep = "=" * 80
- $report = "`n$sep`n"
+
+ # Errors section is LOG-ONLY. The lines collected above are the detail-less
+ # "ERROR <logger> <event> ... error=<msg>:" headers; the actionable detail sits
+ # on the following (indented) continuation line, which this matcher does not
+ # capture. Printing these headers to the console is useless noise, and the full
+ # error message is already in the "=== Detailed output ===" section of the log,
+ # so this block is written to the log file but never echoed to the console.
+ $errorsReport = ""
  if ($failCount -gt 0 -and $projectErrors.Count -gt 0) {
- $report += "Errors`n"
- $report += "$sep`n"
+ $errorsReport += "`n$sep`n"
+ $errorsReport += "Errors`n"
+ $errorsReport += "$sep`n"
  foreach ($name in $failedProjects) {
  $errs = $projectErrors[$name]
  if ($errs) {
- $report += "  $name`:`n"
+ $errorsReport += "  $name`:`n"
  foreach ($e in $errs) {
- $report += "    $e`n"
+ $errorsReport += "    $e`n"
  }
  }
  }
  }
- $report += "Generation Summary`n"
- $report += "$sep`n"
+
+ # Generation Summary is shown on BOTH console and log.
+ $summaryReport = "`n$sep`n"
+ $summaryReport += "Generation Summary`n"
+ $summaryReport += "$sep`n"
  if ($results.Count -eq 0) {
- $report += "  No project results found.`n"
+ $summaryReport += "  No project results found.`n"
  } else {
- $report += "  Total projects: $totalProjects`n"
- $report += "  Successful:     $successCount`n"
- $report += "  Failed:         $failCount`n"
+ $summaryReport += "  Total projects: $totalProjects`n"
+ $summaryReport += "  Successful:     $successCount`n"
+ $summaryReport += "  Failed:         $failCount`n"
  if ($failCount -gt 0) {
- $report += "  Failed projects: $($failedProjects -join ', ')`n"
+ $summaryReport += "  Failed projects: $($failedProjects -join ', ')`n"
  }
  }
- $report += "$sep`n"
+ $summaryReport += "$sep`n"
 
  try {
- [System.IO.File]::AppendAllText($LogFilePath, $report, $utf8NoBom)
- Write-Host $report
+ # Log gets the full report (errors + summary); console gets only the summary.
+ [System.IO.File]::AppendAllText($LogFilePath, ($errorsReport + $summaryReport), $utf8NoBom)
+ Write-Host $summaryReport
  } catch {
  Write-Warning "Could not append generation summary to log: $_"
  }

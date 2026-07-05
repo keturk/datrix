@@ -386,22 +386,23 @@ def _print_generation_summary(
                     print(colorize(f" - {warning}", ColorCodes.YELLOW))
             print()
 
-    # 2. Errors section (detail)
-    if project_errors:
-        if logger:
-            logger.write_error("Errors:")
-            for pname, errors in sorted(project_errors.items()):
-                logger.write_error(f" {pname}:")
-                for error in errors:
-                    logger.write_error(f" - {error}")
-            logger.write("")
-        else:
-            print(colorize("Errors:", ColorCodes.RED))
-            for pname, errors in sorted(project_errors.items()):
-                print(colorize(f" {pname}:", ColorCodes.RED))
-                for error in errors:
-                    print(colorize(f" - {error}", ColorCodes.RED))
-            print()
+    # 2. Errors section (detail) — standalone logger mode only.
+    # In standalone mode write_error respects quiet_mode, so this lands in the
+    # log file (not the console) in quiet runs. In PowerShell/direct-print mode
+    # (logger is None) these lines carry only the detail-less
+    # "ERROR <logger> <event> ... error=<msg>:" headers — the actionable detail
+    # (the indented continuation line, e.g. the fix suggestion) sits on the next
+    # physical line and is NOT captured here, so the printed block is useless.
+    # The full error message is already written to the log via the
+    # "=== Detailed output ===" section, so we suppress this block from the
+    # console entirely rather than print detail-less noise.
+    if project_errors and logger:
+        logger.write_error("Errors:")
+        for pname, errors in sorted(project_errors.items()):
+            logger.write_error(f" {pname}:")
+            for error in errors:
+                logger.write_error(f" - {error}")
+        logger.write("")
 
     # 3. Generation Summary (counts) at the very end so it is visible without scrolling
     # Always show summary, even in quiet mode
@@ -675,30 +676,35 @@ def main():
                 right_pad = padding - left_pad
                 banner_line = "#" * left_pad + banner_text + "#" * right_pad
 
-                if logger:
-                    logger.write("")
-                    logger.write(banner_line)
-                    logger.write("")
-                    if source_path:
-                        logger.write(f" Source: {source_path}")
-                    if output_path:
-                        logger.write(f" Output: {output_path}")
-                    logger.write("-" * banner_width)
-                else:
-                    if args.verbose:
-                        print("", flush=True)
-                        print(colorize(banner_line, ColorCodes.CYAN), flush=True)
-                        print("", flush=True)
-                    # Always print source/output so PS1's Write-TeeOutput captures them in
-                    # the log regardless of verbose mode. These brief context lines are
-                    # appropriate to show on the console in all modes.
-                    if source_path:
-                        print(f" Source: {source_path}", flush=True)
-                    if output_path:
-                        print(f" Output: {output_path}", flush=True)
-                    if args.verbose:
-                        print("-" * banner_width)
-                        sys.stdout.flush()
+                # Single-project mode already printed a full context header
+                # (Generating single project / Source / Output / Language /
+                # Runtime / Provider) before the loop, so skip the per-project
+                # banner + Source/Output here to avoid printing them twice.
+                if not args.source:
+                    if logger:
+                        logger.write("")
+                        logger.write(banner_line)
+                        logger.write("")
+                        if source_path:
+                            logger.write(f" Source: {source_path}")
+                        if output_path:
+                            logger.write(f" Output: {output_path}")
+                        logger.write("-" * banner_width)
+                    else:
+                        if args.verbose:
+                            print("", flush=True)
+                            print(colorize(banner_line, ColorCodes.CYAN), flush=True)
+                            print("", flush=True)
+                        # Always print source/output so PS1's Write-TeeOutput captures them in
+                        # the log regardless of verbose mode. These brief context lines are
+                        # appropriate to show on the console in all modes.
+                        if source_path:
+                            print(f" Source: {source_path}", flush=True)
+                        if output_path:
+                            print(f" Output: {output_path}", flush=True)
+                        if args.verbose:
+                            print("-" * banner_width)
+                            sys.stdout.flush()
 
                 try:
                     success, project_name, project_path, output_path, warnings, errors, full_output = generate_single_project(

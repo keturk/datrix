@@ -27,15 +27,18 @@ service examples.OrderService('config/order-service.dcfg') : version('1.0.0'), d
         queue ProcessShipment(UUID orderId);
     }
 
-    rest_api OrderApi : basePath('/api/v1'), rdbms(db) {
-        resource db.Order : only(list, get), auth(public);
+    // Service-level (in-process) job — coexists with the serverless scheduled task
+    // below. Both draw their schedule from the shared 'jobs' config section; the
+    // in-process job runs in the service scheduler while DailyOrderReport is realized
+    // by the serverless scheduler container.
+    jobs('config/order-service.dcfg') {
+        job ReconcileOrders {
+            Log.info("Reconciling pending orders");
+        }
     }
 
-    jobs('config/order-service.dcfg') {
-        job QuickCleanup {
-            Log.info("Running quick cleanup");
-        }
-
+    rest_api OrderApi : basePath('/api/v1'), rdbms(db) {
+        resource db.Order : only(list, get), auth(public);
     }
 
     serverless eventHandlers {

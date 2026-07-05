@@ -1,7 +1,6 @@
 ﻿config service examples.IngestionService {
   base {
     port = 8002;
-    flavor = "compose";
     replicas = 1;
     resources {
       requests {
@@ -140,7 +139,6 @@
     alias env = "PROD";
     alias resource = "prod";
 
-    flavor = "ecs-fargate";
     replicas = 2;
     strategy {
       rolling {

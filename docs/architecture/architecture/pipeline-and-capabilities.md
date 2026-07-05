@@ -387,11 +387,15 @@ service examples.OrderService('config/order-service.dcfg') {
 | Platform | Status | Compute Resource | Trigger Resources |
 |----------|--------|-----------------|-------------------|
 | AWS | Stable | Lambda functions (CDK) | API Gateway HTTP API, EventBridge Scheduler, SNS/SQS triggers |
-| Azure | Stable | Function App (Bicep) | HTTP trigger, Timer trigger, Service Bus/Event Grid triggers |
-| Docker Compose | Stable | Separate container services | APScheduler, uvicorn, consumer loops |
+| Azure | Stable | Function App (Bicep), or in-process consumers under `serverless { hosting = "inProcess" }` | HTTP trigger, Timer trigger, Service Bus/Event Grid triggers |
+| Docker Compose (local/existing) | Stable | Dedicated long-running compose containers — one per block per trigger kind (`{svc}-{block}-consumer` / `-scheduler` / `-queue-worker` / `-http`), each running the same platform-agnostic handler modules | APScheduler runner, uvicorn web app, kafka/rabbitmq consumer loops, standalone queue workers |
 | Component | Stable | (support metadata only) | Env vars, README documentation |
 
-**Platform compatibility (D8):** `ServerlessProfileConfig.platform` determines the programming model: `lambda` (AWS only), `functions` (Azure only), `container` (all providers). Incompatible platform/provider combinations fail generation before partial artifacts are rendered.
+**Platform compatibility (D8):** `ServerlessProfileConfig.platform` is a single-legal-value derivation from the deployment provider — `lambda` (AWS), `functions` (Azure), `container` (local/existing). It is never a free multi-provider knob: a declared `flavor` cross-validates against the provider and a mismatch (e.g. `lambda` under a local provider) fails generation. Incompatible platform/provider combinations fail before partial artifacts are rendered.
+
+**Container realization (local/existing):** A `container`-platform serverless block is realized as dedicated long-running compose containers — a consumer-loop container for its subscriptions, a singleton scheduler container for its jobs, a queue-worker container for its enqueue consumers, and a small web container (with an explicit `port`) for its `@path` endpoints — all deep-copied clones of the finished service entry (`skip_build: True`) that run the same handler modules the cloud platforms package. Per-request timeout is enforced via `asyncio.wait_for` (HTTP 504 on expiry). `hosting = "inProcess"` is rejected fail-loud on the container platform until its own realization ships.
+
+**Single-realization invariant:** Every serverless-block handler is realized exactly once per profile, by the realization matching its resolved platform. Serverless-scope subscriptions stay out of every consumer-*binding* scope (they remain in schema/artifact scopes), so a service's in-process consumers never double-bind a topic already owned by the block's container/adapter. TypeScript has no serverless realization yet and fails loud (naming the offending blocks) rather than silently dropping jobs/endpoints/queue consumers.
 
 **Semantic validation rules:**
 - SLS004: Handler identity uniqueness across executable handlers within a block
