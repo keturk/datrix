@@ -218,7 +218,6 @@ TARGET_LITERAL_CENTRAL_NAMES: frozenset[str] = frozenset(
         "Language",                         # enums.py:13-18 (deleted 07-03)
         "ProjectLanguage",                  # enums.py:26-30 (deleted 07-03)
         "GENERATORS_BY_LANGUAGE",           # enums.py:33 (deleted 06-04)
-        "DeploymentRuntime",                # enums.py:63-79 (deleted 07-03)
         "DeploymentProvider",               # enums.py:82-97 (deleted 07-03)
         "PROVIDER_GENERATORS",              # enums.py:289 (deleted 07-03)
         "_TARGET_KIND_MAP",                 # gendsl/parser.py:36, validator.py:30 (deleted 06-02)
@@ -240,9 +239,6 @@ TARGET_LITERAL_CENTRAL_NAMES: frozenset[str] = frozenset(
 TARGET_LITERAL_ENUM_MEMBERS: dict[str, frozenset[str]] = {
     "Language": frozenset({"PYTHON", "TYPESCRIPT", "SQL"}),
     "ProjectLanguage": frozenset({"PYTHON", "TYPESCRIPT"}),
-    "DeploymentRuntime": frozenset(
-        {"DOCKER_COMPOSE", "AZURE_APP_SERVICE", "ECS_FARGATE", "APP_RUNNER"}
-    ),
     "DeploymentProvider": frozenset({"LOCAL", "EXISTING", "AWS", "AZURE"}),
 }
 
