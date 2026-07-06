@@ -17,18 +17,6 @@ file = "datrix-cli/src/datrix_cli/pipeline/generation.py"
 count = 9
 
 [[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/gendsl/compiler.py"
-count = 2
-
-[[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/gendsl/parser.py"
-count = 4
-
-[[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/gendsl/validator.py"
-count = 3
-
-[[baseline]]
 file = "datrix-codegen-common/src/datrix_codegen_common/orchestration/endpoint_orchestrator.py"
 count = 4
 

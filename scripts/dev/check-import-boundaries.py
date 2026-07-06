@@ -6,10 +6,18 @@ in each package's src/, tests/, fixtures/, and helpers/ directories (when they
 exist) and checking imports against forbidden prefix rules. Uses AST parsing -
 no package installation required.
 
+Also implements the I1 target-literal ratchet (design 023, Decision D1):
+opt-in via --check-target-literals, it AST-scans the three shared-layer
+src/ trees (datrix_common, datrix_codegen_common, datrix_cli) for known
+closed-world target-identity identifiers and fails if any file's count
+increases past its frozen baseline (scripts/config/target-literal-baseline.toml).
+--update-baseline recomputes and overwrites that baseline.
+
 Exit codes:
     0: Clean (no violations) or --warn mode
-    1: Violations found in fail mode
-    2: Usage error or configuration error
+    1: Violations found in fail mode (import-boundary and/or I1 ratchet)
+    2: Usage error, configuration error, or (with --check-target-literals)
+       a missing target-literal baseline file
 """
 
 import argparse
