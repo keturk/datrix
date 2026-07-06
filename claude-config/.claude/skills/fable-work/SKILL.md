@@ -21,7 +21,7 @@ Two resources are scarce and both are yours to protect:
 - **Fable tokens** — work a cheaper model can do well should not be done inline.
 - **Your context window** — it must last the whole run. Delegating recon and implementation keeps your context for the decisions only you can make.
 
-Delegation is not abdication. Every result that comes back is your responsibility: review it, verify it with commands you run yourself, and never let a subagent's self-report substitute for evidence (CLAUDE.md conformance rules apply — a green self-report is necessary but never sufficient).
+Delegation is not abdication — but reviewing a result is not re-running it. Require every subagent to report its results *properly*: the exact command it ran and the actual output that command produced, not a bare "tests pass" or "green". When a packet comes back with that evidence, **accept it as true and move on** — do not re-execute the agent's gate tests or acceptance checks yourself. Your job is to *judge the reported evidence* (does the pasted output actually show the acceptance check passing?), not to duplicate the work on Fable tokens. A report that lacks the command + its output is incomplete: send it back for proper results rather than running the check in their place.
 
 ## Operating Loop
 
@@ -29,9 +29,9 @@ Delegation is not abdication. Every result that comes back is your responsibilit
 2. **Decompose** into self-contained work packets, each with an explicit acceptance check (a command whose output proves the packet is done).
 3. **Assign the cheapest tier that can do each packet well** (table below). When unsure between two tiers, take the cheaper one — the escalation path is cheap, a wasted Opus run is not.
 4. **Dispatch independent packets in parallel** — multiple Agent calls in a single message. Sequence only genuine dependencies.
-5. **Review and verify each result yourself.** Run the packet's acceptance check. Read the diff, not the summary. Two passes, per the delegate skill: spec compliance first, code quality second.
+5. **Review each result's reported evidence.** The agent runs the packet's acceptance check and returns the command plus its actual output; you judge whether that output proves the packet done — you do **not** re-run the check. Read the diff, not just the summary. Two passes, per the delegate skill: spec compliance first, code quality second. If the evidence is missing, partial, or unconvincing, send the packet back for proper results rather than running the check in their place.
 6. **Integrate and decide.** Resolve conflicts between packets, make the trade-off calls, redirect work that drifted from the goal.
-7. **Final gate.** Run the affected packages' test suites and any design-acceptance checks yourself; report the outcome with pasted command + output evidence.
+7. **Final gate.** Delegate the affected packages' test suites and any design-acceptance checks to a subagent, which returns the command plus its actual output. Accept that reported evidence as authoritative and roll it into your report — do not re-run the suites inline. Your gate is judging the returned output, not reproducing it.
 
 ## Model Tiers
 
@@ -52,7 +52,7 @@ Subagents see none of this conversation. Each dispatch prompt must be self-conta
 - **Exact paths** — files to read and files it may modify; state what is out of bounds.
 - **Constraints** — the CLAUDE.md rules that bite for this packet (no workarounds, no git reverts, mypy --strict, no mocks, domain isolation, temp files only under `D:\datrix\.tmp\`/`.scripts\`/`.test-output\`).
 - **Acceptance check** — the exact command(s) to run and expected outcome.
-- **Return format** — facts, not prose: files changed, checks run with results, deviations from spec, open concerns. Status must be one of DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED.
+- **Return format** — facts, not prose: files changed; each check run reported *properly* as the exact command and its actual pasted output (never a bare "passed"/"green" — that output is the evidence you will accept in lieu of re-running); deviations from spec; open concerns. Status must be one of DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED.
 
 Persist substantial agent outputs under `d:/datrix/.agent_output/<date>-<task>/` so nothing is lost between waves.
 
