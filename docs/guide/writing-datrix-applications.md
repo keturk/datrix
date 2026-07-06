@@ -927,7 +927,7 @@ topic OrderEvents {
 
 ### Serverless blocks
 
-Use one or more **`serverless BlockName { … }`** sections when handlers should deploy as **Lambda / Azure Functions** in production but still run **in the service process** locally. The selected service `.dcfg` profile controls the deployment target.
+Use one or more **`serverless BlockName { … }`** sections when handlers should deploy as an independent unit rather than run in-process inside the service. The selected service `.dcfg` profile controls the deployment target: **AWS** realizes the block as Lambda functions, **Azure** as Function Apps (or in-process consumers under `serverless { hosting = "inProcess" }`), and **local/existing** (Docker Compose) as dedicated long-running containers — one per block per trigger kind (consumer, scheduler, queue worker, or small web app), all running the same platform-agnostic handler code. There is no local "runs in-process" mode for a serverless block — that is what distinguishes it from an ordinary in-process handler.
 
 **Key concept:** The `serverless` block is a **deployment boundary only**. It contains the same DSL members you would use at service scope (`subscribe`, `job`, HTTP endpoints, `enqueue` consumers) with **identical syntax**. Moving a handler between in-process and serverless deployment is a simple cut-and-paste operation — no code changes required.
 

@@ -66,7 +66,8 @@
       "PowerShell(powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-azure)",
       "PowerShell(powershell -File d:/datrix/datrix/scripts/test/mypy.ps1 datrix-codegen-azure)",
       "Read(//d/g/<customer-project>/**)",
-      "PowerShell(try { Remove-Item -Recurse -Force D:\\\\g\\\\CurvAero\\\\generated\\\\dev -ErrorAction Stop; Write-Host \"CLEAN\" } catch { Write-Host \"LOCKED: regenerating in place\" }; powershell -File D:\\\\g\\\\CurvAero\\\\scripts\\\\generate-dev.ps1)"
+      "PowerShell(try { Remove-Item -Recurse -Force D:\\\\g\\\\CurvAero\\\\generated\\\\dev -ErrorAction Stop; Write-Host \"CLEAN\" } catch { Write-Host \"LOCKED: regenerating in place\" }; powershell -File D:\\\\g\\\\CurvAero\\\\scripts\\\\generate-dev.ps1)",
+      "PowerShell(powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-azure 2>&1 | Select-Object -Last 22)"
     ],
     "additionalDirectories": [
       "d:\\datrix\\$repo\\tests",

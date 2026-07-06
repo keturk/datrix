@@ -179,10 +179,12 @@ Enforces cross-package import boundary rules across the monorepo. Scans each pac
 | **Warning mode** | `.\dev\check-import-boundaries.ps1 -Warn` | Report violations, exit 0 |
 | **Custom base dir** | `.\dev\check-import-boundaries.ps1 -BaseDir D:\other` | Different workspace |
 | **Show files** | `.\dev\check-import-boundaries.ps1 -ShowFiles` | Print each file being scanned |
+| **I1 ratchet check** | `.\dev\check-import-boundaries.ps1 -CheckTargetLiterals` | Run the target-literal ratchet against the frozen baseline |
+| **Freeze/update baseline** | `.\dev\check-import-boundaries.ps1 -CheckTargetLiterals -UpdateBaseline` | Recompute and overwrite the frozen baseline |
 
-**Parameters:** `-Warn`, `-ShowFiles`, `-BaseDir`, `-Dbg`
+**Parameters:** `-Warn`, `-ShowFiles`, `-BaseDir`, `-CheckTargetLiterals`, `-UpdateBaseline`, `-Dbg`
 
-**Exit codes:** 0 = clean (or warning mode), 1 = violations found
+**Exit codes:** 0 = clean (or warning mode), 1 = violations found (import-boundary or I1 target-literal ratchet), 2 = usage/config error (including a missing target-literal baseline when `-CheckTargetLiterals` is passed)
 
 ### `dev\triage-failures.ps1`
 

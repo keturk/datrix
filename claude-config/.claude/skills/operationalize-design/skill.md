@@ -1,10 +1,34 @@
 ---
-model: opus
+model: fable
+effort: high
 ---
 
 # Operationalize Design Document
 
 End-to-end pipeline that takes a design document and produces: resolved decisions, updated architecture docs, implementation tasks, and cleanup — collapsing what previously took multiple sessions into a single orchestrated workflow.
+
+## Your Role — Orchestrate, Delegate, Decide
+
+You run on Fable at high effort. That capability is for **judgment, not typing**. You are the orchestrator and decision-maker across the five phases: you own understanding the design, identifying and resolving decision points, deciding the task decomposition and its dependency/enforcement ordering, and every gate in this skill. **Execution** — reading the design doc and architecture docs, searching the codebase for evidence, inventorying affected packages/fixtures, transferring content into official docs, and writing the individual task files — goes to subagents on cheaper models.
+
+Two resources are scarce and both are yours to protect:
+- **Fable tokens** — work a cheaper model can do well (recon reads, per-question codebase searches, writing N task files to a fixed template) must not be done inline.
+- **Your context window** — it must last all five phases. Delegating recon and file-writing keeps your context for the decisions only you can make: the ambiguity hard-gate, the confidence gate, the decomposition, the enforcement ordering, the invariant-surface coverage.
+
+Delegation is not abdication. Every gate in this skill is still **yours** and is decided on evidence you verify — a subagent's recon or self-report is input to your judgment, never a substitute for it. The ambiguity hard-gate, the confidence gate, and every Phase-4 completeness check are decided by you, on the returned evidence, exactly as written. No gate is relaxed because a subagent did the legwork.
+
+### Model tiers
+
+| Tier | Use for | Examples in this pipeline |
+|---|---|---|
+| `haiku` | Mechanical, high-volume, low-ambiguity | Reading the design doc / architecture docs and returning a structured digest; globbing for fixtures/examples/configs on the old path; Phase-5 content-transfer verification |
+| `sonnet` | Well-scoped implementation to a clear spec | Per-question codebase research with a specific answer to find; Phase-3 doc transfer to a target you named; **Phase-4 writing of individual task files to the template and decomposition you specified** |
+| `opus` | Recon/analysis needing strong reasoning | Ambiguous scope investigation, tracing a subtle dual-implementation risk, cross-cutting impact analysis you want a second strong read on |
+| Fable (you) | Judgment — never delegated | Decision-point identification, every decision + confidence gate, the ambiguity hard-gate, the task **decomposition** (numbering, dependencies, enforcement ordering, invariant-surface coverage), and every phase completion gate |
+
+**Dispatch protocol.** Subagents see none of this conversation — every dispatch prompt is self-contained: what to do and why, exact paths (read vs. may-write, and what is out of bounds), the CLAUDE.md constraints that bite (no workarounds, no git reverts, mypy --strict, no mocks, domain isolation, temp files only under `D:\datrix\.tmp\`/`.scripts\`/`.test-output\`, and for Phase-4 the **Task Location Allowlist**), and the exact return format (facts, not prose). Persist substantial subagent outputs under `d:/datrix/.agent_output/<date>-operationalize-<design-slug>/`. Partition write-heavy dispatches so no two agents write the same file; recon/read agents can fan out wider.
+
+**The delegation NEVER moves a decision to a subagent.** You decide; subagents gather and type. In particular: explicit design alternatives (Option A/B) are always YOUR call informed by the user — never handed to an agent to "pick"; the decomposition and dependency graph are yours — agents write the files you specify, they do not invent tasks.
 
 ## When to Use
 
@@ -87,9 +111,17 @@ This skill executes five phases. Each phase builds on the previous.
 
 **Goal:** Understand the design completely and identify all decision points.
 
-1. Read the design document in full
-2. Cross-reference against existing architecture docs in `d:\datrix\datrix\docs\architecture\`
-3. Identify:
+**Delegate the recon, own the analysis.** The reading and cross-referencing in steps 1–2 is mechanical fan-out — dispatch it; the *identification* in step 3 (what is a decision point, what is genuinely open, what conflicts) is your judgment and stays inline.
+
+- Dispatch a **haiku** recon agent to read the design document in full and return a structured digest: every section, every explicitly-marked open question / "TBD" / "Option A vs B", every migration/rollout step (numbered, verbatim), and every place the design says "convert X to Y".
+- Dispatch a **haiku/sonnet** recon agent (in parallel) to cross-reference the design against `d:\datrix\datrix\docs\architecture\` and return: sections that duplicate or conflict with existing docs, and the correct target doc for each new piece of content.
+- Dispatch a **sonnet** recon agent to inventory implementation scope + dual-implementation risk across the repo: every package that consumes/tests/demonstrates the subsystem being changed, and every test fixture, example, and project config currently exercising the OLD path (glob + read). This is the search that catches the "new path ships untested" trap — give it the old-path markers to grep for.
+
+Read the digests yourself and do step 3's identification on them. Read the design doc directly yourself for any section the digest leaves ambiguous — recon informs you, it does not replace your own read of anything decision-bearing.
+
+1. Read the design document in full (via the recon digest; read the doc directly for any decision-bearing section)
+2. Cross-reference against existing architecture docs in `d:\datrix\datrix\docs\architecture\` (via the cross-ref recon agent)
+3. Identify (YOUR judgment, on the returned recon):
    - **Open questions** — explicitly marked or implicit
    - **Decision points** — alternatives presented without resolution
    - **Content overlap** — sections that duplicate or conflict with existing docs
@@ -151,11 +183,15 @@ If you deviated: STOP and explain the deviation to the user.
 
 **Goal:** Make every decision required by the design, with rationale.
 
+**Delegate the evidence-gathering, own the decision.** For each implicit question, the codebase research (steps 1–2) is delegable; the decision and its confidence rating (steps 3–4 + the confidence gate) are yours and are never delegated. Dispatch the open questions as a batch of **sonnet** research agents (one per question, or grouped by subsystem) — fan out independent questions in a single message. Each agent gets the exact question, the relevant paths, and returns **evidence only**: code references, existing patterns, logic-map marker hits — with a factual finding, NOT a decision. You read the returned evidence and make each call yourself.
+
+**Never delegate a decision.** An agent returns "here is what the code does"; YOU return "therefore the decision is X, confidence HIGH, because <cited evidence>". Explicit design alternatives (Option A/B) are never even sent to an agent to decide — they are always LOW-confidence user decisions (see below); at most an agent gathers evidence for your *recommendation*.
+
 For each open question or decision point:
 
-1. **Research the codebase** — find evidence for the best approach
-2. **Check existing patterns** — query logic map markers if relevant
-3. **Classify the question:**
+1. **Research the codebase** — find evidence for the best approach (delegated to a research agent; you consume its evidence)
+2. **Check existing patterns** — query logic map markers if relevant (delegated with step 1)
+3. **Classify the question (YOUR call):**
    - **Explicit alternative** — the design document presents multiple named options (Option A/B, Approach 1/2, etc.) → confidence is always LOW (requires user input), even if codebase evidence strongly favors one option. The design author listed alternatives for a reason.
    - **Implicit question** — ambiguity or gap in the design that can be resolved from codebase evidence → use the confidence scale below.
 4. **Propose a decision** with:
@@ -205,11 +241,13 @@ This gate is the enforcement point for the **Ambiguity resolution — hard gate*
 
 **Goal:** Update existing architecture and documentation files with the design's content.
 
+**You plan the transfer; subagents write it.** Deciding *what* content moves *where* (target doc, section, conflict resolution) is judgment — do it yourself from the Phase-1 cross-ref recon. The actual writing into each target doc is patterned execution — dispatch it to **sonnet** agents, partitioned so no two agents touch the same file. Give each agent: the exact target doc + section, the content to write (the specific design passage), the conflict-resolution directive for that spot (replace / update / append), and "adapt style to match the surrounding doc." You review each returned diff against your transfer plan before accepting it.
+
 For each section of the design document that adds NEW information:
 
-1. Identify the correct target document in `d:\datrix\datrix\docs\` or package `docs/` directories
-2. Determine where in the target document the information belongs
-3. Write the content into the target document, adapting style to match
+1. Identify the correct target document in `d:\datrix\datrix\docs\` or package `docs/` directories (YOUR call, from the cross-ref recon)
+2. Determine where in the target document the information belongs (YOUR call)
+3. Write the content into the target document, adapting style to match (delegated to a sonnet writer; you review the diff)
 
 **What to transfer:**
 - Architecture decisions → `architecture-overview.md` (and its sub-documents) or package-specific docs
@@ -262,7 +300,13 @@ If you deviated: STOP and explain the deviation to the user.
 
 **Goal:** Break the design into implementable tasks with globally unique numbering.
 
-**MANDATORY FIRST STEP:** Read `d:\datrix\.claude\skills\generate-tasks\SKILL.md` completely before generating any tasks. This skill follows the same workflow as `/generate-tasks` with one critical override described below.
+**The decomposition is yours; the file-writing is delegated.** This is the phase where the fan-out pays off most — a design can produce dozens of task files, and writing them inline would exhaust your context. Split it cleanly:
+
+- **You (Fable) own the decomposition — never delegated.** The full task list, the global numbering, the `Depends on` graph, the **enforcement-before-what-it-governs** ordering (a guard/validator/rejection task precedes and gates every task that relies on it or migrates content it governs), the **invariant-surface coverage** (a task or QG criterion for EVERY surface in a design invariant's set — none silently dropped), which repos get tasks, and where each quality gate sits. Produce a complete task manifest first: for every task — its id, slug, target repo (from the Allowlist), category, `Depends on`, its `**Design reference:**` + `**Design acceptance property:**` (the specific D#/G#/numbered invariant + provable negative+positive check), and the inline design content it must carry. This manifest IS the design conformance of the phase; it cannot be delegated.
+- **Subagents write the files from your manifest.** Once the manifest is complete, dispatch **sonnet** agents to write the actual `.md` task files to the `/generate-tasks` template — partitioned by repo/wave so no two agents write the same file, fanned out in parallel. Each agent gets: the exact task-file path (which you have already validated against the Allowlist), the template, and its tasks' manifest entries (including the inline design content and Design reference/acceptance-property lines to embed). Agents transcribe your manifest into the template; they do NOT decide scope, numbering, or dependencies.
+- **You verify the written files against your manifest and run the Phase-4 completion gate yourself.** Every checkbox in the completion gate is checked by you on the actual files — the allowlist check, the design-reference check, the enforcement-ordering check, the invariant-surface check, the dual-path check, the migration-step coverage count. A subagent writing the files does not move any of these checks off you.
+
+**MANDATORY FIRST STEP:** Read `d:\datrix\.claude\skills\generate-tasks\SKILL.md` completely before generating any tasks (you read it once; include the relevant template slice in each writer agent's prompt so they don't each re-read it). This skill follows the same workflow as `/generate-tasks` with one critical override described below.
 
 **HARD CONSTRAINT — Task Location Allowlist:** `.tasks` folders may ONLY be created at the root of one of these 13 framework projects, all directly under `D:\datrix\`:
 
@@ -456,7 +500,9 @@ If you deviated: STOP and explain the deviation to the user.
 
 **Goal:** Verify all content has been transferred while preserving the design document.
 
-1. Verify ALL content has been transferred to official docs or task files
+**Delegate the cross-check, own the verdict.** Comparing the design doc section-by-section against the official docs + task files to find any untransferred content is mechanical — dispatch a **haiku** agent to produce the diff (for each design section: transferred → where, or NOT transferred). You read its report and decide whether transfer is complete; a "nothing remains" claim is accepted only when the agent's per-section evidence supports it. Confirm the design document still exists on disk yourself.
+
+1. Verify ALL content has been transferred to official docs or task files (via the delegated cross-check; you judge the result)
 2. Check that no unique information remains only in the design document
 3. Report completion (design document is preserved)
 
@@ -531,4 +577,6 @@ Design: preserved at {path}
 - **NO skipping migration tasks** — if the design has a migration/rollout section with numbered steps, every step becomes a task. "Convert X to Y" is not a suggestion — it is implementation work.
 - **NO leaving dual implementations untested** — if the design introduces a new path alongside an old one, old tests will pass on the old path regardless of whether the new path works. Migration tasks must convert fixtures, examples, and configs to the new path so the new implementation is actually exercised.
 - **NO treating migration as "future work"** — unless the design explicitly defers a migration step to a later phase, it belongs in THIS phase. The design document is the scope boundary.
+- **NO delegating a decision or a gate** — subagents gather evidence and write files to your manifest; every decision (each open question, each confidence rating, the task decomposition, the dependency/enforcement ordering) and every phase completion gate is decided by YOU on evidence you verify. A subagent's recon or self-report is input to your judgment, never a substitute for it, and never relaxes a gate.
+- **NO inline execution that a cheaper tier can do** — do not read whole docs, glob fixtures, run per-question codebase searches, transfer doc content, or write task files inline on Fable. Dispatch them; spend Fable tokens and context on judgment only.
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

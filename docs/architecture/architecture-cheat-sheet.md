@@ -54,6 +54,22 @@ Generators and extensions discovered via entry points: `datrix.generators`, `dat
 Language generators subclass `LanguageGenerator` (9 abstract methods).
 Type mappings registered with `TypeMappingRegistry.global_registry`.
 
+## Multi-Target Plugin Architecture (Planned — Design 023)
+
+Ratchet toward closing three closed-world defects (enum-based target identity, asymmetric language↔platform abstraction, hand-authored conformance) — **Planned**, landing across DI-1…DI-6, not yet in the tree:
+
+| # | Invariant | Check |
+|---|---|---|
+| I1 | Zero target-name policy references in shared layers | Identifier-level lint ratchet over `datrix-common`/`datrix-codegen-common`/`datrix-cli` source, frozen at today's count, ratchets to 0 at DI-5 |
+| I2 | Add-a-language = one package | Testkit fixture language plugin generates hello-world; `git status --porcelain` clean across framework repos |
+| I3 | Add-a-platform = one package | Same drill, fixture platform plugin |
+| I4 | Drift is a red test in the drifting package | Kit self-consistency gate: declaration ↔ registration ↔ fixture output; mutation check fails that package's own suite |
+| I5 | No `(target → policy)` / `(target × target)` tables in shared layers | Subsumed by I1 once enums are gone; inspected explicitly at each DI gate |
+| I6 | Language packages contain zero provider conditionals | `grep -r "DeploymentProvider\." datrix-codegen-python/src datrix-codegen-typescript/src` (and successors) → empty |
+| I7 | Import-boundary allowlist empty | `import-boundary-allowlist.toml` has zero entries |
+
+Full decision log and phase plan: [design/023-multi-target-plugin-architecture.md](../../../design/023-multi-target-plugin-architecture.md) · [architecture-overview.md — Decision 15](./architecture-overview.md#decision-15-multi-target-plugin-architecture--open-world-targets-derived-conformance-planned--design-023)
+
 ## Transpiler pipeline (per file)
 
 ```

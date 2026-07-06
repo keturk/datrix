@@ -1,0 +1,113 @@
+# I1 Target-Literal Ratchet Baseline
+#
+# Frozen per-file counts of target-literal identifiers (language/provider
+# names hardcoded in a shared layer -- design 023, Decision D1, Invariant I1).
+# Any INCREASE in a file's count fails datrix/scripts/dev/check-import-boundaries.py
+# --check-target-literals. Decreases are always allowed and should be captured
+# by re-running with --update-baseline once a phase task deletes an identifier
+# (e.g. task 09-20 drives every entry here to 0).
+#
+# Format:
+#   [[baseline]]
+#   file = "path/relative/to/monorepo-root, forward slashes"
+#   count = <int>
+
+[[baseline]]
+file = "datrix-cli/src/datrix_cli/pipeline/generation.py"
+count = 9
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/gendsl/compiler.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/gendsl/parser.py"
+count = 4
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/gendsl/validator.py"
+count = 3
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/orchestration/endpoint_orchestrator.py"
+count = 4
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/orchestration/resolved_runtime_plan.py"
+count = 5
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/platform/auth_resolver.py"
+count = 6
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/platform/runtime.py"
+count = 5
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/codegen_context.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/config_store/compatibility.py"
+count = 21
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/deployment_config.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/deployment_plan.py"
+count = 7
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/deployment_validation.py"
+count = 24
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/enums.py"
+count = 47
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/integrations/detection.py"
+count = 9
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/integrations/provisioning.py"
+count = 116
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/serverless/hosting_validation.py"
+count = 12
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/system_config/models.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config_resolution.py"
+count = 6
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/deployment/runtime_bootstrap.py"
+count = 13
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/deployment/secret_backend.py"
+count = 10
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/consumer_runtime.py"
+count = 7
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/language_runtime_spec.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/testing/context.py"
+count = 7
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/utils/service_container_memory.py"
+count = 3

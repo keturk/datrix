@@ -1,6 +1,6 @@
 ---
 description: Diagnose and fix code-generation failures from a generate-results log — classify each as app-definition or generator/framework level, trace to root cause, fix, and verify by regenerating only the affected project
-model: claude-sonnet-4-6
+model: claude-opus-4-8
 ---
 
 # Fix Generation

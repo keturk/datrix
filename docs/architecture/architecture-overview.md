@@ -214,6 +214,8 @@ graph TD
 
 ### Decision 6: Deployment Target Contract (Stable)
 
+> **Superseded in part by Decision 15 (Multi-Target Plugin Architecture, Planned — Design 023):** the closed `language`/`provider` value sets and the fixed generator-orchestration lineup table below are replaced by open identity (`LanguageId`/`ProviderId`) and declared phase + `runs_after` ordering when design 023 DI-2/DI-3 land. The content below documents the current (pre-023) contract and remains accurate until then.
+
 **Rationale:**
 - Legacy models conflated runtime packaging shape, infrastructure provider, and cloud-managed targets into a single dimension
 - "Docker Compose" and "ECS Fargate" are runtime/packaging targets, not cloud providers; "AWS" and "Azure" are providers, not runtimes
@@ -441,6 +443,8 @@ Provider-native runtimes are produced entirely by their provider generator. The 
 
 ### Decision 12: Language-Agnostic Provider Generators
 
+> **Superseded in part by Decision 15 (Multi-Target Plugin Architecture, Planned — Design 023):** the language-agnostic `LanguageRuntimeSpec` consumption pattern described below is widened into a full `PlatformPlugin` aggregate — bundling descriptor, generator, infrastructure, a new `PlatformRuntimeSpec`, and a new `PlatformCapabilityDeclaration` (design 023, D3/D6/D7) — when design 023 DI-3/DI-4 land. The content below documents the current (pre-023) contract and remains accurate until then.
+
 **Rationale:**
 - Provider generators (AWS, Azure) were coupled to the target language in a way runtime generators (Docker) were not: Docker discover the language via the `LanguageRuntimeSpec` protocol and ask it for language-appropriate commands, while AWS branched on the `Language` enum inline and hardcoded Python idioms (CDK stack language, scheduled-job command), and Azure hardcoded the App Service `gunicorn … uvicorn` startup command and `PYTHON|…` `linuxFxVersion`
 - Consequence: a new target language required editing every provider generator independently, and a new provider had to re-derive language handling from scratch instead of inheriting it
@@ -568,6 +572,32 @@ Service startup
 **Supersede note:** This supersedes the env-injection contract documented in Design 009 (*datrix-common Config/Secret Hardening*, historical; see `design/009-datrix-common-config-secret-hardening.md`) and the prior `service-config` docs that assumed env-var delivery of endpoints and regions. Design 009 remains the canonical record for its own scope (`.dcfg` path-containment, secret-ref allowlist, fail-open default hardening) and is not edited. The zero-env runtime model — now with a single planning pipeline feeding all renderers — is the canonical Datrix architecture from this point forward.
 
 **Reference:** [Deployment and Runtime Bootstrap](../../../datrix-common/docs/deployment-runtime-bootstrap.md) | [Secret Backend Policy](../../../datrix-common/docs/secret-backend-policy.md) | [Runtime Bootstrap — Python](../../../datrix-codegen-python/docs/runtime-bootstrap.md) | [AppSettings and Startup Assembly](../../../datrix-codegen-python/docs/app-settings.md) | [SecretsResolver](../../../datrix-codegen-python/docs/secrets-resolver.md) | [Config Store Schema](../../../datrix-common/docs/config-store.md)
+
+---
+
+### Decision 15: Multi-Target Plugin Architecture — Open-World Targets, Derived Conformance (Planned — Design 023)
+
+**Rationale:**
+- Datrix already has the skeleton of an open architecture (entry-point discovery, protocol contracts) but closed-world identity and policy undermine it: target identity lives in central enums (`Language`, `ProjectLanguage`, `DeploymentProvider`) and target policy lives in hand-maintained tables and if-chains across the shared layers — adding a language touches 11 packages, adding a platform touches 8 mandatory shared-layer files before the new package exists
+- Language↔platform abstraction is asymmetric: platforms consume languages through a protocol (`LanguageRuntimeSpec`), so adding a language never touches platform packages, but languages consume platforms through hardcoded provider branches, so adding a platform edits every language package
+- Decision logic ("what to emit") is re-decided per target and duplicated, policed only by hand-authored conformance that has already drifted — structural parity checks silently skip TypeScript's jobs/cqrs output today, and no cross-provider realization conformance exists at all
+
+**Result:**
+- One self-describing `LanguagePlugin` aggregate per language, registered once under `datrix.languages`; the five current language entry-point groups and every central language registry (`GENERATORS_BY_LANGUAGE`, both `_TARGET_KIND_MAP`s, `_KNOWN_DEFINITION_MODULES`, the CLI migration-adapter factory) are derived from the discovered plugin set and their hardcoded forms deleted
+- One `PlatformPlugin` aggregate per platform under `datrix.platforms` (widening the existing group), bundling descriptor, generator, infrastructure, a new `PlatformRuntimeSpec`, and a new `PlatformCapabilityDeclaration`
+- **Open identity:** `Language`/`ProjectLanguage`/`DeploymentProvider` enums are deleted, replaced by validated `LanguageId`/`ProviderId` resolved against the discovered plugin registry; an unknown target fails loud, listing installed plugins
+- **Declared ordering:** each generator declares a phase (`artifacts | language | persistence | platform`) and optional `runs_after` names on its descriptor; the CLI topologically sorts, replacing the hardcoded lineup tuples; companion generators declare an activation predicate instead of membership in another target's tuple
+- **Capability declarations replace every central policy table:** `PlatformCapabilityDeclaration` replaces the default-secret-backend table, the valid-runtimes-by-provider table, the serverless-compute-model table, the ~40-cell notification realization table, and the aws/azure flavor-gate twins — each platform owns its column; one generic validator in `datrix-common` asks the selected platform plugin for its realization
+- **Symmetric platform contract:** a `PlatformRuntimeSpec` (defined in `datrix-common`, implemented per platform, consumed by language generators) exposes named capability negotiation, so language packages stop hardcoding provider branches for trigger bindings, secrets access, and startup execution
+- **Decision/rendering split completed:** "what to emit" computation moves into `datrix-codegen-common` as data-driven engines over AST + plugin declarations; leaf packages own syntax only; the import-boundary allowlist target is zero entries
+- **Conformance derived, never hand-authored:** conformance is derived from per-plugin declarations rather than authored in prose — an absent declaration is an error, and a per-package self-consistency gate verifies declaration ↔ registration ↔ fixture output; platform `block_realizations` are validated the same way, creating cross-provider drift detection that does not exist today
+- The conformance kit ships as `datrix_codegen_common.testkit` behind a `[testkit]` extra, consumed by every target package as a dev-dependency; a new target package is "integrated" when the kit passes in its own repo
+- `datrix-codegen-sql` becomes an independent artifact plugin activated by the presence of declared `rdbms` blocks regardless of target language; the `python_http_contract_overlay` companion gets its own activation predicate under the same activation-by-declared-need pattern
+- Repo topology is unchanged — the 12-repo split stays; shared-layer changes affecting multiple packages remain coordinated multi-repo trains under the existing cross-surface impact rule
+
+The design's seven end-state invariants (I1–I7) hold as gates, each proven by an executable check, and implementation proceeds as six independently shippable increments DI-1…DI-6: guards + testkit skeleton, language plugin aggregate, platform plugin aggregate + open identity, symmetric platform contract, decision/rendering split, and derived conformance.
+
+**Reference:** [Design 023: Multi-Target Plugin Architecture](../../../design/023-multi-target-plugin-architecture.md)
 
 ---
 

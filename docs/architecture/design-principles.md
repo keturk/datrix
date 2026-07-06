@@ -312,6 +312,20 @@ Adding a second storage block does not break the API:
 
 ---
 
+### 10. Shared Layers Ask, Target Plugins Answer (Planned — Design 023)
+
+**Principle:** Shared layers (`datrix-common`, `datrix-codegen-common`, `datrix-cli`) may ask questions about a target but must never answer them. No language or provider name may appear in shared-layer source; anything shaped like `dict[TargetId, policy]` or `if target == X:` in a shared layer is a defect — facts about a target live with the target's plugin, not in a central table.
+
+**Why:**
+- Makes the existing generality-preserving design rule (see repository `CLAUDE.md`) mechanical and lintable instead of relying on manual review
+- Every closed-world policy table observed today (target identity enums, provider dispatch tables, capability if-chains across shared packages) is an instance of a shared layer answering a question only a target plugin should own
+
+**Application:** Status is `Planned` — mechanical enforcement is not yet in the tree. It arrives as an identifier-level lint gate over `datrix-common`, `datrix-codegen-common`, and `datrix-cli` source (design 023, invariant I1, landing at DI-1), frozen at today's measured count and ratcheting down only, reaching zero once the decision/rendering split completes at DI-5. Until then this principle is documented intent, not an enforced gate; the enums, dispatch tables, and lineup tuples described elsewhere in this document remain the accurate current-state contract.
+
+**Reference:** [Design 023 — Multi-Target Plugin Architecture](../../../design/023-multi-target-plugin-architecture.md) (Decision D1, invariant I1). See also [Principle 11: Construct-Mapped Platform Realization](#11-construct-mapped-platform-realization-stable) and [Architecture Overview — Decision 15](architecture-overview.md#decision-15-multi-target-plugin-architecture--open-world-targets-derived-conformance-planned--design-023).
+
+---
+
 ## Language Design Principles
 
 ### 0. Uniform Language Consistency

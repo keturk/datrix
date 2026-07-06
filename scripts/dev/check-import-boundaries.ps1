@@ -24,6 +24,16 @@
 .PARAMETER BaseDir
  Monorepo root directory (default: auto-detect by walking up from script location)
 
+.PARAMETER CheckTargetLiterals
+ Run the I1 target-literal ratchet check (design 023, invariant I1) in addition
+ to the import-boundary check. Compares current per-file target-literal counts
+ against the frozen baseline at scripts/config/target-literal-baseline.toml.
+
+.PARAMETER UpdateBaseline
+ Recompute current per-file target-literal counts and overwrite the frozen
+ baseline (target-literal-baseline.toml), then exit 0. Typically combined with
+ -CheckTargetLiterals.
+
 .PARAMETER Dbg
  Enable debug logging
 
@@ -42,6 +52,14 @@
 .EXAMPLE
  .\check-import-boundaries.ps1 -BaseDir D:\datrix
  Specify monorepo root explicitly
+
+.EXAMPLE
+ .\check-import-boundaries.ps1 -CheckTargetLiterals
+ Run the I1 target-literal ratchet check against the frozen baseline
+
+.EXAMPLE
+ .\check-import-boundaries.ps1 -CheckTargetLiterals -UpdateBaseline
+ Recompute and overwrite the frozen target-literal baseline
 #>
 
 [CmdletBinding()]
@@ -54,6 +72,12 @@ param(
 
     [Parameter()]
     [string]$BaseDir = "",
+
+    [Parameter()]
+    [switch]$CheckTargetLiterals,
+
+    [Parameter()]
+    [switch]$UpdateBaseline,
 
     [Parameter()]
     [switch]$Dbg
@@ -111,6 +135,8 @@ try {
     if ($Warn) { $pythonArgs += "--warn" }
     if ($ShowFiles) { $pythonArgs += "--verbose" }
     if ($BaseDir) { $pythonArgs += "--base-dir"; $pythonArgs += $BaseDir }
+    if ($CheckTargetLiterals) { $pythonArgs += "--check-target-literals" }
+    if ($UpdateBaseline) { $pythonArgs += "--update-baseline" }
 
     # Debug output if requested
     if ($Dbg) {

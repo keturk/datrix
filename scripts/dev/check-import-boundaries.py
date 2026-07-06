@@ -17,6 +17,7 @@ import ast
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 
 @dataclass(frozen=True)
@@ -186,6 +187,58 @@ BOUNDARY_RULES: dict[str, BoundaryRule] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# I1 Target-Literal Ratchet (design 023, Decision D1, Invariant I1)
+#
+# The three shared-layer package names the I1 ratchet polices (D1: "shared
+# layers ask questions, target plugins answer them" — datrix_language and the
+# leaf datrix_codegen_{python,typescript,aws,azure,docker,sql,component}
+# packages are OWNERS of target identity and are exempt from this scan).
+TARGET_LITERAL_SHARED_PACKAGES: tuple[str, ...] = (
+    "datrix_common",
+    "datrix_codegen_common",
+    "datrix_cli",
+)
+
+# Central table / dict / class names known TODAY to encode closed-world target
+# policy in a shared layer (frozen from the corrected recon anchors in
+# .agent_output/2026-07-05-operationalize-023-multi-target/MANIFEST.md). Each
+# entry is deleted by a specific later-phase task; the ratchet's job is to make
+# sure nothing NEW joins this list while phases 06-10 remove these.
+TARGET_LITERAL_CENTRAL_NAMES: frozenset[str] = frozenset(
+    {
+        "Language",                         # enums.py:13-18 (deleted 07-03)
+        "ProjectLanguage",                  # enums.py:26-30 (deleted 07-03)
+        "GENERATORS_BY_LANGUAGE",           # enums.py:33 (deleted 06-04)
+        "DeploymentRuntime",                # enums.py:63-79 (deleted 07-03)
+        "DeploymentProvider",               # enums.py:82-97 (deleted 07-03)
+        "PROVIDER_GENERATORS",              # enums.py:289 (deleted 07-03)
+        "_TARGET_KIND_MAP",                 # gendsl/parser.py:36, validator.py:30 (deleted 06-02)
+        "_KNOWN_DEFINITION_MODULES",        # gendsl/compiler.py:153-161 (deleted 06-02)
+        "EMAIL_REALIZATION",                # provisioning.py:60-81 (deleted 07-04)
+        "SMS_REALIZATION",                  # provisioning.py:92-109 (deleted 07-04)
+        "PUSH_REALIZATION",                 # provisioning.py:~129 (deleted 07-04)
+        "_DEFAULT_BACKEND_BY_PROVIDER",      # secret_backend.py:175-178 (deleted 07-04)
+        "VALID_PROVIDERS_BY_RUNTIME",       # deployment_validation.py:29-42 (deleted 07-04)
+        "_SERVERLESS_PLATFORM_BY_PROVIDER", # hosting_validation.py:22-26 (deleted 07-04)
+        "_PLATFORM_INFRA_CLASSES",          # auth_resolver.py:54-71 (deleted 07-05)
+    }
+)
+
+# Enum-qualified member accesses (Attribute nodes like `DeploymentProvider.AWS`)
+# recognized as target-literal references. Keyed by the enum class name so a
+# bare identifier collision (e.g. a local variable named `AWS`) never matches --
+# only `<ClassName>.<MEMBER>` attribute access counts.
+TARGET_LITERAL_ENUM_MEMBERS: dict[str, frozenset[str]] = {
+    "Language": frozenset({"PYTHON", "TYPESCRIPT", "SQL"}),
+    "ProjectLanguage": frozenset({"PYTHON", "TYPESCRIPT"}),
+    "DeploymentRuntime": frozenset(
+        {"DOCKER_COMPOSE", "AZURE_APP_SERVICE", "ECS_FARGATE", "APP_RUNNER"}
+    ),
+    "DeploymentProvider": frozenset({"LOCAL", "EXISTING", "AWS", "AZURE"}),
+}
+
+
 @dataclass(frozen=True)
 class PackageInfo:
     """Package metadata for scanning."""
@@ -213,6 +266,24 @@ class AllowlistEntry:
     file_pattern: str
     import_prefix: str
     issue_url: str
+
+
+@dataclass(frozen=True)
+class TargetLiteralHit:
+    """One occurrence of a target-literal identifier in a shared-layer file."""
+
+    file_path: Path
+    line_number: int
+    identifier: str
+    kind: Literal["central_table_name", "enum_member_qualified"]
+
+
+@dataclass(frozen=True)
+class TargetLiteralBaselineEntry:
+    """One frozen per-file count in the I1 ratchet baseline."""
+
+    file: str   # path relative to monorepo root, forward slashes
+    count: int
 
 
 def is_forbidden_import(
@@ -416,6 +487,244 @@ def scan_package_for_violations(
     return violations
 
 
+def scan_file_for_target_literals(file_path: Path) -> list[TargetLiteralHit]:
+    """AST-walk *file_path* for target-literal identifiers.
+
+    Two match kinds:
+      - ``central_table_name``: any ``ast.Name``/``ast.ClassDef``/``ast.FunctionDef``
+        (or ``ast.AsyncFunctionDef``) whose identifier is exactly one of
+        ``TARGET_LITERAL_CENTRAL_NAMES`` (definition sites AND reference sites
+        both count -- a table is a defect whether it's being defined or
+        consumed), plus any ``ast.Attribute`` whose ``attr`` itself is one of
+        ``TARGET_LITERAL_CENTRAL_NAMES`` (e.g. a module-qualified
+        ``enums.GENERATORS_BY_LANGUAGE`` reference).
+      - ``enum_member_qualified``: any ``ast.Attribute`` node whose ``value`` is
+        an ``ast.Name`` with ``id`` in ``TARGET_LITERAL_ENUM_MEMBERS`` and whose
+        ``attr`` is in the corresponding member frozenset (e.g. `Language.PYTHON`,
+        `DeploymentProvider.AWS`) -- NOT a bare `AWS` identifier alone.
+
+    Args:
+        file_path: Path to Python source file.
+
+    Returns:
+        List of hits found in the file, in AST-walk order.
+
+    Raises:
+        SyntaxError: propagated from ast.parse (caller decides how to report).
+        OSError: propagated if the file cannot be read.
+    """
+    source_code = file_path.read_text(encoding="utf-8")
+    tree = ast.parse(source_code, filename=str(file_path))
+
+    hits: list[TargetLiteralHit] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and node.id in TARGET_LITERAL_CENTRAL_NAMES:
+            hits.append(
+                TargetLiteralHit(
+                    file_path=file_path,
+                    line_number=node.lineno,
+                    identifier=node.id,
+                    kind="central_table_name",
+                )
+            )
+        elif isinstance(node, ast.ClassDef) and node.name in TARGET_LITERAL_CENTRAL_NAMES:
+            hits.append(
+                TargetLiteralHit(
+                    file_path=file_path,
+                    line_number=node.lineno,
+                    identifier=node.name,
+                    kind="central_table_name",
+                )
+            )
+        elif (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name in TARGET_LITERAL_CENTRAL_NAMES
+        ):
+            hits.append(
+                TargetLiteralHit(
+                    file_path=file_path,
+                    line_number=node.lineno,
+                    identifier=node.name,
+                    kind="central_table_name",
+                )
+            )
+        elif isinstance(node, ast.Attribute):
+            if node.attr in TARGET_LITERAL_CENTRAL_NAMES:
+                hits.append(
+                    TargetLiteralHit(
+                        file_path=file_path,
+                        line_number=node.lineno,
+                        identifier=node.attr,
+                        kind="central_table_name",
+                    )
+                )
+            if (
+                isinstance(node.value, ast.Name)
+                and node.value.id in TARGET_LITERAL_ENUM_MEMBERS
+                and node.attr in TARGET_LITERAL_ENUM_MEMBERS[node.value.id]
+            ):
+                hits.append(
+                    TargetLiteralHit(
+                        file_path=file_path,
+                        line_number=node.lineno,
+                        identifier=f"{node.value.id}.{node.attr}",
+                        kind="enum_member_qualified",
+                    )
+                )
+
+    return hits
+
+
+def scan_target_literals(
+    packages: dict[str, PackageInfo],
+    monorepo_root: Path,
+) -> dict[Path, list[TargetLiteralHit]]:
+    """Scan every ``.py`` file under each of ``TARGET_LITERAL_SHARED_PACKAGES``'
+    ``src/`` tree (via *packages*, as already discovered by ``discover_packages``)
+    for target-literal identifiers.
+
+    Args:
+        packages: Package name -> PackageInfo, as returned by discover_packages().
+        monorepo_root: Monorepo root for relative path reporting.
+
+    Returns:
+        Mapping of file path -> hits in that file (files with zero hits omitted).
+    """
+    results: dict[Path, list[TargetLiteralHit]] = {}
+
+    for package_name in TARGET_LITERAL_SHARED_PACKAGES:
+        package_info = packages.get(package_name)
+        if package_info is None:
+            continue
+
+        for py_file in package_info.src_dir.rglob("*.py"):
+            try:
+                hits = scan_file_for_target_literals(py_file)
+            except SyntaxError as e:
+                rel_path = py_file.relative_to(monorepo_root)
+                print(
+                    f"Warning: Failed to parse {rel_path}:{e.lineno} - {e.msg}",
+                    file=sys.stderr,
+                )
+                continue
+            except OSError as e:
+                rel_path = py_file.relative_to(monorepo_root)
+                print(f"Warning: Failed to read {rel_path} - {e}", file=sys.stderr)
+                continue
+
+            if hits:
+                results[py_file] = hits
+
+    return results
+
+
+def load_target_literal_baseline(baseline_path: Path) -> dict[str, int]:
+    """Load ``{relative_file: frozen_count}`` from the baseline TOML.
+
+    Args:
+        baseline_path: Path to the target-literal baseline TOML file.
+
+    Returns:
+        An empty dict if the file does not exist yet (first-ever run,
+        before this task's `--update-baseline` freezes it).
+    """
+    if not baseline_path.exists():
+        return {}
+
+    try:
+        import tomllib  # Python 3.11+
+    except ImportError:
+        try:
+            import tomli as tomllib  # type: ignore[no-redef]
+        except ImportError:
+            print(
+                "Warning: TOML library not available. Install tomli for baseline support.",
+                file=sys.stderr,
+            )
+            return {}
+
+    with baseline_path.open("rb") as f:
+        data = tomllib.load(f)
+
+    counts: dict[str, int] = {}
+    for entry in data.get("baseline", []):
+        if not isinstance(entry, dict):
+            continue
+
+        file_rel = entry.get("file", "")
+        count = entry.get("count")
+
+        if file_rel and isinstance(count, int):
+            counts[file_rel] = count
+
+    return counts
+
+
+def write_target_literal_baseline(baseline_path: Path, counts: dict[str, int]) -> None:
+    """Write ``counts`` to the baseline TOML as ``[[baseline]] file=... count=...``
+    entries, sorted by file for deterministic diffs.
+
+    Args:
+        baseline_path: Path to the target-literal baseline TOML file to write.
+        counts: Mapping of relative file path (forward slashes) -> hit count.
+    """
+    header = (
+        "# I1 Target-Literal Ratchet Baseline\n"
+        "#\n"
+        "# Frozen per-file counts of target-literal identifiers (language/provider\n"
+        "# names hardcoded in a shared layer -- design 023, Decision D1, Invariant I1).\n"
+        "# Any INCREASE in a file's count fails datrix/scripts/dev/check-import-boundaries.py\n"
+        "# --check-target-literals. Decreases are always allowed and should be captured\n"
+        "# by re-running with --update-baseline once a phase task deletes an identifier\n"
+        "# (e.g. task 09-20 drives every entry here to 0).\n"
+        "#\n"
+        "# Format:\n"
+        "#   [[baseline]]\n"
+        '#   file = "path/relative/to/monorepo-root, forward slashes"\n'
+        "#   count = <int>\n"
+    )
+
+    lines = [header]
+    for file_rel in sorted(counts.keys()):
+        lines.append("\n[[baseline]]\n")
+        lines.append(f'file = "{file_rel}"\n')
+        lines.append(f"count = {counts[file_rel]}\n")
+
+    baseline_path.parent.mkdir(parents=True, exist_ok=True)
+    baseline_path.write_text("".join(lines), encoding="utf-8")
+
+
+def check_target_literal_ratchet(
+    current_counts: dict[str, int],
+    baseline: dict[str, int],
+) -> list[str]:
+    """Compare *current_counts* against *baseline*; return one message per
+    file whose count INCREASED (baseline missing == baseline 0). Never flags
+    a decrease -- the ratchet only tightens.
+
+    Args:
+        current_counts: Relative file path -> current hit count.
+        baseline: Relative file path -> frozen baseline count.
+
+    Returns:
+        List of human-readable ratchet-failure messages, one per regressed
+        file, sorted by file path.
+    """
+    messages: list[str] = []
+
+    for file_rel in sorted(current_counts.keys()):
+        current = current_counts[file_rel]
+        frozen = baseline.get(file_rel, 0)
+        if current > frozen:
+            messages.append(
+                f"{file_rel}: target-literal count increased from baseline "
+                f"{frozen} to {current}"
+            )
+
+    return messages
+
+
 def load_allowlist(allowlist_path: Path) -> list[AllowlistEntry]:
     """Load allowlist entries from TOML file.
 
@@ -565,6 +874,22 @@ def main() -> int:
         action="store_true",
         help="Print each file being scanned",
     )
+    parser.add_argument(
+        "--check-target-literals",
+        action="store_true",
+        help=(
+            "Run the I1 target-literal ratchet check (design 023, invariant I1) "
+            "in addition to the import-boundary check"
+        ),
+    )
+    parser.add_argument(
+        "--update-baseline",
+        action="store_true",
+        help=(
+            "Recompute current per-file target-literal counts and overwrite "
+            "the frozen baseline (target-literal-baseline.toml), then exit 0"
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -613,14 +938,64 @@ def main() -> int:
         v for v in all_violations if not is_allowlisted(v, allowlist, monorepo_root)
     ]
 
-    # Report violations
-    if non_allowlisted_violations:
-        mode = "Warning" if args.warn else "Error"
-        print(f"{mode}: Found {len(non_allowlisted_violations)} import boundary violations:\n")
+    # I1 target-literal ratchet (design 023, invariant I1) — opt-in via
+    # --check-target-literals so existing no-flag import-boundary callers
+    # keep their current behavior.
+    target_literal_baseline_path = (
+        monorepo_root / "datrix" / "scripts" / "config" / "target-literal-baseline.toml"
+    )
 
-        for violation in non_allowlisted_violations:
-            print(format_violation(violation, monorepo_root))
-            print()  # Blank line between violations
+    if args.update_baseline:
+        hits_by_file = scan_target_literals(packages, monorepo_root)
+        current_counts = {
+            str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
+            for file_path, hits in hits_by_file.items()
+        }
+        write_target_literal_baseline(target_literal_baseline_path, current_counts)
+        print(
+            f"Updated I1 target-literal baseline: {len(current_counts)} file(s) "
+            f"recorded at {target_literal_baseline_path.relative_to(monorepo_root)}"
+        )
+        return 0
+
+    target_literal_messages: list[str] = []
+    if args.check_target_literals:
+        if not target_literal_baseline_path.exists():
+            print(
+                f"Error: I1 target-literal baseline not found at "
+                f"{target_literal_baseline_path}. Run "
+                f"'check-import-boundaries.py --check-target-literals --update-baseline' "
+                f"first to freeze the initial baseline.",
+                file=sys.stderr,
+            )
+            return 2
+
+        baseline = load_target_literal_baseline(target_literal_baseline_path)
+        hits_by_file = scan_target_literals(packages, monorepo_root)
+        current_counts = {
+            str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
+            for file_path, hits in hits_by_file.items()
+        }
+        target_literal_messages = check_target_literal_ratchet(current_counts, baseline)
+
+    # Report violations / ratchet failures
+    if non_allowlisted_violations or target_literal_messages:
+        mode = "Warning" if args.warn else "Error"
+
+        if non_allowlisted_violations:
+            print(f"{mode}: Found {len(non_allowlisted_violations)} import boundary violations:\n")
+            for violation in non_allowlisted_violations:
+                print(format_violation(violation, monorepo_root))
+                print()  # Blank line between violations
+
+        if target_literal_messages:
+            print(
+                f"{mode}: I1 target-literal ratchet failed for "
+                f"{len(target_literal_messages)} file(s):\n"
+            )
+            for message in target_literal_messages:
+                print(message)
+            print()
 
         if args.warn:
             return 0
@@ -629,6 +1004,8 @@ def main() -> int:
     # Clean
     if args.verbose:
         print("No import boundary violations found.", file=sys.stderr)
+        if args.check_target_literals:
+            print("No I1 target-literal ratchet regressions found.", file=sys.stderr)
 
     return 0
 
