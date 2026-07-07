@@ -30,9 +30,18 @@
  against the frozen baseline at scripts/config/target-literal-baseline.toml.
 
 .PARAMETER UpdateBaseline
- Recompute current per-file target-literal counts and overwrite the frozen
- baseline (target-literal-baseline.toml), then exit 0. Typically combined with
- -CheckTargetLiterals.
+ Recompute current per-file counts and overwrite the frozen baseline(s), then
+ exit 0. Updates target-literal-baseline.toml unless -CheckProviderConditionals
+ is passed (without -CheckTargetLiterals), in which case it updates
+ provider-conditional-baseline.toml instead. Pass both -CheckTargetLiterals and
+ -CheckProviderConditionals to update both baselines in one run.
+
+.PARAMETER CheckProviderConditionals
+ Run the I6 successor ratchet check (design 023, invariant I6, DI-4/DI-5) in
+ addition to the import-boundary check. Compares current per-file
+ platform-identity-conditional counts in the language packages
+ (datrix_codegen_python, datrix_codegen_typescript) against the frozen
+ baseline at scripts/config/provider-conditional-baseline.toml.
 
 .PARAMETER Dbg
  Enable debug logging
@@ -60,6 +69,14 @@
 .EXAMPLE
  .\check-import-boundaries.ps1 -CheckTargetLiterals -UpdateBaseline
  Recompute and overwrite the frozen target-literal baseline
+
+.EXAMPLE
+ .\check-import-boundaries.ps1 -CheckProviderConditionals
+ Run the I6 successor (provider-conditional) ratchet check against the frozen baseline
+
+.EXAMPLE
+ .\check-import-boundaries.ps1 -CheckProviderConditionals -UpdateBaseline
+ Recompute and overwrite the frozen provider-conditional baseline
 #>
 
 [CmdletBinding()]
@@ -78,6 +95,9 @@ param(
 
     [Parameter()]
     [switch]$UpdateBaseline,
+
+    [Parameter()]
+    [switch]$CheckProviderConditionals,
 
     [Parameter()]
     [switch]$Dbg
@@ -137,6 +157,7 @@ try {
     if ($BaseDir) { $pythonArgs += "--base-dir"; $pythonArgs += $BaseDir }
     if ($CheckTargetLiterals) { $pythonArgs += "--check-target-literals" }
     if ($UpdateBaseline) { $pythonArgs += "--update-baseline" }
+    if ($CheckProviderConditionals) { $pythonArgs += "--check-provider-conditionals" }
 
     # Debug output if requested
     if ($Dbg) {

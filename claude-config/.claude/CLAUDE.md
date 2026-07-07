@@ -37,6 +37,8 @@ Before touching code: read all relevant code, trace root cause, understand full 
 
 Read before hypothesizing (build scripts, generators, existing code). Confirm Python vs TypeScript generator scope before changes. No debug scatter (track+remove all temp logging). Investigate before asking — come with findings. Don't repeat acknowledged info. Fix root causes not symptoms.
 
+**No second hypothesis without the error text.** If a failure's error output is suppressed or invisible, the FIRST action is to make it visible (re-run with output captured / remove the suppression) — never form another theory about an error you haven't read. **Reproduce in the exact failing context**: same shell, same redirections, same environment. A result reproduced in a different context proves nothing about the failing one (e.g. the same `az` command can exit 0 in bash and exit 1 under PowerShell `2>$null` stderr redirection).
+
 ## Task Scope Back-Off
 
 If a task spans 3+ unrelated subsystems, requires chain-debugging, or would fill context — STOP and propose splitting. Don't silently attempt massive tasks.

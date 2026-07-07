@@ -43,6 +43,8 @@ BOUNDARY_RULES = _scanner.BOUNDARY_RULES
 BoundaryRule = _scanner.BoundaryRule
 PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES = _scanner.PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES
 SQL_CODEGEN_COMMON_ALLOWED_SUBTREES = _scanner.SQL_CODEGEN_COMMON_ALLOWED_SUBTREES
+scan_file_for_provider_conditionals = _scanner.scan_file_for_provider_conditionals
+check_provider_conditional_ratchet = _scanner.check_provider_conditional_ratchet
 
 # ---------------------------------------------------------------------------
 # Constants referenced in the tests — pulled from the module so changes to
@@ -429,3 +431,174 @@ class TestComponentBoundaryRuleCoverage:
             f"Import {imported_module!r} was incorrectly flagged as forbidden for datrix_codegen_component — "
             f"datrix_codegen_common is not restricted for Component."
         )
+
+
+@pytest.mark.unit
+class TestProviderConditionalScanner:
+    """The I6 successor ratchet's AST scanner (design 023, invariant I6, DI-4/DI-5).
+
+    Proves the detector matches the known DI-5-deferred conditional shapes
+    (`== ProviderId(...)`, `<deployment>.provider.value == "..."`,
+    `str(<deployment>.provider) != "..."`, and `match`/`case` over a provider
+    subject counted ONCE regardless of arm count) while excluding the
+    look-alike shapes that must NOT ratchet: other provider axes
+    (StorageProvider/EmailProvider/etc.), the `resolve_provider_identity`
+    boundary function's own rewrap, and `in`/`not in` dict-dispatch lookups.
+    """
+
+    def _scan_source(self, tmp_path: Path, source: str) -> list:
+        file_path = tmp_path / "sample.py"
+        file_path.write_text(source, encoding="utf-8")
+        return scan_file_for_provider_conditionals(file_path)
+
+    def test_providerid_equality_compare_is_detected(self, tmp_path: Path) -> None:
+        source = (
+            "def f(provider):\n"
+            "    if provider == ProviderId('azure'):\n"
+            "        return True\n"
+            "    return False\n"
+        )
+        hits = self._scan_source(tmp_path, source)
+        assert len(hits) == 1
+        assert hits[0].kind == "providerid_compare"
+
+    def test_providerid_inequality_via_helper_call_is_detected(self, tmp_path: Path) -> None:
+        source = (
+            "def f(deployment):\n"
+            "    if resolve_provider_identity(deployment) != ProviderId('aws'):\n"
+            "        return None\n"
+            "    return 1\n"
+        )
+        hits = self._scan_source(tmp_path, source)
+        assert len(hits) == 1
+        assert hits[0].kind == "providerid_compare"
+
+    def test_deployment_provider_value_compare_is_detected(self, tmp_path: Path) -> None:
+        source = (
+            "class G:\n"
+            "    def f(self):\n"
+            "        if self._deployment.provider.value == 'azure':\n"
+            "            return True\n"
+            "        return False\n"
+        )
+        hits = self._scan_source(tmp_path, source)
+        assert len(hits) == 1
+        assert hits[0].kind == "deployment_provider_value_compare"
+
+    def test_str_wrapped_deployment_provider_compare_is_detected(self, tmp_path: Path) -> None:
+        source = (
+            "class G:\n"
+            "    def f(self):\n"
+            "        if str(self._deployment.provider) != 'aws':\n"
+            "            return []\n"
+            "        return None\n"
+        )
+        hits = self._scan_source(tmp_path, source)
+        assert len(hits) == 1
+        assert hits[0].kind == "deployment_provider_value_compare"
+
+    def test_match_case_over_provider_subject_counts_once(self, tmp_path: Path) -> None:
+        """A 3-arm match/case is ONE site, not three -- the arms' own
+        `p == ProviderId(...)` guards must not be double-counted on top of
+        the match-subject hit."""
+        source = (
+            "def f(provider_id):\n"
+            "    match provider_id:\n"
+            "        case p if p == ProviderId('aws'):\n"
+            "            return 'a'\n"
+            "        case p if p == ProviderId('azure'):\n"
+            "            return 'b'\n"
+            "        case p if p == ProviderId('local'):\n"
+            "            return 'c'\n"
+            "        case _:\n"
+            "            raise ValueError('unknown')\n"
+        )
+        hits = self._scan_source(tmp_path, source)
+        assert len(hits) == 1, f"expected exactly 1 hit (the match subject), got {hits!r}"
+        assert hits[0].kind == "match_case_provider_subject"
+
+    def test_other_provider_axis_value_compare_is_excluded(self, tmp_path: Path) -> None:
+        """StorageProvider/EmailProvider/etc. `.value` comparisons are a
+        DIFFERENT axis from the deployment/infrastructure provider and must
+        never ratchet here."""
+        source = (
+            "class G:\n"
+            "    def f(self, storage_block, email_config, metrics):\n"
+            "        a = storage_block.config.provider == StorageProvider.MINIO\n"
+            "        b = str(email_config.provider.value) == 'sendgrid'\n"
+            "        c = str(metrics.provider.value) == 'prometheus'\n"
+            "        return a, b, c\n"
+        )
+        hits = self._scan_source(tmp_path, source)
+        assert hits == [], f"other-axis provider comparisons must not ratchet, got {hits!r}"
+
+    def test_boundary_function_rewrap_is_excluded(self, tmp_path: Path) -> None:
+        """The `resolve_provider_identity` boundary function's own
+        `ProviderId(x.value)` rewrap is not a comparison and must not count."""
+        source = (
+            "def resolve_provider_identity(deployment):\n"
+            "    return ProviderId(deployment.provider.value)\n"
+        )
+        hits = self._scan_source(tmp_path, source)
+        assert hits == [], f"the boundary rewrap itself must not ratchet, got {hits!r}"
+
+    def test_dict_dispatch_membership_lookup_is_excluded(self, tmp_path: Path) -> None:
+        """A frozenset/dict `in`/`not in` dispatch-table lookup is a
+        different successor shape (not yet in this ratchet's scope) and
+        must not be flagged as a providerid_compare."""
+        source = (
+            "_WHEEL_DEPLOYED_PROVIDERS = frozenset({ProviderId('aws'), ProviderId('azure')})\n"
+            "\n"
+            "def f(provider):\n"
+            "    if provider not in _WHEEL_DEPLOYED_PROVIDERS:\n"
+            "        return []\n"
+            "    return None\n"
+        )
+        hits = self._scan_source(tmp_path, source)
+        assert hits == [], f"dict-dispatch 'not in' lookups must not ratchet, got {hits!r}"
+
+    def test_non_deployment_rooted_provider_attr_value_is_excluded(self, tmp_path: Path) -> None:
+        """`cfg.provider` (not rooted at `deployment`/`self._deployment`) must
+        not match the deployment-provider `.value` form even though it has
+        the identical `.provider`/`.value` shape."""
+        source = (
+            "def f(cfg):\n"
+            "    bucket = cfg.container if str(cfg.provider) == 'azure_blob' else cfg.bucket\n"
+            "    return bucket\n"
+        )
+        hits = self._scan_source(tmp_path, source)
+        assert hits == [], f"non-deployment-rooted .provider comparisons must not ratchet, got {hits!r}"
+
+
+@pytest.mark.unit
+class TestProviderConditionalRatchet:
+    """``check_provider_conditional_ratchet`` fires on any per-file INCREASE
+    over the frozen baseline and never on a decrease or unchanged count."""
+
+    def test_ratchet_is_clean_when_current_matches_baseline(self) -> None:
+        baseline = {"datrix-codegen-python/src/datrix_codegen_python/foo.py": 3}
+        current = {"datrix-codegen-python/src/datrix_codegen_python/foo.py": 3}
+        assert check_provider_conditional_ratchet(current, baseline) == []
+
+    def test_ratchet_fires_on_increase(self) -> None:
+        baseline = {"datrix-codegen-python/src/datrix_codegen_python/foo.py": 3}
+        current = {"datrix-codegen-python/src/datrix_codegen_python/foo.py": 4}
+        messages = check_provider_conditional_ratchet(current, baseline)
+        assert len(messages) == 1
+        assert "foo.py" in messages[0]
+        assert "increased from baseline 3 to 4" in messages[0]
+
+    def test_ratchet_allows_decrease(self) -> None:
+        """Decreases (the DI-5 direction) must never be flagged."""
+        baseline = {"datrix-codegen-python/src/datrix_codegen_python/foo.py": 3}
+        current = {"datrix-codegen-python/src/datrix_codegen_python/foo.py": 1}
+        assert check_provider_conditional_ratchet(current, baseline) == []
+
+    def test_ratchet_fires_on_new_file_with_no_baseline_entry(self) -> None:
+        """A file absent from the baseline is treated as baseline 0 -- any
+        hit in a brand-new file is itself an increase."""
+        baseline: dict[str, int] = {}
+        current = {"datrix-codegen-typescript/src/datrix_codegen_typescript/new_file.py": 1}
+        messages = check_provider_conditional_ratchet(current, baseline)
+        assert len(messages) == 1
+        assert "increased from baseline 0 to 1" in messages[0]

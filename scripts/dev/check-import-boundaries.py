@@ -13,11 +13,23 @@ closed-world target-identity identifiers and fails if any file's count
 increases past its frozen baseline (scripts/config/target-literal-baseline.toml).
 --update-baseline recomputes and overwrites that baseline.
 
+Also implements the I6 successor ratchet (design 023, invariant I6, DI-4/DI-5):
+opt-in via --check-provider-conditionals, it AST-scans the two LANGUAGE
+package src/ trees (datrix_codegen_python, datrix_codegen_typescript) for
+platform-identity CONDITIONALS -- the successor forms of the removed
+DeploymentProvider branches (`== ProviderId(...)`, `.value == "..."`,
+`match`/`case` over a provider) -- and fails if any file's count increases
+past its frozen baseline (scripts/config/provider-conditional-baseline.toml).
+These sites are DI-5-deferred (task 08-11); the ratchet freezes them so they
+cannot grow, and drives to zero as phase-09 (DI-5) migrates each cluster onto
+a decision engine. --update-baseline (combined with --check-provider-conditionals)
+recomputes and overwrites that baseline.
+
 Exit codes:
     0: Clean (no violations) or --warn mode
-    1: Violations found in fail mode (import-boundary and/or I1 ratchet)
-    2: Usage error, configuration error, or (with --check-target-literals)
-       a missing target-literal baseline file
+    1: Violations found in fail mode (import-boundary and/or I1/I6 ratchets)
+    2: Usage error, configuration error, or (with --check-target-literals or
+       --check-provider-conditionals) a missing baseline file
 """
 
 import argparse
@@ -241,6 +253,159 @@ TARGET_LITERAL_ENUM_MEMBERS: dict[str, frozenset[str]] = {
     "ProjectLanguage": frozenset({"PYTHON", "TYPESCRIPT"}),
     "DeploymentProvider": frozenset({"LOCAL", "EXISTING", "AWS", "AZURE"}),
 }
+
+
+# ---------------------------------------------------------------------------
+# I6 Successor Ratchet (design 023, invariant I6, DI-4/DI-5)
+#
+# The literal `DeploymentProvider.` grep is already empty (DI-3 deleted the
+# enum). I6's successor form is a closed-world platform-identity CONDITIONAL
+# built on the open `ProviderId` value object (datrix_common.plugin.identity)
+# instead of the retired enum. These conditionals are legitimate TODAY (DI-4
+# scope was reduced to the 3 Python + 1 TypeScript sites in tasks 08-06/08-07;
+# every other site is deliberately deferred to phase-09/DI-5 -- see task
+# 08-11) but must not be allowed to grow while they wait for a decision-engine
+# replacement. Only the two LANGUAGE (leaf/owner) packages are policed here --
+# unlike I1, this is NOT a shared-layer scan; leaf packages are the legitimate
+# owners of target identity (D1), so the defect is the CONDITIONAL shape
+# itself (branch-per-provider, DI-5's job to collapse), not package location.
+PROVIDER_CONDITIONAL_LANGUAGE_PACKAGES: tuple[str, ...] = (
+    "datrix_codegen_python",
+    "datrix_codegen_typescript",
+)
+
+# Root name(s) recognized as "the deployment/infrastructure provider" for the
+# `.value`/`str(...)` detection forms below. Restricting to these roots (a
+# bare `deployment` variable, or `self._deployment` / `self.deployment`) is
+# what separates a genuine deployment-provider comparison from the many OTHER
+# provider axes in the same files (StorageProvider, EmailProvider, SmsProvider,
+# SearchProvider, PaymentProvider, metrics/tracing provider) which all reach
+# their own `.provider` off a *different* config object (e.g. `cfg.provider`,
+# `email_config.provider`, `metrics_config.provider`) and must NOT ratchet here.
+_DEPLOYMENT_ROOT_ATTRS: frozenset[str] = frozenset({"deployment", "_deployment"})
+
+
+def _is_providerid_call(node: ast.AST) -> bool:
+    """True if *node* is a call to the ``ProviderId`` constructor (bare or
+    module-qualified), e.g. ``ProviderId("azure")`` or ``identity.ProviderId(x)``.
+    """
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    if isinstance(func, ast.Name):
+        return func.id == "ProviderId"
+    if isinstance(func, ast.Attribute):
+        return func.attr == "ProviderId"
+    return False
+
+
+def _is_deployment_root(node: ast.AST) -> bool:
+    """True if *node* is the deployment-config object itself: a bare
+    ``deployment`` name, or an attribute access ending in ``deployment``/
+    ``_deployment`` (e.g. ``self._deployment``, ``self.deployment``).
+    """
+    if isinstance(node, ast.Name):
+        return node.id in _DEPLOYMENT_ROOT_ATTRS
+    if isinstance(node, ast.Attribute):
+        return node.attr in _DEPLOYMENT_ROOT_ATTRS
+    return False
+
+
+def _is_deployment_provider_attr(node: ast.AST) -> bool:
+    """True if *node* is ``<deployment-root>.provider`` (the raw provider
+    field read off the deployment config, before any ``.value``/``str()``).
+    """
+    return (
+        isinstance(node, ast.Attribute)
+        and node.attr == "provider"
+        and _is_deployment_root(node.value)
+    )
+
+
+def _is_deployment_provider_value_expr(node: ast.AST) -> bool:
+    """True if *node* stringifies the DEPLOYMENT provider specifically --
+    ``<deployment-root>.provider.value`` or ``str(<deployment-root>.provider)``
+    (including the redundant ``str(<deployment-root>.provider.value)`` form).
+    Deliberately narrower than "any `.provider.value`" so the many other
+    provider axes (storage/email/sms/search/payment/metrics/tracing) --
+    which share the `.provider`/`.value` shape but hang off a *different*
+    config object -- never match (see ``_DEPLOYMENT_ROOT_ATTRS``).
+    """
+    if isinstance(node, ast.Attribute) and node.attr == "value":
+        return _is_deployment_provider_attr(node.value)
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "str"
+        and len(node.args) == 1
+    ):
+        arg = node.args[0]
+        return _is_deployment_provider_attr(arg) or _is_deployment_provider_value_expr(arg)
+    return False
+
+
+def _provider_conditional_compare_kind(
+    node: ast.Compare,
+) -> Literal["providerid_compare", "deployment_provider_value_compare"] | None:
+    """Classify a single ``ast.Compare`` node as a provider-conditional hit,
+    or ``None`` if it isn't one.
+
+    Only simple binary comparisons (exactly one operator) are considered --
+    chained comparisons (``a == b == c``) are not a shape this ratchet's
+    known sites use. Two forms match, checked against BOTH sides of the
+    comparison:
+
+      - ``providerid_compare``: either side is a call to ``ProviderId(...)``
+        (covers ``== ProviderId(...)``, ``ProviderId(...) ==``, ``!=
+        ProviderId(...)``, and a ``match``/``case`` guard's ``p ==
+        ProviderId("aws")`` -- ``ProviderId`` names exactly ONE axis
+        (deployment/infrastructure provider identity), so no other-axis
+        exclusion is needed for this form).
+      - ``deployment_provider_value_compare``: either side stringifies the
+        deployment provider specifically (``_is_deployment_provider_value_expr``),
+        covering ``deployment.provider.value == "..."`` and
+        ``str(self._deployment.provider) != "aws"``.
+
+    Only Eq/NotEq operators count (``==``/``!=``) -- an ``in``/``not in``
+    membership test (e.g. a dict-dispatch-table lookup) is a different
+    successor shape not yet in this ratchet's scope.
+    """
+    if len(node.ops) != 1 or not isinstance(node.ops[0], (ast.Eq, ast.NotEq)):
+        return None
+
+    sides = [node.left, node.comparators[0]]
+
+    if any(_is_providerid_call(side) for side in sides):
+        return "providerid_compare"
+    if any(_is_deployment_provider_value_expr(side) for side in sides):
+        return "deployment_provider_value_compare"
+    return None
+
+
+def _match_subject_is_provider(subject: ast.AST) -> bool:
+    """True if a ``match`` statement's subject expression names a provider
+    identity (e.g. ``match provider_id:``) -- a bare ``Name`` or the ``attr``
+    of an ``Attribute`` chain whose final segment contains "provider"
+    (case-insensitive).
+    """
+    if isinstance(subject, ast.Name):
+        return "provider" in subject.id.lower()
+    if isinstance(subject, ast.Attribute):
+        return "provider" in subject.attr.lower()
+    return False
+
+
+@dataclass(frozen=True)
+class ProviderConditionalHit:
+    """One occurrence of a platform-identity conditional in a language-package file."""
+
+    file_path: Path
+    line_number: int
+    kind: Literal[
+        "providerid_compare",
+        "deployment_provider_value_compare",
+        "match_case_provider_subject",
+    ]
 
 
 @dataclass(frozen=True)
@@ -729,6 +894,230 @@ def check_target_literal_ratchet(
     return messages
 
 
+def _walk_for_provider_conditionals(
+    node: ast.AST,
+    file_path: Path,
+    hits: list[ProviderConditionalHit],
+) -> None:
+    """Recursively walk *node* collecting ``ProviderConditionalHit``s.
+
+    A custom walker (rather than ``ast.walk``) is required for exactly one
+    reason: a ``match provider_id:`` statement is counted ONCE, as the
+    ``match_case_provider_subject`` hit at the ``match`` line -- NOT once
+    plus once again per ``case p if p == ProviderId(...):`` guard. Each
+    ``case`` guard is itself an ``ast.Compare`` that would otherwise ALSO
+    satisfy ``providerid_compare``, double-counting the same logical site.
+    So when a qualifying ``ast.Match`` is found, its ``case`` guards are
+    skipped while patterns and bodies are still walked normally (a guard
+    is only ever the provider-identity check the match already counted;
+    unrelated real conditionals inside a case body are not exempted).
+    """
+    if isinstance(node, ast.Match):
+        if _match_subject_is_provider(node.subject):
+            hits.append(
+                ProviderConditionalHit(
+                    file_path=file_path,
+                    line_number=node.lineno,
+                    kind="match_case_provider_subject",
+                )
+            )
+        for case in node.cases:
+            # Deliberately skip case.guard -- see docstring above.
+            for stmt in case.body:
+                _walk_for_provider_conditionals(stmt, file_path, hits)
+        return
+
+    if isinstance(node, ast.Compare):
+        kind = _provider_conditional_compare_kind(node)
+        if kind is not None:
+            hits.append(
+                ProviderConditionalHit(file_path=file_path, line_number=node.lineno, kind=kind)
+            )
+
+    for child in ast.iter_child_nodes(node):
+        _walk_for_provider_conditionals(child, file_path, hits)
+
+
+def scan_file_for_provider_conditionals(file_path: Path) -> list[ProviderConditionalHit]:
+    """AST-walk *file_path* for platform-identity conditionals (I6 successor
+    ratchet, design 023, DI-4/DI-5).
+
+    See ``_provider_conditional_compare_kind`` and ``_match_subject_is_provider``
+    for the exact matched/excluded shapes.
+
+    Args:
+        file_path: Path to Python source file.
+
+    Returns:
+        List of hits found in the file, in AST-walk order.
+
+    Raises:
+        SyntaxError: propagated from ast.parse (caller decides how to report).
+        OSError: propagated if the file cannot be read.
+    """
+    source_code = file_path.read_text(encoding="utf-8")
+    tree = ast.parse(source_code, filename=str(file_path))
+
+    hits: list[ProviderConditionalHit] = []
+    _walk_for_provider_conditionals(tree, file_path, hits)
+    return hits
+
+
+def scan_provider_conditionals(
+    packages: dict[str, PackageInfo],
+    monorepo_root: Path,
+) -> dict[Path, list[ProviderConditionalHit]]:
+    """Scan every ``.py`` file under each of ``PROVIDER_CONDITIONAL_LANGUAGE_PACKAGES``'
+    ``src/`` tree (via *packages*, as already discovered by ``discover_packages``)
+    for platform-identity conditionals.
+
+    Args:
+        packages: Package name -> PackageInfo, as returned by discover_packages().
+        monorepo_root: Monorepo root for relative path reporting.
+
+    Returns:
+        Mapping of file path -> hits in that file (files with zero hits omitted).
+    """
+    results: dict[Path, list[ProviderConditionalHit]] = {}
+
+    for package_name in PROVIDER_CONDITIONAL_LANGUAGE_PACKAGES:
+        package_info = packages.get(package_name)
+        if package_info is None:
+            continue
+
+        for py_file in package_info.src_dir.rglob("*.py"):
+            try:
+                hits = scan_file_for_provider_conditionals(py_file)
+            except SyntaxError as e:
+                rel_path = py_file.relative_to(monorepo_root)
+                print(
+                    f"Warning: Failed to parse {rel_path}:{e.lineno} - {e.msg}",
+                    file=sys.stderr,
+                )
+                continue
+            except OSError as e:
+                rel_path = py_file.relative_to(monorepo_root)
+                print(f"Warning: Failed to read {rel_path} - {e}", file=sys.stderr)
+                continue
+
+            if hits:
+                results[py_file] = hits
+
+    return results
+
+
+def load_provider_conditional_baseline(baseline_path: Path) -> dict[str, int]:
+    """Load ``{relative_file: frozen_count}`` from the provider-conditional
+    baseline TOML.
+
+    Args:
+        baseline_path: Path to the provider-conditional baseline TOML file.
+
+    Returns:
+        An empty dict if the file does not exist yet (first-ever run, before
+        this task's `--update-baseline` freezes it).
+    """
+    if not baseline_path.exists():
+        return {}
+
+    try:
+        import tomllib  # Python 3.11+
+    except ImportError:
+        try:
+            import tomli as tomllib  # type: ignore[no-redef]
+        except ImportError:
+            print(
+                "Warning: TOML library not available. Install tomli for baseline support.",
+                file=sys.stderr,
+            )
+            return {}
+
+    with baseline_path.open("rb") as f:
+        data = tomllib.load(f)
+
+    counts: dict[str, int] = {}
+    for entry in data.get("baseline", []):
+        if not isinstance(entry, dict):
+            continue
+
+        file_rel = entry.get("file", "")
+        count = entry.get("count")
+
+        if file_rel and isinstance(count, int):
+            counts[file_rel] = count
+
+    return counts
+
+
+def write_provider_conditional_baseline(baseline_path: Path, counts: dict[str, int]) -> None:
+    """Write ``counts`` to the provider-conditional baseline TOML as
+    ``[[baseline]] file=... count=...`` entries, sorted by file for
+    deterministic diffs.
+
+    Args:
+        baseline_path: Path to the provider-conditional baseline TOML file to write.
+        counts: Mapping of relative file path (forward slashes) -> hit count.
+    """
+    header = (
+        "# I6 Successor Ratchet Baseline (design 023, invariant I6, DI-4/DI-5)\n"
+        "#\n"
+        "# Frozen per-file counts of platform-identity CONDITIONALS in the language\n"
+        "# packages (datrix_codegen_python, datrix_codegen_typescript) -- the successor\n"
+        "# form of the removed DeploymentProvider branches (the literal\n"
+        '# `grep DeploymentProvider.` is already empty; DI-3 deleted the enum). These\n'
+        "# sites are DI-5-deferred (task 08-11): legitimate today, but frozen so they\n"
+        "# cannot grow while phase-09 migrates each cluster onto a decision engine.\n"
+        "# Any INCREASE in a file's count fails datrix/scripts/dev/check-import-boundaries.py\n"
+        "# --check-provider-conditionals. Decreases are always allowed and should be\n"
+        "# captured by re-running with --update-baseline once a DI-5 task collapses a\n"
+        "# cluster -- reaching 0 everywhere is the DI-5 end-state.\n"
+        "#\n"
+        "# Format:\n"
+        "#   [[baseline]]\n"
+        '#   file = "path/relative/to/monorepo-root, forward slashes"\n'
+        "#   count = <int>\n"
+    )
+
+    lines = [header]
+    for file_rel in sorted(counts.keys()):
+        lines.append("\n[[baseline]]\n")
+        lines.append(f'file = "{file_rel}"\n')
+        lines.append(f"count = {counts[file_rel]}\n")
+
+    baseline_path.parent.mkdir(parents=True, exist_ok=True)
+    baseline_path.write_text("".join(lines), encoding="utf-8")
+
+
+def check_provider_conditional_ratchet(
+    current_counts: dict[str, int],
+    baseline: dict[str, int],
+) -> list[str]:
+    """Compare *current_counts* against *baseline*; return one message per
+    file whose count INCREASED (baseline missing == baseline 0). Never flags
+    a decrease -- the ratchet only tightens (and reaching 0 is the DI-5 goal).
+
+    Args:
+        current_counts: Relative file path -> current hit count.
+        baseline: Relative file path -> frozen baseline count.
+
+    Returns:
+        List of human-readable ratchet-failure messages, one per regressed
+        file, sorted by file path.
+    """
+    messages: list[str] = []
+
+    for file_rel in sorted(current_counts.keys()):
+        current = current_counts[file_rel]
+        frozen = baseline.get(file_rel, 0)
+        if current > frozen:
+            messages.append(
+                f"{file_rel}: provider-conditional count increased from baseline "
+                f"{frozen} to {current}"
+            )
+
+    return messages
+
+
 def load_allowlist(allowlist_path: Path) -> list[AllowlistEntry]:
     """Load allowlist entries from TOML file.
 
@@ -890,8 +1279,20 @@ def main() -> int:
         "--update-baseline",
         action="store_true",
         help=(
-            "Recompute current per-file target-literal counts and overwrite "
-            "the frozen baseline (target-literal-baseline.toml), then exit 0"
+            "Recompute current per-file counts and overwrite the frozen baseline(s), "
+            "then exit 0. Updates target-literal-baseline.toml unless "
+            "--check-provider-conditionals is passed (without --check-target-literals), "
+            "in which case it updates provider-conditional-baseline.toml instead. "
+            "Pass both --check-target-literals and --check-provider-conditionals to "
+            "update both baselines in one run."
+        ),
+    )
+    parser.add_argument(
+        "--check-provider-conditionals",
+        action="store_true",
+        help=(
+            "Run the I6 successor ratchet check (design 023, invariant I6, DI-4/DI-5) "
+            "in addition to the import-boundary check"
         ),
     )
 
@@ -948,19 +1349,48 @@ def main() -> int:
     target_literal_baseline_path = (
         monorepo_root / "datrix" / "scripts" / "config" / "target-literal-baseline.toml"
     )
+    # I6 successor ratchet (design 023, invariant I6, DI-4/DI-5) — opt-in via
+    # --check-provider-conditionals.
+    provider_conditional_baseline_path = (
+        monorepo_root / "datrix" / "scripts" / "config" / "provider-conditional-baseline.toml"
+    )
 
     if args.update_baseline:
-        hits_by_file = scan_target_literals(packages, monorepo_root)
-        current_counts = {
-            str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
-            for file_path, hits in hits_by_file.items()
-        }
-        write_target_literal_baseline(target_literal_baseline_path, current_counts)
-        print(
-            f"Updated I1 target-literal baseline: {len(current_counts)} file(s) "
-            f"recorded at {target_literal_baseline_path.relative_to(monorepo_root)}"
-        )
-        return 0
+        updated_any = False
+
+        # Provider-conditional baseline updates when explicitly requested via
+        # --check-provider-conditionals. Target-literal baseline updates unless
+        # --check-provider-conditionals was requested WITHOUT --check-target-literals
+        # (preserves the pre-existing --update-baseline-alone => target-literal
+        # behavior for existing callers).
+        if args.check_provider_conditionals:
+            hits_by_file = scan_provider_conditionals(packages, monorepo_root)
+            current_counts = {
+                str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
+                for file_path, hits in hits_by_file.items()
+            }
+            write_provider_conditional_baseline(provider_conditional_baseline_path, current_counts)
+            print(
+                f"Updated I6 provider-conditional baseline: {len(current_counts)} file(s) "
+                f"recorded at {provider_conditional_baseline_path.relative_to(monorepo_root)}"
+            )
+            updated_any = True
+
+        if args.check_target_literals or not args.check_provider_conditionals:
+            hits_by_file = scan_target_literals(packages, monorepo_root)
+            current_counts = {
+                str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
+                for file_path, hits in hits_by_file.items()
+            }
+            write_target_literal_baseline(target_literal_baseline_path, current_counts)
+            print(
+                f"Updated I1 target-literal baseline: {len(current_counts)} file(s) "
+                f"recorded at {target_literal_baseline_path.relative_to(monorepo_root)}"
+            )
+            updated_any = True
+
+        if updated_any:
+            return 0
 
     target_literal_messages: list[str] = []
     if args.check_target_literals:
@@ -982,8 +1412,28 @@ def main() -> int:
         }
         target_literal_messages = check_target_literal_ratchet(current_counts, baseline)
 
+    provider_conditional_messages: list[str] = []
+    if args.check_provider_conditionals:
+        if not provider_conditional_baseline_path.exists():
+            print(
+                f"Error: I6 provider-conditional baseline not found at "
+                f"{provider_conditional_baseline_path}. Run "
+                f"'check-import-boundaries.py --check-provider-conditionals --update-baseline' "
+                f"first to freeze the initial baseline.",
+                file=sys.stderr,
+            )
+            return 2
+
+        baseline = load_provider_conditional_baseline(provider_conditional_baseline_path)
+        hits_by_file = scan_provider_conditionals(packages, monorepo_root)
+        current_counts = {
+            str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
+            for file_path, hits in hits_by_file.items()
+        }
+        provider_conditional_messages = check_provider_conditional_ratchet(current_counts, baseline)
+
     # Report violations / ratchet failures
-    if non_allowlisted_violations or target_literal_messages:
+    if non_allowlisted_violations or target_literal_messages or provider_conditional_messages:
         mode = "Warning" if args.warn else "Error"
 
         if non_allowlisted_violations:
@@ -1001,6 +1451,15 @@ def main() -> int:
                 print(message)
             print()
 
+        if provider_conditional_messages:
+            print(
+                f"{mode}: I6 provider-conditional ratchet failed for "
+                f"{len(provider_conditional_messages)} file(s):\n"
+            )
+            for message in provider_conditional_messages:
+                print(message)
+            print()
+
         if args.warn:
             return 0
         return 1
@@ -1010,6 +1469,8 @@ def main() -> int:
         print("No import boundary violations found.", file=sys.stderr)
         if args.check_target_literals:
             print("No I1 target-literal ratchet regressions found.", file=sys.stderr)
+        if args.check_provider_conditionals:
+            print("No I6 provider-conditional ratchet regressions found.", file=sys.stderr)
 
     return 0
 
