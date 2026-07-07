@@ -1,6 +1,6 @@
 ---
-model: fable
-effort: high
+model: opus
+effort: xhigh
 ---
 
 # Operationalize Design Document
@@ -9,10 +9,10 @@ End-to-end pipeline that takes a design document and produces: resolved decision
 
 ## Your Role — Orchestrate, Delegate, Decide
 
-You run on Fable at high effort. That capability is for **judgment, not typing**. You are the orchestrator and decision-maker across the five phases: you own understanding the design, identifying and resolving decision points, deciding the task decomposition and its dependency/enforcement ordering, and every gate in this skill. **Execution** — reading the design doc and architecture docs, searching the codebase for evidence, inventorying affected packages/fixtures, transferring content into official docs, and writing the individual task files — goes to subagents on cheaper models.
+You run on Opus 4.8 at extra-high effort. That capability is for **judgment, not typing**. You are the orchestrator and decision-maker across the five phases: you own understanding the design, identifying and resolving decision points, deciding the task decomposition and its dependency/enforcement ordering, and every gate in this skill. **Execution** — reading the design doc and architecture docs, searching the codebase for evidence, inventorying affected packages/fixtures, transferring content into official docs, and writing the individual task files — goes to subagents on cheaper models.
 
 Two resources are scarce and both are yours to protect:
-- **Fable tokens** — work a cheaper model can do well (recon reads, per-question codebase searches, writing N task files to a fixed template) must not be done inline.
+- **Opus tokens** — work a cheaper model can do well (recon reads, per-question codebase searches, writing N task files to a fixed template) must not be done inline.
 - **Your context window** — it must last all five phases. Delegating recon and file-writing keeps your context for the decisions only you can make: the ambiguity hard-gate, the confidence gate, the decomposition, the enforcement ordering, the invariant-surface coverage.
 
 Delegation is not abdication. Every gate in this skill is still **yours** and is decided on evidence you verify — a subagent's recon or self-report is input to your judgment, never a substitute for it. The ambiguity hard-gate, the confidence gate, and every Phase-4 completeness check are decided by you, on the returned evidence, exactly as written. No gate is relaxed because a subagent did the legwork.
@@ -24,7 +24,7 @@ Delegation is not abdication. Every gate in this skill is still **yours** and is
 | `haiku` | Mechanical, high-volume, low-ambiguity | Reading the design doc / architecture docs and returning a structured digest; globbing for fixtures/examples/configs on the old path; Phase-5 content-transfer verification |
 | `sonnet` | Well-scoped implementation to a clear spec | Per-question codebase research with a specific answer to find; Phase-3 doc transfer to a target you named; **Phase-4 writing of individual task files to the template and decomposition you specified** |
 | `opus` | Recon/analysis needing strong reasoning | Ambiguous scope investigation, tracing a subtle dual-implementation risk, cross-cutting impact analysis you want a second strong read on |
-| Fable (you) | Judgment — never delegated | Decision-point identification, every decision + confidence gate, the ambiguity hard-gate, the task **decomposition** (numbering, dependencies, enforcement ordering, invariant-surface coverage), and every phase completion gate |
+| Opus @ xhigh (you) | Judgment — never delegated | Decision-point identification, every decision + confidence gate, the ambiguity hard-gate, the task **decomposition** (numbering, dependencies, enforcement ordering, invariant-surface coverage), and every phase completion gate |
 
 **Dispatch protocol.** Subagents see none of this conversation — every dispatch prompt is self-contained: what to do and why, exact paths (read vs. may-write, and what is out of bounds), the CLAUDE.md constraints that bite (no workarounds, no git reverts, mypy --strict, no mocks, domain isolation, temp files only under `D:\datrix\.tmp\`/`.scripts\`/`.test-output\`, and for Phase-4 the **Task Location Allowlist**), and the exact return format (facts, not prose). Persist substantial subagent outputs under `d:/datrix/.agent_output/<date>-operationalize-<design-slug>/`. Partition write-heavy dispatches so no two agents write the same file; recon/read agents can fan out wider.
 
@@ -302,7 +302,7 @@ If you deviated: STOP and explain the deviation to the user.
 
 **The decomposition is yours; the file-writing is delegated.** This is the phase where the fan-out pays off most — a design can produce dozens of task files, and writing them inline would exhaust your context. Split it cleanly:
 
-- **You (Fable) own the decomposition — never delegated.** The full task list, the global numbering, the `Depends on` graph, the **enforcement-before-what-it-governs** ordering (a guard/validator/rejection task precedes and gates every task that relies on it or migrates content it governs), the **invariant-surface coverage** (a task or QG criterion for EVERY surface in a design invariant's set — none silently dropped), which repos get tasks, and where each quality gate sits. Produce a complete task manifest first: for every task — its id, slug, target repo (from the Allowlist), category, `Depends on`, its `**Design reference:**` + `**Design acceptance property:**` (the specific D#/G#/numbered invariant + provable negative+positive check), and the inline design content it must carry. This manifest IS the design conformance of the phase; it cannot be delegated.
+- **You (Opus) own the decomposition — never delegated.** The full task list, the global numbering, the `Depends on` graph, the **enforcement-before-what-it-governs** ordering (a guard/validator/rejection task precedes and gates every task that relies on it or migrates content it governs), the **invariant-surface coverage** (a task or QG criterion for EVERY surface in a design invariant's set — none silently dropped), which repos get tasks, and where each quality gate sits. Produce a complete task manifest first: for every task — its id, slug, target repo (from the Allowlist), category, `Depends on`, its `**Design reference:**` + `**Design acceptance property:**` (the specific D#/G#/numbered invariant + provable negative+positive check), and the inline design content it must carry. This manifest IS the design conformance of the phase; it cannot be delegated.
 - **Subagents write the files from your manifest.** Once the manifest is complete, dispatch **sonnet** agents to write the actual `.md` task files to the `/generate-tasks` template — partitioned by repo/wave so no two agents write the same file, fanned out in parallel. Each agent gets: the exact task-file path (which you have already validated against the Allowlist), the template, and its tasks' manifest entries (including the inline design content and Design reference/acceptance-property lines to embed). Agents transcribe your manifest into the template; they do NOT decide scope, numbering, or dependencies.
 - **You verify the written files against your manifest and run the Phase-4 completion gate yourself.** Every checkbox in the completion gate is checked by you on the actual files — the allowlist check, the design-reference check, the enforcement-ordering check, the invariant-surface check, the dual-path check, the migration-step coverage count. A subagent writing the files does not move any of these checks off you.
 
@@ -578,5 +578,5 @@ Design: preserved at {path}
 - **NO leaving dual implementations untested** — if the design introduces a new path alongside an old one, old tests will pass on the old path regardless of whether the new path works. Migration tasks must convert fixtures, examples, and configs to the new path so the new implementation is actually exercised.
 - **NO treating migration as "future work"** — unless the design explicitly defers a migration step to a later phase, it belongs in THIS phase. The design document is the scope boundary.
 - **NO delegating a decision or a gate** — subagents gather evidence and write files to your manifest; every decision (each open question, each confidence rating, the task decomposition, the dependency/enforcement ordering) and every phase completion gate is decided by YOU on evidence you verify. A subagent's recon or self-report is input to your judgment, never a substitute for it, and never relaxes a gate.
-- **NO inline execution that a cheaper tier can do** — do not read whole docs, glob fixtures, run per-question codebase searches, transfer doc content, or write task files inline on Fable. Dispatch them; spend Fable tokens and context on judgment only.
+- **NO inline execution that a cheaper tier can do** — do not read whole docs, glob fixtures, run per-question codebase searches, transfer doc content, or write task files inline on Opus. Dispatch them; spend Opus tokens and context on judgment only.
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

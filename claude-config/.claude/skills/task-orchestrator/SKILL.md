@@ -1,23 +1,23 @@
 ﻿---
 description: Fully automated multi-wave task orchestrator with dependency analysis and test gating
-model: fable
-effort: high
+model: opus
+effort: xhigh
 ---
 
 # Task Orchestrator
 
 Fully automated multi-wave task orchestrator. Accepts a set of tasks (individual files, multiple files, or an entire phase directory), analyzes dependencies, topologically sorts tasks into execution waves, and executes each wave with parallel agents. Runs test suites automatically between waves. No human intervention except on task failure after exhausting fix attempts.
 
-## Your Role — Fable Orchestrator: Judgment, Not Typing
+## Your Role — Opus Orchestrator: Judgment, Not Typing
 
-You run on Fable at high effort because this skill performs the **highest-stakes judgment in the repo** — the design-conformance gate, the BLOCKED-is-terminal calls, the wave/enforcement ordering, and the completion decisions that phase-01 got wrong. That capability is for deciding, not for doing. You are the orchestrator and decision-maker; **execution goes to subagents on cheaper models.**
+You run on Opus 4.8 at extra-high effort because this skill performs the **highest-stakes judgment in the repo** — the design-conformance gate, the BLOCKED-is-terminal calls, the wave/enforcement ordering, and the completion decisions that phase-01 got wrong. That capability is for deciding, not for doing. You are the orchestrator and decision-maker; **execution goes to subagents on cheaper models.**
 
-- **You (Fable) own — never delegated:** the dependency DAG and wave plan, the design-conformance contract (Step 1d) and gate (3g, 3i Step A2), BLOCKED/completion decisions, failure attribution and fix-scope decisions, escalation judgment, integration across tasks, and the pass/fail verdict on every gate.
-- **You delegate DOWN — always:** implementing tasks (already delegated, 3b), building the shared-context digest, running test suites and conformance checks, **and implementing fixes in the fix loops (3e / 3i Step A) — do NOT edit code inline on Fable.** You decide the fix (root cause, scope, exact change); a subagent types it.
+- **You (Opus) own — never delegated:** the dependency DAG and wave plan, the design-conformance contract (Step 1d) and gate (3g, 3i Step A2), BLOCKED/completion decisions, failure attribution and fix-scope decisions, escalation judgment, integration across tasks, and the pass/fail verdict on every gate.
+- **You delegate DOWN — always:** implementing tasks (already delegated, 3b), building the shared-context digest, running test suites and conformance checks, **and implementing fixes in the fix loops (3e / 3i Step A) — do NOT edit code inline on Opus.** You decide the fix (root cause, scope, exact change); a subagent types it.
 
-Two resources are scarce and both are yours to protect: **Fable tokens** (never spend them on typing a fix a Sonnet agent can apply from your spec) and **your context window** (it must survive a whole multi-phase run — delegate the token-heavy reading/editing so your context holds the conformance state, not file contents).
+Two resources are scarce and both are yours to protect: **Opus tokens** (never spend them on typing a fix a Sonnet agent can apply from your spec) and **your context window** (it must survive a whole multi-phase run — delegate the token-heavy reading/editing so your context holds the conformance state, not file contents).
 
-Because you ARE Fable, the old "escalate up to a Fable agent" step collapses: you do the architectural analysis **in-context** (you already hold the failure context), then dispatch a subagent to implement your decision. See the reframed **Decision Escalation Protocol** below. Delegation is never abdication — you verify every returned result with a command you run (or delegate the run and read the result), and a subagent's self-report never substitutes for the design-acceptance evidence you paste into the gate.
+Because you ARE Opus at extra-high effort, the old "escalate up to a more-capable agent" step collapses: you do the architectural analysis **in-context** (you already hold the failure context), then dispatch a subagent to implement your decision. See the reframed **Decision Escalation Protocol** below. Delegation is never abdication — you verify every returned result with a command you run (or delegate the run and read the result), and a subagent's self-report never substitutes for the design-acceptance evidence you paste into the gate.
 
 **The orchestrator's mandate is conformance, not throughput.** It does NOT blindly run tasks and report "all agents returned". It is responsible for ensuring each task and each phase actually satisfies the **design document** the tasks implement. Two consequences bind every wave and phase boundary:
 - **A green test suite is necessary but NOT sufficient.** "It generates", "0 warnings", and "suite passed" never substitute for proving the design invariant. Phase-01 shipped a half-enforced invariant under a fully-green suite precisely because the gate checked "does it run" instead of "does the design hold". The orchestrator runs an explicit **design-conformance gate** (3d-conformance, 3i Step B) in addition to the test gate.
@@ -28,7 +28,7 @@ Because you ARE Fable, the old "escalate up to a Fable agent" step collapses: yo
 - Automated test execution (runs full suite via Bash, does not ask user)
 - Automatic wave advancement (no human intervention between waves)
 - Handles tasks with cross-dependencies (separates into waves instead of blocking)
-- **Sequential multi-phase execution** — given several phases (e.g. `72, 73, 74`), finishes each phase fully before starting the next. At every phase boundary a gate (Step 3i) runs the **full test suite for every package the phase touched** and fixes **all** failures — including pre-existing ones unrelated to the phase's changes — with Fable-led recovery, before the next phase starts
+- **Sequential multi-phase execution** — given several phases (e.g. `72, 73, 74`), finishes each phase fully before starting the next. At every phase boundary a gate (Step 3i) runs the **full test suite for every package the phase touched** and fixes **all** failures — including pre-existing ones unrelated to the phase's changes — with Opus-led recovery, before the next phase starts
 
 ## When to Use
 
@@ -247,7 +247,7 @@ For each phase (in numeric order):
         local_wave += 1
 ```
 
-4. **Phase boundaries are wave boundaries** — even if a task in phase 35 has no dependencies, it cannot start until ALL phase 34 waves are complete. Each phase boundary is also a **Phase Boundary Gate** (Step 3i): the earlier phase must pass an explicit completion check — every package it touched must pass its **full** test suite with all failures fixed, including pre-existing ones unrelated to the phase, with Fable-led recovery on failure — before the next phase's first wave is spawned.
+4. **Phase boundaries are wave boundaries** — even if a task in phase 35 has no dependencies, it cannot start until ALL phase 34 waves are complete. Each phase boundary is also a **Phase Boundary Gate** (Step 3i): the earlier phase must pass an explicit completion check — every package it touched must pass its **full** test suite with all failures fixed, including pre-existing ones unrelated to the phase, with Opus-led recovery on failure — before the next phase's first wave is spawned.
 
 **Example with 2 phases:**
 ```
@@ -305,7 +305,7 @@ Execute each wave sequentially. Within each wave, tasks run concurrently against
 
 ### Shared Context Pre-Read (once per run, before the wave loop)
 
-Agents otherwise each re-read the same architecture docs on startup, burning duplicate tokens and latency across a wide wave. Build a compact **shared context digest** (≤ ~400 lines) **once** at the start of Step 3, to inject verbatim into every implementation-agent prompt. **Delegate the build** — dispatch a single **haiku** agent to read the sources below and return the digest; this is mechanical reading, not judgment, so it does not belong on Fable's context. You keep the returned digest as `shared_context` and pass the package-relevant slice to each implementation agent. Sources:
+Agents otherwise each re-read the same architecture docs on startup, burning duplicate tokens and latency across a wide wave. Build a compact **shared context digest** (≤ ~400 lines) **once** at the start of Step 3, to inject verbatim into every implementation-agent prompt. **Delegate the build** — dispatch a single **haiku** agent to read the sources below and return the digest; this is mechanical reading, not judgment, so it does not belong on Opus's context. You keep the returned digest as `shared_context` and pass the package-relevant slice to each implementation agent. Sources:
 
 - [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md)
 - [design-principles-cheat-sheet.md](../../../../../datrix/docs/architecture/design-principles-cheat-sheet.md)
@@ -361,7 +361,7 @@ A re-spawn (NEEDS_CONTEXT answered, or escalation recommendation ready) goes bac
 **Model tiering (per task):**
 - `"haiku"` — **documentation-only** tasks, **and** trivial mechanical code tasks where the change is unambiguous and self-contained: pure renames, moving/extracting a named constant, a single-import or single-symbol edit, mechanical signature propagation. Only when you are confident the task carries no design judgment.
 - `"claude-sonnet-4-6"` — all substantive code tasks (default for anything touching logic, new files, multi-file edits, or anything you are not certain is trivial). When in doubt, use Sonnet, not Haiku.
-- `"fable"` — **never** spawned as a subagent. Fable is YOU, the orchestrator — the judgment (attribution, fix-scope, conformance, escalation analysis) happens in your context, and only cheaper subagents are ever spawned to implement.
+- `"opus"` — the top **implementer** tier, spawned only for **hard/cross-cutting execution** (a subtle root cause, an implementation needing strong reasoning). Orchestration judgment (attribution, fix-scope, conformance, escalation analysis) is **never** delegated — it stays in YOUR context; you are the Opus orchestrator at extra-high effort, and only implementers are ever spawned to type.
 
 **Fallback when background agents are genuinely unavailable** (the harness cannot spawn background tasks at all, or a deterministic run is required): fall back to foreground batches, but size them to **balance**, not rigid 5s — e.g. dispatch 6 tasks as 3+3, not 5+1, so a lone trailer never wastes a whole barrier. Aim for `ceil(N / ceil(N / CAP))` per batch. The polled rolling pool is preferred; this is only the degraded path. Note: a flaky or absent **completion-notification** channel is NOT a reason to fall back — the polling protocol does not depend on notifications, so the background rolling pool still works.
 
@@ -444,7 +444,7 @@ Process **both** red outcomes from `counts`: assertion **failures** (`counts.fai
 - A **failure** has a per-test node ID (`tests/...::test_x`) — fix the code under test.
 - An **error** is reported at module/collection level with no per-test node ID (e.g. an `ImportError`, a fixture error, a syntax error that breaks collection). Read `full.log` for the ERRORS section, attribute by the **erroring module/file path**, and fix the import/fixture/syntax root cause. An error often hides many tests that never ran — resolving it can change the pass count substantially, so always re-run after fixing one.
 
-**Delegation split for the fix loop.** Attribution (step 1) and the fix-scope decision are YOUR judgment — do them inline. Reading the failing test/code and applying the edit (steps 2–3) are delegated to a **fix subagent** — do NOT edit code inline on Fable. You verify (step 4) by running the targeted test yourself, or by delegating the run and reading its `index.json`.
+**Delegation split for the fix loop.** Attribution (step 1) and the fix-scope decision are YOUR judgment — do them inline. Reading the failing test/code and applying the edit (steps 2–3) are delegated to a **fix subagent** — do NOT edit code inline on Opus. You verify (step 4) by running the targeted test yourself, or by delegating the run and reading its `index.json`.
 
 For each failing test **and each erroring module** from the wave gate run (targeted-only on earlier intra-phase waves, full suite on a package's last-touch wave):
 
@@ -458,7 +458,7 @@ For each failing test **and each erroring module** from the wave gate run (targe
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{failing-test-path}"
    ```
    Include `VERIFIED_AGAINST_QUICK_REFERENCE` in the Bash tool description.
-5. **If the fix fails:** invoke the **Decision Escalation Protocol** — analyze the root cause in-context yourself (you are Fable), then re-dispatch the fix subagent with your concrete remediation plan (failing test, root cause, exact change). If your directed fix still fails → mark the task FAILED.
+5. **If the fix fails:** invoke the **Decision Escalation Protocol** — analyze the root cause in-context yourself (you are the Opus orchestrator), then re-dispatch the fix subagent with your concrete remediation plan (failing test, root cause, exact change). If your directed fix still fails → mark the task FAILED.
 
 **Stop conditions:**
 - **first attempt** with no progress and root cause is unclear → invoke the **Decision Escalation Protocol** (analyze in-context, dispatch a directed fix); if your directed fix also fails → mark that task FAILED
@@ -548,7 +548,7 @@ This gate is **stricter** than the per-wave gate (3d). At a phase boundary the b
 2. **Run the full suite for every touched package concurrently** — fire all `test.ps1 {package}` calls in a **single message** (one Bash call per package), exactly as 3d. Include `VERIFIED_AGAINST_QUICK_REFERENCE` in each Bash tool description.
 3. **Read each package's `index.json`** (the canonical result, never stdout). A package is GREEN only when `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0` — errors count as red, exactly as the 3d gate rules.
 4. **Fix every red package to GREEN — regardless of attribution.** For each failing test and each erroring module across ALL touched packages, **including failures in code that no task in this phase modified**:
-   - **Delegate the fix, own the verdict.** Dispatch a **sonnet** (or **opus** for a subtle/cross-cutting root cause) fix subagent to read the failing test and the code under test, trace to the **root cause**, and fix it there. Unlike 3e this is NOT scope-restricted to a task's files — instruct the agent to fix whatever is red at its root. Bind it with NO workarounds, NO `xfail`/skip-to-pass, NO band-aids, NO conditional guards that hide the broken path, NO git reverts (CLAUDE.md). You do NOT read/edit the code inline on Fable — you decide what's in scope and verify the result.
+   - **Delegate the fix, own the verdict.** Dispatch a **sonnet** (or **opus** for a subtle/cross-cutting root cause) fix subagent to read the failing test and the code under test, trace to the **root cause**, and fix it there. Unlike 3e this is NOT scope-restricted to a task's files — instruct the agent to fix whatever is red at its root. Bind it with NO workarounds, NO `xfail`/skip-to-pass, NO band-aids, NO conditional guards that hide the broken path, NO git reverts (CLAUDE.md). You do NOT read/edit the code inline on Opus — you decide what's in scope and verify the result.
    - Verify authoritatively: re-run the specific test (`test.ps1 {package} -Specific "{path}"`), then re-run the full package suite — reading `index.json`, not the agent's self-report.
    - If the first fix attempt fails or the root cause is unclear → **Decision Escalation Protocol** — analyze the root cause in-context yourself, then re-dispatch the fix subagent with your directed remediation plan. If your directed fix still fails, that test/module becomes a blocking item carried into Step C's halt-and-ask.
    - If a red test traces to a root cause **genuinely outside this repo's control** (e.g. a known-flaky external integration) → do NOT silently skip it; record it as a blocking item and surface it in Step C, letting the user decide. Do not invent this exception to dodge a real fix.
@@ -581,15 +581,15 @@ Partition phase `P`'s tasks into `completed`, `failed`, and `skipped` (using the
 
 Any `failed` or `skipped` task in phase `P`, **OR** any package still red after Step A's fix loop, **OR any unresolved design-conformance failure from Step A2** (an unenforced design-named surface, an unproven task acceptance property, or an open conformance gap):
    - **Do NOT start phase `P+1` yet.**
-   - **First, produce the phase-recovery plan yourself (in-context, as Fable)** — invoke the **Decision Escalation Protocol** (phase-recovery variant) scoped to the whole phase. You already hold: every failed/skipped task in phase `P`, **every still-red test/module from Step A** (including pre-existing failures that resisted the fix loop), the exact test failures/errors, all prior fix attempts (wave-level 3e/3f **and** Step A), and the relevant code excerpts. Analyze them and produce a **phase-recovery plan** — root cause(s) across the failed items (name shared causes explicitly) and concrete, per-item remediation steps, in a sensible order. This is exactly the judgment you are on Fable for; do it inline rather than spawning another Fable agent.
+   - **First, produce the phase-recovery plan yourself (in-context, as the Opus orchestrator)** — invoke the **Decision Escalation Protocol** (phase-recovery variant) scoped to the whole phase. You already hold: every failed/skipped task in phase `P`, **every still-red test/module from Step A** (including pre-existing failures that resisted the fix loop), the exact test failures/errors, all prior fix attempts (wave-level 3e/3f **and** Step A), and the relevant code excerpts. Analyze them and produce a **phase-recovery plan** — root cause(s) across the failed items (name shared causes explicitly) and concrete, per-item remediation steps, in a sensible order. This is exactly the judgment you are on Opus for; do it inline rather than spawning another Opus agent to decide.
    - **Dispatch subagents to implement your recovery plan** (**sonnet**, or **opus** for the hardest items), partitioned so no two agents write the same files: give each the per-item remediation steps, exact files to modify, and the CLAUDE.md constraints. Then re-run the **full test suite for every affected package** yourself (3d gate rules — GREEN only when `result == "PASSED"` AND `failed == 0` AND `error == 0`). Re-attribute and mark any now-passing tasks complete via `complete.ps1`.
    - **Re-evaluate the phase:**
      - If phase `P` is now green → emit the Phase Checkpoint, proceed to phase `P+1`.
-     - If phase `P` is **still red** after implementing Fable's plan → **HALT at the phase boundary** and `AskUserQuestion` (below). Do not auto-advance.
+     - If phase `P` is **still red** after implementing Opus's plan → **HALT at the phase boundary** and `AskUserQuestion` (below). Do not auto-advance.
 
    `AskUserQuestion` on unresolved phase failure:
    ```
-   Phase {P} did not complete cleanly — Fable-led recovery still leaves failures.
+   Phase {P} did not complete cleanly — Opus-led recovery still leaves failures.
 
    Failed / skipped tasks in phase {P}:
    - {task_id}: {reason}
@@ -597,8 +597,8 @@ Any `failed` or `skipped` task in phase `P`, **OR** any package still red after 
    Unresolved test failures (incl. pre-existing, unattributed):
    - {package} :: {test_or_module}: {error summary}
 
-   Fable's analysis:
-   {1-2 line summary of Fable's root-cause finding}
+   Opus's analysis:
+   {1-2 line summary of Opus's root-cause finding}
 
    Options:
    1. Stop — halt orchestration here; phase {P+1}+ not started. Emit final report.
@@ -641,8 +641,8 @@ All rules from `d:\datrix\.claude\CLAUDE.md` apply. Key rules for the orchestrat
 - **BLOCKED IS TERMINAL** — never mark a task COMPLETED when the agent returned BLOCKED, when its `## How Solved` contains `BLOCKED`/`partial`/`out of scope`/`workaround`/unmet-criterion language, or when its design-acceptance property is unproven. Spawn the blocker as a tracked task; do NOT let suite-green override a BLOCKED self-report (the phase-01 01-20 failure).
 - **NO ASSUMING — ENUMERATE AND VERIFY STATE** — characterize a corpus by enumerating ALL of it (counted), not a sample; reason about git/working-tree from the CURRENT on-disk state you just read, never a remembered snapshot. Paste real command output for every conformance claim.
 - **GENUINE agent monitoring, never assumption** — when agents run in the background pool, drive them with the Agent Progress Polling Protocol: check every ~5 minutes what each agent is *actually* doing (status **and** on-disk artifacts). Never report an agent as "working" without that evidence, and never rely on a completion notification to know an agent finished.
-- **JUDGMENT INLINE, TYPING DELEGATED** — you are Fable: decompose, attribute, decide fix-scope, gate conformance, and analyze escalations in YOUR context; dispatch subagents (haiku/sonnet/opus) to read widely, run suites, and apply fixes. Do NOT edit code inline on Fable in the fix loops (3e/3i) — decide the fix, then hand the edit to a subagent. Reading the minimum code needed to decide is fine; doing the whole implementation inline is not.
-- **NEVER SPAWN FABLE AS A SUBAGENT** — the old "escalate up to a Fable agent" is gone; you ARE the Fable brain. Analyze in-context, then dispatch a cheaper implementer. Verify every returned result with a check you run (or delegate the run and read `index.json`) — a subagent's self-report never substitutes for the design-acceptance evidence you paste into the gate.
+- **JUDGMENT INLINE, TYPING DELEGATED** — you are the Opus orchestrator: decompose, attribute, decide fix-scope, gate conformance, and analyze escalations in YOUR context; dispatch subagents (haiku/sonnet/opus) to read widely, run suites, and apply fixes. Do NOT edit code inline on Opus in the fix loops (3e/3i) — decide the fix, then hand the edit to a subagent. Reading the minimum code needed to decide is fine; doing the whole implementation inline is not.
+- **NEVER DELEGATE THE DECISION** — the old "escalate up to a more-capable agent" is gone; you ARE the Opus brain. Analyze in-context at extra-high effort, then dispatch a cheaper implementer (an `opus` subagent only for a genuinely hard/cross-cutting fix). Verify every returned result with a check you run (or delegate the run and read `index.json`) — a subagent's self-report never substitutes for the design-acceptance evidence you paste into the gate.
 - **NO workarounds** — fix root causes, not symptoms. If something is broken, trace to root cause
 - **NO git reverts** — never use `git checkout`, `git restore`, `git reset`, `git stash`, `git revert`
 - **NO debug scatter** — zero temporary logging statements left behind
@@ -657,7 +657,7 @@ All rules from `d:\datrix\.claude\CLAUDE.md` apply. Key rules for the orchestrat
 
 ## Decision Escalation Protocol
 
-You are Fable — the escalation target is **you**. So "escalate" no longer means spawning a separate Fable agent; it means **shifting out of dispatch-and-supervise mode into deliberate, in-context architectural analysis**, then dispatching a subagent to implement your decision. When execution reaches a genuine design or architectural decision — one where multiple valid approaches exist, the root cause is unclear after investigation, or the right scope of a fix is ambiguous — do this analysis yourself **before** pausing for the user or marking a task failed. You already hold the failure context; use it. The analysis is the highest-value use of your Fable budget — spend it here, not on typing the resulting edit.
+You are the Opus orchestrator — the escalation target is **you**. So "escalate" no longer means spawning a separate decision agent; it means **shifting out of dispatch-and-supervise mode into deliberate, in-context architectural analysis** at extra-high effort, then dispatching a subagent to implement your decision. When execution reaches a genuine design or architectural decision — one where multiple valid approaches exist, the root cause is unclear after investigation, or the right scope of a fix is ambiguous — do this analysis yourself **before** pausing for the user or marking a task failed. You already hold the failure context; use it. The analysis is the highest-value use of your Opus budget — spend it here, not on typing the resulting edit.
 
 ### When to Escalate
 
@@ -675,7 +675,7 @@ You are Fable — the escalation target is **you**. So "escalate" no longer mean
 
 ### How to Escalate — analyze in-context, then dispatch the implementer
 
-**Step 1 — Analyze yourself (this is the Fable judgment).** Read the failing test and the relevant code excerpts (read them now if you delegated earlier and don't hold them), and reason to a decision. Decide what is genuinely best for the LONG-TERM health of this production system — this is NOT a hackathon and you are NOT trying to save the day; never pick the simple or expedient option and defer the correct one to a "future" that never arrives. No workarounds, band-aids, or "good enough for now". Produce, in your own reasoning:
+**Step 1 — Analyze yourself (this is the Opus judgment).** Read the failing test and the relevant code excerpts (read them now if you delegated earlier and don't hold them), and reason to a decision. Decide what is genuinely best for the LONG-TERM health of this production system — this is NOT a hackathon and you are NOT trying to save the day; never pick the simple or expedient option and defer the correct one to a "future" that never arrives. No workarounds, band-aids, or "good enough for now". Produce, in your own reasoning:
 1. Root cause analysis (not symptom) — 2-3 sentences
 2. The chosen approach — concrete, step-by-step
 3. Exact files to modify and what changes to make
@@ -684,7 +684,7 @@ You are Fable — the escalation target is **you**. So "escalate" no longer mean
 
 Reading the minimum code needed to decide correctly is a legitimate use of your context — but do not drift into doing the whole implementation inline. Once the decision is made, hand the typing off.
 
-**Step 2 — Dispatch a subagent to implement your decision.** Spawn a **sonnet** implementer (**opus** only for a genuinely hard/cross-cutting change), never Fable:
+**Step 2 — Dispatch a subagent to implement your decision.** Spawn a **sonnet** implementer (**opus** only for a genuinely hard/cross-cutting change) to apply your decision — the implementer executes, it does not re-decide:
 
 ```
 Agent tool parameters:
@@ -711,7 +711,7 @@ RETURN: files changed (with line counts), the targeted-test result, and any devi
 
 ### Phase-Recovery Variant (Phase Boundary Gate, 3i)
 
-When escalation is triggered by a **red phase gate** rather than a single task, the problem spans every failed/skipped task in the phase. Same protocol — **you** produce the recovery plan in-context (do not spawn a Fable agent), then dispatch implementers per item. Reason through the phase-wide framing below to produce your plan, then hand each item's concrete steps to a **sonnet**/**opus** implementer (partitioned by files) exactly as in "How to Escalate" Step 2.
+When escalation is triggered by a **red phase gate** rather than a single task, the problem spans every failed/skipped task in the phase. Same protocol — **you** produce the recovery plan in-context (do not delegate the planning to another agent), then dispatch implementers per item. Reason through the phase-wide framing below to produce your plan, then hand each item's concrete steps to a **sonnet**/**opus** implementer (partitioned by files) exactly as in "How to Escalate" Step 2.
 
 Analysis framing for a failed phase (produce a recovery plan, do not implement inline):
 ```

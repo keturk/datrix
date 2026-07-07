@@ -213,7 +213,7 @@ Process tasks one at a time in dependency order. For each task:
 
 **If ambiguities exist:**
 - **Spec gap or missing user input** (unclear requirement, missing path, credential) → STOP, ask user, WAIT for answers before proceeding to Step 2
-- **Technical design ambiguity** (conflicting patterns, multiple valid architectural approaches) → invoke the **Decision Escalation Protocol** (Fable 5 agent); proceed to Step 2 using Fable's recommendation
+- **Technical design ambiguity** (conflicting patterns, multiple valid architectural approaches) → invoke the **Decision Escalation Protocol** (Opus 4.8 extra-high-effort agent); proceed to Step 2 using Opus's recommendation
 
 #### Step 2: Implement (Write Code)
 
@@ -306,7 +306,7 @@ For each task:
   "files_modified": [],
   "design_decisions": [
     "Schema enforces self-containment requirement for phase prompts",
-    "Phase taxonomy table provides clear Haiku/Sonnet/Fable mapping"
+    "Phase taxonomy table provides clear Haiku/Sonnet/Opus mapping"
   ],
   "ambiguities_encountered": []
 }
@@ -342,7 +342,7 @@ On abort, report what was completed, what failed, and what cannot proceed.
 <!-- PHASE: verify -->
 ## Phase 3: Verification
 
-For each task (in parallel, up to 5 tasks concurrently), run targeted tests and fix all failures. If the first fix attempt fails, escalate immediately to Fable 5 (Decision Escalation Protocol).
+For each task (in parallel, up to 5 tasks concurrently), run targeted tests and fix all failures. If the first fix attempt fails, escalate immediately to Opus 4.8 at extra-high effort (Decision Escalation Protocol).
 
 **Assumes all tests were passing before implementation started.**
 
@@ -440,12 +440,12 @@ If any test failures exist:
 
 4. **Outcomes:**
    - **If the first fix attempt passes** → verification PASSED
-   - **If the first fix attempt fails** → immediately invoke the **Decision Escalation Protocol** (Fable 5 agent with full context: task spec, the failed attempt, exact failures); implement Fable's recommendation; if still failing → verification FAILED (proceed to Step 4)
+   - **If the first fix attempt fails** → immediately invoke the **Decision Escalation Protocol** (Opus 4.8 extra-high-effort agent with full context: task spec, the failed attempt, exact failures); implement Opus's recommendation; if still failing → verification FAILED (proceed to Step 4)
    - **If a fix introduces additional failures** → revert immediately, then invoke the **Decision Escalation Protocol** before any further attempt
 
-#### Step 4: Verification Failed (if Fable-assisted attempt also fails)
+#### Step 4: Verification Failed (if Opus-assisted attempt also fails)
 
-If tests still fail after the Fable-assisted attempt:
+If tests still fail after the Opus-assisted attempt:
 
 1. **Do NOT mark the task COMPLETED**
 2. **Update the task file:**
@@ -455,7 +455,7 @@ If tests still fail after the Fable-assisted attempt:
 ```markdown
 ## Why Failed
 
-**Test failures after implementation (not fixed after Fable-assisted attempt):**
+**Test failures after implementation (not fixed after Opus-assisted attempt):**
 
 | Attempt | What was tried | Result |
 |---------|---------------|--------|
@@ -656,7 +656,7 @@ Tests: {pass}/{total} passing
 **If FAILED:**
 ```
 CHECKPOINT — Task {NN}-{TT}: {Title}
-Status: FAILED (verification failed after Fable-assisted attempt)
+Status: FAILED (verification failed after Opus-assisted attempt)
 Files created: {list}
 Files modified: {list}
 Tests: {pass}/{total} passing
@@ -675,7 +675,7 @@ Recommendation: {next steps}
 ### Abort Conditions
 
 STOP immediately if:
-- First fix attempt failed and Fable-assisted attempt also failed
+- First fix attempt failed and Opus-assisted attempt also failed
 - A fix attempt introduces additional failures
 - Fix reveals cascading issues in unrelated subsystems
 - Test failures appear in a different package than the one being modified
@@ -809,7 +809,7 @@ Failed (if any):
 
 ## Decision Escalation Protocol
 
-When execution reaches a genuine design or architectural decision — one where multiple valid approaches exist, root cause is unclear after investigation, or the right fix scope is ambiguous — escalate to a Fable 5 agent **before** asking the user or marking the task failed.
+When execution reaches a genuine design or architectural decision — one where multiple valid approaches exist, root cause is unclear after investigation, or the right fix scope is ambiguous — escalate to an Opus 4.8 (extra-high effort) agent **before** asking the user or marking the task failed.
 
 ### When to Escalate
 
@@ -830,11 +830,12 @@ Spawn a subagent via the Agent tool:
 
 ```
 subagent_type: "general-purpose"
-model: "fable"
-description: "Fable decision: {brief problem description}"
+model: "opus"
+effort: "xhigh"
+description: "Opus decision: {brief problem description}"
 ```
 
-**Fable agent prompt:**
+**Opus agent prompt:**
 ```
 You are a senior architect making a high-stakes implementation decision. Do NOT implement — analyze and recommend only.
 
@@ -868,11 +869,11 @@ Return:
 Be specific. The implementing agent will follow your recommendation directly.
 ```
 
-### After Fable Returns
+### After Opus Returns
 
-- Implement exactly what Fable recommended with the current model (Sonnet)
+- Implement exactly what Opus recommended with the current model (Sonnet)
 - Do NOT improvise beyond the recommendation
-- If Fable recommends stopping and asking the user, surface Fable's full analysis as context when asking
+- If Opus recommends stopping and asking the user, surface Opus's full analysis as context when asking
 
 ---
 

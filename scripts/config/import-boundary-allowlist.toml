@@ -34,25 +34,6 @@ file = "datrix_codegen_common/transpiler/python_visitor_statements.py"
 import = "datrix_codegen_python"
 issue = "datrix/.tasks/phase-36/task-36-07-quality-gate-datrix.md"
 
-# --- TypeScript transpiler files in datrix-codegen-common ---
-# These files implement TypeScript-specific transpilation logic and must
-# import from datrix_codegen_typescript for type mappings, operators, etc.
-
-[[allow]]
-file = "datrix_codegen_common/transpiler/typescript_transpiler_core.py"
-import = "datrix_codegen_typescript"
-issue = "datrix/.tasks/phase-36/task-36-07-quality-gate-datrix.md"
-
-[[allow]]
-file = "datrix_codegen_common/transpiler/typescript_visitor_expressions.py"
-import = "datrix_codegen_typescript"
-issue = "datrix/.tasks/phase-36/task-36-07-quality-gate-datrix.md"
-
-[[allow]]
-file = "datrix_codegen_common/transpiler/typescript_visitor_statements.py"
-import = "datrix_codegen_typescript"
-issue = "datrix/.tasks/phase-36/task-36-07-quality-gate-datrix.md"
-
 # --- GenDSL naming helper in datrix-codegen-common ---
 # This helper lazily imports datrix_codegen_sql for SQL table-name resolution.
 # The proper long-term fix is to remove the lazy conditional import and pass

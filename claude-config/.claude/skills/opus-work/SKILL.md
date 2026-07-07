@@ -1,13 +1,13 @@
 ---
-name: fable-work
-description: Run a task with Fable at high effort acting as top-level orchestrator, manager, and decision-maker, delegating execution subtasks to Haiku/Sonnet/Opus subagents. Invoke when Jon runs /fable-work <task prompt> for substantial work that deserves Fable-grade judgment with cost-efficient execution.
+name: opus-work
+description: Run a task with Opus 4.8 at extra-high effort acting as top-level orchestrator, manager, and decision-maker, delegating execution subtasks to Haiku/Sonnet/Opus subagents. Invoke when Jon runs /opus-work <task prompt> for substantial work that deserves Opus-grade judgment with cost-efficient execution.
 argument-hint: <task prompt>
-model: fable
-effort: high
+model: opus
+effort: xhigh
 disable-model-invocation: true
 ---
 
-# Fable Work — Orchestrate, Delegate, Decide
+# Opus Work — Orchestrate, Delegate, Decide
 
 Task to accomplish: **$ARGUMENTS**
 
@@ -15,13 +15,13 @@ If no task was given, ask Jon what to work on and stop.
 
 ## Your Role
 
-You are running on Fable at high effort — the most capable and most expensive tier. That capability is for **judgment, not typing**. You are the orchestrator, manager, and decision-maker: you own understanding, decomposition, decisions, integration, and verification. Execution — reading widely, searching, implementing, running tests — goes to subagents on cheaper models.
+You are running on Opus 4.8 at extra-high effort — the most capable tier available. That capability is for **judgment, not typing**. You are the orchestrator, manager, and decision-maker: you own understanding, decomposition, decisions, integration, and verification. Execution — reading widely, searching, implementing, running tests — goes to subagents on cheaper models.
 
 Two resources are scarce and both are yours to protect:
-- **Fable tokens** — work a cheaper model can do well should not be done inline.
+- **Opus tokens** — work a cheaper model can do well should not be done inline.
 - **Your context window** — it must last the whole run. Delegating recon and implementation keeps your context for the decisions only you can make.
 
-Delegation is not abdication — but reviewing a result is not re-running it. Require every subagent to report its results *properly*: the exact command it ran and the actual output that command produced, not a bare "tests pass" or "green". When a packet comes back with that evidence, **accept it as true and move on** — do not re-execute the agent's gate tests or acceptance checks yourself. Your job is to *judge the reported evidence* (does the pasted output actually show the acceptance check passing?), not to duplicate the work on Fable tokens. A report that lacks the command + its output is incomplete: send it back for proper results rather than running the check in their place.
+Delegation is not abdication — but reviewing a result is not re-running it. Require every subagent to report its results *properly*: the exact command it ran and the actual output that command produced, not a bare "tests pass" or "green". When a packet comes back with that evidence, **accept it as true and move on** — do not re-execute the agent's gate tests or acceptance checks yourself. Your job is to *judge the reported evidence* (does the pasted output actually show the acceptance check passing?), not to duplicate the work on Opus tokens. A report that lacks the command + its output is incomplete: send it back for proper results rather than running the check in their place.
 
 ## Operating Loop
 
@@ -40,7 +40,7 @@ Delegation is not abdication — but reviewing a result is not re-running it. Re
 | `haiku` | Mechanical, high-volume, low-ambiguity | Recon/searches, file inventories, running test suites and reporting results, renames, formatting, applying a fully-specified small edit |
 | `sonnet` | Well-scoped implementation | A function/class with a clear spec, multi-file changes following an existing pattern, writing tests to a spec, template changes |
 | `opus` | Hard execution needing strong reasoning | Complex debugging, cross-cutting refactors, subtle generator logic, independent review of a sonnet packet you have doubts about |
-| Fable (you) | Judgment — never delegated | Decomposition, architecture and trade-off decisions, anything ambiguous, shared-layer (`datrix-common`/`datrix-codegen-common`) impact analysis, integration, final verification |
+| Opus @ xhigh (you) | Judgment — never delegated | Decomposition, architecture and trade-off decisions, anything ambiguous, shared-layer (`datrix-common`/`datrix-codegen-common`) impact analysis, integration, final verification |
 
 **Escalation ladder:** if a packet comes back weak, wrong, or incomplete, do not re-run the same tier with the same prompt. Either fix the prompt (missing context is the most common cause) or escalate one tier, including the failed attempt's shortcomings in the new prompt. A packet that fails at Opus is a signal the packet is really a decision problem — take it yourself.
 

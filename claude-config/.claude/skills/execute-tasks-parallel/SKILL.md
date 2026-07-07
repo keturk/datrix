@@ -284,7 +284,7 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
 
 4. **Handle agent questions immediately (at the poll that surfaces them):**
    - If a poll finds an agent with a **spec gap or missing user input** (NEEDS_CONTEXT — unclear requirement, missing path, credential): use `AskUserQuestion` to relay to the user; re-dispatch the agent (background) after receiving answers; do NOT proceed to quality gate while questions are outstanding
-   - If a poll finds an agent with **technical ambiguity** (BLOCKED or NEEDS_CONTEXT with a design choice, conflicting patterns, or unclear root cause): invoke the **Decision Escalation Protocol** — spawn a Fable 5 agent to analyze and recommend; re-dispatch the implementation agent with Fable's recommendation
+   - If a poll finds an agent with **technical ambiguity** (BLOCKED or NEEDS_CONTEXT with a design choice, conflicting patterns, or unclear root cause): invoke the **Decision Escalation Protocol** — spawn an Opus 4.8 (extra-high effort) agent to analyze and recommend; re-dispatch the implementation agent with Opus's recommendation
    - If a poll finds an agent with a **hard blocker** (BLOCKED due to missing dependency, missing file, incomplete prereq): record the failure, report to user, do not re-attempt
    - If a poll finds an agent **stalled** (no assigned-artifact change across two consecutive polls): investigate per the protocol — `TaskStop` and re-dispatch with corrective context, or mark BLOCKED
 
@@ -468,9 +468,9 @@ For each NEW failure (not already known from agent targeted tests):
 | 2       | task-40-04 | Updated validate_all → validate method call | FAIL — new error |
 
 **Stop conditions:**
-- **First attempt fails** and root cause is unclear → immediately invoke the **Decision Escalation Protocol** (Fable 5 agent with full context: task spec, the failed attempt, exact failures); implement Fable's recommendation; if still failing → mark that task FAILED
+- **First attempt fails** and root cause is unclear → immediately invoke the **Decision Escalation Protocol** (Opus 4.8 extra-high-effort agent with full context: task spec, the failed attempt, exact failures); implement Opus's recommendation; if still failing → mark that task FAILED
 - A fix introduces additional failures → revert the fix attempt immediately, then invoke the **Decision Escalation Protocol** before continuing
-- Fix reveals cascading issues in unrelated subsystems → invoke the **Decision Escalation Protocol** to determine correct fix scope; if Fable recommends stopping → STOP, report to user
+- Fix reveals cascading issues in unrelated subsystems → invoke the **Decision Escalation Protocol** to determine correct fix scope; if Opus recommends stopping → STOP, report to user
 
 #### Step 4: Final Validation
 
@@ -627,7 +627,7 @@ Failed (if any):
 
 ## Decision Escalation Protocol
 
-When execution reaches a genuine design or architectural decision — one where multiple valid approaches exist, root cause is unclear after investigation, or the right fix scope is ambiguous — escalate to a Fable 5 agent **before** asking the user or marking a task failed.
+When execution reaches a genuine design or architectural decision — one where multiple valid approaches exist, root cause is unclear after investigation, or the right fix scope is ambiguous — escalate to an Opus 4.8 (extra-high effort) agent **before** asking the user or marking a task failed.
 
 ### When to Escalate
 
@@ -648,11 +648,12 @@ Spawn a subagent via the Agent tool:
 
 ```
 subagent_type: "general-purpose"
-model: "fable"
-description: "Fable decision: {brief problem description}"
+model: "opus"
+effort: "xhigh"
+description: "Opus decision: {brief problem description}"
 ```
 
-**Fable agent prompt:**
+**Opus agent prompt:**
 ```
 You are a senior architect making a high-stakes implementation decision. Do NOT implement — analyze and recommend only.
 
@@ -686,11 +687,11 @@ Return:
 Be specific. The implementing agent will follow your recommendation directly.
 ```
 
-### After Fable Returns
+### After Opus Returns
 
-- Resume with the current model (Sonnet) and implement exactly what Fable recommended
+- Resume with the current model (Sonnet) and implement exactly what Opus recommended
 - Do NOT improvise beyond the recommendation
-- If Fable recommends stopping and asking the user, surface Fable's full analysis as context when asking
+- If Opus recommends stopping and asking the user, surface Opus's full analysis as context when asking
 
 ---
 
