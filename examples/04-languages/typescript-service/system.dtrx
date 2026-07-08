@@ -1,0 +1,4 @@
+include 'product-service.dtrx';
+
+system commerce.System('config/system.dcfg') : version('1.0.0') {
+}

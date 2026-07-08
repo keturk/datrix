@@ -1,0 +1,62 @@
+
+// Define a service in the 'commerce' namespace with version and description
+service commerce.ProductService('config/product-service.dcfg') : version('1.0.0'), description('Product catalog service') {
+
+    // Service infrastructure configuration
+    discovery { }                                              // Service discovery (auto-configured)
+
+    // Enums define a fixed set of allowed values for type-safe fields
+    enum ProductStatus {
+        Active,
+        Discontinued,
+        OutOfStock
+    }
+
+    enum WarehouseKind {
+        Fulfillment,
+        Returns,
+        Overflow
+    }
+
+    // Relational database block - groups entities (tables) under a named datasource
+    rdbms catalogDb {
+
+        // Abstract entities provide reusable field definitions; they don't generate tables
+        abstract entity BaseEntity {
+            // UUID is a semantic type for universally unique identifiers
+            // 'primaryKey' marks this as the primary key; uuid() generates a default value
+            UUID id : primaryKey, server = uuid();
+            // DateTime is a UTC datetime type; DateTime.now() sets the default to current UTC time
+            DateTime createdAt : server = DateTime.now();
+            DateTime updatedAt : server = DateTime.now();
+        }
+
+        // Concrete entity - inherits all fields from BaseEntity and maps to a database table
+        entity Product extends BaseEntity {
+            // String(200) = varchar with max 200 chars; 'trim' auto-trims whitespace on input
+            String(200) name : trim;
+            String(40) sku : trim;
+            // Decimal(12, 2) = fixed-precision numeric with 12 total digits, 2 after the point
+            Decimal(12, 2) price;
+            Int stockQuantity;
+            // Enum fields enforce type safety; defaults use EnumName.Value syntax
+            ProductStatus status = ProductStatus.Active;
+        }
+
+        entity Warehouse extends BaseEntity {
+            String(120) name : trim;
+            String(200) location : trim;
+            WarehouseKind kind = WarehouseKind.Fulfillment;
+        }
+
+    }
+
+    // REST API block - generates CRUD endpoints and custom routes
+    // basePath sets the URL prefix for all endpoints in this API
+    rest_api ProductServiceAPI : basePath("/api/v1"), rdbms(catalogDb) {
+        // 'resource' auto-generates standard CRUD endpoints (list, get, create, update, delete)
+        resource catalogDb.Product : auth(public);
+        resource catalogDb.Warehouse : auth(public);
+    }
+
+}

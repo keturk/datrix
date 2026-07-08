@@ -38,7 +38,7 @@ count = 3
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generators/service/helper_generator.py"
-count = 2
+count = 1
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generators/service/project_generator.py"

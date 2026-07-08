@@ -43,6 +43,9 @@
       {"name": "external-integration",  "path": "examples/02-features/06-advanced-language-features/external-integration/system.dtrx", "description": "External service integration patterns"},
       {"name": "geo",                   "path": "examples/02-features/04-extensions/geo/system.dtrx",                                "description": "Geo extension with spatial types and PostGIS operations"}
     ],
+    "languages": [
+      {"name": "typescript-service",  "path": "examples/04-languages/typescript-service/system.dtrx",  "description": "TypeScript-configured whole-system example (config/system.dcfg language = typescript); drives the whole-system TypeScript generation gate"}
+    ],
     "domains": [
       {"name": "blog-cms",            "path": "examples/03-domains/blog-cms/system.dtrx",             "description": "Blog CMS with content management"},
       {"name": "city-services",      "path": "examples/03-domains/city-services/system.dtrx",       "description": "City services platform with geo-spatial operations"},
@@ -73,6 +76,7 @@
     "features-combos": ["multi-database", "mixed-infrastructure", "dual-api"],
     "features-language": ["advanced-flow-control", "external-integration"],
     "domains": ["blog-cms", "city-services", "ecommerce", "finance", "food-delivery", "healthcare", "hr-platform", "iot-platform", "learning-management", "logistics", "real-estate", "social-platform", "task-management"],
-    "typescript-validation": ["entities", "rest-api", "relationships", "pubsub", "cache", "cqrs", "jobs", "blog-cms"]
+    "typescript-validation": ["entities", "rest-api", "relationships", "pubsub", "cache", "cqrs", "jobs", "blog-cms"],
+    "languages": ["typescript-service"]
   }
 }

@@ -1,0 +1,152 @@
+config service commerce.ProductService {
+  base {
+    port = 8000;
+    flavor = "compose";
+    replicas = 1;
+    resources {
+      requests {
+        cpu = "100m";
+        memory = "256Mi";
+      }
+      limits {
+        cpu = "500m";
+        memory = "512Mi";
+      }
+    }
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms catalogDb {
+      id = "dba642bd-7cf5-4a58-a6f2-07c1366d0942";
+      engine = "postgres";
+      flavor = "container";
+      host = "localhost";
+      port = 5432;
+      database = "commerce_catalog";
+      poolSize = 20;
+      maxOverflow = 20;
+      asyncDriver = "postgresql+asyncpg";
+      syncDriver = "postgresql+psycopg2";
+      healthCheckSql = "SELECT 1";
+      dockerImage = "postgres:17-alpine";
+      volumePath = "/var/lib/postgresql/data";
+      defaultUser = "postgres";
+    }
+    registration {
+      tags = ["api", "commerce", "v1"];
+      meta = {};
+      healthCheck {
+        type = "http";
+        path = "/health";
+        interval = "10s";
+      }
+    }
+    resilience {
+      defaults {
+        timeout = "10s";
+        retry {
+          maxAttempts = 2;
+          backoff {
+            type = "exponential";
+            initial = "100ms";
+            multiplier = 2;
+          }
+        }
+      }
+    }
+    httpSecurity {
+      allowedHosts = ["product-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    cacheOps {
+      ttlSeconds = 300;
+      keyMaxLength = 100;
+      redisPoolSize = 10;
+    }
+    queueOps {
+      sqsPollWaitSeconds = 20;
+      sqsMaxMessagesPerPoll = 10;
+      servicebusMaxWaitSeconds = 5;
+    }
+    kafkaOps {
+      consumerPollTimeoutMs = 1000;
+      keepalivePollTimeoutMs = 1000;
+      maxPollIntervalMs = 600000;
+    }
+    messagingOps {
+      rabbitmqPrefetchCount = 10;
+    }
+    downloadOps {
+      timeoutSeconds = 300;
+      chunkSizeBytes = 65536;
+      maxRetries = 3;
+      retryDelaySeconds = 1.0;
+      retryableStatusCodes = [429, 500, 502, 503, 504];
+    }
+    remoteConfigOps {
+      consulTimeoutSeconds = 5.0;
+      appconfigMinPollSeconds = 15;
+    }
+    rateLimitOps {
+      windowSeconds = 60;
+    }
+    microserviceClientOps {
+      timeoutSeconds = 300;
+      circuitBreakerFailMax = 5;
+      circuitBreakerResetSeconds = 30;
+      bulkheadMaxConcurrent = 10;
+      integrationConnectTimeoutMs = 1000;
+      integrationReadTimeoutMs = 30000;
+      mailgunTimeoutSeconds = 30;
+    }
+    retryBudgetOps {
+      window = 100;
+      ratio = 0.1;
+    }
+    outboxOps {
+      flushBatchSize = 500;
+    }
+    serviceCredentialOps {
+      tokenExpirySkewSeconds = 30;
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+
+    flavor = "ecs-fargate";
+    replicas = 2;
+    replace rdbms catalogDb {
+      id = "dba642bd-7cf5-4a58-a6f2-07c1366d0942";
+      engine = "postgres";
+      flavor = "rds";
+      host = "postgres.internal";
+      database = "commerce_catalog";
+      poolSize = 40;
+      maxOverflow = 20;
+      ssl = true;
+      asyncDriver = "postgresql+asyncpg";
+      syncDriver = "postgresql+psycopg2";
+      healthCheckSql = "SELECT 1";
+    }
+    strategy {
+      rolling {
+        maxUnavailable = "25%";
+      }
+    }
+  }
+}
