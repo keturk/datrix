@@ -131,7 +131,7 @@ Key rules:
 - Elasticsearch integration, inter-service HTTP auth (shared secret), JWT gateway
 - GraphQL DataLoaders, rate limiting (gateway + per-route Redis), RFC 7807 errors
 - Prometheus metrics, Grafana dashboards, cAdvisor, alert rules
-- Multi-service NGINX gateway (upstreams, health aliases, CORS, rate limit zones)
+- Declaration-driven NGINX gateway (emitted when the system declares `gateway { }`; per-service routing derived from auth contracts; upstreams, health aliases, CORS, rate limit zones)
 - ArcGIS FeatureServer paged ingestion (`arcgisFeatureLayer` integration kind): metadata-aware pagination, deterministic checksums, watermark optimization, archive/refresh modes
 
 ## DSL grammar snapshot (`.dtrx`)

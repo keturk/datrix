@@ -21,20 +21,12 @@ file = "datrix-codegen-python/src/datrix_codegen_python/generators/_helpers.py"
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/generators/cross_cutting/cdn_generator.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generators/persistence/python_cache_orchestrator.py"
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/generators/persistence/python_rdbms_connection_orchestrator.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generators/service/_project_dependencies.py"
-count = 3
+count = 2
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generators/service/helper_generator.py"
@@ -46,8 +38,4 @@ count = 2
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/micro_generators/resilience.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/cross_cutting/cdn_generator.py"
 count = 1
