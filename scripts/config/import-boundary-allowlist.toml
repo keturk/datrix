@@ -3,43 +3,15 @@
 # Documents known import boundary violations that represent intentional
 # architectural decisions. Each entry requires a tracking issue URL.
 #
-# Format:
-#   [[allow]]
+# Format: each entry is a TOML array-of-tables block named "allow" with:
 #   file = "substring match on relative file path"
 #   import = "prefix match on imported module"
 #   issue = "URL tracking the resolution of this violation"
 #
-# These violations exist because datrix-codegen-common contains
-# language-specific transpiler implementations that by nature import
-# from the target language packages. The proper long-term fix is to
-# move these files to their respective language generator packages.
-# See: datrix-common/docs/architecture/import-boundaries.md
-
-# --- Python transpiler files in datrix-codegen-common ---
-# These files implement Python-specific transpilation logic and must
-# import from datrix_codegen_python for type mappings, operators, etc.
-
-[[allow]]
-file = "datrix_codegen_common/transpiler/python_transpiler_core.py"
-import = "datrix_codegen_python"
-issue = "datrix/.tasks/phase-36/task-36-07-quality-gate-datrix.md"
-
-[[allow]]
-file = "datrix_codegen_common/transpiler/python_visitor_expressions.py"
-import = "datrix_codegen_python"
-issue = "datrix/.tasks/phase-36/task-36-07-quality-gate-datrix.md"
-
-[[allow]]
-file = "datrix_codegen_common/transpiler/python_visitor_statements.py"
-import = "datrix_codegen_python"
-issue = "datrix/.tasks/phase-36/task-36-07-quality-gate-datrix.md"
-
-# --- GenDSL naming helper in datrix-codegen-common ---
-# This helper lazily imports datrix_codegen_sql for SQL table-name resolution.
-# The proper long-term fix is to remove the lazy conditional import and pass
-# the table-name function as a parameter, or relocate the SQL logic.
-
-[[allow]]
-file = "datrix_codegen_common/gendsl/_naming.py"
-import = "datrix_codegen_sql"
-issue = "datrix/.tasks/phase-64/task-64-09-no-concrete-target-arch-test.md"
+# This allowlist is EMPTY -- the terminal state required by design 023
+# Invariant I7 ("Import-boundary allowlist empty"), reached in task 09-19.
+# Guarded by:
+#   datrix-codegen-common/tests/integration/dev/test_import_boundary_allowlist_empty.py
+#   datrix-codegen-common/tests/unit/architecture/test_no_concrete_target_imports.py
+# Adding a new allow entry is a design-023 regression; fix the import at
+# its root (plugin seam / relocation) instead.

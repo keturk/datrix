@@ -171,7 +171,7 @@ class TestPlatformDeniedSubtrees:
         "imported_module",
         [
             # transpiler subtree is explicitly walled off
-            "datrix_codegen_common.transpiler.shared_transpiler",
+            "datrix_codegen_common.transpiler.parity_checker",
             # language-shaped context_models subtrees
             "datrix_codegen_common.context_models.entity",
             # language-shaped algorithms subtrees
@@ -343,7 +343,7 @@ class TestSqlBoundaryRuleCoverage:
         "imported_module",
         [
             # transpiler is explicitly walled off
-            "datrix_codegen_common.transpiler.shared_transpiler",
+            "datrix_codegen_common.transpiler.parity_checker",
             # language-shaped context_models subtrees
             "datrix_codegen_common.context_models.entity",
             "datrix_codegen_common.context_models.schema",

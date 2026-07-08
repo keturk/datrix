@@ -78,6 +78,22 @@ PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
         "datrix_codegen_common.context_models.replayable_ingestion",
         "datrix_codegen_common.enums",
         "datrix_codegen_common.platform",
+        # D8 shared decision engines + D9/D10 conformance layers (task 07-29):
+        # target-neutral infrastructure decisions every platform legitimately
+        # consumes -- NOT language-shaped. pooling: the unified pooled-resource
+        # context builder (DI-5, 09-05); secrets: the shared secret-manifest /
+        # handle-derivation decision layer (rendering stays per-target); seed:
+        # config-seed planning; parity: the D6/D9 BlockRealization /
+        # DomainDeclaration types platforms declare their capabilities with;
+        # orchestration.resolved_runtime_plan: the target-neutral resolved
+        # runtime plan; testkit: the D10 conformance kit each target package
+        # consumes as a dev-dependency in its own test tree.
+        "datrix_codegen_common.pooling",
+        "datrix_codegen_common.secrets",
+        "datrix_codegen_common.seed",
+        "datrix_codegen_common.parity",
+        "datrix_codegen_common.orchestration.resolved_runtime_plan",
+        "datrix_codegen_common.testkit",
     ]
 )
 
@@ -99,6 +115,14 @@ SQL_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
         "datrix_codegen_common.gendsl",
         "datrix_codegen_common.context_models.migration",
         "datrix_codegen_common.orchestration.migration_adapter",
+        # D9 conformance types SQL declares its domain support with (task 10-07
+        # kit-CI): the same target-neutral DomainDeclaration / SHARED_CONTEXT_TYPES
+        # layer platforms consume -- not language-shaped.
+        "datrix_codegen_common.parity",
+        # D10 testkit is a dev-dependency of every target package (its gates /
+        # capability harness are target-neutral); SQL's kit-CI test consumes the
+        # shared domain-self-consistency gate the same way platform kit-CI tests do.
+        "datrix_codegen_common.testkit",
     ]
 )
 
@@ -520,7 +544,10 @@ def extract_imports_from_file(file_path: Path) -> list[tuple[int, str]]:
         SyntaxError: If the file cannot be parsed
         OSError: If the file cannot be read
     """
-    source_code = file_path.read_text(encoding="utf-8")
+    # utf-8-sig transparently strips a leading UTF-8 BOM (U+FEFF) so a
+    # BOM-prefixed file can never fail ast.parse and be silently skipped
+    # (design 023 scanner-integrity, task 07-30).
+    source_code = file_path.read_text(encoding="utf-8-sig")
     tree = ast.parse(source_code, filename=str(file_path))
 
     imports: list[tuple[int, str]] = []
@@ -624,14 +651,20 @@ def scan_package_for_violations(
             except SyntaxError as e:
                 rel_path = py_file.relative_to(monorepo_root)
                 print(
-                    f"Warning: Failed to parse {rel_path}:{e.lineno} - {e.msg}",
+                    f"ERROR: Failed to parse {rel_path}:{e.lineno} - {e.msg}. "
+                    f"A policed file that cannot be parsed would escape this scan "
+                    f"(a silent blind spot); fix its syntax or encoding.",
                     file=sys.stderr,
                 )
-                continue
+                sys.exit(2)
             except OSError as e:
                 rel_path = py_file.relative_to(monorepo_root)
-                print(f"Warning: Failed to read {rel_path} - {e}", file=sys.stderr)
-                continue
+                print(
+                    f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
+                    f"cannot be read would escape this scan; resolve the read error.",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
 
             # Check each import against forbidden prefixes, respecting allowed subtrees
             for line_num, imported_module in imports:
@@ -682,7 +715,10 @@ def scan_file_for_target_literals(file_path: Path) -> list[TargetLiteralHit]:
         SyntaxError: propagated from ast.parse (caller decides how to report).
         OSError: propagated if the file cannot be read.
     """
-    source_code = file_path.read_text(encoding="utf-8")
+    # utf-8-sig transparently strips a leading UTF-8 BOM (U+FEFF) so a
+    # BOM-prefixed file can never fail ast.parse and be silently skipped
+    # (design 023 scanner-integrity, task 07-30).
+    source_code = file_path.read_text(encoding="utf-8-sig")
     tree = ast.parse(source_code, filename=str(file_path))
 
     hits: list[TargetLiteralHit] = []
@@ -773,14 +809,20 @@ def scan_target_literals(
             except SyntaxError as e:
                 rel_path = py_file.relative_to(monorepo_root)
                 print(
-                    f"Warning: Failed to parse {rel_path}:{e.lineno} - {e.msg}",
+                    f"ERROR: Failed to parse {rel_path}:{e.lineno} - {e.msg}. "
+                    f"A policed file that cannot be parsed would escape this scan "
+                    f"(a silent blind spot); fix its syntax or encoding.",
                     file=sys.stderr,
                 )
-                continue
+                sys.exit(2)
             except OSError as e:
                 rel_path = py_file.relative_to(monorepo_root)
-                print(f"Warning: Failed to read {rel_path} - {e}", file=sys.stderr)
-                continue
+                print(
+                    f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
+                    f"cannot be read would escape this scan; resolve the read error.",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
 
             if hits:
                 results[py_file] = hits
@@ -955,7 +997,10 @@ def scan_file_for_provider_conditionals(file_path: Path) -> list[ProviderConditi
         SyntaxError: propagated from ast.parse (caller decides how to report).
         OSError: propagated if the file cannot be read.
     """
-    source_code = file_path.read_text(encoding="utf-8")
+    # utf-8-sig transparently strips a leading UTF-8 BOM (U+FEFF) so a
+    # BOM-prefixed file can never fail ast.parse and be silently skipped
+    # (design 023 scanner-integrity, task 07-30).
+    source_code = file_path.read_text(encoding="utf-8-sig")
     tree = ast.parse(source_code, filename=str(file_path))
 
     hits: list[ProviderConditionalHit] = []
@@ -991,14 +1036,20 @@ def scan_provider_conditionals(
             except SyntaxError as e:
                 rel_path = py_file.relative_to(monorepo_root)
                 print(
-                    f"Warning: Failed to parse {rel_path}:{e.lineno} - {e.msg}",
+                    f"ERROR: Failed to parse {rel_path}:{e.lineno} - {e.msg}. "
+                    f"A policed file that cannot be parsed would escape this scan "
+                    f"(a silent blind spot); fix its syntax or encoding.",
                     file=sys.stderr,
                 )
-                continue
+                sys.exit(2)
             except OSError as e:
                 rel_path = py_file.relative_to(monorepo_root)
-                print(f"Warning: Failed to read {rel_path} - {e}", file=sys.stderr)
-                continue
+                print(
+                    f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
+                    f"cannot be read would escape this scan; resolve the read error.",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
 
             if hits:
                 results[py_file] = hits

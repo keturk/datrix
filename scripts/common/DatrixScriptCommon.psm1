@@ -186,11 +186,51 @@ function Get-DatrixMonoProjectNames {
  return $names
 }
 
+function Get-DatrixInstalledPlatforms {
+ <#
+ .SYNOPSIS
+ Return the names of all installed `datrix.platforms` entry-point plugins in the given Python environment.
+
+ .DESCRIPTION
+ Enumerates the `datrix.platforms` entry-point group at runtime (importlib.metadata) so the
+ installed platform set is discovered, never hardcoded. Installing a datrix-codegen-<provider>
+ package makes its platform name appear here with no script edit (design 023 DI-6 / D4 open
+ identity). Never hardcodes aws/azure/docker.
+
+ Fails loud (throws) on a non-zero exit from the python invocation — a query failure must be
+ distinguishable from the real, different state "zero platforms installed".
+
+ .PARAMETER PythonExe
+ Path to the python.exe to query. Caller resolves this via Get-DatrixVenvPath (venv.ps1).
+ #>
+ [CmdletBinding()]
+ param(
+  [Parameter(Mandatory = $true)]
+  [string]$PythonExe
+ )
+
+ # Single-quoted here-string + single-quoted python literals + per-line print:
+ # embedding double-quotes in a `python -c` argument gets mangled by Windows
+ # PowerShell's native-command quoting, so this script deliberately uses no
+ # double-quotes.
+ $pyScript = @'
+import importlib.metadata as m
+for name in sorted(e.name for e in m.entry_points(group='datrix.platforms')):
+    print(name)
+'@
+ $output = & $PythonExe -c $pyScript
+ if ($LASTEXITCODE -ne 0) {
+  throw "Failed to enumerate installed datrix.platforms plugins via $PythonExe (exit $LASTEXITCODE)."
+ }
+ return @($output | Where-Object { $_.Trim() -ne "" })
+}
+
 Export-ModuleMember -Function @(
  "Get-DatrixWorkspaceRootFromScript",
  "ConvertTo-DatrixProjectName",
  "Get-DatrixPackageNamesGlob",
  "Get-DatrixPackageNamesGlobWithPyProject",
  "Get-DatrixTestablePackageNames",
- "Get-DatrixMonoProjectNames"
+ "Get-DatrixMonoProjectNames",
+ "Get-DatrixInstalledPlatforms"
 )

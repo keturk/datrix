@@ -34,7 +34,6 @@ param(
     [string]$TestSet = "typescript-validation",
 
     [Parameter()]
-    [ValidateSet("docker")]
     [string]$Platform = "docker",
 
     [switch]$Skip4,
@@ -51,6 +50,24 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $datrixScriptsRoot = Split-Path -Parent $scriptDir
 $commonDir = Join-Path $datrixScriptsRoot "common"
 Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
+
+# Runtime-validate -Platform against the installed datrix.platforms plugins
+# (design 023 DI-6 / D4 open identity) rather than a static ValidateSet, so a
+# newly installed datrix-codegen-<provider> package is selectable here with no
+# edit to this script.
+. (Join-Path $commonDir "venv.ps1")
+$venvActivated = Ensure-DatrixVenv
+if (-not $venvActivated) {
+    throw "Could not activate the Datrix Python venv; cannot enumerate installed platform plugins."
+}
+$pythonExe = Join-Path (Get-DatrixVenvPath) "Scripts\python.exe"
+$installedPlatforms = Get-DatrixInstalledPlatforms -PythonExe $pythonExe
+
+if ($Platform -notin $installedPlatforms) {
+    throw "Platform '$Platform' is not an installed datrix.platforms plugin. " +
+          "Installed platforms: $($installedPlatforms -join ', '). " +
+          "Install the corresponding datrix-codegen-<platform> package to add it."
+}
 
 $datrixWorkspaceRoot = Get-DatrixWorkspaceRoot -ScriptPath $MyInvocation.MyCommand.Path
 $generateScript = Join-Path (Join-Path $datrixScriptsRoot "dev") "generate.ps1"

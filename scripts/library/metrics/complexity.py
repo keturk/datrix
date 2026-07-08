@@ -78,8 +78,8 @@ EXCLUDED_COGNITIVE_BLOCKS: list[tuple[str, str]] = [
     ("datrix_codegen_python/generators/event_generator.py", "_build_event_schemas_context"),
     ("datrix_codegen_python/generators/model_generator.py", "_build_model_context"),
     ("datrix_codegen_python/generators/route_generator.py", "_add_imports_from_route_context"),
-    ("datrix_codegen_common/transpiler/python_transpiler_core.py", "visit_call"),
-    ("datrix_codegen_common/transpiler/python_transpiler_core.py", "visit_for_loop"),
+    ("datrix_codegen_python/transpiler/core.py", "visit_call"),
+    ("datrix_codegen_python/transpiler/core.py", "visit_for_loop"),
     ("datrix_codegen_typescript/generators/dto_generator.py", "_get_dto_fields"),
     ("datrix_codegen_typescript/generators/dto_generator.py", "_map_type_to_validators"),
     (
@@ -129,7 +129,7 @@ EXCLUDED_COGNITIVE_BLOCKS: list[tuple[str, str]] = [
 EXCLUDED_CYCLOMATIC_BLOCKS: list[tuple[str, str]] = [
     ("datrix_common/generator.py", "Generator"),
     ("transpiler/base.py", "Transpiler"),
-    ("datrix_codegen_common/transpiler/python_transpiler_core.py", "PythonTranspilerCore"),
+    ("datrix_codegen_python/transpiler/core.py", "PythonTranspilerCore"),
     ("datrix_codegen_typescript/transpiler/core.py", "TypeScriptTranspilerCore"),
     ("datrix_codegen_python/generators/api_test_generator.py", "ApiTestGenerator"),
     # TypeScript mirror: large orchestration class (same role as Python ApiTestGenerator).
