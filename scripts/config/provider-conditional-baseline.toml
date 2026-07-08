@@ -17,22 +17,6 @@
 #   count = <int>
 
 [[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/generators/_helpers.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/generators/persistence/python_cache_orchestrator.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/generators/service/_project_dependencies.py"
-count = 2
-
-[[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/generators/service/helper_generator.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generators/service/project_generator.py"
 count = 2
 

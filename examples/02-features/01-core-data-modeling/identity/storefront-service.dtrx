@@ -137,7 +137,7 @@ service shop.StorefrontService('config/storefront-service.dcfg')
         // Inbound payment webhook: stripe-signature-verified, no user auth.
         @path('/webhooks/payment')
         post receivePaymentEvent(PaymentWebhookRequest request)
-            : auth(public),
+            : auth(webhook),
               verify(signature, provider: stripe, secretRef: payment_webhook_secret)
             -> Void {
         }
