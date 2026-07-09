@@ -117,23 +117,24 @@ Datrix is built on proven software engineering principles that ensure:
 
 ---
 
-### 4. Immutability
+### 4. Immutability (Adopted: Build-Then-Sealed)
 
-**Principle:** The Application (AST model) is immutable after creation.
+**Principle:** The Application (AST model) is build-then-sealed: mutable while it is being constructed and analyzed, then sealed for the rest of its lifetime.
 
 **Why:**
-- Thread-safe
-- Predictable behavior
-- Prevents accidental modifications
-- Easier to reason about
+- Thread-safe once sealed
+- Predictable behavior for every consumer downstream of analysis
+- Prevents accidental modifications by generators
+- Easier to reason about — one clear boundary between "being built" and "final"
 
-**Application:** The Application (AST) model is immutable: AST classes are frozen (Pydantic v2). Modifying a parsed entity or service raises `FrozenInstanceError`. Generators are read-only and iterate over services and blocks without mutating the AST.
+**Application:** Parse/transform and semantic analysis operate on a mutable build view of the Application (AST) — construction, owner wiring, FK synthesis, inheritance merge, and the rest of `SemanticAnalyzer.analyze()`'s phases mutate the tree in place. `analyze()` ends by **sealing** the tree through a recursive `__setattr__` guard on `Node`: every node is marked sealed, and any assignment to a sealed node — or any node reachable from one — raises immediately. Generators receive a sealed `Application` and are read-only by construction, not by convention; iterating services and blocks without mutating the AST is enforced, not merely expected. See [Architecture Overview — Decision 20: Sealed, Generated AST Model](architecture-overview.md#decision-20-sealed-generated-ast-model-adopted).
 
 **Benefits:**
 - ✅ Thread-safe generation
-- ✅ No side effects
+- ✅ No side effects once sealed
 - ✅ Cacheable results
 - ✅ Easy to parallelize
+- ✅ Hidden phase-ordering bugs surface immediately instead of silently corrupting output
 
 ---
 
@@ -708,9 +709,9 @@ genDSL compiler intermediate structures stay in process memory and are rebuilt e
 
 ### Declarative Surface Family — Purposeful Mini-DSLs (Adopted)
 
-**Principle:** Datrix's declarative layer is a family of small, single-concern surfaces, not one mega-DSL. genDSL, ConfigDSL, and SeedDSL are siblings under one doctrine (design 025, adopted 2026-07-08), each owning exactly one decision family.
+**Principle:** Datrix's declarative layer is a family of small, single-concern surfaces, not one mega-DSL. genDSL, ConfigDSL, SeedDSL, RealizationDSL, and EmitDSL are siblings under one doctrine, each owning exactly one decision family.
 
-**F1 — Purposeful mini-DSLs, not one mega-DSL:** ConfigDSL owns deployment configuration, SeedDSL owns seed data, genDSL owns generator structure. A new decision family that needs a declarative home gets its own purpose-scoped surface; nothing is folded into genDSL because it happens to be declarative; a surface that grows a second concern is split.
+**F1 — Purposeful mini-DSLs, not one mega-DSL:** ConfigDSL owns deployment configuration, SeedDSL owns seed data, genDSL owns generator structure, RealizationDSL owns platform capability realization — typed `(block_type, flavor)` cells that drive provisioning dispatch, with the table cell (not text) as the authoring unit — and EmitDSL owns per-language emit-table declarations — typed builtin/operator emit decisions validated against the closed builtin registry, with the table row (not text) as the authoring unit. A new decision family that needs a declarative home gets its own purpose-scoped surface; nothing is folded into genDSL because it happens to be declarative; a surface that grows a second concern is split.
 
 **F2 — Declarations drive; they never merely describe:** a declarative artifact the runtime does not execute is banned — it drifts. The proof is in-tree: genDSL's declared-file rendering path was disabled in four of five production consumers (`render_declared_files=False` in datrix-codegen-azure, -aws, -sql, -docker), leaving a registry-and-validation layer whose core value sat inert while iteration was hand-coded a second time next to the declarations that described it. Either the declaration is the execution path or it is deleted.
 
@@ -814,7 +815,7 @@ Datrix design principles ensure:
 
 1. **Reliability** - Fail fast, no broken code
 2. **Type Safety** - Exhaustive mappings, no implicit conversions
-3. **Maintainability** - Template-based generation, single responsibility, immutable AST model
+3. **Maintainability** - Template-based generation, single responsibility, build-then-sealed AST model
 4. **Developer Experience** - Clear errors, readable code, helpful messages
 5. **Language Quality** - Platform-independent, DRY, progressive disclosure, configuration boundary, domain extension boundary
 6. **Code Quality** - Idiomatic, no dead code, readable output

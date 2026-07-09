@@ -177,19 +177,18 @@ Generators and domain extensions load through **setuptools entry-point groups** 
 
 - **Protocols** — Code generators implement `GeneratorPlugin`; platform generators implement `PlatformPlugin`. **Language targets subclass `LanguageGenerator`** (`datrix_common.generation.language_generator`): `generate()` is `@final` in the base class; subclasses implement **nine abstract methods**. See [code-generation.md](../../../../datrix-common/docs/architecture/code-generation.md#consolidated-generator-infrastructure) in datrix-common.
 - **`TypeMappingRegistry`** (`datrix_common.generation.type_mapping_registry`) — each registered language maps canonical `TypeRegistry` types (`global_registry.register_language()` at import time).
-- **`LanguageHooks` / `LanguageRuntimeSpec`** — post-write formatting and validation hooks, and infrastructure details for Docker (Dockerfile context, health checks, migration commands), respectively.
+- **`LanguageHooks` / `LanguageRuntimeSpec`** — reached as facets of each language's `LanguagePlugin` aggregate (registered under `datrix.languages`, not as standalone entry-point groups): post-write formatting and validation hooks, and infrastructure details for Docker (Dockerfile context, health checks, migration commands), respectively.
 
 ### Entry Point Groups
 
 | Group | Purpose | Protocol |
 |-------|---------|----------|
-| `datrix.generators` | Code generators (Python, TypeScript, SQL, component) | `GeneratorPlugin` |
+| `datrix.generators` | Standalone code generators (SQL, component) registered directly, not via a language bundle | `GeneratorPlugin` |
 | `datrix.platforms` | Platform generators (Docker, AWS, Azure) | `PlatformPlugin` |
-| `datrix.language_hooks` | Post-generation hooks (formatting, validation) | `LanguageHooks` |
-| `datrix.language_runtime_spec` | Infrastructure details (Dockerfiles, healthchecks, migrations, job/container commands, in-process-consumer predicate, project language) consumed by all four platform generators | `LanguageRuntimeSpec` |
+| `datrix.languages` | Aggregate language plugins (Python, TypeScript) bundling generator, hooks, runtime spec, type mappings, transpiler profile, migration adapter, and gendsl behind one registration | `LanguagePlugin` |
 | `datrix.extensions` | Domain extension packs (types, builtins, DB extension names, templates) | `DatrixExtension` |
 
-All protocols are defined in `datrix-common` (see `datrix_common.plugin.protocol`, `datrix_common.plugin.extension`, `datrix_common.generation.language_hooks`, `datrix_common.generation.language_runtime_spec`). The CLI and pipeline discover installed plugins at runtime. Users only install the generators they need — no unused dependencies. Install **`datrix-extensions`** only when using `use extension` in `system.dtrx`.
+There is no `datrix.language_hooks` or `datrix.language_runtime_spec` entry-point group — both protocols travel as facets of the one `LanguagePlugin` registered per language (Decision 23, [Architecture Overview](../architecture-overview.md#decision-23-generation-pipeline-and-plugin-coherence-adopted)). All protocols are defined in `datrix-common` (see `datrix_common.plugin.protocol`, `datrix_common.plugin.extension`, `datrix_common.plugin.language_plugin`, `datrix_common.generation.language_hooks`, `datrix_common.generation.language_runtime_spec`). The CLI and pipeline discover every plugin kind — generators, platforms, languages, and extensions — through one `PluginRegistry` discovery path, one cache, and one error family. Users only install the generators they need — no unused dependencies. Install **`datrix-extensions`** only when using `use extension` in `system.dtrx`.
 
 ---
 

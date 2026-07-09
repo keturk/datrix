@@ -70,6 +70,20 @@ Closes three closed-world defects (enum-based target identity, asymmetric langua
 
 Full decision log and phase plan: [Architecture Overview — Decision 15](./architecture-overview.md#decision-15-multi-target-plugin-architecture--open-world-targets-derived-conformance-adopted) | [datrix-common API — LanguagePlugin](../../../datrix-common/docs/datrix-common-api.md#languageplugin)
 
+## Open-World Identity, Flavors, and Runtimes
+
+Closes the last closed-world island the multi-target plugin migration left behind. Identity provider types, the six infrastructure flavors (Rdbms/Cache/Pubsub/Queue/Nosql/Storage), and deployment runtimes are **registry-validated open identifiers resolved against the installed platform plugin set** — no central capability matrix, no closed target/flavor/runtime enums. **Adopted**:
+
+| # | Invariant | Detail |
+|---|---|---|
+| I1 | No central identity policy table | The former `CAPABILITY_MATRIX`/`_MATRIX_INDEX`/`_SET_FEATURES` and the hardcoded self-host-IdP-on-cloud special case are gone; one generic validator asks the selected platform plugin |
+| I2 | No closed target/flavor/runtime enums remain | Identity provider type, deployment target, deployment runtime, and the six `*Flavor` value sets are open identifiers, not enums, in `datrix-common` |
+| I3 | Each platform declares its own column | Identity `(provider type, feature)` support, flavor cells, and runtime support live in that platform's `PlatformCapabilityDeclaration` — never a shared table |
+| I4 | Unknown values fail loud | An unrecognized identity provider type, flavor, or runtime raises, listing the installed plugins and what they declare |
+| I5 | Behavior preserved for the shipped set | Existing identity/flavor/runtime combinations resolve identically — pure relocation of policy into declarations |
+
+Full decision log: [Architecture Overview — Decision 22](./architecture-overview.md#decision-22-open-world-identity-providers-and-infrastructure-flavors-adopted).
+
 ## Transpiler pipeline (per file)
 
 ```

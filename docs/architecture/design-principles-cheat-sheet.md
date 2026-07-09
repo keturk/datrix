@@ -7,7 +7,7 @@
 1. **Fail Fast, Fail Loud** -- Errors at generation time, not runtime. Raise with context, never return None.
 2. **Templates + Formatter** -- Jinja2 templates; after write, `LanguageHooks` run ruff / Prettier when `format_output` is on. No raw string concatenation.
 3. **Exhaustive Type Mappings** -- Every type explicitly mapped per language. Unmapped = error. No defaults/fallbacks.
-4. **Immutability** -- AST model is frozen (Pydantic v2). Generators are read-only.
+4. **Immutability — Build-Then-Sealed (Adopted)** -- AST model is mutable through parse/transform and semantic analysis; `analyze()` seals it via a recursive `__setattr__` guard on `Node`. Generators receive a sealed application; any post-seal mutation raises immediately.
 5. **Single Responsibility** -- One clear purpose per package/module.
 6. **Dependency Inversion** -- Depend on protocols, not concretions.
 7. **Explicit Over Implicit** -- No magic. All parameters explicit. Builtin traits are opt-in.
@@ -20,7 +20,7 @@
 14. **Construct-mapped platform realization** -- `.dtrx` = platform-agnostic logic; `.dcfg` = deployment target (runtime + provider + sizing); generator maps each DSL block to the target's native primitive. Service shape is derived from declared blocks, not from a service-flavor selector (retired). No silent ignore: unsupported combinations raise with actionable errors. No defaults: every deployment choice must be explicit in config.
 15. **Credentials fail closed** -- A missing/empty credential never silently disables auth (BD5 insecure-fallback applied to secrets). The only valid state for secret-backed auth is "required and present" — fail loud before constructing any unauthenticated client; unauthenticated operation is an explicit config declaration, never implied by an absent value. `.dtrx`/`.dcfg` carry only logical secret **handles** (never values, never derived/fallback); errors and logs name the logical secret + backend class, never the secret value.
 16. **Shared layers ask, target plugins answer (Adopted)** -- No language/provider name in `datrix-common`/`datrix-codegen-common`/`datrix-cli` source; `dict[TargetId, policy]` or `if target == X:` in a shared layer is a defect. Target facts live with the target's plugin. Enforced by the I1 lint ratchet, which passes at zero (`check-import-boundaries.ps1 -CheckTargetLiterals`).
-17. **Purposeful mini-DSLs** -- Datrix's declarative layer is a family of small single-concern surfaces (ConfigDSL, SeedDSL, genDSL, ...). Declarations drive execution (never merely describe), compilation is closed (unknown reference = load-time error), and text is earned (typed data declarations by default; computation stays in Python). Never fold a new concern into an existing DSL because it happens to be declarative.
+17. **Purposeful mini-DSLs** -- Datrix's declarative layer is a family of small single-concern surfaces (ConfigDSL, SeedDSL, genDSL, RealizationDSL, EmitDSL, ...). RealizationDSL is typed platform-capability cells that drive provisioning dispatch -- the authoring unit is a table cell, not text. EmitDSL is typed per-language emit-table declarations validated against the closed builtin registry -- the authoring unit is a table row, not text. Declarations drive execution (never merely describe), compilation is closed (unknown reference = load-time error), and text is earned (typed data declarations by default; computation stays in Python). Never fold a new concern into an existing DSL because it happens to be declarative.
 
 ## DSL vs YAML Boundary
 
