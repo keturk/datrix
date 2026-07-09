@@ -13,6 +13,11 @@ service library.DataIngestionService('config/data-ingestion-service.dcfg') : ver
 
     enum IngestionStatus { Idle, Running, Completed, Failed }
 
+    // Request body for the service-facing ingestion trigger endpoint.
+    struct TriggerIngestionRequest {
+        String source;
+    }
+
     rdbms ingestionDb {
         entity IngestionRun {
             UUID id : primaryKey = uuid();
@@ -44,9 +49,9 @@ service library.DataIngestionService('config/data-ingestion-service.dcfg') : ver
 
     rest_api IngestionAPI : basePath('/api/v1/internal'), rdbms(ingestionDb) {
         @path('/ingestion/trigger')
-        post(String source) : auth(service, providers: [internal]) -> ingestionDb.IngestionRun {
+        post triggerIngestion(TriggerIngestionRequest request) : auth(service, providers: [internal]) -> ingestionDb.IngestionRun {
             return ingestionDb.IngestionRun.create({
-                source: source,
+                source: request.source,
                 status: IngestionStatus.Running,
                 startedAt: DateTime.now()
             });

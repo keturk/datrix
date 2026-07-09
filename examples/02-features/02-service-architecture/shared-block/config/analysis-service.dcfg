@@ -1,6 +1,6 @@
 ﻿config service library.AnalysisServiceService {
   base {
-    port = 8001;
+    port = 8002;
     flavor = "compose";
     replicas = 1;
     resources {
@@ -51,6 +51,14 @@
             type = "exponential";
             initial = "100ms";
             multiplier = 2;
+          }
+        }
+      }
+      dependencyPolicy {
+        defaults {
+          service {
+            availability = "required";
+            health = "ready";
           }
         }
       }

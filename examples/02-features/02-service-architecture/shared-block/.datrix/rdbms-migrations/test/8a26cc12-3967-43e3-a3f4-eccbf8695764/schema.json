@@ -1,0 +1,162 @@
+{
+  "block": {
+    "name": "analysisDb"
+  },
+  "container": {
+    "kind": "service",
+    "name": "library.AnalysisService"
+  },
+  "cqrs_views": {},
+  "entities": {
+    "AnalysisRun": {
+      "fields": {
+        "completedAt": {
+          "column_name": "completed_at",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "id": {
+          "column_name": "id",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "uuid()"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": true,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "recordsAnalyzed": {
+          "column_name": "records_analyzed",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "0"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Integer",
+            "values": []
+          }
+        },
+        "source": {
+          "column_name": "source",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "startedAt": {
+          "column_name": "started_at",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "status": {
+          "column_name": "status",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "enum",
+            "name": "AnalysisStatus",
+            "values": [
+              "Pending",
+              "Running",
+              "Completed",
+              "Failed"
+            ]
+          }
+        }
+      },
+      "foreign_keys": [],
+      "indexes": [],
+      "table_name": "analysis_runs",
+      "table_options": {}
+    }
+  },
+  "enums": [
+    {
+      "database_name": "analysis_status",
+      "name": "AnalysisStatus",
+      "values": [
+        "Pending",
+        "Running",
+        "Completed",
+        "Failed"
+      ]
+    }
+  ],
+  "format": "datrix.rdbms.schema",
+  "latest_revision": "0001_initial",
+  "rdbms_id": "8a26cc12-3967-43e3-a3f4-eccbf8695764",
+  "schema_hash": "f7fdd6224d612132fb8866976023c2f943f25a20c236af925b90ab3fb30a6a48",
+  "service": {
+    "name": "library.AnalysisService",
+    "version": "1.0.0"
+  },
+  "version": 1
+}

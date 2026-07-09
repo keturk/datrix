@@ -1,0 +1,74 @@
+{
+  "block": {
+    "name": "readerMeta"
+  },
+  "container": {
+    "kind": "service",
+    "name": "library.CacheReaderService"
+  },
+  "cqrs_views": {},
+  "entities": {
+    "ReaderState": {
+      "fields": {
+        "checkedAt": {
+          "column_name": "checked_at",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "DateTime.now()"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "id": {
+          "column_name": "id",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "uuid()"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": true,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        }
+      },
+      "foreign_keys": [],
+      "indexes": [],
+      "table_name": "reader_states",
+      "table_options": {}
+    }
+  },
+  "enums": [],
+  "format": "datrix.rdbms.schema",
+  "latest_revision": "0001_initial",
+  "rdbms_id": "18d84064-f981-4b47-9335-d7a8d0d9885e",
+  "schema_hash": "91f57036acd168c278abfc348666f70192ec00d6bde588eddd1e7bdb5492d2e5",
+  "service": {
+    "name": "library.CacheReaderService",
+    "version": "1.0.0"
+  },
+  "version": 1
+}

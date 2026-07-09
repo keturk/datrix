@@ -1,0 +1,180 @@
+{
+  "block": {
+    "name": "ingestionDb"
+  },
+  "container": {
+    "kind": "service",
+    "name": "library.DataIngestionService"
+  },
+  "cqrs_views": {},
+  "entities": {
+    "IngestionRun": {
+      "fields": {
+        "completedAt": {
+          "column_name": "completed_at",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "errorMessage": {
+          "column_name": "error_message",
+          "default": null,
+          "migration_owned": true,
+          "nullable": true,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "id": {
+          "column_name": "id",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "uuid()"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": true,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "UUID",
+            "values": []
+          }
+        },
+        "recordsProcessed": {
+          "column_name": "records_processed",
+          "default": {
+            "kind": "literal",
+            "name": "literal",
+            "value": "0"
+          },
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "Integer",
+            "values": []
+          }
+        },
+        "source": {
+          "column_name": "source",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "String",
+            "values": []
+          }
+        },
+        "startedAt": {
+          "column_name": "started_at",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "scalar",
+            "name": "DateTime",
+            "values": []
+          }
+        },
+        "status": {
+          "column_name": "status",
+          "default": null,
+          "migration_owned": true,
+          "nullable": false,
+          "primary_key": false,
+          "storage": {
+            "max_length": null,
+            "precision": null,
+            "scale": null
+          },
+          "type": {
+            "constraints": {},
+            "kind": "enum",
+            "name": "IngestionStatus",
+            "values": [
+              "Idle",
+              "Running",
+              "Completed",
+              "Failed"
+            ]
+          }
+        }
+      },
+      "foreign_keys": [],
+      "indexes": [],
+      "table_name": "ingestion_runs",
+      "table_options": {}
+    }
+  },
+  "enums": [
+    {
+      "database_name": "ingestion_status",
+      "name": "IngestionStatus",
+      "values": [
+        "Idle",
+        "Running",
+        "Completed",
+        "Failed"
+      ]
+    }
+  ],
+  "format": "datrix.rdbms.schema",
+  "latest_revision": "0001_initial",
+  "rdbms_id": "db99f400-b5a2-4960-ae4e-9027271e91fa",
+  "schema_hash": "694ca1758199543cb92e7d3d4a38aa9f21a28a7908f995f979d0bbeba482fc51",
+  "service": {
+    "name": "library.DataIngestionService",
+    "version": "1.0.0"
+  },
+  "version": 1
+}
