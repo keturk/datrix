@@ -19,7 +19,8 @@
 13. **Staged transpilation** -- Name resolution and query expansion run as explicit Stages 1–2 (`StagePipeline`); each language emitter is Stage 3. Keep stage boundaries and side-tables (`ResolutionTable`) instead of monolithic “do everything in one visit” growth.
 14. **Construct-mapped platform realization** -- `.dtrx` = platform-agnostic logic; `.dcfg` = deployment target (runtime + provider + sizing); generator maps each DSL block to the target's native primitive. Service shape is derived from declared blocks, not from a service-flavor selector (retired). No silent ignore: unsupported combinations raise with actionable errors. No defaults: every deployment choice must be explicit in config.
 15. **Credentials fail closed** -- A missing/empty credential never silently disables auth (BD5 insecure-fallback applied to secrets). The only valid state for secret-backed auth is "required and present" — fail loud before constructing any unauthenticated client; unauthenticated operation is an explicit config declaration, never implied by an absent value. `.dtrx`/`.dcfg` carry only logical secret **handles** (never values, never derived/fallback); errors and logs name the logical secret + backend class, never the secret value.
-16. **Shared layers ask, target plugins answer (Planned — Design 023)** -- No language/provider name in `datrix-common`/`datrix-codegen-common`/`datrix-cli` source; `dict[TargetId, policy]` or `if target == X:` in a shared layer is a defect. Target facts live with the target's plugin. Enforced by the I1 lint ratchet (design 023, DI-1→DI-5).
+16. **Shared layers ask, target plugins answer (Adopted)** -- No language/provider name in `datrix-common`/`datrix-codegen-common`/`datrix-cli` source; `dict[TargetId, policy]` or `if target == X:` in a shared layer is a defect. Target facts live with the target's plugin. Enforced by the I1 lint ratchet, which passes at zero (`check-import-boundaries.ps1 -CheckTargetLiterals`).
+17. **Purposeful mini-DSLs** -- Datrix's declarative layer is a family of small single-concern surfaces (ConfigDSL, SeedDSL, genDSL, ...). Declarations drive execution (never merely describe), compilation is closed (unknown reference = load-time error), and text is earned (typed data declarations by default; computation stays in Python). Never fold a new concern into an existing DSL because it happens to be declarative.
 
 ## DSL vs YAML Boundary
 
@@ -49,6 +50,7 @@ Shipped `.dtrx` modules in `datrix-language` (see [datrix-stdlib-reference.md](.
 - **No dead code** -- only generate what's used
 - **Readable** output -- docstrings, type hints, clear names
 - **Spec-level tests** -- `test("...") { }` blocks compile to real test cases (pytest / Jest)
+- **Purposeful mini-DSLs, closed and driving** -- genDSL/ConfigDSL/SeedDSL are single-concern surfaces whose declarations are the execution path (never mere description), reject unknown references at load time, and default to typed data over text
 
 ## Full doc
 

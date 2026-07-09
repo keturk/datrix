@@ -200,7 +200,7 @@ Datrix is built on proven software engineering principles that ensure:
 
 **Example (cross-service exposure is an explicit choice):** A service's internal API surface is the explicit set of `access(Service)` endpoints, not an implicit consequence of naming or routing. An endpoint becomes cross-service-callable only by being marked `access(Service)` (and, for custom endpoints, named); a peer can never invoke a `public`/`access(authenticated)` endpoint as an RPC. Endpoint identity (`(method, name)`) is the stable contract callers bind to, decoupled from the `@path`/URL, which is a deployment detail. Likewise, the resilience posture of a `service` dependency is declared explicitly — the recommended values ship as a named config template opted into at the application level, so the numbers are always visible in config rather than silently inherited, and retry is enabled only on endpoints explicitly marked `idempotent`.
 
-**Example (network exposure is derived from auth contracts, not inferred):** A service's network exposure (public / gateway-fronted / internal) is derived from the explicit per-endpoint `auth(...)` contracts on its HTTP surface, never inferred from a service name or a service count. A machine-only service — every HTTP endpoint `auth(service)` — is internal; any `auth(public)`, `auth(optional)`, `auth(required)`, or `auth(webhook)` endpoint, or a `graphql_api`, makes the service externally exposed and gateway-routed when the system declares one. The classifier reads only the auth contracts plus whether the system declares a `gateway { }` block — never a name substring or a service-count threshold (see [Design 022 — Declaration-Driven Service Ingress](../../../design/022-declaration-driven-service-ingress.md), Decisions D2–D6, D9).
+**Example (network exposure is derived from auth contracts, not inferred):** A service's network exposure (public / gateway-fronted / internal) is derived from the explicit per-endpoint `auth(...)` contracts on its HTTP surface, never inferred from a service name or a service count. A machine-only service — every HTTP endpoint `auth(service)` — is internal; any `auth(public)`, `auth(optional)`, `auth(required)`, or `auth(webhook)` endpoint, or a `graphql_api`, makes the service externally exposed and gateway-routed when the system declares one. The classifier reads only the auth contracts plus whether the system declares a `gateway { }` block — never a name substring or a service-count threshold (see [Service Ingress Exposure](../../../datrix-common/docs/reference/service-ingress-exposure.md) for the full derivation rule).
 
 ---
 
@@ -314,17 +314,17 @@ Adding a second storage block does not break the API:
 
 ---
 
-### 10. Shared Layers Ask, Target Plugins Answer (Planned — Design 023)
+### 10. Shared Layers Ask, Target Plugins Answer (Adopted)
 
 **Principle:** Shared layers (`datrix-common`, `datrix-codegen-common`, `datrix-cli`) may ask questions about a target but must never answer them. No language or provider name may appear in shared-layer source; anything shaped like `dict[TargetId, policy]` or `if target == X:` in a shared layer is a defect — facts about a target live with the target's plugin, not in a central table.
 
 **Why:**
 - Makes the existing generality-preserving design rule (see repository `CLAUDE.md`) mechanical and lintable instead of relying on manual review
-- Every closed-world policy table observed today (target identity enums, provider dispatch tables, capability if-chains across shared packages) is an instance of a shared layer answering a question only a target plugin should own
+- Every closed-world policy table that used to exist (target identity enums, provider dispatch tables, capability if-chains across shared packages) was an instance of a shared layer answering a question only a target plugin should own
 
-**Application:** Status is `Planned` — mechanical enforcement is not yet in the tree. It arrives as an identifier-level lint gate over `datrix-common`, `datrix-codegen-common`, and `datrix-cli` source (design 023, invariant I1, landing at DI-1), frozen at today's measured count and ratcheting down only, reaching zero once the decision/rendering split completes at DI-5. Until then this principle is documented intent, not an enforced gate; the enums, dispatch tables, and lineup tuples described elsewhere in this document remain the accurate current-state contract.
+**Application:** Mechanically enforced today via an identifier-level lint ratchet over `datrix-common`, `datrix-codegen-common`, and `datrix-cli` source (invariant I1): `powershell -File "d:/datrix/datrix/scripts/dev/check-import-boundaries.ps1" -CheckTargetLiterals` exits 0 against an **empty** baseline (`datrix/scripts/config/target-literal-baseline.toml`) — the ratchet reached zero once the decision/rendering split completed. The closed target enums and central dispatch tables previously described in this document are deleted; see [Architecture Overview — Decision 15](architecture-overview.md#decision-15-multi-target-plugin-architecture--open-world-targets-derived-conformance-adopted) for the current-state contract.
 
-**Reference:** [Design 023 — Multi-Target Plugin Architecture](../../../design/023-multi-target-plugin-architecture.md) (Decision D1, invariant I1). See also [Principle 11: Construct-Mapped Platform Realization](#11-construct-mapped-platform-realization-stable) and [Architecture Overview — Decision 15](architecture-overview.md#decision-15-multi-target-plugin-architecture--open-world-targets-derived-conformance-planned--design-023).
+**Reference:** [Architecture Cheat Sheet — Multi-Target Plugin Architecture](architecture-cheat-sheet.md#multi-target-plugin-architecture) (invariant I1 check commands). See also [Principle 11: Construct-Mapped Platform Realization](#11-construct-mapped-platform-realization-stable) and [Architecture Overview — Decision 15](architecture-overview.md#decision-15-multi-target-plugin-architecture--open-world-targets-derived-conformance-adopted).
 
 ---
 
@@ -683,7 +683,7 @@ On AWS, both `ecs-fargate` and `app-runner` are **first-class** HTTP runtimes �
 
 ## Code Generation Principles
 
-### No Derived Artifacts (Planned)
+### No Derived Artifacts (Adopted)
 
 **Principle:** Generator definitions must not create a second editable artifact. The genDSL docstring is source; the compiled IR is runtime state only.
 
@@ -702,7 +702,23 @@ On AWS, both `ecs-fargate` and `app-runner` are **first-class** HTTP runtimes �
 | Generated cache or build-output tables | Tests that compile definitions in memory |
 | | CLI/runtime introspection over in-memory IR |
 
-If a genDSL compiler needs intermediate structures, they stay in process memory and are rebuilt every run.
+genDSL compiler intermediate structures stay in process memory and are rebuilt every run — no derived structure is checked in.
+
+---
+
+### Declarative Surface Family — Purposeful Mini-DSLs (Adopted)
+
+**Principle:** Datrix's declarative layer is a family of small, single-concern surfaces, not one mega-DSL. genDSL, ConfigDSL, and SeedDSL are siblings under one doctrine (design 025, adopted 2026-07-08), each owning exactly one decision family.
+
+**F1 — Purposeful mini-DSLs, not one mega-DSL:** ConfigDSL owns deployment configuration, SeedDSL owns seed data, genDSL owns generator structure. A new decision family that needs a declarative home gets its own purpose-scoped surface; nothing is folded into genDSL because it happens to be declarative; a surface that grows a second concern is split.
+
+**F2 — Declarations drive; they never merely describe:** a declarative artifact the runtime does not execute is banned — it drifts. The proof is in-tree: genDSL's declared-file rendering path was disabled in four of five production consumers (`render_declared_files=False` in datrix-codegen-azure, -aws, -sql, -docker), leaving a registry-and-validation layer whose core value sat inert while iteration was hand-coded a second time next to the declarations that described it. Either the declaration is the execution path or it is deleted.
+
+**F3 — Closed compilation:** every surface rejects unknown references at load time — unknown property, unresolvable binding, unknown feature — as a compile error, never a silent default. This is Fail Fast, Fail Loud applied to the meta-layer.
+
+**F4 — Text is earned:** new surfaces default to typed data declarations with validating loaders; a textual grammar is justified only where authoring ergonomics demand it. genDSL's own tokenizer, parser, and validator measure 1,940 LOC — that cost buys a readable embedded-docstring surface for generator authors, not a default for every future decision family. Computation stays in Python: DSLs declare structure, never implement algorithms.
+
+**Design reference:** [design/025-gendsl-2-closed-compilation-and-declared-rendering.md](../../../design/025-gendsl-2-closed-compilation-and-declared-rendering.md)
 
 ---
 

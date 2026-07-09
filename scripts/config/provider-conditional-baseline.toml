@@ -15,11 +15,3 @@
 #   [[baseline]]
 #   file = "path/relative/to/monorepo-root, forward slashes"
 #   count = <int>
-
-[[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/generators/service/project_generator.py"
-count = 2
-
-[[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/micro_generators/resilience.py"
-count = 1
