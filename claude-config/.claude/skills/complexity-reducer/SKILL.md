@@ -69,49 +69,11 @@ Apply these strategies to reduce complexity:
 
 ## Example Refactoring
 
-Before (complexity: 23):
-```python
-def process_items(items, config):
-    results = []
-    for item in items:
-        if item.is_valid:
-            if item.type == "A":
-                if config.enable_a:
-                    result = handle_a(item)
-                    if result:
-                        results.append(result)
-            elif item.type == "B":
-                if config.enable_b:
-                    result = handle_b(item)
-                    if result:
-                        results.append(result)
-    return results
-```
-
-After (complexity: 8):
-```python
-def _should_process(item, config):
-    """Check if item should be processed based on config."""
-    handlers = {
-        "A": config.enable_a,
-        "B": config.enable_b,
-    }
-    return item.is_valid and handlers.get(item.type, False)
-
-def _get_handler(item_type):
-    """Get handler function for item type."""
-    return {"A": handle_a, "B": handle_b}.get(item_type)
-
-def process_items(items, config):
-    results = []
-    for item in items:
-        if not _should_process(item, config):
-            continue
-        handler = _get_handler(item.type)
-        if handler and (result := handler(item)):
-            results.append(result)
-    return results
-```
+Nested `if item.type == "A": if config.enable_a: ...` / `elif item.type == "B": ...`
+chains (complexity 23) collapse via guard clause + dict dispatch: extract
+`_should_process(item, config)` (validity + per-type config check) and
+`_get_handler(item_type)` (type → handler dict lookup), then loop body becomes
+`if not _should_process(...): continue; handler = _get_handler(...); if handler and (result := handler(item)): results.append(result)` (complexity 8).
 
 ## Requirements
 
@@ -128,7 +90,7 @@ The refactored code MUST:
 Each refactoring is validated:
 1. **Syntax**: AST parsing succeeds
 2. **Tests**: Affected tests pass
-4. **Behavior**: Same results for same inputs
+3. **Behavior**: Same results for same inputs
 
 ## CLI
 

@@ -43,42 +43,6 @@ disable-model-invocation: true
 ### datrix-codegen-* (docker, aws, azure)
 - YAML/JSON builders. Validate manifests.
 
-## Code Examples
-
-### Type Hints
-```python
-def generate_model(self, entity: Entity) -> Path:
-    ...
-```
-Exception: Pydantic `@model_validator(mode="before")` — `Any` accepted for `data` parameter only.
-
-### Logging
-```python
-import logging
-logger = logging.getLogger(__name__)
-logger.info("operation_started param=%s", value)
-logger.info("operation_completed duration_ms=%.2f", duration)
-```
-
-### Error Messages
-```python
-raise ValidationError(
-    f"Field '{field.name}' has invalid type '{field.type}'.\n"
-    f"Valid types: {', '.join(VALID_TYPES)}\n"
-    f"Did you mean '{suggest_similar(field.type, VALID_TYPES)}'?"
-)
-```
-
-### Magic Constants
-```python
-# BAD: if status == 200: timeout = 30
-# GOOD:
-HTTP_OK = 200
-DEFAULT_TIMEOUT_SECONDS = 30
-if status == HTTP_OK:
-    timeout = DEFAULT_TIMEOUT_SECONDS
-```
-
 ## Anti-Patterns
 
 - **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)

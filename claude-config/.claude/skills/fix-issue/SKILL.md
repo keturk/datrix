@@ -24,16 +24,7 @@ Process issues sequentially — complete one before starting the next.
 
 ## Documentation Quick Reference
 
-For complete documentation index with "When to use" guidance, see [doc_index.md](../../../../../datrix/docs/doc_index.md).
-
-**Essential reads (MANDATORY before starting):**
-- MEMORY.md
-- [ai-agent-rules.md](../../../../../datrix-common/docs/contributing/ai-agent-rules.md) → Core rules, STOP AND THINK principle
-- [test-guidelines/](../../../../../datrix-common/docs/contributing/test-guidelines/) → Unit, integration, E2E test standards
-
-**Quick refs:**
-- [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md)
-- [design-principles-cheat-sheet.md](../../../../../datrix/docs/architecture/design-principles-cheat-sheet.md)
+See `d:\datrix\.claude\skills\_shared\fix-conventions.md` for the mandatory documentation reads and the Project Structure step. Also read MEMORY.md and `d:\datrix\datrix-common\docs\contributing\test-guidelines\` (unit, integration, E2E test standards) before starting.
 
 ---
 
@@ -76,83 +67,28 @@ Issue files follow this structure:
 
 ## Workflow
 
-### Phase 1: Understand (Read Only)
+Follow the Understand → Fix → Verify discipline from `/fix` (`d:\datrix\.claude\skills\fix\SKILL.md`), with the issue-report specifics below:
 
-1. **Read the issue file** at the provided path.
-2. **Extract key information:**
-   - Issue title and ID
-   - Affected examples/projects
-   - Test type and log folders
-   - Failure summary
-3. **Read the "Root Cause Analysis" section:**
-   - Note the traced source (generator/template/DSL)
-   - Understand the root cause
-   - Identify affected code locations
-4. **Read the "Recommended Fix" section:**
-   - **START with the recommended approach** unless you have a specific technical reason to deviate
-   - If the recommendation is unclear (e.g., mentions context flags without showing where they're set), **STOP and ASK** before investigating alternatives
-   - Don't rediscover what's already documented
-5. **Read the "Open Questions" section:**
-   - If there are unresolved questions that affect the fix, **STOP and ASK** for clarification
-6. **Identify which project(s) contain the bug:**
-   - If bug is in a codegen package (e.g., `datrix-codegen-python`), fix there
-   - If bug is in generated code, fix the generator/template that produced it
-   - NEVER fix generated code directly
-7. **Read the affected files** identified in Root Cause Analysis
-8. **End-of-phase assessment:**
-   - Root cause (one sentence)
-   - Files to modify (exact paths with line numbers if known)
-   - What the change will be (brief description)
-   - Estimated scope: Small (1-2 files, <20 lines), Medium (3-5 files), Large (6+ files)
-9. **If confident** → proceed to Phase 2 (include brief status note)
-10. **If NOT confident** (ambiguous root cause, multiple causes, Large scope, unclear recommended fix, unresolved open questions) → **STOP and present diagnosis, WAIT**
+### Understand — issue-report deltas
 
-### Phase 2: Fix (Write Code)
+- Read the issue file's Root Cause Analysis, Recommended Fix, and Open Questions sections.
+- **Start with the Recommended Fix** unless you have a specific technical reason to deviate; if it's unclear (e.g., mentions context flags without showing where they're set), **STOP and ASK** before investigating alternatives.
+- If **Open Questions** contains anything unresolved that affects the fix, **STOP and ASK** for clarification.
+- Identify which project contains the bug: codegen package bug → fix there; generated-code bug → fix the generator/template that produced it. NEVER fix generated code directly.
 
-1. **Make the changes identified in Phase 1**
-   - Follow the Recommended Fix section's instructions
-   - If the issue mentions specific line numbers or code patterns, use those
-2. **Check for logic map markers:** Before modifying any function or class, look for `# @canonical`, `# @pattern`, `# @boundary`, or `# @invariant` comments above it. If a marker exists, update it. If deleting marked code, remove the marker.
-3. **Stay within stated scope** — if fix grows beyond estimate, STOP and report
-4. **For template changes:** If modifying Jinja2 templates, verify the template syntax is correct
-5. **For generator changes:** If modifying generator code, ensure proper typing and follow all code quality standards
-6. **End-of-phase assessment:**
-   - What was changed (file:line summary)
-   - Any unexpected complications
-7. **If confident** → proceed to Phase 3
-8. **If NOT confident** → **STOP and present changes, WAIT**
+### Verify — issue-report deltas
 
-### Phase 3: Verify (Run Tests)
+Determine what to test **based on issue type**:
+- If the issue has **Log folder(s)**: re-run the tests that originally failed.
+- If the issue affects a codegen package: run that package's **targeted/affected tests** (not the full suite — see Phase 4 for the one-time full-suite gate).
+- If the issue affects generated code: regenerate the affected example(s), confirm the generated code now matches expectations, and run the example's targeted tests.
+- Test commands: `powershell -File "d:/datrix/datrix/scripts/test/test-single.ps1" "{test-path}" -Project {package-name} -VerboseOutput`, or `test.ps1 {package-name}` scoped to the affected tests.
+- **Fix introduced a new failure:** see `d:\datrix\.claude\skills\_shared\fix-conventions.md`.
+- If the original failure persists: fix was insufficient — report what's still wrong and ask for guidance.
 
-1. **Determine what to test based on issue type:**
-   - **If issue has "Log folder(s)":** Re-run the tests that originally failed
-   - **If issue affects a codegen package:** Run that package's test suite
-   - **If issue affects generated code:** Regenerate the affected example(s) and run their tests
-2. **For generated code issues:**
-   - If affected example is from the ecommerce project, regenerate it using the appropriate generation script
-   - Check that the generated code now matches expectations (no more errors in generated files)
-   - Run the example's unit tests
-3. **Run the relevant tests:**
-   - For datrix packages: `powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}`
-   - For single test: `powershell -File "d:/datrix/datrix/scripts/test/test-single.ps1" "{test-path}" -Project {package-name} -VerboseOutput`
-4. **Assess results:**
-   - **If tests pass:** Report success, done
-   - **If NEW failure:** Do NOT immediately fix. STOP and report:
-     ```
-     Fix introduced a new failure:
-     - Original issue: [what was fixed]
-     - New failure: [what broke]
-     - My assessment: [related to my change, or different issue?]
+### Phase 4: Final Gate and Report
 
-     Options:
-     1. Investigate the new failure (may expand scope)
-     2. Revert my change and rethink
-     3. Keep the fix, document new failure as separate issue
-     ```
-     **WAIT** for user decision
-   - **If original failure persists:** Fix was insufficient — report what's still wrong and ask for guidance
-
-### Phase 4: Report
+After all issues in this invocation are fixed and their targeted tests pass, run the affected package's **full test suite ONCE** as the final gate: `powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}`. This replaces per-issue full-suite runs (see Anti-Patterns).
 
 ```
 FIX-ISSUE COMPLETE
@@ -225,23 +161,7 @@ Each datrix package is an independent git repository. After completing fixes:
 
 ## Runaway Fix Detection
 
-If at any point you notice:
-
-- Modified more than **double** the estimated number of files
-- Working for **more than 3 tool-call rounds per issue** without completing
-- Simple fix revealed **cascading issues** in other files
-- About to modify code **outside stated scope**
-- Recommended fix is unclear and investigation isn't converging
-
-**STOP immediately:**
-```
-Fix is growing beyond estimate. Current state:
-- Originally estimated: [scope]
-- Actually touching: [what's grown]
-- Reason for growth: [why]
-
-Recommend: [continue / revert and rethink / split into smaller tasks]
-```
+See `d:\datrix\.claude\skills\_shared\fix-conventions.md` (also applies per-issue: more than 3 tool-call rounds per issue without completing, or an unclear recommended fix with investigation not converging, are runaway signals here too).
 
 ---
 

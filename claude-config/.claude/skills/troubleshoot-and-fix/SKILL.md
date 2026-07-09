@@ -61,19 +61,7 @@ D:\datrix\.generated\python\docker\01-foundation\.test_results\unit-tests-202603
 
 ## Documentation Quick Reference
 
-For complete documentation index with "When to use" guidance, see [doc_index.md](../../../../../datrix/docs/doc_index.md).
-
-**Essential reads (MANDATORY before starting):**
-- [ai-agent-rules.md](../../../../../datrix-common/docs/contributing/ai-agent-rules.md) → Core rules, STOP AND THINK principle
-- [architecture-overview.md](../../../../../datrix/docs/architecture/architecture-overview.md) → System architecture
-- [design-principles.md](../../../../../datrix/docs/architecture/design-principles.md) → Design philosophy
-
-**Quick refs:**
-- [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md)
-- [design-principles-cheat-sheet.md](../../../../../datrix/docs/architecture/design-principles-cheat-sheet.md)
-
-### Project Structure
-Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}`.
+See `d:\datrix\.claude\skills\_shared\fix-conventions.md` for the mandatory documentation reads and the Project Structure step.
 
 ## Scope Check
 
@@ -82,6 +70,8 @@ After reading mandatory documents and BEFORE investigation:
 1. **Count log folders** — each is a multi-step investigation
 2. **Confirm language scope** — Python or TypeScript? Do NOT cross languages.
 3. **If more than 3 distinct failure categories:** STOP and propose splitting.
+
+**Checkpoint discipline:** After each phase below, emit a lean checkpoint — phase name, counts (causes/files/fixes), and any blocker — one line per data point. Do not use a mad-lib narrative template; the compact form is sufficient for the orchestrator and the user to track progress.
 
 <!-- PHASE: log_parsing -->
 ## Phase 1: Log Parsing
@@ -149,34 +139,19 @@ Example:
 
 ### Output
 
-JSON with structured failure data:
-
-```json
-{
-  "log_folder": "D:\\datrix\\.generated\\...",
-  "test_type": "unit" | "deploy",
-  "clusters": [
-    {
-      "cluster_id": 1,
-      "representative_error_id": "failure-001",
-      "error_message": "ImportError: cannot import name 'UserRepository' from 'repositories'",
-      "traceback": [
-        {"file": "src/services/user_service.py", "line": 12, "code": "from repositories import UserRepository"}
-      ],
-      "generated_file": "D:\\datrix\\.generated\\...\\src\\services\\user_service.py",
-      "generated_code_snippet": "from repositories import UserRepository\n\nclass UserService:\n    ...",
-      "codegen_hint": {
-        "probable_template": "service.py.j2",
-        "probable_generator": "service_generator.py"
-      },
-      "affected_services": ["library"],
-      "count": 3
-    }
-  ],
-  "total_failures": 3,
-  "unique_clusters": 1
-}
-```
+Structured failure data, one entry per cluster:
+- `log_folder` — the folder this data was parsed from
+- `test_type` — `unit` or `deploy`
+- `clusters[].cluster_id` — cluster identifier
+- `clusters[].representative_error_id` — the failure chosen to represent the cluster
+- `clusters[].error_message` — the representative error text
+- `clusters[].traceback` — file/line/code entries leading to the failure
+- `clusters[].generated_file` — path to the broken generated file
+- `clusters[].generated_code_snippet` — the relevant broken code
+- `clusters[].codegen_hint.probable_template` / `probable_generator` — pre-identified suspects
+- `clusters[].affected_services` — services hit by this cluster
+- `clusters[].count` — occurrences of this cluster
+- `total_failures`, `unique_clusters` — totals across all clusters
 
 For deploy tests with pre-integration failures (docker-build, health-check), read `deploy-test-output.log` instead and extract build error messages.
 
@@ -261,33 +236,16 @@ Build a complete causal chain from DSL input to broken output:
 
 ### Output
 
-JSON with root causes:
-
-```json
-{
-  "root_causes": [
-    {
-      "root_cause_id": 1,
-      "title": "Service generator missing repository import",
-      "cluster_ids": [1],
-      "generator_file": "d:\\datrix\\datrix-codegen-python\\src\\generators\\service_generator.py",
-      "generator_line": 145,
-      "template_file": "d:\\datrix\\datrix-codegen-python\\templates\\service.py.j2",
-      "template_line": 12,
-      "causal_chain": [
-        ".dtrx defines service with repository dependency",
-        "ServiceTransformer extracts dependencies list",
-        "ServiceGenerator passes dependencies to template",
-        "Template iterates dependencies but skips imports for repositories (only imports entities)",
-        "Generated service.py missing 'from repositories import UserRepository'"
-      ],
-      "confidence": "HIGH",
-      "fix_approach": "Add repository imports to template's import section",
-      "affected_examples": ["01-foundation/01-library"]
-    }
-  ]
-}
-```
+Root causes, one entry per identified cause:
+- `root_cause_id` — identifier
+- `title` — short description
+- `cluster_ids` — which clusters from Phase 1 this explains
+- `generator_file` / `generator_line` — the generator source location
+- `template_file` / `template_line` — the template source location
+- `causal_chain` — ordered list from `.dtrx` definition through transformer/generator/template to the broken output
+- `confidence` — HIGH / MEDIUM / LOW
+- `fix_approach` — one-sentence description of the fix
+- `affected_examples` — examples this root cause affects
 
 ### Confidence Gate
 
@@ -322,29 +280,6 @@ JSON with root causes:
 ```
 
 Write to: `d:\datrix\issues\codegen-issue-{timestamp}.md`
-
-### End-of-Phase Report
-
-```
-ROOT CAUSE ANALYSIS COMPLETE:
-
-Root causes identified: {N}
-
-1. {Root cause title}
-   - Generator: {file:line}
-   - Template: {file:line}
-   - Confidence: HIGH/MEDIUM
-   - Affected examples: {list}
-
-2. {Root cause title}
-   ...
-
-{If HIGH confidence on all:}
-Proceeding to fix planning phase.
-
-{If MEDIUM confidence on any:}
-Diagnosis complete with MEDIUM confidence. Review before proceeding?
-```
 <!-- END_PHASE: root_cause_analysis -->
 
 <!-- PHASE: fix_planning -->
@@ -394,31 +329,13 @@ For each root cause:
 
 ### Output
 
-JSON with fix plans:
-
-```json
-{
-  "fix_plans": [
-    {
-      "root_cause_id": 1,
-      "root_cause_title": "Service generator missing repository import",
-      "files_to_modify": [
-        {
-          "file": "d:\\datrix\\datrix-codegen-python\\templates\\service.py.j2",
-          "line": 12,
-          "change": "Add repository imports to import section (iterate service.repositories, add 'from repositories import {Name}Repository')"
-        }
-      ],
-      "scope": "Small",
-      "logic_map_markers": [],
-      "estimated_lines_changed": 5
-    }
-  ],
-  "total_files": 1,
-  "total_lines": 5,
-  "estimated_scope": "Small"
-}
-```
+Fix plans, one entry per root cause:
+- `root_cause_id` / `root_cause_title` — which root cause this plans for
+- `files_to_modify[].file` / `line` / `change` — exact edit locations and descriptions
+- `scope` — Small / Medium / Large
+- `logic_map_markers` — markers found on code to be modified
+- `estimated_lines_changed` — rough line count
+- `total_files`, `total_lines`, `estimated_scope` — totals across all fix plans
 
 ### Confidence Gate
 
@@ -442,30 +359,6 @@ Reason for large scope:
 {why this fix is large}
 
 Proceed with this fix?
-```
-
-### End-of-Phase Report
-
-```
-FIX PLANNING COMPLETE:
-
-1. {Root cause 1 title}
-   - Files: {file:line}
-   - Change: {description}
-   - Scope: Small
-
-2. {Root cause 2 title}
-   - Files: {file:line}, {file:line}
-   - Change: {description}
-   - Scope: Medium
-
-Total estimated scope: {N} files, {M} line changes
-
-{If all Small/Medium:}
-Proceeding to fix implementation phase.
-
-{If any Large:}
-Large-scope fix detected. Approval required before proceeding.
 ```
 <!-- END_PHASE: fix_planning -->
 
@@ -527,89 +420,20 @@ Process fixes in priority order (highest-confidence first). For each fix:
 
 #### Step C: Checkpoint Report
 
-After each fix:
-
-```
-CHECKPOINT — Root Cause #{N}: {title}
-Status: FIXED / FAILED / DEFERRED
-Changed: {file:line} — {what changed}
-Verification: {result}
-```
-
-**If originally-failing tests were verified and PASS:**
-```
-CHECKPOINT — Root Cause #1: Import path incorrect
-Status: FIXED
-Changed: python_visitor_expressions.py:393 — Changed import from base to entity
-Verification: 2 originally-failing tests now PASS
-```
-
-**If verification was deferred (e2e tests requiring generation):**
-```
-CHECKPOINT — Root Cause #2: PolyString not converted to str
-Status: FIXED (verification deferred)
-Changed: _entity_relationships.py:578 — Added str() conversion
-Verification: Deferred to final test run (requires generation)
-```
-
-**If originally-failing tests still FAIL (will retry):**
-```
-CHECKPOINT — Root Cause #1: Import path incorrect
-Status: FAILED (attempt 1/3)
-Changed: python_visitor_expressions.py:393 — Changed import from base to entity
-Verification: Originally-failing tests still fail with same error
-
-Adjusting fix (attempt 2/3)...
-```
+After each fix, emit the generic lean checkpoint (per the Checkpoint discipline note above): root cause #, status (FIXED / FAILED / DEFERRED), file:line changed, and verification result (tests now passing / deferred to final run / still failing — attempt N/3).
 
 ### Output
 
-JSON with fix results:
+Fix results, one entry per root cause:
+- `root_cause_id` — which root cause
+- `status` — FIXED / FAILED
+- `files_modified` — files changed
+- `attempts` — attempts used
+- `tests_passing` / `tests_total` — verification counts (when directly verifiable)
+- `reason`, `last_error` — present only when `status` is FAILED
+- `fixes_applied`, `fixes_failed` — totals across all root causes
 
-```json
-{
-  "fix_results": [
-    {
-      "root_cause_id": 1,
-      "status": "FIXED",
-      "files_modified": ["templates/service.py.j2"],
-      "attempts": 1,
-      "tests_passing": 42,
-      "tests_total": 42
-    },
-    {
-      "root_cause_id": 2,
-      "status": "FAILED",
-      "files_modified": [],
-      "attempts": 3,
-      "reason": "Could not fix within 3 attempts",
-      "last_error": "AssertionError: Generated code missing async keyword"
-    }
-  ],
-  "fixes_applied": 1,
-  "fixes_failed": 1
-}
-```
-
-### Abort Conditions
-
-STOP immediately if:
-- Modified more than **double** the estimated number of files
-- Working for **more than 3 attempts** on a single root cause without convergence
-- Fix reveals **cascading issues** in unrelated subsystems
-- New test failures appear in **different codegen package** than the one being modified
-- About to modify code **outside stated language/generator scope**
-
-On abort, report what was fixed, what failed, and what remains.
-
-### Anti-Patterns
-
-- **NO fixing generated code directly** — always fix the generator/template
-- **NO debug scatter** — zero temporary logging
-- **NO cross-language fixes** — stay in the declared scope (Python or TypeScript)
-- **NO running full test suite after each fix** — verify originally-failing tests only, run full suite AFTER all fixes
-- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
-- **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)
+(Abort conditions and anti-patterns for this phase are covered by the pipeline-wide sections at the end of this document — nothing phase-specific to add here.)
 
 ### Best Practices
 
@@ -618,24 +442,6 @@ On abort, report what was fixed, what failed, and what remains.
 - Minimal edits: change only what fix plan specifies
 - Update markers: maintain logic map markers on modified code
 - Defer verification when tests require generation (e2e tests)
-
-### End-of-Phase Report
-
-```
-FIX IMPLEMENTATION COMPLETE:
-
-Fixes applied: {N}
-Fixes failed: {N}
-
-Changes made:
-1. {file:line} — {what changed} — fixes {root cause title} — {verification status}
-2. {file:line} — {what changed} — fixes {root cause title} — {verification status}
-
-{If any fixes need deferred verification:}
-Some fixes require full test suite run to verify (e2e tests that depend on generation).
-
-Proceeding to full test suite verification...
-```
 <!-- END_PHASE: fix_implementation -->
 
 <!-- PHASE: full_test_verification -->
@@ -686,85 +492,26 @@ Compare results to original failures:
 
 #### Step 3: Handle Results
 
-**If SUCCESS:**
+Report one template with the applicable status:
 ```
-FULL TEST VERIFICATION: PASS
-
-Originally failing: {N} tests
-Now passing: {N} tests
-New failures: 0
-
-All fixes verified successfully.
-Proceeding to regeneration phase.
-```
-
-**If PARTIAL SUCCESS:**
-```
-FULL TEST VERIFICATION: PARTIAL
-
-Originally failing: {N} tests
-Now passing: {M} tests ({M < N})
-Still failing: {K} tests (same errors)
-New failures: 0
-
-Fixed root causes: {list}
-Unresolved root causes: {list}
-
-Proceed to regeneration for successfully-fixed issues, or debug remaining failures?
-```
-WAIT for user decision.
-
-**If REGRESSION:**
-```
-FULL TEST VERIFICATION: REGRESSION DETECTED
+FULL TEST VERIFICATION: {SUCCESS | PARTIAL | REGRESSION}
 
 Originally failing: {N} tests
 Now passing: {M} tests
 New failures: {K} tests
-
-New failures introduced:
-- {test name} — {error}
-- {test name} — {error}
-
-STOPPING: Fixes introduced new failures.
-Analysis needed before proceeding.
+Fixed root causes: {list}
+Unresolved root causes: {list, if any}
+New failures introduced: {list, if REGRESSION}
 ```
-WAIT for user decision.
+- **SUCCESS** (`M == N`, `K == 0`): all fixes verified, proceed to regeneration phase.
+- **PARTIAL** (`M < N`, `K == 0`, remaining failures same error as before): WAIT for user decision — proceed to regeneration for fixed issues, or debug remaining failures.
+- **REGRESSION** (`K > 0`, or an originally-failing test now fails with a different error): STOP — fixes introduced new failures, analysis needed. WAIT for user decision.
 
 ### Output
 
-```json
-{
-  "verification_status": "SUCCESS" | "PARTIAL" | "REGRESSION",
-  "originally_failing_count": 12,
-  "now_passing_count": 12,
-  "new_failures_count": 0,
-  "tests_total": 3934,
-  "tests_passing": 3934
-}
-```
-
-### End-of-Phase Report
-
-```
-FULL TEST SUITE VERIFICATION COMPLETE:
-
-Test suite: {package-name}
-Result: {SUCCESS / PARTIAL / REGRESSION}
-
-Originally failing: {N} tests → Now passing: {M} tests
-New failures: {K} tests
-Total: {pass}/{total} PASS
-
-{If SUCCESS:}
-All originally-failing tests now pass. No regressions detected.
-
-{If PARTIAL:}
-Progress made but some issues remain. See unresolved root causes above.
-
-{If REGRESSION:}
-Fixes introduced new failures. Review and adjust before proceeding.
-```
+- `verification_status` — SUCCESS / PARTIAL / REGRESSION
+- `originally_failing_count`, `now_passing_count`, `new_failures_count` — counts driving the status above
+- `tests_total`, `tests_passing` — full suite totals
 <!-- END_PHASE: full_test_verification -->
 
 <!-- PHASE: regeneration -->
@@ -810,10 +557,11 @@ Record:
 
 **For unit test failures:**
 
-Run unit tests on regenerated output:
+The full-suite gate already ran in Phase 4.5 — here, run ONLY the originally-failing scoped tests against the regenerated output:
 ```
-powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
+powershell -File "d:/datrix/datrix/scripts/test/test-single.ps1" "{test-path}::{test-name}" -Project {package-name}
 ```
+(or `test.ps1 {package-name} -Specific "{pattern}"` if scoping by pattern rather than a single test ID)
 
 Compare to original failure:
 - **If tests now PASS:** Success (fix worked)
@@ -848,67 +596,17 @@ Report:
 
 ### Output
 
-JSON per example:
+Per example:
+- `example` — example name
+- `regeneration_status` — SUCCESS / FAILURE
+- `files_regenerated` — count
+- `test_type` — unit / deploy
+- `tests_passing` / `tests_total` — unit tests only
+- `originally_failing_tests` — PASS / still failing (unit tests only)
+- `deploy_test_recommendation` — present for deploy tests instead of test counts (deploy tests are not run in this phase due to cost)
+- `debug_artifacts` — CLEAN / FOUND (list)
 
-```json
-{
-  "example": "01-foundation/01-library",
-  "regeneration_status": "SUCCESS",
-  "files_regenerated": 42,
-  "test_type": "unit",
-  "tests_passing": 12,
-  "tests_total": 12,
-  "originally_failing_tests": "PASS",
-  "debug_artifacts": "CLEAN"
-}
-```
-
-OR (for deploy tests):
-
-```json
-{
-  "example": "02-features/05-infra",
-  "regeneration_status": "SUCCESS",
-  "files_regenerated": 87,
-  "test_type": "deploy",
-  "deploy_test_recommendation": "Run deploy test to verify health-check phase now passes",
-  "debug_artifacts": "CLEAN"
-}
-```
-
-### Checkpoint Report
-
-For each example:
-
-```
-CHECKPOINT — Example: {example}
-Status: REGENERATED
-Files regenerated: {N}
-Tests: {pass}/{total} PASS / DEPLOY TEST RECOMMENDED
-Debug artifacts: CLEAN
-```
-
-### End-of-Phase Report
-
-```
-REGENERATION COMPLETE:
-
-Examples regenerated: {N}
-
-1. {example 1}
-   - Files: {N} regenerated
-   - Tests: {pass}/{total} PASS
-
-2. {example 2}
-   - Files: {N} regenerated
-   - Tests: DEPLOY TEST RECOMMENDED
-
-Debug artifact check: CLEAN
-
-{If any tests still failing:}
-Unresolved failures:
-- {example} — {test name} — {error} (same as original / different failure)
-```
+After each example, emit the generic lean checkpoint (per the Checkpoint discipline note above).
 <!-- END_PHASE: regeneration -->
 
 ## Final Report

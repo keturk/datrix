@@ -181,21 +181,8 @@ Every task file MUST follow this template:
 ## Codebase Context
 
 **Architecture:** `.dtrx -> TreeSitterParser + Transformers -> Application (validated AST) -> Generators` -- no IR layer.
-**Logging:** Standard Python `logging` (`logger = logging.getLogger(__name__)`, %-style formatting) -- NOT structlog.
-**Code generation:** Jinja2 templates + ruff format (Python) / Prettier (TypeScript) -- NOT PythonClassBuilder or raw string concatenation.
 
-Key module paths:
-- `datrix_language.datrix_model.entity` -> Entity, Field
-- `datrix_language.datrix_model.containers` -> Service, Application
-- `datrix_language.datrix_model.blocks` -> RdbmsBlock, CacheBlock
-- `datrix_language.datrix_model.pubsub` -> PubsubBlock, Topic, Event, Subscription
-- `datrix_language.datrix_model.cqrs` -> CqrsBlock, View, Command, Query
-- `datrix_language.datrix_model.api` -> RestApi, Endpoint
-- `datrix_language.types` -> TypeRegistry, ScalarType, DatrixType
-- `datrix_common.template_generator` -> TemplateGenerator
-- `datrix_common.utils.text` -> to_snake_case, to_camel_case, to_pascal_case, to_kebab_case, to_screaming_snake_case, to_plural, to_singular, extract_simple_name
-- `datrix_common.generator` -> Generator, GeneratedFile
-- `datrix_common.paths` -> ServicePaths
+Key module paths: {list ONLY the module paths this task actually touches or consumes — do NOT paste a full canonical import list; that lives in `ai-agent-rules/canonical-imports.md`, which the perusal line already covers}
 
 ## Files to Review Before Starting
 
@@ -229,44 +216,21 @@ Key module paths:
 - {Boundary rules}
 - {What NOT to do}
 
-## Anti-Patterns to Avoid
+## Anti-Patterns & Best Practices
 
-- **Silent fallbacks:** Do NOT use `dict.get(key, None)` -- raise explicit errors instead
-- **Default type mappings:** Do NOT use `type_map.get(t, "Any")` -- raise on unknown types
-- **Empty exception blocks:** Do NOT use bare `except: pass` -- always log and re-raise
-- **String-based code generation:** Do NOT use `code += f"class {name}:"` -- use Jinja2 templates
-- **Placeholder code or stubs:** Do NOT use `# TODO` / `pass` -- implement completely
-- **Returning None on errors:** Do NOT use `-> T | None` lookups -- raise descriptive errors
-- **Deep inheritance chains:** Favor shallow inheritance + composition
-- **Platform-specific DSLs:** Do NOT use `@AzureCosmosDB(...)` -- keep generators generic
-- **Implicit or "magic" logic:** Make all behavior explicit and documented
-- **Over-engineering:** Do NOT add unnecessary abstractions or feature flags
-- **Workarounds:** Do NOT steer around issues or paper over them — fix the root cause or STOP and report (CLAUDE.md rule)
-- **Mocks/fakes in tests:** Do NOT use `MagicMock`, `Mock`, `patch`, `SimpleNamespace`, or any fake stand-in — use real objects, `.dtrx` fixtures, and factories from `datrix_common.testing`
-- **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)
+All prohibited patterns and code-quality standards live in `d:\datrix\datrix-common\docs\contributing\ai-agent-rules.md` (mandated by the perusal line at the top of this task) — do NOT restate them here. List below ONLY task-specific pitfalls: constructs THIS task could plausibly get wrong, one bullet each.
 
-## Best Practices to Follow
-
-- **Fail fast and loud:** `raise ExplicitError(f"message with context")`
-- **Provide helpful messages:** `"Not found. Available: [...]"`
-- **Use Jinja2 templates + formatter:** Jinja2 + ruff format (Python) / Prettier (TypeScript)
-- **Apply full type hints:** `def foo(x: str) -> int:`
-- **Use immutable models:** `ConfigDict(frozen=True)`
-- **Enforce exhaustive type mappings:** raise on unknown types
-- **Use standard logging with key=value format:** `logger.info("event key=%s", value)`
-- **Write comprehensive tests:** include error and success cases
-- **Favor shallow inheritance + traits:** e.g., `extends Base with Auditable`
-- **Prefer explicit over implicit definitions**
+- {task-specific pitfall, if any}
 
 ## Success Criteria
 
 1. {Concrete, testable outcome}
 2. {Measurable quality threshold}
-{... 8-15 specific criteria}
+{... 5-10 specific criteria — each one testable; no padding}
 - **Design conformance (MANDATORY):** the design invariant(s) this task implements (the `**Design acceptance property:**` above) hold, proven by an **executable check whose command + output are pasted** — typically a NEGATIVE check (the old construct / forbidden state is gone everywhere on the affected surface) AND a POSITIVE check (the new path is actually exercised). "It generates", "0 warnings", and "suite green" are necessary but NOT sufficient and never substitute for this.
 - For any "X replaces Y" scope: a check **FAILS if Y still exists anywhere** in the affected surface (not just "X works").
-- All tests pass: `python -m pytest tests/ -q`
-- >90% test coverage
+- Targeted tests pass (the commands in `## Targeted Tests`). Do NOT require a full-suite run in this task's criteria — the per-package quality gate owns the one full-suite verdict for the phase; per-task full-suite runs are redundant cost.
+- New code is covered by this task's own tests (success + error cases) — no per-task coverage-percentage run
 - No TODO/pass/placeholder code
 
 ## Estimated Complexity

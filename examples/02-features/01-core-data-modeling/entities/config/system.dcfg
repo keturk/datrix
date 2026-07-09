@@ -66,28 +66,6 @@
         }
       }
     }
-    gateway {
-      port = 80;
-      rateLimit {
-        default {
-          requests = 100;
-          window = "1m";
-          key = "ip";
-        }
-      }
-      auth {
-        jwt {
-          algorithm = "RS256";
-          issuer = "library";
-          expiresIn = 86400;
-        }
-      }
-      cors {
-        origins = ["http://localhost:3000"];
-        methods = ["GET", "POST", "PUT", "DELETE", "PATCH"];
-        headers = ["Content-Type", "Authorization"];
-      }
-    }
     observability {
       metrics {
         provider = "prometheus";
@@ -144,11 +122,6 @@
     deployment {
       runtime = "docker-compose";
       provider = "local";
-    }
-    gateway {
-      cors {
-        origins = ["https://library.example.com"];
-      }
     }
     observability {
       tracing {

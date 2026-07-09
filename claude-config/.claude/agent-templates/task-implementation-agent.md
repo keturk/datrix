@@ -111,12 +111,20 @@ Return a JSON report as the LAST thing in your output:
     "ran": true,
     "passed": true,
     "no_targeted_tests": false,
-    "fix_attempts": 0
+    "fix_attempts": 0,
+    "evidence": "the exact test command(s) run + the result line from the run's index.json (counts.passed/failed/error) — never a bare 'passed'"
+  },
+  "design_acceptance": {
+    "property": "the task's **Design acceptance property:** (or null if the task has none)",
+    "checked": true,
+    "evidence": "the negative + positive check commands you ran AND their pasted output"
   },
   "questions": [],
   "errors": []
 }
 ```
+
+**Evidence rule:** every claimed check in this report must carry the exact command + its actual output (or index.json counts). A bare "passed"/"green" claim is treated as unverified and will be re-run by the orchestrator at your task's expense — pasted evidence is what lets the orchestrator accept your result without redoing your work. (The orchestrator still independently runs the design-acceptance check at the completion gate; your evidence tells it exactly what to run and what to expect.)
 
 ## STUCK PROTOCOL — report, don't fake it
 

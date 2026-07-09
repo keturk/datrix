@@ -36,21 +36,7 @@ SCOPE: docker generator only
 
 ## Documentation Quick Reference
 
-For complete documentation index with "When to use" guidance, see [doc_index.md](../../../../../datrix/docs/doc_index.md).
-
-**Essential reads (MANDATORY before starting):**
-- [ai-agent-rules.md](../../../../../datrix-common/docs/contributing/ai-agent-rules.md) → Core rules, STOP AND THINK principle
-- [architecture-overview.md](../../../../../datrix/docs/architecture/architecture-overview.md) → Pipeline stages and where generation can fail
-
-**Quick refs:**
-- [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md)
-- [design-principles-cheat-sheet.md](../../../../../datrix/docs/architecture/design-principles-cheat-sheet.md)
-
-**Generation scripts (READ BEFORE running any datrix script):**
-- [generate.ps1 quick reference](../../../../../datrix/scripts/dev/quick-reference.md) → Code Generation section. Verify every parameter you pass against it (a pre-tool hook enforces this).
-
-### Project Structure
-Read `d:\datrix\{package-name}\.project-structure.md` for the package you will modify. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}`.
+See `d:\datrix\.claude\skills\_shared\fix-conventions.md` for the mandatory documentation reads and the Project Structure step. Also read `d:\datrix\datrix\scripts\dev\quick-reference.md` → Code Generation section BEFORE running any datrix script — verify every parameter you pass against it (a pre-tool hook enforces this).
 
 ## Scope
 
@@ -202,9 +188,7 @@ Pick the cluster representative (one project) and trace end to end:
 
 Choose the regeneration command from each failing project's `Source` / `Output` (see [Generation / Regeneration Commands](#generation--regeneration-commands)):
 
-- **Framework example** → regenerate that single `Source`, one at a time:
-  `powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" "{source-dtrx-path}" -L {language}`
-  If the cluster's root cause spans several examples, loop over them individually — regenerate the first, confirm SUCCESS, then the next, and so on. Do **NOT** use `-TestSet` / `-Domains` / `-All` to verify a fix.
+- **Framework example:** `powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" "{source-dtrx-path}" -L {language}` — loop over affected examples individually, confirming SUCCESS before moving to the next.
 
 Assess after **each** project's regeneration:
 - **Generation succeeds** → fix confirmed for that project. Move to the next affected project.
@@ -256,26 +240,7 @@ Unresolved (if any):
 
 ### Issue Report Format (LOW confidence / cannot fix)
 
-Write to `d:\datrix\issues\codegen-issue-{timestamp}.md`:
-
-```markdown
-# Codegen Issue: {title}
-
-**Date:** {date}
-**Log:** {log path}
-**Cluster signature:** {normalized error}
-**Affected projects:** {count} ({list})
-**Confidence:** LOW
-
-## Failure
-{representative Pipeline error message}
-
-## Investigation
-{generator/template/project files examined; why root cause is unclear}
-
-## Recommendation
-{manual steps; candidate root causes to explore}
-```
+See `d:\datrix\.claude\skills\_shared\fix-conventions.md` for the report template. Write to `d:\datrix\issues\codegen-issue-{timestamp}.md`.
 
 ---
 
@@ -293,7 +258,7 @@ On abort, write a partial issue report and report what was diagnosed, attempted,
 ## Anti-Patterns
 
 - **NO editing generated output** under `.generated/` or `.projects/` — fix the generator/template/project source; regeneration overwrites it.
-- **NO over-regenerating to verify** — regenerate **one project/example at a time** (a project = one `system.dtrx`; there is no single-service generation mode, so a single-service change still regenerates that whole project — CLAUDE.md); never run a group (`-TestSet`/`-Domains`) or `-All` to verify a fix. When several projects are affected, verify each individually, one by one.
+- **NO over-regenerating to verify** — regenerate one project/example at a time, never a group/`-All` (see Step 7).
 - **NO running a datrix script without checking** `datrix/scripts/dev/quick-reference.md` first — a pre-tool hook enforces this.
 - **NO exploring the repo from scratch** — read `.project-structure.md` and the context above.
 - **NO trusting triage grouping blindly** — confirm clusters against the raw log.

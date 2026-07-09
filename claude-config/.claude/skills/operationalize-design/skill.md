@@ -308,25 +308,7 @@ If you deviated: STOP and explain the deviation to the user.
 
 **MANDATORY FIRST STEP:** Read `d:\datrix\.claude\skills\generate-tasks\SKILL.md` completely before generating any tasks (you read it once; include the relevant template slice in each writer agent's prompt so they don't each re-read it). This skill follows the same workflow as `/generate-tasks` with one critical override described below.
 
-**HARD CONSTRAINT — Task Location Allowlist:** `.tasks` folders may ONLY be created at the root of one of these 13 framework projects, all directly under `D:\datrix\`:
-
-```
-D:\datrix\datrix\.tasks
-D:\datrix\datrix-cli\.tasks
-D:\datrix\datrix-codegen-aws\.tasks
-D:\datrix\datrix-codegen-azure\.tasks
-D:\datrix\datrix-codegen-common\.tasks
-D:\datrix\datrix-codegen-component\.tasks
-D:\datrix\datrix-codegen-docker\.tasks
-D:\datrix\datrix-codegen-python\.tasks
-D:\datrix\datrix-codegen-sql\.tasks
-D:\datrix\datrix-codegen-typescript\.tasks
-D:\datrix\datrix-common\.tasks
-D:\datrix\datrix-extensions\.tasks
-D:\datrix\datrix-language\.tasks
-```
-
-Every task file path AND the `dependencies.md` path MUST begin with `D:\datrix\{project}\.tasks\` where `{project}` is exactly one of the 13 names above. **The design document being operationalized often lives inside a customer/generated project (e.g. `D:\g\<customer-project>\`) — the tasks it produces NEVER go there.** If a task does not clearly belong to a specific framework package, place it under the **`D:\datrix\datrix\.tasks`** fallback bucket. NEVER create a `.tasks` folder under a customer project, under `D:\g\...`, or under any path outside `D:\datrix\{one-of-the-13}\`. Task tooling (`todo.ps1`, `complete.ps1`, `latest-phase.ps1`, the orchestrator skills) only scans `D:\datrix\*/.tasks`; a `.tasks` folder anywhere else is invisible and its tasks silently never run.
+**HARD CONSTRAINT — Task Location Allowlist:** the full allowlist (13 framework projects) and its rules live in `/generate-tasks` SKILL.md ("Task Location Allowlist — HARD CONSTRAINT"), which the mandatory first step below makes you read. The bindings that bite here: every task file path AND `dependencies.md` MUST begin with `D:\datrix\{project}\.tasks\` where `{project}` is one of the 13 allowlisted names; **the design document being operationalized often lives inside a customer/generated project (e.g. `D:\g\<customer-project>\`) — the tasks it produces NEVER go there**; tasks with no specific package go in the `D:\datrix\datrix\.tasks` fallback. Task tooling only scans `D:\datrix\*/.tasks` — a `.tasks` folder anywhere else is invisible and its tasks silently never run.
 
 **BEFORE generating tasks:**
 1. Count total tasks needed from the design: implementation tasks (each carrying its own tests + doc updates), migration tasks, and one quality gate per package with 2+ code tasks. Do NOT plan separate per-task test, verify, or docs tasks.
@@ -372,23 +354,7 @@ Every task file path AND the `dependencies.md` path MUST begin with `D:\datrix\{
    - **Each implementation task updates the docs its feature touches** as part of its scope (target the correct repo `docs/` folder — see the table below). Do NOT emit a separate `-docs` task.
    - **No separate `-verify` task.** Independent verification is provided by the per-package quality gate (category c), run by a different agent than the implementers.
 
-   Docs-folder targets for the in-task doc updates:
-
-     | Repo | Docs path |
-     |------|-----------|
-     | datrix | `d:\datrix\datrix\docs\` |
-     | datrix-cli | `d:\datrix\datrix-cli\docs\` |
-     | datrix-codegen-aws | `d:\datrix\datrix-codegen-aws\docs\` |
-     | datrix-codegen-azure | `d:\datrix\datrix-codegen-azure\docs\` |
-     | datrix-codegen-common | `d:\datrix\datrix-codegen-common\docs\` |
-     | datrix-codegen-component | `d:\datrix\datrix-codegen-component\docs\` |
-     | datrix-codegen-docker | `d:\datrix\datrix-codegen-docker\docs\` |
-     | datrix-codegen-python | `d:\datrix\datrix-codegen-python\docs\` |
-     | datrix-codegen-sql | `d:\datrix\datrix-codegen-sql\docs\` |
-     | datrix-codegen-typescript | `d:\datrix\datrix-codegen-typescript\docs\` |
-     | datrix-common | `d:\datrix\datrix-common\docs\` |
-     | datrix-extensions | `d:\datrix\datrix-extensions\docs\` |
-     | datrix-language | `d:\datrix\datrix-language\docs\` |
+   Docs-folder targets for the in-task doc updates: each repo's docs live at `d:\datrix\{repo}\docs\` — discover dynamically with `ls -d d:/datrix/datrix*/docs/`; do not rely on a hardcoded list.
 
    **Narrow exceptions (only when the work genuinely cannot live inside one implementation task):**
    - A standalone **integration/e2e** task is allowed only for a suite that spans multiple implementation tasks (e.g., a cross-service end-to-end fixture) **within a single `datrix-*` package**. It depends on the tasks it exercises. **Never operationalize a cross-package or language/provider matrix test** (a suite importing more than one generator package, or enumerating languages/providers like a LOCAL/AWS/Azure gate): Datrix is a multi-language, multi-platform generator, each package tests only its own surface, and the public `datrix` repo hosts no test suite. Genuine repo-level cross-cutting validation becomes a **script task under `datrix/scripts/test/`**, not a pytest suite.
@@ -449,7 +415,7 @@ This phase is COMPLETE when:
 - [ ] Any narrow-exception standalone integration/e2e or substantial-docs task is justified and (for docs) placed OUTSIDE the dependency chain
 - [ ] Tasks span ALL affected repos (not just the primary package)
 - [ ] **Every task file path and `dependencies.md` begins with `D:\datrix\{project}\.tasks\` where `{project}` is one of the 13 in the Task Location Allowlist** — no `.tasks` folder under a customer/generated project or any path outside the allowlist; tasks with no specific package use the `datrix\.tasks` fallback
-- [ ] Every task file is self-contained (no design doc references)
+- [ ] Every task file both REFERENCES the preserved design doc (`**Design reference:**`) AND inlines the relevant design content (self-contained per the Reference-AND-inline requirement)
 - [ ] Dependencies document (`dependencies.md`) created with lean format: group numbers and absolute paths only — no headers, tables, inventories, dependency text blocks, or prose
 - [ ] Output lists ALL task file paths (not "23 tasks remaining")
 - [ ] No dual-implementation gap: if the design introduces a new path, migration tasks ensure the new path is exercised by tests/examples
@@ -477,7 +443,7 @@ Do NOT duplicate the dependency graph in console output — it is already in `de
 
 Before proceeding to Phase 5, answer:
 1. Did I generate ALL tasks as actual files (not a summary/roadmap)?
-2. Did I inline design content in tasks (not reference the design doc path)?
+2. Did I both inline the design content AND keep the `**Design reference:**` pointer in every task (Reference-AND-inline)?
 3. Does every implementation task carry its OWN `## Tests` + `## Targeted Tests` and its in-scope doc updates (no separate `-tests`/`-docs` tasks)?
 4. Did I avoid generating any standalone `-verify` task (verification rides in the quality gate)?
 5. Did I create migration tasks for every numbered step in the design's migration/rollout section?

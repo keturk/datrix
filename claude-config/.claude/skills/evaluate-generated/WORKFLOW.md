@@ -89,29 +89,28 @@ powershell -File "d:/datrix/datrix/scripts/dev/evaluate-services.ps1" `
     -GeneratedDir "d:\datrix\.generated\python\docker-compose\local\03-domains\ecommerce"
 ```
 
-This runs 5 services concurrently (configurable via `-Parallel`). See `dev/quick-reference.md` for full parameters.
+This runs 5 services concurrently (configurable via `-Parallel`). See `dev/quick-reference.md` for full parameters. Monitor the batch the same way as Option C below (poll every ~5 minutes; treat a worker with no output growth across two polls as stalled).
 
 #### Option C: Evaluate Multiple Services Manually
 
-Spawn multiple agents to evaluate services concurrently:
+Spawn one agent per service via the Task tool (or separate sessions) to evaluate services concurrently:
 
 ```
-# Terminal 1
-/evaluate-generated-service
-PROMPT_FILE: D:\datrix\eval\...\service-product-service.prompt.md
-
-# Terminal 2 (new session)
-/evaluate-generated-service
-PROMPT_FILE: D:\datrix\eval\...\service-order-service.prompt.md
-
-# Terminal 3 (new session)
-/evaluate-generated-service
-PROMPT_FILE: D:\datrix\eval\...\service-payment-service.prompt.md
-
+Agent 1: /evaluate-generated-service  PROMPT_FILE: D:\datrix\eval\...\service-product-service.prompt.md
+Agent 2: /evaluate-generated-service  PROMPT_FILE: D:\datrix\eval\...\service-order-service.prompt.md
+Agent 3: /evaluate-generated-service  PROMPT_FILE: D:\datrix\eval\...\service-payment-service.prompt.md
 # ... etc
 ```
 
-Or use the Task tool to spawn parallel agents programmatically.
+**Model tier:** spawn each per-service agent with `model: sonnet` -- semantic evaluation is judgment work, not a job for `haiku`, and does not need `opus`.
+
+**Return contract:** each agent's final message MUST be exactly one decisive line:
+```
+EVAL: {READY|NOT READY} -- {passed}/{total} checks, blockers: {list or none}, report: {path}
+```
+The orchestrator reads this line to learn the outcome -- it does NOT re-read every generated report. It opens a report only for a service returned NOT READY.
+
+**Monitoring:** spawn agents in the background and poll every ~5 minutes (agent status + report file on disk). An agent with no output growth across two consecutive polls is stalled -- stop it and re-dispatch once; if it stalls again, mark that service `NOT-EVALUATED` and report it explicitly. Never silently drop a hung agent from the aggregate.
 
 #### Option D: Evaluate All Services Sequentially
 
@@ -120,6 +119,8 @@ Or use the Task tool to spawn parallel agents programmatically.
 /evaluate-generated-service
 PROMPT_FILE: D:\datrix\eval\...\service-{service-name}.prompt.md
 ```
+
+Each invocation must still end with the `EVAL: {READY|NOT READY} -- ...` return line from Option C so results aggregate the same way regardless of execution mode.
 
 **Time:** ~2-4 minutes × N services
 

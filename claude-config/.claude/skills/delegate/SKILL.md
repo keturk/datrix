@@ -44,6 +44,8 @@ Do not combine stages. Spec issues mask quality issues and vice versa.
 
 ## Agent Status Handling
 
+Every completed agent must return evidence for each claimed check as the exact command it ran plus the actual pasted output — never a bare "passed"/"green" — so you can trust the result without re-running it yourself.
+
 | Status | Action |
 |---|---|
 | DONE | Proceed to review |

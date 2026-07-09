@@ -81,10 +81,8 @@ After reading the failures:
 
    Starting with Cluster 1.
    ```
-4. **If `index.json` does not exist** (old-format log): Fall back to current behavior — read `full.log` and group manually.
-5. **If `index.json` has `"result": "INCOMPLETE"`:** Fall back to reading `full.log` for triage. The test run was interrupted and structured data is unavailable.
-6. **If `schema_version` is unrecognized:** Warn the user and fall back to legacy triage (read `full.log` and group manually).
-7. Prioritize: error clusters first (import/collection errors block other tests), then failure clusters by count descending.
+4. **Legacy fallback (any of: no `index.json`, `"result": "INCOMPLETE"`, or an unrecognized `schema_version`):** the run has no usable structured data — fall back to parsing `full.log` and grouping failures manually. This same fallback applies throughout the rest of this workflow wherever structured data would otherwise be used.
+5. Prioritize: error clusters first (import/collection errors block other tests), then failure clusters by count descending.
 
 ### Phase 2: Fix Loop (repeat for each root cause)
 
@@ -97,9 +95,8 @@ For each root cause, follow this strict sequence:
 3. Read the source file at the `source_location` indicated in the cluster
 4. Read the test file to understand what the test expects
 5. Read any relevant templates/generators if this is a codegen issue
-6. **DO NOT read `full.log`.** The individual failure file has everything you need.
-7. **If no structured failure files exist** (legacy format): Fall back to reading the log file and searching for the specific test failure.
-8. **DO NOT hypothesize without reading. DO NOT fabricate assumptions.**
+6. **DO NOT read `full.log`.** The individual failure file has everything you need (unless in the legacy fallback above).
+7. **DO NOT hypothesize without reading. DO NOT fabricate assumptions.**
 
 #### Step B: Identify the Fix
 
@@ -137,19 +134,7 @@ For each root cause, follow this strict sequence:
 2. Compare failure count: did it decrease?
 3. Check if the cluster you fixed is gone or reduced
 4. Check if any NEW clusters appeared (clusters not present in the previous `index.json`)
-5. **If new clusters appear:** STOP immediately.
-   ```
-   Fix for cluster {N} introduced {X} new failures in {Y} new clusters:
-   - {new cluster pattern} — {count} failures
-   - {new cluster pattern} — {count} failures
-
-   Options:
-   1. Investigate the new failures (may expand scope)
-   2. Revert and rethink the approach
-   3. Keep the fix and document new failures as separate issues
-   ```
-   **WAIT for user decision.**
-6. **If no `index.json`** (legacy format): Run the full test suite and check for new failures by reading the log.
+5. **If new clusters appear:** STOP immediately — see `d:\datrix\.claude\skills\_shared\fix-conventions.md` ("Fix Introduced a New Failure") for the report template and options. **WAIT for user decision.** (Legacy fallback: run the full test suite and check for new failures by reading the log.)
 
 ### Phase 3: Final Report
 

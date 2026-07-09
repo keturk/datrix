@@ -9,7 +9,7 @@ model: claude-opus-4-8
 
 Analyze structured bug reports, classify each as an **app-definition fix** or a **generator-level fix**, implement the appropriate changes, and update each bug report with the resolution.
 
-Bug reports are written by another agent that operates directly on a deployed product's generated code (e.g. on a staging server). That agent **cannot see the Datrix toolchain, generators, or app definitions** — it can only patch generated output in place. **Every fix it describes is a temporary patch that will be overwritten on the next regeneration.** Your job is to make the fix permanent in the source that survives regeneration: the **app definition** or the **generator/template**.
+Bug reports are written by another agent that operates directly on a deployed product's generated code (e.g. on a staging server). That agent **cannot see the Datrix toolchain, generators, or app definitions** — it can only patch generated output in place. **Every fix it describes is a temporary patch that will be overwritten on the next regeneration.** Your job is to make the fix permanent in the source that survives regeneration: the **app definition** or the **generator/template**. Treat the report's "Files Modified" / "What Was Changed" sections as diagnostic evidence of the correct output, not as completed work — do not skip or classify a bug as already-resolved just because the deployed patch currently works; it vanishes on the next regeneration.
 
 ## How to Invoke
 
@@ -71,22 +71,6 @@ Report layout varies between products (a product may use a richer template with 
 
 ---
 
-## Staging Fixes Are Temporary
-
-**Every fix described in a bug report is a temporary patch to generated code.** These patches are overwritten on the next regeneration. The bug report documents *what was wrong* and *what the other agent changed to make it work*, but **the bug is NOT fixed** from the Datrix perspective until the root cause is addressed in:
-
-- The **app definition** (`.dtrx` / `.dcfg` files), or
-- The **generator/template code** (`datrix-codegen-*` packages under `$DATRIX_HOME`)
-
-### What This Means for Triage
-
-- **Do NOT classify a bug as "already resolved"** because the report says it was fixed on staging
-- **Do NOT skip bugs** because the deployed system is currently working — the fix will vanish on regeneration
-- **Treat the "Files Modified" and "What Was Changed and Why" sections as diagnostic evidence**, not as completed work — they show you what the correct generated output should look like
-- The "Implications for the Datrix Code Generator" section is your primary guide for where to make the permanent fix
-
----
-
 ## Workflow
 
 ### Phase 1: Triage (Read Only)
@@ -104,34 +88,22 @@ Report layout varies between products (a product may use a richer template with 
    **Default assumption: fix the product's app definition.** Only classify as a generator fix when the evidence unambiguously points to a systematic generator defect that would affect any project — not just this one. When classification is ambiguous, choose Category A.
 
    **Category A — App Definition Fix (preferred):**
-   The bug can be resolved by modifying `.dtrx` or `.dcfg` files in the app definition directory. Indicators:
-   - Wrong API endpoint URLs or base URLs in integration definitions
-   - Missing or incorrect field mappings in entity/integration definitions
-   - Wrong configuration values (timeouts, rate limits, subscription tiers)
-   - Missing validators, constraints, or enum values
+   The bug can be resolved by modifying `.dtrx` or `.dcfg` files in the app definition directory. Decisive indicators:
    - The "Implications" section says "not a codegen issue" or describes DSL-level misconfiguration
    - The fix is project-specific — other projects using the same generator would not have this bug
-   - The generated code structure is correct but the inputs (DSL definitions) are wrong
+   - The generated code structure is correct but the inputs (DSL definitions) are wrong (e.g. wrong API URLs, field mappings, config values, missing validators/constraints)
 
    **Category B — Generator/Template Fix (only when necessary):**
-   The bug requires changing Datrix generator code (`datrix-codegen-*` packages). **Only use this category when there is clear evidence of a systematic generator defect.** Indicators:
-   - Code generation emits wrong language syntax (e.g., `.to_string()` instead of `str()`)
-   - Template produces incorrect code patterns (e.g., attribute access on dicts instead of `.get()`)
-   - Missing exception handling, null safety, or type conversion in generated code
-   - Incorrect type mappings (integer division, string conversion)
+   The bug requires changing Datrix generator code (`datrix-codegen-*` packages). **Only use this category when there is clear evidence of a systematic generator defect.** Decisive indicators:
    - The "Implications" section describes a systematic pattern that would affect ANY project using this generator
-   - The bug report title or implications mention "codegen", "template", "generator", or "transpiler"
    - The same bug would occur in any project using the same generator features — it is NOT specific to this product
+   - The bug report title or implications mention "codegen", "template", "generator", or "transpiler", or describe wrong emitted syntax/type mappings/missing null-safety in generated code
 
    **Category C — Both App and Generator Fix:**
    The bug has aspects requiring changes in both. Handle the app definition fix first (Category A), then the generator fix (Category B) only if the generator defect is confirmed.
 
    **Category D — Cannot Fix (Report Only):**
-   The bug describes issues outside the scope of app definitions and code generators. Examples:
-   - External API changes or outages
-   - Infrastructure/deployment issues
-   - Issues requiring manual code in custom extensions
-   - Issues blocked on a database schema change (the report itself is the deliverable)
+   The bug describes issues outside the scope of app definitions and code generators. Examples: external API changes/outages, infrastructure/deployment issues.
    - Mark these as "SKIPPED — requires manual intervention" and explain why
 
 4. **Group related bugs:**
@@ -301,22 +273,7 @@ Repositories with changes:
 
 ## Runaway Fix Detection
 
-STOP immediately if:
-
-- Modified more than **double** the estimated number of files
-- Working for **more than 3 tool-call rounds per bug** without completing
-- Simple fix revealed **cascading issues** in unrelated subsystems
-- About to modify code **outside stated scope** (non-generator, non-app-definition files)
-
-On runaway detection:
-```
-Fix is growing beyond estimate. Current state:
-- Originally estimated: {scope}
-- Actually touching: {what's grown}
-- Reason for growth: {why}
-
-Recommend: {continue / split into smaller tasks / ask for guidance}
-```
+See `d:\datrix\.claude\skills\_shared\fix-conventions.md` (also applies per-bug: more than 3 tool-call rounds per bug without completing is a runaway signal here too).
 
 ---
 

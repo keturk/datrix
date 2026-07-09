@@ -45,19 +45,7 @@ Alternative invocations (skill resolves the log folders):
 
 ## Documentation Quick Reference
 
-For complete documentation index with "When to use" guidance, see [doc_index.md](../../../../../datrix/docs/doc_index.md).
-
-**Essential reads (MANDATORY before starting):**
-- [ai-agent-rules.md](../../../../../datrix-common/docs/contributing/ai-agent-rules.md) → Core rules, STOP AND THINK principle
-- [architecture-overview.md](../../../../../datrix/docs/architecture/architecture-overview.md) → System architecture
-- [design-principles.md](../../../../../datrix/docs/architecture/design-principles.md) → Design philosophy
-
-**Quick refs:**
-- [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md)
-- [design-principles-cheat-sheet.md](../../../../../datrix/docs/architecture/design-principles-cheat-sheet.md)
-
-### Project Structure
-Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}`.
+See `d:\datrix\.claude\skills\_shared\fix-conventions.md` for the mandatory documentation reads and the Project Structure step.
 
 ## Scope Check (BEFORE starting investigation)
 
@@ -79,15 +67,6 @@ Which should I start with?
 ```
 
 **Do NOT silently attempt to investigate everything.** A thorough investigation of one issue is infinitely more valuable than a shallow pass over five issues.
-
-## STOP AND THINK
-
-**Before writing anything, understand the problem fully.** Do not guess. Do not jump to conclusions. Trace the full causal chain from symptom to root cause.
-
-Before writing the report:
-1. **Read and understand** all relevant code — generated code, templates, generators, .dtrx source
-2. **Trace the root cause** — why is this happening, not just what is happening
-4. **If uncertain, say so** — never guess at architecture, intent, or behavior
 
 ## Inputs
 
@@ -123,61 +102,11 @@ D:\datrix\.generated\python\docker\02-features\05-infrastructure-combinations\mu
 
 ### Structured Output Directory Layout (when available)
 
-Test results directories produced by `run_complete.py` may contain structured output:
+Test results directories produced by `run_complete.py` may contain structured output (per-field detail is covered in the phases below):
 
-**Unit tests:**
-```
-{project}/.test_results/unit-tests-{timestamp}/
-  index.json                          # Machine-readable index (READ THIS FIRST)
-  summary.txt                         # Human-readable summary (< 50 lines)
-  full.log                            # Combined console output
-  services/
-    {service_name}/
-      service.log                     # Raw pytest/Jest output for this service
-      junit.xml                       # (Python) pytest JUnit XML
-      jest-results.json               # (TypeScript) Jest JSON report
-  failures/                           # One file per unique test failure
-    001-{service}-{error_type}-{id}.txt
-  errors/                             # One file per collection/import error
-    001-{service}-{error_type}-{id}.txt
-```
-
-**Deploy tests:**
-```
-{project}/.test_results/deploy-test-{timestamp}/
-  index.json                          # Machine-readable index (READ THIS FIRST)
-  summary.txt                         # Human-readable summary (< 60 lines)
-  deploy-test-output.log              # Full execution log (unchanged)
-  environment.json                    # Toolchain metadata (unchanged)
-  docker-logs/                        # Per-container logs (unchanged)
-    library-book-service.log
-    ...
-  services/
-    {service_name}/
-      spec/
-        junit.xml                     # (Python) spec test results
-        jest-results.json             # (TypeScript) spec test results
-      integration/
-        junit-project.xml             # (Python) project-level integration
-        junit-service.xml             # (Python) per-service integration
-        jest-results.json             # (TypeScript) integration results
-  failures/                           # One file per test failure (logic + transient)
-    001-{service}-{phase}-{error_type}-{test_name}.txt
-  errors/                             # Infrastructure/lifecycle errors
-    001-{phase}-{error_type}[-{container}].txt
-```
-
-Cross-project aggregates (at `.generated/.test_results/`):
-```
-.generated/.test_results/unit-tests-{timestamp}/
-  aggregate-index.json                # Cross-project unit test index
-  aggregate-summary.txt
-
-.generated/.test_results/deploy-tests-{timestamp}/
-  aggregate-index.json                # Cross-project deploy test index (READ THIS FIRST)
-  aggregate-summary.txt               # Grouped by infrastructure/logic/transient
-  full.log                            # Full orchestration log
-```
+- **Unit tests** (`{project}/.test_results/unit-tests-{timestamp}/`): `index.json`, `summary.txt`, `full.log`, `services/{name}/service.log` (+ `junit.xml`/`jest-results.json`), `failures/`, `errors/`
+- **Deploy tests** (`{project}/.test_results/deploy-test-{timestamp}/`): `index.json`, `summary.txt`, `deploy-test-output.log`, `environment.json`, `docker-logs/`, `services/{name}/spec/` + `services/{name}/integration/`, `failures/`, `errors/`
+- **Cross-project aggregates** (`.generated/.test_results/unit-tests-{timestamp}/` or `deploy-tests-{timestamp}/`): `aggregate-index.json`, `aggregate-summary.txt`, `full.log`
 
 ## Workflow — Phased with Confidence Checks
 
@@ -368,185 +297,17 @@ Deploy test failures differ from unit tests — they include Docker lifecycle ph
 
 ### Phase 3D: Deploy Test Structured Root Cause Tracing
 
-**Goal:** Trace from the structured data back to the codegen source.
-
-1. **Start with `codegen_hint`** from the error/failure — the probable template and generator are pre-identified
-2. For infrastructure errors (docker-compose issues): Read the docker-compose template and DockerComposeGenerator
-3. For test failures: Read the identified test template and generator
-4. **Verify** the hint is correct — does this template actually produce the broken file?
-5. Use `dtrx_source` from the index to find the .dtrx file that produced the failing project
-6. Trace: `.dtrx source` → generator context → template rendering → broken output
-
-**Skip manual file-path-to-generator mapping when codegen_hint is populated and verified.**
+**Goal:** Trace from the structured data back to the codegen source — trace exactly as Phase 3S, with two deploy-test-specific deltas:
+- For infrastructure errors (docker-compose issues): read the docker-compose template and `DockerComposeGenerator` specifically.
+- Use `dtrx_source` from the index (rather than deriving it manually) to find the .dtrx file that produced the failing project.
 
 Proceed to Phase 4 (Impact and Report) as before.
 
 ---
 
-### Phase 1L: Legacy Triage (when `index.json` does NOT exist)
+### Phase 1L–3L: Legacy Triage (when `index.json` does NOT exist)
 
-**Goal:** Understand WHAT failed from raw logs. (This is the fallback for older test runs.)
-
-**For unit-tests failures:**
-1. Read `unit-tests-summary.log` — identify which services failed and how many tests failed
-2. For each failed service, read `{service-name}-tests.log` — find exact test failures, assertion errors, import errors, collection errors
-
-**For deploy-test failures:**
-1. Read `deploy-test-summary.log` — identify overall status and which projects failed
-2. Read `deploy-test-output.log` — find the specific failure point (build failure? health check timeout? test failure?)
-3. For container issues, read `docker-logs/{container-name}.log` — find application errors, startup failures, database connection issues
-
-**What to look for:**
-- `FAILED` / `ERROR` / `ERRORS` in pytest output
-- `ImportError` / `ModuleNotFoundError` — wrong imports in generated code
-- `TypeError` / `AttributeError` — wrong types or missing attributes in generated code
-- `SyntaxError` — template rendering produced invalid syntax
-- `sqlalchemy` errors — ORM model issues
-- `pydantic` validation errors — schema issues
-- Health check timeouts — service startup failures (check docker logs)
-- Docker build failures — missing dependencies, Dockerfile issues
-- `collection errors` — pytest could not even collect the tests (import failures)
-
-**End-of-phase assessment:**
-- Which services/containers failed
-- What type of failure (build, startup, test, timeout)
-- Key error messages
-- How many distinct failures there appear to be
-
-**If confident** in the failure summary (clear errors, obvious patterns) → proceed to Phase 2L (include brief status note).
-**If NOT confident** (ambiguous logs, unclear failure mode, too many distinct failures) → **STOP and present summary, WAIT** for user direction.
-
----
-
-### Phase 2L: Legacy Read the Failing Generated Code
-
-**Goal:** Understand the generated code that's failing. Nothing more.
-
-From the error messages identified in Phase 1L, read the generated file(s) that contain the bug:
-- Error tracebacks point to file paths within the generated project
-- Map the relative path to the full generated path under `.generated/`
-
-**Key generated file locations within a project (Python):**
-```
-{service_dir}/
-├── src/{python_package}/
-│   ├── models/{block_name}/         # SQLAlchemy ORM models
-│   ├── schemas/{block_name}/        # Pydantic schemas
-│   ├── services/{block_name}/       # Service layer
-│   ├── routes/{block_name}/         # FastAPI routes
-│   ├── events/                      # Event handlers
-│   ├── cqrs/                        # CQRS components
-│   ├── cache/                       # Cache configuration
-│   └── config/                      # App configuration
-├── tests/
-├── Dockerfile
-├── docker-compose.yml
-└── requirements.txt
-```
-
-**Key generated file locations within a project (TypeScript):**
-```
-{service_dir}/
-├── src/
-│   ├── entities/                    # TypeORM entities
-│   ├── dto/                         # Data transfer objects
-│   ├── controllers/                 # NestJS controllers
-│   ├── services/                    # NestJS services
-│   ├── modules/                     # NestJS modules
-│   ├── config/                      # Configuration files
-│   ├── database/                    # Database configs
-│   ├── nosql/                       # MongoDB configs
-│   ├── pubsub/                      # Pub/sub configs
-│   ├── observability/               # Tracing, logging
-│   └── app.module.ts                # Root module
-├── tests/
-├── Dockerfile
-├── docker-compose.yml
-└── package.json
-```
-
-**End-of-phase assessment:**
-- Which generated files contain the problem
-- The specific code that's wrong (with line numbers)
-- Your initial hypothesis about what's wrong
-
-**If confident** in the hypothesis (clear bug, obvious mismatch) → proceed to Phase 3L (include brief status note).
-**If NOT confident** (multiple possible causes, need user context on intent) → **STOP and present findings, WAIT** for user direction.
-
----
-
-### Phase 3L: Legacy Trace Back to Codegen Source
-
-**Goal:** Find the template/generator that produced the broken code.
-
-#### 3a: Find the .dtrx Source File
-
-The generated project path encodes the example location:
-- Generated: `.generated/{language}/{platform}/{category}/{example}/`
-- Source .dtrx: `datrix/examples/{category}/{example}/*.dtrx`
-
-Read the .dtrx source to understand the entity/service definitions that drive code generation.
-
-#### 3b: Identify the Generator and Template
-
-Map the generated file type to its generator and template:
-
-**Python targets:**
-
-| Generated File Pattern | Generator Class | Template | Package |
-|---|---|---|---|
-| `models/{block}/*.py` | `EntityGenerator` | `entity_model.py.j2` | `datrix-codegen-python` |
-| `schemas/{block}/*_schema.py` | `SchemaGenerator` | `entity_schema.py.j2` | `datrix-codegen-python` |
-| `services/{block}/*_service.py` | `ServiceGenerator` | `entity_service.py.j2` | `datrix-codegen-python` |
-| `routes/{block}/*_routes.py` | `EndpointGenerator` | `api_routes.py.j2` | `datrix-codegen-python` |
-| `docker-compose.yml` | Docker generators | compose templates | `datrix-codegen-docker` |
-| `Dockerfile` | Docker generators | dockerfile templates | `datrix-codegen-docker` |
-
-**TypeScript targets:**
-
-| Generated File Pattern | Generator/Template | Package |
-|---|---|---|
-| `src/entities/*.entity.ts` | Entity templates | `datrix-codegen-typescript` |
-| `src/dto/*.dto.ts` | DTO templates | `datrix-codegen-typescript` |
-| `src/config/*.ts` | Config templates | `datrix-codegen-typescript` |
-| `src/database/*.ts` | Database config templates | `datrix-codegen-typescript` |
-| `src/app.module.ts` | App module template | `datrix-codegen-typescript` |
-| `docker-compose.yml` | Docker generators | `datrix-codegen-docker` |
-| `Dockerfile` | Dockerfile templates | `datrix-codegen-docker` |
-
-**Key source locations:**
-
-- **Python templates:** `d:\datrix\datrix-codegen-python\src\datrix_codegen_python\templates\`
-- **Python generators:** `d:\datrix\datrix-codegen-python\src\datrix_codegen_python\generators\`
-- **TypeScript templates:** `d:\datrix\datrix-codegen-typescript\src\datrix_codegen_typescript\templates\`
-- **TypeScript generators:** `d:\datrix\datrix-codegen-typescript\src\datrix_codegen_typescript\generators\`
-- **Docker generators:** `d:\datrix\datrix-codegen-docker\src\datrix_codegen_docker\`
-- **Path helpers:** `d:\datrix\datrix-common\src\datrix_common\paths.py`
-- **Template engine:** `d:\datrix\datrix-common\src\datrix_common\rendering\`
-- **Base generator:** `d:\datrix\datrix-common\src\datrix_common\generation\`
-
-#### 3c: Read the Generator and Template
-
-Read the generator class to understand:
-- What context variables it passes to the template
-- How it builds the context (field mappings, type resolution, path construction)
-- What helper functions it calls
-
-Read the Jinja2 template to understand:
-- How the template uses the context variables
-- Where the error in the generated output originates
-
-#### 3d: Compare Generated Output vs Template
-
-Side-by-side compare the generated code (broken) against the template logic to pinpoint exactly where the template or generator produces wrong output.
-
-**End-of-phase assessment:**
-- The specific template/generator code that causes the issue
-- The causal chain from .dtrx → generator → template → broken output
-- Your confidence level in the diagnosis
-
-**If confident** in root cause (full causal chain traced, single clear origin) → proceed to Phase 4 (include brief status note). (Both structured and legacy workflows converge at Phase 4.)
-**If NOT confident** (multiple possible origins, incomplete trace, need user input) → **STOP and present analysis, WAIT** for user direction.
+When no structured index is available (older test run), do not guess at a workflow — read and follow `d:\datrix\.claude\skills\_shared\legacy-triage.md`. It covers triage from raw logs, reading the failing generated code, and tracing back to the codegen source. Converge at Phase 4 below when confident.
 
 ---
 
@@ -689,51 +450,6 @@ Created {N} issue report(s):
 - Same root cause across examples = one report
 - Different root causes in one example = separate reports
 - One report per distinct technical issue
-
-## Key Path Mappings
-
-### Generated Path -> .dtrx Source
-```
-.generated/{language}/{platform}/{category}/{example}/  ->  datrix/examples/{category}/{example}/*.dtrx
-```
-
-### Service Directory -> Service Name
-```
-library_book_service  ->  library.BookService
-ecommerce_order_service  ->  ecommerce.OrderService
-```
-Service names use dot-separated namespace + PascalCase. Service dirs use full snake_case.
-
-### Generated File -> Template
-The template that produced a file can be found by:
-1. Identify the file type from its path (model, schema, service, route, test, config)
-2. Look up the generator in the registry (Python: `datrix-codegen-python/.../registry.py`, TypeScript: `datrix-codegen-typescript/.../registry.py`)
-3. The generator's render call specifies the template name
-
-## CLI Quick Reference
-
-```powershell
-# Generate a single example
-powershell -File d:\datrix\datrix\scripts\dev\generate.ps1 "{source.dtrx}" "{output-dir}"
-
-# Generate all feature examples
-powershell -File d:\datrix\datrix\scripts\dev\generate.ps1 -TestSet features
-
-# Generate everything
-powershell -File d:\datrix\datrix\scripts\dev\generate.ps1 -All
-
-# Run codegen package tests
-powershell -File d:\datrix\datrix\scripts\test\test.ps1 datrix-codegen-python
-powershell -File d:\datrix\datrix\scripts\test\test.ps1 datrix-codegen-typescript
-powershell -File d:\datrix\datrix\scripts\test\test.ps1 datrix-codegen-docker
-powershell -File d:\datrix\datrix\scripts\test\test.ps1 datrix-common
-
-# Check test status across all repos
-powershell -File d:\datrix\datrix\scripts\test\status-tests.ps1
-
-# Compile check (syntax + imports)
-powershell -File d:\datrix\datrix\scripts\dev\compile.ps1 datrix-codegen-python
-```
 
 ## Anti-Patterns
 

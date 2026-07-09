@@ -1,4 +1,4 @@
-﻿---
+---
 description: Execute multiple tasks in parallel — evaluate all tasks for blockers, then delegate each to a separate agent
 model: claude-sonnet-4-6
 disable-model-invocation: true
@@ -119,46 +119,7 @@ Task file paths from skill invocation (provided by user as TASKS:, PHASE:, or TA
 
 JSON array of all tasks with blocker analysis:
 
-```json
-{
-  "can_parallelize": true,
-  "blocking_issues": [],
-  "tasks": [
-    {
-      "task_path": "d:\\datrix\\.tasks\\phase-40\\task-40-01.md",
-      "task_id": "task-40-01",
-      "title": "Define Skill Delegation Metadata Schema",
-      "package": ".claude/",
-      "category": "Implementation",
-      "dependencies": [],
-      "language_scope": "documentation",
-      "is_quality_gate": false,
-      "is_blocked": false,
-      "intra_phase_dependencies": [],
-      "files_to_review": ["d:\\datrix\\.claude\\README.md"],
-      "files_to_create": ["d:\\datrix\\.claude\\docs\\skill-delegation-schema.md"],
-      "files_to_modify": [],
-      "red_flags": []
-    },
-    {
-      "task_path": "d:\\datrix\\.tasks\\phase-40\\task-40-02.md",
-      "task_id": "task-40-02",
-      "title": "Design Phase Orchestrator Specification",
-      "package": ".claude/",
-      "category": "Implementation",
-      "dependencies": ["task-40-01-skill-metadata-schema"],
-      "language_scope": "documentation",
-      "is_quality_gate": false,
-      "is_blocked": false,
-      "intra_phase_dependencies": ["task-40-01"],
-      "files_to_review": ["d:\\datrix\\.claude\\docs\\skill-delegation-schema.md"],
-      "files_to_create": ["d:\\datrix\\.claude\\docs\\phase-orchestrator-spec.md"],
-      "files_to_modify": [],
-      "red_flags": []
-    }
-  ]
-}
-```
+JSON with `can_parallelize` (bool), `blocking_issues[]`, and `tasks[]` — one entry per task with fields: `task_path`, `task_id`, `title`, `package`, `category`, `dependencies[]`, `language_scope`, `is_quality_gate`, `is_blocked`, `intra_phase_dependencies[]`, `files_to_review[]`, `files_to_create[]`, `files_to_modify[]`, `red_flags[]`.
 
 ### Blocker Detection
 
@@ -276,97 +237,29 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
 
 2. **Spawn all agents in parallel** using a single message with multiple Task tool calls (all `run_in_background: true`, `max_turns: 40`)
 
-3. **Drive the agents with the Agent Progress Polling Protocol — do NOT wait for completion notifications.** Run the poll loop over all in-flight agents: every ~5 minutes, perform the genuine status + on-disk artifact check, never assuming an agent is working. As each poll detects an agent has **completed**, collect its result:
-   - Task status (IMPLEMENTED / BLOCKED / NEEDS_CONTEXT / FAILED)
-   - Files created/modified
-   - Targeted test results (pass/fail, fix attempts made)
-   - Any errors or questions encountered
+3. **Drive the agents per the Delegation Constraints above** (genuine 5-minute polls, never passive waiting). As each poll detects a completion, collect: status (IMPLEMENTED / BLOCKED / NEEDS_CONTEXT / FAILED), files created/modified, targeted test results (pass/fail, fix attempts), and any questions.
 
-4. **Handle agent questions immediately (at the poll that surfaces them):**
-   - If a poll finds an agent with a **spec gap or missing user input** (NEEDS_CONTEXT — unclear requirement, missing path, credential): use `AskUserQuestion` to relay to the user; re-dispatch the agent (background) after receiving answers; do NOT proceed to quality gate while questions are outstanding
-   - If a poll finds an agent with **technical ambiguity** (BLOCKED or NEEDS_CONTEXT with a design choice, conflicting patterns, or unclear root cause): invoke the **Decision Escalation Protocol** — spawn an Opus 4.8 (extra-high effort) agent to analyze and recommend; re-dispatch the implementation agent with Opus's recommendation
-   - If a poll finds an agent with a **hard blocker** (BLOCKED due to missing dependency, missing file, incomplete prereq): record the failure, report to user, do not re-attempt
-   - If a poll finds an agent **stalled** (no assigned-artifact change across two consecutive polls): investigate per the protocol — `TaskStop` and re-dispatch with corrective context, or mark BLOCKED
+4. **Handle non-IMPLEMENTED results at the poll that surfaces them:**
+   - **Spec gap / missing user input** (NEEDS_CONTEXT) → `AskUserQuestion`, then re-dispatch with the answer; do NOT proceed to the quality gate with questions outstanding
+   - **Technical ambiguity** (BLOCKED/NEEDS_CONTEXT on a design choice or unclear root cause) → **Decision Escalation Protocol** (below); re-dispatch with Opus's recommendation
+   - **Hard blocker** (missing dependency/file/prereq) → record the failure, report, do not re-attempt
+   - **Stalled** (per the polling protocol) → `TaskStop` + re-dispatch with corrective context, or mark BLOCKED
 
-5. **Report progress to user** after all agents have reached a terminal state (completed / blocked / failed, including any re-dispatched and re-completed):
-   - Which tasks completed implementation
-   - Brief summary of each result including targeted test outcomes
-   - Which targeted tests passed/failed per agent
-   - Proceed directly to Phase 3 (quality gate) — agents already ran targeted tests
+5. **When all agents reach a terminal state**, emit the checkpoint (below) and proceed directly to Phase 3 — agents already ran targeted tests.
 
-### Model Selection
+### Model Selection (per task — cheapest model that can do it correctly)
 
-- Use `model: "claude-sonnet-4-6"` for code implementation tasks
-- Use `model: "haiku"` for documentation-only tasks
+- `model: "haiku"` — documentation-only tasks, AND trivial mechanical code tasks with no design judgment (pure renames, moving a named constant, single-import/single-symbol edits, mechanical signature propagation)
+- `model: "claude-sonnet-4-6"` — all substantive code tasks (default when in doubt — doubt means Sonnet, not Haiku)
+- `model: "opus"` — only a genuinely hard/cross-cutting implementation (rare in a parallel batch)
 
 ### Output Format
 
-```json
-{
-  "agents_spawned": 3,
-  "agents_implemented": 3,
-  "results": [
-    {
-      "task_id": "task-40-01",
-      "status": "IMPLEMENTED",
-      "files_created": ["d:\\datrix\\.claude\\docs\\skill-delegation-schema.md"],
-      "files_modified": [],
-      "targeted_tests": {"ran": false, "no_targeted_tests": true}
-    },
-    {
-      "task_id": "task-40-02",
-      "status": "IMPLEMENTED",
-      "files_created": ["d:\\datrix\\.claude\\docs\\phase-orchestrator-spec.md"],
-      "files_modified": [],
-      "targeted_tests": {
-        "ran": true,
-        "passed": true,
-        "fix_attempts": 0,
-        "test_commands": ["powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-common -Specific \"tests/unit/test_phase_orchestrator.py\""]
-      }
-    },
-    {
-      "task_id": "task-40-03",
-      "status": "IMPLEMENTED",
-      "files_created": ["src/generators/entity_generator.py"],
-      "files_modified": ["src/core/generator_base.py"],
-      "targeted_tests": {
-        "ran": true,
-        "passed": true,
-        "fix_attempts": 1,
-        "test_commands": ["powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-python -Specific \"tests/unit/test_entity_generator.py\""]
-      }
-    }
-  ]
-}
-```
+JSON with `agents_spawned`, `agents_implemented`, and `results[]` — one entry per task: `task_id`, `status`, `files_created[]`, `files_modified[]`, `targeted_tests` (`ran`, `passed`, `fix_attempts`, `test_commands[]`, or `no_targeted_tests: true`).
 
 ### Checkpoint Reporting
 
-After all agents complete, emit a summary to the user:
-
-```
-IMPLEMENTATION PHASE COMPLETE
-
-Agents spawned: 3
-Implemented: 3
-
-IMPLEMENTED (targeted tests passed by agents):
-✓ Task 40-01: Define Skill Delegation Metadata Schema
-  - Files created: skill-delegation-schema.md
-  - No targeted tests defined
-
-✓ Task 40-02: Design Phase Orchestrator Specification
-  - Files created: phase-orchestrator-spec.md
-  - Targeted tests: PASSED
-
-✓ Task 40-03: Implement Entity Generator
-  - Files created: entity_generator.py
-  - Files modified: generator_base.py
-  - Targeted tests: PASSED (1 fix attempt)
-
-Proceeding to full-suite quality gate...
-```
+After all agents reach a terminal state, emit a lean summary: `IMPLEMENTATION PHASE COMPLETE — {implemented}/{spawned}`, one line per task (`✓ {task_id}: targeted tests {PASSED/FAILED/none} ({N} fix attempts)`), then proceed to the quality gate. List details only for non-IMPLEMENTED tasks.
 
 ### Error Handling
 
@@ -485,22 +378,7 @@ After all fix attempts are exhausted:
 
 For each task with status IMPLEMENTED:
 
-- **A task is eligible for COMPLETED only when ALL of these hold** (a green suite satisfies only the first — it is necessary, NOT sufficient):
-  1. **All tests pass** (including full suite) for the package.
-  2. **Not BLOCKED (terminal rule).** Agent status is IMPLEMENTED — never BLOCKED/FAILED/NEEDS_CONTEXT. A BLOCKED task can NEVER become COMPLETED.
-  3. **How-Solved is clean.** Read the task's `## How Solved`; if it contains `BLOCKED`/`Status: BLOCKED`/`partial`/`out of scope`/`workaround`/`dual path`/`not yet wired` or any unmet-criterion statement → NOT complete (the self-report overrides the IMPLEMENTED status — phase-01's 01-20 was COMPLETED with `Status: BLOCKED` in its body).
-  4. **Design-acceptance property proven.** Read the task's `**Design reference:**` + `**Design acceptance property:**` and run the proving check yourself (negative: old pattern gone on the affected surface; positive: new path exercised). Paste command + output. Do NOT trust the agent's claim. For "X replaces Y", prove **Y is gone everywhere**. If it cannot be proven (or a non-trivial task has no acceptance property) → NOT complete.
-
-  **If all 4 hold:**
-  - Mark task as completed using the script:
-    ```bash
-    powershell -File "d:/datrix/datrix/scripts/tasks/complete.ps1" "{task_path}"
-    ```
-    This changes the title from `# Task {NN}-{TT}: {Title}` to `# COMPLETED: Task {NN}-{TT}: {Title}`.
-  - Add `## How Solved` section with proof-of-work (raw pytest output from final full suite, **the design-acceptance check command + its output**, file line counts)
-  - Status → COMPLETED
-
-  **If any of 2–4 fail:** do NOT run `complete.ps1`. Record the unmet condition, mark the task BLOCKED/FAILED honestly, and (if the blocker is a separate defect) note it so a follow-up task can be created. NEVER mark complete because "the suite is green."
+- Apply the shared **completion-eligibility checklist**: read and follow `d:\datrix\.claude\skills\_shared\completion-eligibility.md` (4 conditions — tests green / not-BLOCKED-terminal / How-Solved clean / design-acceptance proven by a check YOU run; `complete.ps1` + proof-of-work on pass; BLOCKED recorded honestly with a tracked follow-up on fail). For this skill, condition #1's governing gate is the Phase-3 full suite for the package.
 
 - **If tests still fail after fix loop:**
   - Update task file: change title to `# FAILED: Task {NN}-{TT}: {Title}`
@@ -513,93 +391,9 @@ For tasks that agents already marked FAILED (targeted test failures):
 
 ### Output Format
 
-**If verification PASSED:**
+JSON with `status` (PASSED/FAILED), `packages_tested[]`, `full_suite_runs`, `results_per_package[]` (`package`, `total_tests`, `tests_passing`, `tests_failing`, and on failure `known_failures[]` + `new_failures[]` with `test_name`, `error`, `likely_source_task`, `fix_attempts`, `fix_result`), `tasks_completed[]`, `tasks_failed[]`, `fixes_made[]`.
 
-```json
-{
-  "status": "PASSED",
-  "packages_tested": ["datrix-codegen-python"],
-  "full_suite_runs": 2,
-  "results_per_package": [
-    {
-      "package": "datrix-codegen-python",
-      "total_tests": 185,
-      "tests_passing": 185,
-      "tests_failing": 0
-    }
-  ],
-  "tasks_completed": ["task-40-01", "task-40-02"],
-  "tasks_failed": ["task-40-03"],
-  "fix_loop_applied": true,
-  "fixes_made": [
-    {"task": "task-40-02", "test": "test_integration_x", "attempt": 1, "result": "fixed"}
-  ]
-}
-```
-
-Emit:
-```
-VERIFICATION & QUALITY GATE — datrix-codegen-python
-Status: PASSED
-
-Full suite: 185/185 passing
-Full suite runs: 2 (initial + post-fix validation)
-
-Tasks now COMPLETED:
-✓ Task 40-01: Define Skill Delegation Metadata Schema
-✓ Task 40-02: Design Phase Orchestrator Specification (1 integration fix applied)
-
-Tasks FAILED (from agent phase — not re-attempted):
-✗ Task 40-03: Implement Entity Generator — 2 targeted test failures
-```
-
-**If verification FAILED:**
-
-```json
-{
-  "status": "FAILED",
-  "packages_tested": ["datrix-codegen-python"],
-  "full_suite_runs": 2,
-  "results_per_package": [
-    {
-      "package": "datrix-codegen-python",
-      "total_tests": 185,
-      "tests_passing": 180,
-      "tests_failing": 5,
-      "known_failures": ["test_entity_relationships", "test_field_inheritance"],
-      "new_failures": [
-        {
-          "test_name": "test_service_generator_integration",
-          "error": "ImportError: cannot import name 'GeneratorBase'",
-          "likely_source_task": "task-40-03",
-          "fix_attempts": 3,
-          "fix_result": "not_fixed"
-        }
-      ]
-    }
-  ]
-}
-```
-
-Emit:
-```
-VERIFICATION & QUALITY GATE — datrix-codegen-python
-Status: FAILED
-
-Full suite: 180/185 passing
-Known failures (agent phase): 2
-New failures (integration): 3 (1 fixed, 2 not fixed after 3 attempts)
-
-Not fixed:
-✗ test_service_generator_integration
-  ImportError: cannot import name 'GeneratorBase'
-  Source: Task 40-03 (modified generator_base.py)
-  Fix attempts: 3 — not resolved
-
-RECOMMENDATION:
-1. Task 40-03 needs manual review — GeneratorBase interface change broke downstream
-2. Re-run with /fix-tests after manual correction
-```
+Emit a lean checkpoint: `VERIFICATION & QUALITY GATE — {package}: {PASSED|FAILED}, {passing}/{total}`. On PASS list completed task IDs one per line. On FAIL list only the unresolved failures (test, error, likely source task, fix attempts) and a one-line recommendation each — do not restate passing results.
 
 ### Notes
 
@@ -627,71 +421,7 @@ Failed (if any):
 
 ## Decision Escalation Protocol
 
-When execution reaches a genuine design or architectural decision — one where multiple valid approaches exist, root cause is unclear after investigation, or the right fix scope is ambiguous — escalate to an Opus 4.8 (extra-high effort) agent **before** asking the user or marking a task failed.
-
-### When to Escalate
-
-**DO escalate for:**
-- An agent returns BLOCKED or NEEDS_CONTEXT with a **technical ambiguity** (design choice, conflicting patterns, unclear root cause) — not a hard blocker
-- The Phase 3 first fix attempt fails and root cause is unclear
-- A fix introduces additional failures, suggesting a systemic issue
-- Cascading failures across unrelated code — correct scope of fix is unclear
-
-**Do NOT escalate for:**
-- Hard blockers: missing dependency, incomplete prereq task, missing file → STOP and report immediately
-- Simple errors with obvious fixes → fix directly
-- Missing user-supplied input → ask user directly
-
-### How to Escalate
-
-Spawn a subagent via the Agent tool:
-
-```
-subagent_type: "general-purpose"
-model: "opus"
-effort: "xhigh"
-description: "Opus decision: {brief problem description}"
-```
-
-**Opus agent prompt:**
-```
-You are a senior architect making a high-stakes implementation decision. Do NOT implement — analyze and recommend only.
-
-CONTEXT:
-Task: {task_id} — {title}
-Objective: {what the task was supposed to accomplish}
-
-PROBLEM:
-{exact error, conflict, or ambiguity — be specific}
-
-WHAT WAS TRIED:
-{each fix attempt or approach considered, with outcome}
-
-RELEVANT CODE (key excerpts):
-{file paths and actual code snippets}
-
-YOUR TASK:
-Analyze for long-term correctness. Decide what is genuinely best for the LONG-TERM health of this production system. This is NOT a hackathon and you are NOT trying to save the day — never pick the simple or expedient option and defer the correct one to a "future" that never arrives. Do NOT suggest workarounds, band-aids, or "good enough for now" solutions. Consider:
-- Root cause (not symptom)
-- Impact on other components
-- Consistency with existing patterns
-- Long-term maintainability
-
-Return:
-1. Root cause analysis (2-3 sentences)
-2. Recommended approach — concrete, step-by-step instructions
-3. Exact files to modify and what changes to make
-4. Why this is the right long-term choice (not the quick fix)
-5. Any risks or prerequisites
-
-Be specific. The implementing agent will follow your recommendation directly.
-```
-
-### After Opus Returns
-
-- Resume with the current model (Sonnet) and implement exactly what Opus recommended
-- Do NOT improvise beyond the recommendation
-- If Opus recommends stopping and asking the user, surface Opus's full analysis as context when asking
+Read and follow `d:\datrix\.claude\skills\_shared\decision-escalation-protocol.md` — it defines when to escalate (technical ambiguity, failed first fix with unclear root cause, cascading failures) vs. not (hard blockers → STOP and report; obvious fixes → fix directly; missing user input → ask), the exact Opus 4.8 xhigh agent parameters + prompt, and the implement-exactly-what-Opus-recommended rule.
 
 ---
 

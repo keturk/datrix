@@ -1,4 +1,4 @@
-﻿---
+---
 description: Execute implementation tasks from task files — read, implement, verify, mark complete
 model: claude-sonnet-4-6
 disable-model-invocation: true
@@ -130,42 +130,7 @@ Task file paths from skill invocation (provided by user as TASKS:, PHASE:, or TA
 
 ### Output
 
-JSON array of tasks in execution order:
-
-```json
-[
-  {
-    "task_path": "d:\\datrix\\.tasks\\phase-40\\task-40-01.md",
-    "task_id": "task-40-01",
-    "title": "Define Skill Delegation Metadata Schema",
-    "package": ".claude/",
-    "category": "Implementation",
-    "dependencies": [],
-    "language_scope": "documentation",
-    "is_quality_gate": false,
-    "is_blocked": false,
-    "files_to_review": ["d:\\datrix\\.claude\\README.md"],
-    "files_to_create": ["d:\\datrix\\.claude\\docs\\skill-delegation-schema.md"],
-    "files_to_modify": [],
-    "red_flags": []
-  },
-  {
-    "task_path": "d:\\datrix\\.tasks\\phase-40\\task-40-02.md",
-    "task_id": "task-40-02",
-    "title": "Design Phase Orchestrator Specification",
-    "package": ".claude/",
-    "category": "Implementation",
-    "dependencies": ["task-40-01-skill-metadata-schema"],
-    "language_scope": "documentation",
-    "is_quality_gate": false,
-    "is_blocked": false,
-    "files_to_review": ["d:\\datrix\\.claude\\docs\\skill-delegation-schema.md"],
-    "files_to_create": ["d:\\datrix\\.claude\\docs\\phase-orchestrator-spec.md"],
-    "files_to_modify": [],
-    "red_flags": []
-  }
-]
-```
+JSON array of tasks in execution order — one entry per task with fields: `task_path`, `task_id`, `title`, `package`, `category`, `dependencies[]`, `language_scope`, `is_quality_gate`, `is_blocked`, `files_to_review[]`, `files_to_create[]`, `files_to_modify[]`, `red_flags[]`.
 
 ### Error Conditions
 
@@ -491,21 +456,8 @@ If verification PASSED:
    - Tests must NOT only test shallow/happy paths while leaving the core behavior untested
    - If the task requires "X replaces Y", tests must prove X works AND Y is gone — not just that the code doesn't crash
 
-3. **Design-acceptance verification (MANDATORY — suite-green is not enough):**
-   Read the task's `**Design reference:**` and `**Design acceptance property:**`. Prove the property with an executable check and **paste the command + output** into "How Solved":
-   - *Negative check:* the forbidden construct/old state is gone on the affected surface (e.g. `grep` finds zero of the old pattern in the migrated tree).
-   - *Positive check:* the new path is actually exercised (e.g. the generated output resolves via the new mechanism; no old-path remnant).
-   - For any "X replaces Y" scope, the negative check must prove **Y is gone everywhere on the surface**, not just that X works.
-   - If the property cannot be proven — or the task has a non-trivial design impact but no acceptance property — the task is NOT complete. Do NOT mark complete on "it generates" / "tests pass" alone. Mark BLOCKED, or fix until the property holds. (This is the gate phase-01 lacked: a green suite over a half-enforced invariant is a false pass.)
-
-4. **Self-contradiction check on "How Solved" narrative:**
-   Before writing the "How Solved" section, re-read the task's acceptance criteria. Then check: does your narrative contain any of these red flags?
-   - "remains unchanged" / "original path still used" / "legacy code preserved"
-   - "future migration" / "when executor supports X" / "not yet wired"
-   - "partial" / "workaround" / "fallback to old path"
-   - "dual path" / "both old and new" / "backward compatibility layer"
-   - "BLOCKED" / "Status: BLOCKED" / "out of scope" / any statement that a success criterion is unmet
-   If ANY of these appear in your narrative, the task is NOT complete — **BLOCKED is terminal, it never becomes COMPLETED.** Mark it BLOCKED with an honest explanation and (if the blocker is a separate defect) note it so a follow-up task can be created.
+3. **Design-acceptance verification + self-contradiction check (MANDATORY — suite-green is not enough):**
+   Apply conditions 3 and 4 of the shared checklist `d:\datrix\.claude\skills\_shared\completion-eligibility.md`: prove the task's `**Design acceptance property:**` with an executable negative + positive check (command + output pasted into "How Solved"; for "X replaces Y", Y is gone everywhere on the surface), and scan your "How Solved" narrative for the BLOCKED/partial/workaround/dual-path red-flag phrases. Any unproven property or red-flag phrase → the task is NOT complete; **BLOCKED is terminal** — mark it BLOCKED honestly and note the blocker for a follow-up task.
 
 2. **Mark task as completed using the script:**
    ```bash
@@ -541,56 +493,7 @@ If verification PASSED:
 
 The proof-of-work section is **mandatory**. A task without raw test output in its "How Solved" section is NOT considered properly completed. This evidence allows independent verification without re-running the tools.
 
-**Example:**
-
-```markdown
-## How Solved
-
-- **`src/generators/entity_generator.py`** — Implemented EntityGenerator with Jinja2 template rendering, field type mapping, and relationship handling.
-- **`templates/entity.py.j2`** — Created Jinja2 template for Python entity models with full type annotation support.
-- **`tests/unit/test_entity_generator.py`** — 12 tests covering: basic entity, all field types, relationships, error cases.
-- **Design decision:** Used composition over inheritance for generator mixins, matching existing pattern in ServiceGenerator.
-
-### Proof of Work
-
-**pytest output:**
-```
-tests/unit/test_entity_generator.py::TestEntityGenerator::test_basic_entity PASSED
-tests/unit/test_entity_generator.py::TestEntityGenerator::test_field_types PASSED
-... (full output)
-12 passed in 1.23s
-```
-
-**Files created (with line counts):**
-- `src/generators/entity_generator.py` — 187 lines
-- `templates/entity.py.j2` — 45 lines
-- `tests/unit/test_entity_generator.py` — 203 lines
-```
-
-**Quality gate tasks:**
-
-First mark the task completed using the script:
-```bash
-powershell -File "d:/datrix/datrix/scripts/tasks/complete.ps1" "{task_path}"
-```
-
-Then add "How Solved" section with **mandatory raw output**:
-
-**Example (quality gate):**
-
-```markdown
-## How Solved
-
-- **Full test suite:** 185/185 passing
-- No files created or modified.
-
-### Proof of Work
-
-**pytest output:**
-```
-{paste RAW full test suite output}
-```
-```
+**Quality gate tasks:** mark complete via `complete.ps1` as above, then add a "How Solved" whose Proof of Work is the RAW full-suite output (no files created/modified).
 
 **Verification tasks:**
 
@@ -809,71 +712,7 @@ Failed (if any):
 
 ## Decision Escalation Protocol
 
-When execution reaches a genuine design or architectural decision — one where multiple valid approaches exist, root cause is unclear after investigation, or the right fix scope is ambiguous — escalate to an Opus 4.8 (extra-high effort) agent **before** asking the user or marking the task failed.
-
-### When to Escalate
-
-**DO escalate for:**
-- Step 1 (Understand) surfaces a **technical design ambiguity** — conflicting patterns, unclear architecture, multiple valid approaches with trade-offs
-- Phase 3 first fix attempt fails and root cause of test failures is unclear
-- A fix introduces additional failures, suggesting a systemic root cause
-- The task conflicts with existing architecture in a way requiring architectural judgment
-
-**Do NOT escalate for:**
-- Hard blockers: missing dependency, incomplete prereq task, missing file → STOP and report immediately
-- Simple errors with obvious fixes (typo, wrong import) → fix directly
-- Spec gaps requiring user input → ask user directly
-
-### How to Escalate
-
-Spawn a subagent via the Agent tool:
-
-```
-subagent_type: "general-purpose"
-model: "opus"
-effort: "xhigh"
-description: "Opus decision: {brief problem description}"
-```
-
-**Opus agent prompt:**
-```
-You are a senior architect making a high-stakes implementation decision. Do NOT implement — analyze and recommend only.
-
-CONTEXT:
-Task: {task_id} — {title}
-Objective: {what the task was supposed to accomplish}
-
-PROBLEM:
-{exact error, conflict, or ambiguity — be specific}
-
-WHAT WAS TRIED:
-{each fix attempt or approach considered, with outcome}
-
-RELEVANT CODE (key excerpts):
-{file paths and actual code snippets}
-
-YOUR TASK:
-Analyze for long-term correctness. Decide what is genuinely best for the LONG-TERM health of this production system. This is NOT a hackathon and you are NOT trying to save the day — never pick the simple or expedient option and defer the correct one to a "future" that never arrives. Do NOT suggest workarounds, band-aids, or "good enough for now" solutions. Consider:
-- Root cause (not symptom)
-- Impact on other components
-- Consistency with existing patterns
-- Long-term maintainability
-
-Return:
-1. Root cause analysis (2-3 sentences)
-2. Recommended approach — concrete, step-by-step instructions
-3. Exact files to modify and what changes to make
-4. Why this is the right long-term choice (not the quick fix)
-5. Any risks or prerequisites
-
-Be specific. The implementing agent will follow your recommendation directly.
-```
-
-### After Opus Returns
-
-- Implement exactly what Opus recommended with the current model (Sonnet)
-- Do NOT improvise beyond the recommendation
-- If Opus recommends stopping and asking the user, surface Opus's full analysis as context when asking
+Read and follow `d:\datrix\.claude\skills\_shared\decision-escalation-protocol.md` — it defines when to escalate (technical design ambiguity in Step 1, failed first fix with unclear root cause, systemic/cascading failures, architectural conflicts) vs. not (hard blockers → STOP and report; obvious fixes → fix directly; spec gaps → ask user), the exact Opus 4.8 xhigh agent parameters + prompt, and the implement-exactly-what-Opus-recommended rule.
 
 ---
 

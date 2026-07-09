@@ -1,4 +1,4 @@
-﻿---
+---
 description: Fully automated multi-wave task orchestrator with dependency analysis and test gating
 model: opus
 effort: xhigh
@@ -19,9 +19,7 @@ Two resources are scarce and both are yours to protect: **Opus tokens** (never s
 
 Because you ARE Opus at extra-high effort, the old "escalate up to a more-capable agent" step collapses: you do the architectural analysis **in-context** (you already hold the failure context), then dispatch a subagent to implement your decision. See the reframed **Decision Escalation Protocol** below. Delegation is never abdication — you verify every returned result with a command you run (or delegate the run and read the result), and a subagent's self-report never substitutes for the design-acceptance evidence you paste into the gate.
 
-**The orchestrator's mandate is conformance, not throughput.** It does NOT blindly run tasks and report "all agents returned". It is responsible for ensuring each task and each phase actually satisfies the **design document** the tasks implement. Two consequences bind every wave and phase boundary:
-- **A green test suite is necessary but NOT sufficient.** "It generates", "0 warnings", and "suite passed" never substitute for proving the design invariant. Phase-01 shipped a half-enforced invariant under a fully-green suite precisely because the gate checked "does it run" instead of "does the design hold". The orchestrator runs an explicit **design-conformance gate** (3d-conformance, 3i Step B) in addition to the test gate.
-- **BLOCKED is terminal — it can never become COMPLETED.** An agent that self-reports BLOCKED, or a task whose design-acceptance property is unproven, or a How-Solved that contains "BLOCKED"/"partial"/"out of scope"/unmet-criterion language, is NOT marked complete — no matter how green the suite is. The blocker is spawned as a tracked task. (Phase-01's 01-20 was marked COMPLETED while its own How-Solved said `Status: BLOCKED`; this gate exists to make that impossible.)
+**The orchestrator's mandate is conformance, not throughput** (CLAUDE.md "Task Orchestration" states the full rationale — it binds here). Two consequences at every wave and phase boundary: **a green suite is necessary but NOT sufficient** (the explicit design-conformance gates at 3g and 3i Step A2 prove the design invariant itself), and **BLOCKED is terminal — it can never become COMPLETED** (per the shared checklist `d:\datrix\.claude\skills\_shared\completion-eligibility.md`; the blocker is spawned as a tracked task).
 
 **Key differences from `/execute-tasks-parallel`:**
 - Dependency-aware grouping (builds a DAG, topologically sorts into waves)
@@ -45,52 +43,14 @@ Because you ARE Opus at extra-high effort, the old "escalate up to a more-capabl
 
 ## How to Invoke
 
-**Most common usage — entire phase (recommended):**
 ```
 /task-orchestrator
-
-PHASE: 36
-```
-Or with full path:
-```
-/task-orchestrator
-
-PHASE: d:\datrix\datrix\.tasks\phase-36\
+PHASE: 36                                  # most common — number or full path d:\datrix\datrix\.tasks\phase-36\
+PHASES: 34, 35, 36                         # multiple phases (numbers or paths, one per line)
+TASKS: {newline-separated task file paths} # individual tasks (less common)
 ```
 
-**Note:** When you provide a PHASE (not individual task files), the orchestrator will automatically discover all tasks by:
-1. First checking for `d:\datrix\datrix\.tasks\phase-{NN}\dependencies.md` (if it exists, uses that)
-2. Otherwise, globbing for `task-*.md` files across all package directories in that phase
-
-You DO NOT need to provide the list of tasks — the orchestrator discovers them automatically.
-
----
-
-Individual tasks (less common):
-```
-/task-orchestrator
-
-TASKS:
-d:\datrix\datrix-common\.tasks\phase-07\task-07-01-base-class.md
-d:\datrix\datrix-common\.tasks\phase-07\task-07-02-template-loader.md
-d:\datrix\datrix-common\.tasks\phase-07\task-07-03-formatter.md
-d:\datrix\datrix-common\.tasks\phase-07\task-07-04-integration.md
-```
-
-Multiple phases:
-```
-/task-orchestrator
-
-PHASES: 34, 35, 36
-```
-Or with full paths:
-```
-/task-orchestrator
-
-PHASES:
-d:\datrix\datrix\.tasks\phase-34\
-d:\datrix\datrix\.tasks\phase-35\
-```
+For a PHASE/PHASES input the orchestrator discovers tasks automatically — first via `d:\datrix\datrix\.tasks\phase-{NN}\dependencies.md` if present, otherwise by globbing `task-*.md` across all package `.tasks\phase-{NN}\` directories. The user never needs to list tasks.
 
 ## Documentation Quick Reference
 
@@ -138,27 +98,9 @@ If a PHASE directory is given:
 
 **Discovery process for each phase:**
 
-1. **First, check for consolidated dependencies file:**
-   - Location: `d:\datrix\datrix\.tasks\phase-{NN}\dependencies.md`
-   - This is a phase-level file (NOT in individual package directories)
-   - If it exists:
-     - Try to parse it as JSON (new format with full metadata)
-     - If JSON parsing succeeds: extract task_id, task_path, title, is_completed, package, dependencies, category
-     - If JSON parsing fails (simple text format): parse as line-separated task paths grouped by "Group N" headers
-       - Extract task paths from each group
-       - Groups represent dependency waves (Group 1 = no dependencies, Group 2 = depends on Group 1, etc.)
-       - Still need to read task files to get full metadata (title, package, category, is_completed)
-       - Use group numbers to infer dependency structure
-   - Skip reading for dependency graph construction if JSON format is used
+1. **First, check for the consolidated dependencies file** at `d:\datrix\datrix\.tasks\phase-{NN}\dependencies.md` (phase-level, NOT in package directories). If it exists: try JSON (new format — extract task_id, task_path, title, is_completed, package, dependencies, category; skip per-file reads for graph construction); if not JSON, parse as "Group N"-headed line-separated task paths (groups = dependency waves; still read task files for full metadata).
 
-2. **If dependencies.md doesn't exist, fall back to discovering tasks across packages:**
-   - Glob for `task-*.md` files in:
-     - `d:\datrix\datrix-common\.tasks\phase-{NN}\`
-     - `d:\datrix\datrix-codegen-python\.tasks\phase-{NN}\`
-     - `d:\datrix\datrix-codegen-aws\.tasks\phase-{NN}\`
-     - `d:\datrix\datrix-extensions\.tasks\phase-{NN}\`
-     - etc. (all packages with `.tasks` directories)
-   - Read each task file to extract metadata (see below)
+2. **If dependencies.md doesn't exist**, glob for `task-*.md` in every package's `.tasks\phase-{NN}\` directory (`d:\datrix\*\.tasks\phase-{NN}\`) and read each task file to extract metadata (see below).
 
 **Dependencies.md schema:**
 
@@ -248,20 +190,6 @@ For each phase (in numeric order):
 ```
 
 4. **Phase boundaries are wave boundaries** — even if a task in phase 35 has no dependencies, it cannot start until ALL phase 34 waves are complete. Each phase boundary is also a **Phase Boundary Gate** (Step 3i): the earlier phase must pass an explicit completion check — every package it touched must pass its **full** test suite with all failures fixed, including pre-existing ones unrelated to the phase, with Opus-led recovery on failure — before the next phase's first wave is spawned.
-
-**Example with 2 phases:**
-```
-Phase 34 (tasks 34-01 through 34-10):
-  Wave 1: task-34-01, task-34-02, task-34-03 (no dependencies)
-  Wave 2: task-34-04, task-34-05 (depend on wave 1)
-  Wave 3: task-34-06 through task-34-10 (depend on wave 2)
-
---- PHASE BOUNDARY (all phase 34 must complete before phase 35 starts) ---
-
-Phase 35 (tasks 35-01 through 35-05):
-  Wave 4: task-35-01, task-35-02 (depend on phase 34 tasks, now completed)
-  Wave 5: task-35-03, task-35-04, task-35-05 (depend on wave 4)
-```
 
 ### 2d. File Conflict Detection Within Waves
 
@@ -494,31 +422,11 @@ Options:
 
 #### 3g. Mark Tasks Complete — only after the design-acceptance + BLOCKED-terminal checks pass
 
-A task is eligible to be marked COMPLETED only when ALL of the following hold. The wave test gate being GREEN satisfies only the first bullet — it is necessary, not sufficient.
-
-**Completion eligibility (ALL required):**
-1. **Wave test gate GREEN** for the task's package (3d) — `result == "PASSED"`, `failed == 0`, `error == 0`.
-2. **Not BLOCKED (terminal rule).** The agent's status is IMPLEMENTED — not BLOCKED, FAILED, or NEEDS_CONTEXT. A BLOCKED task can NEVER be marked COMPLETED, regardless of suite color.
-3. **How-Solved is clean.** Read the task's `## How Solved`. If it contains any of `BLOCKED`, `Status: BLOCKED`, `partial`, `out of scope`, `not yet wired`, `future migration`, `workaround`, `dual path`, or any statement that a success criterion is unmet → the task is NOT complete. Treat it exactly like a BLOCKED return (the self-report overrides the agent's IMPLEMENTED status — phase-01's 01-20 was marked COMPLETED with `Status: BLOCKED` in its body; this check makes that impossible).
-4. **Design-acceptance property proven.** Run the task's `design_acceptance_property` check yourself (the negative + positive executable check — e.g. a `grep`/parse showing the forbidden construct is gone on the affected surface AND the new path is exercised). Do NOT trust the agent's self-report that it passed. Paste the command + output into the How-Solved. If the property cannot be proven (or the task had none and is a non-trivial impl/migration) → NOT complete; route to 3e/escalation as a conformance failure, not a pass.
-
-**If a task fails any of 2–4:** it does not get `complete.ps1`. Record it in `failed_tasks` with the specific unmet condition, spawn its blocker as a tracked follow-up task (a real task file, not a footnote), compute transitive dependents into `skipped_tasks`, and continue. NEVER paper over it by marking complete because "the suite is green."
-
-**For each task that passes ALL of 1–4:**
-
-1. Mark as completed:
-   ```bash
-   powershell -File "d:/datrix/datrix/scripts/tasks/complete.ps1" "{task_path}"
-   ```
-   Include `VERIFIED_AGAINST_QUICK_REFERENCE` in the Bash tool description.
-
-2. Add `## How Solved` section to the task file with proof-of-work:
-   - Files created/modified (with line counts)
-   - Raw test output (summary from full suite)
-   - **The design-acceptance check command + its output** (proof the invariant holds, not just that tests pass)
-   - Design decisions
-
-3. Add to `completed_tasks`
+Apply the shared 4-condition checklist `d:\datrix\.claude\skills\_shared\completion-eligibility.md` — tests green / not-BLOCKED-terminal / How-Solved clean / design-acceptance property proven by a check YOU run (command + output pasted into How-Solved; never the agent's self-report). Orchestrator bindings:
+- Condition 1's governing gate is the **wave test gate (3d)** for the task's package.
+- Condition 4 uses the `design_acceptance_property` recorded in Step 1d; an unprovable property routes to 3e/escalation as a conformance failure, not a pass.
+- **On failure of any of 2–4:** no `complete.ps1`; record in `failed_tasks` with the unmet condition, spawn the blocker as a tracked follow-up task (a real task file, not a footnote), compute transitive dependents into `skipped_tasks`, continue.
+- **On pass of all 4:** run `complete.ps1 "{task_path}"` (include `VERIFIED_AGAINST_QUICK_REFERENCE` in the Bash description), add the proof-of-work `## How Solved`, and append to `completed_tasks`.
 
 #### 3h. Wave Checkpoint
 
@@ -542,7 +450,7 @@ Trigger this gate **after the last wave of a phase completes** (i.e. the next wa
 
 ##### Step A — Phase-end full-suite gate (fix ALL failures, attribution-agnostic)
 
-This gate is **stricter** than the per-wave gate (3d). At a phase boundary the bar is: **every package this phase touched must pass its FULL test suite with zero failures and zero errors — including failures in pre-existing code that no task in the phase ever touched.** The 3d allowance that lets "pre-existing failures" pass as non-blocking does NOT hold here; at the phase boundary those failures are blocking and must be driven to zero before phase `P+1` starts. This runs **every time a phase completes** — even a "green phase" where every task passed its wave gate still gets a full-suite sweep here, because cross-wave integration and pre-existing rot only surface against the complete phase.
+Stricter than 3d: **every package this phase touched must pass its FULL suite with zero failures and zero errors — pre-existing failures included** (3d's pre-existing allowance does NOT hold here; they are blocking and must be driven to zero before phase `P+1`). Runs every time a phase completes, even a fully green one — cross-wave integration and pre-existing rot only surface against the complete phase.
 
 1. **Determine touched packages** — the set of packages appearing in `files_created` / `files_modified` of any task in phase `P` (across all of the phase's waves).
 2. **Run the full suite for every touched package concurrently** — fire all `test.ps1 {package}` calls in a **single message** (one Bash call per package), exactly as 3d. Include `VERIFIED_AGAINST_QUICK_REFERENCE` in each Bash tool description.
@@ -637,8 +545,7 @@ Do NOT list completed tasks — success is the default. Only list failures and s
 
 All rules from `d:\datrix\.claude\CLAUDE.md` apply. Key rules for the orchestrator:
 
-- **CONFORMANCE OVER THROUGHPUT** — the orchestrator's job is to ensure tasks satisfy the **design**, not to run them and report green. A green suite is necessary, never sufficient. Gate every wave (3g) and every phase boundary (3i Step A2) on the design-acceptance property, proven by an executable check you run yourself — not on suite color or an agent's self-report.
-- **BLOCKED IS TERMINAL** — never mark a task COMPLETED when the agent returned BLOCKED, when its `## How Solved` contains `BLOCKED`/`partial`/`out of scope`/`workaround`/unmet-criterion language, or when its design-acceptance property is unproven. Spawn the blocker as a tracked task; do NOT let suite-green override a BLOCKED self-report (the phase-01 01-20 failure).
+- **CONFORMANCE OVER THROUGHPUT / BLOCKED IS TERMINAL** — enforced by the 3g completion checklist (`_shared/completion-eligibility.md`) and the 3i Step A2 conformance gate; never relaxed for a green suite.
 - **NO ASSUMING — ENUMERATE AND VERIFY STATE** — characterize a corpus by enumerating ALL of it (counted), not a sample; reason about git/working-tree from the CURRENT on-disk state you just read, never a remembered snapshot. Paste real command output for every conformance claim.
 - **GENUINE agent monitoring, never assumption** — when agents run in the background pool, drive them with the Agent Progress Polling Protocol: check every ~5 minutes what each agent is *actually* doing (status **and** on-disk artifacts). Never report an agent as "working" without that evidence, and never rely on a completion notification to know an agent finished.
 - **JUDGMENT INLINE, TYPING DELEGATED** — you are the Opus orchestrator: decompose, attribute, decide fix-scope, gate conformance, and analyze escalations in YOUR context; dispatch subagents (haiku/sonnet/opus) to read widely, run suites, and apply fixes. Do NOT edit code inline on Opus in the fix loops (3e/3i) — decide the fix, then hand the edit to a subagent. Reading the minimum code needed to decide is fine; doing the whole implementation inline is not.
@@ -657,7 +564,7 @@ All rules from `d:\datrix\.claude\CLAUDE.md` apply. Key rules for the orchestrat
 
 ## Decision Escalation Protocol
 
-You are the Opus orchestrator — the escalation target is **you**. So "escalate" no longer means spawning a separate decision agent; it means **shifting out of dispatch-and-supervise mode into deliberate, in-context architectural analysis** at extra-high effort, then dispatching a subagent to implement your decision. When execution reaches a genuine design or architectural decision — one where multiple valid approaches exist, the root cause is unclear after investigation, or the right scope of a fix is ambiguous — do this analysis yourself **before** pausing for the user or marking a task failed. You already hold the failure context; use it. The analysis is the highest-value use of your Opus budget — spend it here, not on typing the resulting edit.
+You are the Opus orchestrator — the escalation target is **you**: shift out of dispatch-and-supervise mode into deliberate, in-context architectural analysis, then dispatch a subagent to implement your decision. When execution reaches a genuine design/architectural decision (multiple valid approaches, unclear root cause after investigation, ambiguous fix scope), do this analysis yourself **before** pausing for the user or marking a task failed — it is the highest-value use of your Opus budget; typing the resulting edit is not.
 
 ### When to Escalate
 
@@ -713,35 +620,7 @@ RETURN: files changed (with line counts), the targeted-test result, and any devi
 
 When escalation is triggered by a **red phase gate** rather than a single task, the problem spans every failed/skipped task in the phase. Same protocol — **you** produce the recovery plan in-context (do not delegate the planning to another agent), then dispatch implementers per item. Reason through the phase-wide framing below to produce your plan, then hand each item's concrete steps to a **sonnet**/**opus** implementer (partitioned by files) exactly as in "How to Escalate" Step 2.
 
-Analysis framing for a failed phase (produce a recovery plan, do not implement inline):
-```
-Recover a FAILED PHASE before the next phase may start.
-
-PHASE: {P} — {phase title/summary}
-GOAL: bring every package this phase touched fully green — zero failures AND zero errors across each package's FULL suite, including failures in pre-existing code no task in the phase modified — so phase {P+1} can begin on a complete foundation. At a phase boundary, pre-existing failures are blocking, not excused.
-
-FAILED / SKIPPED TASKS (with the exact test failures/errors and node IDs):
-{per-task: task_id, title, failing tests/erroring modules, error text}
-
-STILL-RED TESTS/MODULES NOT ATTRIBUTABLE TO A PHASE TASK (pre-existing or cross-cutting, surfaced by the phase-end full-suite gate):
-{per-item: package, failing test node ID or erroring module path, error text}
-
-WHAT WAS ALREADY TRIED (wave-level fix loop 3e/3f AND the phase-end full-suite fix loop, per item):
-{per-item fix attempts and outcomes}
-
-RELEVANT CODE (key excerpts across the failing tasks):
-{file paths and actual snippets}
-
-YOUR TASK:
-Find the root cause(s) — there may be ONE shared cause behind several failures (e.g. a cross-task integration mismatch introduced earlier in the phase, or a pre-existing breakage exposed once the whole phase is in place). Decide what is genuinely best for the LONG-TERM health of this production system — this is NOT a hackathon and not a save-the-day exercise; never pick the expedient fix and defer the correct one to the future. Do NOT suggest workarounds. Return:
-1. Root cause(s) — name shared causes explicitly
-2. A per-item remediation plan — for each failed/skipped task AND each still-red test/module (attributed or pre-existing), concrete step-by-step fixes
-3. Exact files to modify and what changes to make
-4. Recommended order of remediation (some fixes may unblock others)
-5. Any item that genuinely cannot be recovered here and why (so the orchestrator can halt-and-ask on just that item)
-
-Be specific. The implementing agent will follow your plan directly, then re-run the full package suites.
-```
+Analysis framing for a failed phase (produce a recovery plan in-context, do not implement inline). Assemble: every failed/skipped task (with exact failing tests/erroring modules + error text), every still-red unattributed test/module from Step A, all prior fix attempts (3e/3f and Step A), and the relevant code excerpts. Reason to: (1) root cause(s) — name shared causes behind multiple failures explicitly; (2) a per-item remediation plan with concrete steps; (3) exact files to modify; (4) remediation order (some fixes unblock others); (5) any item that genuinely cannot be recovered here (so the halt-and-ask covers just that item). Long-term-correct fixes only — no workarounds, no expedient fixes deferred "to the future". The goal: every touched package fully green (zero failures AND zero errors, pre-existing included — at a phase boundary they are blocking, not excused).
 
 ### After Your Analysis
 

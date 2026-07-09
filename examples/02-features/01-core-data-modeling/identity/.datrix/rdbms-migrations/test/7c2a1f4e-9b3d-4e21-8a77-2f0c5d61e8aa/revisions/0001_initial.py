@@ -133,10 +133,87 @@ def upgrade() -> None:
             nullable=False,
         ),
     )
+    op.create_table(
+        "identity_profiles",
+        sa.Column(
+            "profile_id",
+            sa.Uuid,
+            primary_key=True,
+            nullable=False,
+        ),
+        sa.Column(
+            "email",
+            sa.String(),
+            nullable=True,
+        ),
+        sa.Column(
+            "display_name",
+            sa.String(),
+            nullable=True,
+        ),
+        sa.Column(
+            "marketing_opt_in",
+            sa.String(),
+            nullable=True,
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+        ),
+    )
+    op.create_table(
+        "identity_links",
+        sa.Column(
+            "link_id",
+            sa.Uuid,
+            primary_key=True,
+            nullable=False,
+        ),
+        sa.Column(
+            "profile_id",
+            sa.Uuid,
+            nullable=False,
+        ),
+        sa.Column(
+            "provider_name",
+            sa.String(),
+            nullable=False,
+        ),
+        sa.Column(
+            "provider_subject",
+            sa.String(),
+            nullable=False,
+        ),
+        sa.Column(
+            "link_source",
+            sa.String(),
+            nullable=False,
+        ),
+        sa.Column(
+            "verification_method",
+            sa.String(),
+            nullable=False,
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+        ),
+    )
+    op.create_index("ix_identity_links_provider_name_provider_subject", "identity_links", ["provider_name", "provider_subject"], unique=True)
 
 
 def downgrade() -> None:
     """Drop indexes then tables (reverse dependency order)."""
+    op.drop_index("ix_identity_links_provider_name_provider_subject", table_name="identity_links")
+    op.drop_table("identity_links")
+    op.drop_table("identity_profiles")
     op.drop_table("orders")
     op.drop_table("customers")
     op.drop_table("products")

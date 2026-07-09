@@ -106,6 +106,13 @@ For each task file with findings:
 - **Test coverage:** Add missing test case or dedicated test task reference
 - **Ambiguity:** Add clarification note in "Implementation notes" section
 
+**Example (anti-pattern in code):** Finding `{"category": "anti_pattern", "location": "task-43-02-bar.md, Files to Create §1, line 45", "evidence": "result = data.get('key', None)", "suggested_fix": "Replace with: if 'key' not in data: raise KeyError(...)"}` → locate the code block and replace with:
+```python
+if "key" not in data:
+    raise KeyError(f"Missing required key 'key'. Available: {list(data.keys())}")
+result = data["key"]
+```
+
 **Skippable findings (cannot auto-fix):**
 - Findings requiring design decisions (user must choose approach)
 - Findings with ambiguous suggested_fix (multiple valid interpretations)
@@ -149,7 +156,6 @@ Do NOT add "Next Steps" — the user knows what to do.
 
 ## Anti-Patterns
 
-- **No automatic re-review:** User explicitly runs `review.py --verify` after inspecting changes
 - **No double-application:** Always check markers before applying
 - **No silent skips:** Report why findings were skipped
 - **No guessing:** If suggested_fix is ambiguous, skip and report (don't guess intent)
@@ -158,14 +164,9 @@ Do NOT add "Next Steps" — the user knows what to do.
 
 ## Success Criteria
 
-- Discovers all review artifacts for target phase
-- Groups findings by task and severity
-- Applies fixes in severity order (blocking → major → minor → nit)
-- Writes `.review.applied.json` marker for each task
-- Skips already-applied findings
-- Reports summary with counts and next steps
-- Does NOT automatically re-run review (waits for user --verify command)
-- Preserves task file structure and formatting
+- Every discovered finding for the target phase is applied or explicitly skipped-with-reason
+- No finding is ever applied twice across re-runs
+- Task file structure and markdown formatting are preserved
 
 ## Example Session
 
@@ -176,85 +177,6 @@ Do NOT add "Next Steps" — the user knows what to do.
 ```
 REVIEWS: phase 43 — 4 applied, 1 skipped
 Skipped: task-43-03-baz.md: F-005 — requires design decision (in-memory cache vs Redis)
-```
-
-## Finding-Specific Fix Patterns
-
-### Missing Section
-
-**Finding:**
-```json
-{
-  "category": "missing_section",
-  "location": "task-43-01-foo.md",
-  "description": "Missing ## Targeted Tests section",
-  "suggested_fix": "Add ## Targeted Tests section with pytest command"
-}
-```
-
-**Fix:**
-Insert section before `## Tests` section:
-```markdown
-## Targeted Tests
-
-**Package:** `datrix`
-**Test command:**
-```
-python -m pytest d:/datrix/datrix/scripts/library/foo/tests/test_foo.py -v
-```
-```
-
-### Anti-Pattern in Code
-
-**Finding:**
-```json
-{
-  "category": "anti_pattern",
-  "location": "task-43-02-bar.md, Files to Create §1, line 45",
-  "evidence": "result = data.get('key', None)",
-  "suggested_fix": "Replace with: if 'key' not in data: raise KeyError(...)"
-}
-```
-
-**Fix:**
-Locate the code block, replace the line:
-```python
-if "key" not in data:
-    raise KeyError(f"Missing required key 'key'. Available: {list(data.keys())}")
-result = data["key"]
-```
-
-### Broken Module Reference
-
-**Finding:**
-```json
-{
-  "category": "broken_reference",
-  "location": "task-43-03-baz.md, Files to Review §2",
-  "evidence": "from datrix_language.parser.entity import Entity",
-  "suggested_fix": "Correct import: from datrix_language.datrix_model.entity import Entity"
-}
-```
-
-**Fix:**
-Update the import path in the task file's code skeleton or instructions.
-
-### Dependency Error
-
-**Finding:**
-```json
-{
-  "category": "dependency_error",
-  "location": "task-43-04-qux.md",
-  "description": "Task depends on task-43-99 which does not exist",
-  "suggested_fix": "Remove non-existent dependency task-43-99"
-}
-```
-
-**Fix:**
-Update "**Depends on:**" field:
-```markdown
-**Depends on:** task-43-03
 ```
 
 ## Validation After Applying
@@ -271,7 +193,6 @@ If any validation fails, report error and do NOT mark finding as applied.
 
 Always remind the user to:
 1. **Review the changes** manually before re-running review
-2. **Run `--verify` mode** to confirm fixes resolved the issues
-3. **Do NOT proceed to execution** until re-review passes
+2. **Do NOT proceed to execution** until re-review passes
 
 The skill does NOT make judgment calls on ambiguous fixes — when in doubt, skip and report.

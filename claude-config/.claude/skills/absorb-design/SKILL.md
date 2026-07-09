@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Absorb Design Document
 
-Transfer all knowledge from a design document into the appropriate existing documentation files across all 14 repo doc folders, replace all references to the source file, and delete it. No tasks, no decisions — purely a knowledge-transfer operation.
+Transfer all knowledge from a design document into the appropriate existing documentation files across all datrix-* repos' docs folders, replace all references to the source file, and delete it. No tasks, no decisions — purely a knowledge-transfer operation.
 
 ## When to Use
 
@@ -45,23 +45,18 @@ Read first: CLAUDE.md, MEMORY.md. Also read the design document itself in full b
 
 ## Target Documentation Folders
 
-These are the 14 documentation locations where content may be placed:
+Discover docs folders dynamically — do not rely on a hardcoded list (a fixed table
+silently drifts out of sync as repos are added, e.g. `datrix-codegen-k8s`):
 
-| Repo | Path | Scope |
-|------|------|-------|
-| datrix | `d:\datrix\datrix\docs` | Language, architecture, user guides |
-| datrix-cli | `d:\datrix\datrix-cli\docs` | CLI commands, workflows |
-| datrix-codegen-aws | `d:\datrix\datrix-codegen-aws\docs` | AWS generator (RDS, Aurora, MSK, etc.) |
-| datrix-codegen-azure | `d:\datrix\datrix-codegen-azure\docs` | Azure generator (Flexible Server, Event Hubs, etc.) |
-| datrix-codegen-common | `d:\datrix\datrix-codegen-common\docs` | Shared codegen utilities |
-| datrix-codegen-component | `d:\datrix\datrix-codegen-component\docs` | Component-level generator |
-| datrix-codegen-docker | `d:\datrix\datrix-codegen-docker\docs` | Docker/Compose generation |
-| datrix-codegen-python | `d:\datrix\datrix-codegen-python\docs` | Python/FastAPI generator |
-| datrix-codegen-sql | `d:\datrix\datrix-codegen-sql\docs` | SQL schema generation |
-| datrix-codegen-typescript | `d:\datrix\datrix-codegen-typescript\docs` | TypeScript/NestJS generator |
-| datrix-common | `d:\datrix\datrix-common\docs` | Shared framework, APIs, contributing rules |
-| datrix-extensions | `d:\datrix\datrix-extensions\docs` | Extension system |
-| datrix-language | `d:\datrix\datrix-language\docs` | Parser, AST, grammar, syntax reference |
+```bash
+ls -d d:/datrix/datrix*/docs/
+```
+
+Match each knowledge unit to the repo whose scope it falls under (language/architecture
+→ `datrix`; CLI → `datrix-cli`; per-provider/language generator → the matching
+`datrix-codegen-*`; shared codegen utilities → `datrix-codegen-common`; shared
+framework/contributing rules → `datrix-common`; extension system → `datrix-extensions`;
+parser/AST/grammar → `datrix-language`).
 
 ---
 
@@ -74,7 +69,7 @@ These are the 14 documentation locations where content may be placed:
 1. Read the design document in full
 2. Break it into discrete knowledge units (sections, decisions, patterns, API contracts, examples)
 3. For each unit, determine:
-   - **Target repo** — which of the 14 repos owns this knowledge
+   - **Target repo** — which datrix-* repo owns this knowledge
    - **Target file** — which existing file it belongs in (or if a new file is truly needed)
    - **Target section** — where in the file to insert or update
    - **Transfer action** — one of: `APPEND` (add new section), `UPDATE` (replace existing content), `CREATE` (new file, only when no existing file fits)
