@@ -129,10 +129,10 @@ If issues found after merge: `git revert` the PR. Language packages are independ
 
 ### LanguageGenerator Tests
 
-**Unit tests** (`datrix-common/tests/generation/test_language_generator.py`):
+**Unit tests** (`datrix-common/tests/unit/generation/test_language_generator.py`):
 - `MinimalLanguageGenerator` — real subclass using real objects (PythonTranspiler, PythonTypeResolver), NOT mocks. Implements only the required abstract methods with the simplest valid objects.
 
-**Helper function tests** (`datrix-common/tests/generation/test_language_helpers.py`):
+**Helper function tests** (`datrix-common/tests/unit/generation/test_language_helpers.py`):
 - Build real AST objects via `TreeSitterParser` or direct construction
 - `test_derive_default_dialect_postgresql_fallback()` — no RDBMS blocks falls back to `"postgresql"`
 - `test_effective_observability_config_default()` — None input returns Prometheus + OTEL + JSON
@@ -145,7 +145,7 @@ If issues found after merge: `git revert` the PR. Language packages are independ
 
 ### TypeMappingRegistry Tests
 
-**File:** `datrix-common/tests/test_type_mapping_registry.py`
+**File:** `datrix-common/tests/unit/generation/test_type_mapping_registry.py`
 
 1. **Registration:** Register, re-register (error), query registered languages
 2. **Unmapped types:** Detect gaps when one language has more types than another
@@ -154,7 +154,7 @@ If issues found after merge: `git revert` the PR. Language packages are independ
 
 ### LanguageTranspiler Tests
 
-**Unit tests** (`datrix-common/tests/transpiler/test_language_transpiler.py`):
+**Unit tests** (`datrix-common/tests/unit/transpiler/test_language_transpiler.py`):
 - `test_set_known_entity_names()` — stores and retrieves
 - `test_reset_common_state_preserves_configuration()` — config preserved, per-file state cleared
 - `test_python_literal_keywords()` — `True` / `False` / `None`

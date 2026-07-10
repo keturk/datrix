@@ -1,0 +1,35 @@
+{
+  "_comment": "I5 docs-conformance exceptions baseline (design 026, Invariant I5). Each entry is a backticked span (from an architecture doc) that datrix/scripts/test/check-docs-conformance.py cannot resolve to a real file/directory/module, verified to be legitimately non-existent (a migration-history 'what was removed' claim, a negative/prohibition claim, or another confirmed-intentional non-existence) rather than a genuine drift defect. A NEW entry here is a deliberate, reviewed exception -- never a way to silence a script complaint without reading why it fired.",
+  "exceptions": [
+    {
+      "span": "datrix-codegen-common/orchestration/seed_orchestrator.py",
+      "doc": "datrix-codegen-common/docs/architecture.md",
+      "reason": "migration-history reference to a deliberately-removed file; the doc's own text states it was removed"
+    },
+    {
+      "span": "datrix-codegen-common/context_models/seed.py",
+      "doc": "datrix-codegen-common/docs/architecture.md",
+      "reason": "migration-history reference to a deliberately-removed file; the doc's own text states it was removed"
+    },
+    {
+      "span": "datrix-codegen-python/micro_generators/seed.py",
+      "doc": "datrix-codegen-common/docs/architecture.md",
+      "reason": "migration-history reference to a deliberately-removed file; the doc's own text states it was removed"
+    },
+    {
+      "span": "datrix-codegen-typescript/micro_generators/seed.py",
+      "doc": "datrix-codegen-common/docs/architecture.md",
+      "reason": "migration-history reference to a deliberately-removed file; the doc's own text states it was removed"
+    },
+    {
+      "span": "datrix/tests/",
+      "doc": "datrix/docs/architecture/architecture/repository-architecture.md",
+      "reason": "negative/prohibition claim ('must never contain a tests/ pytest suite'), not an existence assertion"
+    },
+    {
+      "span": "datrix_codegen_python.parity.declarations",
+      "doc": "datrix-codegen-common/docs/architecture.md",
+      "reason": "migration-history reference (design 025 D4, task 13-14): the doc's own text states this hand-authored per-package declaration list 'and its siblings are deleted', replaced by parity/derived_declarations.py's derive_domain_declarations()"
+    }
+  ]
+}

@@ -305,3 +305,29 @@ Design 025 (GenDSL 2) Invariant I5 ratchet: AST-counts direct `GeneratedFile(...
 - A package absent from the baseline has an implicit baseline of 0.
 
 **Exit codes:** 0 = every package's count is at or below its frozen baseline (or a successful `-UpdateBaseline`), 1 = a package's count exceeds its frozen baseline, 2 = usage error, missing baseline, or an attempted baseline increase over an existing baseline.
+
+---
+
+### `test\check-docs-conformance.ps1`
+
+Design 026 (Golden Corpus Verification & Docs Conformance) Invariant I5 gate: extracts repo-relative path references and Python module references from the curated 36-file architecture-doc set (each package's `docs/architecture.md` and/or `docs/architecture/` tree — `datrix-extensions` has neither and contributes zero) and fails if any reference does not resolve to a real file/directory/module in the tree, unless it is recorded in the committed exceptions baseline at `scripts/config/docs-conformance-exceptions.json` (a "what was removed" migration-history claim, a "must never exist" prohibition claim, or another confirmed-intentional non-existence). This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix), following the same scan-and-baseline shape as `check-generated-file-ratchet.ps1`'s I5 ratchet, except the exceptions baseline is hand-edited and reviewed (no `-UpdateBaseline` flag — every entry needs a human-authored reason a script cannot synthesize).
+
+`ARCHITECTURE_DOC_FILES` is a literal, reviewable constant in the script (never a directory glob) — "architecture docs" is a curated concept, and a new architecture doc added later is a deliberate, reviewed one-line addition to that constant. This v1 only checks path-reference candidates that are fully package-qualified (start with a known package name or `D:\datrix\`) and module-reference candidates that are fully import-qualified (start with a known Python import name) — a bare, package-relative shorthand span with no anchor at all is never a candidate (deliberate scope boundary, not a gap).
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\test\check-docs-conformance.ps1` | Scan all 36 architecture docs, fail on unresolved references |
+| **Warning mode** | `.\test\check-docs-conformance.ps1 -Warn` | Report unresolved references but exit 0 |
+| **Show files** | `.\test\check-docs-conformance.ps1 -ShowFiles` | Print each architecture doc file being scanned |
+| **Custom base dir** | `.\test\check-docs-conformance.ps1 -BaseDir D:\datrix` | Specify monorepo root explicitly |
+| **Debug** | `.\test\check-docs-conformance.ps1 -Dbg` | Debug logging |
+
+**Parameters:** `-Warn`, `-ShowFiles`, `-BaseDir`, `-Dbg`
+
+**Assertions:**
+- Every single-backtick inline code span in each of the 36 architecture docs is extracted as a path-reference or module-reference candidate per the fixed extraction rules (package/drive-prefixed for paths, import-name-prefixed dotted chains for modules); a span containing `...`, `<`/`>`, or `*` is rejected outright.
+- A path candidate resolves via Tier 1 (exact path exists under the monorepo root; a trailing-slash candidate must be a directory) or Tier 2 (an unambiguous `src/`/`tests/`-relative suffix match — never attempted when the candidate already starts with `src`/`tests`, and never resolved when the suffix matches 2+ files).
+- A module candidate resolves when any decreasing-length prefix of its segments after the import name matches a real `.py` file or package `__init__.py` (tolerating a trailing symbol/attribute/function name).
+- A candidate unresolved by both tiers is checked against the exceptions baseline (span text -> reason); present spans never fail the gate, absent spans do.
+
+**Exit codes:** 0 = no unresolved references (or a successful `-Warn` run), 1 = at least one unresolved, non-excepted reference found, 2 = usage error, missing exceptions baseline, or a doc in `ARCHITECTURE_DOC_FILES` that no longer exists.
