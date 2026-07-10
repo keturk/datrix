@@ -280,3 +280,28 @@ Design 022 (declaration-driven service ingress) migration conformance gate. Repo
 - **Step 4:** zero `publicIngress`/`platforms.azure.services` matches under `datrix/examples`.
 
 **Exit codes:** 0 = every DI-6 delta class accounted for and the negative acceptance property holds, 1 = any finding (including known, out-of-scope pre-existing defects, reported distinctly) causes a non-zero ledger.
+
+---
+
+### `test\check-generated-file-ratchet.ps1`
+
+Design 025 (GenDSL 2) Invariant I5 ratchet: AST-counts direct `GeneratedFile(...)` constructor calls per `datrix-*` package's `src/` tree and fails if any package's count exceeds its frozen baseline at `scripts/config/generated-file-ratchet.json`. Every emitted file should eventually be declared in genDSL rather than hand-constructed; this ratchet freezes the current count per package and only ever allows it to shrink as later migration tasks convert hand-coded construction into genDSL declarations. This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix), following the same AST-scan-and-ratchet shape as `dev\check-import-boundaries.ps1`'s I1/I6 ratchets.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run ratchet** | `.\test\check-generated-file-ratchet.ps1` | Scan all packages, fail on regressions |
+| **Warning mode** | `.\test\check-generated-file-ratchet.ps1 -Warn` | Report regressions but exit 0 |
+| **Show files** | `.\test\check-generated-file-ratchet.ps1 -ShowFiles` | Print each file being scanned |
+| **Freeze/tighten baseline** | `.\test\check-generated-file-ratchet.ps1 -UpdateBaseline` | Recompute counts and write the baseline (bootstrap freeze if none exists yet; otherwise only accepts decreases) |
+| **Custom base dir** | `.\test\check-generated-file-ratchet.ps1 -BaseDir D:\datrix` | Specify monorepo root explicitly |
+| **Debug** | `.\test\check-generated-file-ratchet.ps1 -Dbg` | Debug logging |
+
+**Parameters:** `-Warn`, `-ShowFiles`, `-BaseDir`, `-UpdateBaseline`, `-Dbg`
+
+**Assertions:**
+- Direct `GeneratedFile(...)` constructor calls (bare or module-qualified) are counted per package's `src/` tree; `GeneratedFile.from_content(...)` is never counted (a distinct call shape).
+- `tests/` directories are never scanned (structural: only `src/` is walked).
+- `datrix-codegen-common/src/datrix_codegen_common/gendsl/executor.py` is excluded (the declared-render path's own internals).
+- A package absent from the baseline has an implicit baseline of 0.
+
+**Exit codes:** 0 = every package's count is at or below its frozen baseline (or a successful `-UpdateBaseline`), 1 = a package's count exceeds its frozen baseline, 2 = usage error, missing baseline, or an attempted baseline increase over an existing baseline.
