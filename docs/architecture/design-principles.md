@@ -713,13 +713,13 @@ genDSL compiler intermediate structures stay in process memory and are rebuilt e
 
 **F1 — Purposeful mini-DSLs, not one mega-DSL:** ConfigDSL owns deployment configuration, SeedDSL owns seed data, genDSL owns generator structure, RealizationDSL owns platform capability realization — typed `(block_type, flavor)` cells that drive provisioning dispatch, with the table cell (not text) as the authoring unit — and EmitDSL owns per-language emit-table declarations — typed builtin/operator emit decisions validated against the closed builtin registry, with the table row (not text) as the authoring unit. A new decision family that needs a declarative home gets its own purpose-scoped surface; nothing is folded into genDSL because it happens to be declarative; a surface that grows a second concern is split.
 
-**F2 — Declarations drive; they never merely describe:** a declarative artifact the runtime does not execute is banned — it drifts. The proof is in-tree: genDSL's declared-file rendering path was disabled in four of five production consumers (`render_declared_files=False` in datrix-codegen-azure, -aws, -sql, -docker), leaving a registry-and-validation layer whose core value sat inert while iteration was hand-coded a second time next to the declarations that described it. Either the declaration is the execution path or it is deleted.
+**F2 — Declarations drive; they never merely describe:** a declarative artifact the runtime does not execute is banned — it drifts. The proof is in-tree: genDSL's declared-file rendering path was disabled in four of five production consumers (`render_declared_files=False` in datrix-codegen-azure, -aws, -sql, -docker), leaving a registry-and-validation layer whose core value sat inert while iteration was hand-coded a second time next to the declarations that described it. Either the declaration is the execution path or it is deleted. (Design 025 D3 fixed this instance: all five packages now render exclusively through declared files, and `render_declared_files` no longer exists.)
 
 **F3 — Closed compilation:** every surface rejects unknown references at load time — unknown property, unresolvable binding, unknown feature — as a compile error, never a silent default. This is Fail Fast, Fail Loud applied to the meta-layer.
 
 **F4 — Text is earned:** new surfaces default to typed data declarations with validating loaders; a textual grammar is justified only where authoring ergonomics demand it. genDSL's own tokenizer, parser, and validator measure 1,940 LOC — that cost buys a readable embedded-docstring surface for generator authors, not a default for every future decision family. Computation stays in Python: DSLs declare structure, never implement algorithms.
 
-**Design reference:** [design/025-gendsl-2-closed-compilation-and-declared-rendering.md](../../../design/025-gendsl-2-closed-compilation-and-declared-rendering.md)
+**Design reference:** [GenDSL Design Decisions 14–17](../../../datrix-codegen-common/docs/gendsl/design-decisions.md#decision-14-closed-compilation--typed-context-validation-and-eager-reference-resolution) (design 025, adopted and complete 2026-07-08)
 
 ---
 
