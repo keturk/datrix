@@ -116,7 +116,11 @@ $examplesRoot = Join-Path (Join-Path $datrixRoot "datrix") "examples"
 $generateScript = Join-Path (Join-Path $datrixScriptsRoot "dev") "generate.ps1"
 $runCompleteScript = Join-Path $scriptDir "run-complete.ps1"
 $regenBaselinesScript = Join-Path $scriptDir "regen-parity-baselines.ps1"
-$baselinesRoot = Join-Path (Join-Path $datrixRoot "datrix-codegen-common") "tests\parity\baselines"
+# Parity baselines are repo-level gate config (alongside generated-file-ratchet.json
+# and docs-conformance-exceptions.json). They moved here when the parity gate was
+# rebuilt on the REAL generation pipeline; the old fixture-path harness and its
+# datrix-codegen-common/tests/parity/baselines tree are gone.
+$baselinesRoot = Join-Path (Join-Path $datrixScriptsRoot "config") "parity-baselines"
 
 foreach ($p in @($generateScript, $runCompleteScript, $regenBaselinesScript)) {
     if (-not (Test-Path -LiteralPath $p)) {
@@ -427,13 +431,25 @@ function Assert-DeltaD-WebhookParityBaseline {
     if (Test-Path -LiteralPath $backupDir) { Remove-Item -LiteralPath $backupDir -Recurse -Force }
     New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
 
+    # The parity gate generates each example ONCE, in the language its own
+    # config/system.dcfg declares (that is what the real generator does), so an
+    # example has exactly one baseline -- not one per language. Enumerate the
+    # baselines that actually exist rather than assuming a language matrix.
+    $baselineLanguages = @()
+    if (Test-Path -LiteralPath $baselineDir) {
+        $baselineLanguages = @(
+            Get-ChildItem -LiteralPath $baselineDir -Filter "*.sha256" |
+                ForEach-Object { $_.BaseName }
+        )
+    }
+    if ($baselineLanguages.Count -eq 0) {
+        Add-HardFailure "Delta (d): no parity baseline under $baselineDir -- cannot diff. Bless it first: regen-parity-baselines.ps1 -Example `"$IdentityExample`"."
+        return
+    }
+
     $oldManifests = @{}
-    foreach ($lang in $Languages) {
+    foreach ($lang in $baselineLanguages) {
         $baselineFile = Join-Path $baselineDir "$lang.sha256"
-        if (-not (Test-Path -LiteralPath $baselineFile)) {
-            Add-HardFailure "Delta (d): no existing baseline at $baselineFile -- cannot diff (expected a pre-migration baseline to exist per this task's spec)."
-            continue
-        }
         Copy-Item -LiteralPath $baselineFile -Destination (Join-Path $backupDir "$lang.sha256.orig")
         $oldManifests[$lang] = Get-Content -LiteralPath $baselineFile
     }
@@ -449,25 +465,22 @@ function Assert-DeltaD-WebhookParityBaseline {
     & $regenBaselinesScript @regenArgs
     $regenExit = $LASTEXITCODE
     if ($regenExit -ne 0) {
-        # regen-parity-baselines.ps1's fixture path (attach_default_configs)
-        # cannot resolve identity's config-declared webhook secret
-        # (payment_webhook_secret in config/storefront-service.dcfg) after the
-        # 12-17 migration -> VERIFY002. The identity example itself is fully
-        # conformant via the real pipeline (generate.ps1 succeeds with 0 errors);
-        # this is a pre-existing limitation of the fixture-based parity mechanism,
-        # not a design-022 defect and not an identity-example defect. Delta-(d)'s
-        # SUBSTANCE is already proven above (regen-independent source check); the
-        # byte-diff corroboration is simply unobtainable until the parity infra is
-        # extended -- reported as a known defect, not a gate failure.
-        Add-KnownDefect "Delta (d): regen-parity-baselines.ps1 for `"$IdentityExample`" exited $regenExit -- the fixture-based parity path (regen.py attach_default_configs) cannot resolve the config-declared webhook secret (payment_webhook_secret) that 12-17 introduced (VERIFY002). NOT a design-022 regression; identity generates cleanly via generate.ps1. Delta-(d) substance proven source-level above. Follow-up task: extend the fixture-based parity mechanism to resolve config-declared secrets (or register identity's real ConfigDSL for parity)."
+        # The old fixture-path regen (attach_default_configs) could not resolve
+        # identity's config-declared webhook secret (payment_webhook_secret in
+        # config/storefront-service.dcfg) and always failed here. That limitation is
+        # GONE: regen-parity-baselines.ps1 now runs the REAL generation pipeline, which
+        # resolves the example's ConfigDSL exactly as generate.ps1 does, and identity
+        # blesses cleanly. A non-zero exit here is therefore a REAL generation failure,
+        # not a known infra gap -- fail the gate.
+        Add-HardFailure "Delta (d): regen-parity-baselines.ps1 for `"$IdentityExample`" exited $regenExit. The parity mechanism now uses the real generation pipeline, so this is a genuine generation failure for the identity example -- investigate it (run generate.ps1 on the example to reproduce)."
         if (-not $substanceOk) {
-            Add-HardFailure "Delta (d): substance proof FAILED (see above) AND the byte-diff corroboration is unobtainable -- delta (d) is UNPROVEN (this would be a real design-022 regression, not the known infra limitation)."
+            Add-HardFailure "Delta (d): substance proof ALSO failed (see above) -- delta (d) is UNPROVEN."
         }
         return
     }
 
     $allJustified = $true
-    foreach ($lang in $Languages) {
+    foreach ($lang in $baselineLanguages) {
         if (-not $oldManifests.ContainsKey($lang)) { continue }
         $newBaselineFile = Join-Path $baselineDir "$lang.sha256"
         $newManifest = Get-Content -LiteralPath $newBaselineFile
@@ -521,7 +534,7 @@ function Assert-DeltaD-WebhookParityBaseline {
         # descriptor's `access_level` field (_endpoint_handlers.py:1140) --
         # exactly a mode-literal-only change.
         if ($changed.Count -eq 0) {
-            Add-LedgerLine "Delta (d) [$lang]: zero changed files under the fixture-based parity mechanism (attach_default_configs, not full ConfigDSL) -- the mode change did not surface in this generator's fixture path; substance proof rests entirely on the direct code-read above."
+            Add-LedgerLine "Delta (d) [$lang]: zero changed files -- the committed baseline (blessed from the REAL pipeline, post-migration) already reflects the migrated output, so re-blessing is a no-op. Substance is proven by the direct code-read above."
         } else {
             Add-LedgerLine "Delta (d) [$lang]: all $($changed.Count) changed file(s) are consistent with the mode-literal-only class per the direct code-read above (no changed file lies inside the verification-prelude injection, which is provably independent of AuthMode)."
         }
@@ -529,7 +542,7 @@ function Assert-DeltaD-WebhookParityBaseline {
 
     if (-not $allJustified) {
         Add-HardFailure "Delta (d): baseline refresh NOT retained as a clean mode-only diff -- restoring pre-migration baseline (do not leave an unjustified baseline change on disk)."
-        foreach ($lang in $Languages) {
+        foreach ($lang in $baselineLanguages) {
             $backup = Join-Path $backupDir "$lang.sha256.orig"
             if (Test-Path -LiteralPath $backup) {
                 Copy-Item -LiteralPath $backup -Destination (Join-Path $baselineDir "$lang.sha256") -Force

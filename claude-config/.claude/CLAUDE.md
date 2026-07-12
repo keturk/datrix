@@ -29,6 +29,20 @@
 
 These folders are cleared regularly — never store anything important in them. Create the folder if it doesn't exist. If a tool or command defaults to writing output elsewhere, redirect it to the appropriate folder above.
 
+## Running Python
+
+**One shared venv: `D:\datrix\.venv`.** Every `datrix-*` package is installed into it in editable mode (`import datrix_common` resolves to `datrix-common/src/...`). The scripts activate it via `Ensure-DatrixVenv` (`datrix/scripts/common/venv.ps1`). There is no per-package venv.
+
+| To do this | Use this |
+|---|---|
+| Run a package's tests | `datrix/scripts/test/test.ps1 <package>` — **suites only; it cannot run an arbitrary script** |
+| Type-check | `datrix/scripts/test/mypy.ps1` |
+| Run a one-off script | `D:\datrix\.venv\Scripts\python.exe <script>` |
+
+**Never invoke `pytest` directly, and never reverse-engineer `test.ps1` to discover which interpreter it activates** — it's the venv above. Read `datrix/scripts/quick-reference.md` before calling any repo script.
+
+**Prefer a test over a scratch script.** If a check is worth proving (a gate is non-vacuous, no path is emitted twice, an invariant holds), land it as a real test in the owning package — a scratch script proves it once and evaporates; a test proves it forever and fails the next person who breaks it. Reserve `D:\datrix\.scripts\` one-off scripts for measurement that should *not* become a permanent assertion (counting occurrences, diffing a generated corpus before/after).
+
 ## STOP AND THINK
 
 Before touching code: read all relevant code, trace root cause, understand full impact, design the fix, ask if uncertain. One correct fix > five quick patches.

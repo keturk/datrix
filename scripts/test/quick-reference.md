@@ -213,26 +213,77 @@ Validates that all canonical types in the TypeRegistry have mappings in the requ
 
 ---
 
-### `test\regen-parity-baselines.ps1`
+### `test\reference-example-parity-gate.ps1`
 
-Regenerates the stored reference-example parity baselines consumed by the
-`datrix-codegen-common` example-parity test. For every example `system.dtrx` under
-`datrix/examples/` × each discovered language, generates output in-process and writes a
-deterministic per-file sha256 manifest to
-`datrix-codegen-common/tests/parity/baselines/<example_id>/<language>.sha256`. This is the
-**only** sanctioned way to update baselines — the test itself never writes them (no
-auto-heal). Run it deliberately after an intentional, reviewed change to generated output.
+**The repo's proof that generated output does not change unintentionally.** For every example
+`system.dtrx` under `datrix/examples/`, runs the **real generation pipeline**
+(`datrix_cli.pipeline.generation.GenerationPipeline` — the same code path `generate.ps1` runs,
+with the same `PipelineConfig` defaults: profile `test`, `format_output=True`,
+`validation_level=STANDARD`) and compares a per-file sha256 manifest of the **whole generated
+output tree** against the stored baseline in
+`datrix/scripts/config/parity-baselines/<example_id>/<language>.sha256`. Any changed byte in any
+generated file, and any file that appears or disappears, fails the gate.
+
+Repo-level validation **script**, not a pytest suite (per the datrix showcase boundary), and
+`datrix_codegen_common` may not import `datrix_cli`.
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Regenerate all** | `.\test\regen-parity-baselines.ps1` | Rewrite every example × language baseline |
-| **Single example** | `.\test\regen-parity-baselines.ps1 -Example "01-foundation/library"` | Rewrite one example's baselines (path relative to `datrix/examples/`) |
-| **Single language** | `.\test\regen-parity-baselines.ps1 -Language python` | Rewrite only the named language's baselines |
+| **Run the gate** | `.\test\reference-example-parity-gate.ps1` | Check every example against its baseline (~4 min) |
+| **Single example** | `.\test\reference-example-parity-gate.ps1 -Example "01-foundation"` | Check one example (fast iteration on a generator) |
+| **Debug** | `.\test\reference-example-parity-gate.ps1 -Dbg` | DEBUG logging (very verbose: every pipeline stage) |
+
+**Parameters:** `-Example` (path relative to `datrix/examples/`, optional — default all), `-Dbg`
+
+**One language per example — NOT a language matrix.** The generator reads the target language
+from each project's `config/system.dcfg`; `generate.ps1`'s `-L` only labels the output path. Each
+example is therefore generated exactly once, in its declared language (52 python + 1 typescript
+today). The gate never enumerates languages.
+
+**Non-vacuity is enforced on every run.** Before trusting any comparison, the gate copies a real
+generated tree, mutates one byte of one file, and requires that the comparison reports exactly
+that path as CHANGED with a rendered unified diff. If the comparator cannot detect a real change,
+the gate fails regardless of how the examples compare.
+
+**Reading a failure.** The report names **every** changed / added / removed path (not "the first
+divergent file") and, when a local baseline cache from the last bless is present under
+`.test-output/parity-baseline-cache/`, renders a real **unified diff** of each changed file. The
+freshly generated tree is left under `.test-output/parity-current/<example_id>/`.
+
+**Known non-generating examples** live in `scripts/config/parity-known-nongenerating.json` with a
+pinned `expected_count`, and are reported loudly on every run — never silently skipped.
+
+**Exit codes:** 0 = every example matches its baseline and the comparator is non-vacuous,
+1 = drift / missing baseline / generation failure / self-test failure, 2 = usage or config error.
+
+---
+
+### `test\regen-parity-baselines.ps1`
+
+**The single re-bless command** for the reference-example parity gate. Regenerates the stored
+baselines by running the same real pipeline and writing a per-file sha256 manifest to
+`datrix/scripts/config/parity-baselines/<example_id>/<language>.sha256`. This is the **only**
+sanctioned baseline writer — the gate never writes baselines (no auto-heal). Run it deliberately,
+**after** you have explained the change.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Re-bless one example** | `.\test\regen-parity-baselines.ps1 -Example "01-foundation"` | The normal case: one intentional change → one example re-blessed |
+| **Re-bless all** | `.\test\regen-parity-baselines.ps1` | Only for a change that legitimately moves every example's output |
 | **Debug** | `.\test\regen-parity-baselines.ps1 -Dbg` | Debug logging |
 
-**Parameters:** `-Example` (relative path under `datrix/examples/`, optional — default all), `-Language` (python\|typescript, optional — default all discovered), `-Dbg`
+**Parameters:** `-Example` (path relative to `datrix/examples/`, optional — default all), `-Dbg`
 
-**Note:** Baselines are deterministic (generation output is byte-stable). Regeneration must be reviewed in the diff — an unexpected baseline change signals real cross-language divergence.
+**Per-example granularity is the point:** an intentional change affecting one example re-blesses
+one example, not all 53. The full generated tree of each blessed example is kept under
+`.test-output/parity-baseline-cache/` so a later failing gate can show a real unified diff.
+
+**Note:** an example that cannot generate is never blessed — the run fails and names it. Always
+review the resulting baseline diff before committing: **an unexpected baseline change is a
+generator regression, not a baseline update.**
+
+**Exit codes:** 0 = all selected baselines written, 1 = an example failed to generate, 2 = usage
+or config error.
 
 ---
 

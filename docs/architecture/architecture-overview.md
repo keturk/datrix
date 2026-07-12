@@ -34,6 +34,10 @@ This overview was split into focused sub-documents for easier navigation. Each s
 - **[Repository Architecture & Plugins](architecture/repository-architecture.md)** — 13 packages, plugin system, domain extension system, extern services, application containers, adding a new language
 - **[Builtin Traits & Enums](architecture/builtin-traits-enums.md)** — 10 builtin traits, 2 builtin enums, injection mechanism
 
+Related:
+
+- **[Generated Output Stability](generated-output-stability.md)** — the reference-example parity gate: the repo's proof that generated output does not change unintentionally, how to read a failure, and the re-bless command
+
 ### Moved section anchors
 
 The following anchors previously lived in this file and are now in sub-documents. Update links accordingly:

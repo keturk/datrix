@@ -1,0 +1,21 @@
+{
+  "_comment": [
+    "Examples under datrix/examples/ that the REAL generation pipeline cannot build today.",
+    "This is a DELIBERATELY MAINTAINED SCOPE BOUNDARY, not an auto-heal: it converts a genuine,",
+    "pre-existing generation FAILURE into a loudly-reported skip in the reference-example parity",
+    "gate (datrix/scripts/test/reference-example-parity-gate.ps1). It never hides output drift --",
+    "a listed example that does generate is still hash-compared against its baseline.",
+    "",
+    "Both entries reproduce with the sanctioned generator (generate.ps1 <system.dtrx> <out> -L python),",
+    "so neither is a gate artifact. Both are also ABSENT from scripts/config/test-projects.json, which",
+    "is why generate.ps1 -All never built them and the defects went unnoticed.",
+    "",
+    "expected_count is a pinned, reviewed value: change it only in the same change that adds or",
+    "removes an entry. Removing an entry means the defect is FIXED and the example must be blessed."
+  ],
+  "expected_count": 2,
+  "examples": {
+    "02-features-02-service-architecture-pubsub-replayable-ingestion": "ConfigResolutionError ING001: the system declares a gateway {} block but no service derives ServiceIngressExposure.GATEWAY (a front door with nothing behind it). Example-definition defect: the example declares no external-caller auth(...) endpoint. Unregistered in test-projects.json, so generate.ps1 -All never built it. Follow-up: FIX-EXAMPLE-REPLAYABLE-INGESTION-ING001.",
+    "02-features-03-infrastructure-blocks-config-store": "ValueError from build_runtime_bootstrap: RuntimeBootstrap LOCAL requires config_store engine 'file' (platform 'container'), but the example declares engine='consul' platform='container'. The example's declared config store is incompatible with the LOCAL runtime-bootstrap contract. Unregistered in test-projects.json, so generate.ps1 -All never built it. Follow-up: FIX-EXAMPLE-CONFIG-STORE-CONSUL-BOOTSTRAP."
+  }
+}
