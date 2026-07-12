@@ -12,8 +12,8 @@ Fully automated multi-wave task orchestrator. Accepts a set of tasks (individual
 
 You run on Opus 4.8 at extra-high effort because this skill performs the **highest-stakes judgment in the repo** — the design-conformance gate, the BLOCKED-is-terminal calls, the wave/enforcement ordering, and the completion decisions that phase-01 got wrong. That capability is for deciding, not for doing. You are the orchestrator and decision-maker; **execution goes to subagents on cheaper models.**
 
-- **You (Opus) own — never delegated:** the dependency DAG and wave plan, the design-conformance contract (Step 1d) and gate (3g, 3i Step A2), BLOCKED/completion decisions, failure attribution and fix-scope decisions, escalation judgment, integration across tasks, and the pass/fail verdict on every gate.
-- **You delegate DOWN — always:** implementing tasks (already delegated, 3b), building the shared-context digest, running test suites and conformance checks, **and implementing fixes in the fix loops (3e / 3i Step A) — do NOT edit code inline on Opus.** You decide the fix (root cause, scope, exact change); a subagent types it.
+- **You (Opus) own — never delegated:** the dependency DAG and wave plan, the design-conformance contract (Step 1d), the **readiness-audit adjudication** (Step 1e — which findings are real, what task closes each gap, how dependencies rewire) and the conformance gates (3g, 3i Step A2), BLOCKED/completion decisions, failure attribution and fix-scope decisions, escalation judgment, integration across tasks, and the pass/fail verdict on every gate.
+- **You delegate DOWN — always:** implementing tasks (already delegated, 3b), gathering the readiness audit's evidence and writing the task files it adds (1e), building the shared-context digest, running test suites and conformance checks, **and implementing fixes in the fix loops (3e / 3i Step A) — do NOT edit code inline on Opus.** You decide the fix (root cause, scope, exact change); a subagent types it.
 
 Two resources are scarce and both are yours to protect: **Opus tokens** (never spend them on typing a fix a Sonnet agent can apply from your spec) and **your context window** (it must survive a whole multi-phase run — delegate the token-heavy reading/editing so your context holds the conformance state, not file contents).
 
@@ -22,6 +22,7 @@ Because you ARE Opus at extra-high effort, the old "escalate up to a more-capabl
 **The orchestrator's mandate is conformance, not throughput** (CLAUDE.md "Task Orchestration" states the full rationale — it binds here). Two consequences at every wave and phase boundary: **a green suite is necessary but NOT sufficient** (the explicit design-conformance gates at 3g and 3i Step A2 prove the design invariant itself), and **BLOCKED is terminal — it can never become COMPLETED** (per the shared checklist `d:\datrix\.claude\skills\_shared\completion-eligibility.md`; the blocker is spawned as a tracked task).
 
 **Key differences from `/execute-tasks-parallel`:**
+- **Readiness audit before any execution** (Step 1e) — audits the task set against the design doc AND the current implementation, then authors the missing tasks and rewires `dependencies.md` before planning waves
 - Dependency-aware grouping (builds a DAG, topologically sorts into waves)
 - Automated test execution (runs full suite via Bash, does not ask user)
 - Automatic wave advancement (no human intervention between waves)
@@ -138,9 +139,61 @@ The orchestrator gates on the design, so it must hold the design in hand — not
 1. **Collect the design reference(s).** Read the `**Design reference:**` of every task. Resolve the distinct design-doc path(s) the phase implements.
 2. **Read the design doc(s)** and extract, per phase, the **design contract**: the list of invariants / numbered decisions (D#/G#) the phase must satisfy, and for each invariant **the full SET of surfaces it ranges over** (e.g. "fail-loud applies to integration AND CDN AND auth AND datasource positions"). This surface set is what catches a half-implemented invariant — a phase that guards one surface and silently drops the rest.
 3. **Per task, record its `design_acceptance_property`** — the observable end-state + the executable check (negative + positive) that proves it. If a non-trivial implementation/migration task has NO design acceptance property (blank or "tests pass"), flag it: it is under-specified and its completion cannot be verified. Note it for the gate; do not silently let it pass on suite-green alone.
-4. **Map invariant → tasks.** For every invariant surface in the contract, identify which task covers it. If a surface in the design's set has NO task covering it → record a **conformance gap** now (a design-named surface with no implementer). This is reported at the phase boundary (3i Step B) as a phase-level failure, even if every task and the suite are green.
+4. **Map invariant → tasks.** For every invariant surface in the contract, identify which task covers it. If a surface in the design's set has NO task covering it → record a **conformance gap** now (a design-named surface with no implementer). Feed it into the Readiness Audit (Step 1e), which closes it by authoring the missing task **before** execution. (3i Step A2 remains the backstop for gaps that only surface later — but a gap visible up front must never be deferred to the phase boundary.)
 
-`design_contract` (invariants + surface sets) and per-task `design_acceptance_property` are checked by 3g (completion) and 3i Step B (phase conformance). Without this contract, the orchestrator can only check "did it run", which is exactly the phase-01 failure.
+`design_contract` (invariants + surface sets) and per-task `design_acceptance_property` are checked by 1e (readiness), 3g (completion) and 3i Step B (phase conformance). Without this contract, the orchestrator can only check "did it run", which is exactly the phase-01 failure.
+
+### 1e. Readiness Audit — is this task set sufficient to satisfy the design against the CURRENT code?
+
+**Run this before ANY execution.** The task set was authored against the design and the codebase **as they were when `/generate-tasks` ran**; both may have moved since, and the generator may have missed a surface. Executing an insufficient task set produces the phase-01 outcome — every task COMPLETED, the suite green, and the design still unenforced. The audit answers one question: *if every task in this set succeeds exactly as written, will the `design_contract` from 1d hold over the code that is actually on disk today?* If the answer is anything but yes, the audit **adds the missing tasks and rewires dependencies** before Step 2 builds the DAG.
+
+The audit is **read-only with respect to source code** — it authors task files and updates `dependencies.md`, and touches nothing else. It **never modifies the design doc** (CLAUDE.md: design docs are scope boundaries).
+
+##### Audit dimensions (each finding needs evidence — a file:line you read or a command + its output)
+
+1. **Coverage gap** — a design invariant/surface from the 1d contract with no task implementing it. Includes the case where a task covers *part* of an invariant's surface set (the guard on the easy surface, the rest silently dropped).
+2. **Enforcement ordering gap** — a validator / fail-loud guard / parser rejection exists as a task but is NOT a `Depends on` of every task that migrates or relies on content it governs (CLAUDE.md "Enforcement before what it governs"). Also the case where the *guard itself is missing* while its migration task exists.
+3. **Stale premise** — the task assumes code state that is no longer true: a file/class/function/constant it says to modify does not exist, has been renamed, or already carries the change. Verify each task's `## Files to Review Before Starting`, `## Files to Create` and the specific symbols it names against the code on disk.
+4. **Already-satisfied** — the current implementation already provides the task's design acceptance property. Prove it with the acceptance check (negative + positive); a task that merely *looks* done is not.
+5. **Under-specified task** — a non-trivial task with a blank / vacuous `**Design acceptance property:**` ("tests pass", "it generates"). Its completion cannot be verified, so 3g can never pass it honestly.
+6. **Missing dependency edge** — task B modifies or imports a file/symbol task A creates, but B does not `Depends on` A; or two tasks in the same prospective wave write the same file with no ordering.
+7. **Unresolvable premise (BLOCKING)** — the design contradicts the code in a way no task can reconcile (the design names an API/symbol/behavior that does not and cannot exist as described). This is not an audit fix; it is a STOP.
+
+##### Procedure
+
+1. **Delegate the evidence gathering, keep the verdicts.** Dispatch **sonnet** audit subagents in parallel (`run_in_background: true`, one per package in the task set, plus one for the design-contract coverage sweep). Each gets: the design doc path + the 1d `design_contract` (invariants and their full surface sets), the task files it owns, and the shared-context digest. Each returns **findings with evidence only** — for every claim, the file:line it read or the command + output it ran. Instruct them explicitly: *report a gap only if you verified it against the code on disk; a suspicion with no evidence is not a finding.* They do not author tasks and they do not edit code.
+2. **Adjudicate each finding yourself (Opus).** Discard evidence-free claims. For each surviving finding, decide its class (1–7 above) and its remedy. A finding that would *reduce* scope (already-satisfied) needs the same standard of proof as one that adds scope — run its acceptance check yourself before acting on it.
+3. **Author the missing tasks.** For each real coverage / enforcement / under-specification gap, write a new task file:
+   - Location: the **owning package's** `.tasks\phase-{NN}\` directory (the package whose surface the invariant lives on — apply the generality-preserving rule: the most language/platform-agnostic layer that can own it).
+   - ID: the next free `{TT}` for that phase — scan every package's `.tasks\phase-{NN}\` for the highest existing `task-{NN}-{TT}` and continue from there. Never reuse or renumber an existing ID.
+   - Content: the full task template from `/generate-tasks` (`d:\datrix\.claude\skills\generate-tasks\SKILL.md`, "File Structure") — including a real `**Design reference:**` (the D#/G# it closes), a **provable** `**Design acceptance property:**` with its negative + positive check, `## Files to Review Before Starting`, `## Files to Create`, `## Targeted Tests`, and its own `## Tests` section. A task the audit adds must be as complete as one `/generate-tasks` emits; a stub task is a workaround.
+   - Delegate the *writing* to a **sonnet** agent from your spec (you decide the scope, acceptance property, package, and dependencies; the agent types the file), then read the result and verify it carries a provable acceptance property.
+   - For an **under-specified** existing task, do not add a new task — amend that task file's `**Design acceptance property:**` and its Success Criteria to carry the provable check. (Amending a *task* is allowed; amending the *design* is not.)
+4. **Rewire dependencies — task files AND `dependencies.md` must stay in lockstep.**
+   - Edit the `**Depends on:**` field of every affected task file: new tasks' own prerequisites, plus edges **into** the new tasks from every task they must precede (a newly-added guard becomes a `Depends on` of every migration it governs).
+   - Update `d:\datrix\datrix\.tasks\phase-{NN}\dependencies.md` to match — per the JSON schema in `d:\datrix\datrix\claude-config\.claude\agent-templates\dependencies-format.md`: append a `tasks[]` entry for each new task (`task_id`, `task_path`, `title`, `is_completed: false`, `package`, `dependencies`, `category`) and update the `dependencies` array of every existing task that gained an edge. If the file is in the legacy "Group N" text format, **rewrite it as JSON** (the preferred format) rather than patching groups. If it does not exist, create it — the amended set is now the phase's source of truth and the next run must see it.
+   - Re-run 1c's validation and 2b's cycle detection over the amended graph. A cycle introduced by the audit's own edges is a bug in your rewiring — fix it, do not ship it.
+5. **Re-verify the contract.** With the amended set, re-run 1d step 4: every invariant surface in the `design_contract` must now map to at least one task. If a surface still has no owner, you have not finished the audit.
+
+##### Outcomes
+
+- **Ready (no gaps)** → say so in one line and proceed to Step 2.
+- **Ready after amendment** → emit the Audit Report (below) and proceed to Step 2 with the amended task set. **Do not ask the user for permission to proceed** — closing a gap the design already mandates is in scope; the audit is reported, not negotiated.
+- **BLOCKING (dimension 7, or a design/code contradiction you cannot reconcile)** → STOP before Step 2 and `AskUserQuestion` with your evidence: what the design requires, what the code actually does, and why no task can bridge them. Never paper over it with a task that pretends the premise holds.
+
+##### Audit Report (emit before the execution plan)
+
+```
+READINESS AUDIT — phase {NN}: {N} tasks audited, {G} gaps found
+
+Added:    task-{NN}-{TT} ({package}) — {invariant/surface it closes}
+Rewired:  task-{NN}-{TT} now depends on task-{NN}-{TT}  ({why — e.g. guard before migration})
+Amended:  task-{NN}-{TT} — acceptance property was unprovable, now: {property}
+Stale:    task-{NN}-{TT} — {premise that no longer holds} → {what you did about it}
+dependencies.md: updated ({N} entries, {E} edges)
+```
+
+Omit any line with nothing to report. If no gaps: `READINESS AUDIT — phase {NN}: {N} tasks, no gaps; task set satisfies the design contract.`
 
 ---
 
@@ -148,7 +201,7 @@ The orchestrator gates on the design, so it must hold the design in hand — not
 
 ### 2a. Build the Directed Acyclic Graph
 
-For each non-completed task:
+Build it from the **amended** task set — the tasks added and the edges rewired by the Readiness Audit (1e) are ordinary members of the graph, not an appendix to it. For each non-completed task:
 1. Parse the `**Depends on:**` field to get dependency slugs
 2. For each dependency slug:
    - Find the matching task in the full task list (completed or not)
@@ -247,6 +300,7 @@ The digest is **reference context, not a substitute for the task file** — agen
 Maintain these state variables throughout the loop:
 
 - `completed_tasks[]` — tasks that passed all checks and were marked complete
+- `audit_added_tasks[]` — tasks authored by the Readiness Audit (1e) to close a design gap; they execute like any other task and are reported separately in Step 4
 - `failed_tasks[]` — tasks that failed after 3 fix attempts
 - `skipped_tasks[]` — tasks skipped because a dependency failed
 - `current_wave` — wave number being executed
@@ -532,12 +586,13 @@ After all waves are executed (or execution is halted by user), emit a lean repor
 ```
 DONE: {COMPLETED|PARTIAL|HALTED} — {completed}/{total} tasks, {waves_executed}/{total_waves} waves
 Phases: {P}: COMPLETE | {P+1}: PARTIAL | {P+2}: NOT STARTED   (only for multi-phase runs)
+Audit: {N} tasks added to close design gaps: {task-id} ({gap})  (only if the readiness audit amended the set)
 Tests: {package}: {passed}/{total} | {package}: {passed}/{total}
 Failed: {task-id} — {reason}  (only if any)
 Skipped: {task-id} — blocked by {dep}  (only if any)
 ```
 
-Do NOT list completed tasks — success is the default. Only list failures and skips. For multi-phase runs, include the per-phase status line: a phase is `COMPLETE` (passed its phase gate), `PARTIAL` (started, advanced past the gate with failures via "Proceed anyway"), or `NOT STARTED` (never reached because an earlier phase gate halted).
+Do NOT list completed tasks — success is the default. Only list failures, skips, and audit-added tasks (`audit_added_tasks[]` — the user needs to know the task set grew and why). For multi-phase runs, include the per-phase status line: a phase is `COMPLETE` (passed its phase gate), `PARTIAL` (started, advanced past the gate with failures via "Proceed anyway"), or `NOT STARTED` (never reached because an earlier phase gate halted).
 
 ---
 
@@ -546,6 +601,7 @@ Do NOT list completed tasks — success is the default. Only list failures and s
 All rules from `d:\datrix\.claude\CLAUDE.md` apply. Key rules for the orchestrator:
 
 - **CONFORMANCE OVER THROUGHPUT / BLOCKED IS TERMINAL** — enforced by the 3g completion checklist (`_shared/completion-eligibility.md`) and the 3i Step A2 conformance gate; never relaxed for a green suite.
+- **NEVER EXECUTE AN UNAUDITED TASK SET** — Step 1e runs before Step 2, every run, no exception. A task set is a *hypothesis* about what the design needs against the code that existed when it was written; the audit tests that hypothesis against today's code before 5 agents act on it. Skipping it to "just start the waves" is how a phase finishes green with a design invariant unenforced. Gaps it finds are closed as real tasks with provable acceptance properties — never as a note in the report, a footnote, or a stub task.
 - **NO ASSUMING — ENUMERATE AND VERIFY STATE** — characterize a corpus by enumerating ALL of it (counted), not a sample; reason about git/working-tree from the CURRENT on-disk state you just read, never a remembered snapshot. Paste real command output for every conformance claim.
 - **GENUINE agent monitoring, never assumption** — when agents run in the background pool, drive them with the Agent Progress Polling Protocol: check every ~5 minutes what each agent is *actually* doing (status **and** on-disk artifacts). Never report an agent as "working" without that evidence, and never rely on a completion notification to know an agent finished.
 - **JUDGMENT INLINE, TYPING DELEGATED** — you are the Opus orchestrator: decompose, attribute, decide fix-scope, gate conformance, and analyze escalations in YOUR context; dispatch subagents (haiku/sonnet/opus) to read widely, run suites, and apply fixes. Do NOT edit code inline on Opus in the fix loops (3e/3i) — decide the fix, then hand the edit to a subagent. Reading the minimum code needed to decide is fine; doing the whole implementation inline is not.

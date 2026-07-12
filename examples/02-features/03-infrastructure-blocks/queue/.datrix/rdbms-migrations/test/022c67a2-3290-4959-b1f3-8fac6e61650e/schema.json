@@ -73,7 +73,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000025E06FC9590>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -95,7 +95,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x0000025E06F817F0>"
+            "value": "BookFormat.Hardcover"
           },
           "migration_owned": true,
           "nullable": false,
@@ -122,7 +122,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000025E06FE1BE0>"
+            "value": "uuid()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -165,7 +165,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.ListLiteralNode object at 0x0000025E06FE2BA0>"
+            "value": "[]"
           },
           "migration_owned": true,
           "nullable": false,
@@ -230,7 +230,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x0000025E07004B00>"
+            "value": "BookStatus.Available"
           },
           "migration_owned": true,
           "nullable": false,
@@ -277,7 +277,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000025E06FC9A90>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -319,7 +319,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000025E06FC9590>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -361,7 +361,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000025E06FE1BE0>"
+            "value": "uuid()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -404,7 +404,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000025E06FC9A90>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -434,7 +434,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000025E06FC9590>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -477,7 +477,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000025E06FE1BE0>"
+            "value": "uuid()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -517,7 +517,7 @@
           "default": {
             "kind": "literal",
             "name": "literal",
-            "value": "<abc.PropertyAccessNode object at 0x0000025E06FCA5D0>"
+            "value": "UserRole.Member"
           },
           "migration_owned": true,
           "nullable": false,
@@ -543,7 +543,7 @@
           "default": {
             "kind": "server_function",
             "name": "server_default",
-            "value": "<abc.CallNode object at 0x0000025E06FC9A90>"
+            "value": "DateTime.now()"
           },
           "migration_owned": true,
           "nullable": false,
@@ -601,7 +601,7 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "022c67a2-3290-4959-b1f3-8fac6e61650e",
-  "schema_hash": "c59402ba4794be6c490483bfd6eafb55e987c069ac8339f0b874ba0cd14eccfa",
+  "schema_hash": "55325502e4b92702617e03ba3a84bf2f6fde9de6ff0aac59c33388d4d2edea2a",
   "service": {
     "name": "library.BookService",
     "version": "1.0.0"

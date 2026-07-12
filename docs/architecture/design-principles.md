@@ -739,6 +739,36 @@ genDSL compiler intermediate structures stay in process memory and are rebuilt e
 
 ---
 
+### One HTTP Start-Command Contract (Adopted)
+
+**Principle:** A container-hosted service's HTTP start command has a single source of truth: the `LanguageRuntimeSpec.container_command()` contract (gunicorn/UvicornWorker for Python), rendered into the container image's `ENTRYPOINT`/`CMD`. A service starts the same way on every host — there is no per-host command override in container mode, and no hardcoded start command duplicated in a Dockerfile template.
+
+**Why:**
+- Two definitions of the same behavior drift silently: prior to this principle a Dockerfile template hardcoded a `uvicorn` `CMD` while the shared runtime contract returned `gunicorn` — two sources of truth for how the same service starts
+- A container's start command must be identical across AWS, Azure, and local Docker hosting; only the shared per-language contract is defined once
+
+**Application:** Container image templates render `ENTRYPOINT`/`CMD` from `LanguageRuntimeSpec.container_command()` rather than a template-literal command. No generator or Dockerfile template declares its own start command for a language that has a runtime spec.
+
+**Design reference:** Design 035 — Containerized Service Hosting (AWS/Azure), Decision 4 (`D:/datrix/design/035-containerized-service-hosting-aws-azure.md`)
+
+---
+
+### One Shared Base Image Per Containerized System (Adopted)
+
+**Principle:** For containerized multi-service systems, dependency installation is factored into a single generated per-system base image (`<app>-<language>-base:<union-hash>`), built from the union of all services' requirements. Each service image is `FROM` that base plus a thin app-code layer.
+
+**Why:**
+- The dependency layer is the slow-changing part of a container build; building it once per system — not once per service — avoids redundant work
+- The base tag is the content hash of the union requirements, so an unchanged union is never rebuilt
+- Registry layer dedup (content-addressable storage) means the shared base is stored/uploaded once regardless of how many services reference it
+- Reuses design 034's union-requirements correctness argument: extra packages a service does not import are inert, so sharing one base across services with differing requirement subsets is safe
+
+**Application:** The Docker generator emits one per-system base image definition and per-service Dockerfiles that reference it via `FROM`. The base image tag changes only when the union of requirements changes.
+
+**Design reference:** Design 035 — Containerized Service Hosting (AWS/Azure), Decision 5 (`D:/datrix/design/035-containerized-service-hosting-aws-azure.md`)
+
+---
+
 ### 1. Generate Idiomatic Code
 
 **Principle:** Generated code should follow language best practices.
