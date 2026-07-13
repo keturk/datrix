@@ -46,16 +46,25 @@
 │  2. Materialize foundation for REST APIs     │
 │  3. Collect symbols                          │
 │  4. Resolve imports                          │
-│  5. Materialize stdlib symbols used in bodies│
-│  6. Resolve references                       │
-│  7. Resolve field types                      │
-│  8. Populate callable block names            │
-│  9. Merge inheritance                        │
-│ 10. Synthesize FK fields                     │
-│ 11. Resolve all index fields                 │
-│ 12. Check types                              │
-│ 13. Run domain validators                    │
+│  5. Validate API defaults                    │
+│  6. Materialize stdlib symbols used in bodies│
+│  7. Resolve references                       │
+│  8. Resolve field types                      │
+│  9. Resolve storage references               │
+│ 10. Populate callable block names            │
+│ 11. Merge inheritance                        │
+│ 12. Synthesize FK fields                     │
+│ 13. Synthesize replay nodes                  │
+│ 14. Resolve all index fields                 │
+│ 15. Check types                              │
+│ 16. Validate code bodies                     │
+│ 17. Run domain validators                    │
+│ 18. Annotate named call types                │
+│ 19. Seal the tree (app.seal())               │
 └──────────────────────────────────────────────┘
+
+After analysis completes, `analyze()` seals the `Application` tree by calling `app.seal()`, which recursively marks all nodes as immutable. Any attempt to mutate the tree after `analyze()` returns raises `SealedNodeMutationError` immediately. Generators and all downstream pipeline stages receive a sealed, read-only `Application` (Design 029, Decision D1: "build-then-seal").
+
  ↓
 ┌─────────────────────────────────┐
 │ Config Resolution │
