@@ -33,6 +33,12 @@ from typing import Optional, TextIO
 # Regex pattern to match ANSI escape codes
 _ANSI_ESCAPE_PATTERN = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]|\x1b\[\?[0-9;]*[a-zA-Z]')
 
+# How many candidate names TeeLogger will try when claiming a private run
+# directory (base name, then base-2 ... base-N). Runs colliding on one
+# timestamped name are the concurrency case this bounds; N is far above any
+# plausible number of same-second runs of one package.
+_MAX_RUN_DIR_CLAIM_ATTEMPTS = 1000
+
 
 def strip_ansi(text: str) -> str:
 	"""Remove ANSI escape codes from text.
@@ -111,16 +117,70 @@ class TeeLogger:
 		self._close_log_file()
 		return False
 
+	@staticmethod
+	def _claim_run_dir(log_dir: Path, base_name: str) -> Path:
+		"""Atomically claim a run directory that no other process owns.
+
+		Tries ``base_name`` first, then ``base_name-2``, ``base_name-3``, ...
+		Each attempt uses ``Path.mkdir()`` WITHOUT ``exist_ok``, which is an
+		atomic create-or-fail: of two processes racing on the same candidate
+		name, exactly one succeeds and the other raises FileExistsError and
+		tries the next candidate. The returned directory is therefore owned by
+		this process alone.
+
+		Args:
+			log_dir: Existing directory the run directory is created inside.
+			base_name: Preferred directory name (e.g. ``test-results-20260713-120910``).
+
+		Returns:
+			Path to the newly created, exclusively-owned run directory.
+
+		Raises:
+			RuntimeError: If no free candidate name was found. This means an
+				implausible number of runs collided on one timestamp; failing
+				loudly is correct, because silently sharing a run directory
+				makes every artifact in it untrustworthy.
+		"""
+		for attempt in range(1, _MAX_RUN_DIR_CLAIM_ATTEMPTS + 1):
+			candidate_name = base_name if attempt == 1 else f"{base_name}-{attempt}"
+			candidate = log_dir / candidate_name
+			try:
+				candidate.mkdir()
+			except FileExistsError:
+				continue
+			return candidate
+
+		raise RuntimeError(
+			f"Could not claim a private run directory under {log_dir}: the "
+			f"names {base_name} through {base_name}-{_MAX_RUN_DIR_CLAIM_ATTEMPTS} "
+			f"are all taken. Expected at least one free name. This run cannot "
+			f"proceed, because sharing a run directory with another run would "
+			f"overwrite its junit XML / index.json and report another run's "
+			f"tests as this one's. Fix: remove stale directories from "
+			f"{log_dir} (e.g. via scripts/test/cleanup.ps1) and re-run."
+		)
+
 	def _create_log_file(self) -> None:
 		"""Create log directory and full.log file with header."""
 		log_dir = self.project_root / self.config.log_dir
 		log_dir.mkdir(exist_ok=True)
 
-		# Create timestamped run directory (was a flat file)
+		# Create a run directory that this invocation owns EXCLUSIVELY.
+		#
+		# The directory name is timestamped to the second. Two invocations that
+		# reach this point within the same second therefore compute the same
+		# name. Creating it with exist_ok=True would let both of them "own" one
+		# directory: they would then overwrite each other's junit-*.xml,
+		# full.log and index.json, and each process would still report its own
+		# (correct) exit code -- so a run could print PASSED while the artifacts
+		# it points the caller at describe a DIFFERENT run's tests entirely
+		# (e.g. a `-Specific` run whose index.json names another file's tests).
+		#
+		# mkdir() without exist_ok is an atomic claim: exactly one racer creates
+		# the directory, every other racer gets FileExistsError and moves on to
+		# the next candidate name. Never relax this to exist_ok=True.
 		timestamp = datetime.now().strftime(self.config.timestamp_format)
-		dir_name = f"{self.config.prefix}-{timestamp}"
-		self.run_dir = log_dir / dir_name
-		self.run_dir.mkdir(exist_ok=True)
+		self.run_dir = self._claim_run_dir(log_dir, f"{self.config.prefix}-{timestamp}")
 
 		# Write full.log inside the run directory
 		self.log_file = self.run_dir / "full.log"

@@ -183,7 +183,10 @@ EXCLUDED_CYCLOMATIC_BLOCKS: list[tuple[str, str]] = [
     ("datrix_common/semantic/type_walker.py", "_walk_body"),
     ("datrix_common/semantic/validators/api.py", "ApiValidator"),
     ("datrix_common/semantic/validators/cqrs.py", "CqrsValidator"),
-    ("datrix_common/semantic/validators/cross_service.py", "CrossServiceValidator"),
+    (
+        "datrix_common/semantic/validators/cross_service_call_sites.py",
+        "CrossServiceCallSitesValidator",
+    ),
     ("datrix_common/semantic/validators/entity.py", "EntityValidator"),
     ("datrix_common/semantic/validators/event.py", "EventValidator"),
     ("datrix_common/semantic/validators/relationship.py", "RelationshipValidator"),

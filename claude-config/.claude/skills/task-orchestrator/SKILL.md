@@ -19,6 +19,8 @@ Two resources are scarce and both are yours to protect: **Opus tokens** (never s
 
 Because you ARE Opus at extra-high effort, the old "escalate up to a more-capable agent" step collapses: you do the architectural analysis **in-context** (you already hold the failure context), then dispatch a subagent to implement your decision. See the reframed **Decision Escalation Protocol** below. Delegation is never abdication — you verify every returned result with a command you run (or delegate the run and read the result), and a subagent's self-report never substitutes for the design-acceptance evidence you paste into the gate.
 
+**A multi-phase run is ONE run, not a sequence of runs.** When the invocation names several phases (`PHASES: 72, 73, 74`), you own all of them to the end. Completing a phase — even a fully green one — is **not** a stopping point, not a natural pause, and not a place to hand back to the user for a "shall I continue?" A green phase boundary has exactly one successor action: **spawn the first wave of the next phase, in the same turn.** The only exits from the run are Step 3i Step C's halt-and-ask (a phase that stayed red after Opus-led recovery), 3f's failure prompt, and the final report **after the last phase**. See **Multi-Phase Continuation** below — it binds.
+
 **The orchestrator's mandate is conformance, not throughput** (CLAUDE.md "Task Orchestration" states the full rationale — it binds here). Two consequences at every wave and phase boundary: **a green suite is necessary but NOT sufficient** (the explicit design-conformance gates at 3g and 3i Step A2 prove the design invariant itself), and **a task whose agent returned BLOCKED can never be quietly marked COMPLETED** (per the shared checklist `d:\datrix\.claude\skills\_shared\completion-eligibility.md`).
 
 **But a subagent's BLOCKED is not a verdict — it is a claim you must adjudicate.** You never stop on it and you never relay it. You investigate it yourself through the code and the docs; if it is bogus (the common case) you correct the agent and it finishes the task; if it is genuinely real, a **Fable adjudicator** (`model: "fable"`, `effort: "high"`) decides what happens instead and you carry that decision out. The full mechanism is `d:\datrix\.claude\skills\_shared\blocker-adjudication-protocol.md` — **read it; it binds at 3c and at every point below where a blocker appears.**
@@ -29,7 +31,7 @@ Because you ARE Opus at extra-high effort, the old "escalate up to a more-capabl
 - Automated test execution (runs full suite via Bash, does not ask user)
 - Automatic wave advancement (no human intervention between waves)
 - Handles tasks with cross-dependencies (separates into waves instead of blocking)
-- **Sequential multi-phase execution** — given several phases (e.g. `72, 73, 74`), finishes each phase fully before starting the next. At every phase boundary a gate (Step 3i) runs the **full test suite for every package the phase touched** and fixes **all** failures — including pre-existing ones unrelated to the phase's changes — with Opus-led recovery, before the next phase starts
+- **Sequential multi-phase execution, with no stop in between** — given several phases (e.g. `72, 73, 74`), finishes each phase fully and then **immediately starts the next, unprompted**. At every phase boundary a gate (Step 3i) runs the **full test suite for every package the phase touched** and fixes **all** failures — including pre-existing ones unrelated to the phase's changes — with Opus-led recovery. Green gate → next phase's first wave dispatches in the same turn; the run ends only at the last phase (or a Step C halt). See **Multi-Phase Continuation**
 
 ## When to Use
 
@@ -279,6 +281,30 @@ Executing...
 ```
 
 Do NOT wait for user confirmation — proceed directly to execution. The plan is informational.
+
+---
+
+## Multi-Phase Continuation (binding — read before Step 3)
+
+When the run covers more than one phase, the wave loop of Step 3 runs over **every wave of every phase**, in the phase-sequential order computed in 2c. It terminates on exactly one condition: **there is no next wave in any remaining phase.** Nothing else ends it.
+
+**At a green phase boundary you do not stop, do not summarize-and-yield, and do not ask.** Passing 3i's gates (Step A full-suite green on every touched package + Step A2 design-conformance) is the *permission* to continue, not a milestone to report and rest on. The Phase Checkpoint is a one-line progress marker emitted **on the way into** the next phase's first wave — in the same turn, with no intervening question to the user. If you catch yourself writing a summary of what phase `P` accomplished while phase `P+1` still has unexecuted waves, you have stopped early: dispatch the next wave instead.
+
+**Illegitimate reasons to stop at a phase boundary — all of them:** the phase went green and it "feels like a good checkpoint"; the run is long / many tokens spent; the user "might want to review before continuing"; the next phase looks large; the context is filling up (delegate harder — see the Opus-orchestrator contract); you already emitted a checkpoint that reads like a conclusion. None of these appear in the exit list below, and none are B1–B4.
+
+**The complete list of exits from a multi-phase run:**
+
+| Exit | Trigger | Where |
+|---|---|---|
+| Halt-and-ask | Phase `P` still red (failed/skipped tasks, red package, or conformance failure) **after** Opus-led recovery | 3i Step C |
+| Task-failure prompt | A task failed after the directed-fix attempt and the user chose *Stop* | 3f |
+| Blocking readiness finding | Design/code contradiction no task can reconcile | 1e, dimension 7 |
+| Test-infrastructure failure | `test.ps1` itself errors twice | Error Recovery |
+| **Run complete** | **The last wave of the LAST phase has passed its gates** | Step 4 |
+
+**Step 4's Final Report is emitted once, at the end of the LAST phase — never at an intermediate phase boundary.** An intermediate boundary emits the Phase Checkpoint only.
+
+If the user chose *Proceed anyway* at a Step C halt, the run continues into phase `P+1` and the same rule applies to every later boundary: keep going to the last phase.
 
 ---
 
@@ -553,8 +579,9 @@ A conformance failure is handled like a red package: fix it to conformance withi
 Partition phase `P`'s tasks into `completed`, `failed`, and `skipped` (using the run-wide state variables, filtered to tasks whose `phase == P`).
 
 **Green phase** — every touched package passed Step A's full-suite gate (all red driven to zero) **AND Step A2's design-conformance gate passed (every design-named surface enforced, every task's acceptance property proven, no open conformance gap)** AND `failed` and `skipped` are both empty:
-- Emit the Phase Checkpoint (below).
-- Proceed to the first wave of phase `P+1`.
+- Emit the Phase Checkpoint (below) — a one-line progress marker, **not** a report and **not** a conclusion.
+- **Immediately spawn the first wave of phase `P+1` (3a/3b), in this same turn.** No pause, no `AskUserQuestion`, no "phase {P} is complete — shall I continue?", no summary of the phase's accomplishments. A green gate is the *authorization* to continue, and continuing is the only thing you may do with it (Multi-Phase Continuation, above).
+- Only when phase `P` is the **last** phase in the run does a green gate lead to Step 4's final report instead of a next wave.
 
 ##### Step C — Red phase
 
@@ -592,13 +619,17 @@ Phase {P} COMPLETE — {completed}/{phase_total} tasks | tests: {package}: {pass
 → Starting phase {P+1}
 ```
 
-Track phases as their own TodoWrite group so the user can see phase-level progress distinct from wave-level progress.
+The `→ Starting phase {P+1}` line is a **commitment, not a plan announcement**: the very next thing you do after emitting it is dispatch phase `P+1`'s first wave. Emitting it and then ending the turn is the failure this gate exists to prevent. Omit that line only when `P` is the last phase in the run (then Step 4 follows).
+
+Track phases as their own TodoWrite group so the user can see phase-level progress distinct from wave-level progress. Keep the next phase's todos visibly pending at every boundary — an unstarted phase in the todo list is a standing reminder that the run is not over.
 
 ---
 
 ## Step 4: Final Report
 
-After all waves are executed (or execution is halted by user), emit a lean report:
+Emit this **once**, after the **last wave of the LAST phase** has passed its wave gate and that phase has passed its 3i gates — or when execution was halted by the user (3f *Stop*, or 3i Step C *Stop*). **Never at an intermediate phase boundary**: if any phase in the run still has unexecuted waves, you are not at Step 4, you are at 3i Step B and your next action is a wave dispatch.
+
+Then emit a lean report:
 
 ```
 DONE: {COMPLETED|PARTIAL|HALTED} — {completed}/{total} tasks, {waves_executed}/{total_waves} waves
@@ -617,6 +648,7 @@ Do NOT list completed tasks — success is the default. Only list failures, skip
 
 All rules from `d:\datrix\.claude\CLAUDE.md` apply. Key rules for the orchestrator:
 
+- **NEVER STOP AT A GREEN PHASE BOUNDARY** — in a multi-phase run, a phase passing its 3i gates authorizes the next phase; it does not end the run. Emit the Phase Checkpoint and dispatch phase `P+1`'s first wave **in the same turn**. Do not ask "shall I continue?", do not summarize the finished phase as if concluding, and do not emit Step 4's report while any phase still has unexecuted waves. The only exits are 3i Step C (phase still red after Opus-led recovery), 3f (*Stop*), a blocking 1e finding, a double test-infrastructure failure, and the end of the last phase — see **Multi-Phase Continuation**. Run length, token spend, and "the user may want to review" are not exits.
 - **CONFORMANCE OVER THROUGHPUT** — enforced by the 3g completion checklist (`_shared/completion-eligibility.md`) and the 3i Step A2 conformance gate; never relaxed for a green suite.
 - **NEVER STOP ON A SUBAGENT'S BLOCKED, AND NEVER RELAY IT** — a background agent's BLOCKED is a *claim*. Investigate it yourself against the code and the docs (`_shared/blocker-adjudication-protocol.md`): reproduce the error, read the attempted fix at its `file:line`, trace the root cause, check the governing design doc. Bogus → correct the agent and re-dispatch (it is not a failure and never enters `failed_tasks`). Real → a **Fable** adjudicator (`model: "fable"`, `effort: "high"`) decides, and you execute that decision. Accepting a four-part proof *because it has four parts* is a skill-level failure — form is not truth.
 - **NEVER EXECUTE AN UNAUDITED TASK SET** — Step 1e runs before Step 2, every run, no exception. A task set is a *hypothesis* about what the design needs against the code that existed when it was written; the audit tests that hypothesis against today's code before 5 agents act on it. Skipping it to "just start the waves" is how a phase finishes green with a design invariant unenforced. Gaps it finds are closed as real tasks with provable acceptance properties — never as a note in the report, a footnote, or a stub task.

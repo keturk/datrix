@@ -61,6 +61,26 @@ These folders are cleared regularly — never store anything important in them. 
 
 **Prefer a test over a scratch script.** If a check is worth proving (a gate is non-vacuous, no path is emitted twice, an invariant holds), land it as a real test in the owning package — a scratch script proves it once and evaporates; a test proves it forever and fails the next person who breaks it. Reserve `D:\datrix\.scripts\` one-off scripts for measurement that should *not* become a permanent assertion (counting occurrences, diffing a generated corpus before/after).
 
+## Post-Compaction Context
+
+**Compaction discards every file you have read** — only the system prompt, this file, and `MEMORY.md` are re-injected. Do not act on a recollection of a file's contents after a compaction; re-read it.
+
+This is enforced by the harness, not left to the agent — **and it applies to subagents too**:
+
+| Hook | Event | Behavior |
+|---|---|---|
+| `post-compact-context.py` | `SessionStart(compact)` | Injects the execution contract + design-principles cheat sheet **verbatim**, lists the gated docs, reports task files touched in the last 24h. Arms the gate; warns loudly if the transcript schema has drifted. |
+| `track-mandatory-reads.py` | `PostToolUse(Read)` | Ticks off each gated doc as it is actually read. |
+| `gate-mandatory-reads.py` | `PreToolUse(Write\|Edit\|NotebookEdit)` | **Blocks all edits** until every gated doc has been re-read since the last compaction. |
+
+**Gated docs** (must be re-read after a compaction before any edit): `datrix/docs/architecture/architecture-cheat-sheet.md`, `datrix-common/docs/contributing/ai-agent-rules.md`.
+
+**Subagents.** `PreToolUse`/`PostToolUse` are documented to fire inside subagents; `SessionStart(compact)` firing there is **not** documented. So the gate detects compaction from **two independent signals** and ORs them: (A) the state file written by `SessionStart(compact)`, and (B) an `isCompactSummary` entry in the caller's own transcript. (B) covers a subagent that auto-compacts mid-task; (A) covers a transcript-schema change, which Anthropic warns can happen on any release. A compacted subagent gets the contract essentials in the block message itself, since it may never have received the injection. Neither signal failing can wedge a session — an unreadable transcript reads as "not compacted" and fails **open**.
+
+Writes to the sanctioned scratch dirs (`.tmp`, `.scripts`, `.test-output`) stay allowed so investigation is never blocked. Sessions that never compact never see the gate.
+
+To change what is mandatory, edit `_INLINE_DOCS` / `_GATED_DOCS` in `post-compact-context.py` **and** `_REQUIRED_DOCS` in `gate-mandatory-reads.py`.
+
 ## STOP AND THINK
 
 Before touching code: read all relevant code, trace root cause, understand full impact, design the fix, ask if uncertain. One correct fix > five quick patches.

@@ -369,6 +369,14 @@ class TestRunner:
    # No xdist: Single phase (all tests)
 
    phase_results = {} # {phase_name: returncode}
+   # Phases that actually ran, and those that pytest exited 5 on (= collected
+   # zero tests). A single phase collecting nothing is legitimate (e.g. the
+   # parallel phase when the selection holds only `serial` tests), but a run
+   # where EVERY executed phase collected nothing selected no tests at all --
+   # reporting that as PASSED is a false green (see the zero-collection check
+   # after the phase loop).
+   executed_phases: list[str] = []
+   zero_collection_phases: list[str] = []
 
    # Get run directory for JUnit XML output (available when save_log=True)
    run_dir = logger.get_run_dir()
@@ -404,8 +412,10 @@ class TestRunner:
      logger.write_error(f"Error running parallel tests: {e}")
      returncode_parallel = 1
 
-    # Exit code 5 = no tests collected (not an error)
+    # Exit code 5 = no tests collected (not an error for this phase alone)
+    executed_phases.append("Parallel")
     if returncode_parallel == 5:
+     zero_collection_phases.append("Parallel")
      returncode_parallel = 0
     phase_results["Parallel"] = returncode_parallel
 
@@ -462,6 +472,7 @@ class TestRunner:
      has_serial_tests = True
 
     if has_serial_tests:
+     executed_phases.append("Serial")
      logger.write(f"Phase {phase_num_serial}: Running serial tests (sequential execution)...")
      try:
       process = subprocess.Popen(
@@ -481,8 +492,9 @@ class TestRunner:
      logger.write(f"Phase {phase_num_serial}: No serial tests found, skipping.")
      returncode_serial = 0
 
-    # Exit code 5 = no tests collected (not an error)
+    # Exit code 5 = no tests collected (not an error for this phase alone)
     if returncode_serial == 5:
+     zero_collection_phases.append("Serial")
      returncode_serial = 0
     phase_results["Serial"] = returncode_serial
    else:
@@ -513,8 +525,10 @@ class TestRunner:
      logger.write_error(f"Error running tests: {e}")
      rc_remaining = 1
 
-    # Exit code 5 = no tests collected (not an error)
+    # Exit code 5 = no tests collected (not an error for this phase alone)
+    executed_phases.append("Tests")
     if rc_remaining == 5:
+     zero_collection_phases.append("Tests")
      rc_remaining = 0
     phase_results["Tests"] = rc_remaining
 
@@ -571,13 +585,32 @@ class TestRunner:
      returncode = rc
      break
 
+   # A run in which EVERY executed phase collected zero tests selected nothing
+   # at all. Reporting that as PASSED is a false green: the caller believes a
+   # suite ran and was clean when pytest never executed a single test (e.g. a
+   # `-Specific` path that matches no file, or several paths passed as one
+   # space-separated string, which pytest reads as a single nonexistent path).
+   selected_nothing = (
+    returncode == 0
+    and bool(executed_phases)
+    and all(phase in zero_collection_phases for phase in executed_phases)
+   )
+   if selected_nothing:
+    selection = test_path or "(whole project)"
+    logger.write_error(
+     f"No tests were collected for {self.config.project_name} (selection: "
+     f"{selection}). Expected at least one test to run; pytest collected zero, "
+     f"so this run proves nothing and is NOT a pass. Valid selections: a test "
+     f"file, a directory, or a pytest node id under the project's tests/ tree "
+     f"-- exactly ONE path (a space-separated list of paths is read by pytest "
+     f"as a single, nonexistent path). Fix: check the path exists, or run the "
+     f"paths one at a time."
+    )
+    returncode = 5
+
    # Write final message
-   # Exit code 5 = no tests collected (not an error for test libraries)
    if returncode == 0:
     logger.write("\nAll tests passed!")
-   elif returncode == 5:
-    logger.write("\nNo tests collected (test library or framework project)")
-    returncode = 0 # Treat as success
 
    # ── Minimal summary (shown even in quiet mode) ────────────────────
    if logger.quiet_mode:

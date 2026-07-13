@@ -52,6 +52,32 @@
           {
             "type": "command",
             "command": "python \"d:/datrix/.claude/hooks/guard-temp-file-policy.py\""
+          },
+          {
+            "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/gate-mandatory-reads.py\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/track-mandatory-reads.py\""
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/post-compact-context.py\""
           }
         ]
       }

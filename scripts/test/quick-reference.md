@@ -385,6 +385,49 @@ Design 026 (Golden Corpus Verification & Docs Conformance) Invariant I5 gate: ex
 
 ---
 
+### `test\test-specific-selection-gate.ps1`
+
+**The repo's proof that `test.ps1 <package> -Specific <file>` really runs THAT file.** A `-Specific` run
+that prints `[PASSED]` while its own `index.json` / JUnit XML describe a **different** file's tests is a
+silent false green — the caller "proves" a fix that never ran. That was a real defect (task 17-14):
+`TeeLogger` named its run directory `test-results-<YYYYMMDD-HHMMSS>` (second granularity) and created it
+with `mkdir(exist_ok=True)`, so two `test.ps1` invocations against one package that started in the same
+second **shared one run directory** and overwrote each other's `junit-*.xml` and `index.json` — each still
+printing its own correct exit code. Repo-level validation **script**, not a pytest suite (per the datrix
+showcase boundary).
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the gate** | `.\test\test-specific-selection-gate.ps1` | Default package/file pair (~2 min) |
+| **Different package** | `.\test\test-specific-selection-gate.ps1 -Package datrix-common -FileA "tests/unit/datrix_model/test_seal.py" -FileB "tests/unit/datrix_model/test_traits.py"` | Exercise another package |
+| **Debug** | `.\test\test-specific-selection-gate.ps1 -Dbg` | Print the python invocation |
+
+**Parameters:** `-Package` (default: `datrix-codegen-python`), `-FileA` / `-FileB` (package-relative test
+files; must be two *different* files — the default pair is the one from the original report), `-Dbg`
+
+**Assertions (4 steps):**
+- **Non-vacuity (runs first).** The comparator is fed a deliberately **wrong-file** run directory — a
+  synthetic JUnit XML naming another file's tests — and must reject it; it is also fed a correct run and a
+  zero-testcase run, which it must accept and reject respectively. A comparator that cannot detect the
+  forced mismatch fails the gate before any real result is trusted.
+- **Positive.** A real `-Specific <FileA>` run's own artifacts (the run directory the runner *printed* —
+  never the newest directory on disk) name tests from `FileA` and nothing else.
+- **Run-directory exclusivity (deterministic).** `LogConfig.timestamp_format` is pinned to a literal so
+  every racer computes the **same** preferred directory name — a guaranteed collision, not a hoped-for one.
+  8 sequential racers prove the name is never reused; 8 concurrent racers prove the claim is atomic. This
+  is the root-cause invariant and it fails 8/8 against the old `mkdir(exist_ok=True)`.
+- **Concurrency (end-to-end).** Two concurrent `-Specific` runs against the same package but different
+  files must land in distinct run directories, each naming only its own file.
+
+**The gate judges SELECTION, not test health:** a `-Specific` run of a file whose tests fail still passes
+the gate, as long as the file that ran is the file that was asked for.
+
+**Exit codes:** 0 = `-Specific` selects only the requested file and the check is non-vacuous, 1 = wrong-file
+selection, shared run directory, or a vacuous comparator, 2 = usage error (`test.ps1` or the named test
+files not found).
+
+---
+
 ### `test\gendsl-corpus-resolution-gate.ps1`
 
 Design 025 (GenDSL 2) D1/I1 corpus proof (task 13-04, relocated task 17-10): eager builder/call-expression reference resolution runs at `@generator_definition` registration time (`datrix_codegen_common.gendsl.resolver`). Importing each consumer package's genDSL definitions module (`datrix_codegen_python.gendsl.definitions`, `datrix_codegen_typescript.gendsl_definitions`, `datrix_codegen_sql.gendsl.sql_definitions`, `datrix_codegen_docker.gendsl_definitions`, `datrix_codegen_aws.gendsl.aws_definitions`, `datrix_codegen_azure.gendsl.azure_definitions`, `datrix_codegen_component.gendsl_definitions`) IS the assertion: a bad reference raises `GenDSLReferenceResolutionError` at import time.

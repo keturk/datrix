@@ -553,74 +553,43 @@ try {
  # Parse test counts from output
  $testCounts = Parse-TestCounts -output $outputString
 
- # Extract project log file path from output (look for "Log file: <path>" or "Test output will be saved to: <path>")
+ # Resolve THIS run's artifacts from the exact paths the runner itself printed.
+ #
+ # The run directory must never be guessed -- not by rebuilding its name from a
+ # 'test-results-<timestamp>' regex, and not by picking the newest directory under
+ # .test_results. Both guesses silently attach another run's results to this one
+ # whenever a second test.ps1 is in flight against the same package (the exact
+ # failure mode of task 17-14: a -Specific run reporting a different file's tests).
+ # TestRunner always emits an absolute path for the run it owns:
+ #   quiet mode   -> "Details: <run>/index.json"  (or "Log: <run>/full.log")
+ #   verbose mode -> "Structured test results: <run>/index.json" and "Log file: <run>/full.log"
+ # If none of those appear, this run produced no attributable artifacts; say so
+ # rather than adopting a directory that belongs to someone else.
  $projectLogPath = $null
  $projectIndexPath = $null
  if ($outputString) {
- # Look for "Log file: <path>" pattern
- if ($outputString -match 'Log file:\s+([^\r\n]+)') {
+ if ($outputString -match '(?m)^\s*(?:Details|Structured test results):\s+([^\r\n]+index\.json)\s*$') {
+ $projectIndexPath = $matches[1].Trim()
+ }
+ if ($outputString -match '(?m)^\s*(?:Log file|Log):\s+([^\r\n]+full\.log)\s*$') {
  $projectLogPath = $matches[1].Trim()
- # Check if this is inside a run directory with index.json
- $logDir = Split-Path $projectLogPath -Parent
- $possibleIndex = Join-Path $logDir "index.json"
- if (Test-Path $possibleIndex) {
- $projectIndexPath = $possibleIndex
  }
+
+ # Each path implies the other: they are siblings inside the one run directory.
+ if ($projectIndexPath -and -not $projectLogPath) {
+ $candidate = Join-Path (Split-Path $projectIndexPath -Parent) "full.log"
+ if (Test-Path $candidate) { $projectLogPath = $candidate }
  }
- # Also check for "Test output will be saved to: <path>" and construct log file path
- elseif ($outputString -match 'Test output will be saved to:\s+([^\r\n]+)') {
- $testOutputDir = $matches[1].Trim()
- # Look for the run directory (new format: test-results-YYYYMMDD-HHMMSS/)
- if ($outputString -match 'test-results-\d{8}-\d{6}') {
- $runName = $matches[0]
- $projectRoot = Get-Item (Join-Path $datrixRoot $project) | Select-Object -ExpandProperty FullName
- $runDir = Join-Path $projectRoot ".test_results" $runName
- if (Test-Path $runDir -PathType Container) {
-  $indexJsonPath = Join-Path $runDir "index.json"
-  $fullLogPath = Join-Path $runDir "full.log"
-  if (Test-Path $indexJsonPath) {
-  $projectLogPath = $fullLogPath
-  $projectIndexPath = $indexJsonPath
-  } elseif (Test-Path $fullLogPath) {
-  $projectLogPath = $fullLogPath
-  }
- } else {
-  # Legacy flat file format
-  $legacyLogPath = Join-Path $projectRoot ".test_results" "$runName.log"
-  if (Test-Path $legacyLogPath) {
-  $projectLogPath = $legacyLogPath
-  }
+ if ($projectLogPath -and -not $projectIndexPath) {
+ $candidate = Join-Path (Split-Path $projectLogPath -Parent) "index.json"
+ if (Test-Path $candidate) { $projectIndexPath = $candidate }
  }
- }
- }
- # Fallback: try to find the most recent result in project's .test_results directory
- if (-not $projectLogPath -or -not (Test-Path $projectLogPath)) {
- $projectTestResultsDir = Join-Path (Join-Path $datrixRoot $project) ".test_results"
- if (Test-Path $projectTestResultsDir) {
- # Try new directory format first
- $latestDir = Get-ChildItem -Path $projectTestResultsDir -Directory -Filter "test-results-*" |
-  Sort-Object LastWriteTime -Descending |
-  Select-Object -First 1
- if ($latestDir) {
-  $indexJsonPath = Join-Path $latestDir.FullName "index.json"
-  $fullLogPath = Join-Path $latestDir.FullName "full.log"
-  if (Test-Path $indexJsonPath) {
-  $projectLogPath = $fullLogPath
-  $projectIndexPath = $indexJsonPath
-  } elseif (Test-Path $fullLogPath) {
-  $projectLogPath = $fullLogPath
-  }
- }
- # Fall back to legacy flat log files
- if (-not $projectLogPath) {
-  $latestLog = Get-ChildItem -Path $projectTestResultsDir -Filter "test-results-*.log" |
-  Sort-Object LastWriteTime -Descending |
-  Select-Object -First 1
-  if ($latestLog) {
-  $projectLogPath = $latestLog.FullName
-  }
- }
- }
+
+ if ($projectIndexPath -and -not (Test-Path $projectIndexPath)) { $projectIndexPath = $null }
+ if ($projectLogPath -and -not (Test-Path $projectLogPath)) { $projectLogPath = $null }
+
+ if (-not $projectLogPath -and -not $projectIndexPath -and -not $NoSave) {
+ Write-Host "  (no run directory reported by the test runner for $project - results were not saved)" -ForegroundColor Yellow
  }
  }
 
@@ -693,8 +662,11 @@ Peruse $absoluteProjectLogPath and fix $($promptParts -join ', ').
  Write-Host "Test Summary" -ForegroundColor Cyan
  Write-Host "========================================" -ForegroundColor Cyan
 
- $passed = ($results.Values | Where-Object { $_.success -eq $true }).Count
- $failed = ($results.Values | Where-Object { $_.success -eq $false }).Count
+ # @(...) forces an array. Without it, a single surviving result is returned as a
+ # bare Hashtable, and .Count on a Hashtable is its KEY count (9) -- so a one-project
+ # run printed "Passed: 9".
+ $passed = @($results.Values | Where-Object { $_.success -eq $true }).Count
+ $failed = @($results.Values | Where-Object { $_.success -eq $false }).Count
 
  foreach ($project in ($results.Keys | Sort-Object)) {
  $result = $results[$project]

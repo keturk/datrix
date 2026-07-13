@@ -453,6 +453,10 @@ file = "datrix-common/src/datrix_common/semantic/validators/__init__.py"
 count = 1
 
 [[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/_legacy_auth_shared.py"
+count = 4
+
+[[baseline]]
 file = "datrix-common/src/datrix_common/semantic/validators/_utils.py"
 count = 3
 
@@ -477,8 +481,20 @@ file = "datrix-common/src/datrix_common/semantic/validators/cqrs.py"
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/cross_service.py"
-count = 6
+file = "datrix-common/src/datrix_common/semantic/validators/cross_service_argument_checks.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/cross_service_call_sites.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/cross_service_endpoint_declarations.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/cross_service_entity_ambiguity.py"
+count = 2
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/semantic/validators/entity.py"
@@ -509,8 +525,12 @@ file = "datrix-common/src/datrix_common/semantic/validators/identity.py"
 count = 6
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/legacy_auth_conflict.py"
-count = 4
+file = "datrix-common/src/datrix_common/semantic/validators/legacy_auth_credential_reuse.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/legacy_auth_managed_only.py"
+count = 2
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/semantic/validators/pooling.py"
