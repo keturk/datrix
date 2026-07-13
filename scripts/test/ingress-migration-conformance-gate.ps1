@@ -273,7 +273,7 @@ function Assert-DeltaA-PublisherServiceInternal {
     if ($result.ExitCode -ne 0) {
         Add-LedgerLine ("Delta (a) [{0}]: shared-block regeneration FAILED (exit {1}) -- KNOWN pre-existing, tracked, out-of-design-022-scope defect." -f $Language, $result.ExitCode)
         Add-LedgerLine "  publisher-service.dtrx's 'post(String source)' custom endpoint fails semantic analysis (API003: param not in path; XSV017: unnamed service-facing custom endpoint) -- this predates and is unrelated to design 022/phase-12."
-        Add-LedgerLine "  Corroboration: datrix-codegen-common/tests/parity/_known_nongenerating.py lists '02-features-02-service-architecture-shared-block' as non-generating for BOTH languages (reason: 'API003 ... follow-up FIX-EXAMPLE-SHARED-BLOCK'), predating this task."
+        Add-LedgerLine "  NOTE: the old fixture-path parity harness listed shared-block as non-generating. That harness is gone; under the REAL pipeline shared-block now generates cleanly (see the reference-example parity gate, which blesses a baseline for it), so a failure here is NOT corroborated by the parity allowlist (scripts/config/parity-known-nongenerating.json) and must be investigated."
         Add-LedgerLine "  Delta (a)'s realized-output proof (docker-compose entry with no gateway route + loopback-only port) is therefore NOT obtainable from datrix/examples today via ANY generation path (semantic analysis itself fails) -- reported honestly, not papered over (CLAUDE.md: no workarounds)."
         Add-LedgerLine "  Design-022 substance for delta (a) IS proven, in-scope, by the OWNING PACKAGE suites (this gate does not re-run package-internal tests -- CLAUDE.md: no cross-package tests): datrix-common derive_service_ingress unit tests (12-02) assert an all-auth(service) surface derives ServiceIngressExposure.INTERNAL; datrix-codegen-docker (12-10/12-11) asserts an INTERNAL service gets no gateway/nginx route; datrix-codegen-aws (12-16, D11) asserts INTERNAL handling. All green in their own suites. The shared-block EXAMPLE is only a showcase of that already-proven invariant, blocked here by an unrelated parse defect."
         Add-KnownDefect "Delta (a) [$Language]: shared-block realized-output showcase BLOCKED by pre-existing tracked defect FIX-EXAMPLE-SHARED-BLOCK (API003/XSV017 in publisher-service.dtrx) -- NOT a design-022 regression (derivation proven in owning-package suites, see ledger). Follow-up task: fix shared-block's post(String source) endpoint (API003)."
@@ -585,18 +585,21 @@ function Invoke-FullTreeGenerationGate {
         Add-HardFailure "Step 3 [$Language]: FAIL -- non-zero webhook-invariant (mandatory auth(webhook)<->verify pairing) error count in the full-tree generation log ($logPath)."
     }
 
-    # Known, pre-existing, out-of-design-022-scope non-generating example:
-    # shared-block (see Delta (a) above). Its presence in the "Failed
-    # projects" list is EXPECTED and must not be conflated with a new
-    # regression -- cross-referenced against
-    # datrix-codegen-common/tests/parity/_known_nongenerating.py.
+    # Historically shared-block was a known non-generating example (API003/XSV017)
+    # and its presence in the "Failed projects" list was EXPECTED. Under the REAL
+    # generation pipeline it now generates cleanly (the reference-example parity
+    # gate blesses a baseline for it), and it is not in the parity allowlist
+    # (scripts/config/parity-known-nongenerating.json). The tolerance below is kept
+    # only so a re-run of this phase-12 gate on an older tree still reports
+    # distinctly rather than crying regression; a shared-block failure on the
+    # current tree is a real defect worth investigating.
     $failedProjectsMatch = [regex]::Match($logText, "Failed projects:\s*\r?\n((?:\s*-\s*.+\r?\n?)+)")
     $unexpectedFailures = New-Object System.Collections.Generic.List[string]
     if ($failedProjectsMatch.Success) {
         $failedNames = $failedProjectsMatch.Groups[1].Value -split "\r?\n" | ForEach-Object { $_.Trim(" -") } | Where-Object { $_ -ne "" }
         foreach ($name in $failedNames) {
             if ($name -eq "shared-block") {
-                Add-LedgerLine "Step 3 [$Language]: 'shared-block' failed as expected -- KNOWN pre-existing defect (API003/XSV017), tracked in datrix-codegen-common/tests/parity/_known_nongenerating.py (follow-up FIX-EXAMPLE-SHARED-BLOCK). Not an ING/webhook error; not a design-022 regression."
+                Add-LedgerLine "Step 3 [$Language]: 'shared-block' failed -- historically a KNOWN pre-existing defect (API003/XSV017), but it generates cleanly under the current real pipeline (the reference-example parity gate holds a blessed baseline for it). Not an ING/webhook error and not a design-022 regression, but investigate: this failure is no longer expected."
             } else {
                 $unexpectedFailures.Add($name)
             }

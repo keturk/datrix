@@ -588,7 +588,8 @@ Load `references/expected-structure.md` (relative to this skill) for the expecte
 - **Do NOT count inherited fields as "missing"** -- fields come from parent entity via `extends`
 - **Do NOT flag trait fields as "missing"** -- fields injected by `with TraitName` are provided by the trait
 - **Do NOT flag user_files as "missing"** -- files listed under `user_files` in manifests are scaffolded (overwrite=False) and may not exist
-- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
+- **NO workarounds** — don't steer around issues, don't paper over them. **Fix the root cause, wherever it lives** (CLAUDE.md rule). This is not a binary between "workaround" and "stop": the third option — do the real work — is the default. Stopping is licensed only by a proven B1–B4 blocker with the four-part proof (`.claude/skills/_shared/execution-contract.md`).
+- **NO dodging** — "out of scope", "pre-existing", "categorically behavioral", "should be tracked separately", "not my package" are **not** blockers; they are the work. A `SubagentStop` hook greps reports for this vocabulary.
 - **Do NOT run specification tests** -- semantic verification is code review (reading), not execution
 - **Do NOT verify business logic correctness** -- only verify transpilation correctness
 - **Do NOT flag stylistic choices as semantic issues** -- only flag transpilation bugs

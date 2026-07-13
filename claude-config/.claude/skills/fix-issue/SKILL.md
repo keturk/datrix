@@ -174,5 +174,6 @@ See `d:\datrix\.claude\skills\_shared\fix-conventions.md` (also applies per-issu
 - **NO running full test suites for each issue** — verify only affected tests
 - **NO committing changes** — user decides when to commit
 - **NO fabricating file locations** — if Root Cause Analysis says "exact file TBD", search for it first
-- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
+- **NO workarounds** — don't steer around issues, don't paper over them. **Fix the root cause, wherever it lives** (CLAUDE.md rule). This is not a binary between "workaround" and "stop": the third option — do the real work — is the default. Stopping is licensed only by a proven B1–B4 blocker with the four-part proof (`.claude/skills/_shared/execution-contract.md`).
+- **NO dodging** — "out of scope", "pre-existing", "categorically behavioral", "should be tracked separately", "not my package" are **not** blockers; they are the work. A `SubagentStop` hook greps reports for this vocabulary.
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

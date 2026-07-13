@@ -39,6 +39,29 @@
           {
             "type": "command",
             "command": "python \"d:/datrix/.claude/hooks/validate-script-invocation.py\""
+          },
+          {
+            "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/guard-forbidden-commands.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/guard-temp-file-policy.py\""
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/check-agent-report.py\""
           }
         ]
       }

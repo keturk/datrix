@@ -169,7 +169,7 @@ Once tests pass:
    ```
 
 3. If full suite passes → report success
-4. If full suite has NEW failures → STOP and report (the targeted fix broke something else)
+4. If full suite has NEW failures → **they are yours. Fix them.** Your targeted fix broke something else, which means your model of the root cause was incomplete — treat the regression as evidence, re-diagnose, and fix it at the root. Do not stop to ask permission to finish your own job, and never ship a known regression with a note attached (that is the workaround this repo bans). Escalate only if the regression reveals a genuine architectural fork you cannot defensibly decide.
 
 ```
 FIX LOOP COMPLETE
@@ -191,5 +191,6 @@ Debug artifacts: CLEAN
 - **NO cross-package changes** — stay within PACKAGE boundary
 - **NO reverting to try the same thing again** — if you revert, the NEXT attempt must be different
 - **NO guessing at the fix** — each iteration's rationale must reference specific code or error output
-- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
+- **NO workarounds** — don't steer around issues, don't paper over them. **Fix the root cause, wherever it lives** (CLAUDE.md rule). This is not a binary between "workaround" and "stop": the third option — do the real work — is the default. Stopping is licensed only by a proven B1–B4 blocker with the four-part proof (`.claude/skills/_shared/execution-contract.md`).
+- **NO dodging** — "out of scope", "pre-existing", "categorically behavioral", "should be tracked separately", "not my package" are **not** blockers; they are the work. A `SubagentStop` hook greps reports for this vocabulary.
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

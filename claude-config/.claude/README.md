@@ -129,7 +129,7 @@ Systematically fixes test failures one at a time with verification between each 
 2. Fix loop — for each root cause: read code → identify fix → apply → verify → regression check
 3. Final report — summary of all fixes applied and test results
 
-**Key constraints:** One root cause at a time. No debug scatter. Max 3 attempts per root cause. STOP on new regressions.
+**Key constraints:** One root cause at a time. No debug scatter. Max 3 attempts per *hypothesis* (a new hypothesis gets fresh attempts — the limit never ends the task). A regression you introduce is yours: fix it, don't stop.
 
 ### `/scope`
 
@@ -148,7 +148,7 @@ Structured debugging for sessions with multiple bugs. Each fix follows a strict 
 
 **Checkpoint cycle:** Understand (A) → Fix (B) → Verify (C) → Regression Check (D, every 3 fixes).
 
-**Key constraints:** One issue at a time. User approves execution order. STOP on new failures. No skipping checkpoints.
+**Key constraints:** One issue at a time. User approves execution order. A new failure you introduce is yours — fix it. No skipping checkpoints.
 
 ### `/troubleshoot-and-fix`
 
@@ -156,7 +156,7 @@ Autonomous end-to-end pipeline: diagnose generated code test failures → trace 
 
 **Pipeline:** Diagnose (read-only) → Plan Fixes → Implement (one at a time) → Regenerate → Final Report.
 
-**Key constraints:** Confidence gates between phases. Abort on scope creep. Never fix generated code directly — always fix the generator. One root cause at a time with verification.
+**Key constraints:** Confidence gates between phases (low confidence = read more, not stop). Scope growth means expand and report, never abort. Never fix generated code directly — always fix the generator. One root cause at a time with verification.
 
 ### `/codegen-fix-loop`
 
@@ -164,7 +164,7 @@ Self-correcting iterative loop: attempt fix → run tests → analyze failure �
 
 **Loop:** Understand (once) → [Propose → Apply → Test → Analyze → Adjust] × N → Final Verification.
 
-**Key constraints:** Hard iteration limit. STOP if error gets worse. STOP if same error repeats. No debug scatter. Each iteration's rationale must reference specific code or error output.
+**Key constraints:** Hard iteration limit. If the error gets worse or the same error repeats, the current hypothesis is wrong — **escalate and re-diagnose**, don't loop and don't abandon (escalation continues the work). No debug scatter. Each iteration's rationale must reference specific code or error output.
 
 ### `/operationalize-design`
 

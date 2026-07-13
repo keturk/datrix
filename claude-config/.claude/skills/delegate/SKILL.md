@@ -49,13 +49,16 @@ Every completed agent must return evidence for each claimed check as the exact c
 | Status | Action |
 |---|---|
 | DONE | Proceed to review |
-| DONE_WITH_CONCERNS | Address concerns before review. Note observations, decide whether to act. |
+| EXPANSION_REQUIRED | The agent knows the fix but needs a file lock. Re-dispatch it serially once the files are free. Not a failure. |
 | NEEDS_CONTEXT | Provide missing information, re-dispatch |
-| BLOCKED | Assess: provide context, break down task, or escalate to user |
+| BLOCKED | **Validate the proof first** (execution-contract §3): verbatim error text + a fix actually written and run (`file:line`) + why it failed + a `B1`–`B4` code. **Missing any → reject and re-dispatch**, quoting the report back. Only a *proven* blocker is terminal. |
+
+**`DONE_WITH_CONCERNS` has been removed.** It was a licensed way to hand back unfinished work with a shrug. A concern is either a defect you fix, a defect you file as a tracked task, or a proven B1–B4 blocker — there is no fourth bucket.
 
 Never force retry without changing inputs.
 
 ## Anti-Patterns
 
-- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
+- **NO workarounds** — don't steer around issues, don't paper over them. **Fix the root cause, wherever it lives** (CLAUDE.md rule). This is not a binary between "workaround" and "stop": the third option — do the real work — is the default. Stopping is licensed only by a proven B1–B4 blocker with the four-part proof (`.claude/skills/_shared/execution-contract.md`).
+- **NO dodging** — "out of scope", "pre-existing", "categorically behavioral", "should be tracked separately", "not my package" are **not** blockers; they are the work. A `SubagentStop` hook greps reports for this vocabulary.
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

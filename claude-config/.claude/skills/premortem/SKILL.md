@@ -327,5 +327,6 @@ The user sees the HTML report first. The transcript is available if they want to
 - **NO vague revisions.** "Consider your pricing" is useless. "Test $X with 20 people" is actionable.
 - **NO running without sufficient context.** Get the minimum threshold (what/who/success) before starting.
 - **NO skipping the HTML report.** The visual output is what makes findings scannable and actionable.
-- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
+- **NO workarounds** — don't steer around issues, don't paper over them. **Fix the root cause, wherever it lives** (CLAUDE.md rule). This is not a binary between "workaround" and "stop": the third option — do the real work — is the default. Stopping is licensed only by a proven B1–B4 blocker with the four-part proof (`.claude/skills/_shared/execution-contract.md`).
+- **NO dodging** — "out of scope", "pre-existing", "categorically behavioral", "should be tracked separately", "not my package" are **not** blockers; they are the work. A `SubagentStop` hook greps reports for this vocabulary.
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)

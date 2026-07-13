@@ -149,7 +149,7 @@ Report layout varies between products (a product may use a richer template with 
    - If any single fix touches **more than 5 files** → flag it and ask for confirmation before proceeding
 
 8. **If confident** → proceed to Phase 2
-9. **If NOT confident** (ambiguous classification, unclear root cause) → **STOP and present triage, WAIT for user decision**
+9. **If NOT confident** (ambiguous classification, unclear root cause) → **keep investigating.** Unclear root cause is a state of your knowledge, not a blocker — read the generator, the AST, and the emitted output until the classification is forced by evidence. Escalate (`_shared/decision-escalation-protocol.md`) if a genuine architectural fork emerges. Present triage and wait **only** for a real B2 (two defensible designs, expensive to reverse) — and bring **your recommendation**, not a bare question.
 
 ---
 
@@ -194,7 +194,7 @@ Changed: {file:line} — {what changed}
 Bug reports resolved by this fix: {list of bug filenames}
 ```
 
-**Confidence gate:** If NOT confident at any point → STOP and present findings, WAIT for user decision.
+**Confidence gate:** Low confidence means **read more**, not stop — confidence comes from evidence, not from permission. Stop and present findings only on a proven B1–B4 blocker (`.claude/skills/_shared/execution-contract.md` §1), with the four-part proof.
 
 ---
 
@@ -288,5 +288,6 @@ See `d:\datrix\.claude\skills\_shared\fix-conventions.md` (also applies per-bug:
 - **NO fabricating file locations** — if unsure where a generator/template is, search first
 - **NO skipping the triage phase** — classification prevents wasted effort on wrong fix location
 - **NO batch-modifying multiple generators without checkpoints** — one fix at a time with verification
-- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
+- **NO workarounds** — don't steer around issues, don't paper over them. **Fix the root cause, wherever it lives** (CLAUDE.md rule). This is not a binary between "workaround" and "stop": the third option — do the real work — is the default. Stopping is licensed only by a proven B1–B4 blocker with the four-part proof (`.claude/skills/_shared/execution-contract.md`).
+- **NO dodging** — "out of scope", "pre-existing", "categorically behavioral", "should be tracked separately", "not my package" are **not** blockers; they are the work. A `SubagentStop` hook greps reports for this vocabulary.
 - **NO treating staging fixes as resolved** — bug reports describe temporary patches to generated code made by an agent without Datrix access; every bug still needs a permanent fix in the app definition or generator

@@ -2,21 +2,30 @@
 
 When execution reaches a genuine design or architectural decision — multiple valid approaches, root cause unclear after investigation, or ambiguous fix scope — escalate to an Opus 4.8 (extra-high effort) agent **before** asking the user or marking a task failed.
 
+**Escalation is not an exit — it is how you KEEP GOING.** Under the execution contract (`execution-contract.md`), returning BLOCKED on a *technical* ambiguity **without having escalated first** is an invalid report. Escalate, get the decision, implement it. The work continues.
+
 (Note: `/task-orchestrator` does NOT use this doc — it already runs on Opus and analyzes in-context per its own reframed protocol.)
 
 ## When to Escalate
 
 **DO escalate for:**
-- An agent returns BLOCKED or NEEDS_CONTEXT with a **technical ambiguity** (design choice, conflicting patterns, unclear root cause) — not a hard blocker
+- An agent returns BLOCKED or NEEDS_CONTEXT with a **technical ambiguity** (design choice, conflicting patterns, unclear root cause)
 - The first fix attempt fails and root cause is unclear
 - A fix introduces additional failures, suggesting a systemic root cause
 - Cascading failures across unrelated code — correct fix scope is unclear
 - The task conflicts with existing architecture in a way requiring architectural judgment
 
 **Do NOT escalate for:**
-- Hard blockers: missing dependency, incomplete prereq task, missing file → STOP and report immediately
 - Simple errors with obvious fixes (typo, wrong import) → fix directly
-- Spec gaps / missing user-supplied input → ask the user directly
+- Genuine B1/B3 blockers (no credential/access; user explicitly forbade the only correct action) → these are the only things that stop work, and they need the four-part proof
+
+**These are NOT "hard blockers" — they are WORK. Never stop for them, and never escalate them either; just do them:**
+- **Missing file** → create it.
+- **Missing dependency / unimplemented function you need** → implement it. (Routing *around* it is the workaround CLAUDE.md bans.)
+- **Incomplete prereq task** → if it's genuinely required and unstarted, that is a *dependency-ordering* fact for the orchestrator, not a blocker for you — say so precisely, and do everything the prereq does not gate.
+- **Unclear root cause** → keep reading. Escalate only *after* real investigation has genuinely deadlocked.
+
+**Spec gaps / missing user-supplied input:** first try to derive the answer from the design docs and codebase. Ask the user only for a true B2 (two defensible designs, expensive to reverse) or a value you genuinely cannot derive — and always bring **your recommendation**, never a bare question.
 
 ## How to Escalate
 

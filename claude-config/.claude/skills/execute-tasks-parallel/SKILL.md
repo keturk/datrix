@@ -240,10 +240,13 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
 3. **Drive the agents per the Delegation Constraints above** (genuine 5-minute polls, never passive waiting). As each poll detects a completion, collect: status (IMPLEMENTED / BLOCKED / NEEDS_CONTEXT / FAILED), files created/modified, targeted test results (pass/fail, fix attempts), and any questions.
 
 4. **Handle non-IMPLEMENTED results at the poll that surfaces them:**
+   - **BLOCKED-VALIDITY GATE (run FIRST).** A BLOCKED report is a *claim*, not an outcome. Accept it only if it carries all four parts of the execution-contract §3 proof: verbatim error text; a fix the agent actually **wrote and ran** (`file:line` — analysis alone is not an attempt); why it failed; and a genuine `B1`/`B2`/`B3`/`B4` code. **Missing any → reject and re-dispatch the task** (max twice, then escalate and dispatch a directed implementer yourself).
+   - **There is no such thing as a "hard blocker" for a missing dependency, missing file, or incomplete prereq.** Those are **work** — implement it, create it, keep going. Never record them as failures; re-dispatch with that instruction.
    - **Spec gap / missing user input** (NEEDS_CONTEXT) → `AskUserQuestion`, then re-dispatch with the answer; do NOT proceed to the quality gate with questions outstanding
-   - **Technical ambiguity** (BLOCKED/NEEDS_CONTEXT on a design choice or unclear root cause) → **Decision Escalation Protocol** (below); re-dispatch with Opus's recommendation
-   - **Hard blocker** (missing dependency/file/prereq) → record the failure, report, do not re-attempt
-   - **Stalled** (per the polling protocol) → `TaskStop` + re-dispatch with corrective context, or mark BLOCKED
+   - **Technical ambiguity** (BLOCKED/NEEDS_CONTEXT on a design choice or unclear root cause) → **Decision Escalation Protocol** (below); re-dispatch with Opus's recommendation. Never hand a technical ambiguity to the user — that is your job.
+   - **EXPANSION_REQUIRED** (agent knows the fix, needs a file lock held by another agent) → **re-dispatch it serially** as soon as the files are free. This is not a failure and never goes to `failed_tasks`. Never shelve it.
+   - **Valid B1/B3 blocker** (no access / user-forbidden) → record the failure with its four-part proof, spawn a tracked follow-up task
+   - **Stalled** (per the polling protocol) → `TaskStop` + re-dispatch with corrective context
 
 5. **When all agents reach a terminal state**, emit the checkpoint (below) and proceed directly to Phase 3 — agents already ran targeted tests.
 
@@ -421,7 +424,7 @@ Failed (if any):
 
 ## Decision Escalation Protocol
 
-Read and follow `d:\datrix\.claude\skills\_shared\decision-escalation-protocol.md` — it defines when to escalate (technical ambiguity, failed first fix with unclear root cause, cascading failures) vs. not (hard blockers → STOP and report; obvious fixes → fix directly; missing user input → ask), the exact Opus 4.8 xhigh agent parameters + prompt, and the implement-exactly-what-Opus-recommended rule.
+Read and follow `d:\datrix\.claude\skills\_shared\decision-escalation-protocol.md` — it defines when to escalate (technical ambiguity, failed first fix with unclear root cause, cascading failures) vs. not (obvious fixes → fix directly; genuine B1/B3 blockers → the only things that stop work; missing user input → ask, with your recommendation), the exact Opus 4.8 xhigh agent parameters + prompt, and the implement-exactly-what-Opus-recommended rule. **Escalation is not an exit — it is how you keep going.** Missing dependencies/files/prereqs and unclear root causes are **work**, not blockers.
 
 ---
 
@@ -450,7 +453,8 @@ Use `/execute-tasks` instead if:
 ## Anti-Patterns
 
 - **NO assuming agents are working** — background agents are driven by the Agent Progress Polling Protocol: a genuine status + on-disk artifact check every ~5 minutes. Never report an agent as "in progress" without that evidence, and never rely on a completion notification to learn an agent finished.
-- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
+- **NO workarounds** — don't steer around issues, don't paper over them. **Fix the root cause, wherever it lives** (CLAUDE.md rule). This is not a binary between "workaround" and "stop": the third option — do the real work — is the default. Stopping is licensed only by a proven B1–B4 blocker with the four-part proof (`.claude/skills/_shared/execution-contract.md`).
+- **NO dodging** — "out of scope", "pre-existing", "categorically behavioral", "should be tracked separately", "not my package" are **not** blockers; they are the work. A `SubagentStop` hook greps reports for this vocabulary.
 - **NO debug scatter** — zero temporary logging statements
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)
 

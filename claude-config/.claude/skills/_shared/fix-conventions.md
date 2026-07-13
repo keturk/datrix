@@ -19,43 +19,43 @@ Full index with "When to use" guidance: `d:\datrix\datrix\docs\doc_index.md`.
 
 Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}`.
 
-## Runaway Fix Detection
+> **Governed by `.claude/skills/_shared/execution-contract.md`.** Default outcome: *the problem is fixed*. Stopping is licensed only by a proven B1–B4 blocker with the four-part proof.
 
-If at any point you notice:
+## Runaway Fix Detection — a re-diagnosis trigger, not an exit
+
+These are signals that your **model of the root cause is probably wrong**:
 - Modified more than **double** the estimated number of files
-- Working for **more than 3 tool-call rounds** without completing
 - Simple fix revealed **cascading issues** in other files
-- About to modify code **outside stated scope**
+- You are patching the same symptom in more than one place
 
-**STOP immediately:**
-```
-Fix is growing beyond estimate. Current state:
-- Originally estimated: [scope]
-- Actually touching: [what's grown]
-- Reason for growth: [why]
+**They mean: stop *patching* and re-diagnose.** They do **not** mean stop working.
 
-Recommend: [continue / revert and rethink / split into smaller tasks]
-```
+Go back to the error text, find the *single* upstream cause that explains all the symptoms, and fix it there. A fix that sprawls across many files is usually one correct fix wearing a disguise — find it. If a genuine architectural fork emerges that you cannot defensibly decide, **escalate** (`decision-escalation-protocol.md`) — escalation continues the work.
 
-## Fix Introduced a New Failure
+Scope growth alone is **never** a reason to stop: an estimate is a prediction, not a permission slip. Report the expansion and carry on. Only propose a split **pre-flight** (before starting), per CLAUDE.md § Scope: Expansion, Not Abandonment.
 
-If running tests after a fix reveals a **NEW** failure (not the original issue), do NOT immediately fix it. STOP and report:
-```
-Fix introduced a new failure:
-- Original issue: [what was fixed]
-- New failure: [what broke]
-- My assessment: [related to my change, or different issue?]
+## Fix Introduced a New Failure — it is yours; fix it
 
-Options:
-1. Investigate the new failure (may expand scope)
-2. Revert my change and rethink
-3. Keep the fix, document new failure as separate issue
-```
-**WAIT** for user decision.
+A regression you introduced is **not a new topic requiring authorization.** It is the unfinished half of the job you are already doing.
 
-## Cross-Package Handoff
+Read the error text, trace it, fix it at the root cause, re-run. A new failure usually means your model of the root cause was **wrong** — treat it as evidence and re-diagnose, not as grounds for a footnote.
 
-The package that owns the failing generator/code identifies which skill to hand off to. **Never reach across package boundaries yourself** — report the finding and hand off to the owning package's fix skill.
+**Never:**
+- **Revert** — CLAUDE.md forbids git reverts outright.
+- **"Keep the fix, document the new failure as a separate issue"** — shipping a known regression with a note attached is precisely the workaround this repo bans.
+- **Stop and wait for permission to finish your own job.**
+
+## Cross-Package Handoff — routing, not an exit
+
+The owning package's fix skill carries the package-specific context, so route the fix **through** it. That is what "handoff" means here.
+
+**Handoff is a routing mechanism, never a way to put the problem down.** "This lives in another package, so it isn't mine" is not a blocker — it is one of the dodges the execution contract exists to eliminate. Concretely:
+
+- **In an interactive session:** invoke the owning package's fix skill and **see the fix through to green**. You are still the one accountable for the outcome.
+- **In an orchestrated run:** follow the root cause into the owning package and fix it there (per the contract's scope-expansion rule), or — if a `PARALLEL_WAVE` lock prevents it — return `EXPANSION_REQUIRED` naming the files. Never return BLOCKED for "wrong package."
+- **Mind the cross-surface impact rule** (CLAUDE.md): a shared-layer fix must pass **every** consuming package's suite, not just the one you started in.
+
+Reporting a cross-package finding and stopping there is **not** an outcome.
 
 | `{generator}` / owning package | Fix skill (cross-package handoff) |
 |---|---|

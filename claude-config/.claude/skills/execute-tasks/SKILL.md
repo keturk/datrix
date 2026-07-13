@@ -202,16 +202,18 @@ Apply the implementation described in the task file:
    - No backward-compatibility wrappers
    - One way to do each thing
 
-**Scope discipline:**
-- Stay within the task's stated scope
-- If implementation grows beyond what the task describes, STOP and report
-- Do NOT make "improvements" to surrounding code beyond what the task requires
+**Scope discipline — expand, don't abandon** (execution-contract §4):
+- The task's file list is the **expected surface, not a fence**. If the root cause lies outside it, **follow it and fix it there**, then report the expansion under `scope_expansion`.
+- Growing beyond the task's estimate is **not** a stopping condition — an estimate is a prediction, not a permission slip.
+- Do NOT make unrelated "improvements" to surrounding code. (Following a root cause is not an improvement — it is the job.)
 
-**STUCK protocol — report, don't fake it:**
-- If implementation hits unexpected complexity (e.g., dependencies missing, patterns unclear, design ambiguity), mark the task as BLOCKED — do NOT write stub/placeholder code and mark it complete
-- If you cannot figure out the correct implementation after reading the relevant code, STOP and report what you found and what's unclear
-- Writing `pass`, `NotImplementedError`, empty method bodies, or trivial stubs that satisfy type checkers but do nothing is **worse than reporting BLOCKED** — it creates invisible debt that wastes future sessions
-- A BLOCKED task with a clear explanation is a success. A fake-completed task is a failure.
+**STUCK protocol — fix it; BLOCKED is a claim you must prove** (execution-contract §1–§3):
+- **Your default outcome is: the problem is fixed.** Not investigated, not reported.
+- **These are NOT blockers — they are the work:** missing dependency (**implement it**), missing file (**create it**), patterns unclear (**read more**), root cause unclear (**keep reading**), scope grew (**do the work**), failure is pre-existing (**it's yours now**), lives in another package (**go fix it there**), no test covers it (**write one**).
+- **Design ambiguity → escalate, don't stop.** Escalation (`_shared/decision-escalation-protocol.md`) is how you *keep going*. Returning BLOCKED on a technical ambiguity without escalating first is an invalid report.
+- **A valid BLOCKED needs all four:** verbatim error text; the fix you actually wrote and ran (`file:line` — analysis alone is **not** an attempt); why it failed; and the `B1`/`B2`/`B3`/`B4` code. **Missing any → the report is rejected and the task is re-dispatched to you.**
+- Writing `pass`, `NotImplementedError`, empty method bodies, or trivial stubs that satisfy type checkers but do nothing is the **worst** outcome — invisible debt that wastes future sessions.
+- **An unproven BLOCKED is the second-worst** — it burns a whole turn and produces nothing. A *proven* blocker is a fact; a *fixed* problem is the job.
 
 **Partial completion is NOT completion:**
 - If the task says "delete old path, use new path" and you keep both paths → task is NOT complete
@@ -712,14 +714,15 @@ Failed (if any):
 
 ## Decision Escalation Protocol
 
-Read and follow `d:\datrix\.claude\skills\_shared\decision-escalation-protocol.md` — it defines when to escalate (technical design ambiguity in Step 1, failed first fix with unclear root cause, systemic/cascading failures, architectural conflicts) vs. not (hard blockers → STOP and report; obvious fixes → fix directly; spec gaps → ask user), the exact Opus 4.8 xhigh agent parameters + prompt, and the implement-exactly-what-Opus-recommended rule.
+Read and follow `d:\datrix\.claude\skills\_shared\decision-escalation-protocol.md` — it defines when to escalate (technical design ambiguity in Step 1, failed first fix with unclear root cause, systemic/cascading failures, architectural conflicts) vs. not (obvious fixes → fix directly; genuine B1/B3 blockers → the only things that stop work), the exact Opus 4.8 xhigh agent parameters + prompt, and the implement-exactly-what-Opus-recommended rule. **Escalation is not an exit — it is how you keep going.** Note that missing dependencies/files/prereqs and unclear root causes are **work**, not blockers: implement, create, keep reading.
 
 ---
 
 ## Anti-Patterns
 
 - **NO assuming a delegated agent is working** — when a phase is delegated to a background sub-agent, drive it with the Agent Progress Polling Protocol: a genuine status + on-disk artifact check every ~5 minutes. Never report an agent as "in progress" without that evidence, and never rely on a completion notification to learn it finished.
-- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
+- **NO workarounds** — don't steer around issues, don't paper over them. **Fix the root cause, wherever it lives** (CLAUDE.md rule). This is not a binary between "workaround" and "stop": the third option — do the real work — is the default. Stopping is licensed only by a proven B1–B4 blocker with the four-part proof (`.claude/skills/_shared/execution-contract.md`).
+- **NO dodging** — "out of scope", "pre-existing", "categorically behavioral", "should be tracked separately", "not my package" are **not** blockers; they are the work. A `SubagentStop` hook greps reports for this vocabulary.
 - **NO debug scatter** — zero temporary logging statements
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)
 

@@ -53,11 +53,17 @@ Subagents see none of this conversation. Each dispatch prompt must be self-conta
 - **Exact paths** — files to read and files it may modify; state what is out of bounds.
 - **Constraints** — the CLAUDE.md rules that bite for this packet (no workarounds, no git reverts, mypy --strict, no mocks, domain isolation, temp files only under `D:\datrix\.tmp\`/`.scripts\`/`.test-output\`).
 - **Acceptance check** — the exact command(s) to run and expected outcome.
-- **Return format** — facts, not prose: files changed; each check run as command + actual output (per the Operating Loop evidence rule); deviations from spec; open concerns. Status must be one of DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED.
+- **Return format** — facts, not prose: files changed; `scope_expansion` (root cause outside the expected files → you followed it and fixed it there); each check run as command + actual output (per the Operating Loop evidence rule); deviations from spec; `discovered_defects` (each **FIXED** with a `file:line`, or **FILED** with a real task path — a prose-only mention is not a disposition). Status must be one of DONE / EXPANSION_REQUIRED / NEEDS_CONTEXT / BLOCKED. **`DONE_WITH_CONCERNS` is removed** — it was a licensed way to hand back unfinished work with a shrug. A concern is a defect you fix, a defect you file, or a proven B1–B4 blocker; there is no fourth bucket.
+- **Blocking rule** (`.claude/skills/_shared/execution-contract.md`): the default outcome is *the problem is fixed*. Only four blockers exist — B1 MISSING_ACCESS, B2 UNDECIDABLE, B3 USER_FORBADE, B4 FENCED_SURFACE. Everything else is work: unclear root cause → keep reading; root cause in another package → go fix it there; bigger than estimated → do it; pre-existing → it's yours now; "behavioral/environmental" → prove it with the error text or fix it. A BLOCKED return is valid **only** with all four proof parts: verbatim error text, the fix actually written and run (`file:line`), why it failed, and the B1–B4 code.
 
 Persist substantial agent outputs under `d:/datrix/.agent_output/<date>-<task>/` so nothing is lost between waves.
 
-**Status handling:** DONE → verify then integrate. DONE_WITH_CONCERNS → resolve the concerns yourself before integrating. NEEDS_CONTEXT → supply it, re-dispatch. BLOCKED → terminal for that packet: investigate the blocker yourself or report it to Jon — never mark it done, never work around it.
+**Status handling:**
+- **DONE** → verify, then integrate.
+- **BLOCKED — validate the proof FIRST.** A BLOCKED report is a *claim*, not an outcome. Accept it only with all four parts (verbatim error text; a fix the agent actually **wrote and ran**, as `file:line` — analysis alone is not an attempt; why it failed; a genuine B1–B4 code). **Missing any → reject and re-dispatch the packet, quoting the agent's own report back to it.** Beware the fake blocker classes: "missing dependency", "missing file", "unclear root cause", "pre-existing", "needs broader changes" are **work**, not blockers. Only a *proven* blocker is terminal — and then you investigate it yourself before it ever reaches Jon. Never mark it done, never work around it.
+- **EXPANSION_REQUIRED** → the agent knows the fix and needs a file lock. Re-dispatch it serially once the files are free. Not a failure; never shelve it.
+- **NEEDS_CONTEXT** → supply it, re-dispatch. A *technical* ambiguity is yours to decide (you are the Opus) — do not pass it to Jon.
+- **Discovered defects** → every one must end as FIXED or FILED before the packet integrates. Nothing an agent found may evaporate into a footnote.
 
 ## Concurrency Limits
 

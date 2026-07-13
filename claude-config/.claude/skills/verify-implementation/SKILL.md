@@ -9,6 +9,8 @@ disable-model-invocation: true
 
 Given a design document and the tasks implemented from it, code-review the **actual code on disk** to confirm it satisfies the design — every invariant, every acceptance property, every affected surface. Where the implementation is wrong, incomplete, or missing, trace to root cause and fix it. This is a conformance gate, not a status check: a green test suite and a task's own "How Solved" note are inputs to your judgment, never proof.
 
+**This skill does not run test suites.** The tasks reached COMPLETED through their own test gate — the suites already ran and passed, and re-running them proves nothing about design conformance. Your evidence is the code on disk plus targeted, read-only checks (grep sweeps over a surface set, a generation run, a validator invocation). The ONLY test execution in scope is running the **specific tests covering a fix you made** in Phase 3, to confirm that fix works and broke nothing near it.
+
 ## When to Use
 
 - A design document has been operationalized and its tasks marked COMPLETED — you want to confirm they actually implement the design before absorbing it
@@ -51,11 +53,12 @@ FIX: false          # review only — report findings, do not modify code
 
 ## Governing rules (from CLAUDE.md — these bite in every phase)
 
-- **Conformance over throughput.** "It generates", "0 warnings", "suite green", and a task's `## How Solved` self-report are NECESSARY but NEVER sufficient. Done = the design acceptance property is **proven by an executable check you run yourself** — a NEGATIVE check (the old/forbidden state is gone everywhere on the affected surface) AND a POSITIVE check (the new path is exercised) — pasted as command + output.
+- **Conformance over throughput.** "It generates", "0 warnings", "suite green", and a task's `## How Solved` self-report are NECESSARY but NEVER sufficient. Done = the design acceptance property is **proven by a check you run yourself** — a NEGATIVE check (the old/forbidden state is gone everywhere on the affected surface) AND a POSITIVE check (the new path exists and is exercised) — pasted as command + output. These checks are code reads, grep sweeps over the surface set, generation runs, and validator invocations — never suite runs.
+- **The suites are not your evidence.** They already passed before this skill was invoked; that is its precondition, not its output. Do not re-run a package suite to "confirm" conformance, and never report a green suite as proof the design was met.
 - **Invariant-surface coverage.** When the design states an invariant over a SET of surfaces, verify EVERY surface. A guard on the easy surface with the rest silently dropped is a conformance failure even under a green suite.
 - **Never assume/fabricate — look it up.** Read the actual code. Do not trust a `## How Solved` claim, an agent's prior self-report, or a passing test as evidence that the design was met — verify against the code and by execution.
 - **BLOCKED is terminal.** A task whose `## How Solved` contains `BLOCKED`/`partial`/`out of scope`/`workaround`/`dual path`/`not yet wired` — or any unmet-criterion statement — did NOT satisfy the design, regardless of suite color. Treat it as a finding.
-- **Cross-surface impact.** Shared layers (`datrix-common`, `datrix-codegen-common`, any shared contract) are consumed by EVERY generator. A fix in a shared layer must pass EVERY consuming package's suite, not just the one you were fixing.
+- **Cross-surface impact.** Shared layers (`datrix-common`, `datrix-codegen-common`, any shared contract) are consumed by EVERY generator. If you fix one, identify every consuming package and run the **targeted tests covering the changed behavior** in each — not each package's full suite, and not only the package where the finding surfaced.
 - **Generality-preserving.** Place fixes at the most language/platform-agnostic layer that can own them; provider/language specifics live only in the owning codegen package. Never hardcode "the currently-shipped languages/providers are the only targets".
 - **No workarounds.** Fix the root cause or STOP and report. No band-aids, no conditional guards that hide a broken path.
 - **No git reverts** (`checkout`/`restore`/`reset`/`stash`/`revert`). Undo your own edits manually.
@@ -91,16 +94,18 @@ Unowned requirements: {N}; BLOCKED/partial markers: {N}
 
 ---
 
-### Phase 2: Verify — code-review each requirement against the code on disk
+### Phase 2: Review — code-review each requirement against the code on disk
 
-**Goal:** For every checklist item, decide CONFORMS / VIOLATES / MISSING on **evidence from the actual code and from execution** — never on a self-report.
+**Goal:** For every checklist item, decide CONFORMS / VIOLATES / MISSING on **evidence from the actual code** — never on a self-report, and never on the suite that already passed.
+
+This phase is a **read-only review**. Do not run any package test suite here: the tasks' suites passed before this skill was invoked, so a green run tells you nothing you did not already know, and it cannot distinguish a design that was implemented from one that was quietly dropped.
 
 For each design requirement:
 
 1. **Read the implementing code** the task points at (and search for it independently — the task may have implemented it elsewhere, or not at all). Confirm the code actually does what the design requires, not merely that a function by the expected name exists.
-2. **Run the executable acceptance check** — this is the core of the skill:
+2. **Run the acceptance check** — this is the core of the skill. Both halves are code reads, grep sweeps, generation runs, or validator invocations; neither is a suite run:
    - **NEGATIVE:** prove the old / forbidden construct is gone **everywhere on the requirement's surface set** (grep/search the whole set, not one file). Paste the command + output.
-   - **POSITIVE:** prove the new path is actually exercised (a test hits it, generation produces it, the validator rejects the bad input). Paste the command + output.
+   - **POSITIVE:** prove the new path exists and is reachable — read the call chain that reaches it, point at the test that covers it (its existence and content, not a fresh run of it), show generation emitting it, or show the validator rejecting the bad input. Paste the command + output.
    - Put any scratch runners under `D:\datrix\.scripts\`, output under `D:\datrix\.test-output\`.
 3. **Invariant-surface sweep:** for a set-invariant, check EVERY surface in the set. Record each surface's verdict individually — "the easy surface passes" is not "the invariant holds".
 4. **Code-quality review** of the changed code against `ai-agent-rules` / prohibited-patterns: placeholders/TODOs, silent fallbacks, `except: pass`, `T | None` error returns, mocks/fakes in tests, magic constants, `Any`, cognitive complexity, missing type hints. A conformant-but-shoddy implementation is still a finding.
@@ -110,7 +115,7 @@ Classify each finding: **MISSING** (design requirement unimplemented), **WRONG**
 
 **End-of-phase output:**
 ```
-VERIFY: {N} requirements checked
+REVIEW: {N} requirements checked
 CONFORMS: {n}  VIOLATES: {n}  MISSING: {n}  INCOMPLETE: {n}  QUALITY: {n}
 
 Findings (each with: requirement id, surface(s) affected, evidence command+output snippet, root cause):
@@ -136,16 +141,20 @@ For each finding, in dependency order (fix an enforcement/guard gap before the c
 3. **Implement** it. Follow all code standards (type hints, `mypy --strict`, no `Any`, no mocks in tests, named constants, complexity ≤15). If the requirement needed a test that was never written, write it (real objects, per the test guidelines) — but never a cross-package or language/provider matrix test.
 4. **If the root cause is outside the task/design scope** (a pre-existing bug in an unrelated subsystem) → STOP and report it as a blocker; do NOT paper over it with a workaround to make this design "pass".
 
-**Cross-surface discipline:** if you touch a shared layer, list every consuming package and plan to run each one's suite in Phase 4 — not just the package where the finding surfaced.
+**Cross-surface discipline:** if you touch a shared layer, list every consuming package and note, for each, the **specific tests that cover the behavior you changed** — those are what you run in Phase 4. The finding's own package is not the whole blast radius, and no package's full suite is the answer either.
 
 ---
 
-### Phase 4: Re-verify — prove conformance and no regressions
+### Phase 4: Re-verify — prove each fix conforms and broke nothing near it
 
-**Goal:** Every finding closed by the same executable standard used to open it, with no collateral breakage.
+**Goal:** Every finding closed by the same standard used to open it. Reached ONLY if you changed code in Phase 3 — if nothing was fixed, there is nothing to re-verify.
 
 1. **Re-run each fixed requirement's acceptance check** (negative + positive) and paste command + output. The forbidden state is gone on the FULL surface set; the new path is exercised.
-2. **Run the affected package test suites** — every package you modified, plus (for a shared-layer fix) every consuming package. Paste pass/fail.
+2. **Run the targeted tests for what you changed** — the specific tests covering the fixed behavior (the test you wrote for it, plus the existing tests over the code path you touched), in the fixed package and in each consuming package for a shared-layer fix. Run these because YOUR edit could have broken them — not to re-confirm a suite that already passed. Select them narrowly (see `datrix/scripts/test/quick-reference.md` for the authoritative parameter list):
+   - `test\test.ps1 <package> -Specific "tests/unit/test_foo.py"` — the test file covering the fix
+   - `test\test.ps1 <package> -Keyword "<name>"` — pytest `-k` match when the fix spans a few named tests
+   - `test\test-single.ps1 "tests/unit/test_foo.py" -Project <package>` — one file, full output
+   Paste command + output. Do NOT run a whole package suite, and never `-All`.
 3. **Re-sweep set-invariants** across all surfaces — confirm no surface was left behind.
 4. If any check still fails → return to Phase 3 (root cause, not another patch). If it cannot be closed without out-of-scope work → STOP and report the blocker.
 
@@ -153,7 +162,7 @@ For each finding, in dependency order (fix an enforcement/guard gap before the c
 ```
 RE-VERIFY:
 Findings fixed: {n}/{N}  (each: requirement id → negative+positive check now passing)
-Suites run: {package: pass/fail, ...}
+Targeted tests run for fixes: {test selector: pass/fail, ...}
 Set-invariant surfaces re-swept: {all pass | list stragglers}
 Blockers (out of scope): {none | list}
 ```
@@ -167,7 +176,7 @@ VERIFY-IMPLEMENTATION: {design title}
 Requirements: {N} checked
 Conformed as-built: {n}   Fixed: {n}   Blocked (out of scope): {n}
 Files changed: {list}
-Suites: {package: pass, ...}
+Targeted tests run for fixes: {selector: pass, ... | none — no code changed}
 Design conformance: {PROVEN — all acceptance checks pass | INCOMPLETE — see blockers}
 ```
 
@@ -175,12 +184,13 @@ If any requirement remains unproven, say so plainly — do NOT report success on
 
 ## Anti-Patterns
 
+- **NO running package test suites to verify conformance** — they already passed; that is this skill's precondition. The only tests you run are the specific ones covering a fix YOU made in Phase 3.
 - **NO trusting `## How Solved`, a prior agent's report, or a passing suite as proof** — verify against the code on disk and by running the acceptance check yourself.
 - **NO "it generates" / "suite green" as done** — a requirement is met only when its negative+positive acceptance check passes with pasted output.
 - **NO checking one surface of a set-invariant** — sweep every surface; a straggler is a finding.
 - **NO workarounds** — fix the root cause at the right layer, or STOP and report the blocker. A conditional guard that hides a broken design path is a false pass.
 - **NO fix in a language/provider-specific layer for a shared requirement** — place it at the most agnostic layer that can own it (generality-preserving).
-- **NO shared-layer fix verified on one package** — run every consuming package's suite (cross-surface impact rule).
+- **NO shared-layer fix verified only where it surfaced** — run the targeted tests for the changed behavior in every consuming package (cross-surface impact rule).
 - **NO cross-package or language/provider matrix tests** — each `datrix-*` package tests only its own surface; the public `datrix` repo hosts no test suite.
 - **NO marking a BLOCKED/partial task as conformant** — BLOCKED is terminal; report it.
 - **NO scope creep** — if fixes span 3+ unrelated subsystems, STOP after the report and propose splitting.

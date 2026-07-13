@@ -1,7 +1,7 @@
 {
   "format": "datrix.rdbms.ledger",
-  "hash": "017c6d6a382aabd61f3b3873717faf223c69e3d0f0a8953213c37ddcc28f271c",
-  "latest_revision": "0001_initial",
+  "hash": "79dc06f0972cd1decdc3256957f118e66fe5a2841548c2cc606f717835954dfc",
+  "latest_revision": "0008_add_index",
   "rdbms_id": "8ecce4c7-ee2f-4df1-b849-6f60b40ff190",
   "revisions": [
     {
@@ -19,6 +19,118 @@
       "schema_hash_after": "96d49bce4707bdb27ec89a995ba3ef2c45a8ddd14d59b1626fb741b931b2fea9",
       "schema_hash_before": "",
       "sequence": 1
+    },
+    {
+      "classification": "safe",
+      "operations": [
+        {
+          "details": {
+            "entity": "OrderItem"
+          },
+          "op": "add_index"
+        }
+      ],
+      "previous_revision": "0001_initial",
+      "revision": "0002_add_index",
+      "schema_hash_after": "96d49bce4707bdb27ec89a995ba3ef2c45a8ddd14d59b1626fb741b931b2fea9",
+      "schema_hash_before": "9f11416d49a7b954f7dc6d4b00853dd5d65c733dda94f6be53c1d6f1e78caa45",
+      "sequence": 2
+    },
+    {
+      "classification": "safe",
+      "operations": [
+        {
+          "details": {
+            "entity": "OrderItem"
+          },
+          "op": "add_index"
+        }
+      ],
+      "previous_revision": "0002_add_index",
+      "revision": "0003_add_index",
+      "schema_hash_after": "96d49bce4707bdb27ec89a995ba3ef2c45a8ddd14d59b1626fb741b931b2fea9",
+      "schema_hash_before": "9f11416d49a7b954f7dc6d4b00853dd5d65c733dda94f6be53c1d6f1e78caa45",
+      "sequence": 3
+    },
+    {
+      "classification": "safe",
+      "operations": [
+        {
+          "details": {
+            "entity": "OrderItem"
+          },
+          "op": "add_index"
+        }
+      ],
+      "previous_revision": "0003_add_index",
+      "revision": "0004_add_index",
+      "schema_hash_after": "96d49bce4707bdb27ec89a995ba3ef2c45a8ddd14d59b1626fb741b931b2fea9",
+      "schema_hash_before": "9f11416d49a7b954f7dc6d4b00853dd5d65c733dda94f6be53c1d6f1e78caa45",
+      "sequence": 4
+    },
+    {
+      "classification": "safe",
+      "operations": [
+        {
+          "details": {
+            "entity": "OrderItem"
+          },
+          "op": "add_index"
+        }
+      ],
+      "previous_revision": "0004_add_index",
+      "revision": "0005_add_index",
+      "schema_hash_after": "96d49bce4707bdb27ec89a995ba3ef2c45a8ddd14d59b1626fb741b931b2fea9",
+      "schema_hash_before": "9f11416d49a7b954f7dc6d4b00853dd5d65c733dda94f6be53c1d6f1e78caa45",
+      "sequence": 5
+    },
+    {
+      "classification": "safe",
+      "operations": [
+        {
+          "details": {
+            "entity": "OrderItem"
+          },
+          "op": "add_index"
+        }
+      ],
+      "previous_revision": "0005_add_index",
+      "revision": "0006_add_index",
+      "schema_hash_after": "96d49bce4707bdb27ec89a995ba3ef2c45a8ddd14d59b1626fb741b931b2fea9",
+      "schema_hash_before": "9f11416d49a7b954f7dc6d4b00853dd5d65c733dda94f6be53c1d6f1e78caa45",
+      "sequence": 6
+    },
+    {
+      "classification": "safe",
+      "operations": [
+        {
+          "details": {
+            "entity": "OrderItem"
+          },
+          "op": "add_index"
+        }
+      ],
+      "previous_revision": "0006_add_index",
+      "revision": "0007_add_index",
+      "schema_hash_after": "96d49bce4707bdb27ec89a995ba3ef2c45a8ddd14d59b1626fb741b931b2fea9",
+      "schema_hash_before": "9f11416d49a7b954f7dc6d4b00853dd5d65c733dda94f6be53c1d6f1e78caa45",
+      "sequence": 7
+    },
+    {
+      "classification": "safe",
+      "operations": [
+        {
+          "details": {
+            "entity": "OrderItem"
+          },
+          "op": "add_index"
+        }
+      ],
+      "previous_revision": "0007_add_index",
+      "revision": "0008_add_index",
+      "schema_hash_after": "96d49bce4707bdb27ec89a995ba3ef2c45a8ddd14d59b1626fb741b931b2fea9",
+      "schema_hash_before": "9f11416d49a7b954f7dc6d4b00853dd5d65c733dda94f6be53c1d6f1e78caa45",
+      "sequence": 8
     }
   ],
   "version": 3

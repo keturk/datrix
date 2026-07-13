@@ -374,12 +374,30 @@ The rolling pool (above) governs when the next task is dispatched — a freed sl
 Run this **each time a poll detects that one agent has completed** (the genuine check in 3b step 3 — never triggered by passively awaiting a notification) — not once per sub-group:
 
 1. Parse the JSON report from the agent's output
-2. Record status: IMPLEMENTED / BLOCKED / NEEDS_CONTEXT / FAILED
-3. If **NEEDS_CONTEXT** with a **spec gap or missing user input** (credentials, file path, unclear requirement): relay questions to user via `AskUserQuestion`, then re-queue the agent (re-enters the pool) with the answer
-4. If **NEEDS_CONTEXT** with a **technical ambiguity** (design choice, conflicting patterns, unclear root cause): invoke the **Decision Escalation Protocol** — analyze and decide in-context yourself, then re-queue the implementation agent with your concrete recommendation
-5. If **BLOCKED** with a **technical root cause**: invoke the **Decision Escalation Protocol** before adding to `failed_tasks`
-6. If **BLOCKED** with a **hard blocker** (missing dependency, missing file, incomplete prereq): record the reason, add to `failed_tasks` directly
-7. If **FAILED**: record targeted test failures, add to `failed_tasks`
+2. Record status: IMPLEMENTED / EXPANSION_REQUIRED / BLOCKED / NEEDS_CONTEXT / FAILED
+
+3. **BLOCKED-VALIDITY GATE (run this FIRST, before any other handling).** A BLOCKED report is a *claim*, not an outcome. Accept it only if `blocker_proof` carries **all four** fields, substantively:
+   - `error_text` — verbatim, not a paraphrase, not empty
+   - `attempted` — a real fix, written and run, as `file:line`. **Analysis alone is not an attempt.** If the agent never edited a file, this fails.
+   - `why_it_failed` — a specific mechanism
+   - `blocker_code` — a genuine `B1`/`B2`/`B3`/`B4` (execution-contract §1)
+
+   **If any field is missing, vague, or the blocker_code does not actually match B1–B4 → REJECT and re-dispatch the same task to a fresh agent**, with its own report quoted back and this line prepended:
+   > *Your BLOCKED report was rejected: {the failing field}. This is not one of the four blockers — it is work. Read `.claude/skills/_shared/execution-contract.md` §2, then fix the problem.*
+
+   **Beware the fake blocker classes.** "Missing dependency", "missing file", "incomplete prereq", "unclear root cause", "pre-existing failure", "environmental", "needs broader changes" are **NOT blockers** — they are work (create the file, implement the dep, keep reading, fix it). Only B1–B4 count. Do **not** add such a task to `failed_tasks`; re-dispatch it.
+
+   A task may be re-dispatched this way **at most twice**. On a third invalid BLOCKED, escalate to the Decision Escalation Protocol yourself, decide the fix in-context, and dispatch a directed implementer — the agent has proven it will not converge on its own.
+
+4. If **BLOCKED** and the proof is **valid**: invoke the **Decision Escalation Protocol** — *you* (Opus) analyze the four-part proof and decide whether the blocker is genuinely outside your reach too. Only a B1/B3 (no access / user-forbidden) or a genuinely user-facing B2 goes to `failed_tasks`; a B2 you can defensibly decide, you decide, then re-dispatch a directed implementer.
+
+5. If **EXPANSION_REQUIRED**: the agent knows the fix and needs the file lock. **Re-dispatch it serially the moment the conflicting files are free** (it may run alone after the wave join). This is *not* a failure and never goes to `failed_tasks`. Never shelve it, footnote it, or count the task as done.
+
+6. If **NEEDS_CONTEXT** with a **spec gap or missing user input** (credentials, unresolvable requirement): relay to user via `AskUserQuestion`, then re-queue the agent with the answer
+7. If **NEEDS_CONTEXT** with a **technical ambiguity**: invoke the **Decision Escalation Protocol** — analyze and decide in-context yourself, then re-queue the implementation agent with your concrete recommendation. Do **not** pass a technical ambiguity to the user; that is your job.
+8. If **FAILED**: record targeted test failures, add to `failed_tasks`
+
+9. **DISCOVERED-DEFECT GATE.** For every entry in the agent's `discovered_defects`, the `disposition` must be `FIXED` (with a `file:line`) or `FILED` (with a real task file path that exists on disk). A prose-only mention is **not** a disposition — file the task yourself before the wave gate, or re-dispatch the agent to fix it. Nothing an agent discovered may evaporate into a report footnote.
 
 Then free the agent's slot and refill the pool (3b step 4). Emit a brief progress report at the **wave join** (when the pool has fully drained), not after each completion — keep per-completion output to a one-line status.
 
@@ -664,11 +682,20 @@ Apply a specific, pre-decided fix. Do NOT redesign — the root cause and approa
 TASK CONTEXT: {task_id} — {title}; objective: {what the task was supposed to accomplish}
 ROOT CAUSE (decided): {your root-cause finding}
 FIX TO APPLY (step by step): {your concrete steps}
-FILES YOU MAY MODIFY (and ONLY these): {exact paths}
+EXPECTED FILES (the surface I predict — NOT a fence): {exact paths}
+SCOPE RULE: If the root cause lies outside the expected files, FOLLOW IT AND FIX IT THERE, then report the added files under `scope_expansion`. Do not patch at the boundary — that is a workaround. {If dispatched inside a parallel wave, add instead: `PARALLEL_WAVE: files are exclusive` — another agent may hold files outside your list; do NOT edit them; return status EXPANSION_REQUIRED naming the exact files + root cause, and I will re-dispatch you serially. EXPANSION_REQUIRED is not BLOCKED.}
 CONSTRAINTS: NO workarounds / band-aids / xfail-to-pass / conditional guards that hide the broken path; NO git reverts; NO mocks; NO debug scatter; test via test.ps1 only (never pytest directly); no -NoSave/-VerboseOutput.
 ACCEPTANCE CHECK: {the exact test that must pass}
-RETURN: files changed (with line counts), the targeted-test result, and any deviation from the plan or new concern. Status: DONE / DONE_WITH_CONCERNS / BLOCKED.
+
+BLOCKING RULE (execution-contract §1-§3 — read `.claude/skills/_shared/execution-contract.md`):
+Your default outcome is THE PROBLEM IS FIXED. There are exactly four blockers: B1 MISSING_ACCESS, B2 UNDECIDABLE (two defensible designs), B3 USER_FORBADE, B4 FENCED_SURFACE. Everything else is work — unclear root cause (keep reading), root cause in another package (go fix it), bigger than estimated (do it), pre-existing (it's yours now), "behavioral/environmental" (prove it with the error text or fix it), no test (write one), "should be tracked separately" (there is no other agent).
+A BLOCKED return is ONLY valid with all four: (1) verbatim error text, (2) the fix you actually wrote and ran, as file:line, (3) why it failed, (4) the B1-B4 code. Missing any → I reject the report and re-dispatch this task to you with your own report quoted back.
+FOUND IT, YOU FIX IT: any defect you discover on a surface you touched is yours — fix it, or file a real tracked task. Prose-only mention is not an outcome.
+
+RETURN: files changed (with line counts), `scope_expansion`, the targeted-test result (command + pasted output), `discovered_defects` (each FIXED or FILED), and — only if BLOCKED — the four-part `blocker_proof`. Status: DONE / EXPANSION_REQUIRED / BLOCKED.
 ```
+
+Note the removed status: **`DONE_WITH_CONCERNS` no longer exists.** It was a licensed way to hand back unfinished work with a shrug. A concern is either a defect you fix, a defect you file as a tracked task, or a proven B1–B4 blocker — there is no fourth bucket.
 
 **Step 3 — Verify yourself.** Run the acceptance check authoritatively (or delegate the run and read `index.json`), review the diff against your intended change and the no-workaround rules. The implementer's self-report is necessary, never sufficient.
 

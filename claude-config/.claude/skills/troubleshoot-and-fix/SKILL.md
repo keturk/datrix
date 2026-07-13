@@ -659,5 +659,6 @@ On abort, write a partial issue report to `d:\datrix\issues\` documenting what w
 - **NO guessing** — read the code at every phase boundary
 - **NO skipping regeneration** — always verify the fix produces correct output
 - **NO batch-fixing** — one root cause at a time with verification
-- **NO workarounds** — don't steer around issues, don't paper over them; fix the root cause or STOP and report (CLAUDE.md rule)
+- **NO workarounds** — don't steer around issues, don't paper over them. **Fix the root cause, wherever it lives** (CLAUDE.md rule). This is not a binary between "workaround" and "stop": the third option — do the real work — is the default. Stopping is licensed only by a proven B1–B4 blocker with the four-part proof (`.claude/skills/_shared/execution-contract.md`).
+- **NO dodging** — "out of scope", "pre-existing", "categorically behavioral", "should be tracked separately", "not my package" are **not** blockers; they are the work. A `SubagentStop` hook greps reports for this vocabulary.
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule)
