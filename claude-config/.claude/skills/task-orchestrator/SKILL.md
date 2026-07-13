@@ -19,7 +19,9 @@ Two resources are scarce and both are yours to protect: **Opus tokens** (never s
 
 Because you ARE Opus at extra-high effort, the old "escalate up to a more-capable agent" step collapses: you do the architectural analysis **in-context** (you already hold the failure context), then dispatch a subagent to implement your decision. See the reframed **Decision Escalation Protocol** below. Delegation is never abdication — you verify every returned result with a command you run (or delegate the run and read the result), and a subagent's self-report never substitutes for the design-acceptance evidence you paste into the gate.
 
-**The orchestrator's mandate is conformance, not throughput** (CLAUDE.md "Task Orchestration" states the full rationale — it binds here). Two consequences at every wave and phase boundary: **a green suite is necessary but NOT sufficient** (the explicit design-conformance gates at 3g and 3i Step A2 prove the design invariant itself), and **BLOCKED is terminal — it can never become COMPLETED** (per the shared checklist `d:\datrix\.claude\skills\_shared\completion-eligibility.md`; the blocker is spawned as a tracked task).
+**The orchestrator's mandate is conformance, not throughput** (CLAUDE.md "Task Orchestration" states the full rationale — it binds here). Two consequences at every wave and phase boundary: **a green suite is necessary but NOT sufficient** (the explicit design-conformance gates at 3g and 3i Step A2 prove the design invariant itself), and **a task whose agent returned BLOCKED can never be quietly marked COMPLETED** (per the shared checklist `d:\datrix\.claude\skills\_shared\completion-eligibility.md`).
+
+**But a subagent's BLOCKED is not a verdict — it is a claim you must adjudicate.** You never stop on it and you never relay it. You investigate it yourself through the code and the docs; if it is bogus (the common case) you correct the agent and it finishes the task; if it is genuinely real, a **Fable adjudicator** (`model: "fable"`, `effort: "high"`) decides what happens instead and you carry that decision out. The full mechanism is `d:\datrix\.claude\skills\_shared\blocker-adjudication-protocol.md` — **read it; it binds at 3c and at every point below where a blocker appears.**
 
 **Key differences from `/execute-tasks-parallel`:**
 - **Readiness audit before any execution** (Step 1e) — audits the task set against the design doc AND the current implementation, then authors the missing tasks and rewires `dependencies.md` before planning waves
@@ -376,20 +378,17 @@ Run this **each time a poll detects that one agent has completed** (the genuine 
 1. Parse the JSON report from the agent's output
 2. Record status: IMPLEMENTED / EXPANSION_REQUIRED / BLOCKED / NEEDS_CONTEXT / FAILED
 
-3. **BLOCKED-VALIDITY GATE (run this FIRST, before any other handling).** A BLOCKED report is a *claim*, not an outcome. Accept it only if `blocker_proof` carries **all four** fields, substantively:
-   - `error_text` — verbatim, not a paraphrase, not empty
-   - `attempted` — a real fix, written and run, as `file:line`. **Analysis alone is not an attempt.** If the agent never edited a file, this fails.
-   - `why_it_failed` — a specific mechanism
-   - `blocker_code` — a genuine `B1`/`B2`/`B3`/`B4` (execution-contract §1)
+3. **If BLOCKED — run the BLOCKER ADJUDICATION PROTOCOL (`d:\datrix\.claude\skills\_shared\blocker-adjudication-protocol.md`) FIRST, before any other handling.** Read it; it is binding. In brief:
 
-   **If any field is missing, vague, or the blocker_code does not actually match B1–B4 → REJECT and re-dispatch the same task to a fresh agent**, with its own report quoted back and this line prepended:
-   > *Your BLOCKED report was rejected: {the failing field}. This is not one of the four blockers — it is work. Read `.claude/skills/_shared/execution-contract.md` §2, then fix the problem.*
+   - **An agent's BLOCKED never stops this run.** It is an input to *your* investigation, not an outcome you record. Recording "agent said BLOCKED → task BLOCKED" is a non-answer: it means the orchestrator relayed a message instead of doing its job.
+   - **Stage 1 — form check.** Does `blocker_proof` carry all four parts substantively (verbatim `error_text`; an `attempted` fix the agent actually **wrote and ran**, as `file:line` — analysis is not an attempt; a specific `why_it_failed`; a literal `B1`/`B2`/`B3`/`B4`)? Any field missing or vague → malformed; go straight to Stage 3.
+   - **Stage 2 — INVESTIGATE IT YOURSELF, through the code and the docs.** A well-formed proof is still an assertion. Reproduce the error in the same context; open the `file:line` and check the attempted fix is real and aimed at the root cause; trace the root cause yourself; read the design/architecture docs that govern the surface; then test the claimed B-code against what you actually found (the legitimacy table in §3 of the protocol). Delegate the *reading and the repro* to subagents; **the verdict is yours** — never delegate adjudication to another background agent.
+   - **Stage 3 — ILLEGITIMATE (the common case) → correct and re-dispatch.** Send a fresh agent the original task **plus** the correction packet from protocol §4: its own claim quoted back, the specific finding that kills it (with your `file:line` or command + output), what it missed, and the path forward. The task is **not** failed and **not** blocked — it is still in flight. Never add it to `failed_tasks`. Max **two** such re-dispatches; on a third invalid BLOCKED, do the full root-cause analysis yourself and dispatch a *directed implementer*.
+   - **Stage 3′ — LEGITIMATE → Fable adjudication.** You confirmed it is real. **You do not decide what to do about it and you do not stop.** Spawn a **Fable** adjudicator (`model: "fable"`, `effort: "high"`, `run_in_background: false`, `subagent_type: "general-purpose"`) with the exact prompt in protocol §5 — the task + objective + design acceptance property, the four-part proof, **your** independent findings, the confirmed B-code, what you ruled out, and the CLAUDE.md constraints. It returns one binding `decision`: **A** not-actually-blocked / **B** fix-elsewhere / **C** amend-task / **D** resequence / **E** spawn-follow-up / **F** ask-user — with steps, risks, and an `acceptance_check`.
+   - **Then execute that decision** (protocol §5 table). **Only F pauses for the user**; A–E all keep the run moving — dispatch the implementer, amend the task file (never the design doc), rewire `dependencies.md` and re-run cycle detection, file a real tracked task, or re-dispatch. Verify the outcome yourself with Fable's `acceptance_check`; the implementer's self-report is never sufficient.
+   - **Fake blocker classes to expect and reject:** "missing dependency" (implement it), "missing file" (create it), "incomplete prereq", "unclear root cause" (keep reading), "pre-existing failure" (it's yours now), "environmental"/"behavioral" (prove it with the error text or fix it), "needs broader changes" (make them), "should be tracked separately" (**there is no other agent**). None of these are B1–B4.
 
-   **Beware the fake blocker classes.** "Missing dependency", "missing file", "incomplete prereq", "unclear root cause", "pre-existing failure", "environmental", "needs broader changes" are **NOT blockers** — they are work (create the file, implement the dep, keep reading, fix it). Only B1–B4 count. Do **not** add such a task to `failed_tasks`; re-dispatch it.
-
-   A task may be re-dispatched this way **at most twice**. On a third invalid BLOCKED, escalate to the Decision Escalation Protocol yourself, decide the fix in-context, and dispatch a directed implementer — the agent has proven it will not converge on its own.
-
-4. If **BLOCKED** and the proof is **valid**: invoke the **Decision Escalation Protocol** — *you* (Opus) analyze the four-part proof and decide whether the blocker is genuinely outside your reach too. Only a B1/B3 (no access / user-forbidden) or a genuinely user-facing B2 goes to `failed_tasks`; a B2 you can defensibly decide, you decide, then re-dispatch a directed implementer.
+4. **Recording a blocker.** A task that went through Fable adjudication is recorded as: the blocker, the confirmed B-code, Fable's decision, and what you did about it — **never as a bare "task BLOCKED"**. A task only enters `failed_tasks` when Fable's decision leaves it genuinely uncompletable (typically an **F** whose answer the user could not supply, or an **E** where the current task is fully gated by the follow-up).
 
 5. If **EXPANSION_REQUIRED**: the agent knows the fix and needs the file lock. **Re-dispatch it serially the moment the conflicting files are free** (it may run alone after the wave join). This is *not* a failure and never goes to `failed_tasks`. Never shelve it, footnote it, or count the task as done.
 
@@ -618,7 +617,8 @@ Do NOT list completed tasks — success is the default. Only list failures, skip
 
 All rules from `d:\datrix\.claude\CLAUDE.md` apply. Key rules for the orchestrator:
 
-- **CONFORMANCE OVER THROUGHPUT / BLOCKED IS TERMINAL** — enforced by the 3g completion checklist (`_shared/completion-eligibility.md`) and the 3i Step A2 conformance gate; never relaxed for a green suite.
+- **CONFORMANCE OVER THROUGHPUT** — enforced by the 3g completion checklist (`_shared/completion-eligibility.md`) and the 3i Step A2 conformance gate; never relaxed for a green suite.
+- **NEVER STOP ON A SUBAGENT'S BLOCKED, AND NEVER RELAY IT** — a background agent's BLOCKED is a *claim*. Investigate it yourself against the code and the docs (`_shared/blocker-adjudication-protocol.md`): reproduce the error, read the attempted fix at its `file:line`, trace the root cause, check the governing design doc. Bogus → correct the agent and re-dispatch (it is not a failure and never enters `failed_tasks`). Real → a **Fable** adjudicator (`model: "fable"`, `effort: "high"`) decides, and you execute that decision. Accepting a four-part proof *because it has four parts* is a skill-level failure — form is not truth.
 - **NEVER EXECUTE AN UNAUDITED TASK SET** — Step 1e runs before Step 2, every run, no exception. A task set is a *hypothesis* about what the design needs against the code that existed when it was written; the audit tests that hypothesis against today's code before 5 agents act on it. Skipping it to "just start the waves" is how a phase finishes green with a design invariant unenforced. Gaps it finds are closed as real tasks with provable acceptance properties — never as a note in the report, a footnote, or a stub task.
 - **NO ASSUMING — ENUMERATE AND VERIFY STATE** — characterize a corpus by enumerating ALL of it (counted), not a sample; reason about git/working-tree from the CURRENT on-disk state you just read, never a remembered snapshot. Paste real command output for every conformance claim.
 - **GENUINE agent monitoring, never assumption** — when agents run in the background pool, drive them with the Agent Progress Polling Protocol: check every ~5 minutes what each agent is *actually* doing (status **and** on-disk artifacts). Never report an agent as "working" without that evidence, and never rely on a completion notification to know an agent finished.
@@ -642,17 +642,18 @@ You are the Opus orchestrator — the escalation target is **you**: shift out of
 
 ### When to Escalate
 
+**Relationship to the Blocker Adjudication Protocol.** These are two different doors. This protocol is for problems **you** hit — a failing fix, an unclear root cause, an ambiguous fix scope — and you analyze them in-context because you are the Opus orchestrator. The **Blocker Adjudication Protocol** (`_shared/blocker-adjudication-protocol.md`) is for a **subagent's BLOCKED report**: you investigate it, and if it survives investigation the decision goes to a **Fable** adjudicator, not to you. When an agent reports BLOCKED, adjudication runs first; if its verdict is "illegitimate", the task simply goes back out and this protocol never engages.
+
 **DO escalate for:**
-- An agent returns BLOCKED with a technical ambiguity (unclear design choice, conflicting patterns, unknown root cause) — not a hard blocker like a missing file
 - The first fix attempt fails and root cause is unclear
 - Cascading failures suggest a systemic problem where the correct fix scope is uncertain
 - A task's implementation conflicts with existing architecture in a way that requires architectural judgment
 
 **Do NOT escalate for:**
-- Incomplete prerequisite dependencies → STOP immediately, report
+- Incomplete prerequisite dependencies → **not a stop.** Implement the dependency, or resequence the wave so the prerequisite runs first. (An agent that calls this a blocker gets corrected and re-dispatched.)
 - Simple syntax/import errors with obvious fixes → fix directly
 - Clear spec violations → fix directly
-- Missing user-supplied information (credentials, paths, spec gaps) → ask user directly
+- Missing user-supplied information (credentials, paths, spec gaps) → ask user directly, with your recommendation
 
 ### How to Escalate — analyze in-context, then dispatch the implementer
 

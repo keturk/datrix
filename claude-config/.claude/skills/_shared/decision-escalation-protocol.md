@@ -6,6 +6,14 @@ When execution reaches a genuine design or architectural decision — multiple v
 
 (Note: `/task-orchestrator` does NOT use this doc — it already runs on Opus and analyzes in-context per its own reframed protocol.)
 
+**This doc is not the blocker door.** It handles a problem **you** hit — a failing fix, an unclear root
+cause, an ambiguous fix scope. When a **background agent reports BLOCKED**, that goes through
+`blocker-adjudication-protocol.md` instead: you investigate the claim yourself against the code and
+the docs, correct-and-re-dispatch the agent if it is bogus (the common case), and — only if the
+blocker survives your investigation — hand the decision to a **Fable** adjudicator (`model: "fable"`,
+`effort: "high"`), whose ruling you then execute. Never stop on an agent's BLOCKED, and never relay
+one to the user unexamined.
+
 ## When to Escalate
 
 **DO escalate for:**
