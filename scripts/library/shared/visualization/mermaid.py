@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from datrix_common.generation.relationship_kind import RelationshipKind
+from datrix_common.datrix_model.relationship_kind import RelationshipKind
 from datrix_common.paths import ServicePaths
 from datrix_common.utils.text import extract_simple_name, to_snake_case
 

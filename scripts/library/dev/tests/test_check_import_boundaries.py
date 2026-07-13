@@ -9,8 +9,11 @@ silently stop enforcing the denied subtree list.
 """
 
 import importlib.util
+import shutil
+import subprocess
 import sys
 import types
+import uuid
 from pathlib import Path
 
 import pytest
@@ -45,6 +48,15 @@ PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES = _scanner.PLATFORM_CODEGEN_COMMON_ALLO
 SQL_CODEGEN_COMMON_ALLOWED_SUBTREES = _scanner.SQL_CODEGEN_COMMON_ALLOWED_SUBTREES
 scan_file_for_provider_conditionals = _scanner.scan_file_for_provider_conditionals
 check_provider_conditional_ratchet = _scanner.check_provider_conditional_ratchet
+scan_file_for_function_level_imports = _scanner.scan_file_for_function_level_imports
+check_function_level_import_ratchet = _scanner.check_function_level_import_ratchet
+
+# ---------------------------------------------------------------------------
+# Scratch directory for real temp fixture files (this project's temp-file
+# policy: D:\datrix\.tmp\, never a stray path elsewhere in the repo tree).
+# ---------------------------------------------------------------------------
+
+_SCRATCH_ROOT = Path("D:/datrix/.tmp/test_check_import_boundaries")
 
 # ---------------------------------------------------------------------------
 # Constants referenced in the tests — pulled from the module so changes to
@@ -602,3 +614,221 @@ class TestProviderConditionalRatchet:
         messages = check_provider_conditional_ratchet(current, baseline)
         assert len(messages) == 1
         assert "increased from baseline 0 to 1" in messages[0]
+
+
+@pytest.mark.unit
+class TestFunctionLevelImportScanner:
+    """``scan_file_for_function_level_imports`` (design 029, D4/I6 successor,
+    task 17-09): a hit is any ``Import``/``ImportFrom`` AST node that is NOT
+    a direct top-level statement of its module -- module-top imports are
+    zero hits; a function-body import, an ``if TYPE_CHECKING:``-block
+    import, and a ``try``/``except``-guarded import are each exactly one
+    hit. Real temp ``.py`` files written to ``D:\\datrix\\.tmp\\`` per this
+    project's temp-file policy -- not string-mocked ASTs.
+    """
+
+    def _scratch_file(self, name: str, source: str) -> Path:
+        scratch_dir = _SCRATCH_ROOT / f"scanner-{uuid.uuid4().hex}"
+        scratch_dir.mkdir(parents=True, exist_ok=True)
+        file_path = scratch_dir / name
+        file_path.write_text(source, encoding="utf-8")
+        return file_path
+
+    def test_module_top_import_is_zero_hits(self) -> None:
+        source = (
+            "from __future__ import annotations\n"
+            "\n"
+            "import os\n"
+            "from pathlib import Path\n"
+            "\n"
+            "\n"
+            "def f() -> None:\n"
+            "    return None\n"
+        )
+        file_path = self._scratch_file("sample_top_level.py", source)
+        try:
+            hits = scan_file_for_function_level_imports(file_path)
+            assert hits == [], f"module-top imports must never ratchet, got {hits!r}"
+        finally:
+            shutil.rmtree(file_path.parent, ignore_errors=True)
+
+    def test_function_body_import_is_one_hit(self) -> None:
+        source = "def f() -> object:\n    import json\n\n    return json\n"
+        file_path = self._scratch_file("sample_function_body.py", source)
+        try:
+            hits = scan_file_for_function_level_imports(file_path)
+            assert len(hits) == 1, f"expected exactly 1 hit, got {hits!r}"
+            assert hits[0].line_number == 2
+        finally:
+            shutil.rmtree(file_path.parent, ignore_errors=True)
+
+    def test_type_checking_block_import_is_one_hit(self) -> None:
+        source = (
+            "from __future__ import annotations\n"
+            "\n"
+            "from typing import TYPE_CHECKING\n"
+            "\n"
+            "if TYPE_CHECKING:\n"
+            "    from pathlib import Path\n"
+            "\n"
+            "\n"
+            'def f(p: "Path") -> None:\n'
+            "    return None\n"
+        )
+        file_path = self._scratch_file("sample_type_checking.py", source)
+        try:
+            hits = scan_file_for_function_level_imports(file_path)
+            assert len(hits) == 1, f"expected exactly 1 hit, got {hits!r}"
+            assert hits[0].line_number == 6
+        finally:
+            shutil.rmtree(file_path.parent, ignore_errors=True)
+
+    def test_try_except_guarded_import_is_one_hit(self) -> None:
+        source = "try:\n    import tomllib\nexcept ImportError:\n    tomllib = None\n"
+        file_path = self._scratch_file("sample_try_except.py", source)
+        try:
+            hits = scan_file_for_function_level_imports(file_path)
+            assert len(hits) == 1, (
+                f"expected exactly 1 hit (the try-arm import), got {hits!r}"
+            )
+            assert hits[0].line_number == 2
+        finally:
+            shutil.rmtree(file_path.parent, ignore_errors=True)
+
+
+@pytest.mark.unit
+class TestFunctionLevelImportRatchet:
+    """``check_function_level_import_ratchet`` fires on any per-file
+    INCREASE over the frozen baseline and never on a decrease or unchanged
+    count (mirrors ``TestProviderConditionalRatchet`` at this file's own
+    scale)."""
+
+    def test_ratchet_is_clean_when_current_matches_baseline(self) -> None:
+        baseline = {"datrix-common/src/datrix_common/foo.py": 2}
+        current = {"datrix-common/src/datrix_common/foo.py": 2}
+        assert check_function_level_import_ratchet(current, baseline) == []
+
+    def test_ratchet_fires_on_increase(self) -> None:
+        baseline = {"datrix-common/src/datrix_common/foo.py": 2}
+        current = {"datrix-common/src/datrix_common/foo.py": 3}
+        messages = check_function_level_import_ratchet(current, baseline)
+        assert len(messages) == 1
+        assert "foo.py" in messages[0]
+        assert "increased from baseline 2 to 3" in messages[0]
+
+    def test_ratchet_allows_decrease(self) -> None:
+        """Decreases (imports promoted back to module top) must never be flagged."""
+        baseline = {"datrix-common/src/datrix_common/foo.py": 5}
+        current = {"datrix-common/src/datrix_common/foo.py": 1}
+        assert check_function_level_import_ratchet(current, baseline) == []
+
+    def test_ratchet_fires_on_new_file_with_no_baseline_entry(self) -> None:
+        """A file absent from the baseline is treated as baseline 0 -- any
+        hit in a brand-new file is itself an increase."""
+        baseline: dict[str, int] = {}
+        current = {"datrix-common/src/datrix_common/new_file.py": 1}
+        messages = check_function_level_import_ratchet(current, baseline)
+        assert len(messages) == 1
+        assert "increased from baseline 0 to 1" in messages[0]
+
+
+@pytest.mark.unit
+class TestFunctionLevelImportRatchetCliNonVacuity:
+    """End-to-end proof (task 17-09 Success Criterion 5) that
+    ``--check-function-level-imports`` actually detects a regression, run as
+    a real subprocess invocation of the CLI against a real, isolated,
+    temporarily-mutated fixture tree -- never a simulated one, and never the
+    real ``datrix-common`` source tree (an isolated ``--base-dir`` fixture
+    keeps this test independent of any unrelated, pre-existing cross-package
+    boundary findings in the real monorepo).
+    """
+
+    def _build_fixture_monorepo(
+        self, tmp_root: Path, *, initial_import_count: int
+    ) -> Path:
+        """Build a minimal isolated monorepo: one ``datrix-common`` package
+        with one module carrying *initial_import_count* function-level
+        imports, plus a baseline TOML freezing exactly that count.
+        """
+        package_src = tmp_root / "datrix-common" / "src" / "datrix_common"
+        package_src.mkdir(parents=True, exist_ok=True)
+        (package_src / "__init__.py").write_text("", encoding="utf-8")
+
+        module_path = package_src / "sample_module.py"
+        module_path.write_text(
+            self._module_source(initial_import_count), encoding="utf-8"
+        )
+
+        config_dir = tmp_root / "datrix" / "scripts" / "config"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        baseline_path = config_dir / "function-level-import-baseline.toml"
+        baseline_path.write_text(
+            "[[baseline]]\n"
+            'file = "datrix-common/src/datrix_common/sample_module.py"\n'
+            f"count = {initial_import_count}\n",
+            encoding="utf-8",
+        )
+        return module_path
+
+    def _module_source(self, function_level_import_count: int) -> str:
+        """A module with exactly *function_level_import_count* function-body imports."""
+        lines = ["def f() -> None:"]
+        if function_level_import_count == 0:
+            lines.append("    return None")
+        else:
+            for i in range(function_level_import_count):
+                lines.append(f"    import json as _json_{i}")
+            lines.append("    return None")
+        return "\n".join(lines) + "\n"
+
+    def _run_cli(self, tmp_root: Path) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(_SCANNER_PATH),
+                "--base-dir",
+                str(tmp_root),
+                "--check-function-level-imports",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+
+    def test_mutation_is_detected_then_clears_on_revert(self) -> None:
+        tmp_root = _SCRATCH_ROOT / f"cli-non-vacuity-{uuid.uuid4().hex}"
+        tmp_root.mkdir(parents=True, exist_ok=True)
+        try:
+            module_path = self._build_fixture_monorepo(tmp_root, initial_import_count=1)
+
+            # POSITIVE: current count (1) matches the frozen baseline (1) -- clean.
+            clean_result = self._run_cli(tmp_root)
+            assert clean_result.returncode == 0, (
+                f"expected a clean exit before mutation, got {clean_result.returncode}: "
+                f"{clean_result.stdout}{clean_result.stderr}"
+            )
+
+            # Plant the mutation: one more function-level import than the baseline.
+            module_path.write_text(self._module_source(2), encoding="utf-8")
+
+            # NEGATIVE: the ratchet must fail, naming the file and the count delta.
+            failing_result = self._run_cli(tmp_root)
+            assert failing_result.returncode == 1, (
+                f"expected the ratchet to fail after the mutation, got "
+                f"{failing_result.returncode}: {failing_result.stdout}{failing_result.stderr}"
+            )
+            assert "sample_module.py" in failing_result.stdout
+            assert "increased from baseline 1 to 2" in failing_result.stdout
+
+            # Revert the mutation.
+            module_path.write_text(self._module_source(1), encoding="utf-8")
+
+            # POSITIVE again: reverting must clear the failure.
+            reverted_result = self._run_cli(tmp_root)
+            assert reverted_result.returncode == 0, (
+                f"expected a clean exit after reverting the mutation, got "
+                f"{reverted_result.returncode}: {reverted_result.stdout}{reverted_result.stderr}"
+            )
+        finally:
+            shutil.rmtree(tmp_root, ignore_errors=True)

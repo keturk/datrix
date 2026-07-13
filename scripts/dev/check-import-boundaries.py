@@ -25,11 +25,26 @@ cannot grow, and drives to zero as phase-09 (DI-5) migrates each cluster onto
 a decision engine. --update-baseline (combined with --check-provider-conditionals)
 recomputes and overwrites that baseline.
 
+Also implements the function-level-import ratchet (design 029, D4/I6, task
+17-09): opt-in via --check-function-level-imports, it AST-scans ONLY the
+datrix-common src/ tree for function-level imports (an Import/ImportFrom AST
+node that is not a direct top-level statement of its module -- nested in a
+function/method body, an `if TYPE_CHECKING:` block, or a `try`/`except`) and
+fails if any file's count increases past its frozen baseline
+(scripts/config/function-level-import-baseline.toml). Design 029's D4
+decision log explicitly rejects a one-shot sweep of every site; the ratchet
+freezes the count so it cannot grow while later tasks promote deferred
+imports back to module top as the work that touches each file allows.
+--update-baseline (combined with --check-function-level-imports) recomputes
+and overwrites that baseline.
+
 Exit codes:
     0: Clean (no violations) or --warn mode
-    1: Violations found in fail mode (import-boundary and/or I1/I6 ratchets)
-    2: Usage error, configuration error, or (with --check-target-literals or
-       --check-provider-conditionals) a missing baseline file
+    1: Violations found in fail mode (import-boundary and/or I1/I6/function-
+       level-import ratchets)
+    2: Usage error, configuration error, or (with --check-target-literals,
+       --check-provider-conditionals, or --check-function-level-imports) a
+       missing baseline file
 """
 
 import argparse
@@ -251,20 +266,20 @@ TARGET_LITERAL_SHARED_PACKAGES: tuple[str, ...] = (
 # sure nothing NEW joins this list while phases 06-10 remove these.
 TARGET_LITERAL_CENTRAL_NAMES: frozenset[str] = frozenset(
     {
-        "Language",                         # enums.py:13-18 (deleted 07-03)
-        "ProjectLanguage",                  # enums.py:26-30 (deleted 07-03)
-        "GENERATORS_BY_LANGUAGE",           # enums.py:33 (deleted 06-04)
-        "DeploymentProvider",               # enums.py:82-97 (deleted 07-03)
-        "PROVIDER_GENERATORS",              # enums.py:289 (deleted 07-03)
-        "_TARGET_KIND_MAP",                 # gendsl/parser.py:36, validator.py:30 (deleted 06-02)
-        "_KNOWN_DEFINITION_MODULES",        # gendsl/compiler.py:153-161 (deleted 06-02)
-        "EMAIL_REALIZATION",                # provisioning.py:60-81 (deleted 07-04)
-        "SMS_REALIZATION",                  # provisioning.py:92-109 (deleted 07-04)
-        "PUSH_REALIZATION",                 # provisioning.py:~129 (deleted 07-04)
-        "_DEFAULT_BACKEND_BY_PROVIDER",      # secret_backend.py:175-178 (deleted 07-04)
-        "VALID_PROVIDERS_BY_RUNTIME",       # deployment_validation.py:29-42 (deleted 07-04)
-        "_SERVERLESS_PLATFORM_BY_PROVIDER", # hosting_validation.py:22-26 (deleted 07-04)
-        "_PLATFORM_INFRA_CLASSES",          # auth_resolver.py:54-71 (deleted 07-05)
+        "Language",  # enums.py:13-18 (deleted 07-03)
+        "ProjectLanguage",  # enums.py:26-30 (deleted 07-03)
+        "GENERATORS_BY_LANGUAGE",  # enums.py:33 (deleted 06-04)
+        "DeploymentProvider",  # enums.py:82-97 (deleted 07-03)
+        "PROVIDER_GENERATORS",  # enums.py:289 (deleted 07-03)
+        "_TARGET_KIND_MAP",  # gendsl/parser.py:36, validator.py:30 (deleted 06-02)
+        "_KNOWN_DEFINITION_MODULES",  # gendsl/compiler.py:153-161 (deleted 06-02)
+        "EMAIL_REALIZATION",  # provisioning.py:60-81 (deleted 07-04)
+        "SMS_REALIZATION",  # provisioning.py:92-109 (deleted 07-04)
+        "PUSH_REALIZATION",  # provisioning.py:~129 (deleted 07-04)
+        "_DEFAULT_BACKEND_BY_PROVIDER",  # secret_backend.py:175-178 (deleted 07-04)
+        "VALID_PROVIDERS_BY_RUNTIME",  # deployment_validation.py:29-42 (deleted 07-04)
+        "_SERVERLESS_PLATFORM_BY_PROVIDER",  # hosting_validation.py:22-26 (deleted 07-04)
+        "_PLATFORM_INFRA_CLASSES",  # auth_resolver.py:54-71 (deleted 07-05)
     }
 )
 
@@ -297,6 +312,23 @@ PROVIDER_CONDITIONAL_LANGUAGE_PACKAGES: tuple[str, ...] = (
     "datrix_codegen_python",
     "datrix_codegen_typescript",
 )
+
+
+# ---------------------------------------------------------------------------
+# Function-Level-Import Ratchet (design 029, D4/I6, task 17-09)
+#
+# Design 029's D4 decision log: "the deferred function-level imports move
+# back to module top with a ratchet: 668 baseline, monotonically
+# decreasing" (superseded by an orchestrator-frozen 657 ceiling for the
+# pre-decomposition tree -- see the frozen baseline file's own header). A
+# function-level import is any `Import`/`ImportFrom` AST node that is not a
+# direct top-level statement of its module -- nested inside a function body,
+# a method body, an `if TYPE_CHECKING:` block, or a `try`/`except`. Scoped to
+# `datrix-common` ONLY (unlike I1/I6 above): this is that package's own
+# intra-package layering effort (D4/I6 concerns `datrix-common`'s model/
+# semantic/config/generation layering specifically), not a monorepo-wide
+# metric. Do not extend this tuple to other packages.
+FUNCTION_LEVEL_IMPORT_PACKAGES: tuple[str, ...] = ("datrix_common",)
 
 # Root name(s) recognized as "the deployment/infrastructure provider" for the
 # `.value`/`str(...)` detection forms below. Restricting to these roots (a
@@ -364,7 +396,9 @@ def _is_deployment_provider_value_expr(node: ast.AST) -> bool:
         and len(node.args) == 1
     ):
         arg = node.args[0]
-        return _is_deployment_provider_attr(arg) or _is_deployment_provider_value_expr(arg)
+        return _is_deployment_provider_attr(arg) or _is_deployment_provider_value_expr(
+            arg
+        )
     return False
 
 
@@ -475,8 +509,17 @@ class TargetLiteralHit:
 class TargetLiteralBaselineEntry:
     """One frozen per-file count in the I1 ratchet baseline."""
 
-    file: str   # path relative to monorepo root, forward slashes
+    file: str  # path relative to monorepo root, forward slashes
     count: int
+
+
+@dataclass(frozen=True)
+class FunctionLevelImportHit:
+    """One function-level (non-module-top) import statement in a
+    ``datrix-common`` file (design 029, invariant I6 successor, task 17-09)."""
+
+    file_path: Path
+    line_number: int
 
 
 def is_forbidden_import(
@@ -507,7 +550,10 @@ def is_forbidden_import(
         True if the import is forbidden, False otherwise
     """
     # Self-imports are always allowed
-    if imported_module.startswith(source_package + ".") or imported_module == source_package:
+    if (
+        imported_module.startswith(source_package + ".")
+        or imported_module == source_package
+    ):
         return False
 
     # Handle wildcard prefixes (e.g., datrix_codegen_)
@@ -516,7 +562,10 @@ def is_forbidden_import(
         matched = imported_module.startswith(forbidden_prefix)
     else:
         # Exact prefix match (or module.submodule)
-        matched = imported_module.startswith(forbidden_prefix + ".") or imported_module == forbidden_prefix
+        matched = (
+            imported_module.startswith(forbidden_prefix + ".")
+            or imported_module == forbidden_prefix
+        )
 
     if not matched:
         return False
@@ -592,7 +641,9 @@ def discover_packages(base_dir: Path) -> dict[str, PackageInfo]:
 
         # Find the package name by looking for the actual package directory under src/
         # e.g., datrix-common/src/datrix_common/ -> package name is datrix_common
-        package_dirs = [d for d in src_dir.iterdir() if d.is_dir() and d.name.startswith("datrix")]
+        package_dirs = [
+            d for d in src_dir.iterdir() if d.is_dir() and d.name.startswith("datrix")
+        ]
 
         if not package_dirs:
             continue
@@ -733,7 +784,9 @@ def scan_file_for_target_literals(file_path: Path) -> list[TargetLiteralHit]:
                     kind="central_table_name",
                 )
             )
-        elif isinstance(node, ast.ClassDef) and node.name in TARGET_LITERAL_CENTRAL_NAMES:
+        elif (
+            isinstance(node, ast.ClassDef) and node.name in TARGET_LITERAL_CENTRAL_NAMES
+        ):
             hits.append(
                 TargetLiteralHit(
                     file_path=file_path,
@@ -973,14 +1026,18 @@ def _walk_for_provider_conditionals(
         kind = _provider_conditional_compare_kind(node)
         if kind is not None:
             hits.append(
-                ProviderConditionalHit(file_path=file_path, line_number=node.lineno, kind=kind)
+                ProviderConditionalHit(
+                    file_path=file_path, line_number=node.lineno, kind=kind
+                )
             )
 
     for child in ast.iter_child_nodes(node):
         _walk_for_provider_conditionals(child, file_path, hits)
 
 
-def scan_file_for_provider_conditionals(file_path: Path) -> list[ProviderConditionalHit]:
+def scan_file_for_provider_conditionals(
+    file_path: Path,
+) -> list[ProviderConditionalHit]:
     """AST-walk *file_path* for platform-identity conditionals (I6 successor
     ratchet, design 023, DI-4/DI-5).
 
@@ -1100,7 +1157,9 @@ def load_provider_conditional_baseline(baseline_path: Path) -> dict[str, int]:
     return counts
 
 
-def write_provider_conditional_baseline(baseline_path: Path, counts: dict[str, int]) -> None:
+def write_provider_conditional_baseline(
+    baseline_path: Path, counts: dict[str, int]
+) -> None:
     """Write ``counts`` to the provider-conditional baseline TOML as
     ``[[baseline]] file=... count=...`` entries, sorted by file for
     deterministic diffs.
@@ -1115,7 +1174,7 @@ def write_provider_conditional_baseline(baseline_path: Path, counts: dict[str, i
         "# Frozen per-file counts of platform-identity CONDITIONALS in the language\n"
         "# packages (datrix_codegen_python, datrix_codegen_typescript) -- the successor\n"
         "# form of the removed DeploymentProvider branches (the literal\n"
-        '# `grep DeploymentProvider.` is already empty; DI-3 deleted the enum). These\n'
+        "# `grep DeploymentProvider.` is already empty; DI-3 deleted the enum). These\n"
         "# sites are DI-5-deferred (task 08-11): legitimate today, but frozen so they\n"
         "# cannot grow while phase-09 migrates each cluster onto a decision engine.\n"
         "# Any INCREASE in a file's count fails datrix/scripts/dev/check-import-boundaries.py\n"
@@ -1163,6 +1222,218 @@ def check_provider_conditional_ratchet(
         if current > frozen:
             messages.append(
                 f"{file_rel}: provider-conditional count increased from baseline "
+                f"{frozen} to {current}"
+            )
+
+    return messages
+
+
+def scan_file_for_function_level_imports(
+    file_path: Path,
+) -> list[FunctionLevelImportHit]:
+    """AST-walk *file_path* for function-level imports (design 029, D4/I6
+    successor, task 17-09).
+
+    A hit is any ``ast.Import``/``ast.ImportFrom`` node that is NOT a direct
+    top-level statement of the module -- i.e., not a member of ``tree.body``
+    itself, but nested one or more levels deeper (inside a function/method
+    body, an ``if TYPE_CHECKING:`` block, a ``try``/``except``, etc.).
+    Implementation: collect the ``id()`` of every node in ``tree.body`` (the
+    top-level statement list) into a set, then ``ast.walk(tree)`` collecting
+    every ``Import``/``ImportFrom`` node; a node counts as a hit iff its
+    ``id()`` is not in the top-level set.
+
+    Args:
+        file_path: Path to Python source file.
+
+    Returns:
+        List of hits found in the file, in AST-walk order.
+
+    Raises:
+        SyntaxError: propagated from ast.parse (caller decides how to report).
+        OSError: propagated if the file cannot be read.
+    """
+    # utf-8-sig transparently strips a leading UTF-8 BOM (U+FEFF) so a
+    # BOM-prefixed file can never fail ast.parse and be silently skipped
+    # (design 023 scanner-integrity, task 07-30).
+    source_code = file_path.read_text(encoding="utf-8-sig")
+    tree = ast.parse(source_code, filename=str(file_path))
+
+    top_level_ids = {id(node) for node in tree.body}
+
+    hits: list[FunctionLevelImportHit] = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, (ast.Import, ast.ImportFrom))
+            and id(node) not in top_level_ids
+        ):
+            hits.append(
+                FunctionLevelImportHit(file_path=file_path, line_number=node.lineno)
+            )
+    return hits
+
+
+def scan_function_level_imports(
+    packages: dict[str, PackageInfo],
+    monorepo_root: Path,
+) -> dict[Path, list[FunctionLevelImportHit]]:
+    """Scan every ``.py`` file under each of ``FUNCTION_LEVEL_IMPORT_PACKAGES``'
+    ``src/`` tree (via *packages*, as already discovered by ``discover_packages``)
+    for function-level imports.
+
+    Args:
+        packages: Package name -> PackageInfo, as returned by discover_packages().
+        monorepo_root: Monorepo root for relative path reporting.
+
+    Returns:
+        Mapping of file path -> hits in that file (files with zero hits omitted).
+    """
+    results: dict[Path, list[FunctionLevelImportHit]] = {}
+
+    for package_name in FUNCTION_LEVEL_IMPORT_PACKAGES:
+        package_info = packages.get(package_name)
+        if package_info is None:
+            continue
+
+        for py_file in package_info.src_dir.rglob("*.py"):
+            try:
+                hits = scan_file_for_function_level_imports(py_file)
+            except SyntaxError as e:
+                rel_path = py_file.relative_to(monorepo_root)
+                print(
+                    f"ERROR: Failed to parse {rel_path}:{e.lineno} - {e.msg}. "
+                    f"A policed file that cannot be parsed would escape this scan "
+                    f"(a silent blind spot); fix its syntax or encoding.",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+            except OSError as e:
+                rel_path = py_file.relative_to(monorepo_root)
+                print(
+                    f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
+                    f"cannot be read would escape this scan; resolve the read error.",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+
+            if hits:
+                results[py_file] = hits
+
+    return results
+
+
+def load_function_level_import_baseline(baseline_path: Path) -> dict[str, int]:
+    """Load ``{relative_file: frozen_count}`` from the function-level-import
+    baseline TOML.
+
+    Args:
+        baseline_path: Path to the function-level-import baseline TOML file.
+
+    Returns:
+        An empty dict if the file does not exist yet (first-ever run, before
+        this task's `--update-baseline` freezes it).
+    """
+    if not baseline_path.exists():
+        return {}
+
+    try:
+        import tomllib  # Python 3.11+
+    except ImportError:
+        try:
+            import tomli as tomllib  # type: ignore[no-redef]
+        except ImportError:
+            print(
+                "Warning: TOML library not available. Install tomli for baseline support.",
+                file=sys.stderr,
+            )
+            return {}
+
+    with baseline_path.open("rb") as f:
+        data = tomllib.load(f)
+
+    counts: dict[str, int] = {}
+    for entry in data.get("baseline", []):
+        if not isinstance(entry, dict):
+            continue
+
+        file_rel = entry.get("file", "")
+        count = entry.get("count")
+
+        if file_rel and isinstance(count, int):
+            counts[file_rel] = count
+
+    return counts
+
+
+def write_function_level_import_baseline(
+    baseline_path: Path, counts: dict[str, int]
+) -> None:
+    """Write ``counts`` to the function-level-import baseline TOML as
+    ``[[baseline]] file=... count=...`` entries, sorted by file for
+    deterministic diffs.
+
+    Args:
+        baseline_path: Path to the function-level-import baseline TOML file to write.
+        counts: Mapping of relative file path (forward slashes) -> hit count.
+    """
+    header = (
+        "# Function-Level-Import Ratchet Baseline (design 029, D4/I6, task 17-09)\n"
+        "#\n"
+        "# Frozen per-file counts of function-level imports (any Import/ImportFrom\n"
+        "# AST node that is not a direct top-level statement of its module --\n"
+        "# nested in a function/method body, an `if TYPE_CHECKING:` block, or a\n"
+        "# `try`/`except`) in datrix-common's src/ tree ONLY. Design 029's D4 calls\n"
+        '# for these to "move back to module top with a ratchet": this baseline\n'
+        "# freezes the count measured immediately after tasks 17-07/17-08 (the\n"
+        "# Service/Shared decomposition) landed, so it reflects their import\n"
+        "# relocations rather than a stale pre-decomposition number. Any INCREASE\n"
+        "# in a file's count fails datrix/scripts/dev/check-import-boundaries.py\n"
+        "# --check-function-level-imports. Decreases are always allowed and should\n"
+        "# be captured by re-running with --update-baseline once a later task\n"
+        "# promotes more deferred imports back to module top -- D4's own decision\n"
+        "# log explicitly rejects a one-shot sweep of all sites; each area migrates\n"
+        "# with the work that next touches it.\n"
+        "#\n"
+        "# Format:\n"
+        "#   [[baseline]]\n"
+        '#   file = "path/relative/to/monorepo-root, forward slashes"\n'
+        "#   count = <int>\n"
+    )
+
+    lines = [header]
+    for file_rel in sorted(counts.keys()):
+        lines.append("\n[[baseline]]\n")
+        lines.append(f'file = "{file_rel}"\n')
+        lines.append(f"count = {counts[file_rel]}\n")
+
+    baseline_path.parent.mkdir(parents=True, exist_ok=True)
+    baseline_path.write_text("".join(lines), encoding="utf-8")
+
+
+def check_function_level_import_ratchet(
+    current_counts: dict[str, int],
+    baseline: dict[str, int],
+) -> list[str]:
+    """Compare *current_counts* against *baseline*; return one message per
+    file whose count INCREASED (baseline missing == baseline 0). Never flags
+    a decrease -- the ratchet only tightens.
+
+    Args:
+        current_counts: Relative file path -> current hit count.
+        baseline: Relative file path -> frozen baseline count.
+
+    Returns:
+        List of human-readable ratchet-failure messages, one per regressed
+        file, sorted by file path.
+    """
+    messages: list[str] = []
+
+    for file_rel in sorted(current_counts.keys()):
+        current = current_counts[file_rel]
+        frozen = baseline.get(file_rel, 0)
+        if current > frozen:
+            messages.append(
+                f"{file_rel}: function-level-import count increased from baseline "
                 f"{frozen} to {current}"
             )
 
@@ -1217,7 +1488,9 @@ def load_allowlist(allowlist_path: Path) -> list[AllowlistEntry]:
     return entries
 
 
-def is_allowlisted(violation: Violation, allowlist: list[AllowlistEntry], monorepo_root: Path) -> bool:
+def is_allowlisted(
+    violation: Violation, allowlist: list[AllowlistEntry], monorepo_root: Path
+) -> bool:
     """Check if a violation is allowlisted.
 
     Args:
@@ -1235,7 +1508,9 @@ def is_allowlisted(violation: Violation, allowlist: list[AllowlistEntry], monore
         # Normalize allowlist pattern to forward slashes too
         pattern = entry.file_pattern.replace("\\", "/")
         # Simple substring matching for file patterns
-        if pattern in rel_path and violation.imported_module.startswith(entry.import_prefix):
+        if pattern in rel_path and violation.imported_module.startswith(
+            entry.import_prefix
+        ):
             return True
 
     return False
@@ -1346,6 +1621,15 @@ def main() -> int:
             "in addition to the import-boundary check"
         ),
     )
+    parser.add_argument(
+        "--check-function-level-imports",
+        action="store_true",
+        help=(
+            "Run the function-level-import ratchet check (design 029, D4/I6, task "
+            "17-09) in addition to the import-boundary check. Scoped to "
+            "datrix-common's src/ tree only."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -1364,7 +1648,13 @@ def main() -> int:
         return 2
 
     # Load allowlist
-    allowlist_path = monorepo_root / "datrix" / "scripts" / "config" / "import-boundary-allowlist.toml"
+    allowlist_path = (
+        monorepo_root
+        / "datrix"
+        / "scripts"
+        / "config"
+        / "import-boundary-allowlist.toml"
+    )
     allowlist = load_allowlist(allowlist_path)
 
     # Discover packages
@@ -1403,31 +1693,65 @@ def main() -> int:
     # I6 successor ratchet (design 023, invariant I6, DI-4/DI-5) — opt-in via
     # --check-provider-conditionals.
     provider_conditional_baseline_path = (
-        monorepo_root / "datrix" / "scripts" / "config" / "provider-conditional-baseline.toml"
+        monorepo_root
+        / "datrix"
+        / "scripts"
+        / "config"
+        / "provider-conditional-baseline.toml"
+    )
+    # Function-level-import ratchet (design 029, D4/I6, task 17-09) — opt-in
+    # via --check-function-level-imports.
+    function_level_import_baseline_path = (
+        monorepo_root
+        / "datrix"
+        / "scripts"
+        / "config"
+        / "function-level-import-baseline.toml"
     )
 
     if args.update_baseline:
         updated_any = False
 
         # Provider-conditional baseline updates when explicitly requested via
-        # --check-provider-conditionals. Target-literal baseline updates unless
-        # --check-provider-conditionals was requested WITHOUT --check-target-literals
-        # (preserves the pre-existing --update-baseline-alone => target-literal
-        # behavior for existing callers).
+        # --check-provider-conditionals. Function-level-import baseline
+        # updates when explicitly requested via --check-function-level-imports.
+        # Target-literal baseline updates unless one of those two OTHER
+        # ratchets was requested without --check-target-literals also being
+        # requested (preserves the pre-existing --update-baseline-alone =>
+        # target-literal behavior for existing callers).
         if args.check_provider_conditionals:
             hits_by_file = scan_provider_conditionals(packages, monorepo_root)
             current_counts = {
                 str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
                 for file_path, hits in hits_by_file.items()
             }
-            write_provider_conditional_baseline(provider_conditional_baseline_path, current_counts)
+            write_provider_conditional_baseline(
+                provider_conditional_baseline_path, current_counts
+            )
             print(
                 f"Updated I6 provider-conditional baseline: {len(current_counts)} file(s) "
                 f"recorded at {provider_conditional_baseline_path.relative_to(monorepo_root)}"
             )
             updated_any = True
 
-        if args.check_target_literals or not args.check_provider_conditionals:
+        if args.check_function_level_imports:
+            hits_by_file = scan_function_level_imports(packages, monorepo_root)
+            current_counts = {
+                str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
+                for file_path, hits in hits_by_file.items()
+            }
+            write_function_level_import_baseline(
+                function_level_import_baseline_path, current_counts
+            )
+            print(
+                f"Updated function-level-import baseline: {len(current_counts)} file(s) "
+                f"recorded at {function_level_import_baseline_path.relative_to(monorepo_root)}"
+            )
+            updated_any = True
+
+        if args.check_target_literals or not (
+            args.check_provider_conditionals or args.check_function_level_imports
+        ):
             hits_by_file = scan_target_literals(packages, monorepo_root)
             current_counts = {
                 str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
@@ -1475,20 +1799,55 @@ def main() -> int:
             )
             return 2
 
-        baseline = load_provider_conditional_baseline(provider_conditional_baseline_path)
+        baseline = load_provider_conditional_baseline(
+            provider_conditional_baseline_path
+        )
         hits_by_file = scan_provider_conditionals(packages, monorepo_root)
         current_counts = {
             str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
             for file_path, hits in hits_by_file.items()
         }
-        provider_conditional_messages = check_provider_conditional_ratchet(current_counts, baseline)
+        provider_conditional_messages = check_provider_conditional_ratchet(
+            current_counts, baseline
+        )
+
+    function_level_import_messages: list[str] = []
+    if args.check_function_level_imports:
+        if not function_level_import_baseline_path.exists():
+            print(
+                f"Error: function-level-import baseline not found at "
+                f"{function_level_import_baseline_path}. Run "
+                f"'check-import-boundaries.py --check-function-level-imports --update-baseline' "
+                f"first to freeze the initial baseline.",
+                file=sys.stderr,
+            )
+            return 2
+
+        baseline = load_function_level_import_baseline(
+            function_level_import_baseline_path
+        )
+        hits_by_file = scan_function_level_imports(packages, monorepo_root)
+        current_counts = {
+            str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
+            for file_path, hits in hits_by_file.items()
+        }
+        function_level_import_messages = check_function_level_import_ratchet(
+            current_counts, baseline
+        )
 
     # Report violations / ratchet failures
-    if non_allowlisted_violations or target_literal_messages or provider_conditional_messages:
+    if (
+        non_allowlisted_violations
+        or target_literal_messages
+        or provider_conditional_messages
+        or function_level_import_messages
+    ):
         mode = "Warning" if args.warn else "Error"
 
         if non_allowlisted_violations:
-            print(f"{mode}: Found {len(non_allowlisted_violations)} import boundary violations:\n")
+            print(
+                f"{mode}: Found {len(non_allowlisted_violations)} import boundary violations:\n"
+            )
             for violation in non_allowlisted_violations:
                 print(format_violation(violation, monorepo_root))
                 print()  # Blank line between violations
@@ -1511,6 +1870,15 @@ def main() -> int:
                 print(message)
             print()
 
+        if function_level_import_messages:
+            print(
+                f"{mode}: function-level-import ratchet failed for "
+                f"{len(function_level_import_messages)} file(s):\n"
+            )
+            for message in function_level_import_messages:
+                print(message)
+            print()
+
         if args.warn:
             return 0
         return 1
@@ -1521,7 +1889,13 @@ def main() -> int:
         if args.check_target_literals:
             print("No I1 target-literal ratchet regressions found.", file=sys.stderr)
         if args.check_provider_conditionals:
-            print("No I6 provider-conditional ratchet regressions found.", file=sys.stderr)
+            print(
+                "No I6 provider-conditional ratchet regressions found.", file=sys.stderr
+            )
+        if args.check_function_level_imports:
+            print(
+                "No function-level-import ratchet regressions found.", file=sys.stderr
+            )
 
     return 0
 

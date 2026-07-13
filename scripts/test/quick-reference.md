@@ -382,3 +382,20 @@ Design 026 (Golden Corpus Verification & Docs Conformance) Invariant I5 gate: ex
 - A candidate unresolved by both tiers is checked against the exceptions baseline (span text -> reason); present spans never fail the gate, absent spans do.
 
 **Exit codes:** 0 = no unresolved references (or a successful `-Warn` run), 1 = at least one unresolved, non-excepted reference found, 2 = usage error, missing exceptions baseline, or a doc in `ARCHITECTURE_DOC_FILES` that no longer exists.
+
+---
+
+### `test\gendsl-corpus-resolution-gate.ps1`
+
+Design 025 (GenDSL 2) D1/I1 corpus proof (task 13-04, relocated task 17-10): eager builder/call-expression reference resolution runs at `@generator_definition` registration time (`datrix_codegen_common.gendsl.resolver`). Importing each consumer package's genDSL definitions module (`datrix_codegen_python.gendsl.definitions`, `datrix_codegen_typescript.gendsl_definitions`, `datrix_codegen_sql.gendsl.sql_definitions`, `datrix_codegen_docker.gendsl_definitions`, `datrix_codegen_aws.gendsl.aws_definitions`, `datrix_codegen_azure.gendsl.azure_definitions`, `datrix_codegen_component.gendsl_definitions`) IS the assertion: a bad reference raises `GenDSLReferenceResolutionError` at import time.
+
+This gate previously lived as a pytest test inside `datrix-codegen-common` (`tests/integration/gendsl/test_resolution_corpus.py`) that imported all seven concrete target packages directly — a `datrix_codegen_common`-must-not-import-concrete-target-packages boundary violation **and** a cross-package test (prohibited everywhere in the repo, not only in the showcase package). The proof is inherently repo-level, so task 17-10 moved it here (deleting the pytest test) rather than allowlisting the violation — the allowlist is terminal-empty (design 023 I7) and adding an entry would be a regression.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\test\gendsl-corpus-resolution-gate.ps1` | Import all seven packages' genDSL definitions, fail on any unresolved reference |
+| **Debug** | `.\test\gendsl-corpus-resolution-gate.ps1 -Dbg` | Debug logging |
+
+**Parameters:** `-Dbg`
+
+**Exit codes:** 0 = every package's genDSL corpus resolved at import, 1 = at least one package failed to resolve or import.

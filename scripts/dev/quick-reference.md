@@ -183,12 +183,16 @@ Enforces cross-package import boundary rules across the monorepo. Scans each pac
 | **Freeze/update baseline** | `.\dev\check-import-boundaries.ps1 -CheckTargetLiterals -UpdateBaseline` | Recompute and overwrite the frozen baseline |
 | **I6 successor ratchet check** | `.\dev\check-import-boundaries.ps1 -CheckProviderConditionals` | Run the provider-conditional ratchet (design 023, invariant I6, DI-4/DI-5) against the frozen baseline |
 | **Freeze/update provider-conditional baseline** | `.\dev\check-import-boundaries.ps1 -CheckProviderConditionals -UpdateBaseline` | Recompute and overwrite the frozen provider-conditional baseline |
+| **Function-level-import ratchet check** | `.\dev\check-import-boundaries.ps1 -CheckFunctionLevelImports` | Run the function-level-import ratchet (design 029, D4/I6, task 17-09) against the frozen baseline |
+| **Freeze/update function-level-import baseline** | `.\dev\check-import-boundaries.ps1 -CheckFunctionLevelImports -UpdateBaseline` | Recompute and overwrite the frozen function-level-import baseline |
 
-**Parameters:** `-Warn`, `-ShowFiles`, `-BaseDir`, `-CheckTargetLiterals`, `-UpdateBaseline`, `-CheckProviderConditionals`, `-Dbg`
+**Parameters:** `-Warn`, `-ShowFiles`, `-BaseDir`, `-CheckTargetLiterals`, `-UpdateBaseline`, `-CheckProviderConditionals`, `-CheckFunctionLevelImports`, `-Dbg`
 
-**Exit codes:** 0 = clean (or warning mode), 1 = violations found (import-boundary, I1 target-literal ratchet, or I6 provider-conditional ratchet), 2 = usage/config error (including a missing baseline file when `-CheckTargetLiterals` or `-CheckProviderConditionals` is passed without having frozen one yet)
+**Exit codes:** 0 = clean (or warning mode), 1 = violations found (import-boundary, I1 target-literal ratchet, I6 provider-conditional ratchet, or function-level-import ratchet), 2 = usage/config error (including a missing baseline file when `-CheckTargetLiterals`, `-CheckProviderConditionals`, or `-CheckFunctionLevelImports` is passed without having frozen one yet)
 
 **I6 successor ratchet detail:** scans `datrix-codegen-python/src` and `datrix-codegen-typescript/src` `.py` files (the LANGUAGE packages only — not a shared-layer scan like I1) for platform-identity conditionals: `== ProviderId(...)` / `!= ProviderId(...)` comparisons, `<deployment>.provider.value`/`str(<deployment>.provider)` string comparisons, and `match`/`case` over a provider subject. Excludes other provider axes (StorageProvider/EmailProvider/SmsProvider/SearchProvider/PaymentProvider/metrics-tracing provider), the `resolve_provider_identity` boundary function's own `ProviderId(x.value)` rewrap, and dict-dispatch-table lookups (`in`/`not in`, `.get(...)`) — those are a different successor shape not yet in scope. Baseline: `datrix/scripts/config/provider-conditional-baseline.toml`.
+
+**Function-level-import ratchet detail:** scans ONLY `datrix-common/src` `.py` files (design 029 D4/I6's own package-scoped effort — never extend to other packages) for function-level imports: any `Import`/`ImportFrom` AST node that is not a direct top-level statement of its module (nested in a function/method body, an `if TYPE_CHECKING:` block, or a `try`/`except`). Baseline: `datrix/scripts/config/function-level-import-baseline.toml`, frozen after tasks 17-07/17-08's `Service`/`Shared` decomposition landed.
 
 ### `dev\triage-failures.ps1`
 

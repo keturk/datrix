@@ -1,0 +1,649 @@
+# Function-Level-Import Ratchet Baseline (design 029, D4/I6, task 17-09)
+#
+# Frozen per-file counts of function-level imports (any Import/ImportFrom
+# AST node that is not a direct top-level statement of its module --
+# nested in a function/method body, an `if TYPE_CHECKING:` block, or a
+# `try`/`except`) in datrix-common's src/ tree ONLY. Design 029's D4 calls
+# for these to "move back to module top with a ratchet": this baseline
+# freezes the count measured immediately after tasks 17-07/17-08 (the
+# Service/Shared decomposition) landed, so it reflects their import
+# relocations rather than a stale pre-decomposition number. Any INCREASE
+# in a file's count fails datrix/scripts/dev/check-import-boundaries.py
+# --check-function-level-imports. Decreases are always allowed and should
+# be captured by re-running with --update-baseline once a later task
+# promotes more deferred imports back to module top -- D4's own decision
+# log explicitly rejects a one-shot sweep of all sites; each area migrates
+# with the work that next touches it.
+#
+# Format:
+#   [[baseline]]
+#   file = "path/relative/to/monorepo-root, forward slashes"
+#   count = <int>
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/builders.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/config_store/compatibility.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/datasource/validation.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/dcfg/group_models.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/dcfg/resolver.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/deployment_plan.py"
+count = 7
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/deployment_validation.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/env_ref_scan.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/integrations/detection.py"
+count = 7
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/integrations/provisioning.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/resilience/discovery_synthetic.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/serverless/hosting_validation.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/system_config/access.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config_resolution.py"
+count = 30
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/cross_service/named_call_type_annotator.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/_codegen/generate_model_classes.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/api.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/base.py"
+count = 19
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/blocks.py"
+count = 9
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/callables.py"
+count = 6
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/containers.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/contract.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/cqrs.py"
+count = 4
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/entity.py"
+count = 11
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/enums.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/exceptions.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/expressions.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/extern_service.py"
+count = 24
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/ingress.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/observability.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/pubsub.py"
+count = 4
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/search.py"
+count = 4
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/serverless.py"
+count = 5
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/service_accessors.py"
+count = 15
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/shared_accessors.py"
+count = 5
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/storage_bindings.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/visitor_protocols.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/deployment/connection_surface.py"
+count = 8
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/deployment/secret_backend.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/api_helpers.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/app_context.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/cache_connection_scope.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/entity_helpers.py"
+count = 8
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/external_infrastructure.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/feature_catalog.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/framework_secret_handles.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/generator.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/generator_lineup.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/hook_analysis.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/import_paths.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/incremental.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/language_generator.py"
+count = 7
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/language_helpers.py"
+count = 9
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/language_runtime_spec.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/orchestrator.py"
+count = 10
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/payment_gateway_dsl.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/plugin_helpers.py"
+count = 6
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/registry.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/result.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/search_compose.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/service_pubsub_scope.py"
+count = 4
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/snapshot.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/sub_generator.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/sub_generator_bases.py"
+count = 9
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/symbol_helpers.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/type_helpers.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/type_mapping_registry.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/type_resolver.py"
+count = 9
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/validation.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/identity/deployment_context.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/identity/plan_artifact.py"
+count = 7
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/identity/planner.py"
+count = 4
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/infra/registry.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/migration/differ.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/migration/generator.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/migration/schema_snapshot.py"
+count = 15
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/observability_validation.py"
+count = 6
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/plugin/__init__.py"
+count = 8
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/plugin/capability.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/plugin/descriptor.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/plugin/identity.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/plugin/language_plugin.py"
+count = 4
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/plugin/platform_config_contract.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/plugin/registry.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/plugin/search_realization.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/protocols/integration_usage.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/protocols/parser.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/rendering/expressions.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/rendering/renderer.py"
+count = 10
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/analyzer.py"
+count = 22
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/api_defaults.py"
+count = 15
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/callable_blocks.py"
+count = 7
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/code_body_validator.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/endpoint_paths.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/field_types.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/imports.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/inheritance.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/references.py"
+count = 4
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/result.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/stdlib_expression_materialize.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/stdlib_integration.py"
+count = 5
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/storage_identity.py"
+count = 5
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/storage_resolution.py"
+count = 7
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/symbols.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/synthesis/replay_endpoints.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/type_checker.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/type_walker.py"
+count = 6
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/__init__.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/_utils.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/api.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/base.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/builtin_traits.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/contract.py"
+count = 7
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/cqrs.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/cross_service.py"
+count = 6
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/entity.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/event.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/exception_validator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/extension_validator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/extern_validator.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/geo_validator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/identity.py"
+count = 6
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/legacy_auth_conflict.py"
+count = 4
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/pooling.py"
+count = 11
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/relationship.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/replay_idempotency.py"
+count = 4
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/replayable_topic.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/required_body.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/scalar_validator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/search.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/serverless.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/service.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/shared.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/shared_uses.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/system.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/tenancy.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/test.py"
+count = 5
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/verify_contract.py"
+count = 4
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/testing/conftest_plugin.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/testing/determinism_fixtures.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/testing/factories.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/testing/fixtures.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/testing/identity_example.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/testing/parsing.py"
+count = 5
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/testing/pipelines.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/testing/platform_configs.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/transpiler/base.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/transpiler/context.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/transpiler/language_transpiler.py"
+count = 4
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/transpiler/protocols.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/transpiler/scope.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/types/parser.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/types/ref.py"
+count = 4
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/types/registry.py"
+count = 7
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/utils/engine_helpers.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/utils/provider_helpers.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/utils/service_container_memory.py"
+count = 2

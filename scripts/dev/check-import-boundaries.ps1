@@ -43,6 +43,12 @@
  (datrix_codegen_python, datrix_codegen_typescript) against the frozen
  baseline at scripts/config/provider-conditional-baseline.toml.
 
+.PARAMETER CheckFunctionLevelImports
+ Run the function-level-import ratchet check (design 029, D4/I6, task 17-09)
+ in addition to the import-boundary check. Compares current per-file
+ function-level-import counts in datrix-common's src/ tree ONLY against the
+ frozen baseline at scripts/config/function-level-import-baseline.toml.
+
 .PARAMETER Dbg
  Enable debug logging
 
@@ -77,6 +83,14 @@
 .EXAMPLE
  .\check-import-boundaries.ps1 -CheckProviderConditionals -UpdateBaseline
  Recompute and overwrite the frozen provider-conditional baseline
+
+.EXAMPLE
+ .\check-import-boundaries.ps1 -CheckFunctionLevelImports
+ Run the function-level-import ratchet check (design 029, D4/I6) against the frozen baseline
+
+.EXAMPLE
+ .\check-import-boundaries.ps1 -CheckFunctionLevelImports -UpdateBaseline
+ Recompute and overwrite the frozen function-level-import baseline
 #>
 
 [CmdletBinding()]
@@ -98,6 +112,9 @@ param(
 
     [Parameter()]
     [switch]$CheckProviderConditionals,
+
+    [Parameter()]
+    [switch]$CheckFunctionLevelImports,
 
     [Parameter()]
     [switch]$Dbg
@@ -158,6 +175,7 @@ try {
     if ($CheckTargetLiterals) { $pythonArgs += "--check-target-literals" }
     if ($UpdateBaseline) { $pythonArgs += "--update-baseline" }
     if ($CheckProviderConditionals) { $pythonArgs += "--check-provider-conditionals" }
+    if ($CheckFunctionLevelImports) { $pythonArgs += "--check-function-level-imports" }
 
     # Debug output if requested
     if ($Dbg) {
