@@ -8,3 +8,16 @@ version = "0.1.0"
 description = "Datrix showcase repo — docs, examples, and scripts only (not an installable toolchain package; hosts no test suite)"
 requires-python = ">=3.11"
 dependencies = []
+
+# Repo-level validation scripts under scripts/test/, scripts/dev/, etc. are
+# real production code (per CLAUDE.md Code Standards: type hints + mypy
+# --strict on everything) even though this repo hosts no pytest suite. This
+# section is scoped by explicit --specific targets (see
+# scripts/test/quick-reference.md and scripts/test/mypy.ps1) -- there is no
+# src/ layout here, so `mypy.ps1 datrix` always names a file/dir explicitly.
+[tool.mypy]
+strict = true
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true

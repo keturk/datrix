@@ -81,6 +81,10 @@ file = "datrix-common/src/datrix_common/cross_service/named_call_type_annotator.
 count = 2
 
 [[baseline]]
+file = "datrix-common/src/datrix_common/cross_service/registry_builder.py"
+count = 1
+
+[[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/_codegen/generate_model_classes.py"
 count = 1
 
@@ -409,6 +413,18 @@ file = "datrix-common/src/datrix_common/semantic/inheritance.py"
 count = 1
 
 [[baseline]]
+file = "datrix-common/src/datrix_common/semantic/pipeline/keys.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/pipeline/phase.py"
+count = 4
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/pipeline/store.py"
+count = 1
+
+[[baseline]]
 file = "datrix-common/src/datrix_common/semantic/references.py"
 count = 4
 
@@ -450,11 +466,19 @@ count = 6
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/semantic/validators/__init__.py"
-count = 1
+count = 3
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/semantic/validators/_legacy_auth_shared.py"
 count = 4
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/_pooling_shared.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/_test_body_helpers.py"
+count = 5
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/semantic/validators/_utils.py"
@@ -466,7 +490,7 @@ count = 3
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/semantic/validators/base.py"
-count = 1
+count = 2
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/semantic/validators/builtin_traits.py"
@@ -521,8 +545,24 @@ file = "datrix-common/src/datrix_common/semantic/validators/geo_validator.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/identity.py"
-count = 6
+file = "datrix-common/src/datrix_common/semantic/validators/identity_app_wide.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/identity_block_hygiene.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/identity_dangling_provider.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/identity_endpoint_checks.py"
+count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/identity_service_surface.py"
+count = 3
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/semantic/validators/legacy_auth_credential_reuse.py"
@@ -533,8 +573,16 @@ file = "datrix-common/src/datrix_common/semantic/validators/legacy_auth_managed_
 count = 2
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/pooling.py"
-count = 11
+file = "datrix-common/src/datrix_common/semantic/validators/pooling_pubsub.py"
+count = 6
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/pooling_rdbms.py"
+count = 6
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/pooling_storage.py"
+count = 6
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/semantic/validators/relationship.py"
@@ -585,8 +633,12 @@ file = "datrix-common/src/datrix_common/semantic/validators/tenancy.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/test.py"
-count = 5
+file = "datrix-common/src/datrix_common/semantic/validators/test_body_effects.py"
+count = 4
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/test_description_uniqueness.py"
+count = 2
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/semantic/validators/verify_contract.py"
@@ -623,6 +675,10 @@ count = 1
 [[baseline]]
 file = "datrix-common/src/datrix_common/testing/platform_configs.py"
 count = 3
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/testing/semantic_baseline.py"
+count = 1
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/transpiler/base.py"

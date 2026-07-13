@@ -99,7 +99,7 @@ EXCLUDED_COGNITIVE_BLOCKS: list[tuple[str, str]] = [
     ("datrix_common/semantic/type_walker.py", "_walk_service"),
     ("datrix_common/semantic/type_walker.py", "_walk_body"),
     ("datrix_language/transformers/transformer.py", "transform"),
-    ("datrix_common/semantic/validators/cross_service.py", "_check_xsv001"),
+    ("datrix_common/semantic/validators/cross_service_entity_ambiguity.py", "_check_xsv001"),
     ("datrix_common/semantic/validators/entity.py", "_check_ent003"),
     ("datrix_common/semantic/validators/event.py", "_check_evt004"),
     ("datrix_common/semantic/validators/relationship.py", "_iter_relationships"),

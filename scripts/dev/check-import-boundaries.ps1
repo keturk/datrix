@@ -49,12 +49,19 @@
  function-level-import counts in datrix-common's src/ tree ONLY against the
  frozen baseline at scripts/config/function-level-import-baseline.toml.
 
+.PARAMETER SelfTest
+ Run only the self-test suite (rule-model, AST-scanner, and ratchet
+ invariants, including a real mutation-based CLI non-vacuity proof) and
+ exit -- does not run the import-boundary scan itself. The self-test also
+ runs automatically as step 1 of every OTHER invocation of this script
+ (with or without this switch); pass -SelfTest to run only the self-test.
+
 .PARAMETER Dbg
  Enable debug logging
 
 .EXAMPLE
  .\check-import-boundaries.ps1
- Scan all packages, fail on violations
+ Scan all packages (self-test runs first automatically), fail on violations
 
 .EXAMPLE
  .\check-import-boundaries.ps1 -Warn
@@ -91,6 +98,10 @@
 .EXAMPLE
  .\check-import-boundaries.ps1 -CheckFunctionLevelImports -UpdateBaseline
  Recompute and overwrite the frozen function-level-import baseline
+
+.EXAMPLE
+ .\check-import-boundaries.ps1 -SelfTest
+ Run only the self-test suite (rule model, scanners, ratchets, CLI mutation proof)
 #>
 
 [CmdletBinding()]
@@ -115,6 +126,9 @@ param(
 
     [Parameter()]
     [switch]$CheckFunctionLevelImports,
+
+    [Parameter()]
+    [switch]$SelfTest,
 
     [Parameter()]
     [switch]$Dbg
@@ -176,6 +190,7 @@ try {
     if ($UpdateBaseline) { $pythonArgs += "--update-baseline" }
     if ($CheckProviderConditionals) { $pythonArgs += "--check-provider-conditionals" }
     if ($CheckFunctionLevelImports) { $pythonArgs += "--check-function-level-imports" }
+    if ($SelfTest) { $pythonArgs += "--self-test" }
 
     # Debug output if requested
     if ($Dbg) {

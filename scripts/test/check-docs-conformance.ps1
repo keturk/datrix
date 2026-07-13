@@ -25,12 +25,22 @@
 .PARAMETER BaseDir
  Monorepo root directory (default: auto-detect).
 
+.PARAMETER SelfTest
+ Run only the self-test suite (plain-Python edge-case checks on the scanner's
+ own functions) and exit -- skips the real docs scan. The same self-test also
+ runs automatically, unconditionally, as step 1 of every normal invocation
+ (with or without this switch).
+
 .PARAMETER Dbg
  Enable debug logging.
 
 .EXAMPLE
  .\check-docs-conformance.ps1
- Scan all 36 architecture docs, fail on unresolved references.
+ Scan all 36 architecture docs, fail on unresolved references (self-test runs first, automatically).
+
+.EXAMPLE
+ .\check-docs-conformance.ps1 -SelfTest
+ Run only the scanner's own self-test suite.
 
 .EXAMPLE
  .\check-docs-conformance.ps1 -Warn
@@ -47,6 +57,9 @@ param(
 
     [Parameter()]
     [string]$BaseDir = "",
+
+    [Parameter()]
+    [switch]$SelfTest,
 
     [Parameter()]
     [switch]$Dbg
@@ -93,6 +106,7 @@ try {
     if ($Warn) { $pythonArgs += "--warn" }
     if ($ShowFiles) { $pythonArgs += "--verbose" }
     if ($BaseDir) { $pythonArgs += "--base-dir"; $pythonArgs += $BaseDir }
+    if ($SelfTest) { $pythonArgs += "--self-test" }
 
     if ($Dbg) {
         Write-Host "Python executable: $pythonExe" -ForegroundColor Cyan

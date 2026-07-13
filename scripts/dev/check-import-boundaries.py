@@ -38,10 +38,24 @@ imports back to module top as the work that touches each file allows.
 --update-baseline (combined with --check-function-level-imports) recomputes
 and overwrites that baseline.
 
+Self-test (--self-test): proves the rule model (BOUNDARY_RULES, the allowed-
+subtree carve-outs), the AST scanners (provider-conditional,
+function-level-import), and both ratchet comparators are non-vacuous --
+including a real mutation-based CLI proof (plants a regression in an
+isolated fixture monorepo, proves the CLI detects it, proves it clears on
+revert). The self-test runs automatically as step 1 of EVERY normal
+invocation of this script (not only when --self-test is passed): a run whose
+self-test fails aborts before any real finding is reported, since a checker
+that cannot prove its own logic cannot be trusted. Pass --self-test alone to
+run only the self-test and skip the real scan. --skip-auto-self-test is an
+internal flag used solely by the self-test's own nested CLI invocation (to
+avoid it recursively re-running the self-test on itself) and is not intended
+for direct use.
+
 Exit codes:
     0: Clean (no violations) or --warn mode
     1: Violations found in fail mode (import-boundary and/or I1/I6/function-
-       level-import ratchets)
+       level-import ratchets), or a self-test failure
     2: Usage error, configuration error, or (with --check-target-literals,
        --check-provider-conditionals, or --check-function-level-imports) a
        missing baseline file
@@ -49,7 +63,10 @@ Exit codes:
 
 import argparse
 import ast
+import shutil
+import subprocess
 import sys
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -1565,6 +1582,575 @@ def auto_detect_base_dir(script_path: Path) -> Path:
     )
 
 
+# ---------------------------------------------------------------------------
+# Self-Test (--self-test)
+#
+# Proves the rule model, the AST scanners, and the ratchet comparators are
+# non-vacuous: every check below is exercised against both a known-good and a
+# known-bad case, and the CLI mutation proof plants a real regression in an
+# isolated fixture and proves detection + clearing on revert. Runs
+# automatically as step 1 of every normal invocation (see main()); can also
+# be run standalone via --self-test. Real files are written under
+# D:\datrix\.tmp\ per this project's temp-file policy -- never
+# unittest.mock/SimpleNamespace.
+# ---------------------------------------------------------------------------
+
+_SELF_TEST_SCRATCH_ROOT = Path("D:/datrix/.tmp/check_import_boundaries_selftest")
+
+_GREEN = "\033[92m"
+_RED = "\033[91m"
+_CYAN = "\033[96m"
+_RESET = "\033[0m"
+
+
+def _step(message: str) -> None:
+    print(f"\n{_CYAN}=== {message}{_RESET}")
+
+
+def _check(label: str, condition: bool) -> bool:
+    """Print [OK]/[FAIL] for one self-test assertion and return it."""
+    if condition:
+        print(f"{_GREEN}[OK]{_RESET} {label}")
+    else:
+        print(f"{_RED}[FAIL]{_RESET} {label}")
+    return condition
+
+
+def _rule_forbids(source_package: str, imported_module: str) -> bool:
+    """True if any of source_package's forbidden_prefixes flags imported_module."""
+    rule = BOUNDARY_RULES[source_package]
+    return any(
+        is_forbidden_import(source_package, imported_module, prefix, rule.allowed_subtrees)
+        for prefix in rule.forbidden_prefixes
+    )
+
+
+def _self_test_allowed_denied_subtrees() -> bool:
+    """The platform allowed-subtree carve-out constant is frozen exactly, and
+    every representative allowed/denied import is classified correctly."""
+    _step("Self-test 1/7: platform allowed/denied codegen-common subtrees")
+    ok = True
+
+    expected_allowed_subtrees: frozenset[str] = frozenset(
+        [
+            "datrix_codegen_common.gendsl",
+            "datrix_codegen_common.dashboards",
+            "datrix_codegen_common.algorithms.serverless",
+            "datrix_codegen_common.context_models.serverless",
+            "datrix_codegen_common.context_models.replayable_ingestion",
+            "datrix_codegen_common.enums",
+            "datrix_codegen_common.platform",
+            "datrix_codegen_common.pooling",
+            "datrix_codegen_common.secrets",
+            "datrix_codegen_common.seed",
+            "datrix_codegen_common.parity",
+            "datrix_codegen_common.orchestration.resolved_runtime_plan",
+            "datrix_codegen_common.testkit",
+        ]
+    )
+    ok &= _check(
+        "PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES matches the frozen expected set exactly "
+        "(a silent shrink or an unreviewed addition would fail here)",
+        PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES == expected_allowed_subtrees,
+    )
+
+    platform_source = "datrix_codegen_aws"
+    allowed_cases = (
+        "datrix_codegen_common.gendsl",
+        "datrix_codegen_common.gendsl.compiler",
+        "datrix_codegen_common.dashboards.builder",
+        "datrix_codegen_common.algorithms.serverless",
+        "datrix_codegen_common.algorithms.serverless.plan",
+        "datrix_codegen_common.context_models.serverless",
+        "datrix_codegen_common.context_models.replayable_ingestion",
+        "datrix_codegen_common.enums",
+        "datrix_codegen_common.enums.DatabaseEngine",
+        "datrix_codegen_common.platform.runtime",
+    )
+    for imported in allowed_cases:
+        ok &= _check(
+            f"allowed subtree not forbidden: {platform_source} -> {imported}",
+            not _rule_forbids(platform_source, imported),
+        )
+
+    for platform in ("datrix_codegen_docker", "datrix_codegen_aws", "datrix_codegen_azure"):
+        ok &= _check(
+            f"gendsl carve-out applies to platform package {platform}",
+            not _rule_forbids(platform, "datrix_codegen_common.gendsl"),
+        )
+
+    denied_cases = (
+        "datrix_codegen_common.transpiler.parity_checker",
+        "datrix_codegen_common.context_models.entity",
+        "datrix_codegen_common.algorithms.entity",
+        "datrix_codegen_python",
+        "datrix_codegen_python.generators.api",
+        "datrix_codegen_typescript",
+    )
+    for imported in denied_cases:
+        ok &= _check(
+            f"denied subtree flagged: {platform_source} -> {imported}",
+            _rule_forbids(platform_source, imported),
+        )
+
+    return ok
+
+
+def _self_test_dotted_precision_and_carveout() -> bool:
+    """Subtree matching is exact-or-child (not raw prefix), and the carve-out
+    never leaks to a package that did not opt in."""
+    _step("Self-test 2/7: dotted-boundary precision and carve-out non-leakage")
+    ok = True
+    platform_source = "datrix_codegen_aws"
+
+    ok &= _check(
+        "'enums_other' is NOT a child of 'enums' -> forbidden",
+        _rule_forbids(platform_source, "datrix_codegen_common.enums_other"),
+    )
+    ok &= _check(
+        "'enums.DatabaseEngine' IS a child of 'enums' -> allowed",
+        not _rule_forbids(platform_source, "datrix_codegen_common.enums.DatabaseEngine"),
+    )
+    ok &= _check(
+        "'algorithms.serverless.plan' IS a child of 'algorithms.serverless' -> allowed",
+        not _rule_forbids(platform_source, "datrix_codegen_common.algorithms.serverless.plan"),
+    )
+    ok &= _check(
+        "'algorithms.serverlessX' is a SIBLING, not a child -> forbidden",
+        _rule_forbids(platform_source, "datrix_codegen_common.algorithms.serverlessX"),
+    )
+
+    ok &= _check(
+        "datrix_common's BoundaryRule has empty allowed_subtrees",
+        BOUNDARY_RULES["datrix_common"].allowed_subtrees == frozenset(),
+    )
+    ok &= _check(
+        "datrix_common still forbids datrix_codegen_python (no carve-out to leak from)",
+        _rule_forbids("datrix_common", "datrix_codegen_python"),
+    )
+    ok &= _check(
+        "datrix_codegen_common itself still forbids datrix_codegen_python",
+        _rule_forbids("datrix_codegen_common", "datrix_codegen_python"),
+    )
+    for platform in ("datrix_codegen_docker", "datrix_codegen_aws", "datrix_codegen_azure"):
+        ok &= _check(
+            f"platform rule for {platform} carries a non-empty allowed_subtrees",
+            bool(BOUNDARY_RULES[platform].allowed_subtrees),
+        )
+
+    return ok
+
+
+def _self_test_sql_and_component_coverage() -> bool:
+    """BOUNDARY_RULES covers datrix_codegen_sql and datrix_codegen_component,
+    each enforcing the sibling-language prohibition absolutely."""
+    _step("Self-test 3/7: SQL and Component boundary rule coverage")
+    ok = True
+
+    ok &= _check(
+        "datrix_codegen_sql has a BOUNDARY_RULES entry",
+        "datrix_codegen_sql" in BOUNDARY_RULES,
+    )
+    sql_rule = BOUNDARY_RULES["datrix_codegen_sql"]
+    ok &= _check(
+        "datrix_codegen_sql carries SQL_CODEGEN_COMMON_ALLOWED_SUBTREES exactly",
+        sql_rule.allowed_subtrees == SQL_CODEGEN_COMMON_ALLOWED_SUBTREES,
+    )
+    for imported in ("datrix_codegen_typescript", "datrix_codegen_python", "datrix_cli"):
+        ok &= _check(
+            f"SQL sibling-language/CLI import forbidden: {imported}",
+            _rule_forbids("datrix_codegen_sql", imported),
+        )
+    for imported in (
+        "datrix_codegen_common.gendsl",
+        "datrix_codegen_common.context_models.migration",
+        "datrix_codegen_common.orchestration.migration_adapter",
+    ):
+        ok &= _check(
+            f"SQL allowed codegen_common subtree NOT forbidden: {imported}",
+            not _rule_forbids("datrix_codegen_sql", imported),
+        )
+    for imported in (
+        "datrix_codegen_common.transpiler.parity_checker",
+        "datrix_codegen_common.context_models.entity",
+        "datrix_codegen_common.algorithms.entity",
+    ):
+        ok &= _check(
+            f"SQL denied codegen_common subtree forbidden: {imported}",
+            _rule_forbids("datrix_codegen_sql", imported),
+        )
+
+    ok &= _check(
+        "datrix_codegen_component has a BOUNDARY_RULES entry",
+        "datrix_codegen_component" in BOUNDARY_RULES,
+    )
+    ok &= _check(
+        "datrix_codegen_component has empty allowed_subtrees (codegen_common unrestricted)",
+        BOUNDARY_RULES["datrix_codegen_component"].allowed_subtrees == frozenset(),
+    )
+    for imported in ("datrix_codegen_typescript", "datrix_codegen_python", "datrix_cli"):
+        ok &= _check(
+            f"Component sibling-language/CLI import forbidden: {imported}",
+            _rule_forbids("datrix_codegen_component", imported),
+        )
+    for imported in (
+        "datrix_codegen_common.gendsl.compiler",
+        "datrix_codegen_common.algorithms.serverless",
+        "datrix_codegen_common.context_models.serverless",
+    ):
+        ok &= _check(
+            f"Component codegen_common import NOT forbidden: {imported}",
+            not _rule_forbids("datrix_codegen_component", imported),
+        )
+
+    return ok
+
+
+def _self_test_provider_conditional_scanner() -> bool:
+    """scan_file_for_provider_conditionals detects every known DI-5-deferred
+    conditional shape and excludes every look-alike that must not ratchet."""
+    _step("Self-test 4/7: provider-conditional AST scanner (detection + exclusion)")
+    ok = True
+    scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"provider-scanner-{uuid.uuid4().hex}"
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    cases: tuple[tuple[str, str, int, str], ...] = (
+        (
+            "providerid_eq.py",
+            "def f(provider):\n    if provider == ProviderId('azure'):\n        return True\n"
+            "    return False\n",
+            1,
+            "providerid_compare",
+        ),
+        (
+            "providerid_ne_helper.py",
+            "def f(deployment):\n    if resolve_provider_identity(deployment) != ProviderId('aws'):\n"
+            "        return None\n    return 1\n",
+            1,
+            "providerid_compare",
+        ),
+        (
+            "deployment_value_eq.py",
+            "class G:\n    def f(self):\n        if self._deployment.provider.value == 'azure':\n"
+            "            return True\n        return False\n",
+            1,
+            "deployment_provider_value_compare",
+        ),
+        (
+            "deployment_str_ne.py",
+            "class G:\n    def f(self):\n        if str(self._deployment.provider) != 'aws':\n"
+            "            return []\n        return None\n",
+            1,
+            "deployment_provider_value_compare",
+        ),
+        (
+            "match_case.py",
+            "def f(provider_id):\n"
+            "    match provider_id:\n"
+            "        case p if p == ProviderId('aws'):\n"
+            "            return 'a'\n"
+            "        case p if p == ProviderId('azure'):\n"
+            "            return 'b'\n"
+            "        case _:\n"
+            "            raise ValueError('unknown')\n",
+            1,
+            "match_case_provider_subject",
+        ),
+        (
+            "other_axis_excluded.py",
+            "class G:\n"
+            "    def f(self, storage_block, email_config):\n"
+            "        a = storage_block.config.provider == StorageProvider.MINIO\n"
+            "        b = str(email_config.provider.value) == 'sendgrid'\n"
+            "        return a, b\n",
+            0,
+            "",
+        ),
+        (
+            "boundary_rewrap_excluded.py",
+            "def resolve_provider_identity(deployment):\n"
+            "    return ProviderId(deployment.provider.value)\n",
+            0,
+            "",
+        ),
+        (
+            "dict_dispatch_excluded.py",
+            "_DEPLOYED = frozenset({ProviderId('aws'), ProviderId('azure')})\n\n"
+            "def f(provider):\n    if provider not in _DEPLOYED:\n        return []\n"
+            "    return None\n",
+            0,
+            "",
+        ),
+        (
+            "non_deployment_rooted_excluded.py",
+            "def f(cfg):\n"
+            "    return cfg.container if str(cfg.provider) == 'azure_blob' else cfg.bucket\n",
+            0,
+            "",
+        ),
+    )
+    try:
+        for filename, source, expected_count, expected_kind in cases:
+            file_path = scratch_dir / filename
+            file_path.write_text(source, encoding="utf-8")
+            hits = scan_file_for_provider_conditionals(file_path)
+            ok &= _check(
+                f"{filename}: expected {expected_count} hit(s), got {len(hits)}",
+                len(hits) == expected_count,
+            )
+            if expected_kind and hits:
+                ok &= _check(
+                    f"{filename}: hit kind == {expected_kind!r}",
+                    hits[0].kind == expected_kind,
+                )
+    finally:
+        shutil.rmtree(scratch_dir, ignore_errors=True)
+    return ok
+
+
+def _self_test_function_level_import_scanner() -> bool:
+    """scan_file_for_function_level_imports counts zero for module-top
+    imports and exactly one for each nested (function/TYPE_CHECKING/
+    try-except) import."""
+    _step("Self-test 5/7: function-level-import AST scanner")
+    ok = True
+    scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"fli-scanner-{uuid.uuid4().hex}"
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    cases: tuple[tuple[str, str, int], ...] = (
+        (
+            "module_top.py",
+            "from __future__ import annotations\n\nimport os\nfrom pathlib import Path\n\n\n"
+            "def f() -> None:\n    return None\n",
+            0,
+        ),
+        ("function_body.py", "def f() -> object:\n    import json\n\n    return json\n", 1),
+        (
+            "type_checking_block.py",
+            "from __future__ import annotations\n\nfrom typing import TYPE_CHECKING\n\n"
+            "if TYPE_CHECKING:\n    from pathlib import Path\n\n\n"
+            'def f(p: "Path") -> None:\n    return None\n',
+            1,
+        ),
+        (
+            "try_except.py",
+            "try:\n    import tomllib\nexcept ImportError:\n    tomllib = None\n",
+            1,
+        ),
+    )
+    try:
+        for filename, source, expected_count in cases:
+            file_path = scratch_dir / filename
+            file_path.write_text(source, encoding="utf-8")
+            hits = scan_file_for_function_level_imports(file_path)
+            ok &= _check(
+                f"{filename}: expected {expected_count} hit(s), got {len(hits)}",
+                len(hits) == expected_count,
+            )
+    finally:
+        shutil.rmtree(scratch_dir, ignore_errors=True)
+    return ok
+
+
+def _self_test_ratchets() -> bool:
+    """Both ratchet comparators fire on any per-file increase, never on a
+    decrease, and treat a baseline-absent file as baseline 0."""
+    _step("Self-test 6/7: ratchet comparators (regression / no-regression / missing-baseline-as-zero)")
+    ok = True
+
+    clean = check_provider_conditional_ratchet(
+        {"datrix-codegen-python/src/datrix_codegen_python/foo.py": 3},
+        {"datrix-codegen-python/src/datrix_codegen_python/foo.py": 3},
+    )
+    ok &= _check("provider-conditional ratchet: clean when current == baseline", clean == [])
+
+    increase = check_provider_conditional_ratchet(
+        {"datrix-codegen-python/src/datrix_codegen_python/foo.py": 4},
+        {"datrix-codegen-python/src/datrix_codegen_python/foo.py": 3},
+    )
+    ok &= _check(
+        "provider-conditional ratchet: fires once on a real increase, naming file + delta",
+        len(increase) == 1 and "foo.py" in increase[0] and "increased from baseline 3 to 4" in increase[0],
+    )
+
+    decrease = check_provider_conditional_ratchet(
+        {"datrix-codegen-python/src/datrix_codegen_python/foo.py": 1},
+        {"datrix-codegen-python/src/datrix_codegen_python/foo.py": 3},
+    )
+    ok &= _check("provider-conditional ratchet: allows a decrease", decrease == [])
+
+    missing_baseline = check_provider_conditional_ratchet(
+        {"datrix-codegen-typescript/src/datrix_codegen_typescript/new_file.py": 1}, {}
+    )
+    ok &= _check(
+        "provider-conditional ratchet: a file absent from baseline is treated as baseline 0",
+        len(missing_baseline) == 1 and "increased from baseline 0 to 1" in missing_baseline[0],
+    )
+
+    fli_clean = check_function_level_import_ratchet(
+        {"datrix-common/src/datrix_common/foo.py": 2},
+        {"datrix-common/src/datrix_common/foo.py": 2},
+    )
+    ok &= _check("function-level-import ratchet: clean when current == baseline", fli_clean == [])
+
+    fli_increase = check_function_level_import_ratchet(
+        {"datrix-common/src/datrix_common/foo.py": 3},
+        {"datrix-common/src/datrix_common/foo.py": 2},
+    )
+    ok &= _check(
+        "function-level-import ratchet: fires once on a real increase, naming file + delta",
+        len(fli_increase) == 1
+        and "foo.py" in fli_increase[0]
+        and "increased from baseline 2 to 3" in fli_increase[0],
+    )
+
+    fli_decrease = check_function_level_import_ratchet(
+        {"datrix-common/src/datrix_common/foo.py": 1},
+        {"datrix-common/src/datrix_common/foo.py": 5},
+    )
+    ok &= _check("function-level-import ratchet: allows a decrease", fli_decrease == [])
+
+    fli_missing_baseline = check_function_level_import_ratchet(
+        {"datrix-common/src/datrix_common/new_file.py": 1}, {}
+    )
+    ok &= _check(
+        "function-level-import ratchet: a file absent from baseline is treated as baseline 0",
+        len(fli_missing_baseline) == 1
+        and "increased from baseline 0 to 1" in fli_missing_baseline[0],
+    )
+
+    return ok
+
+
+def _self_test_module_source(function_level_import_count: int) -> str:
+    """A module with exactly *function_level_import_count* function-body imports."""
+    lines = ["def f() -> None:"]
+    if function_level_import_count == 0:
+        lines.append("    return None")
+    else:
+        for i in range(function_level_import_count):
+            lines.append(f"    import json as _json_{i}")
+        lines.append("    return None")
+    return "\n".join(lines) + "\n"
+
+
+def _self_test_build_fixture_monorepo(tmp_root: Path, initial_import_count: int) -> Path:
+    """Build a minimal isolated monorepo: one datrix-common package with one
+    module carrying *initial_import_count* function-level imports, plus a
+    baseline TOML freezing exactly that count."""
+    package_src = tmp_root / "datrix-common" / "src" / "datrix_common"
+    package_src.mkdir(parents=True, exist_ok=True)
+    (package_src / "__init__.py").write_text("", encoding="utf-8")
+
+    module_path = package_src / "sample_module.py"
+    module_path.write_text(_self_test_module_source(initial_import_count), encoding="utf-8")
+
+    config_dir = tmp_root / "datrix" / "scripts" / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    baseline_path = config_dir / "function-level-import-baseline.toml"
+    baseline_path.write_text(
+        "[[baseline]]\n"
+        'file = "datrix-common/src/datrix_common/sample_module.py"\n'
+        f"count = {initial_import_count}\n",
+        encoding="utf-8",
+    )
+    return module_path
+
+
+def _self_test_run_cli(tmp_root: Path) -> "subprocess.CompletedProcess[str]":
+    """Invoke THIS script as a real subprocess against the isolated fixture.
+
+    --skip-auto-self-test prevents the nested invocation from recursively
+    re-running the self-test (which would otherwise spawn this same
+    subprocess again, without end).
+    """
+    return subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "--base-dir",
+            str(tmp_root),
+            "--check-function-level-imports",
+            "--skip-auto-self-test",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+
+def _self_test_cli_non_vacuity() -> bool:
+    """End-to-end proof that --check-function-level-imports actually detects
+    a regression: run as a real subprocess against a real, isolated,
+    temporarily-mutated fixture tree -- never a simulated one, and never the
+    real datrix-common source tree."""
+    _step(
+        "Self-test 7/7: CLI mutation non-vacuity "
+        "(plant a real regression, prove detection, prove it clears on revert)"
+    )
+    ok = True
+    tmp_root = _SELF_TEST_SCRATCH_ROOT / f"cli-non-vacuity-{uuid.uuid4().hex}"
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    try:
+        module_path = _self_test_build_fixture_monorepo(tmp_root, initial_import_count=1)
+
+        clean_result = _self_test_run_cli(tmp_root)
+        ok &= _check(
+            f"clean fixture (count matches baseline) exits 0, got {clean_result.returncode}",
+            clean_result.returncode == 0,
+        )
+
+        module_path.write_text(_self_test_module_source(2), encoding="utf-8")
+        failing_result = _self_test_run_cli(tmp_root)
+        ok &= _check(
+            f"mutated fixture (count exceeds baseline) exits 1, got {failing_result.returncode}",
+            failing_result.returncode == 1,
+        )
+        ok &= _check(
+            "failure output names the mutated file",
+            "sample_module.py" in failing_result.stdout,
+        )
+        ok &= _check(
+            "failure output names the exact count delta (1 -> 2)",
+            "increased from baseline 1 to 2" in failing_result.stdout,
+        )
+
+        module_path.write_text(_self_test_module_source(1), encoding="utf-8")
+        reverted_result = _self_test_run_cli(tmp_root)
+        ok &= _check(
+            f"reverting the mutation clears the failure, got exit {reverted_result.returncode}",
+            reverted_result.returncode == 0,
+        )
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+    return ok
+
+
+def run_self_test() -> bool:
+    """Run every self-test check; return True iff all passed.
+
+    This is the checker's own non-vacuity proof: the rule-model constants,
+    the AST scanners, and the ratchet comparators are exercised against
+    known-good and known-bad cases (including a real mutation-based CLI
+    proof), so a change that silently breaks any of them is caught before
+    the checker's findings are trusted.
+    """
+    results = [
+        _self_test_allowed_denied_subtrees(),
+        _self_test_dotted_precision_and_carveout(),
+        _self_test_sql_and_component_coverage(),
+        _self_test_provider_conditional_scanner(),
+        _self_test_function_level_import_scanner(),
+        _self_test_ratchets(),
+        _self_test_cli_non_vacuity(),
+    ]
+    print()
+    if all(results):
+        print(f"{_GREEN}SELF-TEST PASSED{_RESET}: rule model, scanners, and ratchets are non-vacuous.")
+        return True
+    print(f"{_RED}SELF-TEST FAILED{_RESET}: see failures above.")
+    return False
+
+
 def main() -> int:
     """Main entry point.
 
@@ -1630,8 +2216,44 @@ def main() -> int:
             "datrix-common's src/ tree only."
         ),
     )
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help=(
+            "Run the self-test suite (rule-model, AST-scanner, and ratchet "
+            "invariants, including a real mutation-based CLI non-vacuity proof) "
+            "and exit -- does not run the import-boundary scan itself. The "
+            "self-test also runs automatically as step 1 of every OTHER "
+            "invocation of this script; pass this flag to run only the self-test."
+        ),
+    )
+    parser.add_argument(
+        "--skip-auto-self-test",
+        action="store_true",
+        help=argparse.SUPPRESS,  # internal: used only by the self-test's own nested CLI call
+    )
 
     args = parser.parse_args()
+
+    if args.skip_auto_self_test and args.self_test:
+        print(
+            "Error: --self-test and --skip-auto-self-test are mutually exclusive.",
+            file=sys.stderr,
+        )
+        return 2
+
+    if not args.skip_auto_self_test:
+        self_test_passed = run_self_test()
+        if args.self_test:
+            return 0 if self_test_passed else 1
+        if not self_test_passed:
+            print(
+                "\nError: self-test failed -- the checker itself is not provably "
+                "correct, so its findings cannot be trusted. Fix the self-test "
+                "failure(s) above before relying on this gate's result.",
+                file=sys.stderr,
+            )
+            return 1
 
     # Determine monorepo root
     if args.base_dir:
@@ -1720,10 +2342,10 @@ def main() -> int:
         # requested (preserves the pre-existing --update-baseline-alone =>
         # target-literal behavior for existing callers).
         if args.check_provider_conditionals:
-            hits_by_file = scan_provider_conditionals(packages, monorepo_root)
+            provider_hits_by_file = scan_provider_conditionals(packages, monorepo_root)
             current_counts = {
                 str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
-                for file_path, hits in hits_by_file.items()
+                for file_path, hits in provider_hits_by_file.items()
             }
             write_provider_conditional_baseline(
                 provider_conditional_baseline_path, current_counts
@@ -1735,10 +2357,10 @@ def main() -> int:
             updated_any = True
 
         if args.check_function_level_imports:
-            hits_by_file = scan_function_level_imports(packages, monorepo_root)
+            function_level_hits_by_file = scan_function_level_imports(packages, monorepo_root)
             current_counts = {
                 str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
-                for file_path, hits in hits_by_file.items()
+                for file_path, hits in function_level_hits_by_file.items()
             }
             write_function_level_import_baseline(
                 function_level_import_baseline_path, current_counts
@@ -1752,10 +2374,10 @@ def main() -> int:
         if args.check_target_literals or not (
             args.check_provider_conditionals or args.check_function_level_imports
         ):
-            hits_by_file = scan_target_literals(packages, monorepo_root)
+            target_literal_hits_by_file = scan_target_literals(packages, monorepo_root)
             current_counts = {
                 str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
-                for file_path, hits in hits_by_file.items()
+                for file_path, hits in target_literal_hits_by_file.items()
             }
             write_target_literal_baseline(target_literal_baseline_path, current_counts)
             print(
@@ -1780,10 +2402,10 @@ def main() -> int:
             return 2
 
         baseline = load_target_literal_baseline(target_literal_baseline_path)
-        hits_by_file = scan_target_literals(packages, monorepo_root)
+        target_literal_hits_by_file = scan_target_literals(packages, monorepo_root)
         current_counts = {
             str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
-            for file_path, hits in hits_by_file.items()
+            for file_path, hits in target_literal_hits_by_file.items()
         }
         target_literal_messages = check_target_literal_ratchet(current_counts, baseline)
 
@@ -1802,10 +2424,10 @@ def main() -> int:
         baseline = load_provider_conditional_baseline(
             provider_conditional_baseline_path
         )
-        hits_by_file = scan_provider_conditionals(packages, monorepo_root)
+        provider_hits_by_file = scan_provider_conditionals(packages, monorepo_root)
         current_counts = {
             str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
-            for file_path, hits in hits_by_file.items()
+            for file_path, hits in provider_hits_by_file.items()
         }
         provider_conditional_messages = check_provider_conditional_ratchet(
             current_counts, baseline
@@ -1826,10 +2448,10 @@ def main() -> int:
         baseline = load_function_level_import_baseline(
             function_level_import_baseline_path
         )
-        hits_by_file = scan_function_level_imports(packages, monorepo_root)
+        function_level_hits_by_file = scan_function_level_imports(packages, monorepo_root)
         current_counts = {
             str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
-            for file_path, hits in hits_by_file.items()
+            for file_path, hits in function_level_hits_by_file.items()
         }
         function_level_import_messages = check_function_level_import_ratchet(
             current_counts, baseline

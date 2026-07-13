@@ -28,12 +28,22 @@
  baseline already exists, this only succeeds when every package's new count
  is <= its existing baseline (monotonic ratchet: tighten, never loosen).
 
+.PARAMETER SelfTest
+ Run only the self-test suite (plain-Python edge-case checks on the scanner's
+ own functions) and exit -- skips the real package scan. The same self-test
+ also runs automatically, unconditionally, as step 1 of every normal
+ invocation (with or without this switch).
+
 .PARAMETER Dbg
  Enable debug logging.
 
 .EXAMPLE
  .\check-generated-file-ratchet.ps1
- Scan all packages, fail on regressions.
+ Scan all packages, fail on regressions (self-test runs first, automatically).
+
+.EXAMPLE
+ .\check-generated-file-ratchet.ps1 -SelfTest
+ Run only the scanner's own self-test suite.
 
 .EXAMPLE
  .\check-generated-file-ratchet.ps1 -UpdateBaseline
@@ -53,6 +63,9 @@ param(
 
     [Parameter()]
     [switch]$UpdateBaseline,
+
+    [Parameter()]
+    [switch]$SelfTest,
 
     [Parameter()]
     [switch]$Dbg
@@ -100,6 +113,7 @@ try {
     if ($ShowFiles) { $pythonArgs += "--verbose" }
     if ($BaseDir) { $pythonArgs += "--base-dir"; $pythonArgs += $BaseDir }
     if ($UpdateBaseline) { $pythonArgs += "--update-baseline" }
+    if ($SelfTest) { $pythonArgs += "--self-test" }
 
     if ($Dbg) {
         Write-Host "Python executable: $pythonExe" -ForegroundColor Cyan

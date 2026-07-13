@@ -11,6 +11,7 @@ import io
 import os
 import signal
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -233,7 +234,10 @@ def _render_replace(node: "ast.ReplaceDecl", indent: int) -> str:
 
 
 def _render_body(
-    body: list["ast.FieldAssignment | ast.BlockAssignment | ast.NamedBlockDecl | ast.ReplaceDecl"],
+    body: Sequence[
+        "ast.FieldAssignment | ast.BlockAssignment | ast.NamedBlockDecl | ast.ReplaceDecl "
+        "| ast.ServerGroupsDecl | ast.NamespaceGroupsDecl | ast.ConfigKeysBlockNode"
+    ],
     indent: int,
 ) -> list[str]:
     from datrix_common.config.dcfg import ast_nodes as ast
@@ -462,6 +466,116 @@ class ConfigLinter:
         return 0
 
 
+# ---------------------------------------------------------------------------
+# Self-Test (--self-test)
+#
+# Regression-tests format_dcfg's round-trip fidelity against the exact fixture
+# this module's (now-deleted) pytest suite guarded: the name-less "service"
+# wildcard must not become the invalid token "service *", "replace ... from
+# tpl() { body }" bodies and "inheriting base" clauses must survive
+# formatting, formatting must be idempotent, and a comment-bearing file must
+# be left completely unchanged (fail-safe) with an issue explaining why.
+# ---------------------------------------------------------------------------
+
+_SELF_TEST_SOURCE_NO_COMMENTS = """config service test.Foo {
+  base {
+    pubsub fooEvents from kafkaContainer();
+    rdbms fooDb from postgresContainer(id: "x", database: "d", schema: "s");
+    resilience {
+      dependencyPolicy {
+        defaults {
+          service from standardServicePolicy();
+        }
+      }
+    }
+  }
+
+  profile production as "prod" extends base {
+    replace pubsub fooEvents from eventHubsKafka() {
+      namespaceGroup = "core-events";
+    }
+    replace rdbms fooDb from postgresFlexibleServer() inheriting base {
+      serverGroup = "core";
+    }
+  }
+}
+"""
+
+
+def _self_test_check(label: str, condition: bool, detail: str = "") -> bool:
+    """Print [OK]/[FAIL] for one self-test assertion and return it."""
+    if condition:
+        print(f"[OK] {label}")
+    else:
+        suffix = f": {detail}" if detail else ""
+        print(f"[FAIL] {label}{suffix}")
+    return condition
+
+
+def run_self_test() -> bool:
+    """Prove format_dcfg's round-trip fidelity against the fixture this
+    module's tests previously guarded.
+
+    Returns:
+        True iff every check passed.
+    """
+    ok = True
+
+    formatted, _issues, error = format_dcfg(
+        _SELF_TEST_SOURCE_NO_COMMENTS, Path("test.dcfg")
+    )
+    ok &= _self_test_check(
+        "format_dcfg reports no parse error on the fixture", error is None, str(error)
+    )
+    ok &= _self_test_check(
+        "the name-less 'service' wildcard renders as 'service from ...', "
+        "never the invalid token 'service *'",
+        "service from standardServicePolicy();" in formatted
+        and "service * from" not in formatted,
+    )
+    ok &= _self_test_check(
+        "a 'replace ... from tpl() { body }' body survives formatting",
+        'namespaceGroup = "core-events";' in formatted,
+    )
+    ok &= _self_test_check(
+        "an 'inheriting base' clause survives formatting",
+        "inheriting base" in formatted,
+    )
+    ok &= _self_test_check(
+        "the inheriting-base replace body survives formatting",
+        'serverGroup = "core";' in formatted,
+    )
+
+    once, _issues1, _error1 = format_dcfg(_SELF_TEST_SOURCE_NO_COMMENTS, Path("t.dcfg"))
+    twice, _issues2, _error2 = format_dcfg(once, Path("t.dcfg"))
+    ok &= _self_test_check(
+        "formatting is idempotent: format(format(x)) == format(x)", once == twice
+    )
+
+    comment_source = "// keep this note\n" + _SELF_TEST_SOURCE_NO_COMMENTS
+    comment_formatted, comment_issues, comment_error = format_dcfg(
+        comment_source, Path("t.dcfg")
+    )
+    ok &= _self_test_check(
+        "comment-bearing source: no parse error", comment_error is None, str(comment_error)
+    )
+    ok &= _self_test_check(
+        "comment-bearing source is left byte-for-byte unchanged (fail-safe)",
+        comment_formatted == comment_source,
+    )
+    ok &= _self_test_check(
+        "a blocking issue explains the comment-drop fail-safe",
+        any("comment" in issue.message.lower() for issue in comment_issues),
+    )
+
+    print()
+    if ok:
+        print("SELF-TEST PASSED: format_dcfg round-trip fidelity holds.")
+    else:
+        print("SELF-TEST FAILED: see failures above.")
+    return ok
+
+
 def _default_scan_paths() -> list[Path]:
     datrix_root = _get_datrix_root()
     return sorted(d for d in datrix_root.iterdir() if d.is_dir() and d.name.startswith("datrix"))
@@ -491,7 +605,26 @@ def main() -> int:
         help="Check mode: report issues/needed formatting, do not write files",
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help=(
+            "Run the formatter self-test (round-trip fidelity fixture: "
+            "service-wildcard rendering, replace/inheriting-base preservation, "
+            "idempotence, comment fail-safe) and exit -- does not scan or "
+            "format any real .dcfg file."
+        ),
+    )
     args = parser.parse_args()
+
+    if args.self_test:
+        try:
+            datrix_root = _get_datrix_root()
+        except FileNotFoundError:
+            print("ERROR: Could not find Datrix root directory", file=sys.stderr)
+            return 1
+        _add_datrix_common_to_path(datrix_root)
+        return 0 if run_self_test() else 1
 
     if args.all and args.paths:
         print("ERROR: Specify either paths or --all, not both.", file=sys.stderr)

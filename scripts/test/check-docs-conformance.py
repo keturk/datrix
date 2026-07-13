@@ -51,6 +51,8 @@ import argparse
 import json
 import re
 import sys
+import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -468,6 +470,413 @@ def check_against_exceptions(
     return [ref for ref in unresolved if ref.span not in exceptions]
 
 
+
+# ---------------------------------------------------------------------------
+# --self-test: plain-Python edge-case checks for this scanner's own functions
+# (design 026, Invariant I5). Real tempfile.TemporaryDirectory() fixtures and
+# assert statements only -- no pytest, no unittest.mock/SimpleNamespace, per
+# project test guidelines. Fixtures are built under the REAL package/import
+# names (``datrix-common``, ``datrix-codegen-common``) inside a tmp dir
+# acting as a fake monorepo root, because resolve_path_candidate /
+# resolve_module_candidate hardcode the fixed 13 package-directory names / 12
+# import names as module-level constants (by design). Runs automatically as
+# an unconditional first step of every invocation (see main()), and can be
+# run in isolation via --self-test. Mirrors the _ok/_fail/_step harness
+# pattern established by test-specific-selection-gate.py.
+# ---------------------------------------------------------------------------
+
+_GREEN = "\033[92m"
+_RED = "\033[91m"
+_CYAN = "\033[96m"
+_RESET = "\033[0m"
+
+
+def _ok(msg: str) -> None:
+    print(f"{_GREEN}[OK]{_RESET} {msg}")
+
+
+def _fail(msg: str) -> None:
+    print(f"{_RED}[FAIL]{_RESET} {msg}")
+
+
+def _step(msg: str) -> None:
+    print(f"\n{_CYAN}=== {msg}{_RESET}")
+
+
+def _check_windows_absolute_span_is_a_candidate() -> None:
+    doc_text = "See `D:\\datrix\\datrix-common\\src\\datrix_common\\foo.py` for details."
+    candidates = extract_path_candidates(doc_text)
+    assert len(candidates) == 1, f"expected 1 candidate, got {candidates}"
+    assert candidates[0][1] == "D:\\datrix\\datrix-common\\src\\datrix_common\\foo.py"
+
+
+def _check_package_prefixed_span_is_a_candidate() -> None:
+    doc_text = "See `datrix-common/src/datrix_common/foo.py` for details."
+    candidates = extract_path_candidates(doc_text)
+    assert len(candidates) == 1, f"expected 1 candidate, got {candidates}"
+    assert candidates[0][1] == "datrix-common/src/datrix_common/foo.py"
+
+
+def _check_bare_span_with_no_package_prefix_is_excluded() -> None:
+    doc_text = "See `foo.py` for details."
+    candidates = extract_path_candidates(doc_text)
+    assert candidates == [], f"bare span with no package anchor must be excluded, got {candidates}"
+
+
+def _check_ellipsis_elided_span_is_rejected() -> None:
+    doc_text = "See `datrix-codegen-common/.../subdir/file.py` for details."
+    candidates = extract_path_candidates(doc_text)
+    assert candidates == [], f"ellipsis-elided span must be rejected, got {candidates}"
+
+
+def _check_placeholder_span_is_rejected() -> None:
+    doc_text = (
+        "Baselines live at "
+        "`datrix-codegen-common/tests/parity/baselines/<example_id>/<language>.sha256`."
+    )
+    candidates = extract_path_candidates(doc_text)
+    assert candidates == [], f"placeholder span must be rejected, got {candidates}"
+
+
+def _check_glob_span_is_rejected() -> None:
+    doc_text = "See `datrix-common/src/datrix_common/*.py` for details."
+    candidates = extract_path_candidates(doc_text)
+    assert candidates == [], f"glob span must be rejected, got {candidates}"
+
+
+def _check_line_ref_suffix_is_captured_verbatim_by_extraction() -> None:
+    doc_text = "See `datrix-common/src/datrix_common/foo.py:42` for details."
+    candidates = extract_path_candidates(doc_text)
+    assert len(candidates) == 1, f"expected 1 candidate, got {candidates}"
+    assert candidates[0][1] == "datrix-common/src/datrix_common/foo.py:42"
+
+
+def _check_line_number_is_tracked_per_span() -> None:
+    doc_text = "line one\nline two\n`datrix-common/src/datrix_common/foo.py`\n"
+    candidates = extract_path_candidates(doc_text)
+    assert len(candidates) == 1, f"expected 1 candidate, got {candidates}"
+    assert candidates[0][0] == 3, f"expected line 3, got {candidates[0][0]}"
+
+
+def _check_fully_qualified_module_span_is_a_candidate() -> None:
+    doc_text = "See `datrix_common.generation.type_resolver` for details."
+    candidates = extract_module_candidates(doc_text)
+    assert len(candidates) == 1, f"expected 1 candidate, got {candidates}"
+    assert candidates[0][1] == "datrix_common.generation.type_resolver"
+
+
+def _check_generic_dotted_identifier_without_known_import_name_is_excluded() -> None:
+    doc_text = "Set `service.name` to the desired value."
+    candidates = extract_module_candidates(doc_text)
+    assert candidates == [], f"unknown import-name-first segment must be excluded, got {candidates}"
+
+
+def _check_trailing_class_name_segment_is_excluded_from_extraction() -> None:
+    doc_text = "See `datrix_codegen_common.orchestration.hooks.seed_hooks.SeedGeneratorHooks`."
+    candidates = extract_module_candidates(doc_text)
+    assert candidates == [], f"trailing PascalCase class name must break the regex, got {candidates}"
+
+
+def _check_tier1_literal_match_resolves() -> None:
+    with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
+        root = Path(tmp)
+        target = root / "datrix-common" / "src" / "datrix_common" / "foo.py"
+        target.parent.mkdir(parents=True)
+        target.write_text("x = 1\n", encoding="utf-8")
+        assert resolve_path_candidate("datrix-common/src/datrix_common/foo.py", root) is True
+
+
+def _check_tier1_directory_hint_requires_a_real_directory() -> None:
+    with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
+        root = Path(tmp)
+        (root / "datrix-common" / "src" / "datrix_common").mkdir(parents=True)
+        file_masquerading_as_dir = root / "datrix-common" / "src" / "datrix_common" / "notadir"
+        file_masquerading_as_dir.write_text("x\n", encoding="utf-8")
+        resolved = resolve_path_candidate("datrix-common/src/datrix_common/notadir/", root)
+        assert resolved is False, "a file at a trailing-slash candidate's path must not resolve"
+
+
+def _check_genuinely_missing_path_stays_unresolved() -> None:
+    with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
+        root = Path(tmp)
+        (root / "datrix-common" / "src" / "datrix_common").mkdir(parents=True)
+        resolved = resolve_path_candidate("datrix-common/src/datrix_common/nope.py", root)
+        assert resolved is False, "a genuinely missing path must stay unresolved"
+
+
+def _check_line_ref_suffix_is_stripped_before_resolution() -> None:
+    with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
+        root = Path(tmp)
+        target = root / "datrix-common" / "src" / "datrix_common" / "foo.py"
+        target.parent.mkdir(parents=True)
+        target.write_text("x = 1\n", encoding="utf-8")
+        assert resolve_path_candidate("datrix-common/src/datrix_common/foo.py:42", root) is True
+        assert (
+            resolve_path_candidate("datrix-common/src/datrix_common/foo.py:262-291", root) is True
+        )
+        assert (
+            resolve_path_candidate("datrix-common/src/datrix_common/foo.py:262,282", root) is True
+        )
+
+
+def _check_tier2_src_shorthand_match_resolves() -> None:
+    with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
+        root = Path(tmp)
+        target = (
+            root
+            / "datrix-codegen-common"
+            / "src"
+            / "datrix_codegen_common"
+            / "orchestration"
+            / "hooks"
+            / "seed_hooks.py"
+        )
+        target.parent.mkdir(parents=True)
+        target.write_text("x = 1\n", encoding="utf-8")
+        resolved = resolve_path_candidate(
+            "datrix-codegen-common/orchestration/hooks/seed_hooks.py", root
+        )
+        assert resolved is True, "unique Tier-2 shorthand match under src/ must resolve"
+
+
+def _check_tier2_tests_shorthand_match_resolves_with_two_segment_omission() -> None:
+    with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
+        root = Path(tmp)
+        target = root / "datrix-common" / "tests" / "unit" / "generation" / "test_foo.py"
+        target.parent.mkdir(parents=True)
+        target.write_text("def test_x(): ...\n", encoding="utf-8")
+        resolved = resolve_path_candidate("datrix-common/generation/test_foo.py", root)
+        assert resolved is True, "unique Tier-2 shorthand match under tests/ must resolve"
+
+
+def _check_tier2_is_skipped_when_next_segment_is_already_tests() -> None:
+    """A candidate that already writes 'tests/' explicitly is never expanded
+    by Tier 2 -- if the exact literal path doesn't exist, it stays
+    unresolved. This is what real doc drift looked like: a doc citing
+    'datrix-common/tests/generation/x.py' when the real file is one level
+    deeper at 'datrix-common/tests/unit/generation/x.py'."""
+    with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
+        root = Path(tmp)
+        target = root / "datrix-common" / "tests" / "unit" / "generation" / "test_foo.py"
+        target.parent.mkdir(parents=True)
+        target.write_text("def test_x(): ...\n", encoding="utf-8")
+        resolved = resolve_path_candidate("datrix-common/tests/generation/test_foo.py", root)
+        assert resolved is False, "Tier 2 must be skipped when next segment is already 'tests'"
+
+
+def _check_ambiguous_tier2_match_stays_unresolved() -> None:
+    """Adversarial case: two real files whose relative paths both end with
+    the same suffix. An ambiguous Tier-2 match MUST stay unresolved -- if
+    this ever silently picked one, the gate would produce a false negative
+    (a doc citing the wrong file would pass)."""
+    with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
+        root = Path(tmp)
+        first = root / "datrix-common" / "src" / "datrix_common" / "foo" / "bar.py"
+        second = root / "datrix-common" / "src" / "datrix_common" / "baz" / "bar.py"
+        first.parent.mkdir(parents=True)
+        second.parent.mkdir(parents=True)
+        first.write_text("x = 1\n", encoding="utf-8")
+        second.write_text("y = 2\n", encoding="utf-8")
+        resolved = resolve_path_candidate("datrix-common/bar.py", root)
+        assert resolved is False, "an ambiguous Tier-2 match must never be silently guessed"
+
+
+def _check_exact_module_match_resolves() -> None:
+    with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
+        root = Path(tmp)
+        target = (
+            root / "datrix-common" / "src" / "datrix_common" / "generation" / "type_resolver.py"
+        )
+        target.parent.mkdir(parents=True)
+        target.write_text("class TypeResolver: ...\n", encoding="utf-8")
+        resolved = resolve_module_candidate("datrix_common.generation.type_resolver", root)
+        assert resolved is True, "exact module path must resolve"
+
+
+def _check_trailing_symbol_name_is_tolerated() -> None:
+    with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
+        root = Path(tmp)
+        target = (
+            root / "datrix-common" / "src" / "datrix_common" / "generation" / "type_resolver.py"
+        )
+        target.parent.mkdir(parents=True)
+        target.write_text("def _dispatch(): ...\n", encoding="utf-8")
+        resolved = resolve_module_candidate(
+            "datrix_common.generation.type_resolver._dispatch", root
+        )
+        assert resolved is True, "a trailing symbol/attribute name must be tolerated"
+
+
+def _check_package_init_module_resolves() -> None:
+    with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
+        root = Path(tmp)
+        target = root / "datrix-common" / "src" / "datrix_common" / "stdlib" / "__init__.py"
+        target.parent.mkdir(parents=True)
+        target.write_text("", encoding="utf-8")
+        assert resolve_module_candidate("datrix_common.stdlib", root) is True
+
+
+def _check_genuinely_missing_module_stays_unresolved() -> None:
+    with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
+        root = Path(tmp)
+        (root / "datrix-common" / "src" / "datrix_common").mkdir(parents=True)
+        resolved = resolve_module_candidate("datrix_common.nonexistent.module", root)
+        assert resolved is False, "a genuinely missing module must stay unresolved"
+
+
+def _check_unknown_import_name_stays_unresolved() -> None:
+    with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
+        root = Path(tmp)
+        resolved = resolve_module_candidate("not_a_real_import.foo", root)
+        assert resolved is False, "an unknown import name must never resolve"
+
+
+def _check_span_present_in_baseline_is_removed_from_failures() -> None:
+    unresolved = [
+        UnresolvedReference(doc="pkg/docs/architecture.md", line=5, span="a/b.py", kind="path"),
+        UnresolvedReference(doc="pkg/docs/architecture.md", line=9, span="c/d.py", kind="path"),
+    ]
+    exceptions = {"a/b.py": "legitimately removed, see migration notes"}
+    failures = check_against_exceptions(unresolved, exceptions)
+    assert failures == [
+        UnresolvedReference(doc="pkg/docs/architecture.md", line=9, span="c/d.py", kind="path")
+    ], f"exception-listed span must be removed from failures, got {failures}"
+
+
+def _check_span_absent_from_baseline_remains_a_failure() -> None:
+    unresolved = [
+        UnresolvedReference(doc="pkg/docs/architecture.md", line=5, span="a/b.py", kind="path"),
+    ]
+    failures = check_against_exceptions(unresolved, {})
+    assert failures == unresolved, f"span absent from baseline must remain a failure, got {failures}"
+
+
+def _check_load_exceptions_reads_span_to_reason_mapping() -> None:
+    with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
+        baseline_path = Path(tmp) / "docs-conformance-exceptions.json"
+        baseline_path.write_text(
+            json.dumps(
+                {
+                    "exceptions": [
+                        {
+                            "span": "a/b.py",
+                            "doc": "pkg/docs/architecture.md",
+                            "reason": "removed",
+                        },
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        exceptions = load_exceptions(baseline_path)
+        assert exceptions == {"a/b.py": "removed"}, f"unexpected mapping: {exceptions}"
+
+
+def _check_load_exceptions_raises_when_file_missing() -> None:
+    with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
+        missing_path = Path(tmp) / "does-not-exist.json"
+        try:
+            load_exceptions(missing_path)
+        except FileNotFoundError:
+            return
+        raise AssertionError("load_exceptions() must raise FileNotFoundError for a missing baseline")
+
+
+_SELF_TEST_CHECKS: list[tuple[str, Callable[[], None]]] = [
+    ("windows_absolute_span_is_a_candidate", _check_windows_absolute_span_is_a_candidate),
+    ("package_prefixed_span_is_a_candidate", _check_package_prefixed_span_is_a_candidate),
+    ("bare_span_with_no_package_prefix_is_excluded", _check_bare_span_with_no_package_prefix_is_excluded),
+    ("ellipsis_elided_span_is_rejected", _check_ellipsis_elided_span_is_rejected),
+    ("placeholder_span_is_rejected", _check_placeholder_span_is_rejected),
+    ("glob_span_is_rejected", _check_glob_span_is_rejected),
+    (
+        "line_ref_suffix_is_captured_verbatim_by_extraction",
+        _check_line_ref_suffix_is_captured_verbatim_by_extraction,
+    ),
+    ("line_number_is_tracked_per_span", _check_line_number_is_tracked_per_span),
+    ("fully_qualified_module_span_is_a_candidate", _check_fully_qualified_module_span_is_a_candidate),
+    (
+        "generic_dotted_identifier_without_known_import_name_is_excluded",
+        _check_generic_dotted_identifier_without_known_import_name_is_excluded,
+    ),
+    (
+        "trailing_class_name_segment_is_excluded_from_extraction",
+        _check_trailing_class_name_segment_is_excluded_from_extraction,
+    ),
+    ("tier1_literal_match_resolves", _check_tier1_literal_match_resolves),
+    (
+        "tier1_directory_hint_requires_a_real_directory",
+        _check_tier1_directory_hint_requires_a_real_directory,
+    ),
+    ("genuinely_missing_path_stays_unresolved", _check_genuinely_missing_path_stays_unresolved),
+    (
+        "line_ref_suffix_is_stripped_before_resolution",
+        _check_line_ref_suffix_is_stripped_before_resolution,
+    ),
+    ("tier2_src_shorthand_match_resolves", _check_tier2_src_shorthand_match_resolves),
+    (
+        "tier2_tests_shorthand_match_resolves_with_two_segment_omission",
+        _check_tier2_tests_shorthand_match_resolves_with_two_segment_omission,
+    ),
+    (
+        "tier2_is_skipped_when_next_segment_is_already_tests",
+        _check_tier2_is_skipped_when_next_segment_is_already_tests,
+    ),
+    ("ambiguous_tier2_match_stays_unresolved", _check_ambiguous_tier2_match_stays_unresolved),
+    ("exact_module_match_resolves", _check_exact_module_match_resolves),
+    ("trailing_symbol_name_is_tolerated", _check_trailing_symbol_name_is_tolerated),
+    ("package_init_module_resolves", _check_package_init_module_resolves),
+    (
+        "genuinely_missing_module_stays_unresolved",
+        _check_genuinely_missing_module_stays_unresolved,
+    ),
+    ("unknown_import_name_stays_unresolved", _check_unknown_import_name_stays_unresolved),
+    (
+        "span_present_in_baseline_is_removed_from_failures",
+        _check_span_present_in_baseline_is_removed_from_failures,
+    ),
+    (
+        "span_absent_from_baseline_remains_a_failure",
+        _check_span_absent_from_baseline_remains_a_failure,
+    ),
+    (
+        "load_exceptions_reads_span_to_reason_mapping",
+        _check_load_exceptions_reads_span_to_reason_mapping,
+    ),
+    ("load_exceptions_raises_when_file_missing", _check_load_exceptions_raises_when_file_missing),
+]
+
+
+def _dummy_intentionally_failing_check() -> None:
+    """Registered ONLY under --harness-self-test. Always fails on purpose --
+    this is the proof that run_self_test_checks() actually detects and
+    reports a failing check, rather than vacuously swallowing every
+    AssertionError and reporting green regardless of what the checks do."""
+    assert False, "intentional harness self-test failure (expected -- proves non-vacuity)"  # noqa: B011
+
+
+def run_self_test_checks(checks: list[tuple[str, Callable[[], None]]]) -> bool:
+    """Run every (name, check_fn) pair, printing [OK]/[FAIL] per check.
+
+    Args:
+        checks: Named zero-argument callables; each raises AssertionError on
+            failure and returns normally on success.
+
+    Returns:
+        True iff every check passed.
+    """
+    all_passed = True
+    for name, fn in checks:
+        try:
+            fn()
+        except AssertionError as e:
+            _fail(f"{name}: {e}")
+            all_passed = False
+        else:
+            _ok(name)
+    return all_passed
+
+
 def auto_detect_base_dir(script_path: Path) -> Path:
     """Auto-detect monorepo root by walking up from script location.
 
@@ -522,7 +931,46 @@ def main() -> int:
         action="store_true",
         help="Print each doc file being scanned",
     )
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help=(
+            "Run only the self-test suite (plain-Python edge-case checks on "
+            "this scanner's own functions) and exit -- skips the real docs "
+            "scan. The same checks also run automatically, unconditionally, "
+            "as step 1 of every normal invocation."
+        ),
+    )
+    parser.add_argument(
+        "--harness-self-test",
+        action="store_true",
+        help=(
+            "Demonstration mode: run one intentionally-failing dummy check "
+            "through the self-test harness and report the result. Always "
+            "reports [FAIL] and exits 1 -- this is the proof that the "
+            "harness's pass/fail detection is not vacuous."
+        ),
+    )
     args = parser.parse_args()
+
+    if args.harness_self_test:
+        _step("Harness self-test: intentionally-failing dummy check (must report FAIL, exit 1)")
+        harness_ok = run_self_test_checks(
+            [("dummy_intentionally_failing_check", _dummy_intentionally_failing_check)]
+        )
+        return 0 if harness_ok else 1
+
+    _step("Self-test: I5 docs-conformance gate scanner edge cases (design 026)")
+    self_test_passed = run_self_test_checks(_SELF_TEST_CHECKS)
+    if args.self_test:
+        return 0 if self_test_passed else 1
+    if not self_test_passed:
+        print(
+            "\nError: self-test failed -- refusing to trust the scanner for a "
+            "real docs scan. Fix the scanner before re-running.",
+            file=sys.stderr,
+        )
+        return 2
 
     if args.base_dir:
         monorepo_root = args.base_dir.resolve()

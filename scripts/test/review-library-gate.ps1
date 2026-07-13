@@ -1,0 +1,104 @@
+#!/usr/bin/env pwsh
+<#
+.SYNOPSIS
+ Repo-level gate absorbing 5 orphaned review/tests/*.py pytest files (review-library-gate.py).
+
+.DESCRIPTION
+ Activates the Datrix virtual environment and runs review-library-gate.py, which
+ re-expresses the distinct behavioral classes of 5 orphaned pytest files under
+ scripts/library/review/tests/ (test_review_schema.py, test_canonical_modules_cache.py,
+ test_escalation.py, test_model_parsing.py, test_orchestrator_core.py) as a plain-Python
+ check harness against review_schema.py, canonical_modules.py, escalation.py, and
+ review.py.
+
+ Exit codes:
+   0 = every check passed
+   1 = at least one check (or the harness self-test) failed
+   2 = usage error
+
+.PARAMETER HarnessSelfTest
+ Demonstration mode: run one intentionally-failing dummy check through the harness
+ and confirm it reports [FAIL] and exits 1 (proves the harness is not vacuous).
+
+.PARAMETER Dbg
+ Print the python invocation before running.
+
+.EXAMPLE
+ .\review-library-gate.ps1
+ Run every absorbed check.
+
+.EXAMPLE
+ .\review-library-gate.ps1 -HarnessSelfTest
+ Prove the harness detects a forced failure.
+#>
+
+[CmdletBinding()]
+param(
+    [Parameter()]
+    [switch]$HarnessSelfTest,
+
+    [Parameter()]
+    [switch]$Dbg
+)
+
+$ErrorActionPreference = "Stop"
+
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$pythonScript = Join-Path $scriptDir "review-library-gate.py"
+
+$commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
+Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
+. (Join-Path $commonDir "venv.ps1")
+
+if (-not (Test-Path $pythonScript)) {
+    Write-Error "Error: review-library-gate.py not found at: $pythonScript"
+    exit 2
+}
+
+function Invoke-Cleanup {
+    Disable-DatrixVenv
+}
+
+Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
+
+trap {
+    Write-Host ""
+    Write-Warning "Interrupted by user (Ctrl-C)"
+    Invoke-Cleanup
+    exit 130
+}
+
+try {
+    $venvActivated = Ensure-DatrixVenv
+    if (-not $venvActivated) {
+        Write-Error "Failed to activate virtual environment"
+        exit 1
+    }
+
+    $venvPath = Get-DatrixVenvPath
+    $pythonExe = Join-Path $venvPath "Scripts\python.exe"
+
+    $pythonArgs = @($pythonScript)
+    if ($HarnessSelfTest) { $pythonArgs += "--harness-self-test" }
+
+    if ($Dbg) {
+        Write-Host "Python executable: $pythonExe" -ForegroundColor Cyan
+        Write-Host "Python script: $pythonScript" -ForegroundColor Cyan
+        Write-Host "Arguments: $($pythonArgs -join ' ')" -ForegroundColor Cyan
+        Write-Host ""
+    }
+
+    & $pythonExe @pythonArgs
+    $exitCode = $LASTEXITCODE
+
+    exit $exitCode
+
+} catch {
+    Write-Host ""
+    Write-Host "Error occurred:" -ForegroundColor Red
+    Write-Host $_.Exception.Message -ForegroundColor Red
+    Invoke-Cleanup
+    exit 1
+} finally {
+    Invoke-Cleanup
+}

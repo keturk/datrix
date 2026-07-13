@@ -36,6 +36,8 @@ import argparse
 import ast
 import json
 import sys
+import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -236,6 +238,227 @@ def check_ratchet(current_counts: dict[str, int], baseline: dict[str, int]) -> l
     return messages
 
 
+
+# ---------------------------------------------------------------------------
+# --self-test: plain-Python edge-case checks for this scanner's own functions
+# (design 025, Invariant I5). Real tempfile.TemporaryDirectory() fixtures and
+# assert statements only -- no pytest, no unittest.mock/SimpleNamespace, per
+# project test guidelines. These are the same edge cases the (now-deleted)
+# pytest suite covered: bare vs. module-qualified GeneratedFile(...) calls,
+# .from_content(...) NOT counted, tests/ never scanned, the gendsl/executor.py
+# exclusion, ratchet regression/no-regression/missing-baseline behavior, and
+# package-discovery filtering. Runs automatically as an unconditional first
+# step of every invocation (see main()), and can be run in isolation via
+# --self-test. Mirrors the _ok/_fail/_step harness pattern established by
+# test-specific-selection-gate.py.
+# ---------------------------------------------------------------------------
+
+_GREEN = "\033[92m"
+_RED = "\033[91m"
+_CYAN = "\033[96m"
+_RESET = "\033[0m"
+
+
+def _ok(msg: str) -> None:
+    print(f"{_GREEN}[OK]{_RESET} {msg}")
+
+
+def _fail(msg: str) -> None:
+    print(f"{_RED}[FAIL]{_RESET} {msg}")
+
+
+def _step(msg: str) -> None:
+    print(f"\n{_CYAN}=== {msg}{_RESET}")
+
+
+def _check_bare_constructor_call_counted() -> None:
+    with tempfile.TemporaryDirectory(prefix="ratchet-selftest-") as tmp:
+        file_path = Path(tmp) / "sample.py"
+        file_path.write_text(
+            "from datrix_common.generation.generator import GeneratedFile\n"
+            "def f():\n"
+            "    return GeneratedFile(path=None, content='', language='python', source_hash='x')\n",
+            encoding="utf-8",
+        )
+        count = count_generated_file_constructions(file_path)
+        assert count == 1, f"expected 1 bare constructor call, got {count}"
+
+
+def _check_qualified_constructor_call_counted() -> None:
+    with tempfile.TemporaryDirectory(prefix="ratchet-selftest-") as tmp:
+        file_path = Path(tmp) / "sample.py"
+        file_path.write_text(
+            "import datrix_common.generation.generator as gen\n"
+            "def f():\n"
+            "    return gen.GeneratedFile(path=None, content='', language='python', source_hash='x')\n",
+            encoding="utf-8",
+        )
+        count = count_generated_file_constructions(file_path)
+        assert count == 1, f"expected 1 module-qualified constructor call, got {count}"
+
+
+def _check_from_content_factory_not_counted() -> None:
+    with tempfile.TemporaryDirectory(prefix="ratchet-selftest-") as tmp:
+        file_path = Path(tmp) / "sample.py"
+        file_path.write_text(
+            "from datrix_common.generation.generator import GeneratedFile\n"
+            "def f():\n"
+            "    return GeneratedFile.from_content(path=None, content='', language='python')\n",
+            encoding="utf-8",
+        )
+        count = count_generated_file_constructions(file_path)
+        assert count == 0, f"from_content(...) must never be counted, got {count}"
+
+
+def _check_multiple_constructions_counted() -> None:
+    with tempfile.TemporaryDirectory(prefix="ratchet-selftest-") as tmp:
+        file_path = Path(tmp) / "sample.py"
+        file_path.write_text(
+            "from datrix_common.generation.generator import GeneratedFile\n"
+            "def f():\n"
+            "    a = GeneratedFile(path=None, content='', language='python', source_hash='a')\n"
+            "    b = GeneratedFile(path=None, content='', language='python', source_hash='b')\n"
+            "    return [a, b]\n",
+            encoding="utf-8",
+        )
+        count = count_generated_file_constructions(file_path)
+        assert count == 2, f"expected 2 constructor calls, got {count}"
+
+
+def _check_no_construction_returns_zero() -> None:
+    with tempfile.TemporaryDirectory(prefix="ratchet-selftest-") as tmp:
+        file_path = Path(tmp) / "sample.py"
+        file_path.write_text("def f():\n    return 1\n", encoding="utf-8")
+        count = count_generated_file_constructions(file_path)
+        assert count == 0, f"file with no construction must count 0, got {count}"
+
+
+def _check_tests_directory_never_scanned() -> None:
+    with tempfile.TemporaryDirectory(prefix="ratchet-selftest-") as tmp:
+        root = Path(tmp)
+        pkg_dir = root / "datrix-codegen-fake"
+        src_dir = pkg_dir / "src" / "datrix_codegen_fake"
+        src_dir.mkdir(parents=True)
+        (src_dir / "gen.py").write_text("x = 1\n", encoding="utf-8")
+
+        tests_dir = pkg_dir / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_gen.py").write_text(
+            "from datrix_common.generation.generator import GeneratedFile\n"
+            "GeneratedFile(path=None, content='', language='python', source_hash='x')\n",
+            encoding="utf-8",
+        )
+
+        package = PackageInfo(name="datrix-codegen-fake", src_dir=pkg_dir / "src")
+        total = scan_package(package, root, verbose=False)
+        assert total == 0, f"tests/ must never be scanned, got total={total}"
+
+
+def _check_excluded_executor_file_never_counted() -> None:
+    with tempfile.TemporaryDirectory(prefix="ratchet-selftest-") as tmp:
+        root = Path(tmp)
+        pkg_dir = root / "datrix-codegen-common"
+        executor_dir = pkg_dir / "src" / "datrix_codegen_common" / "gendsl"
+        executor_dir.mkdir(parents=True)
+        (executor_dir / "executor.py").write_text(
+            "from datrix_common.generation.generator import GeneratedFile\n"
+            "GeneratedFile(path=None, content='', language='python', source_hash='x')\n",
+            encoding="utf-8",
+        )
+
+        package = PackageInfo(name="datrix-codegen-common", src_dir=pkg_dir / "src")
+        total = scan_package(package, root, verbose=False)
+        assert total == 0, f"gendsl/executor.py must be excluded, got total={total}"
+
+
+def _check_ratchet_no_regression_when_equal_to_baseline() -> None:
+    messages = check_ratchet({"pkg": 5}, {"pkg": 5})
+    assert messages == [], f"equal-to-baseline must not regress, got {messages}"
+
+
+def _check_ratchet_no_regression_when_below_baseline() -> None:
+    messages = check_ratchet({"pkg": 3}, {"pkg": 5})
+    assert messages == [], f"below-baseline must not regress, got {messages}"
+
+
+def _check_ratchet_regression_when_above_baseline() -> None:
+    """Adversarial case: a count above baseline MUST produce exactly one
+    message naming the package and both the frozen and current counts. If
+    this ever silently returns [], the ratchet's whole reason for existing
+    (catching a regression) is gone."""
+    messages = check_ratchet({"pkg": 6}, {"pkg": 5})
+    assert len(messages) == 1, f"expected exactly 1 regression message, got {messages}"
+    assert "pkg" in messages[0], f"message must name the package: {messages[0]}"
+    assert "5" in messages[0], f"message must cite the frozen baseline 5: {messages[0]}"
+    assert "6" in messages[0], f"message must cite the current count 6: {messages[0]}"
+
+
+def _check_ratchet_missing_baseline_entry_treated_as_zero() -> None:
+    messages = check_ratchet({"pkg": 1}, {})
+    assert len(messages) == 1, f"expected exactly 1 regression message, got {messages}"
+    assert "baseline 0" in messages[0], f"missing entry must read as baseline 0: {messages[0]}"
+
+
+def _check_discover_packages_only_datrix_prefixed_with_src() -> None:
+    with tempfile.TemporaryDirectory(prefix="ratchet-selftest-") as tmp:
+        root = Path(tmp)
+        (root / "datrix-codegen-fake" / "src").mkdir(parents=True)
+        (root / "datrix-no-src").mkdir()
+        (root / "not-datrix-prefixed" / "src").mkdir(parents=True)
+
+        packages = discover_packages(root)
+
+        assert "datrix-codegen-fake" in packages, "datrix-prefixed dir with src/ must be discovered"
+        assert "datrix-no-src" not in packages, "datrix-prefixed dir WITHOUT src/ must be excluded"
+        assert "not-datrix-prefixed" not in packages, "non-datrix-prefixed dir must be excluded"
+
+
+_SELF_TEST_CHECKS: list[tuple[str, Callable[[], None]]] = [
+    ("bare_constructor_call_counted", _check_bare_constructor_call_counted),
+    ("qualified_constructor_call_counted", _check_qualified_constructor_call_counted),
+    ("from_content_factory_not_counted", _check_from_content_factory_not_counted),
+    ("multiple_constructions_counted", _check_multiple_constructions_counted),
+    ("no_construction_returns_zero", _check_no_construction_returns_zero),
+    ("tests_directory_never_scanned", _check_tests_directory_never_scanned),
+    ("excluded_executor_file_never_counted", _check_excluded_executor_file_never_counted),
+    ("ratchet_no_regression_when_equal_to_baseline", _check_ratchet_no_regression_when_equal_to_baseline),
+    ("ratchet_no_regression_when_below_baseline", _check_ratchet_no_regression_when_below_baseline),
+    ("ratchet_regression_when_above_baseline", _check_ratchet_regression_when_above_baseline),
+    ("ratchet_missing_baseline_entry_treated_as_zero", _check_ratchet_missing_baseline_entry_treated_as_zero),
+    ("discover_packages_only_datrix_prefixed_with_src", _check_discover_packages_only_datrix_prefixed_with_src),
+]
+
+
+def _dummy_intentionally_failing_check() -> None:
+    """Registered ONLY under --harness-self-test. Always fails on purpose --
+    this is the proof that run_self_test_checks() actually detects and
+    reports a failing check, rather than vacuously swallowing every
+    AssertionError and reporting green regardless of what the checks do."""
+    assert False, "intentional harness self-test failure (expected -- proves non-vacuity)"  # noqa: B011
+
+
+def run_self_test_checks(checks: list[tuple[str, Callable[[], None]]]) -> bool:
+    """Run every (name, check_fn) pair, printing [OK]/[FAIL] per check.
+
+    Args:
+        checks: Named zero-argument callables; each raises AssertionError on
+            failure and returns normally on success.
+
+    Returns:
+        True iff every check passed.
+    """
+    all_passed = True
+    for name, fn in checks:
+        try:
+            fn()
+        except AssertionError as e:
+            _fail(f"{name}: {e}")
+            all_passed = False
+        else:
+            _ok(name)
+    return all_passed
+
+
 def auto_detect_base_dir(script_path: Path) -> Path:
     """Auto-detect monorepo root by walking up from script location."""
     current = script_path.resolve().parent
@@ -328,7 +551,46 @@ def main() -> int:
             "package(s)."
         ),
     )
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help=(
+            "Run only the self-test suite (plain-Python edge-case checks on "
+            "this scanner's own functions) and exit -- skips the real "
+            "package scan. The same checks also run automatically, "
+            "unconditionally, as step 1 of every normal invocation."
+        ),
+    )
+    parser.add_argument(
+        "--harness-self-test",
+        action="store_true",
+        help=(
+            "Demonstration mode: run one intentionally-failing dummy check "
+            "through the self-test harness and report the result. Always "
+            "reports [FAIL] and exits 1 -- this is the proof that the "
+            "harness's pass/fail detection is not vacuous."
+        ),
+    )
     args = parser.parse_args()
+
+    if args.harness_self_test:
+        _step("Harness self-test: intentionally-failing dummy check (must report FAIL, exit 1)")
+        harness_ok = run_self_test_checks(
+            [("dummy_intentionally_failing_check", _dummy_intentionally_failing_check)]
+        )
+        return 0 if harness_ok else 1
+
+    _step("Self-test: I5 GeneratedFile-construction ratchet scanner edge cases (design 025)")
+    self_test_passed = run_self_test_checks(_SELF_TEST_CHECKS)
+    if args.self_test:
+        return 0 if self_test_passed else 1
+    if not self_test_passed:
+        print(
+            "\nError: self-test failed -- refusing to trust the scanner for a "
+            "real scan. Fix the scanner before re-running.",
+            file=sys.stderr,
+        )
+        return 2
 
     if args.base_dir:
         monorepo_root = args.base_dir.resolve()

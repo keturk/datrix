@@ -7,6 +7,7 @@ virtual environment activation and package installation checks.
 """
 
 import argparse
+import os
 import subprocess
 import sys
 from datetime import datetime
@@ -82,6 +83,29 @@ def write_log(project_root: Path, output: str) -> Path:
  return log_path
 
 
+def resolve_extra_mypy_env(project_root: Path) -> tuple[list[str], dict[str, str]]:
+ """Extra mypy CLI args + environment overrides for showcase-repo scripts.
+
+ The `datrix` showcase repo has no `src/` package layout: its own
+ `scripts/test/*.py` and `scripts/dev/*.py` gate scripts import shared helpers
+ from `scripts/library/` (e.g. `review`, `test`, `shared`) via a runtime
+ `sys.path.insert(...)`, which mypy cannot see unless told where to look. Set
+ `MYPYPATH` to `scripts/library` so those imports resolve, and pass
+ `--follow-imports=silent` so pre-existing issues *inside* those shared
+ library modules (which get no dedicated mypy --strict run of their own --
+ there is no separate "scripts/library" project) don't block the target
+ script's own strict check with unrelated errors.
+
+ Returns:
+  (extra_cli_args, env_overrides) -- both empty for every other project,
+  which keeps this a no-op for the normal datrix-* package sweep.
+ """
+ library_dir = project_root / "scripts" / "library"
+ if project_root.name != "datrix" or not library_dir.exists():
+  return [], {}
+ return ["--follow-imports=silent"], {"MYPYPATH": str(library_dir)}
+
+
 def run_mypy(
  python_exe: str,
  project_root: Path,
@@ -89,7 +113,8 @@ def run_mypy(
  verbose: bool,
  save_log: bool,
 ) -> int:
- cmd = [python_exe, "-m", "mypy", *targets]
+ extra_args, extra_env = resolve_extra_mypy_env(project_root)
+ cmd = [python_exe, "-m", "mypy", *extra_args, *targets]
  if verbose:
   cmd.append("--show-error-context")
 
@@ -104,6 +129,7 @@ def run_mypy(
   stderr=subprocess.STDOUT,
   text=True,
   bufsize=1,
+  env={**os.environ, **extra_env} if extra_env else None,
  )
 
  output_lines: list[str] = []

@@ -54,8 +54,11 @@ Lint/format ConfigDSL `.dcfg` files using the ConfigDSL parser.
 | **All repos (check)** | `.\dev\config-linter.ps1 -All -Check` | Check only; no file writes |
 | **Specific path** | `.\dev\config-linter.ps1 examples\01-foundation\config` | Format `.dcfg` files under a specific directory |
 | **Specific file (check)** | `.\dev\config-linter.ps1 path\to\system.dcfg -Check` | Check one file |
+| **Self-test** | `.\dev\config-linter.ps1 -SelfTest` | Run only the formatter self-test (round-trip fidelity fixture); no `-All`/path needed |
 
-**Parameters:** `-All`, `-Path` (positional, variadic), `-Check`, `-Dbg`
+**Parameters:** `-All`, `-Path` (positional, variadic), `-Check`, `-SelfTest`, `-Dbg`
+
+**Self-test detail:** `-SelfTest` runs `config_linter.py --self-test`, which regression-tests `format_dcfg`'s round-trip fidelity against a fixed `.dcfg` fixture: the name-less `service` wildcard must render as `service from ...`, never the invalid token `service *`; a `replace ... from tpl() { body }` body and an `inheriting base` clause must survive formatting; `format(format(x)) == format(x)` (idempotence); and a comment-bearing file must be left byte-for-byte unchanged with a blocking issue explaining why (the formatter does not preserve `//` comments). Prints `[OK]`/`[FAIL]` per check. Exit codes: 0 = all checks passed, 1 = at least one check failed.
 
 ### `dev\status-generation.ps1`
 
@@ -185,10 +188,13 @@ Enforces cross-package import boundary rules across the monorepo. Scans each pac
 | **Freeze/update provider-conditional baseline** | `.\dev\check-import-boundaries.ps1 -CheckProviderConditionals -UpdateBaseline` | Recompute and overwrite the frozen provider-conditional baseline |
 | **Function-level-import ratchet check** | `.\dev\check-import-boundaries.ps1 -CheckFunctionLevelImports` | Run the function-level-import ratchet (design 029, D4/I6, task 17-09) against the frozen baseline |
 | **Freeze/update function-level-import baseline** | `.\dev\check-import-boundaries.ps1 -CheckFunctionLevelImports -UpdateBaseline` | Recompute and overwrite the frozen function-level-import baseline |
+| **Self-test only** | `.\dev\check-import-boundaries.ps1 -SelfTest` | Run only the self-test suite (rule model, scanners, ratchets, CLI mutation proof) and exit |
 
-**Parameters:** `-Warn`, `-ShowFiles`, `-BaseDir`, `-CheckTargetLiterals`, `-UpdateBaseline`, `-CheckProviderConditionals`, `-CheckFunctionLevelImports`, `-Dbg`
+**Parameters:** `-Warn`, `-ShowFiles`, `-BaseDir`, `-CheckTargetLiterals`, `-UpdateBaseline`, `-CheckProviderConditionals`, `-CheckFunctionLevelImports`, `-SelfTest`, `-Dbg`
 
-**Exit codes:** 0 = clean (or warning mode), 1 = violations found (import-boundary, I1 target-literal ratchet, I6 provider-conditional ratchet, or function-level-import ratchet), 2 = usage/config error (including a missing baseline file when `-CheckTargetLiterals`, `-CheckProviderConditionals`, or `-CheckFunctionLevelImports` is passed without having frozen one yet)
+**Exit codes:** 0 = clean (or warning mode), 1 = violations found (import-boundary, I1 target-literal ratchet, I6 provider-conditional ratchet, function-level-import ratchet, or a self-test failure), 2 = usage/config error (including a missing baseline file when `-CheckTargetLiterals`, `-CheckProviderConditionals`, or `-CheckFunctionLevelImports` is passed without having frozen one yet)
+
+**Self-test detail:** the script's own non-vacuity proof (rule-model invariants for `BOUNDARY_RULES`/allowed-subtree carve-outs, the provider-conditional and function-level-import AST scanners' detection + exclusion cases, both ratchet comparators' regression/no-regression/missing-baseline-as-zero behavior, and a real mutation-based CLI proof that plants a regression in an isolated fixture monorepo, proves detection, and proves it clears on revert). Runs automatically as **step 1 of every invocation** of this script (not only when `-SelfTest` is passed) — a self-test failure aborts before any real finding is reported. Pass `-SelfTest` alone to run only the self-test and skip the real scan.
 
 **I6 successor ratchet detail:** scans `datrix-codegen-python/src` and `datrix-codegen-typescript/src` `.py` files (the LANGUAGE packages only — not a shared-layer scan like I1) for platform-identity conditionals: `== ProviderId(...)` / `!= ProviderId(...)` comparisons, `<deployment>.provider.value`/`str(<deployment>.provider)` string comparisons, and `match`/`case` over a provider subject. Excludes other provider axes (StorageProvider/EmailProvider/SmsProvider/SearchProvider/PaymentProvider/metrics-tracing provider), the `resolve_provider_identity` boundary function's own `ProviderId(x.value)` rewrap, and dict-dispatch-table lookups (`in`/`not in`, `.get(...)`) — those are a different successor shape not yet in scope. Baseline: `datrix/scripts/config/provider-conditional-baseline.toml`.
 

@@ -152,6 +152,8 @@ Runs mypy type checking for one or more Datrix projects. Accepts the same flags 
 
 **Parameters:** `-Projects` (positional, variadic), `-All`, `-VerboseOutput`, `-NoSave`, `-Specific <path>`, `-Dbg`
 
+**The `datrix` showcase repo itself is a valid explicit project name** (e.g. `.\test\mypy.ps1 datrix -Specific "scripts/test/check-generated-file-ratchet.py"`) even though it is excluded from `-All`'s package sweep -- `datrix/pyproject.toml` carries its own `[tool.mypy]` (strict) section for its repo-level validation scripts, but is deliberately never auto-discovered by `Get-DatrixPackageNamesGlobWithPyProject`'s `datrix-*` glob (it is not an installable toolchain package). Always pass `-Specific` for `datrix` -- there is no `src/` layout to default to.
+
 ---
 
 ## Status Scripts
@@ -344,10 +346,13 @@ Design 025 (GenDSL 2) Invariant I5 ratchet: AST-counts direct `GeneratedFile(...
 | **Warning mode** | `.\test\check-generated-file-ratchet.ps1 -Warn` | Report regressions but exit 0 |
 | **Show files** | `.\test\check-generated-file-ratchet.ps1 -ShowFiles` | Print each file being scanned |
 | **Freeze/tighten baseline** | `.\test\check-generated-file-ratchet.ps1 -UpdateBaseline` | Recompute counts and write the baseline (bootstrap freeze if none exists yet; otherwise only accepts decreases) |
+| **Self-test only** | `.\test\check-generated-file-ratchet.ps1 -SelfTest` | Run only the scanner's own edge-case self-test suite; skip the real package scan |
 | **Custom base dir** | `.\test\check-generated-file-ratchet.ps1 -BaseDir D:\datrix` | Specify monorepo root explicitly |
 | **Debug** | `.\test\check-generated-file-ratchet.ps1 -Dbg` | Debug logging |
 
-**Parameters:** `-Warn`, `-ShowFiles`, `-BaseDir`, `-UpdateBaseline`, `-Dbg`
+**Parameters:** `-Warn`, `-ShowFiles`, `-BaseDir`, `-UpdateBaseline`, `-SelfTest`, `-Dbg`
+
+**Self-test runs automatically, every invocation.** A plain-Python self-test suite (`--self-test` on the underlying `.py`; no pytest -- real `tempfile.TemporaryDirectory()` fixtures and `assert` statements, per the datrix showcase boundary) covers `count_generated_file_constructions`, `discover_packages`, `scan_package`, and `check_ratchet` edge cases -- including the adversarial "regression when above baseline" case, which must produce a message. This suite runs, unconditionally, as step 1 of every invocation (self-test failure aborts before the real scan, exit 2); `-SelfTest` runs it in isolation and skips the real scan. `--harness-self-test` (no `.ps1` switch -- diagnostic only) registers one intentionally-failing dummy check to prove the `[OK]`/`[FAIL]` harness itself is not vacuous.
 
 **Assertions:**
 - Direct `GeneratedFile(...)` constructor calls (bare or module-qualified) are counted per package's `src/` tree; `GeneratedFile.from_content(...)` is never counted (a distinct call shape).
@@ -355,7 +360,7 @@ Design 025 (GenDSL 2) Invariant I5 ratchet: AST-counts direct `GeneratedFile(...
 - `datrix-codegen-common/src/datrix_codegen_common/gendsl/executor.py` is excluded (the declared-render path's own internals).
 - A package absent from the baseline has an implicit baseline of 0.
 
-**Exit codes:** 0 = every package's count is at or below its frozen baseline (or a successful `-UpdateBaseline`), 1 = a package's count exceeds its frozen baseline, 2 = usage error, missing baseline, or an attempted baseline increase over an existing baseline.
+**Exit codes:** 0 = every package's count is at or below its frozen baseline (or a successful `-UpdateBaseline` or `-SelfTest`), 1 = a package's count exceeds its frozen baseline (or `-SelfTest`/`--harness-self-test` reports a failing check), 2 = usage error, missing baseline, an attempted baseline increase over an existing baseline, or the automatic self-test step failing on a normal invocation.
 
 ---
 
@@ -370,10 +375,13 @@ Design 026 (Golden Corpus Verification & Docs Conformance) Invariant I5 gate: ex
 | **Run gate** | `.\test\check-docs-conformance.ps1` | Scan all 36 architecture docs, fail on unresolved references |
 | **Warning mode** | `.\test\check-docs-conformance.ps1 -Warn` | Report unresolved references but exit 0 |
 | **Show files** | `.\test\check-docs-conformance.ps1 -ShowFiles` | Print each architecture doc file being scanned |
+| **Self-test only** | `.\test\check-docs-conformance.ps1 -SelfTest` | Run only the scanner's own edge-case self-test suite; skip the real docs scan |
 | **Custom base dir** | `.\test\check-docs-conformance.ps1 -BaseDir D:\datrix` | Specify monorepo root explicitly |
 | **Debug** | `.\test\check-docs-conformance.ps1 -Dbg` | Debug logging |
 
-**Parameters:** `-Warn`, `-ShowFiles`, `-BaseDir`, `-Dbg`
+**Parameters:** `-Warn`, `-ShowFiles`, `-BaseDir`, `-SelfTest`, `-Dbg`
+
+**Self-test runs automatically, every invocation.** A plain-Python self-test suite (`--self-test` on the underlying `.py`; no pytest -- real `tempfile.TemporaryDirectory()` fixtures and `assert` statements, per the datrix showcase boundary) covers `extract_path_candidates`, `extract_module_candidates`, `resolve_path_candidate` (Tier 1 + Tier 2, including the adversarial ambiguous-Tier-2-match case, which must stay unresolved), `resolve_module_candidate`, `load_exceptions`, and `check_against_exceptions`. This suite runs, unconditionally, as step 1 of every invocation (self-test failure aborts before the real scan, exit 2); `-SelfTest` runs it in isolation and skips the real scan. `--harness-self-test` (no `.ps1` switch -- diagnostic only) registers one intentionally-failing dummy check to prove the `[OK]`/`[FAIL]` harness itself is not vacuous.
 
 **Assertions:**
 - Every single-backtick inline code span in each of the 36 architecture docs is extracted as a path-reference or module-reference candidate per the fixed extraction rules (package/drive-prefixed for paths, import-name-prefixed dotted chains for modules); a span containing `...`, `<`/`>`, or `*` is rejected outright.
@@ -381,7 +389,7 @@ Design 026 (Golden Corpus Verification & Docs Conformance) Invariant I5 gate: ex
 - A module candidate resolves when any decreasing-length prefix of its segments after the import name matches a real `.py` file or package `__init__.py` (tolerating a trailing symbol/attribute/function name).
 - A candidate unresolved by both tiers is checked against the exceptions baseline (span text -> reason); present spans never fail the gate, absent spans do.
 
-**Exit codes:** 0 = no unresolved references (or a successful `-Warn` run), 1 = at least one unresolved, non-excepted reference found, 2 = usage error, missing exceptions baseline, or a doc in `ARCHITECTURE_DOC_FILES` that no longer exists.
+**Exit codes:** 0 = no unresolved references (or a successful `-Warn` or `-SelfTest` run), 1 = at least one unresolved, non-excepted reference found (or `-SelfTest`/`--harness-self-test` reports a failing check), 2 = usage error, missing exceptions baseline, a doc in `ARCHITECTURE_DOC_FILES` that no longer exists, or the automatic self-test step failing on a normal invocation.
 
 ---
 
@@ -442,3 +450,129 @@ This gate previously lived as a pytest test inside `datrix-codegen-common` (`tes
 **Parameters:** `-Dbg`
 
 **Exit codes:** 0 = every package's genDSL corpus resolved at import, 1 = at least one package failed to resolve or import.
+
+---
+
+### `test\review-library-gate.ps1`
+
+Absorbs the valuable coverage of 5 orphaned pytest files that used to live under
+`scripts/library/review/tests/` (`test_review_schema.py`, `test_canonical_modules_cache.py`,
+`test_escalation.py`, `test_model_parsing.py`, `test_orchestrator_core.py`) — the `datrix`
+showcase repo hosts no pytest suite of any kind, so those files were never executed by any
+runner. Re-expresses each file's distinct behavioral classes as plain-Python `assert`-based
+checks (no pytest, no mocks/fakes) against `scripts/library/review/{review_schema,
+canonical_modules, escalation, review}.py`: `Finding`/`ReviewResult` construction and
+serialization round-trips, canonical-module package discovery/scanning/digest-building/cache
+validity/prompt formatting, `should_escalate_to_tier2` across every escalation mode and
+threshold combination, `extract_json_from_response`/`parse_model_response` JSON-extraction
+strategies (fences, brace-matching, `<think>` tag stripping, largest-review-JSON selection), and
+the orchestrator core (`resolve_task_context`, `discover_phase_tasks`, `dict_to_review_result`,
+`build_reviewer_prompt`). Repo-level validation **script**, not a pytest suite (per the datrix
+showcase boundary).
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the gate** | `.\test\review-library-gate.ps1` | Run all 48 absorbed checks |
+| **Harness self-test** | `.\test\review-library-gate.ps1 -HarnessSelfTest` | Prove the harness detects a forced failure (always reports [FAIL], exits 1) |
+| **Debug** | `.\test\review-library-gate.ps1 -Dbg` | Print the python invocation before running |
+
+**Parameters:** `-HarnessSelfTest`, `-Dbg`
+
+**Assertions:** 48 named checks covering `review_schema.py`, `canonical_modules.py`,
+`escalation.py`, and `review.py`'s JSON-extraction and orchestrator-core functions. Several are
+inherently adversarial (corrupt/malformed JSON → invalid or `None`, non-review JSON rejected,
+garbage → `None`, unknown escalation mode never escalates), which already demonstrates
+discriminating power; `-HarnessSelfTest` additionally proves the pass/fail harness itself is not
+vacuous by registering one deliberately-failing dummy check and confirming it is reported
+`[FAIL]` with a nonzero exit.
+
+**Exit codes:** 0 = every check passed, 1 = at least one check (or the harness self-test) failed, 2 = usage error.
+
+---
+
+### `test\test-tooling-parsing-gate.ps1`
+
+Absorbs the valuable coverage of 2 orphaned pytest files that used to live under
+`scripts/library/test/tests/` (`test_compare_tests.py`, `test_status_tests_index.py`) — the
+`datrix` showcase repo hosts no pytest suite of any kind, so those files were never executed by
+any runner. Re-expresses each file's distinct behavioral classes as plain-Python `assert`-based
+checks (no pytest, no mocks/fakes) against `scripts/library/test/compare_tests.py` and
+`scripts/library/test/status_tests.py`: `find_runs`/`build_service_comparisons`/`parse_unit_run`
+(direct-child-only `unit-tests-*`/`deploy-test-*` run discovery excluding nested/archived dirs,
+service change classification e.g. REGRESSED with OK/FAIL history, the flat-log fallback parser
+for `unit-tests-summary.log`, and unit-vs-deploy runs discovered and compared as separate
+populations), and `TestResult`/`_format_result_row`/`_read_index_json`/`find_latest_log_file`/
+`parse_pytest_summary`/`parse_timestamp_from_log_file` (structured `index.json` parsing including
+the INCOMPLETE-falls-back-to-`full.log` signal, `index.json`-preferred-over-`full.log` discovery,
+directory-name timestamp parsing, and the in-progress xdist `[ NN%]` progress-percent extraction
+case). Repo-level validation **script**, not a pytest suite (per the datrix showcase boundary).
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the gate** | `.\test\test-tooling-parsing-gate.ps1` | Run all 18 absorbed checks |
+| **Harness self-test** | `.\test\test-tooling-parsing-gate.ps1 -HarnessSelfTest` | Prove the harness detects a forced failure (always reports [FAIL], exits 1) |
+| **Debug** | `.\test\test-tooling-parsing-gate.ps1 -Dbg` | Print the python invocation before running |
+
+**Parameters:** `-HarnessSelfTest`, `-Dbg`
+
+**Assertions:** 18 named checks covering `compare_tests.py` and `status_tests.py`. Several are
+inherently adversarial (nested/archived run dirs excluded from discovery, corrupt JSON → `None`,
+INCOMPLETE result → `None`/fallback, missing `counts` → `None`), which already demonstrates
+discriminating power; `-HarnessSelfTest` additionally proves the pass/fail harness itself is not
+vacuous by registering one deliberately-failing dummy check and confirming it is reported
+`[FAIL]` with a nonzero exit.
+
+**Exit codes:** 0 = every check passed, 1 = at least one check (or the harness self-test) failed, 2 = usage error.
+
+---
+
+### `test\shared-library-gate.ps1`
+
+Absorbs the valuable coverage of 8 orphaned pytest files that used to live under
+`scripts/library/shared/tests/` (`test_structured_log_writer.py`, `test_test_runner_junit.py`,
+`test_codegen_hint_mapper.py`, `test_deploy_test_aggregate_writer.py`,
+`test_generated_test_log_writer.py`, `test_aggregate_test_writer.py`,
+`test_deploy_test_log_writer.py`, and 3 of the 8 test classes in `test_logging_utils_dirs.py`) —
+the `datrix` showcase repo hosts no pytest suite of any kind, so those files were never executed
+by any runner. Re-expresses each file's distinct behavioral classes as plain-Python `assert`-based
+checks (no pytest, no mocks/fakes, real `tempfile.TemporaryDirectory()` fixtures) against
+`scripts/library/shared/{structured_log_writer, test_runner, codegen_hint_mapper,
+deploy_test_aggregate_writer, generated_test_log_writer, aggregate_test_writer,
+deploy_test_log_writer, logging_utils}.py`: JUnit XML / Jest JSON parsing and clustering by
+normalized error pattern, source-location fallback chains (project frame → test frame →
+conftest-as-test → stdlib-only/no-traceback → `unknown:0`), codegen-hint path mapping,
+cross-project cluster correlation (including representative-project count/alphabetical
+tie-breaking and suite-failure clusters as a separate cluster type from error/failure clusters),
+deploy-test phase detection from both human-readable (`=== Docker Build ===`) and structured
+(`docker_build_started`/`docker_build_failed exit_code=1`) log markers — including the regression
+where a Docker-unavailable-with-no-markers or fully empty deploy dir must resolve to FAILED at
+docker-build with every phase SKIPPED, never silently PASSED — transient-vs-logic failure
+classification, and `TeeLogger`/`cleanup_old_logs` log-content and directory-cleanup behavior.
+`test_runner.py` and `logging_utils.py` are used READ-ONLY (imported and called, never edited);
+the directory-creation/uniqueness classes of `test_logging_utils_dirs.py`
+(`TestTeeLoggerDirectoryCreation`, `TestRunDirProperty`, `TestContextManager`) are deliberately
+NOT re-covered here because `test-specific-selection-gate.ps1`'s `run_dir_exclusivity_check`
+already exercises the same `TeeLogger`/`LogConfig` directory-claiming mechanism far more
+rigorously (8 sequential + 8 concurrent racers). Repo-level validation **script**, not a pytest
+suite (per the datrix showcase boundary).
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the gate** | `.\test\shared-library-gate.ps1` | Run all 47 absorbed checks |
+| **Harness self-test** | `.\test\shared-library-gate.ps1 -HarnessSelfTest` | Prove the harness detects a forced failure (always reports [FAIL], exits 1) |
+| **Debug** | `.\test\shared-library-gate.ps1 -Dbg` | Print the python invocation before running |
+
+**Parameters:** `-HarnessSelfTest`, `-Dbg`
+
+**Assertions:** 47 named checks covering `structured_log_writer.py`, `test_runner.py`,
+`codegen_hint_mapper.py`, `deploy_test_aggregate_writer.py`, `generated_test_log_writer.py`,
+`aggregate_test_writer.py`, `deploy_test_log_writer.py`, and `logging_utils.py`'s log-content and
+cleanup functions. Several are inherently adversarial (corrupt/truncated/empty JUnit XML →
+INCOMPLETE, missing/corrupt per-project `index.json` skipped without error, a
+Docker-unavailable-with-no-markers or fully empty deploy dir → FAILED never PASSED,
+`add_project_results` raising `FileNotFoundError`/`JSONDecodeError` on bad input), which already
+demonstrates discriminating power; `-HarnessSelfTest` additionally proves the pass/fail harness
+itself is not vacuous by registering one deliberately-failing dummy check and confirming it is
+reported `[FAIL]` with a nonzero exit.
+
+**Exit codes:** 0 = every check passed, 1 = at least one check (or the harness self-test) failed, 2 = usage error.

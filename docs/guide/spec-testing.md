@@ -189,7 +189,7 @@ Each `test("description")` block becomes one test function in the generated outp
 
 ## Semantic validation
 
-The `TestValidator` (Phase 6) enforces correctness of test block contents:
+`TestDescriptionUniquenessValidator` (TST009) and `TestBodyEffectsValidator` (TST001-TST008, TST010, TST011) — split from the former `TestValidator`, design 030 D4/I5 — enforce correctness of test block contents in Phase 6:
 
 | Code | Severity | Rule |
 |------|----------|------|

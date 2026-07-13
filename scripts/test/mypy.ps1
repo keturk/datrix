@@ -111,6 +111,20 @@ try {
  } elseif ($Projects.Count -gt 0) {
  $normalizedProjects = $Projects | ForEach-Object { ConvertTo-DatrixProjectName -ProjectInput $_ }
  $allProjects = Get-DatrixPackageNamesGlobWithPyProject -WorkspaceRoot $datrixWorkspaceRoot
+
+ # The "datrix" showcase repo has its own pyproject.toml (with a [tool.mypy]
+ # section for its scripts/) but is deliberately excluded from
+ # Get-DatrixPackageNamesGlobWithPyProject's "datrix-*" glob -- it is not an
+ # installable toolchain package, so -All must never sweep it (that glob is
+ # shared with dependency.ps1's package listing). An EXPLICIT
+ # `mypy.ps1 datrix -Specific <file>` request is still a legitimate,
+ # targeted type-check of one showcase script, so it is allowed here even
+ # though it is never auto-discovered by -All.
+ $datrixShowcasePyProject = Join-Path (Join-Path $datrixWorkspaceRoot "datrix") "pyproject.toml"
+ if ((Test-Path $datrixShowcasePyProject) -and ($allProjects -notcontains "datrix")) {
+ $allProjects = @($allProjects) + "datrix"
+ }
+
  $projectsToCheck = $normalizedProjects | Where-Object { $allProjects -contains $_ }
 
  if ($projectsToCheck.Count -eq 0) {
