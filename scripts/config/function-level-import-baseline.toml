@@ -309,10 +309,6 @@ file = "datrix-common/src/datrix_common/identity/plan_artifact.py"
 count = 7
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/identity/planner.py"
-count = 4
-
-[[baseline]]
 file = "datrix-common/src/datrix_common/infra/registry.py"
 count = 3
 
@@ -355,6 +351,12 @@ count = 4
 [[baseline]]
 file = "datrix-common/src/datrix_common/plugin/platform_config_contract.py"
 count = 3
+
+[[baseline]]
+# design 032 D2: type-only GeneratorOutput contract reference (see the
+# language_plugin.py precedent); hand-added, not -UpdateBaseline.
+file = "datrix-common/src/datrix_common/plugin/protocol.py"
+count = 1
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/plugin/registry.py"

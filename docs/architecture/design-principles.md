@@ -663,7 +663,7 @@ Every deployment-relevant choice is explicit in the `.dcfg` profile. A missing r
 
 **Infrastructure-flavor is per-block, not per-service:**
 
-`RdbmsFlavor`, `CacheFlavor`, `PubsubFlavor`, and similar enums express how a single block is provisioned (`container`, `flexible-server`, `elasticache`, `event-hubs`, etc.). They are block-level infrastructure choices, not a service-level runtime selector. Service deployment shape still derives from which blocks are declared, not from a service-flavor enum.
+A block's `platform` flavor (`FlavorId` — `container`, `flexible-server`, `elasticache`, `event-hubs`, ...) expresses how a single block is provisioned. It is a block-level infrastructure choice, not a service-level runtime selector, and it is an OPEN axis: the valid values are the `(block_type, flavor)` cells the installed platform plugins declare, not a closed enum. Service deployment shape still derives from which blocks are declared, not from a service-flavor enum.
 
 **Retired path:**
 

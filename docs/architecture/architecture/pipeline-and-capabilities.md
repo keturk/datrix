@@ -642,7 +642,7 @@ Every externally reachable surface carries an explicit `auth(...)` contract (mod
 
 **Secret provider matrix (OR2):** Provider secrets (client secrets, JWKS signing keys, webhook secrets) are referenced via `ConfigSecretRef` with a `secretProvider` field. Supported providers: `env`, `aws-secrets-manager`, `aws-ssm`, `azure-key-vault`, `docker-secret`.
 
-**Capability matrix (OR14):** `datrix_common/identity/capability_matrix.py` maps each provider type to its supported capability set (MFA, social providers, custom claims, machine audience, etc.). Generators query this matrix to gate feature emission — unsupported capabilities for a given provider type raise a codegen error rather than silently omitting code.
+**Identity capability declarations (OR14):** Each platform plugin declares, on its own `PlatformCapabilityDeclaration`, which identity provider types it can realize and the capability set it supports for each (MFA, social providers, custom claims, machine audience, etc.). Generators gate feature emission through the one generic validator in `datrix_common/plugin/capability_resolution.py`, which asks the resolved platform's declaration — unsupported capabilities raise a codegen error carrying the platform's declared reason rather than silently omitting code. There is no central identity policy table.
 
 ### Provider Type Routing (Azure, OR3)
 
