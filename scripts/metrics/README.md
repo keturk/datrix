@@ -90,10 +90,12 @@ The report is **grouped by type**: classes, functions, methods, then variables, 
 
 Only code under each project's `src/` is reported; dead code inside `tests/` is not included. Per-project `vulture_whitelist.py` is respected in both passes.
 
+**Project set is discovered, not hardcoded.** With no `Projects` argument (and with `-All`, which selects the same set), the report scans **every `datrix-*` directory carrying a `pyproject.toml`**, excluding the `datrix` showcase repo. Datrix is a multi-language, multi-platform generator, so a new `datrix-codegen-<lang>` package is scanned as soon as it becomes installable — no edit to the script or to this list. A repo that has been cloned but not yet populated has no `pyproject.toml` and is correctly skipped until it does.
+
 ### Usage
 
 ```powershell
-# Default: the 11 packages (datrix-cli, datrix-common, ... datrix-language)
+# Default: every installable datrix-* package discovered on disk (same set as -All)
 .\scripts\metrics\dead-code-report.ps1
 
 # All datrix-* projects (except datrix)
@@ -111,8 +113,8 @@ Only code under each project's `src/` is reported; dead code inside `tests/` is 
 
 | Parameter | Description |
 |-----------|-------------|
-| `Projects` | Optional. Project names or folder paths (positional). If omitted, uses default 11 packages. |
-| `-All` | Scan all datrix-* projects (exclude `datrix`) |
+| `Projects` | Optional. Project names or folder paths (positional). If omitted, scans every installable package discovered on disk (see below). |
+| `-All` | Scan all datrix-* projects (exclude `datrix`) — the same set as the default |
 | `-MinConfidence` | Vulture min confidence 60-100 (default: 60; use 80+ to exclude functions/classes) |
 | `-Output` | text or json (default: text) |
 | `-OutputPath` | Write report to this file (optional) |

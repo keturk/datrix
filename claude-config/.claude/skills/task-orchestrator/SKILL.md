@@ -101,48 +101,36 @@ Accept task paths in these formats:
 
 If a PHASE directory is given:
 1. Extract the phase number from the directory path (e.g., "36" from `phase-36`)
-2. Check if `d:\datrix\datrix\.tasks\phase-{NN}\dependencies.md` exists
-3. If it exists, use it (see step 1b)
-4. If it doesn't exist, use Glob to find all `task-*.md` files in that directory
+2. Run the phase-status script (see 1b) — it handles dependencies.md (JSON and legacy) and the task-file glob fallback itself
 
-### 1b. Read Task Metadata
+### 1b. Read Task Metadata (scripted)
 
 **IMPORTANT:** The orchestrator automatically discovers tasks when a PHASE is provided. The user does NOT need to provide a list of task files.
 
-**Discovery process for each phase:**
+**One script call replaces all manual discovery and metadata extraction** (read `datrix/scripts/tasks/quick-reference.md` before invoking; a pre-tool hook enforces this):
 
-1. **First, check for the consolidated dependencies file** at `d:\datrix\datrix\.tasks\phase-{NN}\dependencies.md` (phase-level, NOT in package directories). If it exists: try JSON (new format — extract task_id, task_path, title, is_completed, package, dependencies, category; skip per-file reads for graph construction); if not JSON, parse as "Group N"-headed line-separated task paths (groups = dependency waves; still read task files for full metadata).
+```bash
+powershell -File "d:/datrix/datrix/scripts/tasks/phase-status.ps1" {NN}
+```
 
-2. **If dependencies.md doesn't exist**, glob for `task-*.md` in every package's `.tasks\phase-{NN}\` directory (`d:\datrix\*\.tasks\phase-{NN}\`) and read each task file to extract metadata (see below).
+Read the resulting `D:\datrix\.tmp\tasks\phase-{NN}-status.json`. Per task it carries everything 1b used to extract by hand — `task_id`, `task_path`, `title`, `status`/`is_completed`, `package`, `category`, `depends_on` (normalized task IDs), `design_reference`, `design_acceptance_property` (full text), `files_to_review`, `files_to_create_modify`, `targeted_tests`, `languages`, `has_how_solved`, `how_solved_redflags` — plus phase-level `dependencies_md` (json/legacy/absent), `provenance` (drives 1e's light/full mode), `dep_mismatches`, and `missing_dependency_files`. It discovers tasks across ALL repos' `.tasks\phase-{NN}\` folders and merges `dependencies.md` when present (schema reference: `d:\datrix\datrix\claude-config\.claude\agent-templates\dependencies-format.md`).
 
-**Dependencies.md schema:**
+1. **Skip completed tasks** — `is_completed == true` tasks are excluded from execution but stay in the graph (dependencies of other tasks may reference them)
+2. **Task bodies are still read where the work happens** — an implementation agent reads its own full task file at dispatch; the orchestrator itself works from the JSON and reads a task file directly only when adjudicating something the metadata cannot settle
+3. **Re-run the script after ANY task-file amendment** (1e authored/amended tasks, completion marks) — the JSON is a snapshot of disk truth, not a cache
 
-See `d:\datrix\datrix\claude-config\.claude\agent-templates\dependencies-format.md` for the JSON schema.
+### 1c. Validate (scripted)
 
-2. **Metadata extraction (when reading task files manually):**
-   - `task_id` — from filename (e.g., `task-07-01` from `task-07-01-base-class.md`)
-   - `title` — from `# Task {NN}-{TT}: {Title}` heading
-   - `is_completed` — title starts with `# COMPLETED:`
-   - `package` — from `**Package:**` field
-   - `dependencies` — from `**Depends on:**` field (list of task ID slugs, or "None")
-   - `category` — from header (Implementation / Tests / Documentation / Quality Gate / Verification)
-   - `design_reference` — from `**Design reference:**` field (design-doc path + section(s) + the D#/G#/numbered invariant the task implements)
-   - `design_acceptance_property` — from `**Design acceptance property:**` field (the observable end-state that proves the task satisfies the design, and the check that proves it)
+Run the wave planner — its `blocking_issues` list is the validation verdict:
 
-3. **Skip completed tasks** — if `is_completed == true`, exclude from execution but keep in the graph (dependencies of other tasks may reference them)
+```bash
+powershell -File "d:/datrix/datrix/scripts/tasks/plan-waves.ps1" {NN}
+```
 
-4. **Read additional metadata when spawning agents:**
-   When spawning an agent for a task, read the full task file to extract:
-   - `targeted_tests` — from `## Targeted Tests` section
-   - `files_to_review` — from `## Files to Review Before Starting`
-   - `files_to_create` — from `## Files to Create`
-   - `files_to_modify` — paths extracted from task body
-
-### 1c. Validate
-
-- If ANY referenced dependency task file does not exist on disk → STOP, report missing file
-- If ANY task mixes `.py` and `.ts` files in files to create/modify → STOP, report scope error
-- If zero non-completed tasks remain → report "All tasks already completed" and exit
+- `MISSING_DEP_FILE` in blocking_issues (a referenced dependency task file does not exist on disk) → STOP, report missing file
+- `MIXED_LANGUAGE_TASK` (a task's files span more than one implementation language) → STOP, report scope error
+- Any reported `cycle` → STOP (see 2b)
+- If zero non-completed tasks remain (`phase-{NN}-status.json` shows 0 pending) → report "All tasks already completed" and exit
 
 ### 1d. Build the Design-Conformance Contract (the orchestrator's source of truth for "done")
 
@@ -187,14 +175,14 @@ State the chosen mode and its justification in the Audit Report line.
 2. **Adjudicate each finding yourself (Opus).** Discard evidence-free claims. For each surviving finding, decide its class (1–7 above) and its remedy. A finding that would *reduce* scope (already-satisfied) needs the same standard of proof as one that adds scope — run its acceptance check yourself before acting on it.
 3. **Author the missing tasks.** For each real coverage / enforcement / under-specification gap, write a new task file:
    - Location: the **owning package's** `.tasks\phase-{NN}\` directory (the package whose surface the invariant lives on — apply the generality-preserving rule: the most language/platform-agnostic layer that can own it).
-   - ID: the next free `{TT}` for that phase — scan every package's `.tasks\phase-{NN}\` for the highest existing `task-{NN}-{TT}` and continue from there. Never reuse or renumber an existing ID.
+   - ID: the next free `{TT}` for that phase — get it from `powershell -File "d:/datrix/datrix/scripts/tasks/validate-dependencies.ps1" -Phase {NN} -NextTaskNumber` (prints only the number, scanning every repo's `.tasks\phase-{NN}\`). Never reuse or renumber an existing ID.
    - Content: the full task template from `/generate-tasks` (`d:\datrix\.claude\skills\generate-tasks\SKILL.md`, "File Structure") — including a real `**Design reference:**` (the D#/G# it closes), a **provable** `**Design acceptance property:**` with its negative + positive check, `## Files to Review Before Starting`, `## Files to Create`, `## Targeted Tests`, and its own `## Tests` section. A task the audit adds must be as complete as one `/generate-tasks` emits; a stub task is a workaround.
    - Delegate the *writing* to a **sonnet** agent from your spec (you decide the scope, acceptance property, package, and dependencies; the agent types the file), then read the result and verify it carries a provable acceptance property.
    - For an **under-specified** existing task, do not add a new task — amend that task file's `**Design acceptance property:**` and its Success Criteria to carry the provable check. (Amending a *task* is allowed; amending the *design* is not.)
 4. **Rewire dependencies — task files AND `dependencies.md` must stay in lockstep.**
    - Edit the `**Depends on:**` field of every affected task file: new tasks' own prerequisites, plus edges **into** the new tasks from every task they must precede (a newly-added guard becomes a `Depends on` of every migration it governs).
    - Update `d:\datrix\datrix\.tasks\phase-{NN}\dependencies.md` to match — per the JSON schema in `d:\datrix\datrix\claude-config\.claude\agent-templates\dependencies-format.md`: append a `tasks[]` entry for each new task (`task_id`, `task_path`, `title`, `is_completed: false`, `package`, `dependencies`, `category`) and update the `dependencies` array of every existing task that gained an edge. If the file is in the legacy "Group N" text format, **rewrite it as JSON** (the preferred format) rather than patching groups. If it does not exist, create it — the amended set is now the phase's source of truth and the next run must see it.
-   - Re-run 1c's validation and 2b's cycle detection over the amended graph. A cycle introduced by the audit's own edges is a bug in your rewiring — fix it, do not ship it.
+   - Re-validate the amended graph with the scripts: `phase-status.ps1 {NN}` (fresh snapshot; `dep_mismatches` must be empty), `validate-dependencies.ps1 -Phase {NN}` (must PASS — it checks dependencies.md completeness, dep resolution, acyclicity, file-vs-JSON agreement, and cross-repo numbering), and `plan-waves.ps1 {NN}` (no `cycle`, no `blocking_issues`). A cycle introduced by the audit's own edges is a bug in your rewiring — fix it, do not ship it.
 5. **Re-verify the contract.** With the amended set, re-run 1d step 4: every invariant surface in the `design_contract` must now map to at least one task. If a surface still has no owner, you have not finished the audit.
 
 ##### Outcomes
@@ -221,65 +209,27 @@ Omit any line with nothing to report. If no gaps: `READINESS AUDIT — phase {NN
 
 ---
 
-## Step 2: Build Dependency DAG and Plan Waves
+## Step 2: Build Dependency DAG and Plan Waves (scripted)
 
-### 2a. Build the Directed Acyclic Graph
+### 2a–2e. Compute the plan with the wave planner
 
-Build it from the **amended** task set — the tasks added and the edges rewired by the Readiness Audit (1e) are ordinary members of the graph, not an appendix to it. For each non-completed task:
-1. Parse the `**Depends on:**` field to get dependency slugs
-2. For each dependency slug:
-   - Find the matching task in the full task list (completed or not)
-   - If the dependency is completed → treat as satisfied (no edge needed)
-   - If the dependency is NOT completed AND is in the task set → add a directed edge: dependency → this task
-   - If the dependency is NOT completed AND is NOT in the task set → STOP, report "Task {id} depends on {dep_id} which is not completed and not in the provided task set"
+The entire DAG/cycle/wave/conflict/ordering computation is one script call over the **amended** task set (the tasks added and edges rewired by 1e are ordinary members of the graph — re-run the script after any amendment):
 
-### 2b. Detect Cycles
-
-Run cycle detection on the graph. If a cycle is found:
-- STOP immediately
-- Report: `"Dependency cycle detected: {task_a} → {task_b} → ... → {task_a}"`
-- List all tasks in the cycle
-- Exit
-
-### 2c. Topological Sort into Waves (Phase-Sequential)
-
-**Phase ordering is a hard constraint.** When tasks span multiple phases (e.g., `phase-34` and `phase-35`), ALL tasks in the earlier phase must complete before ANY task in the later phase begins. This ensures correctness when later phases depend on earlier phase outputs.
-
-**Algorithm:**
-
-1. **Group tasks by phase number** (extracted from file path: `.tasks/phase-{NN}/`)
-2. **Sort phases numerically** (phase 34 before phase 35)
-3. **Within each phase**, apply topological sort using Kahn's algorithm:
-
-```
-For each phase (in numeric order):
-    remaining = non-completed tasks in this phase
-    local_wave = 0
-    while remaining is not empty:
-        ready = tasks in remaining whose dependencies are ALL either:
-          - completed (already done before this run)
-          - assigned to a previous wave (any earlier wave, including from earlier phases)
-        if ready is empty:
-            ERROR: cycle detected (should have been caught in 2b)
-        assign all ready tasks to wave {global_wave_counter}
-        global_wave_counter += 1
-        local_wave += 1
+```bash
+powershell -File "d:/datrix/datrix/scripts/tasks/plan-waves.ps1" {NN}
 ```
 
-4. **Phase boundaries are wave boundaries** — even if a task in phase 35 has no dependencies, it cannot start until ALL phase 34 waves are complete. Each phase boundary is also a **Phase Boundary Gate** (Step 3i): the earlier phase must pass an explicit completion check — every package in the gate's sweep set (changed packages + shared-layer consumers; ALL packages at a multi-phase run's first boundary) must pass its **full** test suite with all failures fixed, including pre-existing ones unrelated to the phase, with Opus-led recovery on failure — before the next phase's first wave is spawned.
+Read `D:\datrix\.tmp\tasks\phase-{NN}-waves.json`. What it computes (and you therefore do NOT re-derive by hand):
 
-### 2d. File Conflict Detection Within Waves
+- **DAG semantics (2a):** completed dependencies count as satisfied (no edge); a dependency that is not completed and not in the set is a `blocking_issues` entry → STOP, report "Task {id} depends on {dep_id} which is not completed and not in the provided task set".
+- **Cycle detection (2b):** a non-null `cycle` names the actual cycle path → STOP immediately, report `"Dependency cycle detected: {task_a} → {task_b} → ... → {task_a}"`, exit.
+- **Kahn topological waves (2c):** `waves[]` lists task IDs per wave; `wave_details[]` adds packages per wave.
+- **File-conflict splitting (2d):** waves whose tasks share a file in files-to-create/modify are already split into sequential conflict-free sub-waves; `file_conflicts[]` records what was split and why.
+- **Quality Gate & Verification ordering (2e):** `Quality Gate` tasks are held to the last wave(s) before anything that depends on them (e.g. an Acceptance task); `Verification`/`Acceptance` tasks follow their dependencies.
 
-For each wave, check if any two tasks modify the same file:
-- Extract `files_to_create` and `files_to_modify` for each task in the wave
-- If overlap found: split conflicting tasks into sequential sub-batches within the wave
-  - Sub-batch A: first task touching the file
-  - Sub-batch B: second task touching the file (executes after A completes)
+**Multi-phase runs (phase ordering is a hard constraint):** run `plan-waves.ps1` once per phase, in numeric order, and concatenate the wave lists — ALL of an earlier phase's waves complete before ANY later phase's first wave. Each phase boundary is also a **Phase Boundary Gate** (Step 3i): the earlier phase must pass an explicit completion check — every package in the gate's sweep set (changed packages + shared-layer consumers; ALL packages at a multi-phase run's first boundary) must pass its **full** test suite with all failures fixed, including pre-existing ones unrelated to the phase, with Opus-led recovery on failure — before the next phase's first wave is spawned.
 
-### 2e. Quality Gate & Verification Task Ordering
-
-- Quality gate tasks (`**Category:** Quality Gate`) → move to the LAST wave
-- Verification tasks (`**Category:** Verification`) → must be in a wave AFTER their dependency tasks
+**Exit codes:** 0 = plan computed, no blockers; 1 = blockers or cycle present (read the JSON and apply the STOP rules above); 2 = usage error.
 
 ### 2f. Present Execution Plan
 
@@ -490,7 +440,11 @@ After the **wave join** — the rolling pool has fully drained (`in_flight` and 
 4. **Read the canonical result from `index.json`, not the console.** `test.ps1` saves a timestamped folder under `{package}/.test_results/test-results-*/` and prints its path on the final console lines. Read that folder's `index.json` — it is the machine-readable source of truth (for both the step-2 accepted runs and the step-3 re-runs). Do NOT eyeball-parse stdout. Extract:
    - `result` — `"PASSED"` or `"FAILED"`
    - `counts.passed`, `counts.failed`, **`counts.error`**, `counts.skipped`, `counts.xfailed`, `counts.xpassed`
-   - From `full.log` in the same folder: the failing test node IDs **and** the erroring module/collection paths (errors have no per-test node ID — they are reported at module level)
+   - **When the run is RED**, get the failing/erroring detail from the collector instead of reading `full.log` — pass it the **printed** run folder (never `-Project`, which picks the newest folder on disk and can race a concurrent session):
+     ```bash
+     powershell -File "d:/datrix/datrix/scripts/test/collect-failure-data.ps1" "{printed-run-folder}"
+     ```
+     Its `failure-data.json` carries every error/failure cluster (errors first — module-level collection errors have no per-test node ID), each with a representative traceback tail and a ready `test_command`.
 
 5. **Decide the gate over the union of accepted artifact results (step 2) and re-run results (step 3). The gate is GREEN only when every one of them has `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0`.** Treat **errors exactly like failures** — a pytest *error* (collection / import / fixture / setup failure) means tests never ran, which is a worse outcome than an assertion failure, not a passable one. Never read `failed` alone: a run with `failed == 0` but `error > 0` is RED, not green.
    - Gate GREEN → proceed to 3g (mark complete)
@@ -499,9 +453,9 @@ After the **wave join** — the rolling pool has fully drained (`in_flight` and 
 
 #### 3e. Attribute Failures and Fix Loop
 
-Process **both** red outcomes from `counts`: assertion **failures** (`counts.failed`) and **errors** (`counts.error`). They are attributed and fixed the same way, with one difference in how you locate them:
-- A **failure** has a per-test node ID (`tests/...::test_x`) — fix the code under test.
-- An **error** is reported at module/collection level with no per-test node ID (e.g. an `ImportError`, a fixture error, a syntax error that breaks collection). Read `full.log` for the ERRORS section, attribute by the **erroring module/file path**, and fix the import/fixture/syntax root cause. An error often hides many tests that never ran — resolving it can change the pass count substantially, so always re-run after fixing one.
+Process **both** red outcomes from `counts`: assertion **failures** (`counts.failed`) and **errors** (`counts.error`). Work from the RED run's `failure-data.json` (produced in 3d step 4) — its clusters are the attribution units, one root cause each. They are attributed and fixed the same way, with one difference in how you locate them:
+- A **failure** cluster has per-test node IDs (`tests/...::test_x`) — fix the code under test.
+- An **error** cluster is reported at module/collection level with no per-test node ID (e.g. an `ImportError`, a fixture error, a syntax error that breaks collection). Attribute by the **erroring module/file path** from the cluster's representative, and fix the import/fixture/syntax root cause. An error often hides many tests that never ran — resolving it can change the pass count substantially, so always re-run after fixing one.
 
 **Delegation split for the fix loop.** Attribution (step 1) and the fix-scope decision are YOUR judgment — do them inline. Reading the failing test/code and applying the edit (steps 2–3) are delegated to a **fix subagent** — do NOT edit code inline on Opus. You verify (step 4) by running the targeted test yourself, or by delegating the run and reading its `index.json`.
 
@@ -580,13 +534,17 @@ Stricter than 3d: **every package in the sweep set must pass its FULL suite with
    - **Multi-phase runs — the all-packages guarantee:** at the **first** phase boundary of a multi-phase run, the sweep set is **ALL testable framework packages**, regardless of what phase 1 touched — this establishes the run's all-green baseline (pre-existing rot anywhere surfaces now, not under a later phase). At each **later** boundary, the guarantee is maintained incrementally: sweep = changed + consumers since each package's last GREEN full run (`package_green_state{}`); a package with **zero recorded changes** since its last green sweep carries its green status forward and is listed as `carried` in the checkpoint — green-at-last-sweep plus provably-unchanged-since IS "all tests passing" for that package. **Safety valve:** if `package_change_log{}` is tainted (any change that cannot be attributed to a recorded agent report), carry-forward is disabled — sweep ALL packages at this boundary.
    - **Single-phase runs:** changed + shared-layer consumers (no all-packages baseline requirement).
 2. **Run the full suite for every package in the sweep set concurrently** — fire all `test.ps1 {package}` calls in a **single message** (one Bash call per package). Include `VERIFIED_AGAINST_QUICK_REFERENCE` in each Bash tool description.
-3. **Read each package's `index.json`** (the canonical result, never stdout). A package is GREEN only when `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0` — errors count as red, exactly as the 3d gate rules. Record each GREEN package into `package_green_state{}`.
+3. **Read the sweep verdict with the gate script** (canonical `index.json` results, never stdout). After the suite runs complete:
+   ```bash
+   powershell -File "d:/datrix/datrix/scripts/test/gate-verdict.ps1" -Projects {pkg1},{pkg2},...
+   ```
+   It prints one GREEN/RED line per package + `OVERALL`, and writes per-package counts and capped failing-test lists to its `Details:` JSON. Sanity-check each package's `run_dir`/`age_minutes` in the JSON against the runs you just fired (a concurrent session's newer run would show up here). A package is GREEN only when `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0` — errors count as red, exactly as the 3d gate rules; the script already applies this (UNKNOWN/in-progress/missing results are RED). Record each GREEN package into `package_green_state{}`. For each RED package, run `collect-failure-data.ps1` on its run dir for the cluster detail that drives step 4.
 4. **Fix every red package to GREEN — regardless of attribution.** For each failing test and each erroring module across ALL packages in the sweep set, **including failures in code that no task in this phase modified**:
    - **Delegate the fix, own the verdict.** Dispatch a **sonnet** (or **opus** for a subtle/cross-cutting root cause) fix subagent to read the failing test and the code under test, trace to the **root cause**, and fix it there. Unlike 3e this is NOT scope-restricted to a task's files — instruct the agent to fix whatever is red at its root. Bind it with NO workarounds, NO `xfail`/skip-to-pass, NO band-aids, NO conditional guards that hide the broken path, NO git reverts (CLAUDE.md). You do NOT read/edit the code inline on Opus — you decide what's in scope and verify the result.
    - Verify authoritatively: re-run the specific test (`test.ps1 {package} -Specific "{path}"`), then re-run the full package suite — reading `index.json`, not the agent's self-report.
    - If the first fix attempt fails or the root cause is unclear → **Decision Escalation Protocol** — analyze the root cause in-context yourself, then re-dispatch the fix subagent with your directed remediation plan. If your directed fix still fails, that test/module becomes a blocking item carried into Step C's halt-and-ask.
    - If a red test traces to a root cause **genuinely outside this repo's control** (e.g. a known-flaky external integration) → do NOT silently skip it; record it as a blocking item and surface it in Step C, letting the user decide. Do not invent this exception to dodge a real fix.
-5. **Re-run until clean** — after fixes, repeat the full suite for the packages that were RED (their green peers' recorded results stand; nothing changed them). `test.ps1 -Rerun` selects exactly the projects whose latest run reported failures, or fire the red packages' `test.ps1 {package}` calls concurrently. Repeat until every sweep-set package is GREEN, or escalation/halt is reached. An error fixed in one module often unhides many tests that never ran, so always re-run the failing package's full suite after a fix rather than trusting `-Specific` alone. If a fix touched a package OUTSIDE the current red set (scope expansion into a green or unswept package), add that package to the sweep set and run its full suite too.
+5. **Re-run until clean** — after fixes, repeat the full suite for the packages that were RED (their green peers' recorded results stand; nothing changed them). `test.ps1 -Rerun` selects exactly the projects whose latest run reported failures, or fire the red packages' `test.ps1 {package}` calls concurrently; then re-run `gate-verdict.ps1 -Projects {red packages}` for the fresh verdict. Repeat until every sweep-set package is GREEN, or escalation/halt is reached. An error fixed in one module often unhides many tests that never ran, so always re-run the failing package's full suite after a fix rather than trusting `-Specific` alone. If a fix touched a package OUTSIDE the current red set (scope expansion into a green or unswept package), add that package to the sweep set and run its full suite too.
 
 ##### Step A2 — Phase-end DESIGN-CONFORMANCE gate (runs at EVERY phase end, including single-phase runs)
 

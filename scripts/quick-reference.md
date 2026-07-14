@@ -39,7 +39,7 @@ Read the category-specific file for the script you need:
 
 | Category | File | Scripts |
 |----------|------|---------|
-| **Testing** | [test/quick-reference.md](test/quick-reference.md) | test.ps1, run-complete.ps1, dual-target.ps1, test-single.ps1, mypy.ps1, compare-tests.ps1, cleanup.ps1, status-*.ps1 |
+| **Testing** | [test/quick-reference.md](test/quick-reference.md) | test.ps1, run-complete.ps1, dual-target.ps1, test-single.ps1, mypy.ps1, compare-tests.ps1, cleanup.ps1, status-*.ps1, collect-failure-data.ps1, extract-warnings.ps1, classify-run-delta.ps1, gate-verdict.ps1 |
 | **Development** | [dev/quick-reference.md](dev/quick-reference.md) | generate.ps1, syntax-checker.ps1, config-linter.ps1, compile.ps1, libcst.ps1, semgrep.ps1, ast-grep.ps1, audit.ps1, check-docs.ps1, generate-doc-fragments.ps1, cleanup-temps.ps1, ... |
 | **Git** | [git/quick-reference.md](git/quick-reference.md) | status.ps1, pull.ps1, commit-and-push.ps1 |
 | **Metrics** | [metrics/quick-reference.md](metrics/quick-reference.md) | complexity.ps1, ruff.ps1, bandit.ps1, vulture.ps1, coverage.ps1, test-gen.ps1, duplicate.ps1, loc.ps1, ... |
@@ -76,14 +76,18 @@ For `generate.ps1` and `run-complete.ps1` batch mode:
 
 ## Project Names
 
-Valid project names for `-Projects` parameter:
-- `datrix` (shared library)
+Project names are **discovered from disk** — any `datrix-*` directory in the workspace is a valid `-Projects` value (`Get-DatrixDirectories`; the venv/test scripts further narrow to those carrying a `pyproject.toml`). A new `datrix-codegen-<lang>` package becomes a valid project name as soon as its directory exists, with no edit here. The list below is therefore **illustrative, not closed**:
+
+- `datrix` (showcase repo — docs, examples, scripts)
 - `datrix-cli`
 - `datrix-common`
 - `datrix-language`
+- `datrix-codegen-common`
 - `datrix-codegen-component`
 - `datrix-codegen-python`
 - `datrix-codegen-typescript`
+- `datrix-codegen-dotnet` (scaffolding in progress)
+- `datrix-codegen-java` (scaffolding in progress)
 - `datrix-codegen-sql`
 - `datrix-codegen-docker`
 - `datrix-codegen-aws`

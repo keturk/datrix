@@ -71,7 +71,7 @@ Two-pass Vulture dead-code report: classifies findings as "never referenced" or 
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Default projects** | `.\metrics\dead-code-report.ps1` | Default 11 packages |
+| **Default projects** | `.\metrics\dead-code-report.ps1` | Every installable `datrix-*` package discovered on disk (same set as `-All`) |
 | **All projects** | `.\metrics\dead-code-report.ps1 -All` | All datrix-* projects |
 | **Specific projects** | `.\metrics\dead-code-report.ps1 datrix-common .\datrix-language\` | Selected projects by name or path |
 | **JSON output** | `.\metrics\dead-code-report.ps1 -All -Output json` | JSON format |

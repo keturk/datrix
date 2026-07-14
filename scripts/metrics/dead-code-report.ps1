@@ -8,10 +8,11 @@
 Reports dead code in src/ only, classified as "never referenced" or "only referenced by tests".
 
 .PARAMETER Projects
- One or more project names or folder paths (e.g. datrix-common, .\datrix-codegen-aws\). If omitted, uses the default 11 packages.
+ One or more project names or folder paths (e.g. datrix-common, .\datrix-codegen-aws\). If omitted, scans
+every datrix-* package discovered on disk with a pyproject.toml (except datrix) -- the same set as -All.
 
 .PARAMETER All
- Scan all datrix-* projects (except datrix). Overrides default project list.
+ Scan all datrix-* projects (except datrix). Same discovered set as the no-argument default.
 
 .PARAMETER MinConfidence
  Vulture min confidence 60-100. Default: 60 (include functions/classes).

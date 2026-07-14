@@ -295,6 +295,21 @@ Compares `.generated` vs `.generated_saved` with content-level feature detection
 
 **Parameters:** `-Current` (default: .generated), `-Saved` (default: .generated_saved), `-Report` (default: generated-comparison-report.md)
 
+**Note:** this is *feature detection* (presence of known content patterns), not a byte-level diff — for byte-identity proofs use `dev\byte-identity-generate.ps1`.
+
+### `dev\find-constants.ps1`
+
+Finds string literals in Datrix Python projects and writes a grouped Markdown report (magic-constant audit). The report defaults to the current working directory — always pass `-Output` pointing into `D:\datrix\.test-output\`.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **One project** | `.\dev\find-constants.ps1 datrix-common -Output D:\datrix\.test-output\strings.md` | Report string literals in one project |
+| **Multiple projects** | `.\dev\find-constants.ps1 datrix-common datrix-language -Output D:\datrix\.test-output\strings.md` | Several projects |
+| **All projects** | `.\dev\find-constants.ps1 -All -Output D:\datrix\.test-output\strings.md` | Entire monorepo |
+| **Tests only** | `.\dev\find-constants.ps1 -All -Tests -Output D:\datrix\.test-output\strings.md` | Scan only tests trees |
+
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Src`, `-Tests` (default: both trees), `-Output <path>`, `-IncludeDocstrings`, `-MinLength <n>` (default 1), `-MaxValueChars <n>` (default 120)
+
 ---
 
 ## Evaluation

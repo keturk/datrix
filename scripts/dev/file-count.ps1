@@ -4,20 +4,10 @@
  Count files with a specified extension in subfolders of specified datrix directories
 
 .DESCRIPTION
- Counts the number of files with a specified extension under subfolders of:
- - datrix
- - datrix-cli
- - datrix-common
- - datrix-codegen-component
- - datrix-codegen-python
- - datrix-codegen-sql
- - datrix-codegen-typescript
- - datrix-common
- - datrix-language
- - datrix-codegen-aws
- - datrix-codegen-azure
- - datrix-codegen-docker
- - datrix-extensions
+ Counts the number of files with a specified extension under subfolders of every datrix repository
+discovered by Get-DatrixDirectories (the datrix showcase repo plus every datrix-* package directory in
+the workspace). The set is discovered from disk, never hardcoded, so a new package is covered with no
+edit here.
 
 .PARAMETER Extension
  The file extension to count (without leading dot). Defaults to "j2".

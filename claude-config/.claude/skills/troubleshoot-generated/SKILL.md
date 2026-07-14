@@ -150,13 +150,12 @@ Before reading any logs, check if the test results directory contains structured
 2. For the representative project of each cluster, read its `index.json` for per-service detail
 
 **For single-project analysis (index.json available):**
-1. Read `index.json` — immediately see:
-   - Overall result and counts (passed/failed/errors)
-   - `services`: per-service breakdown with results
-   - `error_clusters`: grouped errors with normalized patterns, codegen hints, affected services
-   - `failure_clusters`: grouped test failures with patterns
-   - Each error/failure has `generated_file`, `import_chain`, `codegen_hint`
-2. Read `summary.txt` for a quick human-readable overview
+1. Run the collector and read its `failure-data.json` (read `datrix/scripts/test/quick-reference.md` first; a pre-tool hook enforces this):
+   ```bash
+   powershell -File "d:/datrix/datrix/scripts/test/collect-failure-data.ps1" "{test-results-dir}"
+   ```
+   It gives you counts, every error/failure cluster with normalized pattern, and each cluster's representative with traceback tail, `generated_file`, and `codegen_hint` — without reading `index.json`'s arrays by hand.
+2. Read from `index.json` only the small top-level `services` breakdown (per-service results); skip its `failures[]`/`clusters[]` arrays
 
 **End-of-phase assessment:**
 - Number of distinct clusters (each cluster = one probable root cause)
@@ -175,7 +174,7 @@ Before reading any logs, check if the test results directory contains structured
 
 For each error cluster in priority order (highest count first):
 
-1. Read the **representative error file** at `errors/{NNN}-*.txt` (~30 lines each). Each file contains:
+1. Start from the representative's `traceback_tail` already embedded in `failure-data.json`; read the full **representative error file** at `errors/{NNN}-*.txt` (~30 lines each) only if the tail lacks context. Each file contains:
    - `SERVICE`: which service
    - `TEST`: which test file
    - `CLUSTER`: the normalized pattern
@@ -233,14 +232,12 @@ Deploy test failures differ from unit tests — they include Docker lifecycle ph
 2. For the representative project of each cluster, read its `index.json` for detail
 
 **For single-project analysis (deploy test index.json available):**
-1. Read `index.json` — immediately see:
+1. Run `collect-failure-data.ps1` on the test-results dir (same invocation as Phase 1S) and read its `failure-data.json` for the clusters and representatives with traceback tails and codegen hints
+2. Read from `index.json` only the deploy-specific top-level fields the collector does not re-emit:
    - `failed_phase`: the first phase that failed (key decision point)
    - `phases`: ordered progression with durations and error messages
    - `services`: per-service status (docker healthy, health check, test results)
-   - `failures`: test-level failures with `failure_type` ("logic" vs "transient")
-   - `errors`: infrastructure errors with container log references and codegen hints
-   - `failure_clusters` and `error_clusters`: grouped by root cause pattern
-2. Read `summary.txt` for a quick human-readable overview
+   Skip its `failures[]`/`errors[]`/`clusters[]` arrays — they are in `failure-data.json`
 
 **Decision tree based on `failed_phase`:**
 - **Docker lifecycle failure** (`docker-build`, `docker-up`, `health-check`, `db-connectivity`) → Phase 2D-infra

@@ -63,14 +63,15 @@ After reading the failures:
 
 ## Workflow — One at a Time with Verification
 
-### Phase 1: Triage
+### Phase 1: Triage (scripted)
 
-1. **Locate the run directory.** Find the most recent `test-results-*` directory under `.test_results/`.
-2. **Read `index.json`.** This gives you:
-   - Total counts (passed, failed, error, skipped)
-   - Failure list with error types and source locations
-   - Pre-computed failure clusters with representative failures
-3. **If `index.json` exists and has `failure_clusters`:** Use the clusters directly. Do NOT re-read `full.log` for triage. Present the clusters to the user:
+1. **Collect the failure data with the script** (read `datrix/scripts/test/quick-reference.md` first; a pre-tool hook enforces this). Given a RUN directory, pass it; given only a package (e.g. after COMMAND mode ran `test.ps1`), pass `-Project` to auto-locate the newest run:
+   ```bash
+   powershell -File "d:/datrix/datrix/scripts/test/collect-failure-data.ps1" "{run-dir}"        # or:
+   powershell -File "d:/datrix/datrix/scripts/test/collect-failure-data.ps1" -Project {package}
+   ```
+2. **Read the produced `failure-data.json`.** This gives you total counts, every error/failure cluster with its representative (traceback tail embedded), and a ready-to-run `test_command` per cluster. Do NOT read `index.json`'s failure arrays or `full.log` for triage.
+3. **Present the clusters to the user:**
    ```
    Found {N} test failures from {M} clusters:
 
@@ -81,8 +82,12 @@ After reading the failures:
 
    Starting with Cluster 1.
    ```
-4. **Legacy fallback (any of: no `index.json`, `"result": "INCOMPLETE"`, or an unrecognized `schema_version`):** the run has no usable structured data — fall back to parsing `full.log` and grouping failures manually. This same fallback applies throughout the rest of this workflow wherever structured data would otherwise be used.
-5. Prioritize: error clusters first (import/collection errors block other tests), then failure clusters by count descending.
+4. **Legacy fallback (any of: no `index.json`, `"result": "INCOMPLETE"`, or an unrecognized `schema_version` — `collect-failure-data.ps1` fails loud in these cases):** the run has no usable structured data — triage `full.log` with the triage script instead of reading it:
+   ```bash
+   powershell -File "d:/datrix/datrix/scripts/dev/triage-failures.ps1" "{run-dir}/full.log" -Format pytest -OutputFile "D:\datrix\.test-output\fix-tests-triage.md"
+   ```
+   Read the triage report; Grep `full.log` only for representative detail it lacks. This same fallback applies throughout the rest of this workflow wherever structured data would otherwise be used.
+5. Prioritize: error clusters first (import/collection errors block other tests), then failure clusters by count descending. (`failure-data.json` already lists error clusters first.)
 
 ### Phase 2: Fix Loop (repeat for each root cause)
 
@@ -90,7 +95,7 @@ For each root cause, follow this strict sequence:
 
 #### Step A: Read Before Fixing
 
-1. Read the representative failure file: `failures/{NNN}-{name}.txt` (from the cluster's `representative_failure_id` → failure's `log_file` in `index.json`)
+1. Start from the cluster's `representative.traceback_tail` in `failure-data.json`; read the full `failures/{NNN}-{name}.txt` (the representative's `log_file`) only if the tail is insufficient
 2. This gives you the full traceback, captured stdout/stderr, and the cluster assignment
 3. Read the source file at the `source_location` indicated in the cluster
 4. Read the test file to understand what the test expects
@@ -128,13 +133,15 @@ For each root cause, follow this strict sequence:
      Recommend: {next steps}
      ```
 
-#### Step E: Regression Check
+#### Step E: Regression Check (scripted)
 
-1. After re-running, read the NEW `index.json` from the latest run directory
-2. Compare failure count: did it decrease?
-3. Check if the cluster you fixed is gone or reduced
-4. Check if any NEW clusters appeared (clusters not present in the previous `index.json`)
-5. **If new clusters appear:** STOP immediately — see `d:\datrix\.claude\skills\_shared\fix-conventions.md` ("Fix Introduced a New Failure") for the report template and options. **WAIT for user decision.** (Legacy fallback: run the full test suite and check for new failures by reading the log.)
+1. After re-running the suite, compare the previous and new run directories with the delta script:
+   ```bash
+   powershell -File "d:/datrix/datrix/scripts/test/classify-run-delta.ps1" -Previous "{previous-run-dir}" -Current "{new-run-dir}"
+   ```
+2. Read its verdict line (and `run-delta.json` in the new run dir for detail): `SUCCESS` = all previously-failing fixed, none new; `PARTIAL` = progress, none new; `NO_CHANGE`; `REGRESSION` = new failures appeared (exit code 0 only for SUCCESS).
+3. Confirm the cluster you fixed appears in `resolved_clusters`.
+4. **If `new_failures` is non-empty (REGRESSION):** STOP immediately — see `d:\datrix\.claude\skills\_shared\fix-conventions.md` ("Fix Introduced a New Failure") for the report template and options. **WAIT for user decision.** (Legacy fallback: run the full test suite and triage the log with `triage-failures.ps1`, then compare by hand.)
 
 ### Phase 3: Final Report
 

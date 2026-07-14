@@ -98,21 +98,23 @@ Read **only** `index.json` first. It is the structured index of the entire test 
 - `failures[]` — each failure with `phase`, `failure_type` (logic/transient), `codegen_hint.probable_template`, `codegen_hint.probable_generator`
 - `failure_clusters[]` — grouped by pattern with `representative_failure_id`
 
-From `index.json`, extract:
-1. Which services failed (skip passing services entirely)
-2. The `failure_clusters` — these group related failures by pattern
-3. The representative failure from each cluster (read only that one failure log, not all)
-4. The `codegen_hint` if present (direct pointer to the generator/template)
-5. The `generated_file` if present (direct pointer to broken output)
-6. For deploy tests: which `phase` failed — if it's pre-integration (docker-build, health-check), check `deploy-test-output.log` instead of failure logs
+**Extraction is scripted.** Run the collector on the log folder and read the resulting `failure-data.json` — it contains the clusters, each cluster's representative (error message, traceback tail, `codegen_hint`, `generated_file`), member test ids, and counts (read `datrix/scripts/test/quick-reference.md` before invoking; a pre-tool hook enforces this):
 
-**DO NOT** read `summary.txt`, `unit-tests-summary.log`, or full service logs unless `index.json` is insufficient. **DO NOT** read every file in the `failures/` directory — use the cluster representative only.
+```bash
+powershell -File "d:/datrix/datrix/scripts/test/collect-failure-data.ps1" "{log-folder}"
+```
 
-#### Step 2: Read representative failure logs (targeted)
+Then read directly from `index.json` ONLY the small top-level fields the collector does not re-emit:
+1. `services[]` — which services failed (skip passing services entirely)
+2. For deploy tests: `failed_phase` and `phases{}` — if the failed phase is pre-integration (docker-build, health-check), check `deploy-test-output.log` instead of failure logs
 
-For each failure cluster, read only the representative failure log file (referenced in `index.json` → `failures[].log_file`). This gives the full traceback for diagnosis.
+**DO NOT** read `index.json`'s `failures[]`/`failure_clusters[]` arrays by hand, `summary.txt`, `unit-tests-summary.log`, or full service logs unless the collector output is insufficient. **DO NOT** read every file in the `failures/` directory — use the cluster representative only.
 
-Extract:
+#### Step 2: Representative tracebacks (mostly embedded)
+
+`failure-data.json` already embeds each representative's traceback tail. Read the representative's full log file (its `log_file`, relative to the run dir) only when the tail is insufficient for diagnosis.
+
+Extract per cluster:
 - Error message
 - Traceback (file paths + line numbers)
 - Generated file path (from traceback or `generated_file`)
@@ -157,8 +159,8 @@ For deploy tests with pre-integration failures (docker-build, health-check), rea
 
 ### Notes
 
-- This phase is I/O-heavy (reading JSON + log files) but requires minimal reasoning
-- Parallelizable: up to 3 log folders can be parsed concurrently
+- This phase is now mostly scripted: one `collect-failure-data.ps1` call per log folder replaces the bulk of the JSON/log reading; what remains is assembling the per-cluster snippets
+- Parallelizable: up to 3 log folders can be parsed concurrently (rarely needed now — prefer sequential script calls over spawning parse agents)
 - Output is consumed by root cause analysis phase (Opus)
 <!-- END_PHASE: log_parsing -->
 
@@ -471,21 +473,27 @@ powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Fast
 - `datrix-codegen-common/...` → `datrix-codegen-common`
 - etc.
 
-#### Step 2: Assess Results
+#### Step 2: Assess Results (scripted)
 
-Compare results to original failures:
+When a pre-fix run directory for the same package exists, compute the comparison with the delta script instead of eyeballing counts:
 
-**SUCCESS criteria:**
+```bash
+powershell -File "d:/datrix/datrix/scripts/test/classify-run-delta.ps1" -Previous "{pre-fix-run-dir}" -Current "{new-run-dir}"
+```
+
+Its verdict maps directly onto the criteria below (`run-delta.json` in the new run dir carries the `now_passing` / `still_failing` / `new_failures` lists). Without a comparable previous run, assess manually:
+
+**SUCCESS criteria** (delta verdict `SUCCESS`):
 - All originally-failing tests now PASS
 - No new test failures introduced
 - Test count increased or stayed the same (if tests were added/fixed)
 
-**PARTIAL SUCCESS criteria:**
+**PARTIAL SUCCESS criteria** (delta verdict `PARTIAL`):
 - Some originally-failing tests now PASS
 - Some originally-failing tests still FAIL with SAME error (incomplete fix)
 - No new unrelated failures
 
-**REGRESSION criteria:**
+**REGRESSION criteria** (delta verdict `REGRESSION`, or a still-failing test whose error changed):
 - New test failures introduced that weren't in original failure set
 - Originally-failing tests now fail with DIFFERENT error
 - Test count decreased (tests broken by fix)

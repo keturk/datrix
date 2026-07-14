@@ -61,6 +61,10 @@ Test execution utilities.
 | `status_tests.py` | `test/status-tests.ps1` | Test status reporting |
 | `status_unit_tests.py` | `test/status-unit-tests.ps1` | Running test status |
 | `status_deploy_tests.py` | `test/status-deploy-tests.ps1` | Deployment test status |
+| `collect_failure_data.py` | `test/collect-failure-data.ps1` | Per-cluster failure bundle (`failure-data.json`) from a structured run dir; supports package, generated-unit, and deploy index schemas |
+| `extract_warnings.py` | `test/extract-warnings.ps1` | Deduplicated pytest warnings (`warnings.json`) parsed from a run's `full.log` |
+| `classify_run_delta.py` | `test/classify-run-delta.ps1` | SUCCESS/PARTIAL/NO_CHANGE/REGRESSION verdict (`run-delta.json`) between two runs of one package |
+| `gate_verdict.py` | `test/gate-verdict.ps1` | GREEN/RED aggregate verdict over packages' newest runs (fail-loud on missing/in-progress results) |
 
 ## Adding New Scripts
 

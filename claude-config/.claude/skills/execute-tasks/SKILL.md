@@ -365,8 +365,12 @@ For tasks that modified code:
 
 1. **Read the canonical results from the run's `index.json`** (never a console transcript):
    - `result`, `counts.passed`, `counts.failed`, `counts.error`, `counts.skipped`
-   - From the same folder's `full.log`: failing test node IDs and erroring module paths
    - GREEN means `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0` — a pytest error counts as red exactly like a failure
+   - **When RED**, get the failing/erroring detail scripted — pass the collector the **printed** run folder (never `-Project`, which grabs the newest folder on disk):
+     ```
+     powershell -File "d:/datrix/datrix/scripts/test/collect-failure-data.ps1" "{printed-run-folder}"
+     ```
+     Its `failure-data.json` gives per-cluster representatives with traceback tails and ready `test_command`s — do not read `full.log`
 
 2. **Evaluate results:**
    ```
@@ -616,14 +620,15 @@ Verification results from all tasks:
 
 3. **Run the full suite yourself — one run per affected package, fired concurrently** (a single message with one Bash call per package; each package writes its own `.test_results/` folder so parallel runs do not collide). Do NOT stop and ask the user to run anything. This is the ONE full-suite run per package for the whole skill invocation — the quality-gate task's own listed suite command was already suppressed in Phase 3.
 
-4. **Read each package's canonical result from its run's `index.json`** (the runner prints the folder path; never eyeball-parse stdout):
-   - `result`, `counts.passed`, `counts.failed`, `counts.error`
-   - GREEN only when `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0` — errors are red, exactly like failures
-   - From `full.log`: failing test node IDs and erroring module paths
+4. **Read the multi-package verdict with the gate script** (canonical `index.json` results, never stdout):
+   ```
+   powershell -File "d:/datrix/datrix/scripts/test/gate-verdict.ps1" -Projects {pkg1},{pkg2}
+   ```
+   One GREEN/RED console line per package + `OVERALL`; per-package counts and failing-test lists in its `Details:` JSON. Sanity-check each package's `run_dir` in the JSON against the runs you just fired. GREEN only when `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0` — errors are red, exactly like failures (the script applies this; UNKNOWN/missing results are RED).
 
 5. **Attribute failures (if any):**
-   - For each new failure, extract the failing test file path
-   - Cross-reference against each task's `## Targeted Tests` section
+   - For each RED package, run `collect-failure-data.ps1` on its run dir (from the gate JSON) — the clusters give the failing test files and erroring modules
+   - Cross-reference each cluster's files against each task's `## Targeted Tests` section
    - Report which task likely introduced the failure
 
 ### Output Format

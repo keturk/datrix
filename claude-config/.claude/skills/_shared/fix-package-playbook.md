@@ -60,10 +60,25 @@ Each project (`datrix-*`) is its own independent git repository — commits and 
 - `full.log` — complete pytest output; contains the **warnings summary** section and collection/configuration errors
 - `failures/NNN-....txt`, `errors/NNN-....txt` — per-item detail with full traceback and captured stdout/stderr
 - `summary.txt`, `junit-*.xml` — rarely needed
+- `failure-data.json`, `warnings.json`, `run-delta.json` — derived analyses written by the scripts below (present only after you run them)
 
-### Warnings (from full.log)
+### Extraction Scripts (use these — do not hand-parse)
 
-Warnings are NOT in `index.json`. Read `full.log`, find the `= warnings summary =` section (delimited by `=` lines), and parse each entry: file path, line number, category, message, triggering code line. Deduplicate identical warnings (parameterized tests repeat them). Skip if no warnings section exists.
+Two scripts turn the run directory into compact structured JSON (read `datrix/scripts/test/quick-reference.md` before invoking; a pre-tool hook enforces this):
+
+```bash
+# Cluster bundle: per-cluster representative traceback tail + ready-to-run test_command
+powershell -File "d:/datrix/datrix/scripts/test/collect-failure-data.ps1" "{run-dir-or-index.json}"
+# → {run-dir}\failure-data.json
+
+# Warnings: deduplicated, grouped by category+file, parsed from full.log
+powershell -File "d:/datrix/datrix/scripts/test/extract-warnings.ps1" "{run-dir-or-index.json}"
+# → {run-dir}\warnings.json
+```
+
+### Warnings (from warnings.json)
+
+Warnings are NOT in `index.json`. Run `extract-warnings.ps1` (above) and read `warnings.json` — each entry has file, line, category, message, triggering code line, and a dedup `count` (parameterized tests repeat warnings; the script already deduplicates). An empty `warnings` list means the run had no warnings section — skip Step 8.
 
 Category → fix: `DeprecationWarning`/`PendingDeprecationWarning` → migrate to current API; `UserWarning` → investigate intent; `RuntimeWarning` → fix underlying math/logic; `SyntaxWarning` → fix syntax; `ResourceWarning` → add proper cleanup (context managers/close).
 
@@ -86,18 +101,18 @@ powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {PACKAGE}
 powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {PACKAGE} -Fast
 ```
 
-Construct a single-test path from `test_id`: dots→`/` for the module path, keep `::` — `tests.module.test_file.TestClass::test_method` → `tests/module/test_file.py::TestClass::test_method`.
+`failure-data.json` already carries a ready-to-run `test_command` per cluster representative — use it. If you must construct one by hand (e.g. for a non-representative member): dots→`/` for the module path, keep `::` — `tests.module.test_file.TestClass::test_method` → `tests/module/test_file.py::TestClass::test_method`.
 
 ---
 
 ## Investigation Workflow
 
-### Step 1: Parse Test Results
+### Step 1: Parse Test Results (scripted)
 
-1. Read `index.json` at the provided path.
-2. Triage: `counts.error` > 0 → errors exist (fix first); `counts.failed` > 0 → failures; warnings need `full.log`.
-3. For each error/failure **cluster**, look up its representative entry and read that representative's `log_file` (relative to the index.json directory). Work per-cluster — never read every file in `failures/`.
-4. Extract warnings from `full.log` (see above), grouped by category + source file.
+1. Run `collect-failure-data.ps1` on the provided path and read the resulting `failure-data.json` — it contains counts, every cluster (errors first), each cluster's representative with its traceback tail, and a ready `test_command`. Do NOT read `index.json`'s failure arrays or the `failures/` files directly for triage.
+2. Triage from its `counts`: `error` > 0 → errors exist (fix first); `failed` > 0 → failures.
+3. Work per-cluster from the embedded representative `traceback_tail`. Read the representative's full `log_file` only when the tail is insufficient — never read every file in `failures/`.
+4. If `warnings_section_present` is true, run `extract-warnings.ps1` and read `warnings.json` (see above).
 5. **More than 5 distinct clusters (errors + failures combined) → STOP and propose splitting into multiple sessions.**
 
 ### Step 2: Fix Errors first
@@ -131,7 +146,7 @@ Run the originally-failing/erroring test(s) with `test-single.ps1` (command abov
 
 ### Step 8: Fix Warnings
 
-After errors and failures: per unique warning (file + category), read the source at the warning's line, apply the minimal category-appropriate fix, and re-run the affected test file to confirm the warning is gone.
+After errors and failures: per unique warning in `warnings.json` (file + category), read the source at the warning's line, apply the minimal category-appropriate fix, and re-run the affected test file to confirm the warning is gone.
 
 ### Step 9: Final Regression Check
 
@@ -159,7 +174,8 @@ If the root cause is in a different project, do NOT fix it directly. Report the 
 ## Anti-Patterns
 
 - **NO exploring the project structure** — read `.project-structure.md` and the context above; don't rediscover it
-- **NO reading every file in failures/** — cluster representatives only
+- **NO hand-parsing what the scripts extract** — `collect-failure-data.ps1` and `extract-warnings.ps1` own the run-dir parsing; read their JSON
+- **NO reading every file in failures/** — cluster representatives only, and only when the embedded `traceback_tail` is insufficient
 - **NO running the full suite after each fix** — verify individual tests first; one regression check at the end (Step 9)
 - **NO cross-package fixes** — hand off via the other project's fix skill
 - Plus the CLAUDE.md invariants: no workarounds, no debug scatter, no git restore/checkout/reset/stash/revert (undo edits manually)

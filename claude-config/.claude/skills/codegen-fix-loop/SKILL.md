@@ -168,7 +168,11 @@ Once tests pass:
    powershell -File "d:/datrix/datrix/scripts/dev/check-debug-artifacts.ps1" {PACKAGE}
    ```
 
-3. If full suite passes → report success
+3. To judge the full-suite outcome against the pre-fix state, compare run directories with the delta script instead of eyeballing counts (read `datrix/scripts/test/quick-reference.md` first; a pre-tool hook enforces this):
+   ```
+   powershell -File "d:/datrix/datrix/scripts/test/classify-run-delta.ps1" -Previous "{pre-fix-run-dir}" -Current "{new-run-dir}"
+   ```
+   `SUCCESS` → report success; `REGRESSION` → its `new_failures` list is the evidence for step 4.
 4. If full suite has NEW failures → **they are yours. Fix them.** Your targeted fix broke something else, which means your model of the root cause was incomplete — treat the regression as evidence, re-diagnose, and fix it at the root. Do not stop to ask permission to finish your own job, and never ship a known regression with a note attached (that is the workaround this repo bans). Escalate only if the regression reveals a genuine architectural fork you cannot defensibly decide.
 
 ```

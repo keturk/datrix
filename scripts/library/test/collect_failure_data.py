@@ -3,9 +3,12 @@
 
 Reads a run directory's index.json, resolves the representative entry of
 every error cluster and failure cluster, embeds the tail of its detail log,
-and writes ``failure-data.json`` into the run directory. Supports both the
-package index schema (structured_log_writer) and the generated-project index
-schema (generated_test_log_writer, which adds codegen_hint/generated_file).
+and writes ``failure-data.json`` into the run directory. Supports all three
+structured index schemas: the package schema (structured_log_writer), the
+generated-project unit schema (generated_test_log_writer, which adds
+codegen_hint/generated_file), and the deploy-test schema
+(deploy_test_log_writer, which adds failed_phase/phases and whose
+infrastructure error entries carry phase/container instead of test_id).
 
 Usage:
   python scripts/library/test/collect_failure_data.py <run-dir | index.json>
@@ -266,26 +269,52 @@ def _read_log_tail(log_path: Path, max_lines: int) -> str:
     return "\n".join(lines[-max_lines:])
 
 
+# Optional per-entry context fields copied verbatim onto the representative
+# when present (deploy-test schema: infra errors have phase/container; test
+# failures have phase/failure_type).
+_OPTIONAL_ENTRY_FIELDS: tuple[str, ...] = ("phase", "failure_type", "container", "docker_log_file")
+
+
 def _representative_payload(
     ctx: _RunContext,
     cluster: dict[str, object],
     entry: dict[str, object],
     where: str,
-) -> tuple[dict[str, object], str]:
-    """Build the representative sub-object; returns (payload, node_path)."""
-    test_id = _require_str(entry, "test_id", where)
-    node_path = _test_id_to_node_path(test_id)
-    log_file = _require_str(entry, "log_file", where)
-    payload: dict[str, object] = {
-        "test_id": test_id,
+) -> tuple[dict[str, object], str | None]:
+    """Build the representative sub-object; returns (payload, node_path).
+
+    node_path is None for entries without a test_id (deploy-test
+    infrastructure errors, which are keyed by phase/container instead).
+    """
+    payload: dict[str, object] = {}
+    node_path: str | None = None
+    if "test_id" in entry:
+        test_id = _require_str(entry, "test_id", where)
+        node_path = _test_id_to_node_path(test_id)
+        payload["test_id"] = test_id
         # Package schema carries an explicit 'file'; the generated-project
-        # schema does not, so derive it from the node path there.
-        "file": str(entry["file"]) if "file" in entry else node_path.split("::", 1)[0],
-        "error_type": _require_str(entry, "error_type", where),
-        "error_message": _require_str(entry, "error_message", where),
-        "log_file": log_file,
-        "traceback_tail": _read_log_tail(ctx.run_dir / log_file, ctx.max_log_lines),
-    }
+        # schemas do not, so derive it from the node path there.
+        payload["file"] = (
+            str(entry["file"]) if "file" in entry else node_path.split("::", 1)[0]
+        )
+    payload["error_type"] = _require_str(entry, "error_type", where)
+    payload["error_message"] = _require_str(entry, "error_message", where)
+    for optional_key in _OPTIONAL_ENTRY_FIELDS:
+        if optional_key in entry and entry[optional_key] is not None:
+            payload[optional_key] = entry[optional_key]
+    # All three schemas carry the log_file key; deploy-test entries may carry
+    # log_file: null (no per-item detail file was written) - emit
+    # traceback_tail: null then, never guess a path.
+    log_file_value = _require_field(entry, "log_file", where)
+    if log_file_value is None:
+        payload["log_file"] = None
+        payload["traceback_tail"] = None
+    else:
+        log_file_str = _require_str(entry, "log_file", where)
+        payload["log_file"] = log_file_str
+        payload["traceback_tail"] = _read_log_tail(
+            ctx.run_dir / log_file_str, ctx.max_log_lines
+        )
     if "generated_file" in entry and entry["generated_file"] is not None:
         payload["generated_file"] = str(entry["generated_file"])
     if "codegen_hint" in cluster and cluster["codegen_hint"] is not None:
@@ -316,7 +345,13 @@ def _cluster_payload(
                 f"Member id {raw_id} of {where} has no matching entry in the index's "
                 f"{kind}s list. The index.json is inconsistent; re-run the test suite."
             )
-        member_test_ids.append(_require_str(entries_by_id[raw_id], "test_id", where))
+        member = entries_by_id[raw_id]
+        if "test_id" in member:
+            member_test_ids.append(_require_str(member, "test_id", where))
+        else:
+            # Deploy-test infrastructure errors have no test_id; identify the
+            # member by its phase and id instead.
+            member_test_ids.append(f"{_require_str(member, 'phase', where)}#{raw_id}")
 
     rep_id = _require_int(cluster, rep_key, where)
     if rep_id not in entries_by_id:
@@ -329,13 +364,13 @@ def _cluster_payload(
     )
 
     # Package schema carries source_location on the cluster; the
-    # generated-project schema carries generated_file instead (surfaced on
+    # generated-project schemas carry generated_file instead (surfaced on
     # the representative above), so source_location is null there.
     source_location = (
         str(cluster["source_location"]) if "source_location" in cluster else None
     )
 
-    return {
+    payload: dict[str, object] = {
         "cluster_id": cluster_id,
         "kind": kind,
         "pattern": _require_str(cluster, "pattern", where),
@@ -343,8 +378,17 @@ def _cluster_payload(
         "source_location": source_location,
         "member_test_ids": member_test_ids,
         "representative": representative,
-        "test_command": _build_test_command(ctx, node_path),
     }
+    # Deploy-test clusters carry phase / failure_type / services_affected.
+    for optional_key in ("phase", "failure_type", "services_affected"):
+        if optional_key in cluster and cluster[optional_key] is not None:
+            payload[optional_key] = cluster[optional_key]
+    # test-single.ps1 runs PACKAGE tests only: emit a test_command solely for
+    # runs whose project is a real package directory in the workspace.
+    # Generated-project runs (unit or deploy) are re-run via run-complete.ps1.
+    if node_path is not None and (ctx.workspace / ctx.project).is_dir():
+        payload["test_command"] = _build_test_command(ctx, node_path)
+    return payload
 
 
 def _build_clusters(ctx: _RunContext, index: dict[str, object]) -> list[dict[str, object]]:
@@ -403,6 +447,24 @@ def _extract_counts(index: dict[str, object], where: str) -> tuple[dict[str, int
             f"schema; re-run the test suite."
         )
     return counts, error_count, counts["failed"]
+
+
+def _sum_service_counts(index: dict[str, object], where: str) -> dict[str, int]:
+    """Sum per-service counts (deploy-test schema, which has no top-level counts)."""
+    totals: dict[str, int] = {}
+    for item in _require_list(index, "services", where):
+        service = _as_dict(item, "'services' entry", where)
+        service_counts = _as_dict(
+            _require_field(service, "counts", where), "service counts", where
+        )
+        for key, value in service_counts.items():
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise UsageError(
+                    f"Service counts['{key}'] in {where} must be an integer, "
+                    f"got {type(value).__name__}."
+                )
+            totals[key] = totals.get(key, 0) + value
+    return totals
 
 
 def _warnings_section_present(run_dir: Path) -> bool:
@@ -469,7 +531,20 @@ def _run(args: argparse.Namespace) -> int:
     where = str(index_path)
     project = _require_str(index, "project", where)
     result = _require_str(index, "result", where)
-    counts, error_count, failed_count = _extract_counts(index, where)
+    if "counts" in index:
+        counts, error_count, failed_count = _extract_counts(index, where)
+    elif "failed_phase" in index:
+        # Deploy-test schema: no top-level counts. Totals for the console come
+        # from the failure/error arrays; per-service counts are summed for reference.
+        counts = _sum_service_counts(index, where)
+        error_count = len(_require_list(index, "errors", where))
+        failed_count = len(_require_list(index, "failures", where))
+    else:
+        raise UsageError(
+            f"index.json at {where} has neither 'counts' (package / generated-unit "
+            f"schema) nor 'failed_phase' (deploy-test schema). Unrecognized index "
+            f"schema; re-run the test suite to regenerate the run directory."
+        )
 
     ctx = _RunContext(
         run_dir=run_dir,
@@ -491,6 +566,8 @@ def _run(args: argparse.Namespace) -> int:
         "max_log_lines": args.max_log_lines,
         "clusters": clusters,
     }
+    if "failed_phase" in index:
+        payload["failed_phase"] = index["failed_phase"]
     output_path = run_dir / _OUTPUT_FILENAME
     output_path.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
