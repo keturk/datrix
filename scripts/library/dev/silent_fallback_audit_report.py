@@ -45,19 +45,25 @@ from dev.semgrep_scanner import (  # noqa: E402
 )
 from shared.venv import get_datrix_root  # noqa: E402
 
-PROJECTS = [
-    "datrix-cli",
-    "datrix-codegen-aws",
-    "datrix-codegen-azure",
-    "datrix-codegen-component",
-    "datrix-codegen-docker",
-    "datrix-codegen-python",
-    "datrix-codegen-sql",
-    "datrix-codegen-typescript",
-    "datrix-common",
-    "datrix-extensions",
-    "datrix-language",
-]
+def _discover_projects(datrix_root: Path) -> list[str]:
+    """Return every ``datrix-*`` package that has a ``src/`` tree, sorted.
+
+    Discovered rather than hardcoded: Datrix is a multi-language, multi-platform generator,
+    so a new ``datrix-codegen-<lang>`` package must be audited without an edit here. A repo
+    that has been cloned but not yet populated has no ``src/`` and is skipped until it does.
+    """
+    if not datrix_root.is_dir():
+        return []
+    return sorted(
+        child.name
+        for child in datrix_root.iterdir()
+        if child.is_dir()
+        and child.name.startswith("datrix-")
+        and (child / "src").is_dir()
+    )
+
+
+PROJECTS = _discover_projects(get_datrix_root())
 
 SEMGREP_RULES = [
     "silent-fallback-none",

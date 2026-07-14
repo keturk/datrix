@@ -23,13 +23,14 @@ Runs tests for one or more Datrix projects.
 | **Fast tests** | `.\test\test.ps1 datrix-common -Fast` | Exclude slow tests |
 | **Slow tests** | `.\test\test.ps1 datrix-common -Slow` | Only slow tests |
 | **Specific test file** | `.\test\test.ps1 datrix-common -Specific "tests/unit/test_foo.py"` | Run one test file |
+| **Several test files (one session)** | `.\test\test.ps1 datrix-common -Specific "tests/unit/test_foo.py,tests/unit/test_bar.py"` | Comma-separated files/node-IDs run in ONE pytest session — always batch a targeted set this way instead of one invocation per file (commas inside parametrized IDs `[1,2]` are literal) |
 | **Keyword filter** | `.\test\test.ps1 datrix-common -Keyword "test_parse"` | Match by keyword (-k) |
 | **Verbose output** | `.\test\test.ps1 datrix-common -VerboseOutput` | Verbose pytest output |
 | **No log save** | `.\test\test.ps1 datrix-common -NoSave` | Don't save output to log files |
 | **Debug logging** | `.\test\test.ps1 datrix-common -Dbg` | Enable DEBUG level |
 | **Rerun failed** | `.\test\test.ps1 -Rerun` | Re-run only projects whose latest test log reports failures |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Rerun`, `-Coverage`, `-VerboseOutput`, `-NoSave`, `-NoAutoInstall`, `-Unit`, `-Integration`, `-E2E`, `-Fast`, `-Slow` (mutually exclusive), `-Specific <path>`, `-Keyword <expr>`, `-Dbg`
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Rerun`, `-Coverage`, `-VerboseOutput`, `-NoSave`, `-NoAutoInstall`, `-Unit`, `-Integration`, `-E2E`, `-Fast`, `-Slow` (mutually exclusive), `-Specific <path[,path...]>` (comma-separated files/node-IDs run in one pytest session), `-Keyword <expr>`, `-Dbg`
 
 **Log output:** Unless `-NoSave` is used, `test.ps1` creates one timestamped log folder for each project it runs under that project's `.test_results` directory. AI agents do not need to capture full console output; read the final console lines to find the saved log folder, then inspect the files in that folder.
 

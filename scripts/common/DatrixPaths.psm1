@@ -56,31 +56,50 @@ function Get-DatrixDirectories {
  <#
  .SYNOPSIS
  Gets the list of datrix repository directory names
- 
+
  .DESCRIPTION
- Returns an array of directory names that should be searched in the workspace.
- 
+ Discovers the repositories on disk rather than hardcoding them: the datrix showcase repo
+ first (it is the anchor every script resolves paths from), then every "datrix-*" package
+ directory in the workspace, sorted.
+
+ Discovery is deliberate. Datrix is a multi-language, multi-platform generator, so a new
+ datrix-codegen-<lang> package must never require an edit here to become visible to the
+ dev scripts that consume this list (datrix-count, file-count, syntax-checker, datrix-format,
+ check-debug-artifacts, config-linter, compile, duplicate -Mono).
+
+ .PARAMETER WorkspaceRoot
+ Monorepo workspace root. Defaults to Get-DatrixWorkspaceRoot.
+
  .EXAMPLE
  $directories = Get-DatrixDirectories
  #>
  [CmdletBinding()]
- param()
- 
- return @(
- "datrix",
- "datrix-cli",
- "datrix-common",
- "datrix-codegen-common",
- "datrix-codegen-component",
- "datrix-codegen-python",
- "datrix-codegen-sql",
- "datrix-codegen-typescript",
- "datrix-language",
- "datrix-codegen-aws",
- "datrix-codegen-azure",
- "datrix-codegen-docker",
- "datrix-extensions"
+ param(
+ [Parameter(Mandatory=$false)]
+ [string]$WorkspaceRoot
  )
+
+ if (-not $WorkspaceRoot) {
+ $WorkspaceRoot = Get-DatrixWorkspaceRoot
+ }
+
+ if (-not (Test-Path $WorkspaceRoot)) {
+ return @()
+ }
+
+ $directories = @()
+
+ # The showcase repo anchors the workspace; keep it first for stable, readable script output.
+ if (Test-Path (Join-Path $WorkspaceRoot "datrix")) {
+ $directories += "datrix"
+ }
+
+ Get-ChildItem -Path $WorkspaceRoot -Directory |
+ Where-Object { $_.Name -like "datrix-*" } |
+ Sort-Object Name |
+ ForEach-Object { $directories += $_.Name }
+
+ return $directories
 }
 
 # Get full paths for all datrix directories

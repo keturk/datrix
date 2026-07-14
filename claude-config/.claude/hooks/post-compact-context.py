@@ -142,40 +142,36 @@ def _arm_gate(session_id: str, gated: list[tuple[str, str]]) -> None:
         json.dump(state, handle, indent=2)
 
 
-def _schema_canary(transcript_path: str) -> str:
-    """Warn loudly if the transcript compaction marker has stopped being recognizable.
+def _schema_canary(_transcript_path: str) -> str:
+    """Report transcript-marker drift — as detected by the gate, never by this hook.
 
-    The subagent half of the gate (gate-mandatory-reads.py signal B) detects
-    compaction by finding an `isCompactSummary` entry in the transcript. That schema
-    is internal to Claude Code and Anthropic warns it can change between releases.
-    If it changes, signal B goes silently dark — and a silently dead guard is worse
-    than no guard.
+    This hook CANNOT detect drift itself, and must not try. The harness appends the
+    compaction record (`compact_boundary` / `isCompactSummary`) to the transcript
+    *after* SessionStart(compact) returns, so scanning the live transcript here reads
+    a file that does not yet contain the marker being looked for. The previous version
+    did exactly that and reported "THE GUARD HAS GONE DARK" on every compaction while
+    the guard was in fact healthy — a false alarm every time, which trains the reader
+    to ignore the one alarm that will ever be true.
 
-    This hook runs at the ONE moment we know for certain a compaction just happened.
-    So if the marker is not in the transcript, the schema has drifted. Say so, loudly.
+    The honest check lives in gate-mandatory-reads.py, where signal A (state file) and
+    signal B (transcript) are observable together and the transcript is long flushed:
+    A-armed but B-blind is real drift. It drops the flag file this function reports.
     """
-    if not transcript_path or not os.path.isfile(transcript_path):
-        return ""
-
-    try:
-        with open(transcript_path, "r", encoding="utf-8", errors="ignore") as handle:
-            for line in handle:
-                if '"isCompactSummary"' in line:
-                    return ""  # marker still present — signal B is healthy
-    except OSError:
+    flag_path = os.path.join(_STATE_DIR, "schema-drift.json")
+    if not os.path.isfile(flag_path):
         return ""
 
     return (
         "===== WARNING: THE SUBAGENT COMPACTION GUARD HAS GONE DARK =====\n\n"
-        "A compaction just happened, but no `isCompactSummary` marker was found in "
-        "the transcript. The transcript schema has changed.\n\n"
-        "Consequence: gate-mandatory-reads.py can no longer detect compaction in "
-        "SUBAGENTS (it still works in the main session via the state file). A "
-        "subagent that compacts mid-task will now silently edit code without "
-        "re-reading the mandatory docs.\n\n"
+        "gate-mandatory-reads.py recorded transcript-marker drift: a compaction was "
+        "confirmed by the state file, but the transcript scan could not see it.\n\n"
+        "Consequence: signal B is dark for SUBAGENTS (the main session is still "
+        "enforced by the state file). A subagent that compacts mid-task will silently "
+        "edit code without re-reading the mandatory docs.\n\n"
         "This is a defect to fix now, not later: find the new marker field in the "
-        "transcript JSONL and update `_last_compaction_index` in "
-        ".claude/hooks/gate-mandatory-reads.py. Tell Jon."
+        "transcript JSONL, update `_is_compaction_entry` in "
+        ".claude/hooks/gate-mandatory-reads.py, and delete "
+        f"{flag_path}. Tell Jon."
     )
 
 

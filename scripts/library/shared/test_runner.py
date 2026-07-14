@@ -26,6 +26,7 @@ Usage:
 """
 
 import os
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -178,9 +179,16 @@ class TestRunner:
   junit_xml_path: Optional[Path] = None,
  ) -> list[str]:
   """Build pytest command arguments."""
-  # Use test_path if provided, otherwise use default test_dir
-  test_target = test_path if test_path else self.config.test_dir
-  args = [python_exe, "-m", "pytest", test_target]
+  # Use test_path if provided, otherwise use default test_dir.
+  # test_path may carry SEVERAL comma-separated files/node-IDs so one pytest
+  # session (one collection, one run directory) covers a whole targeted set
+  # instead of one runner startup per file. Commas inside parametrized
+  # node IDs (e.g. "test_foo.py::test_bar[1,2]") are literal, not separators.
+  if test_path:
+   test_targets = [t.strip() for t in re.split(r",(?![^\[]*\])", test_path) if t.strip()]
+  else:
+   test_targets = [self.config.test_dir]
+  args = [python_exe, "-m", "pytest", *test_targets]
 
   # Add --ignore for paths that should be excluded from this run
   if ignore_paths:
@@ -273,7 +281,8 @@ class TestRunner:
    verbose: Verbose test output (default is minimal/quiet output)
    save_log: Save output to log file
    marker_expr: Pytest marker expression (e.g., "unit", "integration", "not slow")
-   test_path: Specific test file or directory to run
+   test_path: Specific test file(s) or directory to run; several files/node-IDs
+    may be given comma-separated and run in ONE pytest session
    keyword_expr: Pytest keyword expression (-k option)
 
   Returns:

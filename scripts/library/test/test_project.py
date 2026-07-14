@@ -558,7 +558,15 @@ Note: This script should be called from test.ps1, which handles virtual environm
  test_filter_group.add_argument("--slow", action="store_true", help="Run slow tests only")
 
  # Test selection options
- parser.add_argument("--specific", type=str, help="Run specific test file or pattern")
+ parser.add_argument(
+  "--specific",
+  type=str,
+  help=(
+   "Run specific test file(s) or pattern. Several files/node-IDs may be given "
+   "comma-separated and run in one pytest session (commas inside parametrized "
+   "node IDs like '[1,2]' are literal)."
+  ),
+ )
  parser.add_argument("-k", "--keyword", type=str, help="Run tests matching keyword expression")
  parser.add_argument("--debug", action="store_true", help="Enable debug logging (DEBUG level instead of INFO)")
  parser.add_argument(

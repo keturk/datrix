@@ -17,23 +17,30 @@ semantic analysis -> stdlib placeholders + lazy module injection -> continuing p
 
 No IR layer. Parser produces `Application` directly. Named `GenerationPipeline.run` stages include: `parse` → `resolve_service_configs` → `analyze` → `resolve_infrastructure_configs` → `validate_deployment` → `apply_cli_overrides` → `normalize_service_memory_limits` → `discover_generators` / `discover_platforms` → `generate:{name}` (per generator) → file write → migrations (when configured) → language hooks + JSON format → `snapshot` (service filter and incremental merge sit between infra resolution and discovery when enabled). There is **no** `platform_validation` stage; cross-model and `(provider, DeploymentProvider)` realization checks run inside `resolve_infrastructure_configs` (the Stage 2 cross-model hook), and deployment-presence checks run in `validate_deployment`.
 
-## Packages (12)
+## Packages (14)
 
-Optional **datrix-extensions** (domain packs, `datrix.extensions` entry points) plus eleven core packages below.
+Optional **datrix-extensions** (domain packs, `datrix.extensions` entry points) plus thirteen core packages below.
 
 | Package | Purpose |
 |---------|---------|
 | datrix-common | Foundation: AST model, types, semantic analysis, config resolution, generation framework. ZERO deps on other Datrix packages |
 | datrix-language | Parser (Tree-sitter) + CST-to-AST transformers; shipped stdlib sources in `src/datrix_language/stdlib/` (eight `.dtrx` modules, pre-parsed at build time, lazy-loaded in analysis). Depends on datrix-common |
+| datrix-codegen-common | Shared codegen intelligence: transpiler, `LanguageProfile` + `SyntaxEmitters`, context builders, genDSL. Consumed by EVERY language generator |
 | datrix-codegen-component | Platform-agnostic artifacts (docs, config, scripts) |
 | datrix-codegen-python | Python generation (FastAPI). Jinja2 + ruff format |
 | datrix-codegen-typescript | TypeScript generation (NestJS/Express). Jinja2 + Prettier |
+| datrix-codegen-dotnet | .NET generation. **Scaffolding in progress** — see note below |
+| datrix-codegen-java | Java generation. **Scaffolding in progress** — see note below |
 | datrix-codegen-sql | SQL DDL (PostgreSQL, MySQL) |
 | datrix-codegen-docker | Docker/Compose generation. YAML builders |
 | datrix-codegen-aws | AWS infrastructure (CDK/CloudFormation): VPC, ECS, RDS, ElastiCache, SNS/SQS, MSK (Kafka), DynamoDB, S3 |
 | datrix-codegen-azure | Azure infrastructure (Bicep/ARM): App Service, Functions, Flexible Server, Cosmos DB, Service Bus, Event Hubs (Kafka), Redis, Blob, APIM, Front Door, AI Search |
 | datrix-cli | CLI. Discovers generator plugins dynamically via entry points |
 | datrix-extensions | Optional domain extension packs (`datrix.extensions`). Depends on datrix-common |
+
+**Scaffolding in progress:** the **datrix-codegen-dotnet** and **datrix-codegen-java** repos exist in the workspace and the toolchain already discovers them, but their source has not landed yet. Repo tooling keys off what is actually on disk — a package joins `test.ps1 -All`, `mypy.ps1 -All`, `status-tests.ps1`, the venv install set, and the import-boundary/dead-code scans automatically as soon as it has a `pyproject.toml` / `src/` / `tests/`. Nothing needs to be re-listed by hand. The two are counted above because they are real, registered workspace packages, not because they generate yet.
+
+**Language count is not a constant.** Datrix targets many languages and platforms. Never write a doc, test, or script that assumes the currently-shipped set is the whole set.
 
 **Not a package:** the **datrix** showcase repo (`D:\datrix\datrix`) holds only docs/examples/scripts — not installable, **no test suite**. Never put a `tests/` pytest suite, product tests, cross-package tests, or language/provider matrix tests in it. Datrix generates for **many languages and platforms** (not just Python/TypeScript, not just Docker/AWS/Azure); each `datrix-*` package tests only its own surface, and repo-level validation lives as scripts under `datrix/scripts/test/`.
 
@@ -51,7 +58,7 @@ Never flatten entities across services.
 ## Plugin Architecture
 
 Generators and extensions discovered via entry points: `datrix.generators`, `datrix.platforms`, `datrix.languages` (`LanguagePlugin` aggregate — folds the formerly-separate `datrix.language_hooks`/`datrix.language_runtime_spec` groups for Python/TypeScript), **`datrix.extensions`** (`DatrixExtension`).
-Language generators subclass `LanguageGenerator` (9 abstract methods).
+Language generators subclass `LanguageGenerator` (10 abstract methods).
 Type mappings registered with `TypeMappingRegistry.global_registry`.
 
 ## Multi-Target Plugin Architecture

@@ -106,10 +106,20 @@ def _entries(transcript_path: str) -> list[dict[str, object]]:
     return entries
 
 
+def _is_compaction_entry(entry: dict[str, object]) -> bool:
+    """True for either marker the harness writes when it compacts a context.
+
+    Two independent field names are accepted, because a compaction writes BOTH a
+    `system`/`compact_boundary` entry and a `user`/`isCompactSummary` entry. Reading
+    either one keeps signal B alive if a release renames the other.
+    """
+    return bool(entry.get("isCompactSummary")) or entry.get("subtype") == "compact_boundary"
+
+
 def _last_compaction_index(entries: list[dict[str, object]]) -> int:
-    """Index of the most recent compact-summary entry, or -1 if never compacted."""
+    """Index of the most recent compaction entry, or -1 if never compacted."""
     for i in range(len(entries) - 1, -1, -1):
-        if entries[i].get("isCompactSummary"):
+        if _is_compaction_entry(entries[i]):
             return i
     return -1
 
@@ -199,6 +209,46 @@ def _transcript_signal(transcript_path: str) -> tuple[bool, set[str]]:
     return True, _paths_read_after(entries, compacted_at)
 
 
+def _record_schema_drift(session_id: str) -> None:
+    """Signal A fired but signal B saw nothing — the transcript marker has drifted.
+
+    This is the ONLY place the drift check can honestly run. It cannot run at
+    SessionStart(compact): the harness appends the compaction record to the
+    transcript *after* that hook returns, so a canary there reads a transcript that
+    does not yet contain the marker it is looking for and reports drift on every
+    single compaction. A guard that cries wolf every time is a guard nobody reads.
+
+    Here, both signals are observable at once and the transcript is long since
+    flushed, so `state_armed and not tx_armed` means exactly one thing: SessionStart
+    proved a compaction happened, and the transcript scan failed to see it. That is
+    real drift, and signal B is dark for SUBAGENTS (which have no state file).
+    """
+    if not session_id:
+        return
+    try:
+        os.makedirs(_STATE_DIR, exist_ok=True)
+        with open(os.path.join(_STATE_DIR, "schema-drift.json"), "w", encoding="utf-8") as handle:
+            json.dump({"session_id": session_id, "signal": "transcript"}, handle, indent=2)
+    except OSError:
+        return
+
+    print(
+        json.dumps(
+            {
+                "systemMessage": (
+                    "HOOK SCHEMA DRIFT: a compaction was confirmed by the SessionStart "
+                    "state file, but no compaction marker was found in the transcript. "
+                    "gate-mandatory-reads.py signal B is now DARK for subagents — a "
+                    "subagent that compacts mid-task can edit code without re-reading the "
+                    "mandatory docs. Find the new marker field in the transcript JSONL and "
+                    "update _is_compaction_entry() in .claude/hooks/gate-mandatory-reads.py. "
+                    "Tell Jon."
+                )
+            }
+        )
+    )
+
+
 def main() -> None:
     try:
         data = json.loads(sys.stdin.read())
@@ -218,6 +268,9 @@ def main() -> None:
 
     state_armed, state_reads = _state_signal(data.get("session_id", ""))
     tx_armed, tx_reads = _transcript_signal(data.get("transcript_path", ""))
+
+    if state_armed and not tx_armed:
+        _record_schema_drift(data.get("session_id", ""))
 
     if not (state_armed or tx_armed):
         sys.exit(0)  # no compaction seen by either signal — nothing was lost

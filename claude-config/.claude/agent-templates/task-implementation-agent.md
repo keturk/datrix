@@ -70,11 +70,13 @@ If YES → the task is NOT complete, and **that is a signal to go finish it**, n
 
 ### 4. RUN TARGETED TESTS
 
-Run ONLY the tests listed in the task's `## Targeted Tests` section:
+Run ONLY the tests listed in the task's `## Targeted Tests` section — **batched into ONE invocation** (comma-separated `-Specific` runs the whole set in a single pytest session; never one invocation per file):
 
 ```bash
-powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{test-path}"
+powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{test-path-1},{test-path-2}"
 ```
+
+The runner prints its saved run folder (`…/.test_results/test-results-…/`). **Record that exact path** — your JSON report's `targeted_tests.run_folder` field carries it, and the orchestrator verifies your run from that folder's `index.json`/JUnit instead of re-executing your tests. A report without it forces a redundant re-run at your task's expense.
 
 **Important:** Include `VERIFIED_AGAINST_QUICK_REFERENCE` in the Bash tool description.
 
@@ -117,6 +119,7 @@ Return a JSON report as the LAST thing in your output:
     "passed": true,
     "no_targeted_tests": false,
     "fix_attempts": 0,
+    "run_folder": "the absolute run-folder path the runner printed (…/.test_results/test-results-…) — REQUIRED when ran=true; the orchestrator verifies your run from this folder instead of re-executing it",
     "evidence": "the exact test command(s) run + the result line from the run's index.json (counts.passed/failed/error) — never a bare 'passed'"
   },
   "design_acceptance": {
@@ -145,7 +148,7 @@ Return a JSON report as the LAST thing in your output:
 
 **`blocker_proof` is null for every status except BLOCKED.** If you set `status: "BLOCKED"` and cannot fill all four fields honestly, then **you are not blocked — you are unfinished.** Go back to Step 2 and fix the problem.
 
-**Evidence rule:** every claimed check in this report must carry the exact command + its actual output (or index.json counts). A bare "passed"/"green" claim is treated as unverified and will be re-run by the orchestrator at your task's expense — pasted evidence is what lets the orchestrator accept your result without redoing your work. (The orchestrator still independently runs the design-acceptance check at the completion gate; your evidence tells it exactly what to run and what to expect.)
+**Evidence rule:** every claimed check in this report must carry the exact command + its actual output (or index.json counts), and every test claim must carry its `run_folder`. A bare "passed"/"green" claim — or a missing run folder — is treated as unverified and re-run by the orchestrator at your task's expense; verifiable evidence is what lets the orchestrator accept your result from the saved artifacts without redoing your work. (Design-acceptance checks: the orchestrator verifies your pasted evidence at the completion gate and executes every invariant's check itself once at the phase boundary.)
 
 ## STUCK PROTOCOL — fix it; BLOCKED is a claim you must prove
 

@@ -41,7 +41,7 @@ All skill outputs (summaries, generated artifacts like dependencies.md) must be 
 
 ## Task Location Allowlist — HARD CONSTRAINT
 
-**`.tasks` folders may ONLY be created at the root of one of these 13 framework projects, all of which live directly under `D:\datrix\`:**
+**`.tasks` folders may ONLY be created at the root of one of these 15 framework projects, all of which live directly under `D:\datrix\`:**
 
 ```
 D:\datrix\datrix\.tasks
@@ -51,6 +51,8 @@ D:\datrix\datrix-codegen-azure\.tasks
 D:\datrix\datrix-codegen-common\.tasks
 D:\datrix\datrix-codegen-component\.tasks
 D:\datrix\datrix-codegen-docker\.tasks
+D:\datrix\datrix-codegen-dotnet\.tasks
+D:\datrix\datrix-codegen-java\.tasks
 D:\datrix\datrix-codegen-python\.tasks
 D:\datrix\datrix-codegen-sql\.tasks
 D:\datrix\datrix-codegen-typescript\.tasks
@@ -60,9 +62,9 @@ D:\datrix\datrix-language\.tasks
 ```
 
 **Rules — no exceptions:**
-1. Every task file path AND the `dependencies.md` path MUST begin with `D:\datrix\{project}\.tasks\`, where `{project}` is exactly one of the 13 names above. Validate every path against this list before writing.
+1. Every task file path AND the `dependencies.md` path MUST begin with `D:\datrix\{project}\.tasks\`, where `{project}` is exactly one of the 15 names above. Validate every path against this list before writing.
 2. **Fallback:** If a task does not clearly belong to a specific framework package, place it under **`D:\datrix\datrix\.tasks`** (the `datrix` showcase repo's task folder). This is the default bucket — never invent a new location for an "uncategorized" task.
-3. **NEVER create a `.tasks` folder anywhere else.** In particular, never under a customer/generated project such as `D:\g\<customer-project>\`, `D:\g\...`, or any path outside `D:\datrix\{one-of-the-13}\`. A design document may live inside a customer project, but the tasks it produces still go in one of the 13 framework `.tasks` folders above (use the fallback if no specific package fits).
+3. **NEVER create a `.tasks` folder anywhere else.** In particular, never under a customer/generated project such as `D:\g\<customer-project>\`, `D:\g\...`, or any path outside `D:\datrix\{one-of-the-15}\`. A design document may live inside a customer project, but the tasks it produces still go in one of the 15 framework `.tasks` folders above (use the fallback if no specific package fits).
 
 **Why this matters:** Task tooling (`todo.ps1`, `complete.ps1`, `latest-phase.ps1`, the orchestrator skills) only scans `D:\datrix\*/.tasks`. A `.tasks` folder created in a customer project directory (e.g. `D:\g\<customer-project>\.tasks`) is invisible to every one of these scripts — the tasks silently never run. Placing tasks outside the allowlist is a defect, not a style choice.
 
@@ -155,7 +157,7 @@ For each task, create a file following this exact structure:
 
 #### File Naming
 - Path: `d:\datrix\{repo}\.tasks\phase-{NN}\task-{NN}-{TT}-{slug}.md`
-- `{repo}` MUST be one of the 13 framework projects in the **Task Location Allowlist** above — never a customer/generated project. If the task fits no specific package, use `datrix` (the fallback bucket).
+- `{repo}` MUST be one of the 15 framework projects in the **Task Location Allowlist** above — never a customer/generated project. If the task fits no specific package, use `datrix` (the fallback bucket).
 - `{NN}` = zero-padded phase number (e.g., `01`, `02`)
 - `{TT}` = zero-padded task number within phase (e.g., `01`, `02`)
 - `{slug}` = kebab-case description (e.g., `generator-base-and-file-writer`)
@@ -247,10 +249,9 @@ All prohibited patterns and code-quality standards live in `d:\datrix\datrix-com
 > The per-package quality gate runs the full suite once to catch cross-task integration issues; intra-phase orchestrator waves run targeted tests only.
 
 **Package:** `{package-name}`
-**Test command:**
+**Test command** (ONE batched invocation — comma-separated `-Specific` runs all files in a single pytest session; never emit one command per file):
 ```
-powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{test-path-1}"
-powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{test-path-2}"
+powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{test-path-1},{test-path-2}"
 ```
 
 **Test files:**
@@ -261,7 +262,7 @@ When generating this section:
 - List the test files that the task creates or that cover the code being modified
 - For tasks that create new test files, list those paths (they will exist after Step 2: Implement)
 - For tasks that modify existing code without creating tests, identify existing test files that exercise the modified code
-- If no targeted tests can be identified, use: `**Scope:** No targeted tests -- falls back to full suite.`
+- If no targeted tests can be identified, use: `**Scope:** No targeted tests -- covered by the per-package quality gate / phase-boundary full suite.` (Executors run NO per-task full suite for such a task.)
 
 ## Tests
 
@@ -305,7 +306,7 @@ After generating all task files, verify:
 2. Task numbers are sequential (no gaps) within the phase
 3. Dependencies reference valid task IDs
 4. All files are placed in the correct repo's `.tasks/phase-{NN}/` directory
-4a. **Allowlist check:** Every task file path AND the `dependencies.md` path begins with `D:\datrix\{project}\.tasks\` where `{project}` is one of the 13 in the **Task Location Allowlist**. No path points into a customer/generated project or any directory outside the allowlist. Tasks with no specific package land in `datrix\.tasks\`.
+4a. **Allowlist check:** Every task file path AND the `dependencies.md` path begins with `D:\datrix\{project}\.tasks\` where `{project}` is one of the 15 in the **Task Location Allowlist**. No path points into a customer/generated project or any directory outside the allowlist. Tasks with no specific package land in `datrix\.tasks\`.
 5. No tasks reference non-existent modules from the "Non-existent modules" list
 6. Every task file starts with the agent rules perusal instruction
 7. Task titles follow the `# Task {NN}-{TT}: {Title}` format
@@ -322,48 +323,43 @@ After generating all task files, verify:
 16b. **Enforcement-ordering check:** every task that enforces a design invariant (guard / validator / rejection / conformance check) precedes — and is listed in `Depends on` of — the tasks that rely on it or migrate content it governs. No migration task may be in an earlier or equal wave to the guard that polices its surface.
 16c. **Invariant-surface coverage check:** if the design states an invariant over a SET of surfaces (e.g. "fail-loud on integration/CDN/auth/datasource positions"), there is a task (or explicit QG criterion) covering EVERY surface in that set. Enumerate the design's surfaces; confirm none is silently dropped.
 17. **Dependencies document validation:**
-    - Verify the dependencies document includes ALL tasks from the phase
-    - Verify each task appears in exactly one group
-    - Verify group ordering respects dependencies (no task depends on a task in a later group)
-    - Verify tasks within each group are truly parallelizable (no direct or transitive dependencies between them)
-    - Verify file paths are absolute Windows-style paths with backslashes
+    - Verify the dependencies document is valid JSON in the Step-7 format and includes ALL tasks from the phase (one entry each)
+    - Verify every `dependencies` entry names a task ID that exists in the phase
+    - Verify the dependency graph is acyclic (a topological sort succeeds)
+    - Verify each task's `dependencies` array matches its file's `**Depends on:**` field exactly
+    - Verify `task_path` values are absolute Windows-style paths with backslashes, and `provenance.validated` lists only checks that actually ran
 
-### Step 7: Generate Task Dependencies Document
+### Step 7: Generate Task Dependencies Document (JSON — the preferred format)
 
-Create a concise dependencies document at `d:\datrix\datrix\.tasks\phase-{NN}\dependencies.md` with the following format:
+Create the dependencies document at `d:\datrix\datrix\.tasks\phase-{NN}\dependencies.md` in the **JSON format** specified by `d:\datrix\datrix\claude-config\.claude\agent-templates\dependencies-format.md`. Do NOT emit the legacy "Group N" text format — executors treat it as legacy, must fall back to reading every task file for metadata, and rewrite it to JSON anyway; emitting it here is pure double work.
 
-```
-Group 1
-
-D:\datrix\{repo}\.tasks\phase-{NN}\task-{NN}-{TT}-{slug}.md
-D:\datrix\{repo}\.tasks\phase-{NN}\task-{NN}-{TT}-{slug}.md
-
-Group 2
-
-D:\datrix\{repo}\.tasks\phase-{NN}\task-{NN}-{TT}-{slug}.md
-D:\datrix\{repo}\.tasks\phase-{NN}\task-{NN}-{TT}-{slug}.md
-D:\datrix\{repo}\.tasks\phase-{NN}\task-{NN}-{TT}-{slug}.md
-
-Group 3
-
-D:\datrix\{repo}\.tasks\phase-{NN}\task-{NN}-{TT}-{slug}.md
-...
+```json
+{
+  "phase": {NN},
+  "provenance": {
+    "generated_by": "/generate-tasks",
+    "generated_at": "{YYYY-MM-DDTHH:MM:SS}",
+    "validated": ["16a-design-reference", "16b-enforcement-ordering", "16c-invariant-surface", "migration-coverage", "dual-path-coverage"]
+  },
+  "tasks": [
+    {
+      "task_id": "task-{NN}-{TT}",
+      "task_path": "d:\\datrix\\{repo}\\.tasks\\phase-{NN}\\task-{NN}-{TT}-{slug}.md",
+      "title": "{Title}",
+      "is_completed": false,
+      "package": "{package-name}",
+      "dependencies": ["task-{NN}-{TT}", "..."],
+      "category": "Implementation"
+    }
+  ]
+}
 ```
 
 **Format rules:**
-1. Each group starts with "Group N" (no blank line before the first group)
-2. Blank line after the group header
-3. List absolute task file paths (Windows-style with backslashes), one per line
-4. Blank line between groups (after the last task path, before the next "Group N")
-5. Tasks within a group can run in parallel
-6. Group ordering reflects execution order — Group 1 has no dependencies, Group 2 depends only on Group 1 tasks, etc.
-
-**Dependency resolution algorithm:**
-1. Start with all tasks that have no dependencies → Group 1
-2. For each subsequent group N:
-   - Include tasks whose dependencies are ALL satisfied by groups 1 through N-1
-   - Tasks within the same group have no dependency chain between them (parallelizable)
-3. Continue until all tasks are assigned to a group
+1. One entry per task, every task in the phase, absolute Windows-style `task_path` with escaped backslashes
+2. `dependencies` lists task IDs only (empty array for none) — wave/group assignment is DERIVED by the executor's topological sort, never stored
+3. `provenance.generated_at` is the generation timestamp; `provenance.validated` lists exactly the Step-6 checks that actually ran and passed — the orchestrator's readiness audit uses this stamp to run in light mode on a fresh set (see `/task-orchestrator` Step 1e). Never claim a check that was skipped.
+4. No markdown headers, tables, or prose around the JSON — the file body is the JSON document
 
 The dependencies document provides a concise execution plan for task orchestration tools like `/task-orchestrator`.
 
@@ -451,7 +447,7 @@ Quality gate tasks should:
 - Include `**Category:** Quality Gate` in the header metadata
 - Carry the embedded verification checklist below (static scans + coverage sanity + anti-gap), in addition to the full-suite run
 
-> **Note for orchestrated runs:** `/task-orchestrator`, `/execute-tasks`, and `/execute-tasks-parallel` run the package's full suite themselves as the authoritative gate and **suppress the gate task's own `test.ps1` run** to avoid a duplicate. In those runs the gate agent performs ONLY the static/coverage checklist; the executor owns the pass/fail test verdict.
+> **Note for orchestrated runs:** `/task-orchestrator`, `/execute-tasks`, and `/execute-tasks-parallel` run the package's full suite themselves as the authoritative gate and **suppress the gate task's own `test.ps1` run** to avoid a duplicate. `/task-orchestrator` additionally **suppresses the design-conformance scan (2b)** — its phase-boundary conformance gate (3i Step A2) owns those executions. In those runs the gate agent performs ONLY the static/coverage/How-Solved checklist (reading, not executing); the executor owns the pass/fail test verdict and the conformance executions, and must read and disposition the gate agent's findings.
 
 Quality gate task template:
 
@@ -540,7 +536,7 @@ When creating documentation tasks, **read the existing docs** in the target fold
 - Tasks within a phase can be parallelized if they share no dependencies
 
 ### Repository Assignment
-- Tasks go in the `.tasks/` folder of the **framework project** they modify — and that project MUST be one of the 13 in the **Task Location Allowlist** above. Never place a `.tasks` folder in a customer/generated project (e.g. `D:\g\<customer-project>\`), even when the design document being decomposed lives there.
+- Tasks go in the `.tasks/` folder of the **framework project** they modify — and that project MUST be one of the 15 in the **Task Location Allowlist** above. Never place a `.tasks` folder in a customer/generated project (e.g. `D:\g\<customer-project>\`), even when the design document being decomposed lives there.
 - If a task spans multiple repos, create separate tasks per repo with cross-references
 - Common framework and core code: `datrix-common/.tasks/`
 - Target-specific code: `datrix-codegen-{target}/.tasks/`
@@ -587,7 +583,7 @@ When creating tasks, point agents to relevant example `.dtrx` files:
 
 ## Important Rules
 
-1. **Tasks MUST be created inside the `.tasks/` folder of one of the 13 framework projects** in the **Task Location Allowlist** (top of this skill) — never under `d:\datrix\.tasks\` (the repo root has no `.tasks` of its own) and never under any customer/generated project (`D:\g\...`, etc.). A task that fits no specific package goes in the **`datrix\.tasks\`** fallback bucket; that is the ONLY use of `datrix\.tasks\` for catch-all task files (and the home of `dependencies.md`)
+1. **Tasks MUST be created inside the `.tasks/` folder of one of the 15 framework projects** in the **Task Location Allowlist** (top of this skill) — never under `d:\datrix\.tasks\` (the repo root has no `.tasks` of its own) and never under any customer/generated project (`D:\g\...`, etc.). A task that fits no specific package goes in the **`datrix\.tasks\`** fallback bucket; that is the ONLY use of `datrix\.tasks\` for catch-all task files (and the home of `dependencies.md`)
 2. **Do NOT generate summary documents** — only task files
 3. **Every task file MUST start with the agent rules perusal instruction**
 4. **Task title format is strict:** `# Task {NN}-{TT}: {Title}` — scripts detect the "Task " prefix
@@ -600,4 +596,4 @@ When creating tasks, point agents to relevant example `.dtrx` files:
 11. **Migration steps are tasks, not aspirations.** If the design's migration section says "convert X to Y", generate a task for it. Do not defer migration to "future work" unless the design explicitly says so.
 12. **Tasks span all affected repos.** Do not limit task generation to a single package. If the design changes `datrix-common` but examples live in `datrix` and CLI wiring lives in `datrix-cli`, generate tasks in all three repos.
 13. **No untested new paths.** If the design introduces a new subsystem alongside an old one, generate migration tasks that convert existing test fixtures, examples, and configs to use the new path. Without these, the new code compiles but nothing exercises it end-to-end.
-14. **No bloated outputs.** dependencies.md contains group numbers and absolute paths only — no headers, tables, or prose. Console summaries are data-dense one-liners — no dependency graphs (already in dependencies.md), no "Next steps", no category breakdowns.
+14. **No bloated outputs.** dependencies.md is the Step-7 JSON document and nothing else — no markdown headers, tables, or prose around it. Console summaries are data-dense one-liners — no dependency graphs (already in dependencies.md), no "Next steps", no category breakdowns.

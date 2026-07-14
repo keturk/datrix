@@ -63,12 +63,12 @@ For complete documentation index with "When to use" guidance, see [doc_index.md]
 
 **Essential reads (MANDATORY before starting):**
 - [ai-agent-rules.md](../../../../../datrix-common/docs/contributing/ai-agent-rules.md) → Core rules, STOP AND THINK principle
-- [architecture-overview.md](../../../../../datrix/docs/architecture/architecture-overview.md) → System architecture
-- [design-principles.md](../../../../../datrix/docs/architecture/design-principles.md) → Design philosophy
+- [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md) → System architecture (operative summary)
+- [design-principles-cheat-sheet.md](../../../../../datrix/docs/architecture/design-principles-cheat-sheet.md) → Design philosophy (operative summary)
 
-**Quick refs:**
-- [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md)
-- [design-principles-cheat-sheet.md](../../../../../datrix/docs/architecture/design-principles-cheat-sheet.md)
+**On demand (read only when a task's package or surface needs the depth — not a blanket pre-read):**
+- [architecture-overview.md](../../../../../datrix/docs/architecture/architecture-overview.md) → full architecture index + sub-docs
+- [design-principles.md](../../../../../datrix/docs/architecture/design-principles.md) → full design principles
 
 ### Project Structure
 Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `powershell -File "d:/datrix/datrix/scripts/dev/project-structure.ps1" {package-name}`.
@@ -102,10 +102,9 @@ For each task file provided in the skill invocation:
 6. **Identify quality gate tasks:**
    - If `**Category:** Quality Gate` → mark this task as quality_gate type
    - Quality gate tasks MUST execute LAST among all tasks for the package
-7. **Identify verification tasks:**
+7. **Identify verification tasks (legacy category — current task sets no longer emit them):**
    - If `**Category:** Verification` → mark this task as verification type
-   - Verification tasks MUST execute AFTER their dependency implementation/test tasks
-   - Verification tasks should ideally be executed in a **different session** than the implementation tasks they verify
+   - Verification tasks MUST execute AFTER their dependency implementation/test tasks (same session is fine)
    - If both an implementation task and its verification task are in the same batch → mark as ORDERING_REQUIRED
 8. **Check for intra-phase dependencies:**
    - If any task depends on another task in the same batch → mark as ORDERING_REQUIRED
@@ -193,9 +192,10 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
 
 ### Delegation Constraints
 
+- **Shared context digest (build once, inject into every agent):** before spawning the batch, dispatch a **haiku** agent to build a compact digest (≤ ~400 lines) of the architecture cheat sheet, design-principles cheat sheet, ai-agent-rules core rules, and each task-set package's `.project-structure.md`. Prepend the package-relevant slice to every implementation agent's prompt under `## Shared Architecture Context (pre-read — do not re-fetch)` — N parallel agents must not each re-read the same rule docs. The digest is reference context, not a substitute for the task file or the code the agent touches.
 - **max_turns:** Set `max_turns: 40` on each spawned agent. Do NOT leave agents uncapped — an agent that runs for hundreds of turns without returning is unmonitorable.
 - **Background agents + genuine polling (NOT completion notifications):** Spawn every agent with `run_in_background: true` and drive them with the **Agent Progress Polling Protocol** (read `d:\datrix\datrix\claude-config\.claude\agent-templates\agent-progress-polling-protocol.md`). Do NOT wait passively for completion notifications and do NOT assume an agent is working. Every ~5 minutes, perform a **genuine** check of every in-flight agent — its status **and** the on-disk artifacts it is supposed to be producing — and classify it (completed / progressing / stalled / errored). Background dispatch is what makes this polling possible; the agents still execute concurrently.
-- **Question relay (surfaced at poll time):** If a poll's genuine check finds an agent BLOCKED or NEEDS_CONTEXT with questions/ambiguities, the orchestrator MUST immediately relay those questions to the user via `AskUserQuestion`. After receiving answers, re-dispatch the agent (in background) with the context. Do NOT silently skip blocked agents or guess answers on behalf of the user.
+- **Question relay (surfaced at poll time) — the user is the LAST rung, not the first.** If a poll's genuine check finds an agent BLOCKED or NEEDS_CONTEXT, it does **not** go to the user. A **BLOCKED** goes through the Decision Adjudication Protocol, Door A (investigate it yourself; correct-and-re-dispatch if bogus; Fable if real). A **NEEDS_CONTEXT** question you first try to answer yourself from the design docs, the architecture docs, and the code; if you genuinely cannot, it is a **rung-3 decision → Fable** (Door B). Relay via `AskUserQuestion` **with your recommendation** ONLY for the protocol's §7 closed list (a credential/account absent from the repo · an irreversible outward-facing action needing authorization · a genuine product/business call · a prohibition to be lifted), then re-dispatch the agent (in background) with the answer. Do NOT silently skip agents, do NOT guess answers, and do NOT hand the user a decision Fable has not seen.
 - **Stalled agents:** An agent whose assigned files have not changed across two consecutive polls (~10 min), or that the poll shows is hung/looping, is investigated — `TaskStop` it and re-dispatch with corrective context or mark BLOCKED. Never leave a stalled agent counted as in-flight.
 - **Progress reporting:** Emit the one-line poll heartbeat each cycle, and a fuller progress summary once all agents reach a terminal state (before proceeding to the quality gate phase). If any agent is still outstanding, report which tasks are pending and the evidence of what's holding them up.
 
@@ -240,14 +240,15 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
 3. **Drive the agents per the Delegation Constraints above** (genuine 5-minute polls, never passive waiting). As each poll detects a completion, collect: status (IMPLEMENTED / BLOCKED / NEEDS_CONTEXT / FAILED), files created/modified, targeted test results (pass/fail, fix attempts), and any questions.
 
 4. **Handle non-IMPLEMENTED results at the poll that surfaces them:**
-   - **BLOCKED → run the BLOCKER ADJUDICATION PROTOCOL (`d:\datrix\.claude\skills\_shared\blocker-adjudication-protocol.md`) FIRST.** Read it; it is binding. **An agent's BLOCKED never stops this skill and is never relayed to the user unexamined.**
+   - **BLOCKED → run the DECISION ADJUDICATION PROTOCOL, Door A (`d:\datrix\.claude\skills\_shared\decision-adjudication-protocol.md`) FIRST.** Read it; it is binding. **An agent's BLOCKED never stops this skill and is never relayed to the user unexamined.**
      1. **Form check** — all four parts of the execution-contract §3 proof, substantively (verbatim error text; a fix the agent actually **wrote and ran**, as `file:line` — analysis is not an attempt; why it failed; a literal `B1`/`B2`/`B3`/`B4`). Missing any → malformed; skip to step 3.
      2. **Investigate it yourself, through the code and the docs.** A well-formed proof is still an assertion. Reproduce the error in the same context; open the `file:line` and verify the attempted fix is real and aimed at the root cause; trace the root cause yourself; read the design/architecture docs governing that surface; then test the claimed B-code against what you found (legitimacy table, protocol §3). You may delegate the reading and the repro — **never the verdict.**
      3. **ILLEGITIMATE (the common case) → correct and re-dispatch.** Fresh agent, original task **plus** the correction packet (protocol §4): its claim quoted back, the finding that kills it (your `file:line` or command + output), what it missed, the path forward. **Not a failure, not a blocker** — the task is still in flight and never enters `tasks_failed`. Max two such re-dispatches; on a third, do the root-cause analysis yourself and dispatch a directed implementer.
-     4. **LEGITIMATE → Fable adjudication.** Spawn a **Fable** decision agent (`subagent_type: "general-purpose"`, `model: "fable"`, `effort: "high"`, `run_in_background: false`) with the protocol §5 prompt — task, objective, acceptance property, the four-part proof, **your** independent findings, the confirmed B-code, what you ruled out, the CLAUDE.md constraints. It returns one binding decision: **A** not-actually-blocked / **B** fix-elsewhere / **C** amend-task / **D** resequence / **E** spawn-follow-up / **F** ask-user. **Execute it** (protocol §5 table) — only **F** pauses for the user; A–E keep the batch moving. Verify with the `acceptance_check` it specifies.
+     4. **LEGITIMATE → Fable adjudication.** Spawn a **Fable** decision agent (`subagent_type: "general-purpose"`, `model: "fable"`, `effort: "high"`, `run_in_background: false`) with the protocol §5 prompt — task, objective, acceptance property, the four-part proof, **your** independent findings, the confirmed B-code, what you ruled out, the CLAUDE.md constraints. It returns one binding decision: **A** not-actually-blocked / **B** fix-elsewhere / **C** amend-task / **D** resequence / **E** spawn-follow-up / **F** ask-user. **Execute it** (protocol §6 table) — only **F** pauses for the user; A–E keep the batch moving. Verify with the `acceptance_check` it specifies.
    - **These are never blockers — they are work:** missing dependency (implement it), missing file (create it), incomplete prereq, unclear root cause (keep reading), pre-existing failure (it's yours now), "environmental", "needs broader changes", "should be tracked separately" (**there is no other agent**). Never record them as failures; re-dispatch with that instruction.
-   - **Spec gap / missing user input** (NEEDS_CONTEXT) → `AskUserQuestion`, then re-dispatch with the answer; do NOT proceed to the quality gate with questions outstanding
-   - **Technical ambiguity** (NEEDS_CONTEXT on a design choice or unclear root cause) → **Decision Escalation Protocol** (below); re-dispatch with the recommendation. Never hand a technical ambiguity to the user — that is your job.
+   - **A conflict YOU hit → the SAME ladder, via Door B.** Contradicting designs/tasks, a design-named surface with no owning task, a false task premise, an ambiguous fix scope, an ordering conflict — **Fable adjudicates these, not the user.**
+   - **Spec gap / missing input** (NEEDS_CONTEXT) → derive it from the design docs and the code first. If you genuinely cannot, it is a **rung-3 decision → Fable** (Door B) — *not* an automatic user question. Only the protocol's §7 closed list goes straight to the user (absent credential · irreversible outward-facing action · genuine product call · prohibition to lift); ask **with your recommendation**, then re-dispatch with the answer. Do NOT proceed to the quality gate with questions outstanding.
+   - **Technical ambiguity** (NEEDS_CONTEXT on a design choice or unclear root cause) → **Decision Escalation Protocol** (below); re-dispatch with the recommendation. Never hand a technical ambiguity to the user — that is your job, and if your own analysis cannot settle it, it is **Fable's**, not theirs.
    - **EXPANSION_REQUIRED** (agent knows the fix, needs a file lock held by another agent) → **re-dispatch it serially** as soon as the files are free. This is not a failure and never goes to `failed_tasks`. Never shelve it.
    - **Stalled** (per the polling protocol) → `TaskStop` + re-dispatch with corrective context
 
@@ -276,10 +277,11 @@ If a poll detects an agent crashed, timed out, hit `max_turns`, or stalled (no a
 - Continue polling the other agents
 - If the task exhausts a second agent the same way, treat that as a signal the task is mis-scoped: analyze it yourself and dispatch a directed implementer with a concrete plan (or, if it is genuinely undoable, run the **Blocker Adjudication Protocol** and let Fable decide)
 
-If a poll finds an agent with questions (NEEDS_CONTEXT):
-- Relay questions to user via AskUserQuestion
-- Re-dispatch the agent (background) after user provides answers
-- If user cannot answer, mark task BLOCKED
+If a poll finds an agent with questions (NEEDS_CONTEXT), climb the ladder — do **not** reflexively relay to the user:
+- **Rung 1–2:** answer it yourself from the design docs, the architecture docs, and the code. Re-dispatch the agent (background) with the answer. This is the common case.
+- **Rung 3:** if you genuinely cannot answer it, spawn a **Fable** adjudicator (Door B) and execute its decision.
+- **Rung 4:** relay via `AskUserQuestion` **with your recommendation** only on a Fable **F**, or for the protocol's §7 closed list (absent credential · irreversible outward-facing action · genuine product call · prohibition to lift). Re-dispatch after the user answers.
+- A question the user cannot answer does **not** make the task BLOCKED — take it back to Fable with what the user said and get a decision.
 <!-- END_PHASE: spawn_agents -->
 
 <!-- PHASE: verify_and_gate -->
@@ -321,17 +323,12 @@ Implementation results from all agents + task metadata from pre_check.
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
    ```
 
-3. **Pause and inform user:**
-   - STOP and tell the user exactly what test commands to run for quality gate
-   - Include the exact command(s) for each affected package
-   - Wait for user to run the tests and provide results
-   - User will paste the test output back to you
-   - DO NOT proceed until user provides test results
+3. **Run the full suite yourself — one run per affected package, fired concurrently** (a single message with one Bash call per package; each package writes its own `.test_results/` folder so parallel runs do not collide). Do NOT stop and ask the user to run anything — this skill runs every test itself.
 
-4. **Resume after user provides test results:**
-   - Parse the test output provided by user
-   - Record total tests, pass count, fail count
-   - List all failing test names + error messages
+4. **Read each package's canonical result from its run's `index.json`** (the runner prints the folder path; never eyeball-parse stdout):
+   - `result`, `counts.passed`, `counts.failed`, `counts.error`
+   - GREEN only when `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0` — a pytest error is red, exactly like a failure
+   - From `full.log`: failing test node IDs and erroring module paths
 
 #### Step 2: Attribute Failures to Tasks
 
@@ -354,11 +351,11 @@ For each NEW failure (not already known from agent targeted tests):
 1. **Read the failing test** and the source code it exercises
 2. **Identify root cause** — which task's changes broke this test?
 3. **Fix the issue** (modify code — stay within the attributed task's scope)
-4. **Run the specific failing test directly:**
+4. **Run the specific failing test(s) directly** — batch several into one invocation with a comma-separated `-Specific` list:
    ```
-   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{failing-test-path}"
+   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{failing-test-path-1},{failing-test-path-2}"
    ```
-   Capture the output and parse results. Do NOT stop to ask the user for specific/targeted tests.
+   Read the run's `index.json` for the result. Do NOT stop to ask the user for any test run.
 5. Track each attempt in a table
 
 | Attempt | Task | What was tried | Result |
@@ -367,18 +364,16 @@ For each NEW failure (not already known from agent targeted tests):
 | 2       | task-40-04 | Updated validate_all → validate method call | FAIL — new error |
 
 **Stop conditions:**
-- **First attempt fails** and root cause is unclear → immediately invoke the **Decision Escalation Protocol** (Opus 4.8 extra-high-effort agent with full context: task spec, the failed attempt, exact failures); implement Opus's recommendation; if still failing → mark that task FAILED
-- A fix introduces additional failures → revert the fix attempt immediately, then invoke the **Decision Escalation Protocol** before continuing
-- Fix reveals cascading issues in unrelated subsystems → invoke the **Decision Escalation Protocol** to determine correct fix scope; if Opus recommends stopping → STOP, report to user
+- **Two attempts on DISTINCT hypotheses fail** (or the first failure already exposes a genuine design ambiguity) → invoke the **Decision Escalation Protocol** (Opus 4.8 extra-high-effort analyst with full context: task spec, both attempts, exact failures); implement its recommendation; if still failing → mark that task FAILED. Do not escalate a single mechanical miss; do not grind past two failed hypotheses.
+- A fix introduces additional failures → undo your own edit manually (NO git reverts), then invoke the **Decision Escalation Protocol** before continuing
+- Fix reveals cascading issues in unrelated subsystems → invoke the **Decision Escalation Protocol** to determine correct fix scope; if the analysis concludes the run should stop, that conclusion goes to **Fable** (rung 3) — only a Fable **F** routes to the user
 
 #### Step 4: Final Validation
 
-After all fix attempts are exhausted:
+After the fix loop (skip entirely if Step 1 found zero failures):
 
-1. **Identify full suite command** for each affected package (to confirm fixes + catch regressions)
-2. **STOP and tell user what test commands to run**
-3. **Wait for user to provide test results**
-4. **Parse results and compare against Step 1 results** — are we better, same, or worse?
+1. **Re-run the full suite yourself for each package that had failures** (fired concurrently, one Bash call per package) — packages that were green in Step 1 and untouched by fixes stand on their Step-1 result
+2. **Read each run's `index.json` and compare against Step 1 results** — better, same, or worse? If a fix touched a package outside the failing set, run that package's full suite too
 
 #### Step 5: Mark Tasks Complete / Failed
 
@@ -425,15 +420,23 @@ Failed (if any):
 - Task {NN}-{TT}: {Title} — {why}
 ```
 
-## Blocker Adjudication Protocol
+## Decision Adjudication Protocol (the one ladder)
 
-Read and follow `d:\datrix\.claude\skills\_shared\blocker-adjudication-protocol.md` whenever a spawned agent reports BLOCKED. **You never stop on it and you never relay it.** You investigate the claim yourself against the code and the docs; a bogus blocker (the common case) gets the agent corrected and re-dispatched, and a confirmed one goes to a **Fable** adjudicator (`model: "fable"`, `effort: "high"`) whose decision you then carry out. Accepting a four-part proof *because it has four parts* is a skill-level failure — form is not truth.
+Read and follow `d:\datrix\.claude\skills\_shared\decision-adjudication-protocol.md`. **Every** decision you cannot make climbs it:
 
-## Decision Escalation Protocol
+> **1 INVESTIGATE** (read the code and the docs yourself) → **2 DECIDE** (if the evidence settles it, decide and act) → **3 ADJUDICATE** (a **Fable** adjudicator — `model: "fable"`, `effort: "high"` — decides; binding) → **4 ASK THE USER** (**only** on a Fable **F**).
 
-Read and follow `d:\datrix\.claude\skills\_shared\decision-escalation-protocol.md` — it defines when to escalate (technical ambiguity, failed first fix with unclear root cause, cascading failures) vs. not (obvious fixes → fix directly; missing user input → ask, with your recommendation), the exact Opus 4.8 xhigh agent parameters + prompt, and the implement-exactly-what-Opus-recommended rule. **Escalation is not an exit — it is how you keep going.** Missing dependencies/files/prereqs and unclear root causes are **work**, not blockers.
+Two entry doors converge on it:
+- **Door A — a spawned agent reports BLOCKED.** Never stop on it, never relay it. Investigate the claim yourself; bogus (the common case) → correct and re-dispatch; confirmed → Fable. Accepting a four-part proof *because it has four parts* is a skill-level failure — form is not truth.
+- **Door B — a decision or conflict YOU hit.** Contradicting designs, an unowned invariant surface, a false task premise, an ambiguous fix scope, an ordering conflict. **Fable adjudicates these too** — they are not user questions.
 
-This protocol is for problems **you** hit (a failing fix, an unclear root cause). A **subagent's BLOCKED report** goes through the Blocker Adjudication Protocol above instead — and if that confirms the blocker, the decision belongs to Fable, not to an Opus escalation.
+**Fable is not the blocker door; it is the decision door.** Only the protocol's §7 closed list reaches the user directly: absent credential · irreversible outward-facing action · genuine product call · prohibition to lift.
+
+## Decision Escalation Protocol (rungs 1–2)
+
+Read and follow `d:\datrix\.claude\skills\_shared\decision-escalation-protocol.md` — it defines how you investigate and decide (technical ambiguity, failed first fix with unclear root cause, cascading failures) vs. not (obvious fixes → fix directly), the exact Opus 4.8 xhigh agent parameters + prompt, and the implement-exactly-what-Opus-recommended rule. **Escalation is not an exit — it is how you keep going.** Missing dependencies/files/prereqs and unclear root causes are **work**, not blockers.
+
+**If the Opus analysis does not settle it, you go to rung 3 (Fable) — not to the user.** Opus can recommend "ask the user"; it cannot route you there. Only Fable's **F** can.
 
 ---
 
@@ -461,7 +464,8 @@ Use `/execute-tasks` instead if:
 
 ## Anti-Patterns
 
-- **NO relaying a BLOCKED report** — an agent's BLOCKED is a claim, not a verdict, and the agent that hit the wall is the party least able to see over it. Investigate it yourself through the code and the docs; correct the agent if it is bogus; route it to Fable if it is real (`_shared/blocker-adjudication-protocol.md`). Passing an unexamined blocker up to the user is the skill doing nothing.
+- **NO relaying a BLOCKED report** — an agent's BLOCKED is a claim, not a verdict, and the agent that hit the wall is the party least able to see over it. Investigate it yourself through the code and the docs; correct the agent if it is bogus; route it to Fable if it is real (`_shared/decision-adjudication-protocol.md`, Door A). Passing an unexamined blocker up to the user is the skill doing nothing.
+- **NO taking a decision to the user that Fable has not seen** — the user is rung 4, reachable only through a Fable **F**. Every conflict *you* hit goes to Fable via Door B. The pull to ask the user is strongest exactly when the decision is *above any single task* — that feeling is the trap, not the signal. Asking the user is not the safe default; it is a rung you must earn.
 - **NO assuming agents are working** — background agents are driven by the Agent Progress Polling Protocol: a genuine status + on-disk artifact check every ~5 minutes. Never report an agent as "in progress" without that evidence, and never rely on a completion notification to learn an agent finished.
 - **NO workarounds** — don't steer around issues, don't paper over them. **Fix the root cause, wherever it lives** (CLAUDE.md rule). This is not a binary between "workaround" and "stop": the third option — do the real work — is the default. Stopping is licensed only by a proven B1–B4 blocker with the four-part proof (`.claude/skills/_shared/execution-contract.md`).
 - **NO dodging** — "out of scope", "pre-existing", "categorically behavioral", "should be tracked separately", "not my package" are **not** blockers; they are the work. A `SubagentStop` hook greps reports for this vocabulary.

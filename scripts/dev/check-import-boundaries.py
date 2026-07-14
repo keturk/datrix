@@ -14,8 +14,8 @@ increases past its frozen baseline (scripts/config/target-literal-baseline.toml)
 --update-baseline recomputes and overwrites that baseline.
 
 Also implements the I6 successor ratchet (design 023, invariant I6, DI-4/DI-5):
-opt-in via --check-provider-conditionals, it AST-scans the two LANGUAGE
-package src/ trees (datrix_codegen_python, datrix_codegen_typescript) for
+opt-in via --check-provider-conditionals, it AST-scans the LANGUAGE
+package src/ trees (LANGUAGE_PACKAGES, the declared taxonomy) for
 platform-identity CONDITIONALS -- the successor forms of the removed
 DeploymentProvider branches (`== ProviderId(...)`, `.value == "..."`,
 `match`/`case` over a provider) -- and fails if any file's count increases
@@ -126,6 +126,19 @@ PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
         "datrix_codegen_common.parity",
         "datrix_codegen_common.orchestration.resolved_runtime_plan",
         "datrix_codegen_common.testkit",
+        # Design 035 D2/D5 (task 31-09): the shared container-image supply
+        # primitives (union requirements + content-hash base-image tag).
+        # THREE platform plugins need this ONE algorithm -- docker (emits the
+        # base image, bakes the tag into every per-service Dockerfile FROM
+        # line), aws (its deploy script builds/pushes exactly that tag), and
+        # azure (its ACR site-config image reference). A platform plugin may
+        # never import a sibling platform plugin to get it (that would make
+        # AWS uninstallable without Docker -- see the platform->platform
+        # prohibition in BOUNDARY_RULES below), so the algorithm lives in the
+        # shared codegen layer and every platform imports it from here.
+        # Redundant with the broader ``datrix_codegen_common.platform`` entry
+        # above; listed explicitly so this edge is reviewable on its own.
+        "datrix_codegen_common.platform.container_image_supply",
     ]
 )
 
@@ -158,6 +171,40 @@ SQL_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
     ]
 )
 
+# ---------------------------------------------------------------------------
+# Generator taxonomy -- the ONE place the package roles are declared.
+#
+# Datrix is a multi-language, multi-platform generator: these sets grow. A
+# package's ROLE cannot be inferred from its name (datrix_codegen_sql and
+# datrix_codegen_component are neither language nor platform generators), so the
+# taxonomy is declared rather than discovered -- but it is declared ONCE, and
+# every boundary rule below is DERIVED from it. Adding a language is one entry
+# here, not an edit to eight scattered forbidden-prefix tuples.
+#
+# Omitting a language package here is NOT a silent no-op. A package absent from
+# LANGUAGE_PACKAGES gets no BoundaryRule at all, so the scanner would happily let
+# it import a sibling language generator or datrix_cli -- "a silent checker
+# mistaken for an approving one", exactly the defect task 31-09 found in the
+# platform rules (see the sibling-platform note below).
+LANGUAGE_PACKAGES: tuple[str, ...] = (
+    "datrix_codegen_python",
+    "datrix_codegen_typescript",
+    "datrix_codegen_dotnet",
+    "datrix_codegen_java",
+)
+
+PLATFORM_PACKAGES: tuple[str, ...] = (
+    "datrix_codegen_docker",
+    "datrix_codegen_aws",
+    "datrix_codegen_azure",
+)
+
+
+def _siblings(package: str, group: tuple[str, ...]) -> tuple[str, ...]:
+    """Every member of ``group`` except ``package`` itself."""
+    return tuple(name for name in group if name != package)
+
+
 # Boundary rules: source package -> BoundaryRule
 # forbidden_prefixes: imports whose prefix matches are forbidden
 # allowed_subtrees: specific sub-prefixes that override the broader forbidden prefix
@@ -177,29 +224,24 @@ BOUNDARY_RULES: dict[str, BoundaryRule] = {
         ),
     ),
     "datrix_codegen_common": BoundaryRule(
-        forbidden_prefixes=(
-            "datrix_codegen_python",
-            "datrix_codegen_typescript",
-            "datrix_codegen_docker",
-            "datrix_codegen_aws",
-            "datrix_codegen_azure",
-            "datrix_cli",
-        ),
+        forbidden_prefixes=(*LANGUAGE_PACKAGES, *PLATFORM_PACKAGES, "datrix_cli"),
     ),
-    "datrix_codegen_python": BoundaryRule(
-        forbidden_prefixes=("datrix_codegen_typescript",),
-    ),
-    "datrix_codegen_typescript": BoundaryRule(
-        forbidden_prefixes=("datrix_codegen_python",),
-    ),
+    # Language generators: each forbids every SIBLING language package. They share
+    # code through datrix-codegen-common, never through direct imports -- importing a
+    # sibling re-introduces the O(N^2) coupling the shared layer exists to prevent
+    # (see "Cross-language parity is verified by per-language conformance, never by
+    # comparison" in datrix-common/docs/architecture/import-boundaries.md).
+    **{
+        language: BoundaryRule(forbidden_prefixes=_siblings(language, LANGUAGE_PACKAGES))
+        for language in LANGUAGE_PACKAGES
+    },
     # SQL generator: forbidden from sibling language packages and from the bulk of
     # datrix_codegen_common (it is not a language generator, so the transpiler and
     # language-shaped subtrees are off-limits).  SQL_CODEGEN_COMMON_ALLOWED_SUBTREES
     # carves out the narrow language-agnostic subtrees SQL legitimately uses.
     "datrix_codegen_sql": BoundaryRule(
         forbidden_prefixes=(
-            "datrix_codegen_python",
-            "datrix_codegen_typescript",
+            *LANGUAGE_PACKAGES,
             "datrix_codegen_common",
             "datrix_cli",
         ),
@@ -211,52 +253,43 @@ BOUNDARY_RULES: dict[str, BoundaryRule] = {
     # (gendsl, algorithms.serverless, context_models.serverless, etc.), so
     # datrix_codegen_common is NOT on its forbidden list.
     "datrix_codegen_component": BoundaryRule(
-        forbidden_prefixes=(
-            "datrix_codegen_python",
-            "datrix_codegen_typescript",
-            "datrix_cli",
-        ),
+        forbidden_prefixes=(*LANGUAGE_PACKAGES, "datrix_cli"),
     ),
     # Platform generators keep datrix_codegen_common on forbidden_prefixes but carry
     # PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES to admit the language-agnostic
     # subtrees they legitimately consume. The transpiler and language-shaped
     # context_models/algorithms subtrees remain forbidden.
-    "datrix_codegen_docker": BoundaryRule(
-        forbidden_prefixes=(
-            "datrix_codegen_common",
-            "datrix_codegen_python",
-            "datrix_codegen_typescript",
-            "datrix_cli",
-        ),
-        allowed_subtrees=PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES,
-    ),
-    "datrix_codegen_aws": BoundaryRule(
-        forbidden_prefixes=(
-            "datrix_codegen_common",
-            "datrix_codegen_python",
-            "datrix_codegen_typescript",
-            "datrix_cli",
-        ),
-        allowed_subtrees=PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES,
-    ),
-    "datrix_codegen_azure": BoundaryRule(
-        forbidden_prefixes=(
-            "datrix_codegen_common",
-            "datrix_codegen_python",
-            "datrix_codegen_typescript",
-            "datrix_cli",
-        ),
-        allowed_subtrees=PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES,
-    ),
+    #
+    # SIBLING PLATFORM PLUGINS ARE FORBIDDEN TOO (task 31-09). Each platform
+    # forbids every OTHER platform. This edge was missing from every platform's
+    # rule until 31-09 -- not because it was permitted, but because nobody had done
+    # it yet, so a silent checker was mistaken for an approving one. A platform
+    # plugin importing a sibling platform plugin (e.g. aws importing docker to
+    # reuse the base-image tag algorithm) means the importing platform can no
+    # longer be installed without the imported one, and would grow into a
+    # three-way coupling the moment a second platform needed the same code.
+    # The correct home for anything two platforms share is the shared codegen
+    # layer (PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES above): shared layers
+    # ask, target plugins answer (design principle 16; CLAUDE.md's
+    # generality-preserving design rule).
+    **{
+        platform: BoundaryRule(
+            forbidden_prefixes=(
+                "datrix_codegen_common",
+                *LANGUAGE_PACKAGES,
+                *_siblings(platform, PLATFORM_PACKAGES),
+                "datrix_cli",
+            ),
+            allowed_subtrees=PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES,
+        )
+        for platform in PLATFORM_PACKAGES
+    },
     "datrix_extensions": BoundaryRule(
         forbidden_prefixes=(
             "datrix_cli",
-            "datrix_codegen_python",
-            "datrix_codegen_typescript",
+            *LANGUAGE_PACKAGES,
             "datrix_codegen_common",
-            "datrix_codegen_docker",
-            "datrix_codegen_aws",
-            "datrix_codegen_azure",
+            *PLATFORM_PACKAGES,
             "datrix_language",
         ),
     ),
@@ -321,14 +354,16 @@ TARGET_LITERAL_ENUM_MEMBERS: dict[str, frozenset[str]] = {
 # scope was reduced to the 3 Python + 1 TypeScript sites in tasks 08-06/08-07;
 # every other site is deliberately deferred to phase-09/DI-5 -- see task
 # 08-11) but must not be allowed to grow while they wait for a decision-engine
-# replacement. Only the two LANGUAGE (leaf/owner) packages are policed here --
+# replacement. Only the LANGUAGE (leaf/owner) packages are policed here --
 # unlike I1, this is NOT a shared-layer scan; leaf packages are the legitimate
 # owners of target identity (D1), so the defect is the CONDITIONAL shape
 # itself (branch-per-provider, DI-5's job to collapse), not package location.
-PROVIDER_CONDITIONAL_LANGUAGE_PACKAGES: tuple[str, ...] = (
-    "datrix_codegen_python",
-    "datrix_codegen_typescript",
-)
+#
+# Derived from LANGUAGE_PACKAGES (the single taxonomy declaration above) so a new
+# language generator is policed by this ratchet from its first commit, rather than
+# silently accumulating provider conditionals until someone remembers this tuple.
+# A package with no src/ tree yet contributes no files and no baseline entries.
+PROVIDER_CONDITIONAL_LANGUAGE_PACKAGES: tuple[str, ...] = LANGUAGE_PACKAGES
 
 
 # ---------------------------------------------------------------------------
@@ -1628,7 +1663,7 @@ def _rule_forbids(source_package: str, imported_module: str) -> bool:
 def _self_test_allowed_denied_subtrees() -> bool:
     """The platform allowed-subtree carve-out constant is frozen exactly, and
     every representative allowed/denied import is classified correctly."""
-    _step("Self-test 1/7: platform allowed/denied codegen-common subtrees")
+    _step("Self-test 1/9: platform allowed/denied codegen-common subtrees")
     ok = True
 
     expected_allowed_subtrees: frozenset[str] = frozenset(
@@ -1646,6 +1681,7 @@ def _self_test_allowed_denied_subtrees() -> bool:
             "datrix_codegen_common.parity",
             "datrix_codegen_common.orchestration.resolved_runtime_plan",
             "datrix_codegen_common.testkit",
+            "datrix_codegen_common.platform.container_image_supply",
         ]
     )
     ok &= _check(
@@ -1699,7 +1735,7 @@ def _self_test_allowed_denied_subtrees() -> bool:
 def _self_test_dotted_precision_and_carveout() -> bool:
     """Subtree matching is exact-or-child (not raw prefix), and the carve-out
     never leaks to a package that did not opt in."""
-    _step("Self-test 2/7: dotted-boundary precision and carve-out non-leakage")
+    _step("Self-test 2/9: dotted-boundary precision and carve-out non-leakage")
     ok = True
     platform_source = "datrix_codegen_aws"
 
@@ -1744,7 +1780,7 @@ def _self_test_dotted_precision_and_carveout() -> bool:
 def _self_test_sql_and_component_coverage() -> bool:
     """BOUNDARY_RULES covers datrix_codegen_sql and datrix_codegen_component,
     each enforcing the sibling-language prohibition absolutely."""
-    _step("Self-test 3/7: SQL and Component boundary rule coverage")
+    _step("Self-test 3/9: SQL and Component boundary rule coverage")
     ok = True
 
     ok &= _check(
@@ -1806,10 +1842,171 @@ def _self_test_sql_and_component_coverage() -> bool:
     return ok
 
 
+#: The three platform generator packages. Each must forbid the OTHER TWO.
+_PLATFORM_PACKAGES: tuple[str, ...] = (
+    "datrix_codegen_docker",
+    "datrix_codegen_aws",
+    "datrix_codegen_azure",
+)
+
+
+def _self_test_platform_to_platform_prohibition() -> bool:
+    """A platform plugin may never import a SIBLING platform plugin (task 31-09).
+
+    The pre-existing self-tests only ever proved platform -> LANGUAGE imports
+    are flagged; the platform -> PLATFORM edge was absent from every rule, so
+    an aws -> docker import passed the checker in silence. This check pins the
+    prohibition in the rule model for all six ordered sibling pairs, and
+    proves the shared-layer escape route (importing the same algorithm from
+    ``datrix_codegen_common.platform.container_image_supply``) is NOT flagged
+    -- otherwise the rule would forbid the correct fix along with the wrong one.
+    """
+    _step("Self-test 4/9: platform -> sibling-platform import prohibition")
+    ok = True
+
+    for source in _PLATFORM_PACKAGES:
+        siblings = [p for p in _PLATFORM_PACKAGES if p != source]
+        for sibling in siblings:
+            ok &= _check(
+                f"sibling platform import forbidden: {source} -> {sibling}",
+                _rule_forbids(source, sibling),
+            )
+            ok &= _check(
+                f"sibling platform submodule import forbidden: {source} -> "
+                f"{sibling}.generators.images.base_image_builder",
+                _rule_forbids(source, f"{sibling}.generators.images.base_image_builder"),
+            )
+
+    # The correct home for shared platform logic must stay importable, or the
+    # rule above would forbid the fix as well as the defect.
+    for source in _PLATFORM_PACKAGES:
+        ok &= _check(
+            f"shared container-image-supply layer NOT forbidden: {source} -> "
+            "datrix_codegen_common.platform.container_image_supply",
+            not _rule_forbids(
+                source, "datrix_codegen_common.platform.container_image_supply"
+            ),
+        )
+
+    # A platform importing ITSELF is not a sibling import.
+    for source in _PLATFORM_PACKAGES:
+        ok &= _check(
+            f"self-import not flagged: {source} -> {source}.generators",
+            not _rule_forbids(source, f"{source}.generators"),
+        )
+
+    return ok
+
+
+def _self_test_build_platform_fixture_monorepo(
+    tmp_root: Path, *, import_sibling: bool
+) -> Path:
+    """Build a minimal isolated monorepo with a real datrix-codegen-aws package.
+
+    Its one module imports either a SIBLING PLATFORM (docker -- a violation)
+    or the shared codegen-common container-image-supply layer (the correct,
+    permitted edge), so the same fixture proves both directions.
+    """
+    package_src = tmp_root / "datrix-codegen-aws" / "src" / "datrix_codegen_aws"
+    package_src.mkdir(parents=True, exist_ok=True)
+    (package_src / "__init__.py").write_text("", encoding="utf-8")
+
+    module_path = package_src / "deploy_supply_context.py"
+    module_path.write_text(
+        _self_test_platform_module_source(import_sibling=import_sibling),
+        encoding="utf-8",
+    )
+    return module_path
+
+
+def _self_test_platform_module_source(*, import_sibling: bool) -> str:
+    """Source for the platform fixture module: the violating import, or the fix."""
+    if import_sibling:
+        import_line = (
+            "from datrix_codegen_docker.generators.images.base_image_builder import (\n"
+            "    compute_base_image_tag,\n"
+            ")"
+        )
+    else:
+        import_line = (
+            "from datrix_codegen_common.platform.container_image_supply import (\n"
+            "    compute_base_image_tag,\n"
+            ")"
+        )
+    return f"{import_line}\n\n\ndef f() -> str:\n    return compute_base_image_tag('x', 'app')\n"
+
+
+def _self_test_run_boundary_cli(tmp_root: Path) -> "subprocess.CompletedProcess[str]":
+    """Invoke THIS script's plain import-boundary scan against an isolated fixture."""
+    return subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "--base-dir",
+            str(tmp_root),
+            "--skip-auto-self-test",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+
+def _self_test_platform_cli_non_vacuity() -> bool:
+    """End-to-end proof the platform -> platform prohibition actually FIRES.
+
+    Plants a real aws -> docker import in a real, isolated fixture monorepo,
+    proves the scanner exits 1 and names it, then rewrites the SAME module to
+    import the shared codegen-common layer instead and proves the failure
+    clears (exit 0) -- i.e. the rule flags the defect and permits the fix.
+    """
+    _step(
+        "Self-test 9/9: platform -> platform CLI mutation non-vacuity "
+        "(plant a real aws -> docker import, prove detection, prove the shared-layer fix clears it)"
+    )
+    ok = True
+    tmp_root = _SELF_TEST_SCRATCH_ROOT / f"platform-boundary-{uuid.uuid4().hex}"
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    try:
+        module_path = _self_test_build_platform_fixture_monorepo(
+            tmp_root, import_sibling=True
+        )
+
+        violating_result = _self_test_run_boundary_cli(tmp_root)
+        ok &= _check(
+            "aws -> docker sibling-platform import exits 1, got "
+            f"{violating_result.returncode}",
+            violating_result.returncode == 1,
+        )
+        combined = violating_result.stdout + violating_result.stderr
+        ok &= _check(
+            "failure output names the forbidden imported package (datrix_codegen_docker)",
+            "datrix_codegen_docker" in combined,
+        )
+        ok &= _check(
+            "failure output names the violating file (deploy_supply_context.py)",
+            "deploy_supply_context.py" in combined,
+        )
+
+        module_path.write_text(
+            _self_test_platform_module_source(import_sibling=False), encoding="utf-8"
+        )
+        fixed_result = _self_test_run_boundary_cli(tmp_root)
+        ok &= _check(
+            "rewriting the SAME import to the shared codegen-common layer clears the "
+            f"failure, got exit {fixed_result.returncode}",
+            fixed_result.returncode == 0,
+        )
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+    return ok
+
+
 def _self_test_provider_conditional_scanner() -> bool:
     """scan_file_for_provider_conditionals detects every known DI-5-deferred
     conditional shape and excludes every look-alike that must not ratchet."""
-    _step("Self-test 4/7: provider-conditional AST scanner (detection + exclusion)")
+    _step("Self-test 5/9: provider-conditional AST scanner (detection + exclusion)")
     ok = True
     scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"provider-scanner-{uuid.uuid4().hex}"
     scratch_dir.mkdir(parents=True, exist_ok=True)
@@ -1911,7 +2108,7 @@ def _self_test_function_level_import_scanner() -> bool:
     """scan_file_for_function_level_imports counts zero for module-top
     imports and exactly one for each nested (function/TYPE_CHECKING/
     try-except) import."""
-    _step("Self-test 5/7: function-level-import AST scanner")
+    _step("Self-test 6/9: function-level-import AST scanner")
     ok = True
     scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"fli-scanner-{uuid.uuid4().hex}"
     scratch_dir.mkdir(parents=True, exist_ok=True)
@@ -1953,7 +2150,7 @@ def _self_test_function_level_import_scanner() -> bool:
 def _self_test_ratchets() -> bool:
     """Both ratchet comparators fire on any per-file increase, never on a
     decrease, and treat a baseline-absent file as baseline 0."""
-    _step("Self-test 6/7: ratchet comparators (regression / no-regression / missing-baseline-as-zero)")
+    _step("Self-test 7/9: ratchet comparators (regression / no-regression / missing-baseline-as-zero)")
     ok = True
 
     clean = check_provider_conditional_ratchet(
@@ -2084,7 +2281,7 @@ def _self_test_cli_non_vacuity() -> bool:
     temporarily-mutated fixture tree -- never a simulated one, and never the
     real datrix-common source tree."""
     _step(
-        "Self-test 7/7: CLI mutation non-vacuity "
+        "Self-test 8/9: function-level-import CLI mutation non-vacuity "
         "(plant a real regression, prove detection, prove it clears on revert)"
     )
     ok = True
@@ -2138,10 +2335,12 @@ def run_self_test() -> bool:
         _self_test_allowed_denied_subtrees(),
         _self_test_dotted_precision_and_carveout(),
         _self_test_sql_and_component_coverage(),
+        _self_test_platform_to_platform_prohibition(),
         _self_test_provider_conditional_scanner(),
         _self_test_function_level_import_scanner(),
         _self_test_ratchets(),
         _self_test_cli_non_vacuity(),
+        _self_test_platform_cli_non_vacuity(),
     ]
     print()
     if all(results):

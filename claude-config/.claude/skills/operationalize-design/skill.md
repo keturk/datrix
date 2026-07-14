@@ -61,12 +61,12 @@ For complete documentation index with "When to use" guidance, see [doc_index.md]
 
 **Essential reads (MANDATORY before starting):**
 - [ai-agent-rules.md](../../../../../datrix-common/docs/contributing/ai-agent-rules.md) → Core rules, STOP AND THINK principle
-- [architecture-overview.md](../../../../../datrix/docs/architecture/architecture-overview.md) → System architecture
-- [design-principles.md](../../../../../datrix/docs/architecture/design-principles.md) → Design philosophy
+- [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md) → System architecture (operative summary)
+- [design-principles-cheat-sheet.md](../../../../../datrix/docs/architecture/design-principles-cheat-sheet.md) → Design philosophy (operative summary)
 
-**Quick refs:**
-- [architecture-cheat-sheet.md](../../../../../datrix/docs/architecture/architecture-cheat-sheet.md)
-- [design-principles-cheat-sheet.md](../../../../../datrix/docs/architecture/design-principles-cheat-sheet.md)
+**On demand (read only when the design's surfaces need the depth — not a blanket pre-read; the Phase-1 recon agents read the full docs for you):**
+- [architecture-overview.md](../../../../../datrix/docs/architecture/architecture-overview.md) → full architecture index + sub-docs
+- [design-principles.md](../../../../../datrix/docs/architecture/design-principles.md) → full design principles
 
 ## Inputs
 
@@ -308,7 +308,7 @@ If you deviated: STOP and explain the deviation to the user.
 
 **MANDATORY FIRST STEP:** Read `d:\datrix\.claude\skills\generate-tasks\SKILL.md` completely before generating any tasks (you read it once; include the relevant template slice in each writer agent's prompt so they don't each re-read it). This skill follows the same workflow as `/generate-tasks` with one critical override described below.
 
-**HARD CONSTRAINT — Task Location Allowlist:** the full allowlist (13 framework projects) and its rules live in `/generate-tasks` SKILL.md ("Task Location Allowlist — HARD CONSTRAINT"), which the mandatory first step below makes you read. The bindings that bite here: every task file path AND `dependencies.md` MUST begin with `D:\datrix\{project}\.tasks\` where `{project}` is one of the 13 allowlisted names; **the design document being operationalized often lives inside a customer/generated project (e.g. `D:\g\<customer-project>\`) — the tasks it produces NEVER go there**; tasks with no specific package go in the `D:\datrix\datrix\.tasks` fallback. Task tooling only scans `D:\datrix\*/.tasks` — a `.tasks` folder anywhere else is invisible and its tasks silently never run.
+**HARD CONSTRAINT — Task Location Allowlist:** the full allowlist (15 framework projects) and its rules live in `/generate-tasks` SKILL.md ("Task Location Allowlist — HARD CONSTRAINT"), which the mandatory first step below makes you read. The bindings that bite here: every task file path AND `dependencies.md` MUST begin with `D:\datrix\{project}\.tasks\` where `{project}` is one of the 15 allowlisted names; **the design document being operationalized often lives inside a customer/generated project (e.g. `D:\g\<customer-project>\`) — the tasks it produces NEVER go there**; tasks with no specific package go in the `D:\datrix\datrix\.tasks` fallback. Task tooling only scans `D:\datrix\*/.tasks` — a `.tasks` folder anywhere else is invisible and its tasks silently never run.
 
 **BEFORE generating tasks:**
 1. Count total tasks needed from the design: implementation tasks (each carrying its own tests + doc updates), migration tasks, and one quality gate per package with 2+ code tasks. Do NOT plan separate per-task test, verify, or docs tasks.
@@ -389,7 +389,7 @@ If you deviated: STOP and explain the deviation to the user.
    ```
    d:\datrix\{repo}\.tasks\phase-{NN}\task-{NN}-{TT}-{slug}.md
    ```
-   `{repo}` MUST be one of the 13 framework projects in the **Task Location Allowlist** above — never a customer/generated project, even when the design doc lives in one. Use `datrix` as the fallback bucket when no specific package fits.
+   `{repo}` MUST be one of the 15 framework projects in the **Task Location Allowlist** above — never a customer/generated project, even when the design doc lives in one. Use `datrix` as the fallback bucket when no specific package fits.
 
    **File structure (from `/generate-tasks`):**
    ```markdown
@@ -403,7 +403,7 @@ If you deviated: STOP and explain the deviation to the user.
 
    **CRITICAL:** The first H1 heading MUST be `# Task {NN}-{TT}: {Title}` (e.g., `# Task 39-01: Remove Dead Code in TypeScript Relationship Generation`). The `todo.ps1` script parses this heading to display tasks.
 
-5. Generate the dependencies document following generate-tasks Step 7 format exactly — group numbers and absolute task file paths only, no headers, tables, inventories, or prose. See `d:\datrix\.claude\skills\generate-tasks\SKILL.md` Step 7 for the exact format.
+5. Generate the dependencies document following generate-tasks Step 7 format exactly — the **JSON document** (with the `provenance` stamp: `generated_by: "/operationalize-design"`, `generated_at`, and the `validated` list of checks that actually ran), nothing else in the file. See `d:\datrix\.claude\skills\generate-tasks\SKILL.md` Step 7 and `dependencies-format.md` for the exact schema. Do NOT emit the legacy "Group N" text format.
 
 ## Phase 4 Completion Gate
 
@@ -414,9 +414,9 @@ This phase is COMPLETE when:
 - [ ] ALL quality gate tasks generated (exactly one per package with 2+ code tasks; carries the embedded verification checklist)
 - [ ] Any narrow-exception standalone integration/e2e or substantial-docs task is justified and (for docs) placed OUTSIDE the dependency chain
 - [ ] Tasks span ALL affected repos (not just the primary package)
-- [ ] **Every task file path and `dependencies.md` begins with `D:\datrix\{project}\.tasks\` where `{project}` is one of the 13 in the Task Location Allowlist** — no `.tasks` folder under a customer/generated project or any path outside the allowlist; tasks with no specific package use the `datrix\.tasks` fallback
+- [ ] **Every task file path and `dependencies.md` begins with `D:\datrix\{project}\.tasks\` where `{project}` is one of the 15 in the Task Location Allowlist** — no `.tasks` folder under a customer/generated project or any path outside the allowlist; tasks with no specific package use the `datrix\.tasks` fallback
 - [ ] Every task file both REFERENCES the preserved design doc (`**Design reference:**`) AND inlines the relevant design content (self-contained per the Reference-AND-inline requirement)
-- [ ] Dependencies document (`dependencies.md`) created with lean format: group numbers and absolute paths only — no headers, tables, inventories, dependency text blocks, or prose
+- [ ] Dependencies document (`dependencies.md`) created as the Step-7 JSON document with a truthful `provenance` stamp — no headers, tables, inventories, or prose around it; NOT the legacy "Group N" text format
 - [ ] Output lists ALL task file paths (not "23 tasks remaining")
 - [ ] No dual-implementation gap: if the design introduces a new path, migration tasks ensure the new path is exercised by tests/examples
 - [ ] **Every task carries `**Design reference:**` + `**Design acceptance property:**`** with the specific D#/G#/numbered invariant and a provable (negative + positive) acceptance check — not "tests pass"/"generates clean"
@@ -448,7 +448,7 @@ Before proceeding to Phase 5, answer:
 4. Did I avoid generating any standalone `-verify` task (verification rides in the quality gate)?
 5. Did I create migration tasks for every numbered step in the design's migration/rollout section?
 6. Did I generate tasks in ALL affected repos, not just the primary package?
-6a. **Allowlist check:** Does every task file and `dependencies.md` live under `D:\datrix\{one-of-the-13}\.tasks\`? Did I avoid creating any `.tasks` folder inside the (possibly customer-owned) directory where the design document lives? Did unmatched tasks land in the `datrix\.tasks` fallback?
+6a. **Allowlist check:** Does every task file and `dependencies.md` live under `D:\datrix\{one-of-the-15}\.tasks\`? Did I avoid creating any `.tasks` folder inside the (possibly customer-owned) directory where the design document lives? Did unmatched tasks land in the `datrix\.tasks` fallback?
 7. Did I create exactly one quality gate (with the embedded verification checklist) for every package with 2+ code tasks?
 8. Did I follow the template from `/generate-tasks` exactly?
 9. **Dual-path check:** If the design introduces a new path alongside an old one, will the old tests still pass without the new path being exercised? If yes, I am missing migration tasks.
@@ -531,7 +531,7 @@ Design: preserved at {path}
 - **NO separate `-docs` tasks for routine updates** — doc updates ride inside the implementation task whose feature they document; a standalone docs task is only for a substantial multi-task deliverable, placed outside the dependency chain
 - **NO workarounds** — don't steer around issues, don't paper over them. **Fix the root cause, wherever it lives** (CLAUDE.md rule). This is not a binary between "workaround" and "stop": the third option — do the real work — is the default. Stopping is licensed only by a proven B1–B4 blocker with the four-part proof (`.claude/skills/_shared/execution-contract.md`).
 - **NO dodging** — "out of scope", "pre-existing", "categorically behavioral", "should be tracked separately", "not my package" are **not** blockers; they are the work. A `SubagentStop` hook greps reports for this vocabulary.
-- **NO bloated dependencies.md** — the dependencies document is for AI agent consumption only; it contains group numbers and absolute task file paths, nothing else. No markdown headers, tables, task inventories, dependency text blocks, category labels, or prose. See generate-tasks Step 7 for the exact format.
+- **NO bloated dependencies.md** — the dependencies document is for AI agent consumption only; it is the Step-7 JSON document (tasks + dependencies + provenance stamp), nothing else. No markdown headers, tables, task inventories, dependency text blocks, or prose around it, and never the legacy "Group N" text format. See generate-tasks Step 7 for the exact schema.
 - **YES design document references in task files** — Phase 5 preserves the design doc, so every task carries `**Design reference:**` + `**Design acceptance property:**` pointing at it AND inlines the relevant content. (Reference for traceability, inline for self-sufficiency.) Do NOT strip the reference.
 - **NO marking a task/phase done on "generates clean" or "suite green" alone** — a task is done only when its `**Design acceptance property:**` is PROVEN by an executable check (negative + positive) whose output is pasted. A green suite over a half-enforced invariant is a false pass (the phase-01 env()-third-path failure).
 - **NO tasks without targeted tests** — every implementation and test task must have a `## Targeted Tests` section specifying which tests to run for focused verification
@@ -540,7 +540,7 @@ Design: preserved at {path}
 - **NO asking mid-phase** — complete each phase fully before asking user questions (unless blocked)
 - **NO roadmap/summary files** — generate actual task .md files, not summaries of future work
 - **NO single-package scoping** — if the design affects multiple repos, generate tasks in ALL of them. The design's migration strategy tells you which repos have work.
-- **NO `.tasks` outside the allowlist** — task files and `dependencies.md` go ONLY under `D:\datrix\{one-of-the-13-framework-projects}\.tasks\`. Never create a `.tasks` folder in the customer/generated project the design doc lives in (e.g. `D:\g\<customer-project>\`), under `D:\g\...`, or anywhere outside `D:\datrix\`. A task with no specific framework package goes in the `datrix\.tasks` fallback. Tooling only scans `D:\datrix\*/.tasks` — anything else is invisible.
+- **NO `.tasks` outside the allowlist** — task files and `dependencies.md` go ONLY under `D:\datrix\{one-of-the-15-framework-projects}\.tasks\`. Never create a `.tasks` folder in the customer/generated project the design doc lives in (e.g. `D:\g\<customer-project>\`), under `D:\g\...`, or anywhere outside `D:\datrix\`. A task with no specific framework package goes in the `datrix\.tasks` fallback. Tooling only scans `D:\datrix\*/.tasks` — anything else is invisible.
 - **NO skipping migration tasks** — if the design has a migration/rollout section with numbered steps, every step becomes a task. "Convert X to Y" is not a suggestion — it is implementation work.
 - **NO leaving dual implementations untested** — if the design introduces a new path alongside an old one, old tests will pass on the old path regardless of whether the new path works. Migration tasks must convert fixtures, examples, and configs to the new path so the new implementation is actually exercised.
 - **NO treating migration as "future work"** — unless the design explicitly defers a migration step to a later phase, it belongs in THIS phase. The design document is the scope boundary.

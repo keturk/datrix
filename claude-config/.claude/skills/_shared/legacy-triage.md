@@ -4,14 +4,22 @@
 
 **Goal:** Understand WHAT failed from raw logs. (This is the fallback for older test runs.)
 
+**FIRST: script the parse.** Do not read raw pytest/deploy logs into context — run the triage script on each failing log and read its grouped report instead (read `datrix/scripts/dev/quick-reference.md` before invoking; a pre-tool hook enforces this):
+
+```bash
+powershell -File "d:/datrix/datrix/scripts/dev/triage-failures.ps1" "{log-path}" -Format pytest -OutputFile "D:\datrix\.test-output\legacy-triage.md"   # or -Format deploy
+```
+
+Fall back to the manual reads below only for detail the report lacks (Grep the specific log for the representative failure, don't read the whole file).
+
 **For unit-tests failures:**
 1. Read `unit-tests-summary.log` — identify which services failed and how many tests failed
-2. For each failed service, read `{service-name}-tests.log` — find exact test failures, assertion errors, import errors, collection errors
+2. For each failed service, triage `{service-name}-tests.log` (script above) — find exact test failures, assertion errors, import errors, collection errors
 
 **For deploy-test failures:**
 1. Read `deploy-test-summary.log` — identify overall status and which projects failed
-2. Read `deploy-test-output.log` — find the specific failure point (build failure? health check timeout? test failure?)
-3. For container issues, read `docker-logs/{container-name}.log` — find application errors, startup failures, database connection issues
+2. Triage `deploy-test-output.log` (script above, `-Format deploy`) — find the specific failure point (build failure? health check timeout? test failure?)
+3. For container issues, Grep `docker-logs/{container-name}.log` for error markers — application errors, startup failures, database connection issues
 
 **What to look for:**
 - `FAILED` / `ERROR` / `ERRORS` in pytest output

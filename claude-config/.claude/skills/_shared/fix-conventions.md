@@ -61,12 +61,16 @@ Reporting a cross-package finding and stopping there is **not** an outcome.
 |---|---|
 | `python` → `datrix-codegen-python` | `/fix-codegen-python` |
 | `typescript` → `datrix-codegen-typescript` | `/fix-codegen-typescript` |
+| `dotnet` → `datrix-codegen-dotnet` | `/fix-codegen-dotnet` |
+| `java` → `datrix-codegen-java` | `/fix-codegen-java` |
 | `docker` → `datrix-codegen-docker` | `/fix-codegen-docker` |
 | `sql` → `datrix-codegen-sql` | `/fix-codegen-sql` |
 | `aws` → `datrix-codegen-aws` | `/fix-codegen-aws` |
 | `azure` → `datrix-codegen-azure` | `/fix-codegen-azure` |
 | `component` → `datrix-codegen-component` | `/fix-codegen-component` |
 | (shared codegen base) → `datrix-codegen-common` | `/fix-codegen-common` |
+
+Datrix is a multi-language, multi-platform generator — this table grows. A `{generator}` token with no row here means the table is stale, **not** that the generator is unowned: its package is `datrix-codegen-{generator}`, and its fix skill is `/fix-codegen-{generator}`.
 
 Config resolution and `.dcfg` loading live in `datrix-common` / `datrix-cli` — failures in `Unable to resolve ... config` originate there or in the project's config tree (investigate both sides before deciding which owns the fix).
 

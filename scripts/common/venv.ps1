@@ -107,6 +107,28 @@ function Get-DatrixRoot {
  return $datrixRoot
 }
 
+# Map a package directory name to its Python import name
+function Get-DatrixModuleName {
+ <#
+ .SYNOPSIS
+ Get the Python module name for a Datrix package directory name.
+
+ .DESCRIPTION
+ Every Datrix package maps its directory name to its import name by the same rule:
+ datrix-codegen-python -> datrix_codegen_python. Derived, not tabulated, so a new
+ datrix-codegen-<lang> package needs no edit here.
+
+ .PARAMETER PackageName
+ Package directory name, e.g. "datrix-codegen-python".
+ #>
+ param(
+ [Parameter(Mandatory=$true)]
+ [string]$PackageName
+ )
+
+ return $PackageName.Replace("-", "_")
+}
+
 # Get venv path
 function Get-DatrixVenvPath {
  <#
@@ -527,30 +549,9 @@ function Install-DatrixPackage {
  Start-Sleep -Milliseconds 500
 
  # Check if package is importable (most reliable check)
- # Map package names to their Python module names
- $moduleNameMap = @{
- "datrix-common" = "datrix_common"
- "datrix-language" = "datrix_language"
- "datrix-codegen-component" = "datrix_codegen_component"
- "datrix-codegen-common" = "datrix_codegen_common"
- "datrix-cli" = "datrix_cli"
- "datrix-codegen-python" = "datrix_codegen_python"
- "datrix-codegen-typescript" = "datrix_codegen_typescript"
- "datrix-codegen-sql" = "datrix_codegen_sql"
- "datrix-codegen-docker" = "datrix_codegen_docker"
- "datrix-codegen-aws" = "datrix_codegen_aws"
- "datrix-codegen-azure" = "datrix_codegen_azure"
- "datrix-extensions" = "datrix_extensions"
- }
-
  $pythonExe = Join-Path $venvPath "Scripts\python.exe"
  if (Test-Path $pythonExe) {
- # Get module name from map or convert package name
- $moduleName = if ($moduleNameMap.ContainsKey($PackageName)) {
- $moduleNameMap[$PackageName]
- } else {
- $PackageName.Replace("-", "_")
- }
+ $moduleName = Get-DatrixModuleName -PackageName $PackageName
 
  # Check if pip output indicates success first
  $pipSucceeded = $false
@@ -755,30 +756,48 @@ function Ensure-DatrixVenv {
 function Get-DatrixPackages {
  <#
  .SYNOPSIS
- Get list of all Datrix package directories.
+ Get the installable Datrix package directories, in dependency order.
+
+ .DESCRIPTION
+ Discovers every "datrix-*" directory carrying a pyproject.toml rather than hardcoding the
+ set. Datrix is a multi-language, multi-platform generator: a new datrix-codegen-<lang>
+ package must install into the shared venv as soon as it has a pyproject.toml, with no edit
+ here. A repo that has been cloned but not yet populated has no pyproject.toml and is
+ correctly skipped until it does.
+
+ The foundation packages are installed first, in the order the dependency graph requires;
+ every other discovered package follows in sorted order.
  #>
  $datrixRoot = Get-DatrixRoot
 
- # Package directories that should be installed
- $packages = @(
+ $foundationOrder = @(
  "datrix-common",
  "datrix-language",
- "datrix-codegen-component",
  "datrix-codegen-common",
- "datrix-cli",
- "datrix-codegen-python",
- "datrix-codegen-typescript",
- "datrix-codegen-sql",
- "datrix-codegen-docker",
- "datrix-codegen-aws",
- "datrix-codegen-azure",
- "datrix-extensions"
+ "datrix-cli"
  )
 
- return $packages | Where-Object {
- $packagePath = Join-Path $datrixRoot $_
- Test-Path (Join-Path $packagePath "pyproject.toml")
+ $installable = @()
+ Get-ChildItem -Path $datrixRoot -Directory |
+ Where-Object {
+ $_.Name -like "datrix-*" -and
+ (Test-Path (Join-Path $_.FullName "pyproject.toml"))
+ } |
+ ForEach-Object { $installable += $_.Name }
+
+ $ordered = @()
+ foreach ($name in $foundationOrder) {
+ if ($installable -contains $name) {
+ $ordered += $name
  }
+ }
+ foreach ($name in ($installable | Sort-Object)) {
+ if ($ordered -notcontains $name) {
+ $ordered += $name
+ }
+ }
+
+ return $ordered
 }
 
 # Get install marker path for a package
@@ -835,28 +854,7 @@ function Test-PackageNeedsReinstall {
  $venvPath = Get-DatrixVenvPath
  $pythonExe = Join-Path $venvPath "Scripts\python.exe"
  if (Test-Path $pythonExe) {
- # Map package names to their Python module names
- $moduleNameMap = @{
- "datrix-common" = "datrix_common"
- "datrix-language" = "datrix_language"
- "datrix-codegen-component" = "datrix_codegen_component"
- "datrix-codegen-common" = "datrix_codegen_common"
- "datrix-cli" = "datrix_cli"
- "datrix-codegen-python" = "datrix_codegen_python"
- "datrix-codegen-typescript" = "datrix_codegen_typescript"
- "datrix-codegen-sql" = "datrix_codegen_sql"
- "datrix-codegen-docker" = "datrix_codegen_docker"
- "datrix-codegen-aws" = "datrix_codegen_aws"
- "datrix-codegen-azure" = "datrix_codegen_azure"
- "datrix-extensions" = "datrix_extensions"
- }
-
- # Get module name from map or convert package name
- $moduleName = if ($moduleNameMap.ContainsKey($PackageName)) {
- $moduleNameMap[$PackageName]
- } else {
- $PackageName.Replace("-", "_")
- }
+ $moduleName = Get-DatrixModuleName -PackageName $PackageName
 
  # Simple import test - use single-line command to avoid Windows heredoc issues
  $oldErrorActionPreference = $ErrorActionPreference

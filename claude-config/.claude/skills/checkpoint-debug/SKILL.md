@@ -41,7 +41,13 @@ Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `p
 
 ### Phase 1: Issue Inventory
 
-1. Read all provided issues, logs, or error output
+1. Build the issue candidates:
+   - **ISSUES mode** (user provided a list): read the provided issues verbatim.
+   - **LOG mode** (user provided a log path): do NOT read the raw log into context. Run the triage script and read its report instead — it auto-detects pytest / generate / deploy formats and groups failures by likely root cause:
+     ```bash
+     powershell -File "d:/datrix/datrix/scripts/dev/triage-failures.ps1" "{log-path}" -OutputFile "D:\datrix\.test-output\checkpoint-triage.md"
+     ```
+     Use the report's groups as the initial issue candidates; Grep the raw log only for a group's representative when the report lacks detail. (Read `datrix/scripts/dev/quick-reference.md` before invoking — a pre-tool hook enforces this.)
 2. Create a numbered issue list with severity (Critical/High/Medium/Low)
 3. Identify dependencies between issues (does fixing #1 also fix #3?)
 4. Propose an execution order:

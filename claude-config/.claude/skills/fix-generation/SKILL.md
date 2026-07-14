@@ -88,12 +88,16 @@ The `stage=generate:{generator}` token identifies the package that owns the fail
 |---|---|---|
 | `python` | `datrix-codegen-python` | `/fix-codegen-python` |
 | `typescript` | `datrix-codegen-typescript` | `/fix-codegen-typescript` |
+| `dotnet` | `datrix-codegen-dotnet` | `/fix-codegen-dotnet` |
+| `java` | `datrix-codegen-java` | `/fix-codegen-java` |
 | `docker` | `datrix-codegen-docker` | `/fix-codegen-docker` |
 | `sql` | `datrix-codegen-sql` | `/fix-codegen-sql` |
 | `aws` | `datrix-codegen-aws` | `/fix-codegen-aws` |
 | `azure` | `datrix-codegen-azure` | `/fix-codegen-azure` |
 | `component` | `datrix-codegen-component` | `/fix-codegen-component` |
 | (shared codegen base) | `datrix-codegen-common` | `/fix-codegen-common` |
+
+Datrix is a multi-language, multi-platform generator — this table grows. A `{generator}` token with no row here means the table is stale, **not** that the generator is unowned: its package is `datrix-codegen-{generator}`, and its fix skill is `/fix-codegen-{generator}`.
 
 Config resolution and `.dcfg` loading live in `datrix-common` / `datrix-cli` — failures in `Unable to resolve ... config` originate there or in the project's config tree (see Classification).
 
@@ -113,15 +117,15 @@ Config resolution and `.dcfg` loading live in `datrix-common` / `datrix-cli` —
 
 `-L`/`-Runtime`/`-Provider` are output-path selectors only; the real language/runtime/provider come from project config. Use `-ConfigProfile {test\|staging\|production}` to select a non-default profile.
 
-### Triage Helper (optional, fast pre-clustering)
+### Triage Script (PRIMARY parse path — do not read the raw log first)
 
-`triage-failures.ps1` auto-detects the generate format and groups failures by likely root cause into a Markdown report:
+`triage-failures.ps1` parses the generate log and groups failures by likely root cause into a Markdown report:
 
 ```bash
 powershell -File "d:/datrix/datrix/scripts/dev/triage-failures.ps1" "{log-path}" -Format generate -OutputFile "D:\datrix\.test-output\generation-triage.md"
 ```
 
-Use it to get an initial cluster count quickly, then verify clusters yourself by reading the log — do not trust the grouping blindly.
+The triage report — not the raw log — is your working input. Never read a whole multi-project log into context; read only the per-cluster representative blocks you need (Step 1).
 
 ### Generation Status Helper
 
@@ -134,16 +138,15 @@ powershell -File "d:/datrix/datrix/scripts/dev/status-generation.ps1"
 
 ## Workflow
 
-### Step 1: Parse the Log
+### Step 1: Triage the Log (scripted — never read the whole log)
 
-1. **Read the log** at the provided path (or the latest `generate-results-*.log` if none given).
-2. For each `=== Detailed output for {name} ===` block whose footer is `Failed`, extract:
-   - `name`, `Source` (`.dtrx` path), `Output` (→ language and output surface), `{generator}` from `stage=generate:`, and the full `Pipeline error:` message.
-3. **Skip** every `Success` project entirely.
+1. Run the triage script (see [Triage Script](#triage-script-primary-parse-path--do-not-read-the-raw-log-first)) on the provided log (or the latest `generate-results-*.log` if none given), then run `status-generation.ps1` for the succeeded/failed roster.
+2. **Read the triage report**, not the raw log. It gives you the failure groups and their members.
+3. For each group, pick ONE representative project and read ONLY its raw-log block (Grep the log for `=== Detailed output for {name} ===` with enough `-A` context) to extract: `name`, `Source` (`.dtrx` path), `Output` (→ language and output surface), `{generator}` from `stage=generate:`, and the full `Pipeline error:` message. **Skip** every `Success` project and every non-representative member.
 
-### Step 2: Cluster by Error Signature
+### Step 2: Confirm Clusters
 
-Normalize each `Pipeline error` message (replace project-specific names/paths with `*`) and group identical signatures. A cluster = one probable root cause spanning many projects.
+Confirm each triage group is genuinely one root cause: the normalized `Pipeline error` signature (project-specific names/paths replaced with `*`) must match across the members you spot-check. Split or merge groups only when the representative evidence demands it — do not re-cluster the whole log by hand.
 
 > Example: 30 projects each failing with `Generator 'docker': load` collapse to **one** cluster.
 
@@ -261,7 +264,8 @@ On abort, write a partial issue report and report what was diagnosed, attempted,
 - **NO over-regenerating to verify** — regenerate one project/example at a time, never a group/`-All` (see Step 7).
 - **NO running a datrix script without checking** `datrix/scripts/dev/quick-reference.md` first — a pre-tool hook enforces this.
 - **NO exploring the repo from scratch** — read `.project-structure.md` and the context above.
-- **NO trusting triage grouping blindly** — confirm clusters against the raw log.
+- **NO reading the whole generate log into context** — triage script first, then per-representative Grep only (Step 1).
+- **NO trusting triage grouping blindly** — spot-check each cluster's representative against its raw-log block.
 - **NO cross-package fixes** — hand off to the owning package's `/fix-codegen-*` skill.
 - **NO debug scatter, NO placeholders/TODOs, NO silent fallbacks, NO workarounds** (CLAUDE.md).
 - **NO git restore/checkout/reset/stash/revert** — undo edits manually (CLAUDE.md rule).

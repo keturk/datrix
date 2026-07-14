@@ -6,6 +6,25 @@ disable-model-invocation: true
 
 # Codegen Review
 
+## Run the Scanners FIRST (scripted checklist)
+
+Most checklist items below have a deterministic scanner — run the scanners on the touched package(s) and reason only about what they flag, instead of eyeballing code against the criteria. Read `datrix/scripts/quick-reference.md` (and the relevant category file) before invoking any script — a pre-tool hook enforces this. Invoke from bash as `powershell -File "d:/datrix/datrix/scripts/<category>/<script>.ps1" {package}`.
+
+| Checklist item | Scanner |
+|---|---|
+| No placeholders/TODOs, no debug scatter | `dev\check-debug-artifacts.ps1 {package}`; `dev\ast-grep.ps1 {package}` |
+| No silent fallbacks | `dev\libcst.ps1 {package}`; `dev\semgrep.ps1 {package}` |
+| No `except: pass` | covered by `dev\semgrep.ps1` / `dev\ast-grep.ps1` rules |
+| All tests pass | `test\test.ps1 {package}` |
+| No cross-package / matrix tests | `dev\check-import-boundaries.ps1` |
+| Cognitive complexity ≤15 | `metrics\complexity.ps1 {package}` |
+| No redundant code | `metrics\duplicate.ps1 {package}`; dead code: `metrics\vulture.ps1 {package}` |
+| No magic constants | `dev\find-constants.ps1 {package} -Output D:\datrix\.test-output\strings.md` (report defaults to CWD — always redirect) |
+| No `Any` type annotations | `test\mypy.ps1 {package}` + Grep for `: Any` |
+| Lint clean | `metrics\ruff.ps1 {package}` |
+
+Manual judgment remains for: mocks/fakes in tests, test-guideline conformance, docstrings, key=value logging format, logic-map markers, and generated-code validity.
+
 ## Submission Checklist
 
 - [ ] No placeholders/TODOs

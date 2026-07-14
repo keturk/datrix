@@ -47,7 +47,10 @@
  Run slow tests only.
 
 .PARAMETER Specific
- Run specific test file or pattern.
+ Run specific test file(s) or pattern. Several files/node-IDs may be given
+ comma-separated in ONE invocation (e.g. "tests/unit/a.py,tests/unit/b.py") and
+ run in a single pytest session. Commas inside parametrized node IDs ("[1,2]")
+ are literal, not separators.
 
 .PARAMETER Keyword
  Run tests matching keyword expression (-k option).
@@ -96,6 +99,10 @@
 .EXAMPLE
  .\test.ps1 datrix-common -Specific "tests/unit/test_parser.py"
  Run specific test file.
+
+.EXAMPLE
+ .\test.ps1 datrix-common -Specific "tests/unit/test_parser.py,tests/unit/test_types.py"
+ Run several test files in one pytest session (one runner startup, one run directory).
 
 .EXAMPLE
  .\test.ps1 datrix-language -Keyword "test_basic"

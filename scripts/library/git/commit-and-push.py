@@ -30,22 +30,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-DATRIX_REPOS = [
-    "datrix",
-    "datrix-cli",
-    "datrix-common",
-    "datrix-codegen-common",
-    "datrix-codegen-component",
-    "datrix-codegen-python",
-    "datrix-codegen-sql",
-    "datrix-codegen-typescript",
-    "datrix-language",
-    "datrix-codegen-aws",
-    "datrix-codegen-azure",
-    "datrix-codegen-docker",
-    "datrix-extensions",
-]
-
 TEXT_SNIPPET_EXTENSIONS = {
     ".cfg",
     ".dcfg",
@@ -95,7 +79,27 @@ def workspace_root_from_script() -> Path:
 
 
 def repo_paths(workspace_root: Path) -> list[Path]:
-    return [workspace_root / name for name in DATRIX_REPOS if (workspace_root / name).exists()]
+    """Discover every Datrix git repository in the workspace.
+
+    Discovered rather than hardcoded: Datrix is a multi-language, multi-platform generator,
+    so a newly cloned datrix-codegen-<lang> repo must become visible to commit-and-push
+    without an edit here. A hardcoded list silently drops the new repo's commits.
+
+    The showcase repo comes first (it anchors the workspace); the datrix-* packages follow
+    in sorted order. A directory is a repo only if it carries .git (a directory for a normal
+    clone, a file for a worktree or submodule) -- both satisfy exists().
+    """
+    repos: list[Path] = []
+
+    showcase = workspace_root / "datrix"
+    if (showcase / ".git").exists():
+        repos.append(showcase)
+
+    for child in sorted(workspace_root.iterdir()):
+        if child.name.startswith("datrix-") and (child / ".git").exists():
+            repos.append(child)
+
+    return repos
 
 
 def run_git(repo_path: Path, args: list[str], *, check: bool = True) -> str:

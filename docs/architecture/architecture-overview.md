@@ -234,7 +234,7 @@ graph TD
 language: python | typescript
 
 deployment:
-  runtime: docker-compose | azure-app-service | ecs-fargate | app-runner
+  runtime: docker-compose | azure-app-service | azure-app-service-container | ecs-fargate | app-runner
   provider: local | existing | aws | azure
   registry: acr | ecr | ...           # optional, provider-specific
 ```
@@ -255,7 +255,7 @@ deployment:
 | Concept | Examples | Owns |
 | --- | --- | --- |
 | Language | `python`, `typescript` | Application source code, framework/runtime adapters, language package/dependency files |
-| Runtime | `docker-compose`, `azure-app-service`, `ecs-fargate`, `app-runner` | Deployable artifact shape and process model |
+| Runtime | `docker-compose`, `azure-app-service`, `azure-app-service-container`, `ecs-fargate`, `app-runner` | Deployable artifact shape and process model |
 | Provider | `local`, `existing`, `aws`, `azure` | Provider-managed substrate, registry, identity, networking, managed services |
 | Infrastructure flavor | `container`, `external`, `rds`, `flexible-server`, `event-hubs` | Per-block provisioning choice (RDBMS, cache, pubsub, etc.) |
 | Host | `db.example.com`, `api.example.com`, `localhost` | Network endpoint |
@@ -297,10 +297,12 @@ deployment:
 | --- | --- | --- | --- |
 | Python Docker Compose local | `component`, `python`, `sql` | `docker` | none |
 | TypeScript Docker Compose local | `component`, `typescript`, `sql`, `python_http_contract_overlay` | `docker` | none |
-| Python Azure App Service | `component`, `python`, `sql` | none (PaaS) | `azure` App Service + managed infra |
-| Python ECS Fargate | `component`, `python`, `sql` | none (PaaS) | `aws` ECS/Fargate/managed infra |
+| Python Azure App Service (code-based) | `component`, `python`, `sql` | none (PaaS, no containers) | `azure` App Service + managed infra |
+| Python Azure App Service Container | `component`, `python`, `sql` | `docker` (custom-container delivery) | `azure` App Service + managed infra |
+| Python ECS Fargate | `component`, `python`, `sql` | `docker` (containers need Dockerfiles) | `aws` ECS/Fargate/managed infra |
+| Python App Runner | `component`, `python`, `sql` | `docker` (image-based PaaS pulls an ECR image) | `aws` App Runner + managed infra |
 
-Provider-native runtimes are produced entirely by their provider generator. The `docker-compose` runtime is local-only — it is never paired with a cloud provider, and provider generators never augment Compose output. For `runtime: azure-app-service`, the Azure generator produces all infrastructure Bicep — there is no separate runtime generator. For `runtime: ecs-fargate` / `app-runner`, the AWS generator produces all infrastructure directly.
+Provider-native runtimes are produced by their provider generator plus, where the runtime is container-based, the shared `docker` runtime generator supplying Dockerfiles. The `docker-compose` runtime is local-only — it is never paired with a cloud provider, and provider generators never augment Compose output. For `runtime: azure-app-service` (code-based delivery), the Azure generator produces all infrastructure Bicep and there is no separate runtime generator — no containers are involved. For `runtime: azure-app-service-container`, the Azure generator produces the infrastructure Bicep and the `docker` runtime generator supplies the Dockerfile for the custom-container delivery mode. For `runtime: ecs-fargate`, the AWS generator produces the infrastructure and the `docker` runtime generator supplies per-service Dockerfiles. For `runtime: app-runner`, the AWS generator produces the infrastructure; App Runner's own generated stack pulls an ECR image, so it likewise requires the `docker` runtime generator to supply that image's Dockerfile — App Runner is image-based PaaS, not containerless.
 
 **Explicit config rule:** Defaults are an anti-pattern for deployment generation. Every deployment-relevant field must come from resolved config. Missing required fields must produce explicit errors naming the config path and expected field. Invalid combinations must produce validation errors rather than being corrected silently. No generator may override a user-provided config value.
 
@@ -310,6 +312,7 @@ Provider-native runtimes are produced entirely by their provider generator. The 
 | --- | --- |
 | `docker-compose` | `local` |
 | `azure-app-service` | `azure` |
+| `azure-app-service-container` | `azure` |
 | `ecs-fargate` | `aws` |
 | `app-runner` | `aws` |
 

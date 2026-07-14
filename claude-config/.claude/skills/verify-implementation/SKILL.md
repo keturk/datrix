@@ -100,6 +100,8 @@ Unowned requirements: {N}; BLOCKED/partial markers: {N}
 
 This phase is a **read-only review**. Do not run any package test suite here: the tasks' suites passed before this skill was invoked, so a green run tells you nothing you did not already know, and it cannot distinguish a design that was implemented from one that was quietly dropped.
 
+**Evidence-baseline rule (avoid triple-running acceptance checks).** When the tasks came out of an orchestrated run whose phase-boundary conformance gate already EXECUTED an invariant's acceptance check (the command + output is pasted in the tasks' How-Solved / the phase record, and the tree has not changed since), treat that evidence as the baseline: verify it (the command is real, the output is consistent with the code you read), spot re-execute a sample, and re-execute in full **only** where evidence is missing, stale, contradicted by the code, or under-scoped (a surface the design names that the pasted check never swept — the most common gap, and always re-checked). Where no such evidence exists — or the user asked for a fully independent pass — execute every check yourself as written below. Independence is preserved by the verification-of-evidence + the sweep of surfaces the earlier gate missed, not by mechanically re-running commands whose output is already on file.
+
 For each design requirement:
 
 1. **Read the implementing code** the task points at (and search for it independently — the task may have implemented it elsewhere, or not at all). Confirm the code actually does what the design requires, not merely that a function by the expected name exists.

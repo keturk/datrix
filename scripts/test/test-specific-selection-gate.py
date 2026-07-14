@@ -24,15 +24,20 @@ What this gate proves, on every run
    outright, before any real result is trusted.
 2. POSITIVE. A real `test.ps1 <pkg> -Specific <fileA>` run's OWN artifacts
    (the run directory it printed) name tests from fileA and nothing else.
-3. RUN-DIRECTORY EXCLUSIVITY (deterministic). TeeLogger's timestamp format is
+3. MULTI-FILE POSITIVE. A real `test.ps1 <pkg> -Specific "<fileA>,<fileB>"` run
+   (comma-separated batch, ONE pytest session) names tests from BOTH files --
+   each contributes at least one testcase -- and from nothing else. This is the
+   batched form the orchestrator wave gates use instead of one runner startup
+   per file; a batch that silently drops or adds a file is a false green.
+4. RUN-DIRECTORY EXCLUSIVITY (deterministic). TeeLogger's timestamp format is
    pinned to a literal so every racer computes the SAME preferred directory name
    -- a guaranteed collision, not a hoped-for one. Sequential racers prove the
    name is never reused; concurrent racers prove the claim is atomic. This is the
    root-cause invariant, and it fails 8/8 against the old `mkdir(exist_ok=True)`.
-4. CONCURRENCY REGRESSION (end-to-end). Two `test.ps1 -Specific` runs against the
+5. CONCURRENCY REGRESSION (end-to-end). Two `test.ps1 -Specific` runs against the
    SAME package but DIFFERENT files, launched concurrently, must land in distinct
    run directories and each must name only its own file. Whether these two
-   processes actually collide on one second is up to the scheduler, so step 3 --
+   processes actually collide on one second is up to the scheduler, so step 4 --
    not this step -- is what makes the invariant reliably enforced.
 
 Exit codes: 0 = all checks pass, 1 = a check failed, 2 = usage/config error.
@@ -176,6 +181,50 @@ def check_selection(run_dir: Path, requested_file: str) -> list[str]:
     return violations
 
 
+def check_selection_multi(run_dir: Path, requested_files: list[str]) -> list[str]:
+    """Judge one run directory against a comma-batched multi-file selection.
+
+    Violations when: the run's artifacts name a file OUTSIDE the requested set
+    (wrong selection), or any requested file contributed ZERO testcases (silently
+    dropped from the batch). Empty list = the batch ran exactly the requested set.
+    """
+    violations: list[str] = []
+    wanted = {_normalize(f) for f in requested_files}
+
+    if not run_dir.is_dir():
+        return [f"run directory does not exist: {run_dir}"]
+
+    xml_paths = _junit_files(run_dir)
+    if not xml_paths:
+        return [f"no non-empty JUnit XML in {run_dir}: the run proves nothing"]
+
+    named, total = _files_named_by_junit(run_dir)
+    if total == 0:
+        violations.append(
+            f"{run_dir}: JUnit XML contains zero testcases -- a run that executed no "
+            f"test cannot be evidence for {sorted(wanted)}"
+        )
+
+    for found in sorted(named - wanted):
+        violations.append(
+            f"{run_dir}: JUnit names tests from '{found}' but the batch requested "
+            f"only {sorted(wanted)}."
+        )
+    for missing in sorted(wanted - named):
+        violations.append(
+            f"{run_dir}: requested file '{missing}' contributed ZERO testcases -- "
+            f"the batch silently dropped it."
+        )
+
+    for found in sorted(_files_named_by_index(run_dir) - wanted):
+        violations.append(
+            f"{run_dir}: index.json names tests from '{found}' but the batch "
+            f"requested only {sorted(wanted)}."
+        )
+
+    return violations
+
+
 def _write_synthetic_run(run_dir: Path, classname: str, function: str) -> None:
     """Write a minimal, valid one-testcase run directory (JUnit XML + index.json)."""
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -212,7 +261,7 @@ def self_test(scratch_root: Path) -> bool:
     requested -- and requires check_selection() to reject it. It also requires the
     comparator to ACCEPT a correct run, so it cannot pass by rejecting everything.
     """
-    _step("Step 1/4: non-vacuity self-test (the comparator must reject a forced wrong-file run)")
+    _step("Step 1/5: non-vacuity self-test (the comparator must reject a forced wrong-file run)")
     scratch = scratch_root / "selftest"
 
     correct_dir = scratch / "correct"
@@ -281,7 +330,7 @@ def run_dir_exclusivity_check(scratch_root: Path) -> bool:
     With the old `mkdir(exist_ok=True)`, every racer returns the same directory and
     both halves of this check fail -- which is exactly why it belongs in the gate.
     """
-    _step("Step 3/4: run-directory exclusivity (forced same-name collision, deterministic)")
+    _step("Step 4/5: run-directory exclusivity (forced same-name collision, deterministic)")
     racers = 8
     ok = True
 
@@ -367,7 +416,7 @@ def _run_specific(package: str, test_file: str) -> tuple[int, Optional[Path], st
 
 
 def positive_check(package: str, file_a: str) -> bool:
-    _step(f"Step 2/4: real run -- test.ps1 {package} -Specific {file_a}")
+    _step(f"Step 2/5: real run -- test.ps1 {package} -Specific {file_a}")
     code, run_dir, output = _run_specific(package, file_a)
     if run_dir is None:
         _fail("the run did not report a run directory. Output:\n" + output)
@@ -383,6 +432,25 @@ def positive_check(package: str, file_a: str) -> bool:
     return True
 
 
+def multi_positive_check(package: str, file_a: str, file_b: str) -> bool:
+    """One batched run must execute BOTH files -- and nothing else."""
+    batch = f"{file_a},{file_b}"
+    _step(f'Step 3/5: batched run -- test.ps1 {package} -Specific "{batch}"')
+    code, run_dir, output = _run_specific(package, batch)
+    if run_dir is None:
+        _fail("the batched run did not report a run directory. Output:\n" + output)
+        return False
+    print(f"     run directory: {run_dir}  (exit {code})")
+    violations = check_selection_multi(run_dir, [file_a, file_b])
+    if violations:
+        _fail("the batched run's own artifacts do not match the requested set:")
+        for violation in violations:
+            print(f"     -> {violation}")
+        return False
+    _ok(f"one pytest session ran BOTH {file_a} and {file_b}, and nothing else")
+    return True
+
+
 def concurrency_check(package: str, file_a: str, file_b: str) -> bool:
     """Reproduce the original defect on purpose: two concurrent -Specific runs.
 
@@ -390,7 +458,7 @@ def concurrency_check(package: str, file_a: str, file_b: str) -> bool:
     timestamp + mkdir(exist_ok=True)) and clobbered each other's artifacts, so the
     run that asked for file B reported PASSED over file A's tests.
     """
-    _step(f"Step 4/4: concurrency -- two real -Specific runs against {package} at once")
+    _step(f"Step 5/5: concurrency -- two real -Specific runs against {package} at once")
     with ThreadPoolExecutor(max_workers=2) as pool:
         future_a = pool.submit(_run_specific, package, file_a)
         future_b = pool.submit(_run_specific, package, file_b)
@@ -461,6 +529,7 @@ def main() -> int:
         results = [
             self_test(Path(tmp)),
             positive_check(args.package, args.file_a),
+            multi_positive_check(args.package, args.file_a, args.file_b),
             run_dir_exclusivity_check(Path(tmp)),
             concurrency_check(args.package, args.file_a, args.file_b),
         ]

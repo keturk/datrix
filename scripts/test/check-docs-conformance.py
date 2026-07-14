@@ -103,49 +103,47 @@ ARCHITECTURE_DOC_FILES: tuple[str, ...] = (
     "datrix-language/docs/architecture/semantic-design.md",
 )
 
-# The 13 known installable-package directory names (12 toolchain packages +
-# the datrix showcase repo itself). This is the closed scope boundary for
-# path-reference candidates -- it enumerates installable Datrix packages,
-# never target languages/providers. A new datrix-codegen-* package added
-# later requires adding one entry here (and to _IMPORT_NAME_TO_PACKAGE_DIR
-# below), exactly like check-import-boundaries.py's own package-list
-# precedent.
-_PACKAGE_DIRS: frozenset[str] = frozenset(
-    {
-        "datrix",
-        "datrix-cli",
-        "datrix-codegen-aws",
-        "datrix-codegen-azure",
-        "datrix-codegen-common",
-        "datrix-codegen-component",
-        "datrix-codegen-docker",
-        "datrix-codegen-python",
-        "datrix-codegen-sql",
-        "datrix-codegen-typescript",
-        "datrix-common",
-        "datrix-extensions",
-        "datrix-language",
-    }
-)
+# The monorepo root, resolved the same way auto_detect_base_dir() resolves it
+# (this script lives at datrix/scripts/test/, i.e. three levels below the root).
+# Needed at module scope so the package tables below can be discovered from disk.
+_MONOREPO_ROOT: Path = Path(__file__).resolve().parents[3]
 
-# The 12 known Python import names (package directory name -> installed
-# import name), excluding the datrix showcase repo (it has no importable
-# package). Fixed 12-entry table: the import name maps to its owning
-# package directory for module-reference resolution (step 4).
-_IMPORT_NAME_TO_PACKAGE_DIR: dict[str, str] = {
-    "datrix_cli": "datrix-cli",
-    "datrix_codegen_aws": "datrix-codegen-aws",
-    "datrix_codegen_azure": "datrix-codegen-azure",
-    "datrix_codegen_common": "datrix-codegen-common",
-    "datrix_codegen_component": "datrix-codegen-component",
-    "datrix_codegen_docker": "datrix-codegen-docker",
-    "datrix_codegen_python": "datrix-codegen-python",
-    "datrix_codegen_sql": "datrix-codegen-sql",
-    "datrix_codegen_typescript": "datrix-codegen-typescript",
-    "datrix_common": "datrix-common",
-    "datrix_extensions": "datrix-extensions",
-    "datrix_language": "datrix-language",
-}
+
+def _discover_package_dirs(monorepo_root: Path) -> frozenset[str]:
+    """Discover the Datrix package directory names under the monorepo root.
+
+    This is the scope boundary for path-reference candidates: it enumerates installable
+    Datrix packages, never target languages/providers.
+
+    Discovered rather than hardcoded. Datrix is a multi-language, multi-platform generator,
+    so a new ``datrix-codegen-<lang>`` package must become a recognized reference scope
+    without an edit here -- a hardcoded table silently stops policing references into any
+    package added after it was written, which is the failure mode this gate exists to catch.
+    """
+    if not monorepo_root.is_dir():
+        return frozenset()
+    return frozenset(
+        child.name
+        for child in monorepo_root.iterdir()
+        if child.is_dir() and (child.name == "datrix" or child.name.startswith("datrix-"))
+    )
+
+
+def _build_import_name_map(package_dirs: frozenset[str]) -> dict[str, str]:
+    """Map each package's Python import name to its package directory name.
+
+    Every Datrix package derives its import name from its directory name by the same rule
+    (``datrix-codegen-python`` -> ``datrix_codegen_python``), so the map is derived, not
+    tabulated. The ``datrix`` showcase repo is excluded: it ships no importable package.
+    """
+    return {
+        name.replace("-", "_"): name for name in sorted(package_dirs) if name != "datrix"
+    }
+
+
+_PACKAGE_DIRS: frozenset[str] = _discover_package_dirs(_MONOREPO_ROOT)
+
+_IMPORT_NAME_TO_PACKAGE_DIR: dict[str, str] = _build_import_name_map(_PACKAGE_DIRS)
 
 # Tier-2 search roots, in the order they are inspected. Deliberately scoped
 # to exactly these two subtrees under each package -- never the whole

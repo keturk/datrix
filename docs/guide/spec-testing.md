@@ -189,7 +189,7 @@ Each `test("description")` block becomes one test function in the generated outp
 
 ## Semantic validation
 
-`TestDescriptionUniquenessValidator` (TST009) and `TestBodyEffectsValidator` (TST001-TST008, TST010, TST011) — split from the former `TestValidator`, design 030 D4/I5 — enforce correctness of test block contents in Phase 6:
+`TestValidator` (TST001-TST011) enforces correctness of test block contents in Phase 6. It is a single validator by design: its duplicate-description check (TST009) and its test-body walk are interleaved inside one per-service loop, so their diagnostics come out service-major. Splitting them into two validators sequenced by a `runs_after` edge cannot reproduce that interleaving (it yields concern-major order once an app has two or more services with `test(...)` blocks) — see `validators/test.py`'s module docstring.
 
 | Code | Severity | Rule |
 |------|----------|------|

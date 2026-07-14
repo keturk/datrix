@@ -179,10 +179,10 @@ Process fixes in the planned order from Phase 1 (app definition fixes first).
    - Fix the root cause in the generator/template, NOT in generated code
    - Follow all code standards (type hints, mypy strict, cognitive complexity <=15)
    - Check for logic map markers (`@canonical`, `@pattern`, `@boundary`, `@invariant`) before modifying
-5. **If the fix affects a codegen package with its own fix skill**, delegate:
+5. **If the fix affects a codegen package with its own fix skill**, delegate. Every codegen package has one, and the name is derived — `datrix-codegen-<lang>` → `/fix-codegen-<lang>`:
    - `datrix-codegen-python` → use `/fix-codegen-python` patterns
    - `datrix-codegen-typescript` → use `/fix-codegen-typescript` patterns
-   - etc.
+   - `datrix-codegen-dotnet` → `/fix-codegen-dotnet`, `datrix-codegen-java` → `/fix-codegen-java`, and so on for any codegen package
 
 #### After Each Fix:
 

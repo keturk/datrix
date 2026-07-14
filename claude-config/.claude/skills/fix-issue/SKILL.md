@@ -136,12 +136,12 @@ If invoked with multiple issue file paths:
 If investigation reveals the root cause is in a different project than expected:
 
 1. Report the finding: which project contains the root cause, which file/line, and why
-2. If the root cause is in a different datrix package with its own fix skill, activate that skill:
+2. If the root cause is in a different datrix package with its own fix skill, activate that skill. Every package has one, and the name is derived — `datrix-<name>` → `/fix-<name>`:
    - `datrix-cli` → `/fix-cli`
    - `datrix-common` → `/fix-common`
    - `datrix-codegen-python` → `/fix-codegen-python`
    - `datrix-codegen-typescript` → `/fix-codegen-typescript`
-   - etc.
+   - `datrix-codegen-dotnet` → `/fix-codegen-dotnet`, `datrix-codegen-java` → `/fix-codegen-java`, and so on for any codegen package
 3. Otherwise, proceed with the fix in the current context
 
 ---

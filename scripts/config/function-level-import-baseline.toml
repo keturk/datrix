@@ -633,12 +633,8 @@ file = "datrix-common/src/datrix_common/semantic/validators/tenancy.py"
 count = 3
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/test_body_effects.py"
-count = 4
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/semantic/validators/test_description_uniqueness.py"
-count = 2
+file = "datrix-common/src/datrix_common/semantic/validators/test.py"
+count = 5
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/semantic/validators/verify_contract.py"

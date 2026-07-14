@@ -16,23 +16,9 @@ pushes each repo in one pass. No `commit-messages.json` file is involved.
 
 ## Repos
 
-The canonical repo list comes from `Get-DatrixDirectories` in `d:\datrix\datrix\scripts\common\DatrixPaths.psm1`:
+The repo list is **discovered, never hardcoded.** `repo_paths()` in `datrix/scripts/library/git/commit-and-push.py` walks the workspace root and takes the `datrix` showcase repo plus every `datrix-*` directory that carries a `.git` — so a newly cloned `datrix-codegen-<lang>` repo is committed and pushed from its first commit, with no edit to this skill or to the script.
 
-```
-datrix
-datrix-cli
-datrix-common
-datrix-codegen-common
-datrix-codegen-component
-datrix-codegen-python
-datrix-codegen-sql
-datrix-codegen-typescript
-datrix-language
-datrix-codegen-aws
-datrix-codegen-azure
-datrix-codegen-docker
-datrix-extensions
-```
+Do not re-introduce a literal list here. The previous one silently omitted two real repos (`datrix-codegen-dotnet`, `datrix-codegen-java`), which meant their commits were invisible to this skill.
 
 Workspace root: `d:\datrix` (parent of `datrix/`).
 

@@ -875,23 +875,12 @@ def main() -> int:
 
     if args.projects:
         project_names = args.projects
-    elif args.all:
-        packages = _discover_packages(workspace_root)
-        project_names = sorted(packages.keys())
     else:
-        # Default: the 11 packages from the plan
-        project_names = [
-            "datrix-cli",
-            "datrix-common",
-            "datrix-codegen-aws",
-            "datrix-codegen-azure",
-            "datrix-codegen-component",
-            "datrix-codegen-docker",
-            "datrix-codegen-python",
-            "datrix-codegen-sql",
-            "datrix-codegen-typescript",
-            "datrix-language",
-        ]
+        # Default (and --all): every installable datrix-* package, discovered from disk.
+        # Discovery rather than a hardcoded list -- Datrix is a multi-language, multi-platform
+        # generator, so a new datrix-codegen-<lang> package must be scanned without an edit
+        # here. This is also what --projects' help has always documented the default to be.
+        project_names = sorted(_discover_packages(workspace_root).keys())
 
     return run_report(
         workspace_root,

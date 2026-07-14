@@ -19,6 +19,11 @@ This is the preferred format, which includes complete metadata and avoids readin
 ```json
 {
   "phase": 34,
+  "provenance": {
+    "generated_by": "/generate-tasks",
+    "generated_at": "2026-07-13T14:30:00",
+    "validated": ["16a-design-reference", "16b-enforcement-ordering", "16c-invariant-surface", "migration-coverage", "dual-path-coverage"]
+  },
   "tasks": [
     {
       "task_id": "task-34-01",
@@ -45,6 +50,10 @@ This is the preferred format, which includes complete metadata and avoids readin
 ## Fields
 
 - `phase` (int): Phase number
+- `provenance` (object, optional — present on sets from current `/generate-tasks`/`/operationalize-design`):
+  - `generated_by` (string): the skill that produced the set
+  - `generated_at` (string): ISO timestamp of generation
+  - `validated` (array of strings): the generation-time checks that ran and passed (design-reference/acceptance-property, enforcement ordering, invariant-surface coverage, migration coverage, dual-path coverage). `/task-orchestrator`'s readiness audit (Step 1e) uses this stamp to run in **light mode** on a fresh set — a file with no `provenance` always gets the full audit
 - `tasks` (array): List of all tasks in this phase
   - `task_id` (string): Task identifier (e.g., "task-34-01")
   - `task_path` (string): Absolute path to the task file

@@ -19,19 +19,27 @@ Two resources are scarce and both are yours to protect: **Opus tokens** (never s
 
 Because you ARE Opus at extra-high effort, the old "escalate up to a more-capable agent" step collapses: you do the architectural analysis **in-context** (you already hold the failure context), then dispatch a subagent to implement your decision. See the reframed **Decision Escalation Protocol** below. Delegation is never abdication — you verify every returned result with a command you run (or delegate the run and read the result), and a subagent's self-report never substitutes for the design-acceptance evidence you paste into the gate.
 
-**A multi-phase run is ONE run, not a sequence of runs.** When the invocation names several phases (`PHASES: 72, 73, 74`), you own all of them to the end. Completing a phase — even a fully green one — is **not** a stopping point, not a natural pause, and not a place to hand back to the user for a "shall I continue?" A green phase boundary has exactly one successor action: **spawn the first wave of the next phase, in the same turn.** The only exits from the run are Step 3i Step C's halt-and-ask (a phase that stayed red after Opus-led recovery), 3f's failure prompt, and the final report **after the last phase**. See **Multi-Phase Continuation** below — it binds.
+**A multi-phase run is ONE run, not a sequence of runs.** When the invocation names several phases (`PHASES: 72, 73, 74`), you own all of them to the end. Completing a phase — even a fully green one — is **not** a stopping point, not a natural pause, and not a place to hand back to the user for a "shall I continue?" A green phase boundary has exactly one successor action: **spawn the first wave of the next phase, in the same turn.** The only exits from the run are a **Fable `F` (ASK_USER)** decision at 3i Step C or 3f, and the final report **after the last phase**. See **Multi-Phase Continuation** below — it binds.
 
 **The orchestrator's mandate is conformance, not throughput** (CLAUDE.md "Task Orchestration" states the full rationale — it binds here). Two consequences at every wave and phase boundary: **a green suite is necessary but NOT sufficient** (the explicit design-conformance gates at 3g and 3i Step A2 prove the design invariant itself), and **a task whose agent returned BLOCKED can never be quietly marked COMPLETED** (per the shared checklist `d:\datrix\.claude\skills\_shared\completion-eligibility.md`).
 
-**But a subagent's BLOCKED is not a verdict — it is a claim you must adjudicate.** You never stop on it and you never relay it. You investigate it yourself through the code and the docs; if it is bogus (the common case) you correct the agent and it finishes the task; if it is genuinely real, a **Fable adjudicator** (`model: "fable"`, `effort: "high"`) decides what happens instead and you carry that decision out. The full mechanism is `d:\datrix\.claude\skills\_shared\blocker-adjudication-protocol.md` — **read it; it binds at 3c and at every point below where a blocker appears.**
+**Every decision you cannot make climbs the same ladder — and the user is its LAST rung, not its first.** The full mechanism is `d:\datrix\.claude\skills\_shared\decision-adjudication-protocol.md` — **read it; it binds everywhere in this skill that a decision, conflict, or blocker appears.**
+
+> **1 INVESTIGATE** (read the code and the docs yourself — most "decisions" dissolve) → **2 DECIDE** (if the evidence settles it, decide and act; escalating a decision you can make is as much a failure as stopping) → **3 ADJUDICATE** (if you genuinely cannot decide, a **Fable** adjudicator — `model: "fable"`, `effort: "high"` — decides, and its decision is binding) → **4 ASK THE USER** (**only** when Fable returns decision **F (ASK_USER)**).
+
+**Fable is not the blocker door. Fable is the decision door.** It is reached through **two entry doors that converge on the same ladder**:
+
+- **Door A — a subagent reports BLOCKED.** A BLOCKED is not a verdict; it is a *claim you must adjudicate*. Never stop on it, never relay it. Investigate it yourself; if it is bogus (the common case) correct the agent and it finishes the task; if it is genuinely real, Fable decides what happens instead and you carry that out.
+- **Door B — a decision or conflict YOU hit.** Two designs contradict. A design-named invariant surface has no owning task. A task's premise is false against the code. A fix failed and the correct scope is ambiguous. A phase gate is red and the recovery scope is unclear. Phase/task ordering conflicts with what the code requires. **All of these go to Fable, not to the user.**
+
+**If you are drafting an `AskUserQuestion` and Fable has not returned `F` on that exact question, you are on the wrong rung — go back to rung 3.** The only exceptions are the closed list in the protocol's §7: a credential/account that exists nowhere in the repo · an irreversible outward-facing action needing authorization (real cloud spend, a push, a deploy) · a genuine product/business call · a user-set prohibition that must be lifted. **Which design to follow, what order to run phases in, whether a task set satisfies its design, how to close a coverage gap, what the fix scope is, and whether to continue after a failure are NOT on that list — they are rung-3 decisions.**
 
 **Key differences from `/execute-tasks-parallel`:**
 - **Readiness audit before any execution** (Step 1e) — audits the task set against the design doc AND the current implementation, then authors the missing tasks and rewires `dependencies.md` before planning waves
 - Dependency-aware grouping (builds a DAG, topologically sorts into waves)
-- Automated test execution (runs full suite via Bash, does not ask user)
 - Automatic wave advancement (no human intervention between waves)
 - Handles tasks with cross-dependencies (separates into waves instead of blocking)
-- **Sequential multi-phase execution, with no stop in between** — given several phases (e.g. `72, 73, 74`), finishes each phase fully and then **immediately starts the next, unprompted**. At every phase boundary a gate (Step 3i) runs the **full test suite for every package the phase touched** and fixes **all** failures — including pre-existing ones unrelated to the phase's changes — with Opus-led recovery. Green gate → next phase's first wave dispatches in the same turn; the run ends only at the last phase (or a Step C halt). See **Multi-Phase Continuation**
+- **Sequential multi-phase execution, with no stop in between** — given several phases (e.g. `72, 73, 74`), finishes each phase fully and then **immediately starts the next, unprompted**. At every phase boundary a gate (Step 3i) runs the full test suite for its **sweep set** (the phase's changed packages + every consumer of a changed shared layer; in a multi-phase run the first boundary sweeps **ALL packages** and later boundaries maintain that all-green guarantee incrementally) and fixes **all** failures — including pre-existing ones unrelated to the phase's changes — with Opus-led recovery. Green gate → next phase's first wave dispatches in the same turn; the run ends only at the last phase (or a Step C halt). See **Multi-Phase Continuation**
 
 ## When to Use
 
@@ -163,9 +171,19 @@ The audit is **read-only with respect to source code** — it authors task files
 6. **Missing dependency edge** — task B modifies or imports a file/symbol task A creates, but B does not `Depends on` A; or two tasks in the same prospective wave write the same file with no ordering.
 7. **Unresolvable premise (BLOCKING)** — the design contradicts the code in a way no task can reconcile (the design names an API/symbol/behavior that does not and cannot exist as described). This is not an audit fix; it is a STOP.
 
+##### Audit mode — full vs. light (decide first)
+
+The audit's cost must match what could have drifted. Read `dependencies.md`'s `provenance` stamp (see `dependencies-format.md`):
+
+- **Light mode** when ALL hold: the stamp exists; `generated_by` is `/generate-tasks` or `/operationalize-design`; `generated_at` is within **24 hours**; `validated` covers the design-conformance checks (16a design-reference/acceptance-property, 16b enforcement-ordering, 16c invariant-surface, migration-coverage, dual-path); and you know of no code change on the affected surfaces since generation. In light mode, **skip re-deriving what the generator just proved** (dimensions 1, 2, 5 — coverage gaps, enforcement ordering, under-specification) and audit only the drift dimensions: **3 stale premise, 4 already-satisfied, 6 missing dependency edge** — one sonnet agent for the whole set is usually enough. Still do 1d (the design contract itself is needed by 3g/A2 regardless).
+- **Full mode** otherwise: no stamp, a stale stamp (>24h), a `validated` list missing the conformance checks, a legacy-format file, known intervening code changes, or a set that has already been partially executed. Run all seven dimensions as below.
+- Dimension 7 (unresolvable premise) applies in both modes — a design/code contradiction is never skipped.
+
+State the chosen mode and its justification in the Audit Report line.
+
 ##### Procedure
 
-1. **Delegate the evidence gathering, keep the verdicts.** Dispatch **sonnet** audit subagents in parallel (`run_in_background: true`, one per package in the task set, plus one for the design-contract coverage sweep). Each gets: the design doc path + the 1d `design_contract` (invariants and their full surface sets), the task files it owns, and the shared-context digest. Each returns **findings with evidence only** — for every claim, the file:line it read or the command + output it ran. Instruct them explicitly: *report a gap only if you verified it against the code on disk; a suspicion with no evidence is not a finding.* They do not author tasks and they do not edit code.
+1. **Delegate the evidence gathering, keep the verdicts.** Dispatch **sonnet** audit subagents in parallel (`run_in_background: true`, one per package in the task set, plus one for the design-contract coverage sweep; in light mode, one agent covering dimensions 3/4/6 for the whole set). Each gets: the design doc path + the 1d `design_contract` (invariants and their full surface sets), the task files it owns, and the shared-context digest. Each returns **findings with evidence only** — for every claim, the file:line it read or the command + output it ran. Instruct them explicitly: *report a gap only if you verified it against the code on disk; a suspicion with no evidence is not a finding.* They do not author tasks and they do not edit code.
 2. **Adjudicate each finding yourself (Opus).** Discard evidence-free claims. For each surviving finding, decide its class (1–7 above) and its remedy. A finding that would *reduce* scope (already-satisfied) needs the same standard of proof as one that adds scope — run its acceptance check yourself before acting on it.
 3. **Author the missing tasks.** For each real coverage / enforcement / under-specification gap, write a new task file:
    - Location: the **owning package's** `.tasks\phase-{NN}\` directory (the package whose surface the invariant lives on — apply the generality-preserving rule: the most language/platform-agnostic layer that can own it).
@@ -183,7 +201,9 @@ The audit is **read-only with respect to source code** — it authors task files
 
 - **Ready (no gaps)** → say so in one line and proceed to Step 2.
 - **Ready after amendment** → emit the Audit Report (below) and proceed to Step 2 with the amended task set. **Do not ask the user for permission to proceed** — closing a gap the design already mandates is in scope; the audit is reported, not negotiated.
-- **BLOCKING (dimension 7, or a design/code contradiction you cannot reconcile)** → STOP before Step 2 and `AskUserQuestion` with your evidence: what the design requires, what the code actually does, and why no task can bridge them. Never paper over it with a task that pretends the premise holds.
+- **BLOCKING (dimension 7, or a design/code contradiction you cannot reconcile)** → **this is a rung-3 decision: it goes to FABLE, not to the user.** Do not `AskUserQuestion` here. Spawn a **Fable** adjudicator (`decision-adjudication-protocol.md` §5, **Door B**) with your evidence packet: what each design requires (quoted verbatim from the primary sources), what the code actually does (`file:line`), why no task can bridge them, the options you see and what each costs, and your leaning. Execute its decision (§6) — **A** no-conflict / **B** fix-elsewhere / **C** amend-task / **D** resequence / **E** spawn-follow-up / **F** ask-user. Only **F** reaches the user, and then you ask with Fable's exact question and recommendation. Never paper over the contradiction with a task that pretends the premise holds, and never hand the raw contradiction to the user as if the choice were theirs to make.
+
+  **This is the exact hole that let a phase-19/phase-31 design contradiction reach the user unadjudicated.** A cross-design conflict *feels* like the user's call precisely because it is above any single task — that feeling is the trap. It is a design-level engineering judgment, and it gets the strongest model.
 
 ##### Audit Report (emit before the execution plan)
 
@@ -246,7 +266,7 @@ For each phase (in numeric order):
         local_wave += 1
 ```
 
-4. **Phase boundaries are wave boundaries** — even if a task in phase 35 has no dependencies, it cannot start until ALL phase 34 waves are complete. Each phase boundary is also a **Phase Boundary Gate** (Step 3i): the earlier phase must pass an explicit completion check — every package it touched must pass its **full** test suite with all failures fixed, including pre-existing ones unrelated to the phase, with Opus-led recovery on failure — before the next phase's first wave is spawned.
+4. **Phase boundaries are wave boundaries** — even if a task in phase 35 has no dependencies, it cannot start until ALL phase 34 waves are complete. Each phase boundary is also a **Phase Boundary Gate** (Step 3i): the earlier phase must pass an explicit completion check — every package in the gate's sweep set (changed packages + shared-layer consumers; ALL packages at a multi-phase run's first boundary) must pass its **full** test suite with all failures fixed, including pre-existing ones unrelated to the phase, with Opus-led recovery on failure — before the next phase's first wave is spawned.
 
 ### 2d. File Conflict Detection Within Waves
 
@@ -263,7 +283,7 @@ For each wave, check if any two tasks modify the same file:
 
 ### 2f. Present Execution Plan
 
-Once waves are assigned, compute `package_last_touch_wave{}` per phase: for each package, the highest wave number **within that phase** that has a task touching the package. The 3d test gate uses this to run targeted-only tests on a package's earlier waves and the full suite only on its last-touch wave (the phase-boundary gate 3i remains the authoritative full sweep).
+Once waves are assigned, the 3d test gate runs **targeted tests only** for every wave of the phase — no full suite runs inside a phase, for any package, for any reason. The phase-boundary gate (3i) is the authoritative and only full sweep.
 
 Use **TodoWrite** to create the wave execution plan (one todo per wave).
 
@@ -288,6 +308,8 @@ Do NOT wait for user confirmation — proceed directly to execution. The plan is
 
 When the run covers more than one phase, the wave loop of Step 3 runs over **every wave of every phase**, in the phase-sequential order computed in 2c. It terminates on exactly one condition: **there is no next wave in any remaining phase.** Nothing else ends it.
 
+**Multi-phase runs carry an ALL-PACKAGES-GREEN guarantee.** At every phase boundary of a multi-phase run, the orchestrator must be able to assert "all tests for all packages are passing" — established by the first boundary's all-packages sweep and maintained incrementally at later boundaries (3i Step A's sweep-set rules). This guarantee is what lets phase `P+1` build on `P` without inheriting hidden rot. It never creates a stopping point: a red package found by the sweep is **fixed at the gate** (Step A's attribution-agnostic fix loop), and a green gate flows directly into the next phase's first wave in the same turn.
+
 **At a green phase boundary you do not stop, do not summarize-and-yield, and do not ask.** Passing 3i's gates (Step A full-suite green on every touched package + Step A2 design-conformance) is the *permission* to continue, not a milestone to report and rest on. The Phase Checkpoint is a one-line progress marker emitted **on the way into** the next phase's first wave — in the same turn, with no intervening question to the user. If you catch yourself writing a summary of what phase `P` accomplished while phase `P+1` still has unexecuted waves, you have stopped early: dispatch the next wave instead.
 
 **Illegitimate reasons to stop at a phase boundary — all of them:** the phase went green and it "feels like a good checkpoint"; the run is long / many tokens spent; the user "might want to review before continuing"; the next phase looks large; the context is filling up (delegate harder — see the Opus-orchestrator contract); you already emitted a checkpoint that reads like a conclusion. None of these appear in the exit list below, and none are B1–B4.
@@ -296,11 +318,13 @@ When the run covers more than one phase, the wave loop of Step 3 runs over **eve
 
 | Exit | Trigger | Where |
 |---|---|---|
-| Halt-and-ask | Phase `P` still red (failed/skipped tasks, red package, or conformance failure) **after** Opus-led recovery | 3i Step C |
-| Task-failure prompt | A task failed after the directed-fix attempt and the user chose *Stop* | 3f |
-| Blocking readiness finding | Design/code contradiction no task can reconcile | 1e, dimension 7 |
+| Halt-and-ask | Phase `P` still red after Opus-led recovery **AND** a **Fable** adjudication returned **F (ASK_USER)**. A red phase alone is NOT an exit — it is a rung-3 decision; Fable's A–E all keep the run moving. | 3i Step C |
+| Task-failure prompt | A task failed after the directed-fix attempt, **Fable** adjudicated and returned **F**, and the user chose to stop | 3f |
+| Blocking readiness finding | Design/code contradiction no task can reconcile, **which Fable adjudicated to F**. A contradiction alone is NOT an exit — Fable's A–E (amend, resequence, fix-elsewhere, follow-up) resolve it and the run continues | 1e, dimension 7 |
 | Test-infrastructure failure | `test.ps1` itself errors twice | Error Recovery |
 | **Run complete** | **The last wave of the LAST phase has passed its gates** | Step 4 |
+
+**Note what is NOT on this list:** a red phase, a failed task, a design contradiction, a coverage gap, an ordering conflict, or an unclear fix scope. **None of those is an exit** — every one is a rung-3 decision that goes to Fable, and only a Fable **F** can turn one into a stop. The run ends when the work is done or when Fable says a human must decide. Nothing else.
 
 **Step 4's Final Report is emitted once, at the end of the LAST phase — never at an intermediate phase boundary.** An intermediate boundary emits the Phase Checkpoint only.
 
@@ -335,7 +359,8 @@ Maintain these state variables throughout the loop:
 - `in_flight[]` — agents currently running in this wave's rolling pool (rolling dispatch, 3b)
 - `wave_queue[]` — tasks in this wave not yet dispatched (FIFO, respecting 2d file-conflict ordering)
 - `shared_context` — the pre-read digest injected into every agent prompt
-- `package_last_touch_wave{}` — map of `package → the highest wave number within the current phase that touches that package` (computed once from the Step 2 wave plan when a phase's waves are known). Used by 3d to decide targeted-only vs. full-suite gating
+- `package_change_log{}` — map of `package → every file changed in that package this run and by whom` (task agents' `files_created`/`files_modified` + `scope_expansion`, fix subagents' reported changes, audit-authored task files). Fed by 3c/3e/3i; consumed by the 3i sweep-set rules and the carry-forward optimization. If any change cannot be attributed to a recorded report, mark the log **tainted** — a tainted log disables carry-forward (3i sweeps everything)
+- `package_green_state{}` — map of `package → the run-ID/timestamp of its last GREEN full-suite run in this orchestration run` (set only by 3i Step A results read from `index.json`). Used with `package_change_log{}` to decide which packages a later phase boundary must re-sweep
 
 ### For Each Wave:
 
@@ -355,7 +380,7 @@ Run the wave through a **rolling pool of up to 5 concurrent agents** (`CAP = 5`)
 
 1. Seed `wave_queue` with all non-skipped tasks in the wave, ordered so that any **2d file-conflict** pair is sequenced (the second task of a conflicting pair must not be dispatchable until the first leaves `in_flight`). Treat such a pair as an intra-wave dependency edge inside the pool.
 2. Fill the pool: dispatch tasks from the head of `wave_queue` until `len(in_flight) == CAP` or the queue is empty. Each dispatch spawns **one** background agent (`run_in_background: true`). Record each agent's `task_id` and assigned `files_to_create`/`files_to_modify`, and snapshot those files' line counts (per the polling protocol's dispatch step).
-3. **Drive the pool with the Agent Progress Polling Protocol — do NOT wait for completion notifications.** Read `d:\datrix\datrix\claude-config\.claude\agent-templates\agent-progress-polling-protocol.md` and run its poll loop over `in_flight`: every ~5 minutes (paced by a bounded `TaskOutput(block=true, timeout=300000)` on one in-flight agent), perform a **genuine** check of every in-flight agent — its status **and** its on-disk artifacts — and classify it (completed / progressing / stalled / errored). Never assume an agent is working because no notification arrived. When the genuine check shows an agent has **completed**, immediately run 3c **for that one agent** (parse its result, handle BLOCKED/NEEDS_CONTEXT/re-spawn) and remove it from `in_flight`. A stalled agent (no assigned-artifact change across two consecutive polls, ~10 min) is investigated and, if hung, `TaskStop`-ped and re-dispatched or marked BLOCKED — never left counted as in-flight.
+3. **Drive the pool with the Agent Progress Polling Protocol — never wait passively on completion notifications.** Read `d:\datrix\datrix\claude-config\.claude\agent-templates\agent-progress-polling-protocol.md` and run its poll loop over `in_flight`: every ~5 minutes (paced by a bounded `TaskOutput(block=true, timeout=300000)` on one in-flight agent), perform a **genuine** check of every in-flight agent — its status **and** its on-disk artifacts — and classify it (completed / progressing / stalled / errored). Never assume an agent is working because no notification arrived. A completion notification that DOES arrive is a valid trigger to run a poll cycle **immediately** (harvest that agent, refill the slot) rather than letting a finished agent hold a slot until the next 5-minute boundary — the genuine check remains the trust anchor; the notification only advances its timing. When the genuine check shows an agent has **completed**, immediately run 3c **for that one agent** (parse its result, handle BLOCKED/NEEDS_CONTEXT/re-spawn) and remove it from `in_flight`. A stalled agent (no assigned-artifact change across two consecutive polls, ~10 min) is investigated and, if hung, `TaskStop`-ped and re-dispatched or marked BLOCKED — never left counted as in-flight.
 4. Refill: dispatch the next eligible task from `wave_queue` (skip any task whose 2d-conflict predecessor is still in flight; take the next eligible one). Repeat 3–4 until `wave_queue` is empty **and** `in_flight` is empty.
 5. **Wave join:** the pool being fully drained (`in_flight` empty, `wave_queue` empty) is the barrier before the test gate. Do NOT start 3d until the join — this preserves the "never test mid-wave" hard rule.
 
@@ -389,11 +414,11 @@ Read `d:\datrix\datrix\claude-config\.claude\agent-templates\task-implementation
 - `{task_id}` → task identifier (e.g., "task-34-01")
 - `{package-name}` → package name from task metadata
 
-**Quality-gate tasks — suppress the agent's full-suite run.** A `**Category:** Quality Gate` task file lists "Run full test suite (`test.ps1 {package-name}`)" as a verification step, and its `## Targeted Tests` scope is the full suite. That run is redundant here: step 3d runs the full suite for this package as the authoritative wave gate after the agent returns. So when spawning a quality-gate agent, append this directive to its prompt:
+**Quality-gate tasks — suppress the agent's full-suite run AND its design-conformance scan.** A `**Category:** Quality Gate` task file lists "Run full test suite (`test.ps1 {package-name}`)" as a verification step (its `## Targeted Tests` scope is the full suite) and carries a design-conformance scan (checklist item 2b). In an orchestrated run BOTH are owned by the orchestrator — the full suite by the phase-boundary sweep (3i Step A) and the design-conformance sweep by the phase-boundary conformance gate (3i Step A2) — so the agent running either is a pure duplicate. When spawning a quality-gate agent, append this directive to its prompt:
 
-> The orchestrator runs the full test suite (`test.ps1 {package-name}`) as the authoritative wave gate immediately after you return. Do NOT run `test.ps1` yourself — skip Verification Step 1 / the `## Targeted Tests` full-suite command. Perform ONLY the non-test verification: the static red-flag scans (stubs / `TODO` / `pass` / `NotImplementedError`, over-broad IAM, legacy/dual paths, gating/byte-equivalence) and the "How Solved" self-contradiction checks. Report those findings in your JSON result; the orchestrator owns the pass/fail test verdict.
+> Do NOT run the full test suite (`test.ps1 {package-name}`) — skip Verification Step 1 / the `## Targeted Tests` full-suite command; the orchestrator's phase-boundary sweep owns that verdict. Do NOT execute the design-conformance scan (checklist item 2b — per-invariant surface sweeps and acceptance checks); the orchestrator's phase-boundary conformance gate owns those executions. Run no tests at all. Perform the remaining static verification in full: the non-trivial-implementation scan (stubs / `TODO` / `pass` / `NotImplementedError`, always-true validators, legacy/dual paths), the coverage & test-quality sanity checks (read the tests; do not run them), and the "How Solved" self-contradiction scan. Report every finding in your JSON result; the orchestrator owns the pass/fail verdict.
 
-This removes the duplicate suite run while preserving both the gate's static-analysis value (agent) and an independent test verdict (orchestrator).
+This keeps the gate's independent static-analysis value (a different agent than the implementers reads everything) while each expensive execution — suite and conformance — happens exactly once, at the phase boundary. The QG agent's findings feed 3i Step A2 as input (A2 must read them and act on each one); they are not a substitute for A2's own executions.
 
 The rolling pool (above) governs when the next task is dispatched — a freed slot is refilled immediately, not after the whole wave drains.
 
@@ -404,7 +429,7 @@ Run this **each time a poll detects that one agent has completed** (the genuine 
 1. Parse the JSON report from the agent's output
 2. Record status: IMPLEMENTED / EXPANSION_REQUIRED / BLOCKED / NEEDS_CONTEXT / FAILED
 
-3. **If BLOCKED — run the BLOCKER ADJUDICATION PROTOCOL (`d:\datrix\.claude\skills\_shared\blocker-adjudication-protocol.md`) FIRST, before any other handling.** Read it; it is binding. In brief:
+3. **If BLOCKED — run the DECISION ADJUDICATION PROTOCOL, Door A (`d:\datrix\.claude\skills\_shared\decision-adjudication-protocol.md`) FIRST, before any other handling.** Read it; it is binding. In brief:
 
    - **An agent's BLOCKED never stops this run.** It is an input to *your* investigation, not an outcome you record. Recording "agent said BLOCKED → task BLOCKED" is a non-answer: it means the orchestrator relayed a message instead of doing its job.
    - **Stage 1 — form check.** Does `blocker_proof` carry all four parts substantively (verbatim `error_text`; an `attempted` fix the agent actually **wrote and ran**, as `file:line` — analysis is not an attempt; a specific `why_it_failed`; a literal `B1`/`B2`/`B3`/`B4`)? Any field missing or vague → malformed; go straight to Stage 3.
@@ -418,50 +443,59 @@ Run this **each time a poll detects that one agent has completed** (the genuine 
 
 5. If **EXPANSION_REQUIRED**: the agent knows the fix and needs the file lock. **Re-dispatch it serially the moment the conflicting files are free** (it may run alone after the wave join). This is *not* a failure and never goes to `failed_tasks`. Never shelve it, footnote it, or count the task as done.
 
-6. If **NEEDS_CONTEXT** with a **spec gap or missing user input** (credentials, unresolvable requirement): relay to user via `AskUserQuestion`, then re-queue the agent with the answer
-7. If **NEEDS_CONTEXT** with a **technical ambiguity**: invoke the **Decision Escalation Protocol** — analyze and decide in-context yourself, then re-queue the implementation agent with your concrete recommendation. Do **not** pass a technical ambiguity to the user; that is your job.
+6. If **NEEDS_CONTEXT** with a **spec gap or missing input**: first try to derive the answer from the design docs, the architecture docs, and the code (rung 1). If you derive it, re-queue the agent with the answer (rung 2). If you genuinely cannot, it is a **rung-3 decision → Fable** (Door B) — **not** an automatic user question. Only the protocol's §7 closed list goes straight to the user (a credential/account absent from the repo · an irreversible outward-facing action needing authorization · a genuine product call · a prohibition to be lifted); relay those via `AskUserQuestion` **with your recommendation**, then re-queue the agent with the answer.
+7. If **NEEDS_CONTEXT** with a **technical ambiguity**: invoke the **Decision Escalation Protocol** — analyze and decide in-context yourself, then re-queue the implementation agent with your concrete recommendation. Do **not** pass a technical ambiguity to the user; that is your job. If your own analysis genuinely cannot settle it, go to **Fable** (rung 3) — never to the user.
 8. If **FAILED**: record targeted test failures, add to `failed_tasks`
 
 9. **DISCOVERED-DEFECT GATE.** For every entry in the agent's `discovered_defects`, the `disposition` must be `FIXED` (with a `file:line`) or `FILED` (with a real task file path that exists on disk). A prose-only mention is **not** a disposition — file the task yourself before the wave gate, or re-dispatch the agent to fix it. Nothing an agent discovered may evaporate into a report footnote.
 
 Then free the agent's slot and refill the pool (3b step 4). Emit a brief progress report at the **wave join** (when the pool has fully drained), not after each completion — keep per-completion output to a one-line status.
 
-#### 3d. Run the Wave Test Gate Per Package (targeted intra-phase, full suite at last-touch)
+#### 3d. Run the Wave Test Gate Per Package (targeted ONLY — never a full suite inside a phase)
 
 **HARD RULE — never run any test mid-wave.** Do NOT invoke `test.ps1` until the **wave join** — EVERY task in the wave has finished implementing and the rolling pool has fully drained. No per-task, per-completion, or partial-wave test runs. The wave's test gate runs exactly once here, after the whole wave is complete.
 
-**Test-scope decision (lever to avoid redundant full-suite reruns).** The phase-boundary gate (3i) already runs each touched package's **full** suite authoritatively at the end of every phase. So re-running the full suite after *every* wave is largely redundant — a package that appears in many waves had its full suite executed many times for no added signal. Instead, at the wave join, for each `package` with completed tasks in this wave:
+**HARD RULE — NO FULL SUITE INSIDE A PHASE. THE LIST OF EXCEPTIONS IS EMPTY.** Inside a phase you run **only targeted tests for what the wave actually affected**. The full suite runs at the **phase boundary** (3i) and nowhere else. There is no last-touch-wave exception, no "the package is done so gate it now" exception, and — read this twice — **no shared-layer exception.**
 
-- **If this wave is the package's last-touch wave** (`current_wave == package_last_touch_wave[package]`) → run the package's **full** suite (the authoritative in-loop gate for that package's last change this phase).
-- **Otherwise (an earlier intra-phase wave)** → run only this wave's **targeted tests** — the union of the `## Targeted Tests` commands from the wave's completed tasks for that package. This catches the wave's own breakage cheaply without a full sweep.
+At the wave join, the gate covers — for each `package` with completed tasks in this wave — **only** the union of the `## Targeted Tests` files from that package's completed tasks in this wave, plus the specific test files covering any code the wave moved, changed, or deleted. Coverage does NOT mean re-executing all of it: the gate below verifies each agent's already-saved run artifacts first and re-executes only what artifacts cannot prove.
 
-This still gives every package exactly one in-loop full-suite gate (at its last-touch wave) plus the authoritative phase-boundary sweep (3i) — while removing the N−1 redundant early-wave full runs. A single-phase run still hits 3i's full-suite gate at phase end, so nothing ships without a full sweep.
+**The shared-layer trap (this has been walked into repeatedly — do not repeat it).** CLAUDE.md's cross-surface impact rule says a change to a shared layer (`datrix-common`, `datrix-codegen-common`, any shared contract) must not break any consuming package. That rule tells you **WHICH packages must not be broken**. It does **NOT** authorize running their full suites mid-phase, and it is not a licence to re-run the world every time a shared file is touched. Inside the phase, cover a shared-layer change with **targeted tests over the changed surface and its consumers' call sites** — the specific test files exercising the moved/changed symbol in each consuming package. The phase-boundary sweep (3i) is what proves the consumers are whole. Buying that certainty 30 minutes early, at the cost of many minutes of redundant suite time, is not a trade you get to make.
+
+Rationale: a package that appears in many waves would otherwise have its full suite executed many times for no added signal. The phase-boundary gate (3i) is the authoritative full sweep and it is not optional — nothing ships without it, including a single-phase run.
 
 After the **wave join** — the rolling pool has fully drained (`in_flight` and `wave_queue` both empty):
 
-1. Group completed tasks in this wave by `package`
-2. For each affected package, pick its scope per the decision above, then fire the runs for **all affected packages concurrently** — a single message with multiple Bash calls (one per package), so a multi-package wave gates in parallel instead of back-to-back:
+1. Group completed tasks in this wave by `package`, and assemble each package's **wave targeted set**: the union of its tasks' `## Targeted Tests` files + the specific test files covering code the wave moved, changed, or deleted.
+
+2. **Verify each agent's targeted run from its saved artifacts FIRST — do not re-execute what a machine-written artifact already proves.** Every `test.ps1` run persists a timestamped run folder with `index.json` + JUnit XML, and the agent's JSON report must carry the run-folder path the runner itself printed (`targeted_tests.run_folder`). For each task, **accept the agent's run without re-executing** only when ALL hold:
+   - the reported run folder exists under `{package}/.test_results/` and its `index.json` is parseable (never substitute the newest directory on disk — only the path the runner printed);
+   - the folder's timestamps fall within that agent's dispatch window;
+   - the JUnit XML names tests from **exactly** the task's targeted files — nothing else, none missing (the same selection-integrity contract `test-specific-selection-gate.ps1` enforces);
+   - `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0`.
+
+3. **Re-run — batched — only what artifacts cannot prove.** For each affected package, ONE `test.ps1` invocation with a comma-separated `-Specific` list (multi-path batching runs the whole set in a single pytest session — never one invocation per file), covering only:
+   - **(a) cross-task interference:** test files covering code touched by MORE THAN ONE task in this wave — the one thing no single agent's run can have seen;
+   - **(b) unproven runs:** any task whose report lacks `run_folder`, or whose artifacts are missing, stale, mismatched, or red under step 2's acceptance rules;
+   - **(c) uncovered changes:** test files over code the wave changed that no accepted agent run exercised;
+   - **(d) spot check:** one randomly-chosen task's targeted files per wave, even if its artifacts were accepted — trust-but-verify.
 
    ```bash
-   # last-touch wave for this package → full suite:
-   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
-   # earlier intra-phase wave → targeted only (one -Specific per wave task in this package):
-   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{wave-task-test-path}"
+   # ALWAYS targeted inside a phase. A bare `test.ps1 {package-name}` (no -Specific)
+   # is a FULL SUITE and is FORBIDDEN here — it belongs only to the 3i phase gate.
+   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name} -Specific "{test-path-1},{test-path-2},{test-path-3}"
    ```
 
-   Include `VERIFIED_AGAINST_QUICK_REFERENCE` in each Bash tool description.
+   Fire all affected packages' re-runs concurrently — a single message with multiple Bash calls — so a multi-package wave gates in parallel instead of back-to-back. Include `VERIFIED_AGAINST_QUICK_REFERENCE` in each Bash tool description. Each package writes its own `.test_results/` folder, so parallel runs do not collide. If nothing in a package falls under (a)–(d), that package's gate rests entirely on its accepted artifacts — that is the intended outcome, not a skipped gate.
 
-   These runs are the orchestrator's **authoritative, independent** gate — run regardless of any result an agent self-reported, including in a quality-gate wave. (The redundant *agent-side* suite run is suppressed at spawn time — see 3b.) Do not skip them or substitute an agent's self-reported numbers. Each package writes its own `.test_results/` folder, so parallel runs do not collide; read each package's `index.json` separately in step 3. A quality-gate wave is by construction a package's last-touch wave, so it always runs the full suite.
-
-3. **Read the canonical result from `index.json`, not the console.** `test.ps1` saves a timestamped folder under `{package}/.test_results/test-results-*/` and prints its path on the final console lines. Read that folder's `index.json` — it is the machine-readable source of truth. Do NOT eyeball-parse stdout. Extract:
+4. **Read the canonical result from `index.json`, not the console.** `test.ps1` saves a timestamped folder under `{package}/.test_results/test-results-*/` and prints its path on the final console lines. Read that folder's `index.json` — it is the machine-readable source of truth (for both the step-2 accepted runs and the step-3 re-runs). Do NOT eyeball-parse stdout. Extract:
    - `result` — `"PASSED"` or `"FAILED"`
    - `counts.passed`, `counts.failed`, **`counts.error`**, `counts.skipped`, `counts.xfailed`, `counts.xpassed`
    - From `full.log` in the same folder: the failing test node IDs **and** the erroring module/collection paths (errors have no per-test node ID — they are reported at module level)
 
-4. **Decide the gate. The gate is GREEN only when `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0`.** Treat **errors exactly like failures** — a pytest *error* (collection / import / fixture / setup failure) means tests never ran, which is a worse outcome than an assertion failure, not a passable one. Never read `failed` alone: a run with `failed == 0` but `error > 0` is RED, not green.
-   - Gate GREEN → proceed to 3f (mark complete)
+5. **Decide the gate over the union of accepted artifact results (step 2) and re-run results (step 3). The gate is GREEN only when every one of them has `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0`.** Treat **errors exactly like failures** — a pytest *error* (collection / import / fixture / setup failure) means tests never ran, which is a worse outcome than an assertion failure, not a passable one. Never read `failed` alone: a run with `failed == 0` but `error > 0` is RED, not green.
+   - Gate GREEN → proceed to 3g (mark complete)
    - Gate RED (any `failed` or `error`) → proceed to 3e (attribute & fix)
-   - If `index.json` is missing or unparseable → the run did not complete cleanly; treat as a **test infrastructure failure** (see Error Recovery), do not infer a pass from stdout.
+   - If a re-run's `index.json` is missing or unparseable → the run did not complete cleanly; treat as a **test infrastructure failure** (see Error Recovery), do not infer a pass from stdout. (An *agent* run with a bad `index.json` is not an infrastructure failure — it simply fails step 2 acceptance and lands in the step-3 re-run batch.)
 
 #### 3e. Attribute Failures and Fix Loop
 
@@ -471,7 +505,7 @@ Process **both** red outcomes from `counts`: assertion **failures** (`counts.fai
 
 **Delegation split for the fix loop.** Attribution (step 1) and the fix-scope decision are YOUR judgment — do them inline. Reading the failing test/code and applying the edit (steps 2–3) are delegated to a **fix subagent** — do NOT edit code inline on Opus. You verify (step 4) by running the targeted test yourself, or by delegating the run and reading its `index.json`.
 
-For each failing test **and each erroring module** from the wave gate run (targeted-only on earlier intra-phase waves, full suite on a package's last-touch wave):
+For each failing test **and each erroring module** from the wave gate (always targeted inside a phase — there is no full-suite wave):
 
 1. **Attribute (YOUR judgment, inline):** Cross-reference the failing test file / erroring module against `files_created` and `files_modified` from tasks in this wave.
    - **Quality-gate / integration waves:** when the failing wave is a quality-gate wave (the gate task itself creates no files), the failure is almost always a *cross-task integration* failure introduced by an earlier wave's task in the **same package and phase**. Widen attribution to the `files_created`/`files_modified` of ALL completed tasks for that package across this run, not just the current wave. Attribute to the task whose changed files best match the failing test/code, and apply the fix within that task's scope.
@@ -490,38 +524,29 @@ For each failing test **and each erroring module** from the wave gate run (targe
 - A fix introduces new failures → have the fix subagent undo its own edit manually (a directed re-dispatch — NO git reverts), then invoke the **Decision Escalation Protocol** before trying again
 - Cascading issues in unrelated subsystems → invoke the **Decision Escalation Protocol** to determine correct fix scope; if your analysis concludes the run should stop → STOP, report
 
-After the fix loop, re-run the gate once to verify no regressions. Re-run the **same scope** that gated this wave for the package — targeted on an earlier intra-phase wave, full on a last-touch wave. Escalate to the **full** package suite if a fix modified code outside the wave tasks' own files (a shared-code fix can break tests the targeted set didn't cover):
-```bash
-powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
-```
+After the fix loop, re-run the gate once to verify no regressions: the package's **wave targeted set**, batched into one `test.ps1 {package} -Specific "…,…"` invocation. If a fix modified code **outside** the wave tasks' own files, do NOT escalate to a full suite (the phase boundary owns that) — instead **widen the targeted re-run** to include the specific test files covering the fix's added files (and, for a shared-layer file, the consumers' call-site tests), and record those files in `package_change_log{}` so the 3i sweep set picks up the package and its consumers at the boundary.
 
-#### 3f. Handle Failures (Escalate then Pause & Ask)
+#### 3f. Handle Failures (Escalate → Adjudicate → only then Ask)
 
 If the first fix attempt fails:
 
-1. **First: invoke the Decision Escalation Protocol** — analyze the root cause in-context yourself (task spec, all fix attempts, exact failures), then dispatch a fix subagent with your concrete remediation plan. Attempt your directed fix once. If it succeeds, proceed normally.
-2. **If your directed fix also fails**: surface to the user with your root-cause analysis included as context.
+1. **Rung 1–2: invoke the Decision Escalation Protocol** — analyze the root cause in-context yourself (task spec, all fix attempts, exact failures), then dispatch a fix subagent with your concrete remediation plan. Attempt your directed fix once. If it succeeds, proceed normally.
+2. **If your directed fix also fails → rung 3: FABLE adjudicates. Do NOT ask the user.** "Should the run continue or stop after this failure?" is an **engineering judgment about the plan**, not a user preference — it depends on what the task gated, whether its dependents are genuinely blocked, and whether the root cause poisons later phases. That is precisely a rung-3 call.
 
-Use `AskUserQuestion` to ask the user:
-```
-Task {task_id} ({title}) — first fix attempt failed.
+   Spawn a **Fable** adjudicator (`decision-adjudication-protocol.md` §5, **Door B**, kind: `AMBIGUOUS FIX SCOPE`) with: the task and its design acceptance property, every fix attempt and its verbatim failure, your root-cause analysis, the tasks that depend on this one, and the options you see (continue-and-skip-dependents / re-scope the task / fix at another layer / file a follow-up / halt). Execute its decision (§6):
+   - **A/B** → dispatch an implementer with Fable's steps; the task is still in flight.
+   - **C** → amend the task file and re-dispatch.
+   - **D** → resequence and run the prerequisite first.
+   - **E** → file a real tracked follow-up task; add this task to `failed_tasks`, compute transitive dependents into `skipped_tasks`, and continue the run.
+   - **F** → **only now** `AskUserQuestion`, with Fable's exact question, options, and recommendation.
 
-Failing tests:
-- {test_name}: {error_message}
-
-Options:
-1. Continue — skip this task and all tasks that depend on it, proceed with next wave
-2. Stop — halt orchestration, emit final report with current progress
-```
-
-- If **Continue**: add task to `failed_tasks`, compute transitive dependents and add to `skipped_tasks`
-- If **Stop**: emit final report (Step 4) and halt execution
+**Never present a bare "Continue or Stop?" menu.** That menu asks the user to make an engineering call on evidence they have not seen — and it was a standing invitation to launder a hard decision into a user prompt. If the honest answer is "this failure means the run must stop," Fable will say so (`F`, or `E` with the run halted), and you will bring the user a *decision with its reasoning*, not a fork in the road.
 
 #### 3g. Mark Tasks Complete — only after the design-acceptance + BLOCKED-terminal checks pass
 
-Apply the shared 4-condition checklist `d:\datrix\.claude\skills\_shared\completion-eligibility.md` — tests green / not-BLOCKED-terminal / How-Solved clean / design-acceptance property proven by a check YOU run (command + output pasted into How-Solved; never the agent's self-report). Orchestrator bindings:
+Apply the shared 5-condition checklist `d:\datrix\.claude\skills\_shared\completion-eligibility.md` — tests green / not-BLOCKED-terminal / How-Solved clean / design-acceptance proven / discovered defects dispositioned. Orchestrator bindings:
 - Condition 1's governing gate is the **wave test gate (3d)** for the task's package.
-- Condition 4 uses the `design_acceptance_property` recorded in Step 1d; an unprovable property routes to 3e/escalation as a conformance failure, not a pass.
+- Condition 4 uses the `design_acceptance_property` recorded in Step 1d, applied **evidence-first**: verify the agent's pasted check (commands are real, outputs consistent with the tree/artifacts you can read) and re-execute it yourself only when the evidence is missing, unparseable, or contradicted. The authoritative execution of every acceptance check happens exactly once per phase, at 3i Step A2 — do not run it a third time here when the agent's evidence verifies. An unprovable property routes to 3e/escalation as a conformance failure, not a pass.
 - **On failure of any of 2–4:** no `complete.ps1`; record in `failed_tasks` with the unmet condition, spawn the blocker as a tracked follow-up task (a real task file, not a footnote), compute transitive dependents into `skipped_tasks`, continue.
 - **On pass of all 4:** run `complete.ps1 "{task_path}"` (include `VERIFIED_AGAINST_QUICK_REFERENCE` in the Bash description), add the proof-of-work `## How Solved`, and append to `completed_tasks`.
 
@@ -547,21 +572,27 @@ Trigger this gate **after the last wave of a phase completes** (i.e. the next wa
 
 ##### Step A — Phase-end full-suite gate (fix ALL failures, attribution-agnostic)
 
-Stricter than 3d: **every package this phase touched must pass its FULL suite with zero failures and zero errors — pre-existing failures included** (3d's pre-existing allowance does NOT hold here; they are blocking and must be driven to zero before phase `P+1`). Runs every time a phase completes, even a fully green one — cross-wave integration and pre-existing rot only surface against the complete phase.
+Stricter than 3d: **every package in the sweep set must pass its FULL suite with zero failures and zero errors — pre-existing failures included** (3d's pre-existing allowance does NOT hold here; they are blocking and must be driven to zero before phase `P+1`). Runs every time a phase completes, even a fully green one — cross-wave integration and pre-existing rot only surface against the complete phase.
 
-1. **Determine touched packages** — the set of packages appearing in `files_created` / `files_modified` of any task in phase `P` (across all of the phase's waves).
-2. **Run the full suite for every touched package concurrently** — fire all `test.ps1 {package}` calls in a **single message** (one Bash call per package), exactly as 3d. Include `VERIFIED_AGAINST_QUICK_REFERENCE` in each Bash tool description.
-3. **Read each package's `index.json`** (the canonical result, never stdout). A package is GREEN only when `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0` — errors count as red, exactly as the 3d gate rules.
-4. **Fix every red package to GREEN — regardless of attribution.** For each failing test and each erroring module across ALL touched packages, **including failures in code that no task in this phase modified**:
+1. **Determine the sweep set.** Build it from `package_change_log{}` (which includes task agents' `files_created`/`files_modified`, every `scope_expansion`, and every fix-subagent edit from 3e/3f — not just the task files' declared lists):
+   - **Changed packages:** every package with any recorded change in phase `P`.
+   - **Shared-layer consumers (ALWAYS):** if any changed file lies in a shared layer (`datrix-common`, `datrix-codegen-common`, `datrix-language`, or any shared contract), add **every package that depends on it** per the dependency graph in `datrix/docs/architecture/architecture-overview.md`. This is the sweep 3d's shared-layer rule defers to — the boundary is where consumers are proven whole, so a consumer of a changed shared layer is in the sweep set *even though no task modified it*.
+   - **Multi-phase runs — the all-packages guarantee:** at the **first** phase boundary of a multi-phase run, the sweep set is **ALL testable framework packages**, regardless of what phase 1 touched — this establishes the run's all-green baseline (pre-existing rot anywhere surfaces now, not under a later phase). At each **later** boundary, the guarantee is maintained incrementally: sweep = changed + consumers since each package's last GREEN full run (`package_green_state{}`); a package with **zero recorded changes** since its last green sweep carries its green status forward and is listed as `carried` in the checkpoint — green-at-last-sweep plus provably-unchanged-since IS "all tests passing" for that package. **Safety valve:** if `package_change_log{}` is tainted (any change that cannot be attributed to a recorded agent report), carry-forward is disabled — sweep ALL packages at this boundary.
+   - **Single-phase runs:** changed + shared-layer consumers (no all-packages baseline requirement).
+2. **Run the full suite for every package in the sweep set concurrently** — fire all `test.ps1 {package}` calls in a **single message** (one Bash call per package). Include `VERIFIED_AGAINST_QUICK_REFERENCE` in each Bash tool description.
+3. **Read each package's `index.json`** (the canonical result, never stdout). A package is GREEN only when `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0` — errors count as red, exactly as the 3d gate rules. Record each GREEN package into `package_green_state{}`.
+4. **Fix every red package to GREEN — regardless of attribution.** For each failing test and each erroring module across ALL packages in the sweep set, **including failures in code that no task in this phase modified**:
    - **Delegate the fix, own the verdict.** Dispatch a **sonnet** (or **opus** for a subtle/cross-cutting root cause) fix subagent to read the failing test and the code under test, trace to the **root cause**, and fix it there. Unlike 3e this is NOT scope-restricted to a task's files — instruct the agent to fix whatever is red at its root. Bind it with NO workarounds, NO `xfail`/skip-to-pass, NO band-aids, NO conditional guards that hide the broken path, NO git reverts (CLAUDE.md). You do NOT read/edit the code inline on Opus — you decide what's in scope and verify the result.
    - Verify authoritatively: re-run the specific test (`test.ps1 {package} -Specific "{path}"`), then re-run the full package suite — reading `index.json`, not the agent's self-report.
    - If the first fix attempt fails or the root cause is unclear → **Decision Escalation Protocol** — analyze the root cause in-context yourself, then re-dispatch the fix subagent with your directed remediation plan. If your directed fix still fails, that test/module becomes a blocking item carried into Step C's halt-and-ask.
    - If a red test traces to a root cause **genuinely outside this repo's control** (e.g. a known-flaky external integration) → do NOT silently skip it; record it as a blocking item and surface it in Step C, letting the user decide. Do not invent this exception to dodge a real fix.
-5. **Re-run until clean** — repeat the full per-package suite after fixes until every touched package is GREEN, or escalation/halt is reached. An error fixed in one module often unhides many tests that never ran, so always re-run the full suite after a fix rather than trusting `-Specific` alone.
+5. **Re-run until clean** — after fixes, repeat the full suite for the packages that were RED (their green peers' recorded results stand; nothing changed them). `test.ps1 -Rerun` selects exactly the projects whose latest run reported failures, or fire the red packages' `test.ps1 {package}` calls concurrently. Repeat until every sweep-set package is GREEN, or escalation/halt is reached. An error fixed in one module often unhides many tests that never ran, so always re-run the failing package's full suite after a fix rather than trusting `-Specific` alone. If a fix touched a package OUTSIDE the current red set (scope expansion into a green or unswept package), add that package to the sweep set and run its full suite too.
 
 ##### Step A2 — Phase-end DESIGN-CONFORMANCE gate (runs at EVERY phase end, including single-phase runs)
 
 A green suite proves the code runs; it does NOT prove the design holds. This gate verifies phase `P` actually satisfied the `design_contract` built in Step 1d. **It runs at the end of every phase — including a single-phase run — and a phase cannot be declared complete without it, even when Step A is fully green.** This is the gate phase-01 lacked.
+
+**A2 is the phase's single authoritative EXECUTION of the acceptance checks.** Implementation agents run them and paste evidence; 3g verifies that evidence; A2 is where the orchestrator itself executes each invariant's check, once, across the full surface set. Do not treat the earlier evidence as a reason to skip A2, and do not add executions elsewhere. Where a quality-gate agent ran this phase (3b), **read its static-checklist findings first** (stub scan, coverage sanity, How-Solved contradictions) and disposition every one — they are input to this gate, not a substitute for its executions.
 
 For each invariant / numbered decision (D#/G#) in phase `P`'s `design_contract`:
 
@@ -578,7 +609,7 @@ A conformance failure is handled like a red package: fix it to conformance withi
 
 Partition phase `P`'s tasks into `completed`, `failed`, and `skipped` (using the run-wide state variables, filtered to tasks whose `phase == P`).
 
-**Green phase** — every touched package passed Step A's full-suite gate (all red driven to zero) **AND Step A2's design-conformance gate passed (every design-named surface enforced, every task's acceptance property proven, no open conformance gap)** AND `failed` and `skipped` are both empty:
+**Green phase** — every sweep-set package passed Step A's full-suite gate (all red driven to zero; carried-forward packages count as green by the carry-forward rule) **AND Step A2's design-conformance gate passed (every design-named surface enforced, every task's acceptance property proven, no open conformance gap)** AND `failed` and `skipped` are both empty:
 - Emit the Phase Checkpoint (below) — a one-line progress marker, **not** a report and **not** a conclusion.
 - **Immediately spawn the first wave of phase `P+1` (3a/3b), in this same turn.** No pause, no `AskUserQuestion`, no "phase {P} is complete — shall I continue?", no summary of the phase's accomplishments. A green gate is the *authorization* to continue, and continuing is the only thing you may do with it (Multi-Phase Continuation, above).
 - Only when phase `P` is the **last** phase in the run does a green gate lead to Step 4's final report instead of a next wave.
@@ -591,33 +622,29 @@ Any `failed` or `skipped` task in phase `P`, **OR** any package still red after 
    - **Dispatch subagents to implement your recovery plan** (**sonnet**, or **opus** for the hardest items), partitioned so no two agents write the same files: give each the per-item remediation steps, exact files to modify, and the CLAUDE.md constraints. Then re-run the **full test suite for every affected package** yourself (3d gate rules — GREEN only when `result == "PASSED"` AND `failed == 0` AND `error == 0`). Re-attribute and mark any now-passing tasks complete via `complete.ps1`.
    - **Re-evaluate the phase:**
      - If phase `P` is now green → emit the Phase Checkpoint, proceed to phase `P+1`.
-     - If phase `P` is **still red** after implementing Opus's plan → **HALT at the phase boundary** and `AskUserQuestion` (below). Do not auto-advance.
+     - If phase `P` is **still red** after implementing your own recovery plan → **rung 3: FABLE adjudicates the phase.** Do NOT `AskUserQuestion` here. "Halt the run, or advance a phase carrying known failures?" is an engineering judgment about whether the red state poisons phase `P+1` — exactly a rung-3 call, and one the user cannot make without the evidence you hold.
 
-   `AskUserQuestion` on unresolved phase failure:
-   ```
-   Phase {P} did not complete cleanly — Opus-led recovery still leaves failures.
+   **Fable adjudication on unresolved phase failure** (`decision-adjudication-protocol.md` §5, **Door B**, kind: `RED GATE RECOVERY`). Hand it:
+   - Every failed/skipped task in phase `P`, with its design acceptance property.
+   - Every still-red test/module (including pre-existing, unattributed), with **verbatim** error text.
+   - Every fix attempt — wave-level (3e/3f) and Step A — and why each failed.
+   - Your own root-cause analysis, and whether the red state is load-bearing for phase `P+1` (does anything in `P+1` depend on the broken surface?).
+   - The options and their costs: halt · advance-carrying-failures · fix at another layer · re-scope the phase · file follow-ups.
 
-   Failed / skipped tasks in phase {P}:
-   - {task_id}: {reason}
+   Execute its decision (§6):
+   - **A/B/C/D** → apply the fix/amendment/resequencing, re-run the phase gate, and continue the run.
+   - **E** → file the real tracked follow-up task(s), carry phase `P`'s `failed`/`skipped` forward into run-wide state, and start phase `P+1` (3a's skip logic prunes downstream dependents).
+   - **F** → **only now** `AskUserQuestion`, with Fable's exact question, options, and recommendation, plus the evidence above.
 
-   Unresolved test failures (incl. pre-existing, unattributed):
-   - {package} :: {test_or_module}: {error summary}
-
-   Opus's analysis:
-   {1-2 line summary of Opus's root-cause finding}
-
-   Options:
-   1. Stop — halt orchestration here; phase {P+1}+ not started. Emit final report.
-   2. Proceed anyway — start phase {P+1}; tasks transitively depending on phase {P}'s failed tasks stay skipped, the rest run. Unresolved package failures are carried forward and reported.
-   ```
-   - **Stop** → emit final report (Step 4) and halt; later phases are reported as `NOT STARTED`.
-   - **Proceed anyway** → carry phase `P`'s `failed`/`skipped` forward into run-wide state and start phase `P+1` (3a's skip logic already prunes downstream dependents).
+   **Never present a bare "Stop or Proceed anyway?" menu.** It hands the user a fork without the evidence to choose, and it is how a hard call gets laundered into a user prompt. Bring them a *decision with its reasoning*, and only when Fable says the call is genuinely theirs.
 
 **Phase Checkpoint format** (emit at every phase boundary, green or after recovery):
 ```
-Phase {P} COMPLETE — {completed}/{phase_total} tasks | tests: {package}: {passed}/{total} | {package}: {passed}/{total}
+Phase {P} COMPLETE — {completed}/{phase_total} tasks | tests: {package}: {passed}/{total} | {package}: {passed}/{total} | carried green: {package, package | none}
 → Starting phase {P+1}
 ```
+
+(`carried green` names the packages whose all-green status was carried forward without a re-sweep — green at their last full run with zero recorded changes since. Multi-phase runs only; omit for single-phase runs.)
 
 The `→ Starting phase {P+1}` line is a **commitment, not a plan announcement**: the very next thing you do after emitting it is dispatch phase `P+1`'s first wave. Emitting it and then ending the turn is the failure this gate exists to prevent. Omit that line only when `P` is the last phase in the run (then Step 4 follows).
 
@@ -650,7 +677,9 @@ All rules from `d:\datrix\.claude\CLAUDE.md` apply. Key rules for the orchestrat
 
 - **NEVER STOP AT A GREEN PHASE BOUNDARY** — in a multi-phase run, a phase passing its 3i gates authorizes the next phase; it does not end the run. Emit the Phase Checkpoint and dispatch phase `P+1`'s first wave **in the same turn**. Do not ask "shall I continue?", do not summarize the finished phase as if concluding, and do not emit Step 4's report while any phase still has unexecuted waves. The only exits are 3i Step C (phase still red after Opus-led recovery), 3f (*Stop*), a blocking 1e finding, a double test-infrastructure failure, and the end of the last phase — see **Multi-Phase Continuation**. Run length, token spend, and "the user may want to review" are not exits.
 - **CONFORMANCE OVER THROUGHPUT** — enforced by the 3g completion checklist (`_shared/completion-eligibility.md`) and the 3i Step A2 conformance gate; never relaxed for a green suite.
-- **NEVER STOP ON A SUBAGENT'S BLOCKED, AND NEVER RELAY IT** — a background agent's BLOCKED is a *claim*. Investigate it yourself against the code and the docs (`_shared/blocker-adjudication-protocol.md`): reproduce the error, read the attempted fix at its `file:line`, trace the root cause, check the governing design doc. Bogus → correct the agent and re-dispatch (it is not a failure and never enters `failed_tasks`). Real → a **Fable** adjudicator (`model: "fable"`, `effort: "high"`) decides, and you execute that decision. Accepting a four-part proof *because it has four parts* is a skill-level failure — form is not truth.
+- **NEVER STOP ON A SUBAGENT'S BLOCKED, AND NEVER RELAY IT** — a background agent's BLOCKED is a *claim*. Investigate it yourself against the code and the docs (`_shared/decision-adjudication-protocol.md`, Door A): reproduce the error, read the attempted fix at its `file:line`, trace the root cause, check the governing design doc. Bogus → correct the agent and re-dispatch (it is not a failure and never enters `failed_tasks`). Real → a **Fable** adjudicator (`model: "fable"`, `effort: "high"`) decides, and you execute that decision. Accepting a four-part proof *because it has four parts* is a skill-level failure — form is not truth.
+- **NEVER TAKE A DECISION TO THE USER THAT FABLE HAS NOT SEEN** — the user is rung 4, reachable only through a Fable **F**. Every conflict *you* hit (contradicting designs, an unowned invariant surface, a false task premise, an ambiguous fix scope, a red gate, an ordering conflict) enters `_shared/decision-adjudication-protocol.md` at **Door B** and climbs the same ladder. The pull to ask the user is strongest exactly when the decision is *above any single task* — that feeling is the trap, not the signal. Only the protocol's §7 closed list (absent credential · irreversible outward-facing action · genuine product call · prohibition to lift) goes straight to the user. **Asking the user is not the safe default; it is a rung you must earn.**
+- **NEVER ESCALATE A DECISION YOU COULD HAVE MADE** — rung 3 is for genuine ties *after* real investigation. An under-researched question is not a tie; it is rung 1 you have not finished. Read the design docs, the architecture docs, and the code first — most "decisions" dissolve into missing information.
 - **NEVER EXECUTE AN UNAUDITED TASK SET** — Step 1e runs before Step 2, every run, no exception. A task set is a *hypothesis* about what the design needs against the code that existed when it was written; the audit tests that hypothesis against today's code before 5 agents act on it. Skipping it to "just start the waves" is how a phase finishes green with a design invariant unenforced. Gaps it finds are closed as real tasks with provable acceptance properties — never as a note in the report, a footnote, or a stub task.
 - **NO ASSUMING — ENUMERATE AND VERIFY STATE** — characterize a corpus by enumerating ALL of it (counted), not a sample; reason about git/working-tree from the CURRENT on-disk state you just read, never a remembered snapshot. Paste real command output for every conformance claim.
 - **GENUINE agent monitoring, never assumption** — when agents run in the background pool, drive them with the Agent Progress Polling Protocol: check every ~5 minutes what each agent is *actually* doing (status **and** on-disk artifacts). Never report an agent as "working" without that evidence, and never rely on a completion notification to know an agent finished.
@@ -674,7 +703,13 @@ You are the Opus orchestrator — the escalation target is **you**: shift out of
 
 ### When to Escalate
 
-**Relationship to the Blocker Adjudication Protocol.** These are two different doors. This protocol is for problems **you** hit — a failing fix, an unclear root cause, an ambiguous fix scope — and you analyze them in-context because you are the Opus orchestrator. The **Blocker Adjudication Protocol** (`_shared/blocker-adjudication-protocol.md`) is for a **subagent's BLOCKED report**: you investigate it, and if it survives investigation the decision goes to a **Fable** adjudicator, not to you. When an agent reports BLOCKED, adjudication runs first; if its verdict is "illegitimate", the task simply goes back out and this protocol never engages.
+**Relationship to the Decision Adjudication Protocol.** This section is **rungs 1–2 of the one ladder** (`_shared/decision-adjudication-protocol.md`): how you investigate and decide in-context, because you are the Opus orchestrator. It is *not* a separate track and it is *not* a route to the user.
+
+- **If your in-context analysis settles it** → decide, dispatch an implementer, continue. That is the common case and the whole point of running this skill on Opus.
+- **If it does NOT settle it** — you have genuinely investigated and still cannot decide — → **rung 3: Fable** (Door B). Not the user.
+- **A subagent's BLOCKED report** never enters here; it enters the protocol at **Door A** (investigate the claim; correct-and-re-dispatch if bogus; Fable if real).
+
+Both doors converge on the same Fable adjudication and the same execute-the-decision table. **The door you came in by never changes the rung you must climb.**
 
 **DO escalate for:**
 - The first fix attempt fails and root cause is unclear
@@ -685,7 +720,7 @@ You are the Opus orchestrator — the escalation target is **you**: shift out of
 - Incomplete prerequisite dependencies → **not a stop.** Implement the dependency, or resequence the wave so the prerequisite runs first. (An agent that calls this a blocker gets corrected and re-dispatched.)
 - Simple syntax/import errors with obvious fixes → fix directly
 - Clear spec violations → fix directly
-- Missing user-supplied information (credentials, paths, spec gaps) → ask user directly, with your recommendation
+- Missing user-supplied information → derive it from the design docs and the code first. If you cannot, it is a **rung-3 decision → Fable**, *not* an automatic user question. Only the protocol's §7 closed list reaches the user directly (a credential/account absent from the repo · an irreversible outward-facing action needing authorization · a genuine product/business call · a prohibition to be lifted) — and then always with your recommendation.
 
 ### How to Escalate — analyze in-context, then dispatch the implementer
 
@@ -742,7 +777,7 @@ Analysis framing for a failed phase (produce a recovery plan in-context, do not 
 
 - Dispatch subagent implementers (Sonnet default, Opus for the hardest items) to apply your plan; they implement exactly what you decided — no improvising beyond it. Partition so no two agents write the same files.
 - For a phase-recovery plan: after the implementers return, re-run the full suite for **every affected package** yourself (3d gate rules) before re-evaluating the phase gate.
-- If your analysis concludes the run should stop and ask the user, surface your full root-cause analysis as context when asking.
+- If your analysis concludes the run should stop and ask the user, **that conclusion is not self-executing** — it goes to **Fable** (rung 3) with your full root-cause analysis in the packet. You do not have the authority to route yourself to the user; only a Fable **F** does that. If Fable returns A–E, execute it and the run continues.
 
 ---
 
@@ -763,6 +798,6 @@ Analysis framing for a failed phase (produce a recovery plan in-context, do not 
 - If some tasks in a wave succeed and others fail:
   - Mark successes as COMPLETED
   - Mark failures as FAILED
-  - Ask user about continuing (as per 3f)
+  - Handle each failure per 3f (escalate → adjudicate; only a Fable **F** reaches the user)
   - Next wave processes only tasks whose dependencies are all in `completed_tasks`
 
