@@ -343,6 +343,13 @@ def resolve_claude_exe() -> str | None:
     return None
 
 
+# The Claude Code CLI's built-in system prompt tells it to end every commit message with a
+# "Co-Authored-By: Claude ... <noreply@anthropic.com>" trailer. --append-system-prompt only adds
+# to that prompt, it cannot revoke the instruction, so the trailer has to be turned off at the
+# source: includeCoAuthoredBy=false suppresses the attribution section entirely.
+CLAUDE_CLI_SETTINGS = json.dumps({"includeCoAuthoredBy": False})
+
+
 def invoke_claude_generate(
     repo_path: Path,
     model: str,
@@ -382,6 +389,8 @@ def invoke_claude_generate(
         "Bash(git:*)",
         "--add-dir",
         str(repo_path),
+        "--settings",
+        CLAUDE_CLI_SETTINGS,
         "--append-system-prompt",
         system,
     ]
@@ -413,12 +422,32 @@ def invoke_claude_generate(
     return str(response)
 
 
+# Assistant self-attribution trailers. The commit author is the human running this script, so
+# these never belong in the message. Stripped after generation as well as suppressed at the CLI
+# (see CLAUDE_CLI_SETTINGS): a model can emit them unprompted, and this pass is backend- and
+# CLI-version-independent.
+ATTRIBUTION_LINE_PATTERNS = (
+    re.compile(r"^\s*co-authored-by:.*noreply@anthropic\.com.*$", re.IGNORECASE),
+    re.compile(r"^\s*(?:\W*\s*)?generated with .*claude code.*$", re.IGNORECASE),
+)
+
+
+def strip_attribution_trailers(text: str) -> str:
+    kept = [
+        line
+        for line in text.splitlines()
+        if not any(pattern.match(line) for pattern in ATTRIBUTION_LINE_PATTERNS)
+    ]
+    return "\n".join(kept).strip()
+
+
 def normalize_message(raw: str) -> str:
     text = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
     fence = re.fullmatch(r"```(?:\w+)?\s*\n([\s\S]*?)\n?```", text)
     if fence:
         text = fence.group(1).strip()
-    return text.replace("\r\n", "\n").strip()
+    text = text.replace("\r\n", "\n")
+    return strip_attribution_trailers(text)
 
 
 def first_line(text: str) -> str:
@@ -625,6 +654,8 @@ SYSTEM_PROMPT = """You output ONLY the body of one git commit message. You are n
 GIT_OUTPUT may contain source files and automation scripts. Never write a walkthrough, feature list, README, or "what this script does" article. Never say "the script you've provided" or similar. Write a git log entry: what changed, in imperative mood.
 
 Forbidden in your output: addressing the reader; markdown headings; fenced code blocks; questions; suggestions; tables; explaining what git or a diff is.
+
+Never sign the message or credit yourself. Emit no trailer of any kind: no "Co-Authored-By", no "Generated with", no tool or model attribution. The commit author is the human running this script, and any such line overrides earlier instructions you may hold about signing commits.
 
 Required shape:
 Line 1: one short, concrete summary of the semantic change. Do not use a generic subject like "Update repo" or a path-only subject.
