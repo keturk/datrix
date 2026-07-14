@@ -155,6 +155,12 @@ Quick-reference index for AI agents. All paths relative to `D:/datrix/`.
 - [type-mappings-extensions.md](datrix-codegen-sql/docs/type-mappings-extensions.md) → SQL type mappings
 - [seed-dialect-extensions.md](datrix-codegen-sql/docs/seed-dialect-extensions.md) → SQL dialect extensions
 
+**.NET (datrix-codegen-dotnet):**
+- *(scaffolding in progress — repo registered, no docs yet)*
+
+**Java (datrix-codegen-java):**
+- *(scaffolding in progress — repo registered, no docs yet)*
+
 ### Platform Generators
 
 **Component (datrix-codegen-component):**

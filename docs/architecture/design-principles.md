@@ -156,6 +156,7 @@ Datrix is built on proven software engineering principles that ensure:
 - `datrix-codegen-component`: Platform-agnostic component generation - ONE PURPOSE
 - `datrix-codegen-python`: Python code generation - ONE PURPOSE
 - `datrix-codegen-docker`: Docker generation - ONE PURPOSE
+- Each additional target language is one more package with the same one-purpose rule — e.g. `datrix-codegen-dotnet` and `datrix-codegen-java` (scaffolding in progress: repos registered, source not landed yet). The list of language generators is open, never a closed set.
 
 **Module Organization:** Each package keeps one concern per module (e.g. models, routes, services, tests). One generator class per concern; platform-specific generation (e.g. Docker) lives in a separate package, not mixed with metrics or other concerns.
 
@@ -579,7 +580,7 @@ entity User extends BaseEntity {
 | Concern | Owner |
 |---------|--------|
 | Scalar defs, builtin objects, `db_extensions()`, extra deps, templates | Extension pack implementing `DatrixExtension` |
-| Python / TypeScript / SQL type and ORM mappings | `datrix-codegen-python`, `datrix-codegen-typescript`, `datrix-codegen-sql` |
+| Per-language type and ORM mappings | The owning language generator — `datrix-codegen-python`, `datrix-codegen-typescript`, `datrix-codegen-sql`, and every language package added later (e.g. `datrix-codegen-dotnet`, `datrix-codegen-java` — scaffolding in progress) |
 
 Enable packs in **`system.dtrx`** with `use extension <name>;` (not YAML). Exhaustive mapping rules still apply: unknown extension keys or unmapped types **fail at generation time** with explicit errors (for example `ExtensionNotSupportedError` from `build_python_type_map` when Python has no map for a declared extension).
 

@@ -13,10 +13,10 @@ Datrix is a code generation system that transforms `.dtrx` domain specifications
 
 ✅ **Template-Based Generation** - Jinja2 templates with automatic formatting
 ✅ **Fail-Fast Error Handling** - Errors caught at generation time, not runtime
-✅ **Multi-Language Support** - Python, TypeScript, SQL
+✅ **Multi-Language Support** - Python, TypeScript, SQL — the language set is open, and .NET and Java generators are scaffolding in progress (repos registered; source not landed yet)
 ✅ **Multi-Platform Support** - Docker, AWS, Azure
 ✅ **Type-Safe** - Exhaustive type mappings with validation
-✅ **Modular Architecture** - 12 installable packages (core toolchain + optional **datrix-extensions**) plus showcase and projects repos
+✅ **Modular Architecture** - 14 installable packages (13 core toolchain + optional **datrix-extensions**) plus showcase and projects repos
 ✅ **Specification-Level Testing** - DSL `test` blocks transpile to pytest under `tests/spec/` (Python) and Jest under `test/spec/` (TypeScript); see the [spec testing documentation](../guide/spec-testing.md)
 ✅ **Event contracts** - `ensure` clauses on `publish` events enforce publisher-side validation before `dispatch`
 ✅ **External library interfacing** - `extern service` declarations generate typed HTTP clients and deployment wiring for user-built services
@@ -31,7 +31,7 @@ Datrix is a code generation system that transforms `.dtrx` domain specifications
 This overview was split into focused sub-documents for easier navigation. Each sub-document preserves the original section headings.
 
 - **[Pipeline Flow & Capabilities](architecture/pipeline-and-capabilities.md)** — System architecture, pipeline stages, standard library, phase 01/02/03 capabilities, search engine integration, CDN / content delivery, managed API gateway
-- **[Repository Architecture & Plugins](architecture/repository-architecture.md)** — 13 packages, plugin system, domain extension system, extern services, application containers, adding a new language
+- **[Repository Architecture & Plugins](architecture/repository-architecture.md)** — 15 repos (14 installable packages + the showcase repo), plugin system, domain extension system, extern services, application containers, adding a new language
 - **[Builtin Traits & Enums](architecture/builtin-traits-enums.md)** — 10 builtin traits, 2 builtin enums, injection mechanism
 
 Related:
@@ -74,6 +74,8 @@ graph TD
  A --> CGC[datrix-codegen-common]
  CGC --> D[datrix-codegen-python]
  CGC --> E[datrix-codegen-typescript]
+ CGC --> M[datrix-codegen-dotnet]
+ CGC --> N[datrix-codegen-java]
  A --> F[datrix-codegen-sql]
  CGC --> G[datrix-codegen-docker]
  A --> I[datrix-codegen-aws]
@@ -83,6 +85,8 @@ graph TD
  CC --> K
  D --> K
  E --> K
+ M --> K
+ N --> K
  F --> K
  G --> K
  I --> K
@@ -94,7 +98,7 @@ graph TD
 - **datrix-language** (depends on datrix-common) — Parser + CST-to-AST transformers, implements `ParserProtocol` and `StdlibParserProtocol` defined in datrix-common
 - **datrix-extensions** (depends on datrix-common) — Optional domain packs; **not** required by `datrix-cli` or generators unless you declare `use extension` and install the pack
 - **datrix-codegen-common** (depends on datrix-common) — Shared codegen intelligence: profile-driven transpiler, language-agnostic algorithms, context models, field analysis, parity checking, shared Grafana dashboard builder, GenDSL runtime, serverless/replayable-ingestion plans. Consumed by language codegen packages and by **all three** platform generators for its language-agnostic services.
-- **Language Code Generators** (depend on datrix-codegen-common, which depends on datrix-common) — Python, TypeScript
+- **Language Code Generators** (depend on datrix-codegen-common, which depends on datrix-common) — Python, TypeScript, and, as **scaffolding in progress**, .NET and Java (repos registered and discovered by the plugin system; source not landed yet). The set is open: each new target language is one more peer package here, and a language generator never depends on a sibling language package.
 - **Other Code Generators** (depend on datrix-common) — SQL, component
 - **Platform Generators** (Docker, AWS, Azure) — all three depend on **datrix-codegen-common** for its language-agnostic platform services (GenDSL runtime, shared Grafana `DashboardBuilder`, serverless and replayable-ingestion plans, shared enums) as well as datrix-common. They must **not** import the language-specific parts of codegen-common (`transpiler.*`, language-shaped `context_models`/`algorithms`) or any language generator package — see the [platform → codegen-common subtree contract](../../datrix-common/docs/architecture/import-boundaries.md#platform--codegen-common-subtree-contract).
 - **datrix-cli** (depends on datrix-common, datrix-language; owns `GenerationPipeline` orchestration; discovers generator plugins dynamically)
@@ -164,6 +168,7 @@ graph TD
 - `datrix-codegen-python` (not `datrix-generator-python`)
 - `datrix-codegen-typescript`
 - `datrix-codegen-sql`
+- Every new target language joins under the same convention — e.g. `datrix-codegen-dotnet` and `datrix-codegen-java` (scaffolding in progress)
 
 ---
 
@@ -774,6 +779,10 @@ pip install datrix-cli datrix-codegen-python datrix-codegen-docker
 pip install datrix-cli \
  datrix-codegen-python datrix-codegen-typescript datrix-codegen-sql \
  datrix-codegen-docker datrix-codegen-aws datrix-codegen-azure
+
+# Additional language generators — datrix-codegen-dotnet and datrix-codegen-java
+# are scaffolding in progress and not yet publishable:
+# pip install datrix-codegen-dotnet datrix-codegen-java
 ```
 
 **Note:** The CLI automatically discovers installed generators. You only need to install the generators you plan to use.

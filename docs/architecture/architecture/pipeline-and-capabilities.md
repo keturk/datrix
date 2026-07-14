@@ -90,8 +90,14 @@ After analysis completes, `analyze()` seals the `Application` tree by calling `a
 │ - datrix-codegen-python │
 │ - datrix-codegen-typescript │
 │ - datrix-codegen-sql │
-│ (language-owned maps merge core │
-│ + declared extensions, e.g. │
+│ - datrix-codegen-dotnet │
+│   (scaffolding in progress) │
+│ - datrix-codegen-java │
+│   (scaffolding in progress) │
+│ (open set — one package per │
+│ target language; language-owned │
+│ maps merge core + declared │
+│ extensions, e.g. │
 │ build_python_type_map) │
 └─────────────────────────────────┘
  ↓
