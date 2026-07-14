@@ -554,7 +554,11 @@ A green suite proves the code runs; it does NOT prove the design holds. This gat
 
 For each invariant / numbered decision (D#/G#) in phase `P`'s `design_contract`:
 
-1. **Enumerate the invariant's full surface set** (from Step 1d). For each surface the design names, run the invariant's **acceptance check** (negative + positive) against REAL generated output / migrated source — not against an agent's self-report. Paste the command + output.
+1. **Enumerate the invariant's full surface set** (from Step 1d). For each surface the design names, run the invariant's **acceptance check** (negative + positive) against REAL generated output / migrated source — not against an agent's self-report. Paste the command + output. **Express the checks as a conformance-gate spec where they are grep/existence assertions** — one spec per invariant, re-runnable, with a `negative_control` tree so a vacuous "forbidden token absent" grep fails loud (see `datrix/scripts/dev/quick-reference.md`):
+   ```bash
+   powershell -File "d:/datrix/datrix/scripts/dev/conformance-gate.ps1" -Spec "D:\datrix\.tmp\phase-{NN}-{invariant}.spec.json"
+   ```
+   For an invariant claiming **output-neutrality** ("X replaces Y with byte-identical output"), prove it with `dev\byte-identity-generate.ps1` rather than a hand-rolled hash comparison.
    - *Negative:* the forbidden construct/state is gone on that surface (e.g. `grep` finds zero raw `env(...)` on secret positions in the migrated tree).
    - *Positive:* the new path is actually exercised (e.g. the generated service resolves each secret via `get_secret(<handle>)`; no `${VAR}`/literal secret remains).
 2. **Any surface in the design's set that is unguarded / unconverted is a CONFORMANCE FAILURE** — even if every task is COMPLETED and every suite is GREEN. A half-implemented invariant (guarded on the easy surface, silently dropped on the rest) is exactly the phase-01 escape; this step is built to catch it.

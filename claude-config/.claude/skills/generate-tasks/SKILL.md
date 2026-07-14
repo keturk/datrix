@@ -144,9 +144,9 @@ Run the latest-phase script to find the highest existing phase number:
 powershell -File d:\datrix\datrix\scripts\tasks\latest-phase.ps1 -BaseDir "D:\datrix"
 ```
 
-Check existing tasks **across all repos** in the target phase to determine the next task number:
+Get the next free task number **across all repos** in the target phase from the script (prints only the number):
 ```bash
-ls d:\datrix\*/.tasks\phase-{NN}/
+powershell -File "d:/datrix/datrix/scripts/tasks/validate-dependencies.ps1" -Phase {NN} -NextTaskNumber
 ```
 
 **Numbering convention:** Task numbers (`{TT}`) are **unique within a phase across all repositories.** If phase 05 has tasks `05-01` through `05-03` in `datrix-common` and task `05-04` in `datrix-codegen-python`, the next task in any repo for phase 05 is `05-05`. This ensures every task ID (`{NN}-{TT}`) is globally unique within the phase, regardless of which repo it lives in.
@@ -301,10 +301,16 @@ Mark with @pytest.mark.e2e.}
 
 ### Step 6: Validate Task Files
 
-After generating all task files, verify:
-1. Task numbers (`{TT}`) are unique within the phase **across all repos** — no two tasks in the same phase share a task number, even if they are in different repos
-2. Task numbers are sequential (no gaps) within the phase
-3. Dependencies reference valid task IDs
+**Run the mechanical checks (1, 2, 3, part of 4a, and all of 17) with the validator AFTER Step 7 writes dependencies.md:**
+```bash
+powershell -File "d:/datrix/datrix/scripts/tasks/validate-dependencies.ps1" -Phase {NN}
+```
+It must print `PASS` (exit 0); on FAIL read its `Details:` JSON, fix every violation, and re-run. It checks: task numbers unique + sequential across repos, dependency IDs resolve, graph acyclic, dependencies.md valid JSON covering ALL tasks with per-task `dependencies` matching each file's `**Depends on:**` exactly, and `task_path`s absolute + existing. Also run `phase-status.ps1 {NN}` and confirm `dep_mismatches` and `missing_dependency_files` are empty.
+
+The remaining checks below are judgment checks — verify them yourself:
+1. *(scripted — validator)* Task numbers unique within the phase across all repos
+2. *(scripted — validator)* Task numbers sequential (no gaps) within the phase
+3. *(scripted — validator)* Dependencies reference valid task IDs
 4. All files are placed in the correct repo's `.tasks/phase-{NN}/` directory
 4a. **Allowlist check:** Every task file path AND the `dependencies.md` path begins with `D:\datrix\{project}\.tasks\` where `{project}` is one of the 15 in the **Task Location Allowlist**. No path points into a customer/generated project or any directory outside the allowlist. Tasks with no specific package land in `datrix\.tasks\`.
 5. No tasks reference non-existent modules from the "Non-existent modules" list
@@ -322,12 +328,7 @@ After generating all task files, verify:
 16a. **Design-conformance check:** every task cites the specific design decision(s)/invariant(s) it implements in `**Design reference:**`, carries a concrete `**Design acceptance property:**`, and has at least one Success Criterion that proves that property via an executable check (negative + positive) — not merely "tests pass" / "generates clean". A task with no provable design acceptance property is under-specified; fix it before emitting.
 16b. **Enforcement-ordering check:** every task that enforces a design invariant (guard / validator / rejection / conformance check) precedes — and is listed in `Depends on` of — the tasks that rely on it or migrate content it governs. No migration task may be in an earlier or equal wave to the guard that polices its surface.
 16c. **Invariant-surface coverage check:** if the design states an invariant over a SET of surfaces (e.g. "fail-loud on integration/CDN/auth/datasource positions"), there is a task (or explicit QG criterion) covering EVERY surface in that set. Enumerate the design's surfaces; confirm none is silently dropped.
-17. **Dependencies document validation:**
-    - Verify the dependencies document is valid JSON in the Step-7 format and includes ALL tasks from the phase (one entry each)
-    - Verify every `dependencies` entry names a task ID that exists in the phase
-    - Verify the dependency graph is acyclic (a topological sort succeeds)
-    - Verify each task's `dependencies` array matches its file's `**Depends on:**` field exactly
-    - Verify `task_path` values are absolute Windows-style paths with backslashes, and `provenance.validated` lists only checks that actually ran
+17. **Dependencies document validation:** *(scripted — the validator run at the top of this step covers all of this: valid Step-7 JSON including ALL tasks, every `dependencies` entry resolves, acyclic graph, per-task `dependencies` array matches the file's `**Depends on:**` exactly, absolute existing `task_path`s.)* Manually confirm only that `provenance.validated` lists exactly the checks that actually ran.
 
 ### Step 7: Generate Task Dependencies Document (JSON — the preferred format)
 

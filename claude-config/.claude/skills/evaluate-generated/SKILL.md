@@ -75,6 +75,18 @@ Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `p
 
 ## Workflow -- Quick Mode (Phased)
 
+**Phases 1–4 and 6 are computed by one script** (read `datrix/scripts/dev/quick-reference.md` before invoking; a pre-tool hook enforces this). After Phase 0 creates the evaluation directory, run:
+
+```bash
+powershell -File "d:/datrix/datrix/scripts/dev/evaluate-generated-scan.ps1" -Source "{SOURCE}" -Generated "{GENERATED}" -EvalDir "{EVAL_DIR}"
+```
+
+It parses the DSL with the **real parser pipeline** (never regex), and writes into `{EVAL_DIR}`:
+- `project-scan.json` — the service inventory with expected/actual directories (Phases 1+2c), manifest aggregation (2b), language/platform detection (2a), the infra existence checklist + docker-compose cross-check (3a–3d), and the rolled-up `critical_blockers` / `warnings` (4a/4b)
+- one `service-{name}.prompt.md` per service (Phase 6), filled from the template
+
+Your job on Phases 1–4 is to **read `project-scan.json`, spot-check anything surprising against the tree, and exercise judgment on the findings** — not to re-derive the data. The phase descriptions below document what the scan computes (and remain the fallback if the script itself fails — a parse/config failure exits 2 with the analyzer's diagnostics; that usually IS the finding: report it as a critical blocker). Phase 5 (the narrative report) stays yours.
+
 ---
 
 ### Phase 0: Setup Evaluation Directory
@@ -90,7 +102,7 @@ Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `p
 
 ---
 
-### Phase 1: Quick Source Analysis
+### Phase 1: Quick Source Analysis *(scripted — verify from `project-scan.json`, don't re-derive)*
 
 **Goal:** Identify all services and system-level configuration without deep-diving into each service's DSL.
 
@@ -133,7 +145,7 @@ Build a table of services:
 
 ---
 
-### Phase 2: Quick Generated Output Analysis
+### Phase 2: Quick Generated Output Analysis *(scripted — verify from `project-scan.json`)*
 
 **Goal:** Verify services exist and read manifests (don't scan all files).
 
@@ -178,7 +190,7 @@ Flag any services defined in `system.dtrx` that have no corresponding generated 
 
 ---
 
-### Phase 3: Quick Project-Level Infrastructure Check
+### Phase 3: Quick Project-Level Infrastructure Check *(scripted — verify from `project-scan.json`)*
 
 **Goal:** Verify project-level deployment infrastructure exists.
 
@@ -220,7 +232,7 @@ If observability is configured:
 
 ---
 
-### Phase 4: Quick Deployment Readiness Assessment
+### Phase 4: Quick Deployment Readiness Assessment *(scripted — `critical_blockers`/`warnings` in `project-scan.json`; you own the final judgment)*
 
 **Goal:** Identify project-level deployment blockers.
 
@@ -262,13 +274,13 @@ Load `references/quick-report-template.md` (relative to this skill) when writing
 
 ---
 
-### Phase 6: Generate Service Evaluation Prompts
+### Phase 6: Generate Service Evaluation Prompts *(scripted — already emitted by the scan)*
 
-**Goal:** Create one prompt file per service for deep-dive evaluation.
+**Goal:** One prompt file per service for deep-dive evaluation.
+
+The scan already wrote `{EVAL_DIR}/service-{name}.prompt.md` for every service (the script owns the template below — do not re-author them; just confirm the files exist and reference them in your report). The format, for reference:
 
 #### 6a: Prompt File Format
-
-For each service in the service inventory, create a prompt file:
 
 **Filename:** `{EVAL_DIR}/service-{service-name}.prompt.md`
 

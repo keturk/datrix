@@ -336,7 +336,7 @@ If you deviated: STOP and explain the deviation to the user.
    ```
    powershell -File "d:/datrix/datrix/scripts/tasks/latest-phase.ps1" -BaseDir "D:\datrix"
    ```
-   Use the NEXT phase number (latest + 1), unless PHASE was specified.
+   Use the NEXT phase number (latest + 1), unless PHASE was specified. When adding tasks to an EXISTING phase, get the next free task number from `validate-dependencies.ps1 -Phase {NN} -NextTaskNumber` (prints only the number).
 
 2. Review the task file template in `/generate-tasks` SKILL.md (lines 127-200+) to ensure correct formatting.
 
@@ -406,6 +406,12 @@ If you deviated: STOP and explain the deviation to the user.
 5. Generate the dependencies document following generate-tasks Step 7 format exactly — the **JSON document** (with the `provenance` stamp: `generated_by: "/operationalize-design"`, `generated_at`, and the `validated` list of checks that actually ran), nothing else in the file. See `d:\datrix\.claude\skills\generate-tasks\SKILL.md` Step 7 and `dependencies-format.md` for the exact schema. Do NOT emit the legacy "Group N" text format.
 
 ## Phase 4 Completion Gate
+
+**Run the mechanical half of this gate with the validator first:**
+```bash
+powershell -File "d:/datrix/datrix/scripts/tasks/validate-dependencies.ps1" -Phase {NN}
+```
+It must print `PASS` (exit 0) — it proves dependencies.md is the Step-7 JSON covering ALL generated tasks, every dependency resolves, the graph is acyclic, each task file's `**Depends on:**` matches its JSON entry, `task_path`s are absolute and exist, and task numbers are unique + sequential across repos. Then confirm the judgment checkboxes below yourself.
 
 This phase is COMPLETE when:
 - [ ] ALL implementation tasks generated as actual .md files (not a roadmap), each carrying its own `## Tests` and `## Targeted Tests` sections AND its in-scope doc updates

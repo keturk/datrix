@@ -8,7 +8,9 @@ Python implementations called by PowerShell wrapper scripts.
 library/
 ├── dev/ # Development tools
 ├── metrics/ # Code metrics: Radon, Vulture, Ruff, duplicate-code, Bandit
+├── review/ # Task-file review tooling (Tier 1/2 reviewer + apply-reviews prep)
 ├── shared/ # Shared utilities
+├── tasks/ # Task-file management and phase analysis
 └── test/ # Test utilities
 ```
 
@@ -22,6 +24,11 @@ Development tool implementations.
 | `rebuild_parser.py` | `dev/rebuild-parser.ps1` | Tree-sitter parser rebuilding |
 | `ruff_checker.py` | `dev/ruff-checker.ps1` | Jinja2 template linting |
 | `syntax_checker.py` | `dev/syntax-checker.ps1` | .dtrx syntax validation |
+| `byte_identity_generate.py` | `dev/byte-identity-generate.ps1` | Output-neutrality proof: generate a corpus under before/after code states and byte-diff the trees |
+| `conformance_gate.py` | `dev/conformance-gate.ps1` | Declarative design-acceptance assertion runner (spec JSON, non-vacuity control, self-testing) |
+| `gendsl_census.py` | `dev/gendsl-census.ps1` | Per-domain genDSL census + double-emit offender detection |
+| `evaluate_generated_scan.py` | `dev/evaluate-generated-scan.ps1` | Project-level generated-output scan for `/evaluate-generated` (inventory, manifests, infra checks, prompts) |
+| `evaluate_service_scan.py` | `dev/evaluate-service-scan.ps1` | Service-level scan for `/evaluate-generated-service` (DSL inventory, manifest set-diff, artifact existence, dead-code candidates) |
 
 ## shared/
 
@@ -65,6 +72,25 @@ Test execution utilities.
 | `extract_warnings.py` | `test/extract-warnings.ps1` | Deduplicated pytest warnings (`warnings.json`) parsed from a run's `full.log` |
 | `classify_run_delta.py` | `test/classify-run-delta.ps1` | SUCCESS/PARTIAL/NO_CHANGE/REGRESSION verdict (`run-delta.json`) between two runs of one package |
 | `gate_verdict.py` | `test/gate-verdict.ps1` | GREEN/RED aggregate verdict over packages' newest runs (fail-loud on missing/in-progress results) |
+
+## tasks/
+
+Task-file management and phase analysis.
+
+| File | Wrapper | Description |
+|------|---------|-------------|
+| `complete.py` | `tasks/complete.ps1` | Mark a task file COMPLETED (validation-hooked) |
+| `task_metadata.py` | (shared module) | Task-file + dependencies.md parsing (JSON and legacy formats) used by the three scripts below |
+| `phase_status.py` | `tasks/phase-status.ps1` | Full per-task metadata snapshot of a phase across all repos |
+| `plan_waves.py` | `tasks/plan-waves.ps1` | Kahn waves, cycle/conflict/blocker detection, QG-last ordering |
+| `validate_dependencies.py` | `tasks/validate-dependencies.ps1` | dependencies.md + numbering validation; `-NextTaskNumber` mode |
+
+## review/
+
+| File | Wrapper | Description |
+|------|---------|-------------|
+| `review.py` | (direct: `python review.py`) | Tier 1 + Tier 2 task file reviewer |
+| `apply_reviews_prep.py` | `review/apply-reviews-prep.ps1` | Discover/validate/dedupe review findings into the `/apply-reviews` worklist |
 
 ## Adding New Scripts
 

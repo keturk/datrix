@@ -97,55 +97,32 @@ When phases are delegated to sub-agents (per the delegation-strategy metadata):
 - **Test execution split:** Delegated agents run ONLY targeted tests (from each task's `## Targeted Tests` section). The orchestrator runs the full test suite once in the quality gate phase. This prevents redundant full-suite runs when multiple tasks are being processed. If a task has no targeted tests section, the agent skips test execution and reports `no_targeted_tests: true`.
 
 <!-- PHASE: pre_check -->
-## Phase 1: Pre-Execution Check
+## Phase 1: Pre-Execution Check (scripted)
 
-Read all task files, validate dependencies, and plan execution order.
+Metadata extraction, dependency validation, and execution ordering are computed by two scripts (read `datrix/scripts/tasks/quick-reference.md` before invoking; a pre-tool hook enforces this):
+
+```bash
+powershell -File "d:/datrix/datrix/scripts/tasks/phase-status.ps1" {NN}
+powershell -File "d:/datrix/datrix/scripts/tasks/plan-waves.ps1" {NN}
+```
 
 ### Steps
 
-For each task file provided in the skill invocation:
-
-1. **Read the task file completely**
-2. **Extract metadata:**
-   - Title (from `# Task {NN}-{TT}: {Title}`)
-   - Dependencies (from `**Depends on:**` field in header)
-   - Package (from `**Package:**` field)
-   - Category (from `**Category:**` field)
-3. **Check dependencies:**
-   - For each dependency (e.g., `task-40-01-foo`), verify the dependency task file exists
-   - Read the dependency task file and check if title starts with `# COMPLETED:`
-   - If NOT completed → mark this task as BLOCKED
-4. **Verify referenced files exist:**
-   - Read the "Files to Review Before Starting" section
-   - Check each file path exists on disk
-   - If any file does not exist → mark this as a red flag (will ask user for clarification)
-5. **Determine language/generator scope:**
-   - From the `**Package:**` field, determine if this is Python or TypeScript
-   - Check "Files to Create/Modify" — if they mix .py and .ts files, mark as scope error
-6. **Identify quality gate tasks:**
-   - If `**Category:** Quality Gate` → mark this task as quality_gate type
-   - Quality gate tasks MUST execute LAST among all tasks for the package
-7. **Identify verification tasks (legacy category — current task sets no longer emit them):**
-   - If `**Category:** Verification` → mark this task as verification type
-   - Verification tasks are verification-only — they check that implementation was done correctly
-   - Verification tasks MUST execute AFTER their dependency implementation/test tasks (same session is fine)
-
-### Input
-
-Task file paths from skill invocation (provided by user as TASKS:, PHASE:, or TASK:).
-
-### Output
-
-JSON array of tasks in execution order — one entry per task with fields: `task_path`, `task_id`, `title`, `package`, `category`, `dependencies[]`, `language_scope`, `is_quality_gate`, `is_blocked`, `files_to_review[]`, `files_to_create[]`, `files_to_modify[]`, `red_flags[]`.
+1. **Read `D:\datrix\.tmp\tasks\phase-{NN}-status.json`** — per task it carries `task_id`, `task_path`, `title`, `status`/`is_completed`, `package`, `category`, `depends_on`, `design_reference`, `design_acceptance_property`, `files_to_review`, `files_to_create_modify`, `targeted_tests`, `languages`, and `how_solved_redflags`. Do NOT re-read task files to extract these; read a task file in full only when you implement it (Phase 2 Step 1).
+   - When invoked with an explicit `TASKS:`/`TASK:` list instead of a phase, still run the scripts for the tasks' phase and work with the subset named in the invocation.
+2. **Read `D:\datrix\.tmp\tasks\phase-{NN}-waves.json`** — its `waves[]` give the dependency-correct execution order (process wave by wave, tasks within a wave in listed order since this skill is sequential); `blocking_issues[]` and `cycle` are the validation verdict.
+3. **Verify files-to-review existence** for the tasks you will execute: check each `files_to_review` path from the status JSON against disk; any missing file is a red flag.
+4. **Quality gate / verification ordering** is already encoded in the waves (`Quality Gate` tasks land in the final wave(s); `Verification`/`Acceptance` tasks after their dependencies).
 
 ### Error Conditions
 
-- **Dependency not completed:** Task is BLOCKED. Mark `is_blocked: true`, record which dependency is incomplete.
-- **Task file does not exist:** Mark as red flag: `"Task file not found at specified path"`
-- **Referenced file does not exist:** Mark as red flag: `"File to review does not exist: {path}"`
-- **Mixed language scope:** Mark as red flag: `"Task mixes Python and TypeScript files"`
+- **`UNMET_CROSS_PHASE_DEP` / dependency not completed** (from `blocking_issues`): task is BLOCKED — record which dependency is incomplete.
+- **`MISSING_DEP_FILE`**: red flag `"Task file not found at specified path"`.
+- **Missing files-to-review** (your step-3 check): red flag `"File to review does not exist: {path}"`.
+- **`MIXED_LANGUAGE_TASK`**: red flag `"Task mixes implementation languages"` (any two code languages, not just .py/.ts — Datrix is multi-language).
+- **Non-null `cycle`**: red flag naming the cycle path.
 
-If ANY task has `is_blocked: true` or non-empty `red_flags[]`, STOP and report to user. Do NOT proceed to the implement phase.
+If ANY task is blocked or any red flag exists, STOP and report to user. Do NOT proceed to the implement phase.
 
 ### Use the TodoWrite Tool
 

@@ -47,10 +47,23 @@ python scripts/library/review/review.py --phase 43 --verify
 - `.review/phase-NN.review.codex.json` — Tier 2 review
 - `.review/.canonical-modules-cache.json` — Module cache
 
+## `review\apply-reviews-prep.ps1`
+
+Builds the `/apply-reviews` worklist: discovers `*.review.local.json` across every repo's `.tasks\phase-{NN}\` plus the codex `phase-{NN}.review.codex.json`, validates findings against `review_schema.py`, filters out findings already recorded in `.review.applied.json` markers, groups by `target`, and sorts blocking → major → minor → nit. Minimal console; details to JSON.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **All sources** | `.\review\apply-reviews-prep.ps1 -Phase 43` | Worklist → `D:\datrix\.tmp\review\phase-43-worklist.json` |
+| **Tier 1 only** | `.\review\apply-reviews-prep.ps1 -Phase 43 -Source local` | Local review findings only |
+| **Tier 2 only** | `.\review\apply-reviews-prep.ps1 -Phase 43 -Source codex` | Codex findings only |
+| **Custom base dir** | `.\review\apply-reviews-prep.ps1 -Phase 43 -BaseDir D:\other` | Different workspace |
+
+**Parameters:** `-Phase <NN>` (required), `-Source local|codex|all` (default all), `-BaseDir`, `-Output <path>`, `-Dbg`. **Exit codes:** 0 = done (also when no review files exist — says so), 2 = usage error.
+
 ## Workflow
 
 1. Generate tasks: `/generate-tasks`
 2. Review locally: `python review.py --phase NN`
-3. Apply fixes: "Apply reviews to phase NN" (in Claude Code)
+3. Apply fixes: "Apply reviews to phase NN" (in Claude Code — runs `apply-reviews-prep.ps1` for the worklist)
 4. Verify: `python review.py --phase NN --verify`
 5. Execute: `/execute-tasks --phase NN`

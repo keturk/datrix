@@ -78,10 +78,14 @@ If verification reveals the implementation is wrong across 3+ unrelated subsyste
 **Goal:** Turn the design + tasks into a concrete, checkable list of what MUST be true in the code.
 
 1. Read the DESIGN in full. Extract every **design invariant / decision / requirement** as a numbered checklist item, keyed by its `D#`/`G#`/numbered-decision id where the design uses one. For each, note the **set of surfaces** it applies to (which languages, providers, packages, files) — this is what invariant-surface coverage checks against.
-2. Resolve the task set (from TASKS, or auto-detect via the `**Design reference:**` line pointing at DESIGN). Read each task file: its `**Design acceptance property:**`, its Success Criteria, and its `## How Solved` section.
-3. For each design requirement, map which task(s) claim to implement it. Flag:
+2. Resolve the task set and pull its metadata with the phase-status script (read `datrix/scripts/tasks/quick-reference.md` first; a pre-tool hook enforces this):
+   ```bash
+   powershell -File "d:/datrix/datrix/scripts/tasks/phase-status.ps1" {NN}
+   ```
+   Its JSON gives every task's `design_reference` (filter to the ones citing DESIGN), `design_acceptance_property` (full text), `has_how_solved`, and `how_solved_redflags` (BLOCKED / partial / out of scope / workaround / dual path / not yet wired markers) — no per-file reads needed for the mapping. When TASKS is omitted and the phase is unknown, first grep `D:\datrix\*/.tasks/` for `**Design reference:**` lines pointing at DESIGN to find the phase(s), then run the script per phase. Read an individual task file only when adjudicating a flagged task's detail (its Success Criteria / full How-Solved text).
+3. For each design requirement, map which task(s) claim to implement it (from the JSON's `design_reference` fields). Flag:
    - **Design requirements with no owning task** — potential missing implementation
-   - **Tasks whose `## How Solved`** contains a BLOCKED/partial/workaround/dual-path marker — presumptive findings
+   - **Tasks with non-empty `how_solved_redflags`** — presumptive findings
    - **Acceptance properties stated as "tests pass"/"generates clean"** rather than a provable negative+positive check — the task under-specified its own conformance; you must derive the real check from the design
 
 **End-of-phase output (lean — data only):**
@@ -106,9 +110,15 @@ For each design requirement:
 
 1. **Read the implementing code** the task points at (and search for it independently — the task may have implemented it elsewhere, or not at all). Confirm the code actually does what the design requires, not merely that a function by the expected name exists.
 2. **Run the acceptance check** — this is the core of the skill. Both halves are code reads, grep sweeps, generation runs, or validator invocations; neither is a suite run:
-   - **NEGATIVE:** prove the old / forbidden construct is gone **everywhere on the requirement's surface set** (grep/search the whole set, not one file). Paste the command + output.
+   - **Prefer the conformance-gate script over ad-hoc grep sweeps** — write the requirement's checks as a small JSON spec and run it (see `datrix/scripts/dev/quick-reference.md`):
+     ```bash
+     powershell -File "d:/datrix/datrix/scripts/dev/conformance-gate.ps1" -Spec "D:\datrix\.tmp\verify-{design}-{req}.spec.json"
+     ```
+     `must_not_contain` is the NEGATIVE half (point `negative_control` at a tree where the forbidden token legitimately appears — the gate fails a vacuous grep); `must_contain` / `file_exists` / `count_equals` cover the POSITIVE half. The ledger JSON + exit code are your pasted evidence, and the spec is re-runnable at Phase 4.
+   - **For "output-neutral" / "byte-identical to pre-change" requirements**, use `dev\byte-identity-generate.ps1` (generates the corpus under before/after code states and byte-diffs the trees) instead of hand-rolled hash comparisons.
+   - **NEGATIVE:** prove the old / forbidden construct is gone **everywhere on the requirement's surface set** (sweep the whole set, not one file). Paste the command + output.
    - **POSITIVE:** prove the new path exists and is reachable — read the call chain that reaches it, point at the test that covers it (its existence and content, not a fresh run of it), show generation emitting it, or show the validator rejecting the bad input. Paste the command + output.
-   - Put any scratch runners under `D:\datrix\.scripts\`, output under `D:\datrix\.test-output\`.
+   - Put any scratch runners under `D:\datrix\.scripts\`, spec files under `D:\datrix\.tmp\`, output under `D:\datrix\.test-output\`.
 3. **Invariant-surface sweep:** for a set-invariant, check EVERY surface in the set. Record each surface's verdict individually — "the easy surface passes" is not "the invariant holds".
 4. **Code-quality review** of the changed code against `ai-agent-rules` / prohibited-patterns: placeholders/TODOs, silent fallbacks, `except: pass`, `T | None` error returns, mocks/fakes in tests, magic constants, `Any`, cognitive complexity, missing type hints. A conformant-but-shoddy implementation is still a finding.
 5. **Contradiction check:** if a task's `## How Solved` claims something the code does not support (names a file/function/flag that doesn't exist, claims a surface was migrated that still has the old construct), that is a finding — surface it, don't paper over it.
@@ -151,7 +161,7 @@ For each finding, in dependency order (fix an enforcement/guard gap before the c
 
 **Goal:** Every finding closed by the same standard used to open it. Reached ONLY if you changed code in Phase 3 — if nothing was fixed, there is nothing to re-verify.
 
-1. **Re-run each fixed requirement's acceptance check** (negative + positive) and paste command + output. The forbidden state is gone on the FULL surface set; the new path is exercised.
+1. **Re-run each fixed requirement's acceptance check** (negative + positive) and paste command + output — for checks written as conformance-gate specs in Phase 2, simply re-run the saved spec. The forbidden state is gone on the FULL surface set; the new path is exercised.
 2. **Run the targeted tests for what you changed** — the specific tests covering the fixed behavior (the test you wrote for it, plus the existing tests over the code path you touched), in the fixed package and in each consuming package for a shared-layer fix. Run these because YOUR edit could have broken them — not to re-confirm a suite that already passed. Select them narrowly (see `datrix/scripts/test/quick-reference.md` for the authoritative parameter list):
    - `test\test.ps1 <package> -Specific "tests/unit/test_foo.py"` — the test file covering the fix
    - `test\test.ps1 <package> -Keyword "<name>"` — pytest `-k` match when the fix spans a few named tests

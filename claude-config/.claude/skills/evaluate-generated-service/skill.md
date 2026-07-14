@@ -75,7 +75,19 @@ If PROMPT_FILE is provided:
 
 ---
 
-### Phase 1: Read and Analyze the Service DSL Source
+**Phases 1–3 (except 3.5) and the mechanical half of Phase 4 are computed by one script** (read `datrix/scripts/dev/quick-reference.md` before invoking; a pre-tool hook enforces this):
+
+```bash
+powershell -File "d:/datrix/datrix/scripts/dev/evaluate-service-scan.ps1" -Source "{system.dtrx}" -Service "{ServiceName}" -Generated "{service dir}" -ProjectGenerated "{generated project root}"
+```
+
+(`-Service` is needed only for multi-service sources; omit `-Output` to default under `D:\datrix\.tmp\eval\`, or point it into the EVAL_DIR.) It parses the DSL with the **real parser pipeline** and writes `service-*-scan.json` containing: the full DSL feature inventory (Phase 1), the manifest subset + both-direction set-diff vs the filesystem (2b/3e), the directory-name convention check (3a), the per-block/per-entity expected-artifact **existence** table (3b/3c — existence only), dead-code candidates (3f), and Dockerfile/migrations/env-var data (Phase 4's mechanical half).
+
+Your work is what the script cannot do: **Phase 3.5 semantic transpilation verification** (read the generated code and confirm it means what the DSL says — this remains the core of the skill), judgment on the scan's findings, and the report. Read the scan JSON first, spot-check surprises against the tree, and never re-derive its tables by hand. If the scan itself fails (exit 2 with parser diagnostics), that is usually the finding — report it. The phase descriptions below document what the scan computes and remain the fallback spec.
+
+---
+
+### Phase 1: Read and Analyze the Service DSL Source *(scripted — verify from the scan JSON)*
 
 **Goal:** Build a complete inventory of what the service DSL defines.
 
@@ -119,7 +131,7 @@ Read all config YAML files referenced in the service DSL (relative to the SOURCE
 
 ---
 
-### Phase 2: Scan the Generated Service Output
+### Phase 2: Scan the Generated Service Output *(scripted — verify from the scan JSON)*
 
 **Goal:** Build a complete inventory of what was actually generated for this service.
 
@@ -150,7 +162,7 @@ Catalog what exists in the service directory. Use the language-specific referenc
 
 ---
 
-### Phase 3: Cross-Reference Service Source vs Generated
+### Phase 3: Cross-Reference Service Source vs Generated *(scripted except 3.5 — existence tables and set-diffs come from the scan JSON)*
 
 **Goal:** Identify gaps, missing items, and unexpected artifacts for this service.
 
@@ -376,7 +388,7 @@ For each semantic issue found, document:
 
 ---
 
-### Phase 4: Service Deployment Readiness Assessment
+### Phase 4: Service Deployment Readiness Assessment *(mechanical half scripted — Dockerfile/migrations existence and env-var references are in the scan JSON; best-practice judgment is yours)*
 
 **Goal:** Determine if the service can be deployed and run.
 
@@ -469,11 +481,10 @@ Load `references/report-template.md` (relative to this skill) when writing the r
    ```
    This returns the highest existing phase number. Add 1 for the new phase.
 
-3. **Check existing task numbers** in the target phase across ALL repos to find the next available task number:
+3. **Get the next available task number** across ALL repos from the script (prints only the number; numbers are unique within a phase across all repositories):
    ```bash
-   ls d:\datrix\*/.tasks/phase-{NN}/
+   powershell -File "d:/datrix/datrix/scripts/tasks/validate-dependencies.ps1" -Phase {NN} -NextTaskNumber
    ```
-   Task numbers must be unique within a phase across all repositories.
 
 #### 5.5b: Determine Task Location Per Package
 

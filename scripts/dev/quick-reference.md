@@ -310,9 +310,72 @@ Finds string literals in Datrix Python projects and writes a grouped Markdown re
 
 **Parameters:** `-Projects` (positional, variadic), `-All`, `-Src`, `-Tests` (default: both trees), `-Output <path>`, `-IncludeDocstrings`, `-MinLength <n>` (default 1), `-MaxValueChars <n>` (default 120)
 
+### `dev\byte-identity-generate.ps1`
+
+Proves a code change is **output-neutral**: generates a corpus of examples twice — once under a "before" code state, once under the working tree — and byte-diffs the two trees (per-file sha256; reports EVERY added/removed/changed path). Replaces the hand-rolled `byte_identity_*` scripts from `D:\datrix\.scripts`. Handles the two proven traps internally: equal-length output roots (`bef`/`aft` — unequal path lengths cause phantom ruff-batching diffs) and subprocess-isolated PYTHONPATH shadowing for the "before" generation. Uses `git archive` only (read-only — never checkout). Reuses the parity gate's pipeline + manifest code.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Against a git ref** | `.\dev\byte-identity-generate.ps1 -Example "01-foundation" -BeforeRef HEAD -Packages datrix-codegen-python` | Snapshot named packages' `src/` at the ref for the "before" side |
+| **Against a prebuilt tree** | `.\dev\byte-identity-generate.ps1 -Example "01-foundation" -BeforeTree D:\datrix\.tmp\before-overlay` | Caller-supplied "before" source overlay |
+| **Test set corpus** | `.\dev\byte-identity-generate.ps1 -TestSet foundation -BeforeRef HEAD -Packages datrix-codegen-common` | Whole test set |
+
+**Parameters:** `-Example <rel-path>` (repeatable/comma) OR `-TestSet <name>`; exactly one of `-BeforeRef <git-ref>` + `-Packages <pkg,pkg>` or `-BeforeTree <dir>`; `-Output <path>`; `-Dbg`
+
+**Output:** `D:\datrix\.test-output\byte-identity\report.json` + `report.md` (unified diffs of changed text files). **Exit codes:** 0 = byte-identical, 1 = differences, 2 = usage / generation failure.
+
+### `dev\conformance-gate.ps1`
+
+Declarative design-acceptance assertion runner over a tree (generated output or package src) — the reusable backbone behind ad-hoc `prove_*`/`gate_*`/`*_conformance` scripts. Spec JSON: `{target, negative_control, assertions:[{id, type, pattern?, path?, glob?, expected_count?, description}]}` with types `must_contain`, `must_not_contain`, `file_exists`, `file_absent`, `count_equals` (regex patterns; binaries skipped). **Non-vacuity built in:** with `negative_control` set, a `must_not_contain` pattern must appear in the control tree or the assertion FAILS as vacuous. A self-test of every assertion type runs as step 1 of every invocation.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run a spec** | `.\dev\conformance-gate.ps1 -Spec D:\datrix\.tmp\my-invariant.spec.json` | PASS/FAIL ledger per assertion |
+| **Self-test only** | `.\dev\conformance-gate.ps1 -SelfTest` | Prove every assertion type detects and passes |
+| **Custom ledger path** | `.\dev\conformance-gate.ps1 -Spec ... -Output D:\datrix\.test-output\my-ledger.json` | Override ledger location |
+
+**Parameters:** `-Spec <path>` (required unless `-SelfTest`), `-SelfTest`, `-Output <path>`, `-Dbg`
+
+**Output:** `D:\datrix\.test-output\conformance\<spec-stem>-ledger.json` (violating/matching paths per assertion, cap 100 + total). **Exit codes:** 0 = all assertions pass, 1 = any fail, 2 = usage / bad spec / self-test failure.
+
+### `dev\gendsl-census.ps1`
+
+Per-domain census of a language's compiled genDSL definitions: file-clause counts (recursing `domain.files` + iteration/children), domain builders, declaring domains, **double-emit offenders** (declares files AND keeps a domain builder), and bridgeless declaring domains. Target list discovered from installed entry points at runtime — never hardcoded.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Census a target** | `.\dev\gendsl-census.ps1 -Language python` | → `D:\datrix\.tmp\dev\gendsl-census-python.json` |
+| **Unknown target** | `.\dev\gendsl-census.ps1 -Language cobol` | Fails loud listing installed targets |
+
+**Parameters:** `-Language <name>` (required), `-Output <path>`, `-Dbg`. **Exit codes:** 0 = no double-emit offenders, 1 = offenders found, 2 = usage / unknown target.
+
 ---
 
 ## Evaluation
+
+### `dev\evaluate-generated-scan.ps1`
+
+Mechanical core of `/evaluate-generated` (quick mode): parses the system DSL with the real parser pipeline, then writes `project-scan.json` (service inventory with expected/actual dirs, manifest aggregation, language/platform detection, infra existence checklist, docker-compose cross-check, rolled-up `critical_blockers`/`warnings`) plus one `service-{name}.prompt.md` per service into the eval dir.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Scan a project** | `.\dev\evaluate-generated-scan.ps1 -Source "examples/03-domains/ecommerce/system.dtrx" -Generated "D:\datrix\.generated\python\...\ecommerce" -EvalDir "D:\datrix\eval\2026-07-14-...-ecommerce"` | Full project scan + prompts |
+| **Default eval dir** | omit `-EvalDir` | → `D:\datrix\.tmp\eval\<project>\` |
+| **Non-default profile** | append `-ConfigProfile staging` | Config profile for the parse (default `test`) |
+
+**Parameters:** `-Source <system.dtrx>` (required), `-Generated <dir>` (required), `-EvalDir <dir>`, `-ConfigProfile <name>`, `-Dbg`. **Exit codes:** 0 = scanned, 2 = usage / parse failure (analyzer diagnostics printed — usually itself the finding).
+
+### `dev\evaluate-service-scan.ps1`
+
+Mechanical core of `/evaluate-generated-service`: writes `service-<name>-scan.json` with the service's DSL feature inventory, manifest subset + both-direction filesystem set-diff, directory-name convention check, per-block/per-entity expected-artifact existence table, dead-code candidates, and Dockerfile/migrations/env-var data. Semantic verification (skill Phase 3.5) stays with the model.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Scan a service** | `.\dev\evaluate-service-scan.ps1 -Source "{system.dtrx}" -Service ProductService -Generated "{service dir}" -ProjectGenerated "{project root}"` | Single service deep scan |
+| **Single-service source** | omit `-Service` | Auto-selected when the source defines one service |
+| **Explicit output** | append `-Output D:\datrix\eval\...\service-x-scan.json` | Default: `D:\datrix\.tmp\eval\<project>\` |
+
+**Parameters:** `-Source <dtrx>` (required), `-Service <name>` (required for multi-service sources — fails loud listing names), `-Generated <dir>` (required), `-ProjectGenerated <dir>` (required), `-Output <path>`, `-ConfigProfile <name>`, `-Dbg`. **Exit codes:** 0 = scanned, 2 = usage / parse failure.
 
 ### `dev\evaluate-services.ps1`
 

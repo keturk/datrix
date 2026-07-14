@@ -29,36 +29,19 @@ User provides:
 
 ## Workflow
 
-### Step 1: Discover Review Artifacts
+### Steps 1–2: Build the Worklist (scripted)
 
-1. Find all `*.review.local.json` files in `d:\datrix\{repo}\.tasks\phase-{NN}\`
-2. Find `phase-{NN}.review.codex.json` in `d:\datrix\.review\` (if Tier 2 ran)
-3. Load all review artifacts as ReviewResult objects (use review_schema.py)
-4. Filter by review source if user specified "local" or "codex"
+Discovery, schema-validated loading, already-applied filtering, and grouping/sorting are one script call (read `datrix/scripts/quick-reference.md` first; a pre-tool hook enforces this):
 
-**Discovery pattern:**
-```python
-# For Tier 1 artifacts
-for repo_dir in Path("d:/datrix").glob("datrix*"):
-    phase_dir = repo_dir / f".tasks/phase-{phase_num:02d}"
-    if phase_dir.exists():
-        tier1_artifacts.extend(phase_dir.glob("*.review.local.json"))
-
-# For Tier 2 artifact
-tier2_artifact = Path("d:/datrix/.review") / f"phase-{phase_num:02d}.review.codex.json"
-if tier2_artifact.exists():
-    tier2_artifacts.append(tier2_artifact)
+```bash
+powershell -File "d:/datrix/datrix/scripts/review/apply-reviews-prep.ps1" -Phase {NN} -Source {local|codex|all}
 ```
 
-### Step 2: Group Findings by Task and Severity
+Read the resulting `D:\datrix\.tmp\review\phase-{NN}-worklist.json`: findings are grouped by `target` (task file path), sorted blocking → major → minor → nit within each target, and findings already recorded in `.review.applied.json` markers are pre-filtered out (`skipped_already_applied` reports how many). `-Source` defaults to `all`. "No review files found" (exit 0) means there is nothing to apply — report and stop.
 
-For each review artifact:
-1. Extract findings list
-2. Group by `target` (task file path)
-3. Within each task, sort by severity: blocking → major → minor → nit
-4. For Codex phase-level findings (`target: "phase-{NN}"`), identify affected tasks from evidence/description
+For Codex phase-level findings (`target: "phase-{NN}"`), identify affected tasks from evidence/description (Step 4).
 
-**Example structure:**
+**Example worklist structure:**
 ```
 task-43-01-foo.md:
   - F-001 (blocking): Missing ## Targeted Tests section
@@ -73,17 +56,15 @@ phase-43 (Codex):
 
 ### Step 3: Apply Fixes Per Task
 
-For each task file with findings:
+For each task file in the worklist (already-applied findings are pre-filtered by the prep script):
 
 1. Read the task file content
-2. Read existing `.review.applied.json` marker (if exists) to skip already-applied findings
-3. For each finding (highest severity first):
-   - If finding ID is in `.review.applied.json`, skip (already applied)
+2. For each finding (the worklist is already in severity order):
    - Analyze the finding: location, evidence, suggested_fix
    - Apply the fix to the task content
    - Log: `applied_finding task={task} finding_id={id} severity={severity}`
-4. Write updated task file
-5. Update `.review.applied.json` with newly applied finding IDs
+3. Write updated task file
+4. Update `.review.applied.json` with newly applied finding IDs (this marker write stays manual — it is the record the next prep run filters on)
 
 **`.review.applied.json` format:**
 ```json

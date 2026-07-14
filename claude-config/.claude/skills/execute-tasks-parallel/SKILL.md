@@ -78,77 +78,37 @@ Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `p
 
 Read all task files, validate dependencies, check for blockers, and determine if parallel execution is possible.
 
-### Steps
+### Steps (scripted)
 
-For each task file provided in the skill invocation:
+Metadata extraction and blocker detection are computed by two scripts (read `datrix/scripts/tasks/quick-reference.md` before invoking; a pre-tool hook enforces this):
 
-1. **Read the task file completely**
-2. **Extract metadata:**
-   - Title (from `# Task {NN}-{TT}: {Title}`)
-   - Dependencies (from `**Depends on:**` field in header)
-   - Package (from `**Package:**` field)
-   - Category (from `**Category:**` field)
-3. **Check dependencies:**
-   - For each dependency (e.g., `task-40-01-foo`), verify the dependency task file exists
-   - Read the dependency task file and check if title starts with `# COMPLETED:`
-   - If NOT completed → mark this task as BLOCKED
-4. **Verify referenced files exist:**
-   - Read the "Files to Review Before Starting" section
-   - Check each file path exists on disk
-   - If any file does not exist → mark this as a red flag (will ask user for clarification)
-5. **Determine language/generator scope:**
-   - From the `**Package:**` field, determine if this is Python or TypeScript
-   - Check "Files to Create/Modify" — if they mix .py and .ts files, mark as scope error
-6. **Identify quality gate tasks:**
-   - If `**Category:** Quality Gate` → mark this task as quality_gate type
-   - Quality gate tasks MUST execute LAST among all tasks for the package
-7. **Identify verification tasks (legacy category — current task sets no longer emit them):**
-   - If `**Category:** Verification` → mark this task as verification type
-   - Verification tasks MUST execute AFTER their dependency implementation/test tasks (same session is fine)
-   - If both an implementation task and its verification task are in the same batch → mark as ORDERING_REQUIRED
-8. **Check for intra-phase dependencies:**
-   - If any task depends on another task in the same batch → mark as ORDERING_REQUIRED
-   - Tasks with intra-phase dependencies must execute sequentially
+```bash
+powershell -File "d:/datrix/datrix/scripts/tasks/phase-status.ps1" {NN}
+powershell -File "d:/datrix/datrix/scripts/tasks/plan-waves.ps1" {NN}
+```
 
-### Input
-
-Task file paths from skill invocation (provided by user as TASKS:, PHASE:, or TASK:).
-
-### Output
-
-JSON array of all tasks with blocker analysis:
-
-JSON with `can_parallelize` (bool), `blocking_issues[]`, and `tasks[]` — one entry per task with fields: `task_path`, `task_id`, `title`, `package`, `category`, `dependencies[]`, `language_scope`, `is_quality_gate`, `is_blocked`, `intra_phase_dependencies[]`, `files_to_review[]`, `files_to_create[]`, `files_to_modify[]`, `red_flags[]`.
-
-### Blocker Detection
-
-Mark `can_parallelize: false` and populate `blocking_issues[]` if ANY of these conditions exist:
-
-1. **Cross-task dependencies:** Any task in the batch depends on another task in the batch
-   - Add to `blocking_issues`: `"Task {id} depends on task {dependency_id} which is in the same batch"`
-
-2. **Unmet dependencies:** Any task depends on a task that is not COMPLETED
-   - Add to `blocking_issues`: `"Task {id} blocked by incomplete dependency: {dependency_id}"`
-
-3. **Missing files:** Any task references files that don't exist
-   - Add to `blocking_issues`: `"Task {id} references non-existent file: {file_path}"`
-
-4. **Scope errors:** Any task mixes Python and TypeScript files
-   - Add to `blocking_issues`: `"Task {id} has mixed language scope (.py and .ts files)"`
-
-5. **File conflicts:** Multiple tasks modify the same file
-   - Add to `blocking_issues`: `"File conflict: {file_path} modified by tasks {id1}, {id2}"`
+1. **Read `D:\datrix\.tmp\tasks\phase-{NN}-status.json`** for per-task metadata (`task_id`, `task_path`, `title`, `package`, `category`, `depends_on`, `files_to_review`, `files_to_create_modify`, `targeted_tests`, `languages`, `is_completed`). When invoked with an explicit `TASKS:`/`TASK:` list, run the scripts for the tasks' phase and work with the named subset.
+2. **Read `D:\datrix\.tmp\tasks\phase-{NN}-waves.json`** — it carries exactly this phase's decision data: `can_parallelize` (bool), `blocking_issues[]`, `cycle`, `file_conflicts[]`, and `waves[]`.
+3. **Verify files-to-review existence** for the tasks in the batch (check each `files_to_review` path against disk); a missing file is a blocker.
+4. **Interpret the plan for THIS skill's batch semantics:**
+   - Tasks that land in the SAME wave with no file conflicts → safe to run in parallel.
+   - A task depending on another task in the batch shows up as a later wave → that pair needs ORDERING (sequential waves), not a hard stop, when the user asked for the whole set; report it as `"Task {id} depends on task {dependency_id} which is in the same batch"`.
+   - `UNMET_CROSS_PHASE_DEP` → `"Task {id} blocked by incomplete dependency: {dependency_id}"`.
+   - `MISSING_DEP_FILE` / your step-3 misses → `"Task {id} references non-existent file: {file_path}"`.
+   - `MIXED_LANGUAGE_TASK` → `"Task {id} has mixed language scope"` (any two code languages — Datrix is multi-language, not just .py/.ts).
+   - `file_conflicts[]` → `"File conflict: {file_path} modified by tasks {id1}, {id2}"` (the planner already split these into sequential sub-waves; parallelize only within a sub-wave).
+   - Quality-gate / verification ordering is already encoded in the waves (QG last, Verification after deps).
 
 ### Decision Logic
 
 ```
-if blocking_issues.length > 0:
-    can_parallelize = false
+if blocking_issues is non-empty (or a required file-to-review is missing):
     STOP and report blocking issues to user
     Suggest using /execute-tasks for sequential execution OR fixing blockers first
+elif waves.length == 1:
+    fully parallel — proceed to spawn_agents phase
 else:
-    can_parallelize = true
-    Proceed to spawn_agents phase
+    parallel per wave, waves sequential — proceed to spawn_agents phase wave by wave
 ```
 
 ### Output Format for Blockers
@@ -325,16 +285,17 @@ Implementation results from all agents + task metadata from pre_check.
 
 3. **Run the full suite yourself — one run per affected package, fired concurrently** (a single message with one Bash call per package; each package writes its own `.test_results/` folder so parallel runs do not collide). Do NOT stop and ask the user to run anything — this skill runs every test itself.
 
-4. **Read each package's canonical result from its run's `index.json`** (the runner prints the folder path; never eyeball-parse stdout):
-   - `result`, `counts.passed`, `counts.failed`, `counts.error`
-   - GREEN only when `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0` — a pytest error is red, exactly like a failure
-   - From `full.log`: failing test node IDs and erroring module paths
+4. **Read the multi-package verdict with the gate script** (canonical `index.json` results, never stdout):
+   ```
+   powershell -File "d:/datrix/datrix/scripts/test/gate-verdict.ps1" -Projects {pkg1},{pkg2}
+   ```
+   One GREEN/RED line per package + `OVERALL`; counts and failing-test lists in its `Details:` JSON (sanity-check each `run_dir` against the runs you just fired). GREEN only when `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0` — a pytest error is red, exactly like a failure (the script applies this; UNKNOWN/missing results are RED).
 
 #### Step 2: Attribute Failures to Tasks
 
-For each test failure:
+For each RED package, run `collect-failure-data.ps1` on its run dir (from the gate JSON) — its clusters give the failing test files, erroring modules, and representative tracebacks. Then per cluster:
 
-1. Extract the failing test file path and error message
+1. Take the failing test file path and error message from the cluster representative
 2. Cross-reference against each task's files_created and files_modified
 3. Check the task's `## Targeted Tests` section — does this test appear there?
 4. Assign attribution: `likely_source_task: "task-{NN}-{TT}"`
