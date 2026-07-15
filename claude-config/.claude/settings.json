@@ -25,7 +25,8 @@
       "PowerShell(az keyvault secret set --vault-name curvaero-system-kv-dev --name jwt-private-key --file \"C:\\\\Users\\\\KErca\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--datrix\\\\d2e93cd9-3842-4be3-b188-a82bf8aa0263\\\\scratchpad\\\\jwt-private.pem\" --query \"name\" -o tsv)",
       "PowerShell(az keyvault secret set --vault-name curvaero-system-kv-dev --name jwt-public-key --file \"C:\\\\Users\\\\KErca\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--datrix\\\\d2e93cd9-3842-4be3-b188-a82bf8aa0263\\\\scratchpad\\\\jwt-public.pem\" --query \"name\" -o tsv)",
       "Read(//d/g/CurvAero/generated/dev/infra/modules/identity/**)",
-      "Read(//d/g/CurvAero/generated/dev/**)"
+      "Read(//d/g/CurvAero/generated/dev/**)",
+      "Read(//d/g/CurvAero/curvaero-backend/config/**)"
     ],
     "additionalDirectories": [
       "C:\\Users\\KErca\\.claude"
