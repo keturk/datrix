@@ -63,7 +63,7 @@
 │ 19. Seal the tree (app.seal())               │
 └──────────────────────────────────────────────┘
 
-After analysis completes, `analyze()` seals the `Application` tree by calling `app.seal()`, which recursively marks all nodes as immutable. Any attempt to mutate the tree after `analyze()` returns raises `SealedNodeMutationError` immediately. Generators and all downstream pipeline stages receive a sealed, read-only `Application` (Design 029, Decision D1: "build-then-seal").
+After analysis completes, `analyze()` seals the `Application` tree by calling `app.seal()`, which recursively marks all nodes as immutable. Any attempt to mutate the tree after `analyze()` returns raises `SealedNodeMutationError` immediately. Generators and all downstream pipeline stages receive a sealed, read-only `Application` — the build-then-sealed lifecycle (Decision D1); see [Architecture Overview — Decision 20: Sealed, Generated AST Model](../architecture-overview.md#decision-20-sealed-generated-ast-model-adopted).
 
  ↓
 ┌─────────────────────────────────┐

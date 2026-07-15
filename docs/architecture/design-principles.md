@@ -762,7 +762,7 @@ genDSL compiler intermediate structures stay in process memory and are rebuilt e
 - The dependency layer is the slow-changing part of a container build; building it once per system — not once per service — avoids redundant work
 - The base tag is the content hash of the union requirements, so an unchanged union is never rebuilt
 - Registry layer dedup (content-addressable storage) means the shared base is stored/uploaded once regardless of how many services reference it
-- Reuses design 034's union-requirements correctness argument: extra packages a service does not import are inert, so sharing one base across services with differing requirement subsets is safe
+- Reuses the union-requirements correctness argument from the build-once shared dependency layer for Azure App Service Python deploys (see `datrix-codegen-azure/docs/azure-deployment.md` § Build-Once Shared Dependency Layer): extra packages a service does not import are inert, so sharing one base across services with differing requirement subsets is safe
 
 **Application:** The Docker generator emits one per-system base image definition and per-service Dockerfiles that reference it via `FROM`. The base image tag changes only when the union of requirements changes.
 
