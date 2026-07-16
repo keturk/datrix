@@ -241,6 +241,14 @@ file = "datrix-common/src/datrix_common/generation/language_runtime_spec.py"
 count = 3
 
 [[baseline]]
+# Reviewed increase (platform-declared notification-vendor defaults): one
+# TYPE_CHECKING import of PlatformCapabilityDeclaration -- a module-top import
+# is a real cycle (plugin.capability's __post_init__ validation imports this
+# module's VENDOR_TOKENS_BY_CHANNEL).
+file = "datrix-common/src/datrix_common/generation/notification_vendor_profile.py"
+count = 1
+
+[[baseline]]
 file = "datrix-common/src/datrix_common/generation/orchestrator.py"
 count = 10
 
@@ -333,8 +341,22 @@ file = "datrix-common/src/datrix_common/plugin/__init__.py"
 count = 8
 
 [[baseline]]
+# Reviewed increase (platform-declared notification-vendor defaults): +1 for
+# the __post_init__ import of VENDOR_TOKENS_BY_CHANNEL -- a module-top import
+# of the generation package from here is a real cycle (generation.__init__
+# transitively imports plugin.capability via plugin.protocol/registry).
 file = "datrix-common/src/datrix_common/plugin/capability.py"
-count = 2
+count = 3
+
+[[baseline]]
+# Reviewed increase (platform-declared notification-vendor defaults): two
+# TYPE_CHECKING imports (DeploymentConfig, Application -- annotation-only, the
+# plugin layer must not drag the config/model layers in at import time) plus
+# one function-level SystemConfigProfileConfig import inside
+# declaration_for_application (mirrors config.integrations.detection's own
+# deferred import of the same symbol).
+file = "datrix-common/src/datrix_common/plugin/capability_resolution.py"
+count = 3
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/plugin/descriptor.py"
