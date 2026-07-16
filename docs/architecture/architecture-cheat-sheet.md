@@ -30,7 +30,7 @@ Optional **datrix-extensions** (domain packs, `datrix.extensions` entry points) 
 | datrix-codegen-python | Python generation (FastAPI). Jinja2 + ruff format |
 | datrix-codegen-typescript | TypeScript generation (NestJS/Express). Jinja2 + Prettier |
 | datrix-codegen-dotnet | .NET generation. **Scaffolding in progress** — see note below |
-| datrix-codegen-java | Java generation. **Scaffolding in progress** — see note below |
+| datrix-codegen-java | Java generation (Spring Boot 4.1 / Java 25). Jinja2 + google-java-format |
 | datrix-codegen-sql | SQL DDL (PostgreSQL, MySQL) |
 | datrix-codegen-docker | Docker/Compose generation. YAML builders |
 | datrix-codegen-aws | AWS infrastructure (CDK/CloudFormation): VPC, ECS, RDS, ElastiCache, SNS/SQS, MSK (Kafka), DynamoDB, S3 |
@@ -38,7 +38,7 @@ Optional **datrix-extensions** (domain packs, `datrix.extensions` entry points) 
 | datrix-cli | CLI. Discovers generator plugins dynamically via entry points |
 | datrix-extensions | Optional domain extension packs (`datrix.extensions`). Depends on datrix-common |
 
-**Scaffolding in progress:** the **datrix-codegen-dotnet** and **datrix-codegen-java** repos exist in the workspace and the toolchain already discovers them, but their source has not landed yet. Repo tooling keys off what is actually on disk — a package joins `test.ps1 -All`, `mypy.ps1 -All`, `status-tests.ps1`, the venv install set, and the import-boundary/dead-code scans automatically as soon as it has a `pyproject.toml` / `src/` / `tests/`. Nothing needs to be re-listed by hand. The two are counted above because they are real, registered workspace packages, not because they generate yet.
+**Scaffolding in progress:** the **datrix-codegen-dotnet** repo exists in the workspace and the toolchain already discovers it, but its source has not landed yet. Repo tooling keys off what is actually on disk — a package joins `test.ps1 -All`, `mypy.ps1 -All`, `status-tests.ps1`, the venv install set, and the import-boundary/dead-code scans automatically as soon as it has a `pyproject.toml` / `src/` / `tests/`. Nothing needs to be re-listed by hand. It is counted above because it is a real, registered workspace package, not because it generates yet. **datrix-codegen-java** is no longer in this state: design 036's Phase 3 project generator (task 40-19) lands a per-service Maven scaffold (`pom.xml`, the `mvnw` wrapper, `Application.java` with the `--datrix.run` dispatch) that generates and compiles real output, joining python and typescript as a real generator.
 
 **Language count is not a constant.** Datrix targets many languages and platforms. Never write a doc, test, or script that assumes the currently-shipped set is the whole set.
 

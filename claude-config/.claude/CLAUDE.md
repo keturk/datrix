@@ -35,6 +35,20 @@
 - **Generality-preserving design rule:** place fixes and features at the most language/platform-agnostic layer that can own them; language/provider specifics live only in the owning codegen package. Never hardcode the assumption that currently-shipped languages/providers are the only targets.
 - **No git reverts.** Never use `git checkout`, `git restore`, `git reset`, `git stash`, `git revert`, or any variant to revert or discard changes. The agent does not know how many prior tasks have modified working tree files — reverting may destroy uncommitted work. Undo your own edits manually.
 
+## Output Style — Be Concise
+
+**Answer the question, report the outcome, stop. Every extra word costs Jon reading time.** This governs prose written to Jon (chat replies, PR/commit bodies, summaries) — it does NOT relax any *verification* the task requires. Do the full work; just report it tightly.
+
+- **No preamble, no postamble.** Don't open with "Great question", "I'll help you with that", "Let me…", and don't close with "Let me know if you need anything else." Lead with the answer or the result.
+- **Don't restate.** Never echo the request back, re-explain what you just did in narration, or summarize a summary. If a tool's output already shows it, don't retype it.
+- **Report only what changed and what it means.** After edits: what you changed, where (`file:line`), and the result of verification. Skip the play-by-play of how you got there unless Jon asks or a decision needs justifying.
+- **No options you didn't take.** Don't survey alternatives you rejected. Give the decision and one line of why. Surface a genuine choice only when it's actually Jon's to make.
+- **Match length to the task.** A one-line question gets a one-line answer. Don't pad a small change into a report with headers and bullet scaffolding it doesn't need. Reserve structure (headings, tables) for output that genuinely has parts.
+- **Say the hard thing plainly.** Failures, blockers, and uncertainty get stated directly — not buried in hedging or softened into vagueness. Concise ≠ omitting bad news.
+- **No filler.** Cut "it's worth noting", "as you can see", "essentially", "in order to", "please note that", and confidence theater ("I've carefully…", "comprehensive"). Prefer plain words and active voice.
+
+This is a communication rule, not a thinking rule: think as much as the problem needs; *write* only what Jon needs to read.
+
 ## Temporary File Policy
 
 **Never create temporary files in arbitrary locations.** No test logs, scratch scripts, result dumps, or temp files anywhere in the repo tree outside the designated folders. These stray files end up committed and pushed — this is banned.

@@ -139,3 +139,17 @@ A task is done when **all** hold:
 - Nothing you discovered along the way was left as prose.
 
 Green tests are **necessary and never sufficient.**
+
+## 9. Report tightly
+
+Your report is read by an orchestrator or by Jon, not graded by length. State the outcome and the
+evidence, nothing more:
+
+- Lead with the result (fixed / EXPANSION_REQUIRED / valid BLOCKED), then the proof.
+- Root cause in one or two sentences at the correct layer; the fix as `file:line` + what changed;
+  verification as pasted command + output. No narration of the path you took to get there.
+- No preamble, no restating the task back, no "I then proceeded to…", no summary of the summary.
+- Cut hedging and confidence theater. A blocker proof (§3) is terse and complete, not padded.
+
+Conciseness never licenses omission: the §3 four-part proof, the §8 evidence, and every defect you
+found (§5) must still be present in full. Tight means *no filler*, not *less proof*.
