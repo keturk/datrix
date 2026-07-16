@@ -149,6 +149,12 @@ def mark_task_complete(task_path: Path) -> bool:
 
 
 def main() -> int:
+    # Ensure stdout/stderr handle Unicode (task titles may contain non-ASCII characters)
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
+
     parser = argparse.ArgumentParser(description="Mark a task markdown file as completed")
     parser.add_argument("task_file", help="Task file path (absolute, relative, or task filename)")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
