@@ -214,3 +214,9 @@ __marimo__/
 
 # Generated project structure metadata
 .project-structure.md
+
+# RDBMS migration-ledger state. Examples set `migrations { enabled = false }`
+# in their config, so generation writes no migration state; this guard keeps any
+# stray `.datrix/rdbms-migrations/` (e.g. from an ad-hoc default-config run) out
+# of the showcase repo, which holds only docs, examples, and scripts.
+.datrix/

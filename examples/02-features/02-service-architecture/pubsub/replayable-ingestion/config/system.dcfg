@@ -1,5 +1,8 @@
 ﻿config system catalog.SupplierFeedSystem {
   base {
+    migrations {
+      enabled = false;
+    }
     language = "python";
     deployment {
       runtime = "docker-compose";

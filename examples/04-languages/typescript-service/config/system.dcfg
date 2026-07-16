@@ -1,5 +1,8 @@
 config system commerce.System {
   base {
+    migrations {
+      enabled = false;
+    }
     language = "typescript";
     deployment {
       runtime = "docker-compose";

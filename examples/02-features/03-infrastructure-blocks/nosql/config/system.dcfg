@@ -1,5 +1,8 @@
 ﻿config system library.System {
   base {
+    migrations {
+      enabled = false;
+    }
     language = "python";
     deployment {
       runtime = "docker-compose";
