@@ -499,6 +499,25 @@ files not found).
 
 ---
 
+### `test\shared39-supported-parity-gate.ps1`
+
+Design 036 G3 (task 40-51) cross-language parity proof: java's and python's derived SUPPORTED domain sets, restricted to the seven rich cross-language domains (design 025 D4/D9) that are also shared-39 members, must be identical. Imports `datrix_codegen_java.language_plugin.JavaLanguagePlugin` and `datrix_codegen_python.language_plugin.PythonLanguagePlugin` and compares their `.domain_declarations`.
+
+Previously two pytest tests inside `datrix-codegen-java/tests/support/` (`test_shared39_progression.py` + `shared39_progression.py`) that imported `datrix_codegen_python` directly from java's own test suite — a cross-package test (prohibited everywhere in the repo, not only in the showcase package). Relocated here (deleting the pytest tests) rather than allowlisting the violation, following the same pattern as `gendsl-corpus-resolution-gate.ps1`. Java keeps its OWN half of G3 (its derived supported-and-shared-39 set is exactly the seven rich domains, with no python import) as a package-local assertion in `datrix-codegen-java/tests/integration/test_domain_self_consistency.py`.
+
+**Safe to import both plugins in one process** (unlike the genDSL corpus resolution gate): `domain_declarations` is a pure, package-local computation fixed at class-definition time, not a shared mutable registry — reading it for two packages in one process cannot leak state between them (mirrors `type-mapping-completeness.ps1`'s single-process multi-package shape).
+
+| Mode | Command | Description |
+|------|---------|--------------|
+| **Run gate** | `.\test\shared39-supported-parity-gate.ps1` | Compare java's and python's derived supported-and-shared39 sets |
+| **Debug** | `.\test\shared39-supported-parity-gate.ps1 -Dbg` | Debug logging |
+
+**Parameters:** `-Dbg`
+
+**Exit codes:** 0 = the sets agree and the 8 infra-family `_test` domains are excluded from both, 1 = a symmetric difference or an infra-family leak was found.
+
+---
+
 ### `test\gendsl-corpus-resolution-gate.ps1`
 
 Design 025 (GenDSL 2) D1/I1 corpus proof (task 13-04, relocated task 17-10): eager builder/call-expression reference resolution runs at `@generator_definition` registration time (`datrix_codegen_common.gendsl.resolver`). Importing each consumer package's genDSL definitions module (`datrix_codegen_python.gendsl.definitions`, `datrix_codegen_typescript.gendsl_definitions`, `datrix_codegen_sql.gendsl.sql_definitions`, `datrix_codegen_docker.gendsl_definitions`, `datrix_codegen_aws.gendsl.aws_definitions`, `datrix_codegen_azure.gendsl.azure_definitions`, `datrix_codegen_component.gendsl_definitions`) IS the assertion: a bad reference raises `GenDSLReferenceResolutionError` at import time.
