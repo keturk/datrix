@@ -220,3 +220,6 @@ __marimo__/
 # stray `.datrix/rdbms-migrations/` (e.g. from an ad-hoc default-config run) out
 # of the showcase repo, which holds only docs, examples, and scripts.
 .datrix/
+
+# Crash / stack dump files
+*.stackdump
