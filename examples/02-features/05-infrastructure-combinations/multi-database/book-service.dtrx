@@ -386,8 +386,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             let BookAuditLog auditLog = reporting.BookAuditLog.create({
                 bookId: bookId,
                 action: AuditAction.Created,
-                performedBy: "system",
-                occurredAt: DateTime.now()
+                performedBy: "system"
             });
             auditLog.save();
         }
@@ -408,8 +407,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             let BookAuditLog auditLog = reporting.BookAuditLog.create({
                 bookId: bookId,
                 action: auditAction,
-                changes: { oldStatus: oldStatus, newStatus: newStatus },
-                occurredAt: DateTime.now()
+                changes: { oldStatus: oldStatus, newStatus: newStatus }
             });
             auditLog.save();
         }
@@ -424,8 +422,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             let BookAuditLog auditLog = reporting.BookAuditLog.create({
                 bookId: bookId,
                 action: AuditAction.ConditionChanged,
-                changes: { oldCondition: oldCondition, newCondition: newCondition },
-                occurredAt: DateTime.now()
+                changes: { oldCondition: oldCondition, newCondition: newCondition }
             });
             auditLog.save();
         }
@@ -589,8 +586,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
                 totalCheckouts: checkouts.length(),
                 totalReturns: returns.length(),
                 newBooks: 0,
-                activeMembers: 0,
-                generatedAt: DateTime.now()
+                activeMembers: 0
             });
             stats.save();
 

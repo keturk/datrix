@@ -492,6 +492,56 @@ function Install-DatrixPackage {
  }
  }
 
+ # datrix-language's own PEP 517 backend (_build_backend.py, backend-path=["."])
+ # unconditionally imports datrix_language.parser.tree_sitter_datrix.build at
+ # module-import time, which imports `tree_sitter` via the package's __init__ chain
+ # (parser.py:23) -- this happens even for a bare "does this backend support
+ # build_editable" probe, before pip resolves [project.dependencies] at all. Because
+ # this package is installed with --no-build-isolation (its backend also imports
+ # datrix_common, a local monorepo package no isolated build env can resolve), pip
+ # never gets a chance to install its own declared "tree-sitter>=0.23.0" dependency
+ # first -- the backend import fails on a venv that has never had tree-sitter
+ # installed before. Pre-seed it here, mirroring the setuptools/wheel bootstrap
+ # above, exactly once, before the editable install is attempted.
+ if ($PackageName -eq "datrix-language") {
+ $ErrorActionPreference = "SilentlyContinue"
+ $null = & pip show tree-sitter 2>&1
+ $treeSitterInstalled = $LASTEXITCODE -eq 0
+ $ErrorActionPreference = $oldErrorActionPreference
+
+ if (-not $treeSitterInstalled) {
+ Write-DatrixVenvInfo "Installing datrix-language build prerequisite (tree-sitter)..." -ForegroundColor Cyan
+ & pip install "tree-sitter>=0.23.0" 2>&1 | Out-Null
+ if ($LASTEXITCODE -ne 0) {
+ Write-Error "Failed to install datrix-language build prerequisite (tree-sitter)"
+ return $false
+ }
+ }
+ }
+
+ # datrix-extensions declares build-backend = "hatchling.build". Because every
+ # datrix package is installed with --no-build-isolation (its build also imports
+ # local monorepo packages no isolated build env can resolve), pip never installs
+ # the hatchling backend into an isolated env first -- the backend import fails
+ # with "Cannot import 'hatchling.build'" on a venv that has never had hatchling
+ # installed before. Pre-seed it here, mirroring the tree-sitter bootstrap above,
+ # exactly once, before the editable install is attempted.
+ if ($PackageName -eq "datrix-extensions") {
+ 	$ErrorActionPreference = "SilentlyContinue"
+ 	$null = & pip show hatchling 2>&1
+ 	$hatchlingInstalled = $LASTEXITCODE -eq 0
+ 	$ErrorActionPreference = $oldErrorActionPreference
+
+ 	if (-not $hatchlingInstalled) {
+ 		Write-DatrixVenvInfo "Installing datrix-extensions build prerequisite (hatchling)..." -ForegroundColor Cyan
+ 		& pip install "hatchling" "editables" 2>&1 | Out-Null
+ 		if ($LASTEXITCODE -ne 0) {
+ 			Write-Error "Failed to install datrix-extensions build prerequisite (hatchling)"
+ 			return $false
+ 		}
+ 	}
+ }
+
  # Use a custom temp directory to avoid Windows permission issues
  $customTemp = Join-Path $datrixRoot ".tmp"
  if (-not (Test-Path $customTemp)) {
@@ -505,13 +555,21 @@ function Install-DatrixPackage {
  $oldTmp = $env:TMP
  $oldTemp = $env:TEMP
  $oldTmpdir = $env:TMPDIR
+ # cwd matters: some packages declare a base dependency as a relative file://
+ # URL (e.g. datrix-codegen-component's "datrix-extensions @ file:../datrix-extensions"
+ # in installed package metadata), which pip resolves relative to the CURRENT
+ # WORKING DIRECTORY, not the package's own directory -- mirrors the identical
+ # guard in Install-DatrixPackageDevExtras below (see its cwd comment for the
+ # full explanation) and test_project.py's install_dev_dependencies, which
+ # passes cwd=project_root to subprocess.run for the same reason.
+ Push-Location $packagePath
  try {
  # Set all temp-related environment variables that pip might use
  $env:TMP = $customTemp
  $env:TEMP = $customTemp
  $env:TMPDIR = $customTemp
  $env:TMPDIR_WIN = $customTemp
- 
+
  # Run pip and capture all output
  $ErrorActionPreference = 'Continue'
  $pipOutput = @()
@@ -534,6 +592,7 @@ function Install-DatrixPackage {
  }
  }
  } finally {
+ Pop-Location
  if ($oldTmp) { $env:TMP = $oldTmp } else { Remove-Item env:TMP -ErrorAction SilentlyContinue }
  if ($oldTemp) { $env:TEMP = $oldTemp } else { Remove-Item env:TEMP -ErrorAction SilentlyContinue }
  if ($oldTmpdir) { $env:TMPDIR = $oldTmpdir } else { Remove-Item env:TMPDIR -ErrorAction SilentlyContinue }
@@ -633,6 +692,231 @@ function Install-DatrixPackage {
  Exit-DatrixPackageLock
  }
  }
+}
+
+# Read [project.optional-dependencies].dev from a package's pyproject.toml.
+function Get-DatrixPackageDevSpecs {
+ <#
+ .SYNOPSIS
+ Return the dev-extra dependency spec strings a package declares in
+ [project.optional-dependencies].dev, using the venv's own Python (tomllib,
+ py311+) to parse pyproject.toml. Empty list if the package declares none.
+ #>
+ param(
+ [Parameter(Mandatory=$true)]
+ [string]$PackageName
+ )
+
+ $datrixRoot = Get-DatrixRoot
+ $pyprojectToml = Join-Path (Join-Path $datrixRoot $PackageName) "pyproject.toml"
+ if (-not (Test-Path $pyprojectToml)) {
+ return @()
+ }
+
+ $venvPath = Get-DatrixVenvPath
+ $pythonExe = Join-Path $venvPath "Scripts\python.exe"
+ if (-not (Test-Path $pythonExe)) {
+ return @()
+ }
+
+ # Single-quoted Python string literals only: PowerShell's argument marshalling
+ # to a native exe (python.exe) mangles/drops literal double quotes embedded in
+ # a -c script string passed as a variable, which silently corrupted this into
+ # invalid Python (e.g. `open(path, rb)` -- an undefined-name NameError) and
+ # made every call return @() -- so Test-PackageDevExtrasNeedInstall always
+ # read "no dev specs declared" and Install-DatrixPackageDevExtras never ran.
+ $parseScript = @'
+import json
+import sys
+import tomllib
+
+with open(sys.argv[1], 'rb') as f:
+    data = tomllib.load(f)
+specs = data.get('project', {}).get('optional-dependencies', {}).get('dev', [])
+print(json.dumps([s for s in specs if isinstance(s, str)]))
+'@
+
+ $oldErrorActionPreference = $ErrorActionPreference
+ $ErrorActionPreference = "SilentlyContinue"
+ $rawJson = & $pythonExe -c $parseScript $pyprojectToml 2>&1
+ $exitCode = $LASTEXITCODE
+ $ErrorActionPreference = $oldErrorActionPreference
+
+ if ($exitCode -ne 0 -or [string]::IsNullOrWhiteSpace($rawJson)) {
+ return @()
+ }
+
+ try {
+ $specs = ($rawJson | Out-String).Trim() | ConvertFrom-Json
+ } catch {
+ return @()
+ }
+
+ if ($null -eq $specs) {
+ return @()
+ }
+ return @($specs)
+}
+
+# Get dev-extras install marker path for a package
+function Get-PackageDevExtrasMarkerPath {
+ <#
+ .SYNOPSIS
+ Get the path to the dev-extras install marker file for a package.
+ Distinct from the base editable-install marker (Get-PackageInstallMarkerPath):
+ the base marker tracks the `-NoDev` editable install, this one tracks
+ whether the package's declared [dev] extra specs have been installed.
+ #>
+ param(
+ [Parameter(Mandatory=$true)]
+ [string]$PackageName
+ )
+
+ $venvPath = Get-DatrixVenvPath
+ $markerDir = Join-Path $venvPath ".datrix-markers"
+
+ if (-not (Test-Path $markerDir)) {
+ $null = New-Item -ItemType Directory -Path $markerDir -Force
+ }
+
+ return Join-Path $markerDir "$PackageName.dev.marker"
+}
+
+# Check if a package's dev-extras need (re)installation
+function Test-PackageDevExtrasNeedInstall {
+ <#
+ .SYNOPSIS
+ True if the package declares [dev] extra specs and either none have ever
+ been installed (no marker) or pyproject.toml changed since the last
+ dev-extras install (new/changed dev spec not yet satisfied).
+ #>
+ param(
+ [Parameter(Mandatory=$true)]
+ [string]$PackageName
+ )
+
+ $devSpecs = Get-DatrixPackageDevSpecs -PackageName $PackageName
+ if ($devSpecs.Count -eq 0) {
+ return $false
+ }
+
+ $markerPath = Get-PackageDevExtrasMarkerPath -PackageName $PackageName
+ if (-not (Test-Path $markerPath)) {
+ return $true
+ }
+
+ $datrixRoot = Get-DatrixRoot
+ $pyprojectToml = Join-Path (Join-Path $datrixRoot $PackageName) "pyproject.toml"
+ $markerTime = (Get-Item $markerPath).LastWriteTime
+ $pyprojectTime = (Get-Item $pyprojectToml).LastWriteTime
+ return ($pyprojectTime -gt $markerTime)
+}
+
+# Install a package's declared [dev] extra specs (not the package itself)
+function Install-DatrixPackageDevExtras {
+ <#
+ .SYNOPSIS
+ Install the dev-extra spec strings a package declares in
+ [project.optional-dependencies].dev, without re-resolving the package's own
+ base dependencies (mirrors the monorepo branch of
+ datrix/scripts/library/test/test_project.py's install_dev_dependencies:
+ the package itself is already editable-installed by Install-DatrixPackage,
+ so only the extra specs -- e.g. pytest-asyncio, stripe, PyJWT -- need
+ installing; bare local-package specs such as "datrix-language" resolve
+ against the already-installed editable copy without hitting PyPI).
+
+ Root cause this closes: Ensure-DatrixPackagesInstalled's normal path calls
+ Install-DatrixPackage with -NoDev, and test.ps1 sets DATRIX_PACKAGES_ENSURED=1
+ so test_project.py's own per-project dev-extras installer is always skipped
+ -- so no package's [dev] extras were ever installed by the sanctioned
+ test.ps1 path. This function is the missing step.
+ #>
+ param(
+ [Parameter(Mandatory=$true)]
+ [string]$PackageName
+ )
+
+ if (Test-DatrixOfflineMode) {
+ Write-Error "DATRIX_OFFLINE is set: pip installs are disabled. Unset DATRIX_OFFLINE and install packages while online."
+ return $false
+ }
+
+ $devSpecs = Get-DatrixPackageDevSpecs -PackageName $PackageName
+ $markerPath = Get-PackageDevExtrasMarkerPath -PackageName $PackageName
+
+ if ($devSpecs.Count -eq 0) {
+ Set-Content -Path $markerPath -Value (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+ return $true
+ }
+
+ $datrixRoot = Get-DatrixRoot
+ $packagePath = Join-Path $datrixRoot $PackageName
+ Write-DatrixVenvInfo "Installing dev extras for $PackageName ($($devSpecs.Count) spec(s))..." -ForegroundColor Cyan
+
+ $customTemp = Join-Path $datrixRoot ".tmp"
+ if (-not (Test-Path $customTemp)) {
+ $null = New-Item -ItemType Directory -Path $customTemp -Force
+ }
+ $pipCacheDir = Join-Path $customTemp "pip-cache"
+ $null = New-Item -ItemType Directory -Path $pipCacheDir -Force -ErrorAction SilentlyContinue
+
+ $oldTmp = $env:TMP
+ $oldTemp = $env:TEMP
+ $oldTmpdir = $env:TMPDIR
+ $pipOutput = @()
+ # cwd matters: some packages declare a dev spec as a relative file:// URL
+ # (e.g. datrix-codegen-component's "datrix-extensions @ file:../datrix-extensions"),
+ # which pip resolves relative to the CURRENT WORKING DIRECTORY, not the
+ # package's own directory -- mirrors test_project.py's install_dev_dependencies,
+ # which passes cwd=project_root to subprocess.run for the identical reason.
+ Push-Location $packagePath
+ try {
+ $env:TMP = $customTemp
+ $env:TEMP = $customTemp
+ $env:TMPDIR = $customTemp
+
+ # PowerShell 5.1 wraps every stderr line from a native command's "2>&1"
+ # redirection as a NativeCommandError. Under this script's own
+ # $ErrorActionPreference = "Stop" (test.ps1:141, inherited by this
+ # dot-sourced function), ANY stderr line from pip -- even a benign
+ # notice, not just a real failure -- is promoted to a terminating
+ # exception, aborting the whole test run with an opaque
+ # "RemoteException" swallowed by test.ps1's top-level catch. Mirrors
+ # the identical guard already used around Install-DatrixPackage's own
+ # pip call (see its "$ErrorActionPreference = 'Continue'" above).
+ $devPipErrorActionPreference = $ErrorActionPreference
+ $ErrorActionPreference = "Continue"
+ $pipArgs = @("install", "--cache-dir", $pipCacheDir) + $devSpecs
+ $pipOutput = & pip @pipArgs 2>&1
+ $pipExitCode = $LASTEXITCODE
+ $ErrorActionPreference = $devPipErrorActionPreference
+ } finally {
+ Pop-Location
+ if ($oldTmp) { $env:TMP = $oldTmp } else { Remove-Item env:TMP -ErrorAction SilentlyContinue }
+ if ($oldTemp) { $env:TEMP = $oldTemp } else { Remove-Item env:TEMP -ErrorAction SilentlyContinue }
+ if ($oldTmpdir) { $env:TMPDIR = $oldTmpdir } else { Remove-Item env:TMPDIR -ErrorAction SilentlyContinue }
+ }
+
+ if ($pipExitCode -ne 0) {
+ Write-Host ""
+ Write-Host "========================================" -ForegroundColor Red
+ Write-Host "DEV-EXTRAS INSTALL FAILED for $PackageName" -ForegroundColor Red
+ Write-Host "========================================" -ForegroundColor Red
+ Write-Host "Specs: $($devSpecs -join ', ')" -ForegroundColor Yellow
+ $pipOutput | ForEach-Object {
+ if ($_ -match "ERROR|error|Error|FAILED|Failed|failed|Exception|Traceback") {
+ Write-Host $_ -ForegroundColor Red
+ } else {
+ Write-Host $_
+ }
+ }
+ Write-Error "Failed to install dev extras for $PackageName (exit code: $pipExitCode)"
+ return $false
+ }
+
+ Set-Content -Path $markerPath -Value (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+ Write-DatrixVenvInfo "$PackageName dev extras installed successfully" -ForegroundColor Green
+ return $true
 }
 
 # Check that the full Datrix workspace is present (sibling repos)
@@ -1191,6 +1475,15 @@ function Ensure-DatrixPackagesInstalled {
  Write-DatrixVenvInfo "Package '$package' has changed pyproject.toml or source files" -ForegroundColor Yellow
  $ErrorActionPreference = "SilentlyContinue"
  }
+ # Also check if the package's declared [dev] extras have never been
+ # installed or pyproject.toml changed since (Install-DatrixPackage runs
+ # -NoDev, so this is the only place dev extras get installed/verified).
+ if (Test-PackageDevExtrasNeedInstall -PackageName $package) {
+ $anyNeedsReinstall = $true
+ $ErrorActionPreference = $oldErrorActionPreference
+ Write-DatrixVenvInfo "Package '$package' has outstanding [dev] extras to install" -ForegroundColor Yellow
+ $ErrorActionPreference = "SilentlyContinue"
+ }
  }
 
  $ErrorActionPreference = $oldErrorActionPreference
@@ -1258,6 +1551,18 @@ function Ensure-DatrixPackagesInstalled {
  $reinstalled += $package
  } else {
  Write-Error "Failed to reinstall package: $package after $maxInstallRetries attempts"
+ return $false
+ }
+ }
+
+ # Unconditionally verify/install this package's [dev] extras (not gated
+ # behind $needsReinstall: the base editable install above always runs
+ # -NoDev, so a package whose base install is already up to date can still
+ # have never had its dev extras installed).
+ if (Test-PackageDevExtrasNeedInstall -PackageName $package) {
+ $devSuccess = Install-DatrixPackageDevExtras -PackageName $package
+ if (-not $devSuccess) {
+ Write-Error "Failed to install dev extras for package: $package"
  return $false
  }
  }
