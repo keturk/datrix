@@ -9,5 +9,8 @@
       "label": "Agent rules (read its sub-docs under ai-agent-rules/ as the work requires)"
     }
   ],
-  "read": []
+  "read": [
+    "datrix/docs/architecture/architecture-cheat-sheet.md",
+    "datrix-common/docs/contributing/ai-agent-rules.md"
+  ]
 }
