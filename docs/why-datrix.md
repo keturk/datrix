@@ -113,7 +113,7 @@ datrix-common          — Shared AST, semantic analysis, validation engine
        +-- datrix-codegen-python      — FastAPI application generator
        +-- datrix-codegen-typescript  — NestJS application generator
        +-- datrix-codegen-dotnet      — .NET application generator (scaffolding in progress)
-       +-- datrix-codegen-java        — Java application generator (scaffolding in progress)
+       +-- datrix-codegen-java        — Java application generator
        +-- datrix-codegen-sql         — SQL schema and migration generator
        +-- datrix-codegen-component   — Config, docs, and schema generator
        |

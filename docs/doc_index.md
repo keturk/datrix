@@ -159,7 +159,14 @@ Quick-reference index for AI agents. All paths relative to `D:/datrix/`.
 - *(scaffolding in progress — repo registered, no docs yet)*
 
 **Java (datrix-codegen-java):**
-- *(scaffolding in progress — repo registered, no docs yet)*
+- [architecture.md](datrix-codegen-java/docs/architecture.md) → Java generator architecture
+- [generators.md](datrix-codegen-java/docs/generators.md) → Java generator catalog
+- [type-mappings-extensions.md](datrix-codegen-java/docs/type-mappings-extensions.md) → Java type mappings
+- [exceptions-and-custom-scalars.md](datrix-codegen-java/docs/exceptions-and-custom-scalars.md) → Exception & scalar handling
+- [observability-codegen.md](datrix-codegen-java/docs/observability-codegen.md) → Java observability generation
+- [tenancy-codegen.md](datrix-codegen-java/docs/tenancy-codegen.md) → Java multi-tenancy generation
+- [seed-generation.md](datrix-codegen-java/docs/seed-generation.md) → Java seed data generation
+- [runtime-config-client.md](datrix-codegen-java/docs/runtime-config-client.md) → Java runtime config store client
 
 ### Platform Generators
 

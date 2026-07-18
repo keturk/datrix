@@ -13,7 +13,7 @@ Datrix is a code generation system that transforms `.dtrx` domain specifications
 
 ✅ **Template-Based Generation** - Jinja2 templates with automatic formatting
 ✅ **Fail-Fast Error Handling** - Errors caught at generation time, not runtime
-✅ **Multi-Language Support** - Python, TypeScript, SQL — the language set is open, and .NET and Java generators are scaffolding in progress (repos registered; source not landed yet)
+✅ **Multi-Language Support** - Python, TypeScript, SQL, and Java are shipped; the language set is open, and .NET is scaffolding in progress (repo registered; source not fully landed yet)
 ✅ **Multi-Platform Support** - Docker, AWS, Azure
 ✅ **Type-Safe** - Exhaustive type mappings with validation
 ✅ **Modular Architecture** - 14 installable packages (13 core toolchain + optional **datrix-extensions**) plus showcase and projects repos
@@ -98,7 +98,7 @@ graph TD
 - **datrix-language** (depends on datrix-common) — Parser + CST-to-AST transformers, implements `ParserProtocol` and `StdlibParserProtocol` defined in datrix-common
 - **datrix-extensions** (depends on datrix-common) — Optional domain packs; **not** required by `datrix-cli` or generators unless you declare `use extension` and install the pack
 - **datrix-codegen-common** (depends on datrix-common) — Shared codegen intelligence: profile-driven transpiler, language-agnostic algorithms, context models, field analysis, parity checking, shared Grafana dashboard builder, GenDSL runtime, serverless/replayable-ingestion plans. Consumed by language codegen packages and by **all three** platform generators for its language-agnostic services.
-- **Language Code Generators** (depend on datrix-codegen-common, which depends on datrix-common) — Python, TypeScript, and, as **scaffolding in progress**, .NET and Java (repos registered and discovered by the plugin system; source not landed yet). The set is open: each new target language is one more peer package here, and a language generator never depends on a sibling language package.
+- **Language Code Generators** (depend on datrix-codegen-common, which depends on datrix-common) — Python, TypeScript, and Java, with .NET as **scaffolding in progress** (repo registered and discovered by the plugin system; source not fully landed yet). The set is open: each new target language is one more peer package here, and a language generator never depends on a sibling language package.
 - **Other Code Generators** (depend on datrix-common) — SQL, component
 - **Platform Generators** (Docker, AWS, Azure) — all three depend on **datrix-codegen-common** for its language-agnostic platform services (GenDSL runtime, shared Grafana `DashboardBuilder`, serverless and replayable-ingestion plans, shared enums) as well as datrix-common. They must **not** import the language-specific parts of codegen-common (`transpiler.*`, language-shaped `context_models`/`algorithms`) or any language generator package — see the [platform → codegen-common subtree contract](../../datrix-common/docs/architecture/import-boundaries.md#platform--codegen-common-subtree-contract).
 - **datrix-cli** (depends on datrix-common, datrix-language; owns `GenerationPipeline` orchestration; discovers generator plugins dynamically)
@@ -168,7 +168,7 @@ graph TD
 - `datrix-codegen-python` (not `datrix-generator-python`)
 - `datrix-codegen-typescript`
 - `datrix-codegen-sql`
-- Every new target language joins under the same convention — e.g. `datrix-codegen-dotnet` and `datrix-codegen-java` (scaffolding in progress)
+- Every new target language joins under the same convention — e.g. `datrix-codegen-java` (shipped) and `datrix-codegen-dotnet` (scaffolding in progress)
 
 ---
 
@@ -248,7 +248,7 @@ deployment:
 - `deployment.runtime` selects the deployable artifact shape (Compose, Azure App Service, ECS Fargate, etc.)
 - `deployment.provider` selects the infrastructure provider or substrate owner
 - `deployment.registry` is an optional provider-specific refinement
-- There is no `target` dimension; cloud deployments use only native runtimes (`ecs-fargate`/`app-runner` for AWS, `azure-app-service` for Azure)
+- There is no `target` dimension; cloud deployments use only native runtimes (`ecs-fargate`/`app-runner` for AWS, `azure-app-service`/`azure-app-service-container` for Azure)
 - `host` remains a network endpoint concept only — never used to mean AWS, Azure, or Docker
 
 > **Note:** `runtime: azure-container-apps` is **retired**. Use `runtime: azure-app-service` for the native Azure PaaS runtime. Specifying the retired value raises a generation error with migration guidance.
@@ -465,7 +465,7 @@ Provider-native runtimes are produced by their provider generator plus, where th
 
 **Result:**
 - **Language is discovered, never branched.** Every platform generator obtains language-specific runtime details from `LanguageRuntimeSpec` via `discover_language_runtime_spec(target_language)`, exactly as Docker do. Zero `Language`-enum branches and zero `language_name == "…"` string comparisons remain in any platform package's application-wiring code (Docker, AWS, Azure)
-- **The `LanguageRuntimeSpec` protocol gains exactly three language-agnostic methods** (default-free abstract declarations, implemented in `datrix-codegen-python` and `datrix-codegen-typescript`, covered by the Design 014 parity gate): `container_command(service, package_name) -> list[str]` (the explicit HTTP-service start command; sole consumer is Azure App Service — AWS inherits its container `ENTRYPOINT` from the built Docker image and needs no wiring), `hosts_consumers_in_process() -> bool` (whether the language runs scheduled-job / event-consumer / queue-worker containers in-process on Compose), and `project_language() -> ProjectLanguage` (the language's own `ProjectLanguage` member, replacing a silent string→enum fallback). `health_check_endpoint` is **not** added — the readiness path is the shared, language-neutral `HTTP_HEALTH_CHECK_PATH = "/ready"` constant
+- **The `LanguageRuntimeSpec` protocol gains language-agnostic methods** (default-free abstract declarations, implemented in `datrix-codegen-python` and `datrix-codegen-typescript`, covered by the Design 014 parity gate), including: `container_command(service, package_name) -> list[str]` (the single source of truth for how the HTTP service starts — consumed both as Azure App Service's `startup_command` and as the source every `datrix-codegen-docker` Dockerfile `CMD` is rendered from on both clouds, so the same service starts identically regardless of hosting mode; design 035 D4), `hosts_consumers_in_process() -> bool` (whether the language runs scheduled-job / event-consumer / queue-worker containers in-process on Compose), and `language_id() -> LanguageId` (the language's own open-identity `LanguageId`, replacing a silent string→enum fallback). `health_check_endpoint` is **not** added — the readiness path is the shared, language-neutral `HTTP_HEALTH_CHECK_PATH = "/ready"` constant
 - **IaC language ≠ application language.** The language a provider authors its infrastructure artifacts in (AWS CDK Python, Azure Bicep) is independent of the generated application's language. A TypeScript app deployed via AWS still gets Python CDK stacks; the CDK references a TypeScript container command obtained from the runtime spec. AWS collapses its three Python-IaC string constants into one named `_CDK_IAC_LANGUAGE` constant documenting this invariant
 - **The `datrix_codegen_common/platform/` subpackage** (inside the existing `datrix-codegen-common`, a sibling of `gendsl/`, `dashboards/`, `algorithms/`, `context_models/` — **not a new package**) is the shared home for provider-level concerns that are language-agnostic and shared by ≥2 platforms: the `resolve_runtime_spec(context)` discovery helper (raises `GenerationError`, never falls back to Python), the `runtime_stack_token(lang_spec, runtime_version)` `LANG|VERSION` composer, and the `PlatformInfrastructure` protocol. The shared Grafana `DashboardBuilder` already lives in `datrix_codegen_common/dashboards/` and platforms import it directly — no re-home, no facade
 - **`PlatformInfrastructure` protocol** (`@runtime_checkable`, in `datrix_codegen_common/platform/`) expresses provider-level infrastructure surfaces — `network_topology(app)`, `service_to_service_auth(app)`, and `provision_managed_service(block, block_kind, service)` — exposed as a `platform_infrastructure` property on each `PlatformGenerator` subclass. Every platform implements the **full** protocol: clouds fully; Docker return explicit no-op value objects (`NetworkTopology.none()`, empty `ManagedServicePlan`) — honest "no VPC/IAM" facts, never silent stubs. Value objects (`NetworkTopology`, `ServiceAuthModel`, `ManagedServicePlan`) are frozen Pydantic models in `datrix_codegen_common/platform/`, keeping provider concepts out of the AST model
@@ -790,12 +790,12 @@ pip install datrix-cli datrix-codegen-python datrix-codegen-docker
 
 # Full stack
 pip install datrix-cli \
- datrix-codegen-python datrix-codegen-typescript datrix-codegen-sql \
+ datrix-codegen-python datrix-codegen-typescript datrix-codegen-sql datrix-codegen-java \
  datrix-codegen-docker datrix-codegen-aws datrix-codegen-azure
 
-# Additional language generators — datrix-codegen-dotnet and datrix-codegen-java
-# are scaffolding in progress and not yet publishable:
-# pip install datrix-codegen-dotnet datrix-codegen-java
+# Additional language generator — datrix-codegen-dotnet is scaffolding in progress
+# and not yet publishable:
+# pip install datrix-codegen-dotnet
 ```
 
 **Note:** The CLI automatically discovers installed generators. You only need to install the generators you plan to use.
