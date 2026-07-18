@@ -779,6 +779,24 @@ The design's seven end-state invariants (I1–I7) hold today as executable gates
 
 ---
 
+### Decision 26: Native-Only Observability Providers per Target Platform (Adopted)
+
+**Rationale:**
+- Every deployment target has a first-class native observability stack — LOCAL/docker: self-hosted Prometheus/Jaeger/Loki/Grafana/Alertmanager; AWS: CloudWatch (+ X-Ray); Azure: Azure Monitor + Application Insights. The former cross-platform portable overlay (AWS/Azure Managed Grafana over managed-Prometheus) duplicated the native stack and only worked when metrics were Prometheus.
+- With the deployment-target axis open (Decision 22), a non-native provider on a cloud (e.g. `metrics.provider = prometheus` or `visualization.provider = grafana` on AWS/Azure) had no boundary rejection — it was silently accepted with nothing native to render it.
+
+**Result:**
+- **Native-only rule:** each platform emits only its platform-native observability providers; the portable Managed-Grafana overlay is removed from the AWS and Azure generators. LOCAL/docker keeps its self-hosted stack — the native option for a provider-less deployment.
+- **Plugin-declared allow-list:** each platform declares its own native provider set (metrics / tracing / logging / visualization / alerting) on `PlatformCapabilityDeclaration.native_observability_providers` — never a shared `{target -> providers}` table, which would trip the I1 target-literal ratchet.
+- **Generic boundary validator:** one shared validator asks the resolved platform's declaration at the `validate_deployment` stage and raises `GenerationError` for any non-native provider — mirroring `unrealizable_surfaces` / `native_notification_vendors` (Decision 22; design principle 10, "Shared Layers Ask, Target Plugins Answer").
+- **Language-agnostic:** the rule is enforced at the platform boundary in `datrix-common`, independent of target language (Python / TypeScript / Java / .NET). Per-language native-provider *instrumentation* coverage stays each language generator's own concern.
+- **Dead `datadog` metrics provider removed** — non-native on every platform and unreferenced by any generator.
+- **Rejected alternatives:** a hardcoded per-platform allow-list matrix in `datrix-common` (it references the deleted `DeploymentProvider`/`DeploymentRuntime` enums and violates principle 10 / the I1 gate); silently dropping non-native providers on a cloud (fail-loud is required).
+
+**Reference:** `design/019-native-only-observability-providers.md`; implemented in phase 41.
+
+---
+
 ## Installation
 
 ```bash
