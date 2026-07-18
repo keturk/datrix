@@ -69,7 +69,8 @@
       "PowerShell(try { Remove-Item -Recurse -Force D:\\\\g\\\\CurvAero\\\\generated\\\\dev -ErrorAction Stop; Write-Host \"CLEAN\" } catch { Write-Host \"LOCKED: regenerating in place\" }; powershell -File D:\\\\g\\\\CurvAero\\\\scripts\\\\generate-dev.ps1)",
       "PowerShell(powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-azure 2>&1 | Select-Object -Last 22)",
       "Edit(/.claude/skills/verify-implementation/**)",
-      "Bash(\"D:\\\\datrix\\\\.venv\\\\Scripts\\\\datrix.exe\" migrations *)"
+      "Bash(\"D:\\\\datrix\\\\.venv\\\\Scripts\\\\datrix.exe\" migrations *)",
+      "Read(//d/g/CurvAero/generated/dev/**)"
     ],
     "additionalDirectories": [
       "d:\\datrix\\$repo\\tests",

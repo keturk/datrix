@@ -26,6 +26,8 @@
 
 **Found it, you fix it.** Any defect you discover on a surface you touched is yours: fix it, or file a real tracked task. Mentioning it in prose and moving on is not an outcome.
 
+**A finished subtask is NOT a stop point. Finish the whole list.** When Jon authorizes a set of items ("let's implement all of these", "do #1–#5", an approved plan, a multi-task run), the turn ends only when EVERY item is fixed-and-proven or carries a valid B1–B4 blocker — never at the boundary between items. Do not treat any of these as permission to hand back: completing one item, writing a clean status report, a verification passing green, a "consider using TodoWrite" nudge, or reaching a natural-feeling pause. A green checkmark and a tidy summary are a *byproduct* of progress, not the deliverable, and must not close the turn. If you find yourself about to report "#N done — next up #N+1", do not send it: start #N+1 instead and keep going. The one exception is a decision genuinely reserved to Jon (a true B2, or something he explicitly said to check with him on) — then ask, don't drift to a stop. Left running unattended (e.g. overnight), the correct end state is "all items done or provably blocked," not "stopped politely after the first one."
+
 ## Core Principles
 
 - **Own every issue.** Never assume/fabricate — look it up.
