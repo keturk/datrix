@@ -105,6 +105,8 @@ Before touching code: read all relevant code, trace root cause, understand full 
 
 Read before hypothesizing (build scripts, generators, existing code). Confirm Python vs TypeScript generator scope before changes. No debug scatter (track+remove all temp logging). Investigate before asking — come with findings. Don't repeat acknowledged info. Fix root causes not symptoms.
 
+**Investigate, don't guess (execution-contract §2A).** Agents are not allowed to hypothesize-and-hope or to assume. Every action must be justified by evidence you have *already gathered* — code you read, error text you captured, a value you observed — never by an unconfirmed theory. A hypothesis is a question to confirm or kill with data (read the path, capture the real value), not a license to edit. No speculative fix ("change it and see if the symptom moves"), no trying several changes at once hoping one sticks: one confirmed root cause → one deliberate fix. When you don't know, the next step is always another read or another captured fact — never a fresh guess layered on an unconfirmed one. An edit whose only justification is "I think this might be it" is a defect in method even if it happens to work.
+
 **No second hypothesis without the error text.** If a failure's error output is suppressed or invisible, the FIRST action is to make it visible (re-run with output captured / remove the suppression) — never form another theory about an error you haven't read. **Reproduce in the exact failing context**: same shell, same redirections, same environment. A result reproduced in a different context proves nothing about the failing one (e.g. the same `az` command can exit 0 in bash and exit 1 under PowerShell `2>$null` stderr redirection).
 
 ## Scope: Expansion, Not Abandonment
