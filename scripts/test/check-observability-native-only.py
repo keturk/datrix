@@ -36,11 +36,30 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+
+from datrix_common.errors.generation import GenerationError
+
+# Matches the exact f-string in datrix_common.plugin.capability_resolution.
+# validate_native_observability_providers (module line ~937-943):
+#   f"Platform {platform_name!r} ({declaration.platform_label}) does "
+#   f"not natively realize {category} provider {provider_value!r}. "
+# This substring ("does not natively realize <category> provider '<value>'")
+# is unique to that one validator (grepped the whole datrix-common src tree --
+# no other GenerationError site uses it, e.g. validate_unrealizable_surfaces
+# raises "... is not realizable on platform ..." instead), so a match proves
+# the GenerationError came from the native-only observability guard and not
+# from an unrelated config defect (bad config-store compatibility, an
+# unrealizable network/serviceDiscovery/registry surface, etc).
+_NATIVE_ONLY_VIOLATION_PATTERN = re.compile(
+    r"^Platform '(?P<platform>[^']+)' \([^)]*\) does not natively realize "
+    r"(?P<category>\w+) provider '(?P<provider>[^']+)'\."
+)
 
 # Portable provider values per category (design 019 D1 table + provider
 # enums, models.py:26-62). "datadog" stays listed even though task 41-12
@@ -85,12 +104,43 @@ def profile_names(config_path: Path) -> list[str]:
 def check_profile(
     config_path: Path, project_root: Path, profile: str, example_relpath: str
 ) -> list[Violation]:
-    """Resolve one profile and return every D1 violation it contains."""
+    """Resolve one profile and return every D1 violation it contains.
+
+    Since design-019 task 41-05, ``load_system_config`` itself now wires a
+    native-only observability ``@model_validator`` onto
+    ``SystemConfigProfileConfig`` (see ``validate_native_observability_providers``
+    in ``datrix_common.plugin.capability_resolution``), which raises
+    ``GenerationError`` for exactly a cloud+portable pairing -- before this
+    function's own resolved-config inspection below would otherwise catch it.
+    That raise IS a D1 violation the live validator detected, so it is caught
+    and converted into a ``Violation`` here rather than left to abort the
+    scan. A ``GenerationError`` whose message does NOT match the native-only
+    observability pattern is a genuinely unrelated failure (a pre-existing
+    example-config defect on a different validator, e.g. config-store
+    compatibility or an unrealizable network/serviceDiscovery/registry
+    surface) and is re-raised unchanged, exactly like ``scan_examples``'s
+    docstring says an unrelated load failure must -- never silently
+    swallowed as a native-only violation.
+    """
     from datrix_common.config.unified_loader import load_system_config
 
-    unified = load_system_config(
-        config_path=config_path, project_root=project_root, profile=profile
-    )
+    try:
+        unified = load_system_config(
+            config_path=config_path, project_root=project_root, profile=profile
+        )
+    except GenerationError as e:
+        match = _NATIVE_ONLY_VIOLATION_PATTERN.match(str(e))
+        if match is None:
+            raise
+        return [
+            Violation(
+                example_relpath,
+                profile,
+                match.group("category"),
+                match.group("provider"),
+                match.group("platform"),
+            )
+        ]
     deployment_provider = str(unified.system.deployment.provider)
     if deployment_provider not in CLOUD_DEPLOYMENT_PROVIDERS:
         return []
