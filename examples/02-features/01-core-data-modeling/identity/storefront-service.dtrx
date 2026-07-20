@@ -66,9 +66,15 @@ service shop.StorefrontService('config/storefront-service.dcfg')
             Boolean active = true;
         }
 
+        // localUserId holds the resolved local user id (a stateless uuid5 under
+        // localIdentity.mode='deterministicUuid5') — deliberately NOT the primary
+        // key. It is the 'key' column named by the app-owned marketingOptIn
+        // write-back field in config/identity/customer.dcfg.
         entity Customer extends BaseEntity {
             String(255) email : unique, trim;
             String(120)? fullName : trim;
+            UUID? localUserId : unique;
+            Boolean marketingOptIn = false;
         }
 
         entity Order extends BaseEntity {
