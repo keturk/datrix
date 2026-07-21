@@ -27,7 +27,8 @@
       "Read(//d/g/CurvAero/generated/dev/infra/modules/identity/**)",
       "Read(//d/g/CurvAero/generated/dev/**)",
       "Read(//d/g/CurvAero/curvaero-backend/config/**)",
-      "Read(//d/g/CurvAero/curvaero-backend/**)"
+      "Read(//d/g/CurvAero/curvaero-backend/**)",
+      "PowerShell(powershell -File \"d:/datrix/datrix/scripts/git/commit-and-push.ps1\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\KErca\\.claude"
