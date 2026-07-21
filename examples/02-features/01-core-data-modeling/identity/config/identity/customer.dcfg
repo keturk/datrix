@@ -45,6 +45,8 @@ config identity customer {
         }
         marketingOptIn {
           owner = "app";
+          entity = "Customer";
+          key = "localUserId";
         }
       }
     }

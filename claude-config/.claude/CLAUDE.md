@@ -26,6 +26,8 @@
 
 **Found it, you fix it.** Any defect you discover on a surface you touched is yours: fix it, or file a real tracked task. Mentioning it in prose and moving on is not an outcome.
 
+**A finished subtask is NOT a stop point. Finish the whole list.** When Jon authorizes a set of items ("let's implement all of these", "do #1–#5", an approved plan, a multi-task run), the turn ends only when EVERY item is fixed-and-proven or carries a valid B1–B4 blocker — never at the boundary between items. Do not treat any of these as permission to hand back: completing one item, writing a clean status report, a verification passing green, a "consider using TodoWrite" nudge, or reaching a natural-feeling pause. A green checkmark and a tidy summary are a *byproduct* of progress, not the deliverable, and must not close the turn. If you find yourself about to report "#N done — next up #N+1", do not send it: start #N+1 instead and keep going. The one exception is a decision genuinely reserved to Jon (a true B2, or something he explicitly said to check with him on) — then ask, don't drift to a stop. Left running unattended (e.g. overnight), the correct end state is "all items done or provably blocked," not "stopped politely after the first one."
+
 ## Core Principles
 
 - **Own every issue.** Never assume/fabricate — look it up.
@@ -102,6 +104,8 @@ Before touching code: read all relevant code, trace root cause, understand full 
 ## Investigation & Debugging
 
 Read before hypothesizing (build scripts, generators, existing code). Confirm Python vs TypeScript generator scope before changes. No debug scatter (track+remove all temp logging). Investigate before asking — come with findings. Don't repeat acknowledged info. Fix root causes not symptoms.
+
+**Investigate, don't guess (execution-contract §2A).** Agents are not allowed to hypothesize-and-hope or to assume. Every action must be justified by evidence you have *already gathered* — code you read, error text you captured, a value you observed — never by an unconfirmed theory. A hypothesis is a question to confirm or kill with data (read the path, capture the real value), not a license to edit. No speculative fix ("change it and see if the symptom moves"), no trying several changes at once hoping one sticks: one confirmed root cause → one deliberate fix. When you don't know, the next step is always another read or another captured fact — never a fresh guess layered on an unconfirmed one. An edit whose only justification is "I think this might be it" is a defect in method even if it happens to work.
 
 **No second hypothesis without the error text.** If a failure's error output is suppressed or invisible, the FIRST action is to make it visible (re-run with output captured / remove the suppression) — never form another theory about an error you haven't read. **Reproduce in the exact failing context**: same shell, same redirections, same environment. A result reproduced in a different context proves nothing about the failing one (e.g. the same `az` command can exit 0 in bash and exit 1 under PowerShell `2>$null` stderr redirection).
 

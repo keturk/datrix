@@ -88,6 +88,7 @@ Closes the last closed-world island the multi-target plugin migration left behin
 | I3 | Each platform declares its own column | Identity `(provider type, feature)` support, flavor cells, and runtime support live in that platform's `PlatformCapabilityDeclaration` — never a shared table |
 | I4 | Unknown values fail loud | An unrecognized identity provider type, flavor, or runtime raises, listing the installed plugins and what they declare |
 | I5 | Behavior preserved for the shipped set | Existing identity/flavor/runtime combinations resolve identically — pure relocation of policy into declarations |
+| I6 | Identity write-back realization is platform-declared | Subject claim, value encoding, and claim-name transform live on the platform plugin's `PlatformCapabilityDeclaration`; a platform declaring none fails loud on write-back; language packages carry zero provider names for it, held at the provider-conditional ratchet's empty baseline |
 
 Full decision log: [Architecture Overview — Decision 22](./architecture-overview.md#decision-22-open-world-identity-providers-and-infrastructure-flavors-adopted).
 
@@ -151,7 +152,8 @@ Key rules:
 - Background jobs (APScheduler), incremental RDBMS migrations (Alembic/MikroORM adapters), seed data
 - Elasticsearch integration, inter-service HTTP auth (shared secret), JWT gateway
 - GraphQL DataLoaders, rate limiting (gateway + per-route Redis), RFC 7807 errors
-- Prometheus metrics, Grafana dashboards, cAdvisor, alert rules
+- Prometheus metrics, Grafana dashboards, cAdvisor, alert rules (the LOCAL/docker-native observability stack)
+- **Native-only observability per platform** — each target emits only its native providers (LOCAL: Prometheus/Jaeger/Loki/Grafana/Alertmanager; AWS: CloudWatch/X-Ray; Azure: Azure Monitor/App Insights). Each platform declares its native set on `PlatformCapabilityDeclaration`; a generic validator rejects non-native providers at the platform boundary (see architecture-overview Decision 26; design principle 10)
 - Declaration-driven NGINX gateway (emitted when the system declares `gateway { }`; per-service routing derived from auth contracts; upstreams, health aliases, CORS, rate limit zones)
 - ArcGIS FeatureServer paged ingestion (`arcgisFeatureLayer` integration kind): metadata-aware pagination, deterministic checksums, watermark optimization, archive/refresh modes
 

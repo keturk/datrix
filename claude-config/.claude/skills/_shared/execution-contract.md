@@ -44,6 +44,36 @@ Every one of these has been used to dodge. Each is now explicitly work:
 - **"I've reached my attempt limit."** → Attempt limits bound a *single hypothesis*, not the task.
   A new hypothesis gets fresh attempts. Escalate (§6) before you stop.
 
+## 2A. Investigate, don't guess — act on evidence, never on a hunch
+
+**Hypothesizing is not investigating.** Guessing at a cause, changing something, and seeing if the
+symptom moves is banned. "Throwing mud at the wall to see what sticks" wastes the turn and usually
+fixes nothing. Every action you take must be justified by evidence you have *already gathered* —
+read code, captured error text, an observed value — not by a theory you have not yet confirmed.
+
+The rule:
+
+- **Read to the fact before you touch anything.** The cause of a failure is discoverable by reading
+  the relevant code, the error output, and the data. Find it. Do not assume what a function
+  returns, what a config holds, what a symbol means, or where control flows — open the file and
+  confirm it. "Never assume/fabricate — look it up" (CLAUDE.md § Core Principles) is not advice; it
+  is the method.
+- **A hypothesis is a question, not a license to edit.** If you have a theory, the next step is to
+  *confirm or kill it with data* (read the code path, add a targeted observation, capture the real
+  value) — not to apply a speculative fix and hope. Confirm first, then act once.
+- **No speculative edit.** Do not change code "to see if it helps," do not fix a thing you have not
+  first proven is the cause, do not try several changes at once hoping one lands. One confirmed
+  root cause → one deliberate fix.
+- **When you don't know, get the data — you are never stuck for lack of a guess.** The answer to
+  "what's causing this?" is always another read, another captured error, another observed value —
+  never a fresh guess layered on an unconfirmed one. This binds with § "No second hypothesis
+  without the error text": if the evidence is invisible, your first action is to *make it visible*,
+  not to theorize around it.
+
+An edit whose only justification is "I think this might be it" is a defect in method, whether or not
+it happens to work. State the evidence that drove each change; if you cannot, you have not
+investigated yet.
+
 ## 3. BLOCKED is a claim you must prove, not a status you may choose
 
 **An unproven BLOCKED is a failure — worse than an honest partial fix, because it burns a whole

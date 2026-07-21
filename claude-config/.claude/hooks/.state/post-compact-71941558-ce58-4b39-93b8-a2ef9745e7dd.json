@@ -1,0 +1,13 @@
+{
+  "required": [
+    {
+      "path": "datrix/docs/architecture/architecture-cheat-sheet.md",
+      "label": "Architecture cheat sheet"
+    },
+    {
+      "path": "datrix-common/docs/contributing/ai-agent-rules.md",
+      "label": "Agent rules (read its sub-docs under ai-agent-rules/ as the work requires)"
+    }
+  ],
+  "read": []
+}

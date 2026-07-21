@@ -156,7 +156,7 @@ Datrix is built on proven software engineering principles that ensure:
 - `datrix-codegen-component`: Platform-agnostic component generation - ONE PURPOSE
 - `datrix-codegen-python`: Python code generation - ONE PURPOSE
 - `datrix-codegen-docker`: Docker generation - ONE PURPOSE
-- Each additional target language is one more package with the same one-purpose rule — e.g. `datrix-codegen-dotnet` and `datrix-codegen-java`, both real generators. The list of language generators is open, never a closed set.
+- Each additional target language is one more package with the same one-purpose rule — e.g. `datrix-codegen-dotnet` and `datrix-codegen-java`, both real generators at parity with python/typescript. The list of language generators is open, never a closed set.
 
 **Module Organization:** Each package keeps one concern per module (e.g. models, routes, services, tests). One generator class per concern; platform-specific generation (e.g. Docker) lives in a separate package, not mixed with metrics or other concerns.
 
@@ -580,7 +580,7 @@ entity User extends BaseEntity {
 | Concern | Owner |
 |---------|--------|
 | Scalar defs, builtin objects, `db_extensions()`, extra deps, templates | Extension pack implementing `DatrixExtension` |
-| Per-language type and ORM mappings | The owning language generator — `datrix-codegen-python`, `datrix-codegen-typescript`, `datrix-codegen-sql`, and every language package added later (e.g. `datrix-codegen-dotnet`, `datrix-codegen-java`) |
+| Per-language type and ORM mappings | The owning language generator — `datrix-codegen-python`, `datrix-codegen-typescript`, `datrix-codegen-sql`, `datrix-codegen-dotnet`, `datrix-codegen-java`, and every language package added later |
 
 Enable packs in **`system.dtrx`** with `use extension <name>;` (not YAML). Exhaustive mapping rules still apply: unknown extension keys or unmapped types **fail at generation time** with explicit errors (for example `ExtensionNotSupportedError` from `build_python_type_map` when Python has no map for a declared extension).
 
@@ -750,6 +750,8 @@ genDSL compiler intermediate structures stay in process memory and are rebuilt e
 
 **Application:** Container image templates render `ENTRYPOINT`/`CMD` from `LanguageRuntimeSpec.container_command()` rather than a template-literal command. No generator or Dockerfile template declares its own start command for a language that has a runtime spec.
 
+**Design reference:** [datrix-codegen-docker architecture — Shared Per-System Base Image / `container_command()`](../../../datrix-codegen-docker/docs/architecture.md); protocol contract in [datrix-common-api.md — `LanguageRuntimeSpec`](../../../datrix-common/docs/datrix-common-api.md) (adopted and complete 2026-07-17)
+
 ---
 
 ### One Shared Base Image Per Containerized System (Adopted)
@@ -763,6 +765,8 @@ genDSL compiler intermediate structures stay in process memory and are rebuilt e
 - Reuses the union-requirements correctness argument from the build-once shared dependency layer for Azure App Service Python deploys (see `datrix-codegen-azure/docs/azure-deployment.md` § Build-Once Shared Dependency Layer): extra packages a service does not import are inert, so sharing one base across services with differing requirement subsets is safe
 
 **Application:** The Docker generator emits one per-system base image definition and per-service Dockerfiles that reference it via `FROM`. The base image tag changes only when the union of requirements changes.
+
+**Design reference:** [datrix-codegen-docker architecture — Shared Per-System Base Image](../../../datrix-codegen-docker/docs/architecture.md) and [docker-generator-api.md — `BaseImageBuilder`](../../../datrix-codegen-docker/docs/docker-generator-api.md); reused union-requirements correctness argument in [datrix-codegen-azure/docs/azure-deployment.md § Build-Once Shared Dependency Layer](../../../datrix-codegen-azure/docs/azure-deployment.md) (adopted and complete 2026-07-17)
 
 ---
 
