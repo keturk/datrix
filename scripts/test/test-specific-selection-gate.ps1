@@ -6,7 +6,7 @@
 .DESCRIPTION
  A `-Specific` run that reports PASSED while its own index.json / JUnit XML
  describe a DIFFERENT file's tests is a silent false green: the caller "proves"
- a fix that never ran. That was a real defect (task 17-14) -- TeeLogger named its
+ a fix that never ran. That was a real, observed defect -- TeeLogger named its
  run directory to the second and created it with mkdir(exist_ok=True), so two
  test.ps1 invocations against one package that started in the same second shared
  one run directory and overwrote each other's artifacts, each still printing its

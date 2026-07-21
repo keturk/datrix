@@ -91,9 +91,7 @@ After analysis completes, `analyze()` seals the `Application` tree by calling `a
 │ - datrix-codegen-typescript │
 │ - datrix-codegen-sql │
 │ - datrix-codegen-dotnet │
-│   (scaffolding in progress) │
 │ - datrix-codegen-java │
-│   (scaffolding in progress) │
 │ (open set — one package per │
 │ target language; language-owned │
 │ maps merge core + declared │
@@ -410,7 +408,7 @@ service examples.OrderService('config/order-service.dcfg') {
 
 **Container realization (local/existing):** A `container`-platform serverless block is realized as dedicated long-running compose containers — a consumer-loop container for its subscriptions, a singleton scheduler container for its jobs, a queue-worker container for its enqueue consumers, and a small web container (with an explicit `port`) for its `@path` endpoints — all deep-copied clones of the finished service entry (`skip_build: True`) that run the same handler modules the cloud platforms package. Per-request timeout is enforced via `asyncio.wait_for` (HTTP 504 on expiry). `hosting = "inProcess"` is rejected fail-loud on the container platform until its own realization ships.
 
-**Single-realization invariant:** Every serverless-block handler is realized exactly once per profile, by the realization matching its resolved platform. Serverless-scope subscriptions stay out of every consumer-*binding* scope (they remain in schema/artifact scopes), so a service's in-process consumers never double-bind a topic already owned by the block's container/adapter. TypeScript has no serverless realization yet and fails loud (naming the offending blocks) rather than silently dropping jobs/endpoints/queue consumers.
+**Single-realization invariant:** Every serverless-block handler is realized exactly once per profile, by the realization matching its resolved platform. Serverless-scope subscriptions stay out of every consumer-*binding* scope (they remain in schema/artifact scopes), so a service's in-process consumers never double-bind a topic already owned by the block's container/adapter. TypeScript has no serverless realization yet and fails loud (naming the offending blocks) rather than silently dropping jobs/endpoints/queue consumers. Dotnet has no serverless realization reachable from the pipeline: `DotnetRuntimeSpec.serverless_entrypoint_command` raises `GenerationError` (naming the unsupported kind rather than silently dropping it) for all four canonical kinds the compose generator actually dispatches — `consumer`, `scheduler`, `queue-worker`, `http` (`_SERVERLESS_TRIGGER_TO_KIND`, `datrix-codegen-docker/.../generators/compose/_serverless.py:49-59`). Its `kind == "job"` branch is dead code: `"job"` is not a canonical kind and is never passed by the sole production caller (`_serverless.py:248`), so the branch is exercised only by tests that call the method directly. Real realization of all four kinds is increment-10 scope.
 
 **Semantic validation rules:**
 - SLS004: Handler identity uniqueness across executable handlers within a block

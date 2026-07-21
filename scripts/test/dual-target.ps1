@@ -52,7 +52,7 @@ $commonDir = Join-Path $datrixScriptsRoot "common"
 Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 
 # Runtime-validate -Platform against the installed datrix.platforms plugins
-# (design 023 DI-6 / D4 open identity) rather than a static ValidateSet, so a
+# (DI-6 / D4 open identity) rather than a static ValidateSet, so a
 # newly installed datrix-codegen-<provider> package is selectable here with no
 # edit to this script.
 . (Join-Path $commonDir "venv.ps1")

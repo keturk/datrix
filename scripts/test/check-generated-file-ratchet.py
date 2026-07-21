@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Per-package GeneratedFile-construction ratchet scanner (design 025, Invariant I5).
+"""Per-package GeneratedFile-construction ratchet scanner (Invariant I5).
 
 Counts direct ``GeneratedFile(...)`` constructor calls -- a bare
 ``GeneratedFile(...)`` call or a module-qualified ``<module>.GeneratedFile(...)``
@@ -190,15 +190,15 @@ def write_baseline(baseline_path: Path, counts: dict[str, int]) -> None:
     """
     payload = {
         "_comment": (
-            "I5 GeneratedFile-construction ratchet baseline (design 025, "
-            "Invariant I5). Frozen per-package counts of direct "
+            "I5 GeneratedFile-construction ratchet baseline "
+            "(Invariant I5). Frozen per-package counts of direct "
             "GeneratedFile(...) constructor calls in each package's src/ "
             "tree (tests/ excluded; datrix-codegen-common/.../gendsl/"
             "executor.py excluded as the declared-render path's own "
             "internals). Any INCREASE fails "
             "datrix/scripts/test/check-generated-file-ratchet.py. Decreases "
             "are always allowed and should be captured by re-running with "
-            "--update-baseline once a migration task converts hand-coded "
+            "--update-baseline once a migration converts hand-coded "
             "construction into a genDSL declaration."
         ),
         "baseline": {name: counts[name] for name in sorted(counts)},
@@ -241,7 +241,7 @@ def check_ratchet(current_counts: dict[str, int], baseline: dict[str, int]) -> l
 
 # ---------------------------------------------------------------------------
 # --self-test: plain-Python edge-case checks for this scanner's own functions
-# (design 025, Invariant I5). Real tempfile.TemporaryDirectory() fixtures and
+# (Invariant I5). Real tempfile.TemporaryDirectory() fixtures and
 # assert statements only -- no pytest, no unittest.mock/SimpleNamespace, per
 # project test guidelines. These are the same edge cases the (now-deleted)
 # pytest suite covered: bare vs. module-qualified GeneratedFile(...) calls,
@@ -533,7 +533,7 @@ def _run_update_baseline(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="I5 GeneratedFile-construction ratchet scanner (design 025)",
+        description="I5 GeneratedFile-construction ratchet scanner",
     )
     parser.add_argument("-w", "--warn", action="store_true", help="Report but exit 0")
     parser.add_argument("-b", "--base-dir", type=Path, help="Monorepo root (default: auto-detect)")
@@ -580,7 +580,7 @@ def main() -> int:
         )
         return 0 if harness_ok else 1
 
-    _step("Self-test: I5 GeneratedFile-construction ratchet scanner edge cases (design 025)")
+    _step("Self-test: I5 GeneratedFile-construction ratchet scanner edge cases")
     self_test_passed = run_self_test_checks(_SELF_TEST_CHECKS)
     if args.self_test:
         return 0 if self_test_passed else 1

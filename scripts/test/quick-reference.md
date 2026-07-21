@@ -373,7 +373,7 @@ Whole-system **TypeScript** generation gate: proves the whole-system generate pa
 
 ### `test\ingress-migration-conformance-gate.ps1`
 
-Design 022 (declaration-driven service ingress) migration conformance gate. Repo-level, independent proof that regenerating the framework's own showcase examples under phase-12 code produces only the four intended DI-6 realized-exposure deltas. Regenerates three representative registered examples individually (`identity` for delta d, `shared-block` for delta a, `authentication` + `01-foundation` for delta c) via single-project explicit-output `generate.ps1` calls, separately runs the existing full-tree example generation gate (`run-complete.ps1 -All -Skip3 -Skip4`) over every registered example, diffs the `identity` parity baseline via `regen-parity-baselines.ps1`, and greps for the removed config keys. This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
+Declaration-driven service ingress migration conformance gate. Repo-level, independent proof that regenerating the framework's own showcase examples produces only the four intended DI-6 realized-exposure deltas. Regenerates three representative registered examples individually (`identity` for delta d, `shared-block` for delta a, `authentication` + `01-foundation` for delta c) via single-project explicit-output `generate.ps1` calls, separately runs the existing full-tree example generation gate (`run-complete.ps1 -All -Skip3 -Skip4`) over every registered example, diffs the `identity` parity baseline via `regen-parity-baselines.ps1`, and greps for the removed config keys. This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -385,12 +385,12 @@ Design 022 (declaration-driven service ingress) migration conformance gate. Repo
 **Parameters:** `-OutputRoot` (default: `D:\datrix\.test-output\ingress-gate`), `-Languages` (comma-separated, default: `python,typescript`), `-Dbg`/`-DebugLogging`
 
 **Assertions:**
-- **Step 0 (live counts):** re-verifies `rest_api` file count, `system.dcfg` gateway-declaration count, `auth(service` occurrence count, and that the sole `verify(` usage is paired with `auth(webhook)` (12-17's migration precondition).
+- **Step 0 (live counts):** re-verifies `rest_api` file count, `system.dcfg` gateway-declaration count, `auth(service` occurrence count, and that the sole `verify(` usage is paired with `auth(webhook)` (the webhook migration's precondition).
 - **Delta (a):** shared-block's `publisher-service.dtrx` (all-`auth(service)` surface) derives `INTERNAL` — no gateway route, no bare all-interfaces port publish.
-- **Delta (b):** documented, verified absence — no registered example reproduces the name-suppression fixture (owned by 12-10/12-12/12-15's own suites).
+- **Delta (b):** documented, verified absence — no registered example reproduces the name-suppression fixture (owned by the docker/azure/aws package suites).
 - **Delta (c):** a single-service example with a declared `gateway {}` (`authentication`) emits a non-empty `config/nginx/nginx.conf`; a single-service example with NO declared gateway (`01-foundation`) emits none.
 - **Delta (d):** the `identity` parity baseline diff (via `regen-parity-baselines.ps1`) contains only mode-literal-class changes, justified by a direct read of the verification-prelude generator code (provably independent of `AuthMode`).
-- **Step 3:** zero ING001/ING002/ING003 and webhook-invariant errors across the full-tree generation gate, both languages (known, tracked, out-of-scope failures — e.g. shared-block's pre-existing API003/XSV017 defect — are reported but not conflated with a design-022 regression).
+- **Step 3:** zero ING001/ING002/ING003 and webhook-invariant errors across the full-tree generation gate, both languages (known, tracked, out-of-scope failures — e.g. shared-block's pre-existing API003/XSV017 defect — are reported but not conflated with an ingress regression).
 - **Step 4:** zero `publicIngress`/`platforms.azure.services` matches under `datrix/examples`.
 
 **Exit codes:** 0 = every DI-6 delta class accounted for and the negative acceptance property holds, 1 = any finding (including known, out-of-scope pre-existing defects, reported distinctly) causes a non-zero ledger.
@@ -399,7 +399,7 @@ Design 022 (declaration-driven service ingress) migration conformance gate. Repo
 
 ### `test\check-generated-file-ratchet.ps1`
 
-Design 025 (GenDSL 2) Invariant I5 ratchet: AST-counts direct `GeneratedFile(...)` constructor calls per `datrix-*` package's `src/` tree and fails if any package's count exceeds its frozen baseline at `scripts/config/generated-file-ratchet.json`. Every emitted file should eventually be declared in genDSL rather than hand-constructed; this ratchet freezes the current count per package and only ever allows it to shrink as later migration tasks convert hand-coded construction into genDSL declarations. This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix), following the same AST-scan-and-ratchet shape as `dev\check-import-boundaries.ps1`'s I1/I6 ratchets.
+GenDSL 2 Invariant I5 ratchet: AST-counts direct `GeneratedFile(...)` constructor calls per `datrix-*` package's `src/` tree and fails if any package's count exceeds its frozen baseline at `scripts/config/generated-file-ratchet.json`. Every emitted file should eventually be declared in genDSL rather than hand-constructed; this ratchet freezes the current count per package and only ever allows it to shrink as later migrations convert hand-coded construction into genDSL declarations. This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix), following the same AST-scan-and-ratchet shape as `dev\check-import-boundaries.ps1`'s I1/I6 ratchets.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -427,7 +427,7 @@ Design 025 (GenDSL 2) Invariant I5 ratchet: AST-counts direct `GeneratedFile(...
 
 ### `test\check-docs-conformance.ps1`
 
-Design 026 (Docs Conformance) Invariant I5 gate: extracts repo-relative path references and Python module references from the curated 36-file architecture-doc set (each package's `docs/architecture.md` and/or `docs/architecture/` tree — `datrix-extensions` has neither and contributes zero) and fails if any reference does not resolve to a real file/directory/module in the tree, unless it is recorded in the committed exceptions baseline at `scripts/config/docs-conformance-exceptions.json` (a "what was removed" migration-history claim, a "must never exist" prohibition claim, or another confirmed-intentional non-existence). This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix), following the same scan-and-baseline shape as `check-generated-file-ratchet.ps1`'s I5 ratchet, except the exceptions baseline is hand-edited and reviewed (no `-UpdateBaseline` flag — every entry needs a human-authored reason a script cannot synthesize).
+Docs-conformance Invariant I5 gate: extracts repo-relative path references and Python module references from the curated 37-file architecture-doc set (each package's `docs/architecture.md` and/or `docs/architecture/` tree — `datrix-extensions` has neither and contributes zero) and fails if any reference does not resolve to a real file/directory/module in the tree, unless it is recorded in the committed exceptions baseline at `scripts/config/docs-conformance-exceptions.json` (a "what was removed" migration-history claim, a "must never exist" prohibition claim, or another confirmed-intentional non-existence). This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix), following the same scan-and-baseline shape as `check-generated-file-ratchet.ps1`'s I5 ratchet, except the exceptions baseline is hand-edited and reviewed (no `-UpdateBaseline` flag — every entry needs a human-authored reason a script cannot synthesize).
 
 `ARCHITECTURE_DOC_FILES` is a literal, reviewable constant in the script (never a directory glob) — "architecture docs" is a curated concept, and a new architecture doc added later is a deliberate, reviewed one-line addition to that constant. This v1 only checks path-reference candidates that are fully package-qualified (start with a known package name or `D:\datrix\`) and module-reference candidates that are fully import-qualified (start with a known Python import name) — a bare, package-relative shorthand span with no anchor at all is never a candidate (deliberate scope boundary, not a gap).
 
@@ -435,7 +435,7 @@ Design 026 (Docs Conformance) Invariant I5 gate: extracts repo-relative path ref
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Run gate** | `.\test\check-docs-conformance.ps1` | Scan all 36 architecture docs, fail on unresolved references |
+| **Run gate** | `.\test\check-docs-conformance.ps1` | Scan all 37 architecture docs, fail on unresolved references |
 | **Warning mode** | `.\test\check-docs-conformance.ps1 -Warn` | Report unresolved references but exit 0 |
 | **Show files** | `.\test\check-docs-conformance.ps1 -ShowFiles` | Print each architecture doc file being scanned |
 | **Self-test only** | `.\test\check-docs-conformance.ps1 -SelfTest` | Run only the scanner's own edge-case self-test suite; skip the real docs scan |
@@ -447,7 +447,7 @@ Design 026 (Docs Conformance) Invariant I5 gate: extracts repo-relative path ref
 **Self-test runs automatically, every invocation.** A plain-Python self-test suite (`--self-test` on the underlying `.py`; no pytest -- real `tempfile.TemporaryDirectory()` fixtures and `assert` statements, per the datrix showcase boundary) covers `extract_path_candidates`, `extract_module_candidates`, `resolve_path_candidate` (Tier 1 + Tier 2, including the adversarial ambiguous-Tier-2-match case, which must stay unresolved), `resolve_module_candidate`, `load_exceptions`, and `check_against_exceptions`. This suite runs, unconditionally, as step 1 of every invocation (self-test failure aborts before the real scan, exit 2); `-SelfTest` runs it in isolation and skips the real scan. `--harness-self-test` (no `.ps1` switch -- diagnostic only) registers one intentionally-failing dummy check to prove the `[OK]`/`[FAIL]` harness itself is not vacuous.
 
 **Assertions:**
-- Every single-backtick inline code span in each of the 36 architecture docs is extracted as a path-reference or module-reference candidate per the fixed extraction rules (package/drive-prefixed for paths, import-name-prefixed dotted chains for modules); a span containing `...`, `<`/`>`, or `*` is rejected outright.
+- Every single-backtick inline code span in each of the 37 architecture docs is extracted as a path-reference or module-reference candidate per the fixed extraction rules (package/drive-prefixed for paths, import-name-prefixed dotted chains for modules); a span containing `...`, `<`/`>`, or `*` is rejected outright.
 - A path candidate resolves via Tier 1 (exact path exists under the monorepo root; a trailing-slash candidate must be a directory) or Tier 2 (an unambiguous `src/`/`tests/`-relative suffix match — never attempted when the candidate already starts with `src`/`tests`, and never resolved when the suffix matches 2+ files).
 - A module candidate resolves when any decreasing-length prefix of its segments after the import name matches a real `.py` file or package `__init__.py` (tolerating a trailing symbol/attribute/function name).
 - A candidate unresolved by both tiers is checked against the exceptions baseline (span text -> reason); present spans never fail the gate, absent spans do.
@@ -460,7 +460,7 @@ Design 026 (Docs Conformance) Invariant I5 gate: extracts repo-relative path ref
 
 **The repo's proof that `test.ps1 <package> -Specific <file>` really runs THAT file.** A `-Specific` run
 that prints `[PASSED]` while its own `index.json` / JUnit XML describe a **different** file's tests is a
-silent false green — the caller "proves" a fix that never ran. That was a real defect (task 17-14):
+silent false green — the caller "proves" a fix that never ran. That was a real, observed defect:
 `TeeLogger` named its run directory `test-results-<YYYYMMDD-HHMMSS>` (second granularity) and created it
 with `mkdir(exist_ok=True)`, so two `test.ps1` invocations against one package that started in the same
 second **shared one run directory** and overwrote each other's `junit-*.xml` and `index.json` — each still
@@ -499,30 +499,33 @@ files not found).
 
 ---
 
-### `test\shared39-supported-parity-gate.ps1`
+### `test\supported-domain-parity-gate.ps1`
 
-Design 036 G3 (task 40-51) cross-language parity proof: java's and python's derived SUPPORTED domain sets, restricted to the seven rich cross-language domains (design 025 D4/D9) that are also shared-39 members, must be identical. Imports `datrix_codegen_java.language_plugin.JavaLanguagePlugin` and `datrix_codegen_python.language_plugin.PythonLanguagePlugin` and compares their `.domain_declarations`.
+G3 final cross-language parity proof: EVERY registered `datrix.languages` plugin's derived SUPPORTED domain set, **restricted to the seven rich cross-language domains that are also shared-39 members** (`entity`, `schema`, `service_layer`, `cache`, `pubsub`, `cqrs`, `jobs` — sourced from `datrix_codegen_common.parity.domain_registry._RICH_CONTEXT_TYPES ∩ SHARED_CONTEXT_TYPES`, same domain scope the superseded gate used), must be identical. Derives its target LANGUAGE set from `importlib.metadata.entry_points(group="datrix.languages")` at runtime — never a hardcoded language literal — so a future `datrix-codegen-<lang>` package is covered automatically with no edit to this gate; that is the one axis this gate generalizes over its predecessor (2 languages → every registered language). The DOMAIN scope is deliberately unchanged from the superseded gate: G3 has never required a language to implement another language's PRIVATE domains (e.g. java's `function`/`helper`/`dev_scripts`), only agreement on the domains multiple languages could plausibly commit a cross-language-stable structural glob for. Compares the union of all registered languages' restricted supported sets against each language's own restricted set and reports, per language, which domains its set is missing relative to the union.
 
-Previously two pytest tests inside `datrix-codegen-java/tests/support/` (`test_shared39_progression.py` + `shared39_progression.py`) that imported `datrix_codegen_python` directly from java's own test suite — a cross-package test (prohibited everywhere in the repo, not only in the showcase package). Relocated here (deleting the pytest tests) rather than allowlisting the violation, following the same pattern as `gendsl-corpus-resolution-gate.ps1`. Java keeps its OWN half of G3 (its derived supported-and-shared-39 set is exactly the seven rich domains, with no python import) as a package-local assertion in `datrix-codegen-java/tests/integration/test_domain_self_consistency.py`.
+**Supersedes `shared39-supported-parity-gate.ps1`** (java<->python only, same seven-rich/shared-39 domain restriction, now deleted): this gate's N-language identity comparison over the SAME restricted scope strictly implies the old 2-language comparison (if all N languages' restricted sets pairwise agree, java's and python's do too) — a straight generalization of targets, not of scope. The old gate's second check (8 infra-family `_test` domains excluded from the restricted set) was already vacuous by construction — those 8 domains are provably disjoint from the seven rich domains, so they could never appear in the restricted set regardless of what either language declares.
 
-**Safe to import both plugins in one process** (unlike the genDSL corpus resolution gate): `domain_declarations` is a pure, package-local computation fixed at class-definition time, not a shared mutable registry — reading it for two packages in one process cannot leak state between them (mirrors `type-mapping-completeness.ps1`'s single-process multi-package shape).
+**The MariaDB engine boundary needs no special-case code** — it is an engine choice inside the `rdbms`/migration domains, not a withheld domain, so it never shows up as a domain-id-level diff at all (this script compares at `domain_id` grain, coarser than per-engine).
+
+**Built-in non-vacuity self-test, every invocation.** Before any real comparison is trusted, the script feeds the comparator a synthetic matching pair (must report zero divergence) and a synthetic forced-mismatch pair (must report the missing domain); a comparator that cannot detect the forced mismatch aborts the gate (exit 2) before any real comparison runs. Fails loud (exit 2) if fewer than 2 languages are registered — a cross-language comparison over 0 or 1 language is vacuous.
 
 | Mode | Command | Description |
 |------|---------|--------------|
-| **Run gate** | `.\test\shared39-supported-parity-gate.ps1` | Compare java's and python's derived supported-and-shared39 sets |
-| **Debug** | `.\test\shared39-supported-parity-gate.ps1 -Dbg` | Debug logging |
+| **Run gate** | `.\test\supported-domain-parity-gate.ps1` | Compare every registered language's derived supported-domain set |
+| **Debug** | `.\test\supported-domain-parity-gate.ps1 -Dbg` | Debug logging |
+| **Self-test only** | `.\test\supported-domain-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real comparison |
 
-**Parameters:** `-Dbg`
+**Parameters:** `-Dbg`, `-SelfTest`
 
-**Exit codes:** 0 = the sets agree and the 8 infra-family `_test` domains are excluded from both, 1 = a symmetric difference or an infra-family leak was found.
+**Exit codes:** 0 = every registered language's supported-domain set is identical, 1 = a divergence was found for at least one language, 2 = the non-vacuity self-test failed or fewer than 2 languages are registered.
 
 ---
 
 ### `test\gendsl-corpus-resolution-gate.ps1`
 
-Design 025 (GenDSL 2) D1/I1 corpus proof (task 13-04, relocated task 17-10): eager builder/call-expression reference resolution runs at `@generator_definition` registration time (`datrix_codegen_common.gendsl.resolver`). Importing each consumer package's genDSL definitions module (`datrix_codegen_python.gendsl.definitions`, `datrix_codegen_typescript.gendsl_definitions`, `datrix_codegen_sql.gendsl.sql_definitions`, `datrix_codegen_docker.gendsl_definitions`, `datrix_codegen_aws.gendsl.aws_definitions`, `datrix_codegen_azure.gendsl.azure_definitions`, `datrix_codegen_component.gendsl_definitions`) IS the assertion: a bad reference raises `GenDSLReferenceResolutionError` at import time.
+GenDSL 2 D1/I1 corpus proof: eager builder/call-expression reference resolution runs at `@generator_definition` registration time (`datrix_codegen_common.gendsl.resolver`). Importing each consumer package's genDSL definitions module (`datrix_codegen_python.gendsl.definitions`, `datrix_codegen_typescript.gendsl_definitions`, `datrix_codegen_sql.gendsl.sql_definitions`, `datrix_codegen_docker.gendsl_definitions`, `datrix_codegen_aws.gendsl.aws_definitions`, `datrix_codegen_azure.gendsl.azure_definitions`, `datrix_codegen_component.gendsl_definitions`) IS the assertion: a bad reference raises `GenDSLReferenceResolutionError` at import time.
 
-This gate previously lived as a pytest test inside `datrix-codegen-common` (`tests/integration/gendsl/test_resolution_corpus.py`) that imported all seven concrete target packages directly — a `datrix_codegen_common`-must-not-import-concrete-target-packages boundary violation **and** a cross-package test (prohibited everywhere in the repo, not only in the showcase package). The proof is inherently repo-level, so task 17-10 moved it here (deleting the pytest test) rather than allowlisting the violation — the allowlist is terminal-empty (design 023 I7) and adding an entry would be a regression.
+This gate previously lived as a pytest test inside `datrix-codegen-common` (`tests/integration/gendsl/test_resolution_corpus.py`) that imported all seven concrete target packages directly — a `datrix_codegen_common`-must-not-import-concrete-target-packages boundary violation **and** a cross-package test (prohibited everywhere in the repo, not only in the showcase package). The proof is inherently repo-level, so it moved here (deleting the pytest test) rather than allowlisting the violation — the allowlist is terminal-empty (Invariant I7) and adding an entry would be a regression.
 
 | Mode | Command | Description |
 |------|---------|-------------|

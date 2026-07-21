@@ -156,10 +156,46 @@ Quick-reference index for AI agents. All paths relative to `D:/datrix/`.
 - [seed-dialect-extensions.md](datrix-codegen-sql/docs/seed-dialect-extensions.md) → SQL dialect extensions
 
 **.NET (datrix-codegen-dotnet):**
-- *(scaffolding in progress — repo registered, no docs yet)*
+- [architecture.md](datrix-codegen-dotnet/docs/architecture.md) → .NET generator architecture
+- [generators.md](datrix-codegen-dotnet/docs/generators.md) → .NET generator catalog
+- [type-mappings-extensions.md](datrix-codegen-dotnet/docs/type-mappings-extensions.md) → .NET type mappings
+- [exceptions-and-custom-scalars.md](datrix-codegen-dotnet/docs/exceptions-and-custom-scalars.md) → Exception & scalar handling
+- [observability-codegen.md](datrix-codegen-dotnet/docs/observability-codegen.md) → .NET observability generation
+- [tenancy-codegen.md](datrix-codegen-dotnet/docs/tenancy-codegen.md) → .NET multi-tenancy generation
+- [seed-generation.md](datrix-codegen-dotnet/docs/seed-generation.md) → .NET seed data generation
+- [runtime-config-client.md](datrix-codegen-dotnet/docs/runtime-config-client.md) → .NET runtime config store client
+- [identity-codegen.md](datrix-codegen-dotnet/docs/identity-codegen.md) → .NET identity/auth generation
+- [messaging-codegen.md](datrix-codegen-dotnet/docs/messaging-codegen.md) → .NET messaging generation
+- [rdbms-migration.md](datrix-codegen-dotnet/docs/rdbms-migration.md) → .NET/FluentMigrator migration adapter
+- [runtime-bootstrap.md](datrix-codegen-dotnet/docs/runtime-bootstrap.md) → .NET runtime dispatch modes
+- [app-settings.md](datrix-codegen-dotnet/docs/app-settings.md) → .NET app settings generation
+- [codegen-patterns.md](datrix-codegen-dotnet/docs/codegen-patterns.md) → .NET codegen patterns
+- [pooled-pubsub-connection-wiring.md](datrix-codegen-dotnet/docs/pooled-pubsub-connection-wiring.md) → .NET pooled pub/sub wiring
+- [resilient-inter-service-codegen.md](datrix-codegen-dotnet/docs/resilient-inter-service-codegen.md) → .NET resilience generation
+- [secrets-resolver.md](datrix-codegen-dotnet/docs/secrets-resolver.md) → .NET secrets resolution
+- [service-config-operational-blocks.md](datrix-codegen-dotnet/docs/service-config-operational-blocks.md) → .NET service config operational blocks
+- [dotnet-dependency-pins.md](datrix-codegen-dotnet/docs/dotnet-dependency-pins.md) → .NET NuGet package versions and forward-compatibility
+- [geo-builtin-coverage.md](datrix-codegen-dotnet/docs/geo-builtin-coverage.md) → GEO builtin obligation and implementation checklist
 
 **Java (datrix-codegen-java):**
-- *(scaffolding in progress — repo registered, no docs yet)*
+- [architecture.md](datrix-codegen-java/docs/architecture.md) → Java generator architecture
+- [generators.md](datrix-codegen-java/docs/generators.md) → Java generator catalog
+- [type-mappings-extensions.md](datrix-codegen-java/docs/type-mappings-extensions.md) → Java type mappings
+- [exceptions-and-custom-scalars.md](datrix-codegen-java/docs/exceptions-and-custom-scalars.md) → Exception & scalar handling
+- [observability-codegen.md](datrix-codegen-java/docs/observability-codegen.md) → Java observability generation
+- [tenancy-codegen.md](datrix-codegen-java/docs/tenancy-codegen.md) → Java multi-tenancy generation
+- [seed-generation.md](datrix-codegen-java/docs/seed-generation.md) → Java seed data generation
+- [runtime-config-client.md](datrix-codegen-java/docs/runtime-config-client.md) → Java runtime config store client
+- [identity-codegen.md](datrix-codegen-java/docs/identity-codegen.md) → Java identity/auth generation
+- [messaging-codegen.md](datrix-codegen-java/docs/messaging-codegen.md) → Java messaging generation
+- [rdbms-migration.md](datrix-codegen-java/docs/rdbms-migration.md) → Java/Liquibase migration adapter
+- [runtime-bootstrap.md](datrix-codegen-java/docs/runtime-bootstrap.md) → Java runtime dispatch modes
+- [app-settings.md](datrix-codegen-java/docs/app-settings.md) → Java app settings generation
+- [codegen-patterns.md](datrix-codegen-java/docs/codegen-patterns.md) → Java codegen patterns
+- [pooled-pubsub-connection-wiring.md](datrix-codegen-java/docs/pooled-pubsub-connection-wiring.md) → Java pooled pub/sub wiring
+- [resilient-inter-service-codegen.md](datrix-codegen-java/docs/resilient-inter-service-codegen.md) → Java resilience generation
+- [secrets-resolver.md](datrix-codegen-java/docs/secrets-resolver.md) → Java secrets resolution
+- [service-config-operational-blocks.md](datrix-codegen-java/docs/service-config-operational-blocks.md) → Java service config operational blocks
 
 ### Platform Generators
 

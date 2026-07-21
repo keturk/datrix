@@ -16,7 +16,7 @@ shared IngestionPipeline('config/ingestion-pipeline.dcfg') {
 }
 
 // Service-owned serverless handlers consuming shared ingestion events.
-// Demonstrates cross-service subscribe from a serverless block (Design 007 D7).
+// Demonstrates cross-service subscribe from a serverless block.
 service examples.IngestionService('config/ingestion-service.dcfg') : version('1.0.0'), description('Serverless demo — ingestion handlers') {
     discovery {
         examples.IngestionService { loadBalance: roundRobin, healthyOnly: true }

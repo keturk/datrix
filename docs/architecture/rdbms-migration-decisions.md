@@ -40,7 +40,7 @@ Silent baseline regeneration can create deployed schema drift. Datrix fails with
 
 ## D5: Target Tools Are Adapter Details
 
-Alembic, MikroORM, Flyway-style SQL, or future migration tools are adapter choices. They do not define the platform migration lifecycle. Current adapters are Python/Alembic and TypeScript/MikroORM.
+Alembic, MikroORM, Flyway-style SQL, or future migration tools are adapter choices. They do not define the platform migration lifecycle. Current adapters are Python/Alembic, TypeScript/MikroORM, Java/Liquibase, and dotnet/FluentMigrator.
 
 ## D6: Startup Schema Repair Is Not the Primary Migration System
 

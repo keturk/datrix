@@ -6,35 +6,35 @@ in each package's src/, tests/, fixtures/, and helpers/ directories (when they
 exist) and checking imports against forbidden prefix rules. Uses AST parsing -
 no package installation required.
 
-Also implements the I1 target-literal ratchet (design 023, Decision D1):
+Also implements the I1 target-literal ratchet:
 opt-in via --check-target-literals, it AST-scans the three shared-layer
 src/ trees (datrix_common, datrix_codegen_common, datrix_cli) for known
 closed-world target-identity identifiers and fails if any file's count
 increases past its frozen baseline (scripts/config/target-literal-baseline.toml).
 --update-baseline recomputes and overwrites that baseline.
 
-Also implements the I6 successor ratchet (design 023, invariant I6, DI-4/DI-5):
+Also implements the I6 successor ratchet (invariant I6, DI-4/DI-5):
 opt-in via --check-provider-conditionals, it AST-scans the LANGUAGE
 package src/ trees (LANGUAGE_PACKAGES, the declared taxonomy) for
 platform-identity CONDITIONALS -- the successor forms of the removed
 DeploymentProvider branches (`== ProviderId(...)`, `.value == "..."`,
 `match`/`case` over a provider) -- and fails if any file's count increases
 past its frozen baseline (scripts/config/provider-conditional-baseline.toml).
-These sites are DI-5-deferred (task 08-11); the ratchet freezes them so they
-cannot grow, and drives to zero as phase-09 (DI-5) migrates each cluster onto
-a decision engine. --update-baseline (combined with --check-provider-conditionals)
-recomputes and overwrites that baseline.
+These sites are DI-5-deferred; the ratchet freezes them so they cannot grow,
+and drives to zero as each cluster is migrated onto a decision engine.
+--update-baseline (combined with --check-provider-conditionals) recomputes
+and overwrites that baseline.
 
-Also implements the function-level-import ratchet (design 029, D4/I6, task
-17-09): opt-in via --check-function-level-imports, it AST-scans ONLY the
+Also implements the function-level-import ratchet (D4/I6):
+opt-in via --check-function-level-imports, it AST-scans ONLY the
 datrix-common src/ tree for function-level imports (an Import/ImportFrom AST
 node that is not a direct top-level statement of its module -- nested in a
 function/method body, an `if TYPE_CHECKING:` block, or a `try`/`except`) and
 fails if any file's count increases past its frozen baseline
-(scripts/config/function-level-import-baseline.toml). Design 029's D4
-decision log explicitly rejects a one-shot sweep of every site; the ratchet
-freezes the count so it cannot grow while later tasks promote deferred
-imports back to module top as the work that touches each file allows.
+(scripts/config/function-level-import-baseline.toml). A one-shot sweep of
+every site is deliberately rejected; the ratchet freezes the count so it
+cannot grow while later work promotes deferred imports back to module top as
+the changes that touch each file allow.
 --update-baseline (combined with --check-function-level-imports) recomputes
 and overwrites that baseline.
 
@@ -110,10 +110,10 @@ PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
         "datrix_codegen_common.context_models.replayable_ingestion",
         "datrix_codegen_common.enums",
         "datrix_codegen_common.platform",
-        # D8 shared decision engines + D9/D10 conformance layers (task 07-29):
+        # D8 shared decision engines + D9/D10 conformance layers:
         # target-neutral infrastructure decisions every platform legitimately
         # consumes -- NOT language-shaped. pooling: the unified pooled-resource
-        # context builder (DI-5, 09-05); secrets: the shared secret-manifest /
+        # context builder (DI-5); secrets: the shared secret-manifest /
         # handle-derivation decision layer (rendering stays per-target); seed:
         # config-seed planning; parity: the D6/D9 BlockRealization /
         # DomainDeclaration types platforms declare their capabilities with;
@@ -126,8 +126,8 @@ PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
         "datrix_codegen_common.parity",
         "datrix_codegen_common.orchestration.resolved_runtime_plan",
         "datrix_codegen_common.testkit",
-        # Design 035 D2/D5 (task 31-09): the shared container-image supply
-        # primitives (union requirements + content-hash base-image tag).
+        # The shared container-image supply primitives (union requirements +
+        # content-hash base-image tag).
         # THREE platform plugins need this ONE algorithm -- docker (emits the
         # base image, bakes the tag into every per-service Dockerfile FROM
         # line), aws (its deploy script builds/pushes exactly that tag), and
@@ -160,8 +160,8 @@ SQL_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
         "datrix_codegen_common.gendsl",
         "datrix_codegen_common.context_models.migration",
         "datrix_codegen_common.orchestration.migration_adapter",
-        # D9 conformance types SQL declares its domain support with (task 10-07
-        # kit-CI): the same target-neutral DomainDeclaration / SHARED_CONTEXT_TYPES
+        # D9 conformance types SQL declares its domain support with (kit-CI):
+        # the same target-neutral DomainDeclaration / SHARED_CONTEXT_TYPES
         # layer platforms consume -- not language-shaped.
         "datrix_codegen_common.parity",
         # D10 testkit is a dev-dependency of every target package (its gates /
@@ -184,8 +184,8 @@ SQL_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
 # Omitting a language package here is NOT a silent no-op. A package absent from
 # LANGUAGE_PACKAGES gets no BoundaryRule at all, so the scanner would happily let
 # it import a sibling language generator or datrix_cli -- "a silent checker
-# mistaken for an approving one", exactly the defect task 31-09 found in the
-# platform rules (see the sibling-platform note below).
+# mistaken for an approving one", the same defect the platform rules once had
+# (see the sibling-platform note below).
 LANGUAGE_PACKAGES: tuple[str, ...] = (
     "datrix_codegen_python",
     "datrix_codegen_typescript",
@@ -260,10 +260,10 @@ BOUNDARY_RULES: dict[str, BoundaryRule] = {
     # subtrees they legitimately consume. The transpiler and language-shaped
     # context_models/algorithms subtrees remain forbidden.
     #
-    # SIBLING PLATFORM PLUGINS ARE FORBIDDEN TOO (task 31-09). Each platform
-    # forbids every OTHER platform. This edge was missing from every platform's
-    # rule until 31-09 -- not because it was permitted, but because nobody had done
-    # it yet, so a silent checker was mistaken for an approving one. A platform
+    # SIBLING PLATFORM PLUGINS ARE FORBIDDEN TOO. Each platform
+    # forbids every OTHER platform. This edge was once missing from every
+    # platform's rule -- not because it was permitted, but because nobody had
+    # written it, so a silent checker was mistaken for an approving one. A platform
     # plugin importing a sibling platform plugin (e.g. aws importing docker to
     # reuse the base-image tag algorithm) means the importing platform can no
     # longer be installed without the imported one, and would grow into a
@@ -297,7 +297,7 @@ BOUNDARY_RULES: dict[str, BoundaryRule] = {
 
 
 # ---------------------------------------------------------------------------
-# I1 Target-Literal Ratchet (design 023, Decision D1, Invariant I1)
+# I1 Target-Literal Ratchet (Decision D1, Invariant I1)
 #
 # The three shared-layer package names the I1 ratchet polices (D1: "shared
 # layers ask questions, target plugins answer them" — datrix_language and the
@@ -310,10 +310,10 @@ TARGET_LITERAL_SHARED_PACKAGES: tuple[str, ...] = (
 )
 
 # Central table / dict / class names known TODAY to encode closed-world target
-# policy in a shared layer (frozen from the corrected recon anchors in
-# .agent_output/2026-07-05-operationalize-023-multi-target/MANIFEST.md). Each
-# entry is deleted by a specific later-phase task; the ratchet's job is to make
-# sure nothing NEW joins this list while phases 06-10 remove these.
+# policy in a shared layer. The list is frozen: each entry is scheduled for
+# deletion (the inline comment records where it lived and when it went), and
+# the ratchet's job is to make sure nothing NEW joins this list while the
+# remaining entries are removed.
 TARGET_LITERAL_CENTRAL_NAMES: frozenset[str] = frozenset(
     {
         "Language",  # enums.py:13-18 (deleted 07-03)
@@ -345,17 +345,17 @@ TARGET_LITERAL_ENUM_MEMBERS: dict[str, frozenset[str]] = {
 
 
 # ---------------------------------------------------------------------------
-# I6 Successor Ratchet (design 023, invariant I6, DI-4/DI-5)
+# I6 Successor Ratchet (invariant I6, DI-4/DI-5)
 #
 # The literal `DeploymentProvider.` grep is already empty (DI-3 deleted the
 # enum). I6's successor form is a closed-world platform-identity CONDITIONAL
 # built on the open `ProviderId` value object (datrix_common.plugin.identity)
 # instead of the retired enum. These conditionals are legitimate TODAY (DI-4
-# scope was reduced to the 3 Python + 1 TypeScript sites in tasks 08-06/08-07;
-# every other site is deliberately deferred to phase-09/DI-5 -- see task
-# 08-11) but must not be allowed to grow while they wait for a decision-engine
-# replacement. Only the LANGUAGE (leaf/owner) packages are policed here --
-# unlike I1, this is NOT a shared-layer scan; leaf packages are the legitimate
+# scope was reduced to the 3 Python + 1 TypeScript sites; every other site is
+# deliberately deferred to DI-5) but must not be allowed to grow while they
+# wait for a decision-engine replacement. Only the LANGUAGE (leaf/owner)
+# packages are policed here -- unlike I1, this is NOT a shared-layer scan;
+# leaf packages are the legitimate
 # owners of target identity (D1), so the defect is the CONDITIONAL shape
 # itself (branch-per-provider, DI-5's job to collapse), not package location.
 #
@@ -367,12 +367,12 @@ PROVIDER_CONDITIONAL_LANGUAGE_PACKAGES: tuple[str, ...] = LANGUAGE_PACKAGES
 
 
 # ---------------------------------------------------------------------------
-# Function-Level-Import Ratchet (design 029, D4/I6, task 17-09)
+# Function-Level-Import Ratchet (D4/I6)
 #
-# Design 029's D4 decision log: "the deferred function-level imports move
-# back to module top with a ratchet: 668 baseline, monotonically
-# decreasing" (superseded by an orchestrator-frozen 657 ceiling for the
-# pre-decomposition tree -- see the frozen baseline file's own header). A
+# The rule: deferred function-level imports move back to module top under a
+# ratchet -- a 668 baseline, monotonically decreasing (superseded by an
+# orchestrator-frozen 657 ceiling for the pre-decomposition tree -- see the
+# frozen baseline file's own header). A
 # function-level import is any `Import`/`ImportFrom` AST node that is not a
 # direct top-level statement of its module -- nested inside a function body,
 # a method body, an `if TYPE_CHECKING:` block, or a `try`/`except`. Scoped to
@@ -568,7 +568,7 @@ class TargetLiteralBaselineEntry:
 @dataclass(frozen=True)
 class FunctionLevelImportHit:
     """One function-level (non-module-top) import statement in a
-    ``datrix-common`` file (design 029, invariant I6 successor, task 17-09)."""
+    ``datrix-common`` file (invariant I6 successor)."""
 
     file_path: Path
     line_number: int
@@ -647,7 +647,7 @@ def extract_imports_from_file(file_path: Path) -> list[tuple[int, str]]:
     """
     # utf-8-sig transparently strips a leading UTF-8 BOM (U+FEFF) so a
     # BOM-prefixed file can never fail ast.parse and be silently skipped
-    # (design 023 scanner-integrity, task 07-30).
+    # (scanner integrity).
     source_code = file_path.read_text(encoding="utf-8-sig")
     tree = ast.parse(source_code, filename=str(file_path))
 
@@ -820,7 +820,7 @@ def scan_file_for_target_literals(file_path: Path) -> list[TargetLiteralHit]:
     """
     # utf-8-sig transparently strips a leading UTF-8 BOM (U+FEFF) so a
     # BOM-prefixed file can never fail ast.parse and be silently skipped
-    # (design 023 scanner-integrity, task 07-30).
+    # (scanner integrity).
     source_code = file_path.read_text(encoding="utf-8-sig")
     tree = ast.parse(source_code, filename=str(file_path))
 
@@ -989,11 +989,11 @@ def write_target_literal_baseline(baseline_path: Path, counts: dict[str, int]) -
         "# I1 Target-Literal Ratchet Baseline\n"
         "#\n"
         "# Frozen per-file counts of target-literal identifiers (language/provider\n"
-        "# names hardcoded in a shared layer -- design 023, Decision D1, Invariant I1).\n"
+        "# names hardcoded in a shared layer -- Decision D1, Invariant I1).\n"
         "# Any INCREASE in a file's count fails datrix/scripts/dev/check-import-boundaries.py\n"
         "# --check-target-literals. Decreases are always allowed and should be captured\n"
-        "# by re-running with --update-baseline once a phase task deletes an identifier\n"
-        "# (e.g. task 09-20 drives every entry here to 0).\n"
+        "# by re-running with --update-baseline once a later change deletes an identifier\n"
+        "# (the terminal state is 0 for every entry here).\n"
         "#\n"
         "# Format:\n"
         "#   [[baseline]]\n"
@@ -1091,7 +1091,7 @@ def scan_file_for_provider_conditionals(
     file_path: Path,
 ) -> list[ProviderConditionalHit]:
     """AST-walk *file_path* for platform-identity conditionals (I6 successor
-    ratchet, design 023, DI-4/DI-5).
+    ratchet, DI-4/DI-5).
 
     See ``_provider_conditional_compare_kind`` and ``_match_subject_is_provider``
     for the exact matched/excluded shapes.
@@ -1108,7 +1108,7 @@ def scan_file_for_provider_conditionals(
     """
     # utf-8-sig transparently strips a leading UTF-8 BOM (U+FEFF) so a
     # BOM-prefixed file can never fail ast.parse and be silently skipped
-    # (design 023 scanner-integrity, task 07-30).
+    # (scanner integrity).
     source_code = file_path.read_text(encoding="utf-8-sig")
     tree = ast.parse(source_code, filename=str(file_path))
 
@@ -1221,17 +1221,17 @@ def write_provider_conditional_baseline(
         counts: Mapping of relative file path (forward slashes) -> hit count.
     """
     header = (
-        "# I6 Successor Ratchet Baseline (design 023, invariant I6, DI-4/DI-5)\n"
+        "# I6 Successor Ratchet Baseline (invariant I6, DI-4/DI-5)\n"
         "#\n"
         "# Frozen per-file counts of platform-identity CONDITIONALS in the language\n"
         "# packages (datrix_codegen_python, datrix_codegen_typescript) -- the successor\n"
         "# form of the removed DeploymentProvider branches (the literal\n"
         "# `grep DeploymentProvider.` is already empty; DI-3 deleted the enum). These\n"
-        "# sites are DI-5-deferred (task 08-11): legitimate today, but frozen so they\n"
-        "# cannot grow while phase-09 migrates each cluster onto a decision engine.\n"
+        "# sites are DI-5-deferred: legitimate today, but frozen so they cannot grow\n"
+        "# while each cluster is migrated onto a decision engine.\n"
         "# Any INCREASE in a file's count fails datrix/scripts/dev/check-import-boundaries.py\n"
         "# --check-provider-conditionals. Decreases are always allowed and should be\n"
-        "# captured by re-running with --update-baseline once a DI-5 task collapses a\n"
+        "# captured by re-running with --update-baseline once a DI-5 change collapses a\n"
         "# cluster -- reaching 0 everywhere is the DI-5 end-state.\n"
         "#\n"
         "# Format:\n"
@@ -1283,8 +1283,7 @@ def check_provider_conditional_ratchet(
 def scan_file_for_function_level_imports(
     file_path: Path,
 ) -> list[FunctionLevelImportHit]:
-    """AST-walk *file_path* for function-level imports (design 029, D4/I6
-    successor, task 17-09).
+    """AST-walk *file_path* for function-level imports (D4/I6 successor).
 
     A hit is any ``ast.Import``/``ast.ImportFrom`` node that is NOT a direct
     top-level statement of the module -- i.e., not a member of ``tree.body``
@@ -1307,7 +1306,7 @@ def scan_file_for_function_level_imports(
     """
     # utf-8-sig transparently strips a leading UTF-8 BOM (U+FEFF) so a
     # BOM-prefixed file can never fail ast.parse and be silently skipped
-    # (design 023 scanner-integrity, task 07-30).
+    # (scanner integrity).
     source_code = file_path.read_text(encoding="utf-8-sig")
     tree = ast.parse(source_code, filename=str(file_path))
 
@@ -1429,22 +1428,22 @@ def write_function_level_import_baseline(
         counts: Mapping of relative file path (forward slashes) -> hit count.
     """
     header = (
-        "# Function-Level-Import Ratchet Baseline (design 029, D4/I6, task 17-09)\n"
+        "# Function-Level-Import Ratchet Baseline (D4/I6)\n"
         "#\n"
         "# Frozen per-file counts of function-level imports (any Import/ImportFrom\n"
         "# AST node that is not a direct top-level statement of its module --\n"
         "# nested in a function/method body, an `if TYPE_CHECKING:` block, or a\n"
-        "# `try`/`except`) in datrix-common's src/ tree ONLY. Design 029's D4 calls\n"
-        '# for these to "move back to module top with a ratchet": this baseline\n'
-        "# freezes the count measured immediately after tasks 17-07/17-08 (the\n"
-        "# Service/Shared decomposition) landed, so it reflects their import\n"
-        "# relocations rather than a stale pre-decomposition number. Any INCREASE\n"
-        "# in a file's count fails datrix/scripts/dev/check-import-boundaries.py\n"
+        "# `try`/`except`) in datrix-common's src/ tree ONLY. D4 requires these to\n"
+        '# "move back to module top with a ratchet": this baseline freezes the\n'
+        "# count measured immediately after the Service/Shared decomposition\n"
+        "# landed, so it reflects those import relocations rather than a stale\n"
+        "# pre-decomposition number. Any INCREASE in a file's count fails\n"
+        "# datrix/scripts/dev/check-import-boundaries.py\n"
         "# --check-function-level-imports. Decreases are always allowed and should\n"
-        "# be captured by re-running with --update-baseline once a later task\n"
-        "# promotes more deferred imports back to module top -- D4's own decision\n"
-        "# log explicitly rejects a one-shot sweep of all sites; each area migrates\n"
-        "# with the work that next touches it.\n"
+        "# be captured by re-running with --update-baseline once later work\n"
+        "# promotes more deferred imports back to module top -- a one-shot sweep of\n"
+        "# all sites is deliberately rejected; each area migrates with the work\n"
+        "# that next touches it.\n"
         "#\n"
         "# Format:\n"
         "#   [[baseline]]\n"
@@ -1851,7 +1850,7 @@ _PLATFORM_PACKAGES: tuple[str, ...] = (
 
 
 def _self_test_platform_to_platform_prohibition() -> bool:
-    """A platform plugin may never import a SIBLING platform plugin (task 31-09).
+    """A platform plugin may never import a SIBLING platform plugin.
 
     The pre-existing self-tests only ever proved platform -> LANGUAGE imports
     are flagged; the platform -> PLATFORM edge was absent from every rule, so
@@ -2382,7 +2381,7 @@ def main() -> int:
         "--check-target-literals",
         action="store_true",
         help=(
-            "Run the I1 target-literal ratchet check (design 023, invariant I1) "
+            "Run the I1 target-literal ratchet check (invariant I1) "
             "in addition to the import-boundary check"
         ),
     )
@@ -2402,7 +2401,7 @@ def main() -> int:
         "--check-provider-conditionals",
         action="store_true",
         help=(
-            "Run the I6 successor ratchet check (design 023, invariant I6, DI-4/DI-5) "
+            "Run the I6 successor ratchet check (invariant I6, DI-4/DI-5) "
             "in addition to the import-boundary check"
         ),
     )
@@ -2410,8 +2409,8 @@ def main() -> int:
         "--check-function-level-imports",
         action="store_true",
         help=(
-            "Run the function-level-import ratchet check (design 029, D4/I6, task "
-            "17-09) in addition to the import-boundary check. Scoped to "
+            "Run the function-level-import ratchet check (D4/I6) "
+            "in addition to the import-boundary check. Scoped to "
             "datrix-common's src/ tree only."
         ),
     )
@@ -2505,13 +2504,13 @@ def main() -> int:
         v for v in all_violations if not is_allowlisted(v, allowlist, monorepo_root)
     ]
 
-    # I1 target-literal ratchet (design 023, invariant I1) — opt-in via
+    # I1 target-literal ratchet (invariant I1) — opt-in via
     # --check-target-literals so existing no-flag import-boundary callers
     # keep their current behavior.
     target_literal_baseline_path = (
         monorepo_root / "datrix" / "scripts" / "config" / "target-literal-baseline.toml"
     )
-    # I6 successor ratchet (design 023, invariant I6, DI-4/DI-5) — opt-in via
+    # I6 successor ratchet (invariant I6, DI-4/DI-5) — opt-in via
     # --check-provider-conditionals.
     provider_conditional_baseline_path = (
         monorepo_root
@@ -2520,7 +2519,7 @@ def main() -> int:
         / "config"
         / "provider-conditional-baseline.toml"
     )
-    # Function-level-import ratchet (design 029, D4/I6, task 17-09) — opt-in
+    # Function-level-import ratchet (D4/I6) — opt-in
     # via --check-function-level-imports.
     function_level_import_baseline_path = (
         monorepo_root

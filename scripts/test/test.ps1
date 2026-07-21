@@ -566,7 +566,7 @@ try {
  # 'test-results-<timestamp>' regex, and not by picking the newest directory under
  # .test_results. Both guesses silently attach another run's results to this one
  # whenever a second test.ps1 is in flight against the same package (the exact
- # failure mode of task 17-14: a -Specific run reporting a different file's tests).
+ # observed failure mode: a -Specific run reporting a different file's tests).
  # TestRunner always emits an absolute path for the run it owns:
  #   quiet mode   -> "Details: <run>/index.json"  (or "Log: <run>/full.log")
  #   verbose mode -> "Structured test results: <run>/index.json" and "Log file: <run>/full.log"

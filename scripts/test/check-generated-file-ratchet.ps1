@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Enforce the I5 GeneratedFile-construction ratchet (design 025) across Datrix packages.
+ Enforce the I5 GeneratedFile-construction ratchet across Datrix packages.
 
 .DESCRIPTION
  Counts direct GeneratedFile(...) constructor calls per package's src/ tree

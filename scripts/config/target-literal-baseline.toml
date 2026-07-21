@@ -1,11 +1,11 @@
 # I1 Target-Literal Ratchet Baseline
 #
 # Frozen per-file counts of target-literal identifiers (language/provider
-# names hardcoded in a shared layer -- design 023, Decision D1, Invariant I1).
+# names hardcoded in a shared layer -- Decision D1, Invariant I1).
 # Any INCREASE in a file's count fails datrix/scripts/dev/check-import-boundaries.py
 # --check-target-literals. Decreases are always allowed and should be captured
-# by re-running with --update-baseline once a phase task deletes an identifier
-# (e.g. task 09-20 drives every entry here to 0).
+# by re-running with --update-baseline once a later change deletes an identifier
+# (the terminal state is 0 for every entry here).
 #
 # Format:
 #   [[baseline]]

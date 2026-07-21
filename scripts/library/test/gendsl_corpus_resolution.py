@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GenDSL corpus reference-resolution gate (design 025 D1/I1, task 13-04).
+"""GenDSL corpus reference-resolution gate (D1/I1).
 
 Eager builder/call-expression reference resolution runs at
 ``@generator_definition`` registration time

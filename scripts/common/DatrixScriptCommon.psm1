@@ -194,7 +194,7 @@ function Get-DatrixInstalledPlatforms {
  .DESCRIPTION
  Enumerates the `datrix.platforms` entry-point group at runtime (importlib.metadata) so the
  installed platform set is discovered, never hardcoded. Installing a datrix-codegen-<provider>
- package makes its platform name appear here with no script edit (design 023 DI-6 / D4 open
+ package makes its platform name appear here with no script edit (DI-6 / D4 open
  identity). Never hardcodes aws/azure/docker.
 
  Fails loud (throws) on a non-zero exit from the python invocation — a query failure must be

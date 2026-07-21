@@ -20,16 +20,16 @@
  Minimum quality score for check mode (0-4). Default: 2.
 
 .PARAMETER Fix
- Reserved for task 14-03 (Ollama auto-fix).
+ Fix the worst error-message violation using local Ollama (check mode only).
 
 .PARAMETER FixAll
- Reserved for task 14-03 (Ollama auto-fix all).
+ Fix ALL violations, not just the worst. Implies -Fix.
 
 .PARAMETER Test
- Reserved for task 14-03 (run tests after fix).
+ Run pytest after each fix to verify; revert if tests fail (-Fix/-FixAll only).
 
 .PARAMETER MaxRetries
- Reserved for task 14-03 (max Ollama retries per site).
+ Max Ollama retry attempts per violation. Default: 3.
 
 .PARAMETER StopOnError
  Stop on first project failure instead of continuing.

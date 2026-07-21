@@ -1,5 +1,5 @@
 {
-  "_comment": "I5 GeneratedFile-construction ratchet baseline (design 025, Invariant I5). Frozen per-package counts of direct GeneratedFile(...) constructor calls in each package's src/ tree (tests/ excluded; datrix-codegen-common/.../gendsl/executor.py excluded as the declared-render path's own internals). Any INCREASE fails datrix/scripts/test/check-generated-file-ratchet.py. Decreases are always allowed and should be captured by re-running with --update-baseline once a migration task converts hand-coded construction into a genDSL declaration.",
+  "_comment": "I5 GeneratedFile-construction ratchet baseline (Invariant I5). Frozen per-package counts of direct GeneratedFile(...) constructor calls in each package's src/ tree (tests/ excluded; datrix-codegen-common/.../gendsl/executor.py excluded as the declared-render path's own internals). Any INCREASE fails datrix/scripts/test/check-generated-file-ratchet.py. Decreases are always allowed and should be captured by re-running with --update-baseline once a migration converts hand-coded construction into a genDSL declaration.",
   "baseline": {
     "datrix-cli": 0,
     "datrix-codegen-aws": 7,

@@ -1,19 +1,19 @@
-# Function-Level-Import Ratchet Baseline (design 029, D4/I6, task 17-09)
+# Function-Level-Import Ratchet Baseline (D4/I6)
 #
 # Frozen per-file counts of function-level imports (any Import/ImportFrom
 # AST node that is not a direct top-level statement of its module --
 # nested in a function/method body, an `if TYPE_CHECKING:` block, or a
-# `try`/`except`) in datrix-common's src/ tree ONLY. Design 029's D4 calls
-# for these to "move back to module top with a ratchet": this baseline
-# freezes the count measured immediately after tasks 17-07/17-08 (the
-# Service/Shared decomposition) landed, so it reflects their import
-# relocations rather than a stale pre-decomposition number. Any INCREASE
-# in a file's count fails datrix/scripts/dev/check-import-boundaries.py
+# `try`/`except`) in datrix-common's src/ tree ONLY. D4 requires these to
+# "move back to module top with a ratchet": this baseline freezes the
+# count measured immediately after the Service/Shared decomposition
+# landed, so it reflects those import relocations rather than a stale
+# pre-decomposition number. Any INCREASE in a file's count fails
+# datrix/scripts/dev/check-import-boundaries.py
 # --check-function-level-imports. Decreases are always allowed and should
-# be captured by re-running with --update-baseline once a later task
-# promotes more deferred imports back to module top -- D4's own decision
-# log explicitly rejects a one-shot sweep of all sites; each area migrates
-# with the work that next touches it.
+# be captured by re-running with --update-baseline once later work
+# promotes more deferred imports back to module top -- a one-shot sweep of
+# all sites is deliberately rejected; each area migrates with the work
+# that next touches it.
 #
 # Format:
 #   [[baseline]]
@@ -375,7 +375,7 @@ file = "datrix-common/src/datrix_common/plugin/platform_config_contract.py"
 count = 3
 
 [[baseline]]
-# design 032 D2: type-only GeneratorOutput contract reference (see the
+# Type-only GeneratorOutput contract reference (see the
 # language_plugin.py precedent); hand-added, not -UpdateBaseline.
 file = "datrix-common/src/datrix_common/plugin/protocol.py"
 count = 1

@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- GenDSL corpus reference-resolution gate (design 025 D1/I1, task 13-04).
+ GenDSL corpus reference-resolution gate (D1/I1).
 
 .DESCRIPTION
  Proves the real, shipped corpus of builder/call/context/appends references
@@ -15,8 +15,7 @@
  that imported all seven concrete target packages directly, which was both a
  cross-package import boundary violation (datrix_codegen_common must not
  import concrete target packages) and a cross-package test (prohibited
- everywhere in the repo). Moved here (task 17-10) as the repo-level proof it
- always was.
+ everywhere in the repo). Moved here as the repo-level proof it always was.
 
 .PARAMETER Dbg
  Enable debug logging (DEBUG level instead of INFO).

@@ -109,7 +109,7 @@ EXCLUDED_COGNITIVE_BLOCKS: list[tuple[str, str]] = [
     ("datrix_language/transformers/expression_transformer.py", "_transform_fstring"),
     ("datrix_language/transformers/statement_transformer.py", "_transform_try_statement"),
     # datrix-language's transformers/ is one module per top-level element kind
-    # (design 033 D2): the three transforms below moved out of transformer.py with
+    # the three transforms below moved out of transformer.py with
     # their bodies unchanged. The rest of the old transformer.py god-method entries
     # named functions that no longer exist anywhere and matched nothing.
     ("datrix_language/transformers/directives.py", "transform_import_statement"),
@@ -188,8 +188,8 @@ EXCLUDED_CYCLOMATIC_BLOCKS: list[tuple[str, str]] = [
     ("datrix_common/semantic/validators/service.py", "ServiceValidator"),
     ("datrix_common/semantic/validators/builtin_traits.py", "BuiltinTraitValidator"),
     ("datrix_common/semantic/validators/tenancy.py", "TenancyValidator"),
-    # Thin facades: many one-line delegations into the member-kind modules beside them
-    # (design 033 D2); each class's real_complexity is the sum of trivial methods.
+    # Thin facades: many one-line delegations into the member-kind modules beside
+    # them; each class's real_complexity is the sum of trivial methods.
     ("datrix_language/transformers/api/facade.py", "ApiTransformer"),
     ("datrix_language/transformers/entity/facade.py", "EntityTransformer"),
     ("datrix_language/transformers/cqrs_transformer.py", "CqrsTransformer"),

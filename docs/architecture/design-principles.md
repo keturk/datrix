@@ -156,7 +156,7 @@ Datrix is built on proven software engineering principles that ensure:
 - `datrix-codegen-component`: Platform-agnostic component generation - ONE PURPOSE
 - `datrix-codegen-python`: Python code generation - ONE PURPOSE
 - `datrix-codegen-docker`: Docker generation - ONE PURPOSE
-- Each additional target language is one more package with the same one-purpose rule — e.g. `datrix-codegen-dotnet` and `datrix-codegen-java` (scaffolding in progress: repos registered, source not landed yet). The list of language generators is open, never a closed set.
+- Each additional target language is one more package with the same one-purpose rule — e.g. `datrix-codegen-dotnet` and `datrix-codegen-java`, both real generators. The list of language generators is open, never a closed set.
 
 **Module Organization:** Each package keeps one concern per module (e.g. models, routes, services, tests). One generator class per concern; platform-specific generation (e.g. Docker) lives in a separate package, not mixed with metrics or other concerns.
 
@@ -580,7 +580,7 @@ entity User extends BaseEntity {
 | Concern | Owner |
 |---------|--------|
 | Scalar defs, builtin objects, `db_extensions()`, extra deps, templates | Extension pack implementing `DatrixExtension` |
-| Per-language type and ORM mappings | The owning language generator — `datrix-codegen-python`, `datrix-codegen-typescript`, `datrix-codegen-sql`, and every language package added later (e.g. `datrix-codegen-dotnet`, `datrix-codegen-java` — scaffolding in progress) |
+| Per-language type and ORM mappings | The owning language generator — `datrix-codegen-python`, `datrix-codegen-typescript`, `datrix-codegen-sql`, and every language package added later (e.g. `datrix-codegen-dotnet`, `datrix-codegen-java`) |
 
 Enable packs in **`system.dtrx`** with `use extension <name>;` (not YAML). Exhaustive mapping rules still apply: unknown extension keys or unmapped types **fail at generation time** with explicit errors (for example `ExtensionNotSupportedError` from `build_python_type_map` when Python has no map for a declared extension).
 
@@ -714,13 +714,13 @@ genDSL compiler intermediate structures stay in process memory and are rebuilt e
 
 **F1 — Purposeful mini-DSLs, not one mega-DSL:** ConfigDSL owns deployment configuration, SeedDSL owns seed data, genDSL owns generator structure, RealizationDSL owns platform capability realization — typed `(block_type, flavor)` cells that drive provisioning dispatch, with the table cell (not text) as the authoring unit — and EmitDSL owns per-language emit-table declarations — typed builtin/operator emit decisions validated against the closed builtin registry, with the table row (not text) as the authoring unit. A new decision family that needs a declarative home gets its own purpose-scoped surface; nothing is folded into genDSL because it happens to be declarative; a surface that grows a second concern is split.
 
-**F2 — Declarations drive; they never merely describe:** a declarative artifact the runtime does not execute is banned — it drifts. The proof is in-tree: genDSL's declared-file rendering path was disabled in four of five production consumers (`render_declared_files=False` in datrix-codegen-azure, -aws, -sql, -docker), leaving a registry-and-validation layer whose core value sat inert while iteration was hand-coded a second time next to the declarations that described it. Either the declaration is the execution path or it is deleted. (Design 025 D3 fixed this instance: all five packages now render exclusively through declared files, and `render_declared_files` no longer exists.)
+**F2 — Declarations drive; they never merely describe:** a declarative artifact the runtime does not execute is banned — it drifts. The proof is in-tree: genDSL's declared-file rendering path was disabled in four of five production consumers (`render_declared_files=False` in datrix-codegen-azure, -aws, -sql, -docker), leaving a registry-and-validation layer whose core value sat inert while iteration was hand-coded a second time next to the declarations that described it. Either the declaration is the execution path or it is deleted. (That instance is fixed: all five packages now render exclusively through declared files, and `render_declared_files` no longer exists.)
 
 **F3 — Closed compilation:** every surface rejects unknown references at load time — unknown property, unresolvable binding, unknown feature — as a compile error, never a silent default. This is Fail Fast, Fail Loud applied to the meta-layer.
 
 **F4 — Text is earned:** new surfaces default to typed data declarations with validating loaders; a textual grammar is justified only where authoring ergonomics demand it. genDSL's own tokenizer, parser, and validator measure 1,940 LOC — that cost buys a readable embedded-docstring surface for generator authors, not a default for every future decision family. Computation stays in Python: DSLs declare structure, never implement algorithms.
 
-**Design reference:** [GenDSL Design Decisions 14–17](../../../datrix-codegen-common/docs/gendsl/design-decisions.md#decision-14-closed-compilation--typed-context-validation-and-eager-reference-resolution) (design 025, adopted and complete 2026-07-08)
+**Design reference:** [GenDSL Design Decisions 14–17](../../../datrix-codegen-common/docs/gendsl/design-decisions.md#decision-14-closed-compilation--typed-context-validation-and-eager-reference-resolution) (adopted and complete 2026-07-08)
 
 ---
 
@@ -728,7 +728,7 @@ genDSL compiler intermediate structures stay in process memory and are rebuilt e
 
 **Principle:** Imperative DSL bodies are lowered to target source through **explicit stages and data classes**, not implicit mutable transpiler fields.
 
-**Application:** **datrix-common** owns **`TranspileContext`** (frozen per-service configuration), **`FileScope`** variants (mutable per-file sibling-flow state), **`TranspileResult`** (frozen per-visit code + imports + capability flags), **`StagePipeline`** (**`NameResolver`** → **`QueryExpander`** → configure **`LanguageTranspiler`**), and **`ResolutionTable`** keyed by `id(ast_node)` so the AST stays frozen. **`ExpressionVisitor`** / **`StatementVisitor`** plus **`node.accept()`** replace large `isinstance` trees for expressions and statements; **`CallTargetEmitter`** + **`dispatch_call()`** specialize call targets. Rationale and history: [`design/transpiler-improvement.md`](../../../design/transpiler-improvement.md). API summary: [datrix-common-api.md — Transpiler modules](../../datrix-common/docs/datrix-common-api.md#transpiler-modules).
+**Application:** **datrix-common** owns **`TranspileContext`** (frozen per-service configuration), **`FileScope`** variants (mutable per-file sibling-flow state), **`TranspileResult`** (frozen per-visit code + imports + capability flags), **`StagePipeline`** (**`NameResolver`** → **`QueryExpander`** → configure **`LanguageTranspiler`**), and **`ResolutionTable`** keyed by `id(ast_node)` so the AST stays frozen. **`ExpressionVisitor`** / **`StatementVisitor`** plus **`node.accept()`** replace large `isinstance` trees for expressions and statements; **`CallTargetEmitter`** + **`dispatch_call()`** specialize call targets. API summary: [datrix-common-api.md — Transpiler modules](../../datrix-common/docs/datrix-common-api.md#transpiler-modules).
 
 ---
 
@@ -750,8 +750,6 @@ genDSL compiler intermediate structures stay in process memory and are rebuilt e
 
 **Application:** Container image templates render `ENTRYPOINT`/`CMD` from `LanguageRuntimeSpec.container_command()` rather than a template-literal command. No generator or Dockerfile template declares its own start command for a language that has a runtime spec.
 
-**Design reference:** Design 035 — Containerized Service Hosting (AWS/Azure), Decision 4 (`D:/datrix/design/035-containerized-service-hosting-aws-azure.md`)
-
 ---
 
 ### One Shared Base Image Per Containerized System (Adopted)
@@ -765,8 +763,6 @@ genDSL compiler intermediate structures stay in process memory and are rebuilt e
 - Reuses the union-requirements correctness argument from the build-once shared dependency layer for Azure App Service Python deploys (see `datrix-codegen-azure/docs/azure-deployment.md` § Build-Once Shared Dependency Layer): extra packages a service does not import are inert, so sharing one base across services with differing requirement subsets is safe
 
 **Application:** The Docker generator emits one per-system base image definition and per-service Dockerfiles that reference it via `FROM`. The base image tag changes only when the union of requirements changes.
-
-**Design reference:** Design 035 — Containerized Service Hosting (AWS/Azure), Decision 5 (`D:/datrix/design/035-containerized-service-hosting-aws-azure.md`)
 
 ---
 

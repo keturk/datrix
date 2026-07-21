@@ -63,7 +63,7 @@ if str(_LIBRARY_DIR) not in sys.path:
 from shared.logging_utils import LogConfig, TeeLogger  # noqa: E402
 from shared.structured_log_writer import StructuredLogWriter  # noqa: E402
 
-# The pair from the original report (task 17-14): two files in one package that a
+# The pair from the original report: two files in one package that a
 # `-Specific` run was observed to confuse. Both are small, so the gate stays fast.
 _DEFAULT_PACKAGE = "datrix-codegen-python"
 _DEFAULT_FILE_A = "tests/generators/cross_cutting/test_integration_test_generator.py"
@@ -318,7 +318,7 @@ def self_test(scratch_root: Path) -> bool:
 def run_dir_exclusivity_check(scratch_root: Path) -> bool:
     """Deterministically prove TeeLogger never hands two runs the same run directory.
 
-    This is the root-cause invariant of task 17-14, checked without relying on a
+    This is the root-cause invariant of that defect, checked without relying on a
     race actually landing. `LogConfig.timestamp_format` is pinned to a literal, so
     every TeeLogger here computes the SAME preferred directory name -- a guaranteed
     collision. Each must still end up with a directory of its own.

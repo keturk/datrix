@@ -1,13 +1,13 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Design 022 (declaration-driven service ingress) migration conformance gate.
+    Declaration-driven service ingress migration conformance gate.
 
 .DESCRIPTION
     DI-6 step 4 + "Cross-cutting acceptance" independent, repo-level proof that
     the framework's own showcase examples (datrix/examples/**) conform to the
-    declaration-driven ingress derivation after phase-12's migration (tasks
-    12-01..12-17). This is a repo-level validation SCRIPT -- the `datrix`
+    declaration-driven ingress derivation after the ingress migration. This is a
+    repo-level validation SCRIPT -- the `datrix`
     showcase repo hosts no pytest suite (Datrix Showcase Repo Boundaries) -- exit
     0 iff every assertion below holds.
 
@@ -32,14 +32,14 @@
           prelude (mode-only change), verified via the existing sha256 parity-
           baseline mechanism (`regen-parity-baselines.ps1`)
 
-    Delta class (b): the design's own DI-6 migration inventory and this task's
+    Delta class (b): the DI-6 migration inventory and this gate's own
     live re-verification agree that every one of the 55 registered example
     systems already declares a `gateway {}` block -- there is no registered
     example that was ever exposed via a name-based suppression heuristic and is
     now corrected by the derivation. That fixture (a service named e.g.
     "ingestion" behaving identically to a neutral-named sibling) is assigned by
-    the design's own "Cross-cutting acceptance" POSITIVE item 2 to one fixture
-    system PER PLATFORM PACKAGE (12-10 docker, 12-12 azure, 12-15 aws) -- this
+    the "Cross-cutting acceptance" POSITIVE item 2 to one fixture
+    system PER PLATFORM PACKAGE (docker, azure, aws) -- this
     script does not fabricate a registered-example fixture for it (CLAUDE.md:
     no cross-package tests); it reports the verified absence instead.
 
@@ -48,8 +48,7 @@
     D:\datrix\.test-output\ingress-gate (CLAUDE.md temp-file policy).
 
 .PARAMETER Languages
-    Comma-separated codegen languages to sweep. Default: python,typescript (the
-    two currently-registered codegen packages, 12-08/12-09).
+    Comma-separated codegen languages to sweep. Default: python,typescript.
 
 .PARAMETER Dbg
     Forward -Dbg to generate.ps1/run-complete.ps1/regen-parity-baselines.ps1 for
@@ -142,12 +141,13 @@ $AuthenticationExample = "02-features/01-core-data-modeling/authentication"
 
 $ledger = New-Object System.Collections.Generic.List[string]
 $hardFailures = New-Object System.Collections.Generic.List[string]
-# Pre-existing, tracked, OUT-OF-design-022-scope defects surfaced by this gate.
+# Pre-existing, tracked, OUT-OF-SCOPE defects surfaced by this gate.
 # These are reported LOUDLY (never buried) but do NOT fail the gate: the gate's
-# stated purpose is "exit 0 iff every DESIGN-022 assertion holds" -- a defect
-# that predates and is independent of design 022 must not be conflated with a
-# design-022 regression. Each entry names the defect, its corroboration, and its
-# tracked follow-up. The design-022 substance each blocked check was meant to
+# stated purpose is "exit 0 iff every declaration-driven-ingress assertion
+# holds" -- a defect that predates and is independent of the ingress derivation
+# must not be conflated with an ingress regression. Each entry names the defect,
+# its corroboration, and its tracked follow-up. The ingress substance each
+# blocked check was meant to
 # prove is instead proven by an in-scope alternative (owning-package suite or a
 # direct source-level invariant check) recorded in the ledger alongside.
 $knownDefects = New-Object System.Collections.Generic.List[string]
@@ -222,16 +222,16 @@ function Get-LiveExampleCounts {
 
     $realVerifyMatches = @($verifyMatches | Where-Object { -not $_.IsComment })
     if ($realVerifyMatches.Count -ne 1) {
-        Add-HardFailure "Step 0 FAIL: expected exactly 1 real (non-comment) verify( occurrence across datrix/examples; found $($realVerifyMatches.Count). (Task 12-17's storefront-service.dtrx migration is the only expected webhook usage in the showcase repo.)"
+        Add-HardFailure "Step 0 FAIL: expected exactly 1 real (non-comment) verify( occurrence across datrix/examples; found $($realVerifyMatches.Count). (storefront-service.dtrx's migrated webhook endpoint is the only expected webhook usage in the showcase repo.)"
         return
     }
 
     $verifyFile = $realVerifyMatches[0].Path
     $hasWebhookPairing = Select-String -LiteralPath $verifyFile -Pattern "auth(webhook)" -SimpleMatch -Quiet
     if (-not $hasWebhookPairing) {
-        Add-HardFailure "Step 0 FAIL: the sole verify(...) file ($verifyFile) does not also contain auth(webhook) -- DI-0's mandatory pairing precondition (12-17's migration) is not in place."
+        Add-HardFailure "Step 0 FAIL: the sole verify(...) file ($verifyFile) does not also contain auth(webhook) -- DI-0's mandatory pairing precondition is not in place."
     } else {
-        Add-LedgerLine "Step 0 PASS: the sole verify(...) usage is paired with auth(webhook) in the same file (12-17 migration precondition confirmed)."
+        Add-LedgerLine "Step 0 PASS: the sole verify(...) usage is paired with auth(webhook) in the same file (migration precondition confirmed)."
     }
 }
 
@@ -271,12 +271,12 @@ function Assert-DeltaA-PublisherServiceInternal {
     $result = Invoke-TargetedRegeneration -ExampleRelPath $SharedBlockExample -OutputDirName "shared-block" -Language $Language
 
     if ($result.ExitCode -ne 0) {
-        Add-LedgerLine ("Delta (a) [{0}]: shared-block regeneration FAILED (exit {1}) -- KNOWN pre-existing, tracked, out-of-design-022-scope defect." -f $Language, $result.ExitCode)
-        Add-LedgerLine "  publisher-service.dtrx's 'post(String source)' custom endpoint fails semantic analysis (API003: param not in path; XSV017: unnamed service-facing custom endpoint) -- this predates and is unrelated to design 022/phase-12."
+        Add-LedgerLine ("Delta (a) [{0}]: shared-block regeneration FAILED (exit {1}) -- KNOWN pre-existing, tracked, out-of-scope defect." -f $Language, $result.ExitCode)
+        Add-LedgerLine "  publisher-service.dtrx's 'post(String source)' custom endpoint fails semantic analysis (API003: param not in path; XSV017: unnamed service-facing custom endpoint) -- this predates and is unrelated to the ingress derivation."
         Add-LedgerLine "  NOTE: the old fixture-path parity harness listed shared-block as non-generating. That harness is gone; under the REAL pipeline shared-block now generates cleanly (see the reference-example parity gate, which blesses a baseline for it), so a failure here is NOT corroborated by the parity allowlist (scripts/config/parity-known-nongenerating.json) and must be investigated."
         Add-LedgerLine "  Delta (a)'s realized-output proof (docker-compose entry with no gateway route + loopback-only port) is therefore NOT obtainable from datrix/examples today via ANY generation path (semantic analysis itself fails) -- reported honestly, not papered over (CLAUDE.md: no workarounds)."
-        Add-LedgerLine "  Design-022 substance for delta (a) IS proven, in-scope, by the OWNING PACKAGE suites (this gate does not re-run package-internal tests -- CLAUDE.md: no cross-package tests): datrix-common derive_service_ingress unit tests (12-02) assert an all-auth(service) surface derives ServiceIngressExposure.INTERNAL; datrix-codegen-docker (12-10/12-11) asserts an INTERNAL service gets no gateway/nginx route; datrix-codegen-aws (12-16, D11) asserts INTERNAL handling. All green in their own suites. The shared-block EXAMPLE is only a showcase of that already-proven invariant, blocked here by an unrelated parse defect."
-        Add-KnownDefect "Delta (a) [$Language]: shared-block realized-output showcase BLOCKED by pre-existing tracked defect FIX-EXAMPLE-SHARED-BLOCK (API003/XSV017 in publisher-service.dtrx) -- NOT a design-022 regression (derivation proven in owning-package suites, see ledger). Follow-up task: fix shared-block's post(String source) endpoint (API003)."
+        Add-LedgerLine "  The ingress substance for delta (a) IS proven, in-scope, by the OWNING PACKAGE suites (this gate does not re-run package-internal tests -- CLAUDE.md: no cross-package tests): datrix-common derive_service_ingress unit tests assert an all-auth(service) surface derives ServiceIngressExposure.INTERNAL; datrix-codegen-docker asserts an INTERNAL service gets no gateway/nginx route; datrix-codegen-aws asserts INTERNAL handling. All green in their own suites. The shared-block EXAMPLE is only a showcase of that already-proven invariant, blocked here by an unrelated parse defect."
+        Add-KnownDefect "Delta (a) [$Language]: shared-block realized-output showcase BLOCKED by pre-existing tracked defect FIX-EXAMPLE-SHARED-BLOCK (API003/XSV017 in publisher-service.dtrx) -- NOT an ingress regression (derivation proven in owning-package suites, see ledger). Follow-up task: fix shared-block's post(String source) endpoint (API003)."
         return
     }
 
@@ -348,19 +348,19 @@ function Assert-DeltaC-DeclaredGatewaySingleService {
         Add-LedgerLine "Delta (c) [$Language] POSITIVE: authentication (single service, declared gateway, auth(public) endpoints) emits a non-empty $authNginx -- PASS."
     } else {
         Add-HardFailure "Delta (c) [$Language]: authentication (single service, declared gateway, auth(public) endpoints, resolved_ingress=GATEWAY verified independently via derive_service_ingress) did NOT emit $authNginx."
-        Add-LedgerLine "  NOTE: the previously-found D9 gap -- datrix-codegen-docker gendsl_definitions.py's 'gateway_nginx' domain declaring 'requires feature multi_service;' alongside 'requires feature gateway;', which suppressed nginx for single-service systems -- was FIXED during this phase (the multi_service requirement was removed so gateway emission is declaration-driven per D9/12-10, proven end-to-end by datrix-codegen-docker's test_docker_generator_multi_service_smoke.py). If THIS branch fires now it is therefore a NEW regression of that fix, not the original gap -- investigate the gateway_nginx domain's feature gates and should_generate_gateway()/derive_service_ingress() before assuming anything else."
+        Add-LedgerLine "  NOTE: the previously-found D9 gap -- datrix-codegen-docker gendsl_definitions.py's 'gateway_nginx' domain declaring 'requires feature multi_service;' alongside 'requires feature gateway;', which suppressed nginx for single-service systems -- was FIXED during this phase (the multi_service requirement was removed so gateway emission is declaration-driven per D9, proven end-to-end by datrix-codegen-docker's test_docker_generator_multi_service_smoke.py). If THIS branch fires now it is therefore a NEW regression of that fix, not the original gap -- investigate the gateway_nginx domain's feature gates and should_generate_gateway()/derive_service_ingress() before assuming anything else."
     }
 }
 
 function Test-DeltaD-PreludeAuthModeIndependence {
     # Regen-independent SUBSTANCE proof for delta (d): the generated webhook
     # verification prelude is a pure function of the verify(...) contract
-    # (VerifyMode), never of the endpoint auth mode (AuthMode). Task 12-17's
+    # (VerifyMode), never of the endpoint auth mode (AuthMode). The webhook
     # migration changes only AuthMode (auth(public) -> auth(webhook)); if the
     # prelude builders dispatch solely on VerifyMode and never branch on
     # AuthMode, the generated prelude is provably byte-identical across the
-    # migration. This is the direct source-level check the task's Implementation
-    # Notes require ("must inspect actual file content") and it does NOT depend
+    # migration. This is a direct source-level check that inspects actual file
+    # content, and it does NOT depend
     # on regen-parity-baselines.ps1 -- whose fixture path (attach_default_configs)
     # cannot resolve identity's config-declared webhook secret (payment_webhook_secret,
     # declared in config/storefront-service.dcfg), a separate tracked infra
@@ -456,8 +456,8 @@ function Assert-DeltaD-WebhookParityBaseline {
 
     # Sanctioned mechanism only (CLAUDE.md: reuse, do not reinvent byte-diffing):
     # this is exactly regen-parity-baselines.ps1's documented purpose, run
-    # deliberately after this reviewed, intentional change (task 12-17's
-    # auth(public) -> auth(webhook) mode migration).
+    # deliberately after this reviewed, intentional change (the webhook
+    # endpoint's auth(public) -> auth(webhook) mode migration).
     Write-Host ""
     Write-Host "--- regen-parity-baselines.ps1 -Example `"$IdentityExample`" ---" -ForegroundColor Cyan
     $regenArgs = @{ Example = $IdentityExample }
@@ -599,7 +599,7 @@ function Invoke-FullTreeGenerationGate {
         $failedNames = $failedProjectsMatch.Groups[1].Value -split "\r?\n" | ForEach-Object { $_.Trim(" -") } | Where-Object { $_ -ne "" }
         foreach ($name in $failedNames) {
             if ($name -eq "shared-block") {
-                Add-LedgerLine "Step 3 [$Language]: 'shared-block' failed -- historically a KNOWN pre-existing defect (API003/XSV017), but it generates cleanly under the current real pipeline (the reference-example parity gate holds a blessed baseline for it). Not an ING/webhook error and not a design-022 regression, but investigate: this failure is no longer expected."
+                Add-LedgerLine "Step 3 [$Language]: 'shared-block' failed -- historically a KNOWN pre-existing defect (API003/XSV017), but it generates cleanly under the current real pipeline (the reference-example parity gate holds a blessed baseline for it). Not an ING/webhook error and not an ingress regression, but investigate: this failure is no longer expected."
             } else {
                 $unexpectedFailures.Add($name)
             }
@@ -671,7 +671,7 @@ Assert-DeltaD-WebhookParityBaseline
 
 Write-Host ""
 Write-Host "Delta (b): previously name-suppressed external APIs gaining gateway routes" -ForegroundColor Cyan
-Add-LedgerLine "Delta (b): zero framework-example instances to demonstrate. Verified against the live Step 0 counts above (do NOT hardcode a frozen total -- the tree evolved: the DI-6 example migration removed the spurious gateway {} block from the pure data-modeling examples that have no external HTTP API): every gateway-declaring example has a genuine GATEWAY-deriving service, and every non-declaring example is a data-modeling-only system with no HTTP surface -- neither category was ever exposed via a name-based suppression heuristic that the derivation now corrects. The name-blindness MECHANISM's dedicated proof (an 'ingestion'-named fixture behaving identically to a neutral-named sibling) is assigned by the design's own Cross-cutting acceptance POSITIVE item 2 to one fixture system per platform package: 12-10 (docker), 12-12 (azure), 12-15 (aws) -- each in its own suite. This is not a gap in this gate's coverage; it is the accurate, verified statement of what datrix/examples exercises."
+Add-LedgerLine "Delta (b): zero framework-example instances to demonstrate. Verified against the live Step 0 counts above (do NOT hardcode a frozen total -- the tree evolved: the DI-6 example migration removed the spurious gateway {} block from the pure data-modeling examples that have no external HTTP API): every gateway-declaring example has a genuine GATEWAY-deriving service, and every non-declaring example is a data-modeling-only system with no HTTP surface -- neither category was ever exposed via a name-based suppression heuristic that the derivation now corrects. The name-blindness MECHANISM's dedicated proof (an 'ingestion'-named fixture behaving identically to a neutral-named sibling) is assigned by the Cross-cutting acceptance POSITIVE item 2 to one fixture system per platform package (docker, azure, aws) -- each in its own suite. This is not a gap in this gate's coverage; it is the accurate, verified statement of what datrix/examples exercises."
 
 foreach ($lang in $Languages) {
     Invoke-FullTreeGenerationGate -Language $lang | Out-Null
@@ -685,18 +685,18 @@ foreach ($line in $ledger) { Write-Host $line }
 
 if ($knownDefects.Count -gt 0) {
     Write-Host ""
-    Write-Host "=== KNOWN PRE-EXISTING DEFECTS ($($knownDefects.Count)) -- surfaced loudly, tracked as follow-ups, NOT design-022 regressions (by design, these do not fail this gate) ===" -ForegroundColor Yellow
+    Write-Host "=== KNOWN PRE-EXISTING DEFECTS ($($knownDefects.Count)) -- surfaced loudly, tracked as follow-ups, NOT ingress regressions (by design, these do not fail this gate) ===" -ForegroundColor Yellow
     foreach ($d in $knownDefects) { Write-Host "  - $d" -ForegroundColor Yellow }
 }
 
 Write-Host ""
 if ($hardFailures.Count -gt 0) {
-    Write-Host "GATE FAILED ($($hardFailures.Count) design-022 finding(s)):" -ForegroundColor Red
+    Write-Host "GATE FAILED ($($hardFailures.Count) ingress-conformance finding(s)):" -ForegroundColor Red
     foreach ($f in $hardFailures) { Write-Host "  - $f" -ForegroundColor Red }
     Disable-DatrixVenv
     exit 1
 }
 
-Write-Host "GATE PASSED: every design-022 assertion holds (DI-6 negative + positive; delta classes a-d accounted for). $($knownDefects.Count) pre-existing, out-of-design-022-scope defect(s) reported above and tracked as follow-ups -- by design they do not gate design-022 conformance (their design-022 substance is proven by in-scope alternatives recorded in the ledger)." -ForegroundColor Green
+Write-Host "GATE PASSED: every declaration-driven-ingress assertion holds (DI-6 negative + positive; delta classes a-d accounted for). $($knownDefects.Count) pre-existing, out-of-scope defect(s) reported above and tracked as follow-ups -- by design they do not gate ingress conformance (their ingress substance is proven by in-scope alternatives recorded in the ledger)." -ForegroundColor Green
 Disable-DatrixVenv
 exit 0

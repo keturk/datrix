@@ -10,14 +10,14 @@ hazard shapes those scripts hunted by hand:
 
 * **double-emit offender** -- a domain that DECLARES file clauses while still
   carrying one or more imperative domain builders. Declared files and domain
-  builders both render unconditionally (task 13-13 removed the
-  ``render_declared_files`` opt-out), so a declaring domain that keeps its
+  builders both render unconditionally (the ``render_declared_files``
+  opt-out was removed), so a declaring domain that keeps its
   builder can emit the same path twice (the hazard ``gate_16_19_verify.py``
   CHECK 6 polices).
 * **bridgeless declaring** -- a declaring domain none of whose bridge
   callables (domain-builder callables plus declared-file builder callables,
   the same scan as ``registry_adapter._owning_bridge_callables``) carries the
-  ``MICRO_GENERATOR_CLS`` owning-class attribute (design 025 D4 bridge).
+  ``MICRO_GENERATOR_CLS`` owning-class attribute (the D4 bridge).
 
 The target name is resolved against the gendsl target registry at runtime
 (``datrix.platforms`` + ``datrix.gendsl_generator_targets`` entry points) --
@@ -183,7 +183,7 @@ def _file_builder_callable(file_def: FileDefinition) -> Callable[..., object] | 
 
     Mirrors ``registry_adapter._file_builder_callables``: a declared file's
     ``builder`` is a ``ResolvedFunctionRef`` or a ``CallExpression`` wrapping
-    one; the design 025 D4 bridge attribute lives on the resolved callable.
+    one; the D4 bridge attribute lives on the resolved callable.
 
     Args:
         file_def: A compiled file clause.

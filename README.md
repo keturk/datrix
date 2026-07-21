@@ -142,10 +142,10 @@ Browse the full example: [ecommerce/](examples/03-domains/ecommerce/) | [generat
 | TypeScript (NestJS) | AWS (CDK + CloudFormation) |
 | SQL (PostgreSQL, MySQL, MariaDB) | Azure (Bicep + ARM) |
 | Component (configs, schemas, docs) | |
-| .NET — *scaffolding in progress* | |
-| Java — *scaffolding in progress* | |
+| .NET (ASP.NET Core) | |
+| Java (Spring Boot) | |
 
-The language list is open — each target language is an independent generator package, and .NET and Java are being scaffolded now (they do not generate code yet).
+The language list is open — each target language is an independent generator package.
 
 ---
 

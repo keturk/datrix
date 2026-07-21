@@ -8,10 +8,9 @@
 #   import = "prefix match on imported module"
 #   issue = "URL tracking the resolution of this violation"
 #
-# This allowlist is EMPTY -- the terminal state required by design 023
-# Invariant I7 ("Import-boundary allowlist empty"), reached in task 09-19.
-# Guarded by:
+# This allowlist is EMPTY -- the terminal state required by Invariant I7
+# ("Import-boundary allowlist empty"). Guarded by:
 #   datrix-codegen-common/tests/integration/dev/test_import_boundary_allowlist_empty.py
 #   datrix-codegen-common/tests/unit/architecture/test_no_concrete_target_imports.py
-# Adding a new allow entry is a design-023 regression; fix the import at
+# Adding a new allow entry is a regression against I7; fix the import at
 # its root (plugin seam / relocation) instead.

@@ -779,7 +779,7 @@ def main() -> int:
         if args.codex or args.codex_on_threshold or args.codex_phase_gate:
             logger.warning("ollama_unreachable_skipping_tier1")
             print("Ollama unreachable. Skipping Tier 1.")
-            # Task 43-06 implements Tier 2
+            # Tier 2 (Codex) is a separate reviewer and does not need Ollama.
             return 0
         else:
             logger.error("ollama_unreachable_no_fallback")

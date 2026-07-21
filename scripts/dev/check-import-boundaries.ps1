@@ -25,7 +25,7 @@
  Monorepo root directory (default: auto-detect by walking up from script location)
 
 .PARAMETER CheckTargetLiterals
- Run the I1 target-literal ratchet check (design 023, invariant I1) in addition
+ Run the I1 target-literal ratchet check (invariant I1) in addition
  to the import-boundary check. Compares current per-file target-literal counts
  against the frozen baseline at scripts/config/target-literal-baseline.toml.
 
@@ -37,14 +37,14 @@
  -CheckProviderConditionals to update both baselines in one run.
 
 .PARAMETER CheckProviderConditionals
- Run the I6 successor ratchet check (design 023, invariant I6, DI-4/DI-5) in
+ Run the I6 successor ratchet check (invariant I6, DI-4/DI-5) in
  addition to the import-boundary check. Compares current per-file
  platform-identity-conditional counts in the language packages
  (datrix_codegen_python, datrix_codegen_typescript) against the frozen
  baseline at scripts/config/provider-conditional-baseline.toml.
 
 .PARAMETER CheckFunctionLevelImports
- Run the function-level-import ratchet check (design 029, D4/I6, task 17-09)
+ Run the function-level-import ratchet check (D4/I6)
  in addition to the import-boundary check. Compares current per-file
  function-level-import counts in datrix-common's src/ tree ONLY against the
  frozen baseline at scripts/config/function-level-import-baseline.toml.
@@ -93,7 +93,7 @@
 
 .EXAMPLE
  .\check-import-boundaries.ps1 -CheckFunctionLevelImports
- Run the function-level-import ratchet check (design 029, D4/I6) against the frozen baseline
+ Run the function-level-import ratchet check (D4/I6) against the frozen baseline
 
 .EXAMPLE
  .\check-import-boundaries.ps1 -CheckFunctionLevelImports -UpdateBaseline

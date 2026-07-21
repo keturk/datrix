@@ -1,14 +1,14 @@
-# I6 Successor Ratchet Baseline (design 023, invariant I6, DI-4/DI-5)
+# I6 Successor Ratchet Baseline (invariant I6, DI-4/DI-5)
 #
 # Frozen per-file counts of platform-identity CONDITIONALS in the language
 # packages (datrix_codegen_python, datrix_codegen_typescript) -- the successor
 # form of the removed DeploymentProvider branches (the literal
 # `grep DeploymentProvider.` is already empty; DI-3 deleted the enum). These
-# sites are DI-5-deferred (task 08-11): legitimate today, but frozen so they
-# cannot grow while phase-09 migrates each cluster onto a decision engine.
+# sites are DI-5-deferred: legitimate today, but frozen so they cannot grow
+# while each cluster is migrated onto a decision engine.
 # Any INCREASE in a file's count fails datrix/scripts/dev/check-import-boundaries.py
 # --check-provider-conditionals. Decreases are always allowed and should be
-# captured by re-running with --update-baseline once a DI-5 task collapses a
+# captured by re-running with --update-baseline once a DI-5 change collapses a
 # cluster -- reaching 0 everywhere is the DI-5 end-state.
 #
 # Format:

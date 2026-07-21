@@ -5,7 +5,7 @@
   path emits genuine TypeScript (not a hollow/failed run) and is byte-deterministic.
 
 .DESCRIPTION
-  Background (design 023 phase-09, cluster 6): the whole-system generate path was
+  Background: the whole-system generate path was
   hollow for TypeScript because the pipeline never attached the CodegenContext to
   the LANGUAGE generator -- Python received one only by a runtime_bootstrap
   side-effect, so TypeScriptGenerator's context stayed None and

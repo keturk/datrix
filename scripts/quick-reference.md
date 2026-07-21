@@ -86,8 +86,8 @@ Project names are **discovered from disk** — any `datrix-*` directory in the w
 - `datrix-codegen-component`
 - `datrix-codegen-python`
 - `datrix-codegen-typescript`
-- `datrix-codegen-dotnet` (scaffolding in progress)
-- `datrix-codegen-java` (scaffolding in progress)
+- `datrix-codegen-dotnet`
+- `datrix-codegen-java`
 - `datrix-codegen-sql`
 - `datrix-codegen-docker`
 - `datrix-codegen-aws`

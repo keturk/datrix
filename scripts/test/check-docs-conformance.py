@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-r"""Docs-conformance gate for Datrix architecture documentation (design 026, Invariant I5).
+r"""Docs-conformance gate for Datrix architecture documentation (Invariant I5).
 
 Extracts repo-relative path references and Python module references from
-every package's **architecture documentation** (the curated 36-file set in
+every package's **architecture documentation** (the curated 37-file set in
 ``ARCHITECTURE_DOC_FILES`` below) and fails if any reference does not resolve
 to a real file/directory/module in the tree, unless the reference is recorded
 in the committed exceptions baseline
@@ -58,7 +58,7 @@ from pathlib import Path
 from typing import Literal
 
 # ---------------------------------------------------------------------------
-# The curated 36-file architecture-doc set (see module docstring for why this
+# The curated 37-file architecture-doc set (see module docstring for why this
 # is a literal constant, never a directory glob). Verified against the live
 # tree: datrix-common and datrix-language each ship BOTH a top-level
 # docs/architecture.md AND a docs/architecture/ directory of further .md
@@ -80,6 +80,7 @@ ARCHITECTURE_DOC_FILES: tuple[str, ...] = (
     "datrix-codegen-common/docs/architecture.md",
     "datrix-codegen-component/docs/architecture.md",
     "datrix-codegen-docker/docs/architecture.md",
+    "datrix-codegen-dotnet/docs/architecture.md",
     "datrix-codegen-python/docs/architecture.md",
     "datrix-codegen-sql/docs/architecture.md",
     "datrix-codegen-typescript/docs/architecture.md",
@@ -471,7 +472,7 @@ def check_against_exceptions(
 
 # ---------------------------------------------------------------------------
 # --self-test: plain-Python edge-case checks for this scanner's own functions
-# (design 026, Invariant I5). Real tempfile.TemporaryDirectory() fixtures and
+# (Invariant I5). Real tempfile.TemporaryDirectory() fixtures and
 # assert statements only -- no pytest, no unittest.mock/SimpleNamespace, per
 # project test guidelines. Fixtures are built under the REAL package/import
 # names (``datrix-common``, ``datrix-codegen-common``) inside a tmp dir
@@ -908,7 +909,7 @@ def main() -> int:
         2 = usage error / missing baseline / missing architecture doc).
     """
     parser = argparse.ArgumentParser(
-        description="Docs-conformance gate for Datrix architecture documentation (design 026, I5)",
+        description="Docs-conformance gate for Datrix architecture documentation (I5)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
@@ -958,7 +959,7 @@ def main() -> int:
         )
         return 0 if harness_ok else 1
 
-    _step("Self-test: I5 docs-conformance gate scanner edge cases (design 026)")
+    _step("Self-test: I5 docs-conformance gate scanner edge cases")
     self_test_passed = run_self_test_checks(_SELF_TEST_CHECKS)
     if args.self_test:
         return 0 if self_test_passed else 1
@@ -1010,7 +1011,7 @@ def main() -> int:
         mode = "Warning" if args.warn else "Error"
         print(
             f"{mode}: {len(failures)} unresolved docs-conformance reference(s) "
-            f"(design 026, Invariant I5):\n"
+            f"(Invariant I5):\n"
         )
         for ref in sorted(failures, key=lambda r: (r.doc, r.line, r.span)):
             print(f"{ref.doc}:{ref.line}: {ref.span}")
