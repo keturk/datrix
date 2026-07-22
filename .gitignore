@@ -223,3 +223,14 @@ __marimo__/
 
 # Crash / stack dump files
 *.stackdump
+
+# Claude Code per-session runtime state. The hook CODE under
+# claude-config/.claude/hooks/ is versioned on purpose; the state it writes at
+# runtime is not. `.state/post-compact-<session-id>.json` records which gated
+# docs one session has re-read since its compaction (written by
+# post-compact-context.py, appended by track-mandatory-reads.py, consumed by
+# gate-mandatory-reads.py); `scheduled_tasks.lock` holds a live pid + session
+# id. Both are machine- and session-local and meaningless in any other clone --
+# 12 of the former were committed by stray `git add .` before this rule existed.
+claude-config/.claude/hooks/.state/
+claude-config/.claude/scheduled_tasks.lock
