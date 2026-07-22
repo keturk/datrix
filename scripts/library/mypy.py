@@ -22,7 +22,7 @@ library_dir = Path(__file__).parent
 if library_dir.exists() and str(library_dir) not in sys.path:
  sys.path.insert(0, str(library_dir))
 
-from shared.venv import get_datrix_root, get_venv_python, is_venv_active
+from shared.venv import get_datrix_root, get_venv_python, is_venv_active  # noqa: E402
 
 
 def find_project_root(project_name: str, datrix_root: Path) -> Path:

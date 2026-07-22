@@ -29,7 +29,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-
 TEXT_SNIPPET_EXTENSIONS = {
     ".cfg",
     ".dcfg",

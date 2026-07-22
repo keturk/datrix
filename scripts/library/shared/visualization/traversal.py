@@ -12,12 +12,6 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from datrix_common.datrix_model.api import Endpoint, RestApi
-    from datrix_common.datrix_model.blocks import (
-        CacheBlock,
-        NosqlBlock,
-        RdbmsBlock,
-        StorageBlock,
-    )
     from datrix_common.datrix_model.containers import Application, Service
     from datrix_common.datrix_model.cqrs import CqrsBlock
     from datrix_common.datrix_model.entity import Entity, Relationship

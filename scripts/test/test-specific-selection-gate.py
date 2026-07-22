@@ -53,7 +53,6 @@ import tempfile
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Optional
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _LIBRARY_DIR = _SCRIPT_DIR.parent / "library"
@@ -382,7 +381,7 @@ def run_dir_exclusivity_check(scratch_root: Path) -> bool:
     return ok
 
 
-def _run_specific(package: str, test_file: str) -> tuple[int, Optional[Path], str]:
+def _run_specific(package: str, test_file: str) -> tuple[int, Path | None, str]:
     """Invoke `test.ps1 <package> -Specific <file>` and return its OWN run directory.
 
     The run directory is taken from the path the runner itself printed -- never by
@@ -404,7 +403,7 @@ def _run_specific(package: str, test_file: str) -> tuple[int, Optional[Path], st
         check=False,
     )
     output = proc.stdout + proc.stderr
-    run_dir: Optional[Path] = None
+    run_dir: Path | None = None
     for line in output.splitlines():
         stripped = line.strip()
         for marker in _RUN_DIR_MARKERS:

@@ -30,7 +30,13 @@ if sys.platform == "win32":
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 try:
-    from jinja2 import Environment, FileSystemLoader, TemplateSyntaxError, UndefinedError, Undefined
+    from jinja2 import (
+        Environment,
+        FileSystemLoader,
+        TemplateSyntaxError,
+        Undefined,
+        UndefinedError,
+    )
 except ImportError:
     print("ERROR: jinja2 is required. Install with: pip install jinja2", file=sys.stderr)
     sys.exit(1)
@@ -249,7 +255,7 @@ def tojson_filter(value: Any) -> str:
     try:
         return json.dumps(value, default=default_handler)
     except (TypeError, ValueError):
-        return '"{}"'.format(str(value))
+        return f'"{str(value)}"'
 
 
 def create_mock_context() -> dict[str, Any]:

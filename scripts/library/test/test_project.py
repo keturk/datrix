@@ -35,8 +35,8 @@ if library_dir.exists() and str(library_dir) not in sys.path:
  sys.path.insert(0, str(library_dir))
 
 # Import shared modules
-from shared.venv import get_datrix_root, get_venv_python, is_venv_active, ensure_datrix_venv
-from shared.test_runner import TestConfig, TestRunner
+from shared.test_runner import TestConfig, TestRunner  # noqa: E402
+from shared.venv import get_datrix_root, get_venv_python, is_venv_active  # noqa: E402
 
 # Package name (as in pyproject) -> import name for dev deps we can import-check
 _DEV_PACKAGE_TO_IMPORT: dict[str, str] = {
@@ -300,8 +300,11 @@ def check_dependencies(python_exe: str, current_python_exe: str = None) -> tuple
  # shared modules should be available via sys.path (from top of file)
  # Check if shared module can be imported
  try:
-  # Try importing directly (sys.path is already set up)
-  import shared
+  # Try importing directly (sys.path is already set up).
+  # The import IS the probe -- find_spec() is not equivalent, since it never
+  # executes shared/__init__.py and so cannot detect an import-time failure
+  # inside one of the submodules it pulls in.
+  import shared  # noqa: F401 -- availability probe
   # If we get here, the import succeeded
  except ImportError:
   # Not found via sys.path, shared modules are required
@@ -422,7 +425,7 @@ def install_dependencies(
  
  # Check shared modules availability (they should be in sys.path)
  if shared_dep:
-  print(f"\nWARNING: shared modules not found. Ensuring library directory is in sys.path.", file=sys.stderr)
+  print("\nWARNING: shared modules not found. Ensuring library directory is in sys.path.", file=sys.stderr)
   # Re-ensure library directory (parent of shared) is in sys.path
   script_dir = Path(__file__).parent
   library_dir_path = script_dir.parent # library/test -> library
@@ -438,13 +441,13 @@ def install_dependencies(
 
    # Verify import works now
    try:
-    import shared
+    import shared  # noqa: F401 -- availability probe
     print("Successfully verified shared modules are available.")
    except ImportError as e:
     print(f"ERROR: Still cannot import shared modules after adding to sys.path: {e}", file=sys.stderr)
     print(f"Library directory: {library_dir_path}", file=sys.stderr)
     print(f"Shared directory: {shared_dir_path}", file=sys.stderr)
-    print(f"Current sys.path (first 5):", file=sys.stderr)
+    print("Current sys.path (first 5):", file=sys.stderr)
     for p in sys.path[:5]:
      print(f" {p}", file=sys.stderr)
     all_success = False
@@ -477,7 +480,7 @@ def get_latest_test_result_status(project_root: Path) -> str | None:
         index_json = latest_dir / "index.json"
         if index_json.exists():
             try:
-                with open(index_json, "r", encoding="utf-8") as f:
+                with open(index_json, encoding="utf-8") as f:
                     data = json.load(f)
                 result = data.get("result")
                 if result in ("PASSED", "FAILED"):
@@ -705,10 +708,10 @@ Note: This script should be called from test.ps1, which handles virtual environm
 
  # Ensure shared modules are available (should be via sys.path from top of file)
  try:
-  import shared
+  import shared  # noqa: F401 -- availability probe
  except ImportError as e:
-  print("ERROR: shared modules not available.", file=sys.stderr)
-  print(f"Ensure library directory (parent of shared) is in sys.path. Current sys.path includes:", file=sys.stderr)
+  print(f"ERROR: shared modules not available: {e}", file=sys.stderr)
+  print("Ensure library directory (parent of shared) is in sys.path. Current sys.path includes:", file=sys.stderr)
   for p in sys.path[:5]: # Show first 5 entries
    print(f" {p}", file=sys.stderr)
   script_dir = Path(__file__).parent
@@ -717,8 +720,7 @@ Note: This script should be called from test.ps1, which handles virtual environm
   print(f"Shared directory should be at: {expected_library_dir / 'shared'}", file=sys.stderr)
   return 1
 
- # Import test runner (after dependencies are confirmed)
- from shared.test_runner import TestConfig, TestRunner
+ # TestConfig/TestRunner are already imported at module scope (top of file).
 
  # Determine coverage source - most projects use "src", but check for common patterns
  coverage_source = "src"

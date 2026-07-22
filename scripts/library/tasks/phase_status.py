@@ -254,15 +254,9 @@ def main() -> int:
     mismatch_count = len(mismatches) if isinstance(mismatches, list) else 0
     repo_count = len(repos) if isinstance(repos, list) else 0
     print(
-        "Phase %s: %s tasks (%s completed, %s pending) in %s repos; mismatches: %s"
-        % (
-            format_phase(args.phase),
-            payload["task_count"],
-            payload["completed_count"],
-            payload["pending_count"],
-            repo_count,
-            mismatch_count,
-        )
+        f"Phase {format_phase(args.phase)}: {payload['task_count']} tasks "
+        f"({payload['completed_count']} completed, {payload['pending_count']} pending) "
+        f"in {repo_count} repos; mismatches: {mismatch_count}"
     )
     print(f"Details: {output_path.resolve()}")
     return EXIT_DONE

@@ -26,6 +26,15 @@ import signal
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Imported for annotations only -- the runtime imports stay function-local
+    # inside _get_parser()/_get_analyzer() so `--help` and path discovery do not
+    # pay the tree-sitter/semantic-analyzer import cost.
+    from datrix_common.datrix_model import Application
+    from datrix_common.semantic import SemanticAnalyzer
+    from datrix_language.parser import TreeSitterParser
 
 # ── UTF-8 stdout/stderr on Windows ──────────────────────────────────────────
 if sys.platform == "win32" and __name__ == "__main__":
@@ -170,14 +179,14 @@ class DatrixLinter:
         self.total_errors = 0
         self.total_warnings = 0
         self.total_parse_errors = 0
-        self._parser: object = None   # TreeSitterParser (lazy)
-        self._analyzer: object = None  # SemanticAnalyzer (lazy)
+        self._parser: TreeSitterParser | None = None
+        self._analyzer: SemanticAnalyzer | None = None
 
     def _dbg(self, message: str) -> None:
         if self.debug:
             print(f"[DEBUG] {message}", file=sys.stderr, flush=True)
 
-    def _get_parser(self) -> "TreeSitterParser":  # type: ignore[name-defined]
+    def _get_parser(self) -> TreeSitterParser:
         if self._parser is None:
             from datrix_language.parser import TreeSitterParser
             from datrix_language.registration import register_all
@@ -185,18 +194,21 @@ class DatrixLinter:
             register_all()
             self._parser = TreeSitterParser()
             self._dbg("Parser ready.")
-        return self._parser  # type: ignore[return-value]
+        return self._parser
 
-    def _get_analyzer(self) -> "SemanticAnalyzer":  # type: ignore[name-defined]
+    def _get_analyzer(self) -> SemanticAnalyzer:
         if self._analyzer is None:
             from datrix_common.semantic import SemanticAnalyzer
             self._analyzer = SemanticAnalyzer()
             self._dbg("SemanticAnalyzer ready.")
-        return self._analyzer  # type: ignore[return-value]
+        return self._analyzer
 
-    def _resolve_service_configs(self, app: object, project_root: Path) -> list[str]:
+    def _resolve_service_configs(self, app: Application, project_root: Path) -> list[str]:
         """Resolve service/shared config profiles before semantic validation."""
-        from datrix_common.config_resolution import ConfigResolutionError, resolve_service_configs
+        from datrix_common.config_resolution import (
+            ConfigResolutionError,
+            resolve_service_configs,
+        )
 
         try:
             resolve_service_configs(app, project_root, self.profile)
@@ -237,7 +249,6 @@ class DatrixLinter:
             return result
 
         try:
-            from datrix_common.errors import ParseError as _ParseError
             parser = self._get_parser()
             app = parser.parse_loaded_file(content, entry_point)
             self._dbg(f"Parsed OK: {entry_point}")

@@ -33,9 +33,17 @@ from shared.ollama_utils import (  # noqa: E402
     OLLAMA_DEFAULT_MODEL,
     OLLAMA_DEFAULT_URL,
     OLLAMA_MAX_FIX_RETRIES,
+)
+from shared.ollama_utils import (  # noqa: E402
     apply_and_verify_on_disk as _apply_and_verify_on_disk_shared,
+)
+from shared.ollama_utils import (  # noqa: E402
     build_retry_feedback as _build_retry_feedback_shared,
+)
+from shared.ollama_utils import (  # noqa: E402
     call_ollama as _call_ollama_shared,
+)
+from shared.ollama_utils import (  # noqa: E402
     parse_ollama_response as _parse_ollama_response_shared,
 )
 
@@ -1063,9 +1071,6 @@ def _extract_raise_statement(file_content: str, line_number: int) -> str:
     # Start at the given line (1-indexed)
     start_idx = line_number - 1
     first_line = lines[start_idx]
-
-    # Determine the base indentation of the raise line
-    base_indent = len(first_line) - len(first_line.lstrip())
 
     # Collect lines: the raise/logging statement may span multiple lines
     # (parenthesized string, continuation)

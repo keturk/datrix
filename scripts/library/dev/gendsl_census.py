@@ -56,11 +56,11 @@ _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
-from shared.venv import get_datrix_root  # noqa: E402
-
 from datrix_codegen_common.gendsl import target_registry  # noqa: E402
 from datrix_codegen_common.gendsl.compiler import get_definitions  # noqa: E402
-from datrix_codegen_common.gendsl.registry_adapter import MICRO_GENERATOR_ATTR  # noqa: E402
+from datrix_codegen_common.gendsl.registry_adapter import (  # noqa: E402
+    MICRO_GENERATOR_ATTR,  # noqa: E402
+)
 from datrix_common.generation.gendsl_ir import (  # noqa: E402
     CallExpression,
     DomainDefinition,
@@ -68,6 +68,7 @@ from datrix_common.generation.gendsl_ir import (  # noqa: E402
     GeneratorDefinition,
     IterationBlock,
 )
+from shared.venv import get_datrix_root  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

@@ -11,7 +11,6 @@ Usage:
 
 import argparse
 import io
-import os
 import re
 import subprocess
 import sys
@@ -29,7 +28,7 @@ library_dir = Path(__file__).resolve().parent.parent
 if library_dir.exists() and str(library_dir) not in sys.path:
     sys.path.insert(0, str(library_dir))
 
-from shared.venv import get_datrix_root
+from shared.venv import get_datrix_root  # noqa: E402
 
 
 def resolve_project(test_path: str, project_name: str, workspace_root: Path) -> Path:

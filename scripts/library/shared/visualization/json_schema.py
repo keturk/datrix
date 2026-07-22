@@ -10,9 +10,9 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from datrix_common.datrix_model.api import Endpoint, RestApi
-    from datrix_common.datrix_model.containers import Application, Module, Service
+    from datrix_common.datrix_model.containers import Application, Service
     from datrix_common.datrix_model.entity import Entity, Field
-    from datrix_common.datrix_model.pubsub import Event, PubsubBlock, Topic
+    from datrix_common.datrix_model.pubsub import Event, PubsubBlock
 
 from datrix_common.datrix_model.exceptions import ExceptionDeclaration, ExceptionField
 
@@ -122,7 +122,7 @@ def map_entity_to_json_schema(entity: Entity) -> dict[str, object]:
     return schema
 
 
-def _exception_index_for_service(service: "Service") -> dict[str, ExceptionDeclaration]:
+def _exception_index_for_service(service: Service) -> dict[str, ExceptionDeclaration]:
     """Map simple exception name -> ExceptionDeclaration for OpenAPI.
 
     Resolution order (later wins on name collision):
@@ -197,7 +197,7 @@ def _openapi_exception_component_schema(exc: ExceptionDeclaration) -> dict[str, 
 
 def _throw_expression_to_exception_name(expression: object) -> str:
     """Extract the simple exception type name from a ``throw`` expression."""
-    from datrix_common.datrix_model.expressions import CallNode, IdentifierNode, QualifiedNameNode
+    from datrix_common.datrix_model.expressions import CallNode
 
     if isinstance(expression, CallNode):
         return _throw_target_to_name(expression.target)
@@ -294,7 +294,11 @@ def _collect_thrown_exception_names_from_statements(
                     walk_expressions(arg)
 
     def walk_expressions(expr: object) -> None:
-        from datrix_common.datrix_model.expressions import CallNode, LambdaNode, MatchExpression
+        from datrix_common.datrix_model.expressions import (
+            CallNode,
+            LambdaNode,
+            MatchExpression,
+        )
 
         if isinstance(expr, ThrowStatement):
             add(_throw_expression_to_exception_name(expr.expression))
@@ -317,7 +321,7 @@ def _collect_thrown_exception_names_from_statements(
 
 
 def _merge_error_responses_for_endpoint(
-    endpoint: "Endpoint",
+    endpoint: Endpoint,
     exc_index: dict[str, ExceptionDeclaration],
 ) -> dict[str, object]:
     """Build OpenAPI ``responses`` entries for declared exceptions thrown in the endpoint."""
@@ -358,7 +362,7 @@ def _merge_error_responses_for_endpoint(
 
 
 def _build_endpoint_operation(
-    endpoint: "Endpoint",
+    endpoint: Endpoint,
     exc_index: dict[str, ExceptionDeclaration],
 ) -> dict[str, object]:
     """Build an OpenAPI operation object from an Endpoint."""
@@ -390,7 +394,7 @@ def _build_endpoint_operation(
     return operation
 
 
-def build_openapi_spec(service: "Service", rest_api: "RestApi", app: "Application") -> dict[str, object]:
+def build_openapi_spec(service: Service, rest_api: RestApi, app: Application) -> dict[str, object]:
     """Build an OpenAPI 3.1 specification dict.
 
     Args:

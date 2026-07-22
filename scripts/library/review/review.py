@@ -19,7 +19,7 @@ import re
 import sys
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 try:
@@ -34,18 +34,18 @@ try:
         format_canonical_modules_for_prompt,
         load_or_build_cache,
     )
+    from escalation import should_escalate_to_tier2
     from review_schema import Finding, ReviewResult, review_result_to_dict
     from tier2_codex import invoke_tier2_codex
-    from escalation import should_escalate_to_tier2
 except ImportError:
     # When imported as a module in the review package
     from .canonical_modules import (
         format_canonical_modules_for_prompt,
         load_or_build_cache,
     )
+    from .escalation import should_escalate_to_tier2
     from .review_schema import Finding, ReviewResult, review_result_to_dict
     from .tier2_codex import invoke_tier2_codex
-    from .escalation import should_escalate_to_tier2
 
 logger = logging.getLogger(__name__)
 
@@ -439,7 +439,7 @@ def build_reviewer_prompt(
 
     # Replace placeholders in template with actual values
     target_name = task_path.name
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     prompt_template = prompt_template.replace("MODEL_PLACEHOLDER", model_name)
     prompt_template = prompt_template.replace("TARGET_PLACEHOLDER", target_name)
     prompt_template = prompt_template.replace("TIMESTAMP_PLACEHOLDER", timestamp)
@@ -497,7 +497,7 @@ def dict_to_review_result(data: dict, task_path: Path) -> ReviewResult:
         model=data.get("model", "unknown"),
         scope=data.get("scope", "task"),
         target=data.get("target", str(task_path)),
-        generated_at=data.get("generated_at", datetime.now(timezone.utc).isoformat()),
+        generated_at=data.get("generated_at", datetime.now(UTC).isoformat()),
         verdict=data.get("verdict", "warnings_only"),
         findings=findings,
         summary=data.get("summary", "(no summary)"),
@@ -651,7 +651,7 @@ def review_task_with_retry(
         model=model_used,
         scope="task",
         target=task_name,
-        generated_at=datetime.now(timezone.utc).isoformat(),
+        generated_at=datetime.now(UTC).isoformat(),
         verdict=verdict,
         findings=all_findings,
         summary=summary,
@@ -837,7 +837,7 @@ def main() -> int:
             )
 
             if tier2_result:
-                print(f"\nTier 2 (Codex) Review Complete")
+                print("\nTier 2 (Codex) Review Complete")
                 print(f"Verdict: {tier2_result.verdict}")
                 print(f"Additional findings: {len(tier2_result.findings)}")
             else:

@@ -83,10 +83,12 @@ from shared.generated_test_log_writer import (  # noqa: E402
 )
 from shared.logging_utils import LogConfig, TeeLogger, cleanup_old_logs  # noqa: E402
 from shared.structured_log_writer import (  # noqa: E402
-    StructuredLogWriter,
     _MAX_FILENAME_BODY_LENGTH,
+    StructuredLogWriter,
 )
-from shared.structured_log_writer import TestCaseResult as _SlwTestCaseResult  # noqa: E402
+from shared.structured_log_writer import (  # noqa: E402
+    TestCaseResult as _SlwTestCaseResult,  # noqa: E402
+)
 from shared.test_runner import TestConfig, TestRunner  # noqa: E402
 
 CheckFunc = Callable[[], None]

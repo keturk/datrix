@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import io
-import os
 import signal
 import sys
 from pathlib import Path
@@ -45,10 +44,14 @@ from shared.visualization.mermaid import DIAGRAM_TYPES, build_diagram  # noqa: E
 from shared.visualization.svg import build_event_flow_svg  # noqa: E402
 from shared.visualization.svg_cqrs import build_cqrs_svg  # noqa: E402
 from shared.visualization.svg_erd import build_erd_svgs  # noqa: E402
-from shared.visualization.svg_infrastructure import build_infrastructure_svg  # noqa: E402
+from shared.visualization.svg_infrastructure import (  # noqa: E402
+    build_infrastructure_svg,  # noqa: E402
+)
 from shared.visualization.svg_inheritance import build_inheritance_svgs  # noqa: E402
 from shared.visualization.svg_service_map import build_service_map_svg  # noqa: E402
-from shared.visualization.svg_system_context import build_system_context_svg  # noqa: E402
+from shared.visualization.svg_system_context import (  # noqa: E402
+    build_system_context_svg,  # noqa: E402
+)
 
 # Diagram types that use SVG instead of Mermaid
 SVG_DIAGRAM_TYPES = {
@@ -69,13 +72,13 @@ def _parse_application(source_path: Path, profile: str) -> object:
 
     Returns the resolved Application object with configs attached.
     """
+    from datrix_common.config_resolution import (
+        resolve_infrastructure_configs,
+        resolve_service_configs,
+    )
+    from datrix_common.semantic import SemanticAnalyzer
     from datrix_language.parser import TreeSitterParser
     from datrix_language.registration import register_all
-    from datrix_common.semantic import SemanticAnalyzer
-    from datrix_common.config_resolution import (
-        resolve_service_configs,
-        resolve_infrastructure_configs,
-    )
 
     register_all()
     project_root = source_path.parent
@@ -326,7 +329,6 @@ def main() -> int:
             idx = i + 1
             project_name = project.get("name", "unknown")
             source = project.get("path", "")
-            output = project.get("output", "")
 
             source_path = Path(source)
             if not source_path.is_absolute():
@@ -342,7 +344,7 @@ def main() -> int:
             )
             if ok:
                 success_count += 1
-                print(colorize(f"  -> OK", ColorCodes.GREEN))
+                print(colorize("  -> OK", ColorCodes.GREEN))
             else:
                 fail_count += 1
                 for err in errors:

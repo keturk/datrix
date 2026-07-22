@@ -171,7 +171,7 @@ def create_venv(force: bool = False) -> bool:
   return True
 
  if force and venv_path.exists():
-  print(f"Removing existing virtual environment...")
+  print("Removing existing virtual environment...")
   import shutil
   shutil.rmtree(venv_path)
 
@@ -184,10 +184,10 @@ def create_venv(force: bool = False) -> bool:
  )
 
  if result.returncode != 0:
-  print(f"ERROR: Failed to create virtual environment", file=sys.stderr)
+  print("ERROR: Failed to create virtual environment", file=sys.stderr)
   return False
 
- print(f"Virtual environment created successfully")
+ print("Virtual environment created successfully")
  return True
 
 

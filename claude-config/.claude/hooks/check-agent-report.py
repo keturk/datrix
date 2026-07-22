@@ -73,7 +73,7 @@ _PROOF_RE = re.compile(
 def _last_assistant_text(transcript_path: str) -> str:
     """Return the concatenated text of the final assistant message in the transcript."""
     try:
-        with open(transcript_path, "r", encoding="utf-8") as handle:
+        with open(transcript_path, encoding="utf-8") as handle:
             lines = handle.readlines()
     except OSError:
         return ""

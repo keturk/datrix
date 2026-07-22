@@ -502,7 +502,7 @@ def render_failure(
 
     lines.append(f"    Current output: {new_tree}")
     lines.append(
-        f"    If this change is intentional and reviewed, re-bless THIS example only:"
+        "    If this change is intentional and reviewed, re-bless THIS example only:"
     )
     lines.append(
         f'      powershell -File "d:/datrix/datrix/scripts/test/regen-parity-baselines.ps1" '

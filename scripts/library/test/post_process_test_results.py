@@ -33,8 +33,8 @@ _library_dir = _script_dir.parent
 if str(_library_dir) not in sys.path:
     sys.path.insert(0, str(_library_dir))
 
-from shared.generated_test_log_writer import GeneratedTestLogWriter
-from shared.venv import get_datrix_root
+from shared.generated_test_log_writer import GeneratedTestLogWriter  # noqa: E402
+from shared.venv import get_datrix_root  # noqa: E402
 
 
 def detect_metadata(results_dir: Path) -> dict[str, str]:

@@ -98,10 +98,10 @@ def _generate_specs(
 
     # Parse
     try:
+        from datrix_common.paths import ServicePaths
+        from datrix_common.semantic import SemanticAnalyzer
         from datrix_language.parser import TreeSitterParser
         from datrix_language.registration import register_all
-        from datrix_common.semantic import SemanticAnalyzer
-        from datrix_common.paths import ServicePaths
 
         register_all()
         parser = TreeSitterParser()
@@ -217,7 +217,6 @@ def main() -> int:
             idx = i + 1
             project_name = project.get("name", "unknown")
             source = project.get("path", "")
-            output = project.get("output", "")
 
             source_path = Path(source)
             if not source_path.is_absolute():
@@ -230,7 +229,7 @@ def main() -> int:
             ok, warnings, errors = _generate_specs(source_path, output_path, spec_types)
             if ok:
                 success_count += 1
-                print(colorize(f"  -> OK", ColorCodes.GREEN))
+                print(colorize("  -> OK", ColorCodes.GREEN))
             else:
                 fail_count += 1
                 for err in errors:

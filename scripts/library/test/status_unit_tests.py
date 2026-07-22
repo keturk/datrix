@@ -8,10 +8,9 @@ unit-tests-* folder, and reports the test status for each project.
 import argparse
 import re
 import sys
-from pathlib import Path
-from datetime import datetime
-from typing import List, Tuple, Optional
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 
 # Add library directory to sys.path to import from shared
 library_dir = Path(__file__).parent.parent
@@ -22,7 +21,10 @@ if library_dir.exists() and str(library_dir) not in sys.path:
 _status_script_dir = Path(__file__).resolve().parent
 if str(_status_script_dir) not in sys.path:
     sys.path.insert(0, str(_status_script_dir))
-from test_result_walk import iter_dot_test_results_dirs, resolve_unit_test_summary_log
+from test_result_walk import (  # noqa: E402
+    iter_dot_test_results_dirs,
+    resolve_unit_test_summary_log,
+)
 
 
 # ANSI color codes
@@ -58,7 +60,7 @@ class TestResult:
     log_file: str
 
 
-def parse_timestamp_from_folder(folder_name: str) -> Optional[datetime]:
+def parse_timestamp_from_folder(folder_name: str) -> datetime | None:
     """
     Parse timestamp from folder name like 'unit-tests-20260107-161027'.
 
@@ -79,7 +81,7 @@ def parse_timestamp_from_folder(folder_name: str) -> Optional[datetime]:
     return None
 
 
-def find_latest_test_folder(test_results_dir: Path) -> Optional[Path]:
+def find_latest_test_folder(test_results_dir: Path) -> Path | None:
     """
     Find the latest unit-tests-* folder based on timestamp.
 
@@ -123,7 +125,7 @@ def parse_summary_log(log_file: Path) -> TestResult:
     status = "UNKNOWN"
 
     try:
-        with open(log_file, 'r', encoding='utf-8') as f:
+        with open(log_file, encoding='utf-8') as f:
             content = f.read()
 
         # Extract project path
@@ -179,7 +181,7 @@ def parse_summary_log(log_file: Path) -> TestResult:
     )
 
 
-def find_all_test_results(root_dir: Path) -> List[TestResult]:
+def find_all_test_results(root_dir: Path) -> list[TestResult]:
     """
     Recursively find all .test_results folders and extract their status.
 
@@ -205,7 +207,7 @@ def find_all_test_results(root_dir: Path) -> List[TestResult]:
     return results
 
 
-def print_results(results: List[TestResult]):
+def print_results(results: list[TestResult]):
     """
     Print the test results in a formatted manner with colors.
 

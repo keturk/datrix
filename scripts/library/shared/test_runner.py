@@ -31,7 +31,6 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 from shared.logging_utils import ColorCodes, LogConfig, TeeLogger, colorize
 from shared.venv import get_venv_python
@@ -45,7 +44,7 @@ class TestConfig:
  project_name: str
  test_dir: str = "tests/"
  coverage_source: str = "src"
- exclude_markers: Optional[list[str]] = None # e.g., ["benchmark"]
+ exclude_markers: list[str] | None = None # e.g., ["benchmark"]
 
 
 class TestRunner:
@@ -59,7 +58,7 @@ class TestRunner:
    config: Test configuration
   """
   self.config = config
-  self.python_exe: Optional[str] = None
+  self.python_exe: str | None = None
   self.has_xdist: bool = False
 
  def _get_python_executable(self, verbose: bool = False) -> str:
@@ -97,7 +96,7 @@ class TestRunner:
     print("WARNING: No virtual environment detected. Consider setting up the Datrix venv at D:\\datrix\\.venv")
   return sys.executable
 
- def _get_test_summary(self, index_json_path: Optional[Path]) -> Optional[dict]:
+ def _get_test_summary(self, index_json_path: Path | None) -> dict | None:
   """
   Extract test summary from index.json.
 
@@ -112,7 +111,7 @@ class TestRunner:
 
   try:
    import json
-   with open(index_json_path, "r", encoding="utf-8") as f:
+   with open(index_json_path, encoding="utf-8") as f:
     data = json.load(f)
 
    # Extract counts from index.json structure
@@ -175,8 +174,8 @@ class TestRunner:
   marker_expr: str = None,
   test_path: str = None,
   keyword_expr: str = None,
-  ignore_paths: Optional[list[str]] = None,
-  junit_xml_path: Optional[Path] = None,
+  ignore_paths: list[str] | None = None,
+  junit_xml_path: Path | None = None,
  ) -> list[str]:
   """Build pytest command arguments."""
   # Use test_path if provided, otherwise use default test_dir.
@@ -542,7 +541,7 @@ class TestRunner:
     phase_results["Tests"] = rc_remaining
 
    # ── Post-process JUnit XML into structured output ────────────────
-   index_json_path: Optional[Path] = None
+   index_json_path: Path | None = None
    if run_dir and save_log:
     try:
      from shared.structured_log_writer import StructuredLogWriter

@@ -21,3 +21,41 @@ python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+
+# Ruff config for this repo's own scripts/ tree, which had no lint gate at all
+# until now -- that is how three latent NameErrors (an undefined `logger` inside
+# three `except` handlers in run_complete.py) survived in checked-in tooling.
+#
+# Self-contained by policy: `extend` must never point outside this repository.
+# The monorepo root is not a git repository and a sibling package is a separate
+# repository, so either target is absent on a fresh clone -- and a missing
+# `extend` target makes `ruff check` abort outright rather than skip the rules.
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+# Vendored Anthropic skills (anthropics/skills) are re-synced from upstream and
+# are not this repo's code to restyle. See
+# datrix-common/docs/contributing/agent_skills/available-skills.md.
+exclude = ["claude-config/.claude/skills"]
+
+# Deliberately narrower than the datrix-* packages' ["E","F","I","N","W","UP",
+# "TID251"]: this tree is repo-level tooling, not shipped generator source, so
+# the gate carries every rule that catches a real defect (F pyflakes, E4/E7/E9
+# import/statement/syntax errors, TID251 mock ban) plus the cheap autofixable
+# hygiene rules (I import order, UP modernization) -- but not the pure-cosmetic
+# E501/W whitespace rules, which would add ~440 findings of churn here without
+# catching anything. Raise this to the full package set only alongside the
+# reformat it implies.
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "TID251"]
+
+# Project-wide ban on mocks, fakes, and SimpleNamespace, declared inline for the
+# self-containment reason above.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"unittest.mock.MagicMock".msg = "MagicMock is banned. Use real objects, .dtrx fixtures, or factories from datrix_common.testing."
+"unittest.mock.Mock".msg = "Mock is banned. Use real objects, .dtrx fixtures, or factories from datrix_common.testing."
+"unittest.mock.patch".msg = "patch is banned. Use real objects, .dtrx fixtures, or factories from datrix_common.testing."
+"unittest.mock.PropertyMock".msg = "PropertyMock is banned. Use real objects."
+"unittest.mock.AsyncMock".msg = "AsyncMock is banned. Use real objects."
+"unittest.mock.create_autospec".msg = "create_autospec is banned. Use real objects."
+"types.SimpleNamespace".msg = "SimpleNamespace is banned as a fake/stub. Use real AST model constructors, .dtrx fixtures, or factories from datrix_common.testing."

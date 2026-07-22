@@ -21,7 +21,7 @@ import argparse
 import io
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 # Configure UTF-8 encoding for stdout/stderr on Windows
@@ -36,7 +36,7 @@ library_dir = Path(__file__).resolve().parent.parent
 if library_dir.exists() and str(library_dir) not in sys.path:
     sys.path.insert(0, str(library_dir))
 
-from shared.venv import get_datrix_root
+from shared.venv import get_datrix_root  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -202,7 +202,7 @@ def resolve_projects(
             continue
 
         print(
-            "ERROR: Project '%s' not found at %s" % (name, project_path),
+            f"ERROR: Project '{name}' not found at {project_path}",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -240,7 +240,7 @@ def generate_project_structure(project_path: Path, max_depth: int) -> str:
     Returns:
         Markdown string with all directory trees.
     """
-    now = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = datetime.now(tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     sections: list[str] = [
         f"# Project Structure: {project_path.name}\n",
         f"Generated: {now}\n",

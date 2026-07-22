@@ -18,17 +18,17 @@ Usage:
 	# Output goes to both console and log file
 """
 
+import queue
 import re
 import shutil
 import sys
-import time
 import threading
-import queue
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, TextIO
+from typing import TextIO
 
 # Regex pattern to match ANSI escape codes
 _ANSI_ESCAPE_PATTERN = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]|\x1b\[\?[0-9;]*[a-zA-Z]')
@@ -58,9 +58,9 @@ class LogConfig:
 
 	log_dir: str = ".logs"
 	prefix: str = "log"
-	project_name: Optional[str] = None
+	project_name: str | None = None
 	timestamp_format: str = "%Y%m%d-%H%M%S"
-	header: Optional[str] = None
+	header: str | None = None
 	save_to_file: bool = True
 	quiet_mode: bool = False
 
@@ -91,7 +91,7 @@ class TeeLogger:
 	Automatically handles file creation, timestamps, headers, and cleanup.
 	"""
 
-	def __init__(self, config: LogConfig, project_root: Optional[Path] = None):
+	def __init__(self, config: LogConfig, project_root: Path | None = None):
 		"""
 		Initialize tee logger.
 
@@ -101,9 +101,9 @@ class TeeLogger:
 		"""
 		self.config = config
 		self.project_root = project_root or Path.cwd()
-		self.log_file: Optional[Path] = None
-		self.log_handle: Optional[TextIO] = None
-		self.run_dir: Optional[Path] = None
+		self.log_file: Path | None = None
+		self.log_handle: TextIO | None = None
+		self.run_dir: Path | None = None
 		self.quiet_mode = config.quiet_mode
 
 	def __enter__(self):
@@ -350,11 +350,11 @@ class TeeLogger:
 
 		return returncode, output
 
-	def get_log_path(self) -> Optional[Path]:
+	def get_log_path(self) -> Path | None:
 		"""Get the path to the log file."""
 		return self.log_file
 
-	def get_run_dir(self) -> Optional[Path]:
+	def get_run_dir(self) -> Path | None:
 		"""Get the path to the run directory (parent of full.log)."""
 		return self.run_dir
 
@@ -363,8 +363,8 @@ class TeeLogger:
 def tee_output(
 	log_dir: str = ".logs",
 	prefix: str = "log",
-	project_name: Optional[str] = None,
-	project_root: Optional[Path] = None,
+	project_name: str | None = None,
+	project_root: Path | None = None,
 ):
 	"""
 	Context manager for tee-style output.
@@ -389,7 +389,7 @@ def cleanup_old_logs(
 	log_dir: Path,
 	prefix: str,
 	keep_count: int = 10,
-	max_age_days: Optional[int] = None,
+	max_age_days: int | None = None,
 ) -> int:
 	"""Clean up old log directories.
 

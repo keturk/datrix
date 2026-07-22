@@ -116,7 +116,7 @@ def _escape_string(value: str) -> str:
     return f'"{escaped}"'
 
 
-def _render_expr(expr: "ast.Expression") -> str:
+def _render_expr(expr: ast.Expression) -> str:
     from datrix_common.config.dcfg import ast_nodes as ast
 
     if isinstance(expr, ast.Identifier):
@@ -166,19 +166,19 @@ def _render_expr(expr: "ast.Expression") -> str:
     raise TypeError(f"Unsupported expression type: {type(expr).__name__}")
 
 
-def _render_field_assignment(node: "ast.FieldAssignment", indent: int) -> str:
+def _render_field_assignment(node: ast.FieldAssignment, indent: int) -> str:
     path = ".".join(node.path)
     return f"{'  ' * indent}{path} = {_render_expr(node.value)};"
 
 
-def _render_block_assignment(node: "ast.BlockAssignment", indent: int) -> str:
+def _render_block_assignment(node: ast.BlockAssignment, indent: int) -> str:
     header = f"{'  ' * indent}{node.name} {{"
     body = _render_body(node.body, indent + 1)
     footer = f"{'  ' * indent}}}"
     return "\n".join([header, *body, footer])
 
 
-def _render_named_block(node: "ast.NamedBlockDecl", indent: int) -> str:
+def _render_named_block(node: ast.NamedBlockDecl, indent: int) -> str:
     from datrix_common.config.dcfg import ast_nodes as ast
 
     prefix = "  " * indent
@@ -200,7 +200,7 @@ def _render_named_block(node: "ast.NamedBlockDecl", indent: int) -> str:
     return "\n".join([header, *body, footer])
 
 
-def _render_replace(node: "ast.ReplaceDecl", indent: int) -> str:
+def _render_replace(node: ast.ReplaceDecl, indent: int) -> str:
     from datrix_common.config.dcfg import ast_nodes as ast
 
     if isinstance(node.target, ast.NamedBlockDecl):
@@ -235,8 +235,7 @@ def _render_replace(node: "ast.ReplaceDecl", indent: int) -> str:
 
 def _render_body(
     body: Sequence[
-        "ast.FieldAssignment | ast.BlockAssignment | ast.NamedBlockDecl | ast.ReplaceDecl "
-        "| ast.ServerGroupsDecl | ast.NamespaceGroupsDecl | ast.ConfigKeysBlockNode"
+        ast.FieldAssignment | ast.BlockAssignment | ast.NamedBlockDecl | ast.ReplaceDecl | ast.ServerGroupsDecl | ast.NamespaceGroupsDecl | ast.ConfigKeysBlockNode
     ],
     indent: int,
 ) -> list[str]:
@@ -257,7 +256,7 @@ def _render_body(
     return rendered
 
 
-def _render_template_decl(template: "ast.TemplateDecl", indent: int) -> str:
+def _render_template_decl(template: ast.TemplateDecl, indent: int) -> str:
     params: list[str] = []
     for param in template.params:
         if param.default is None:
@@ -270,7 +269,7 @@ def _render_template_decl(template: "ast.TemplateDecl", indent: int) -> str:
     return "\n".join([header, *body, footer])
 
 
-def _render_profile(profile: "ast.ProfileBlock", *, is_base: bool, indent: int) -> str:
+def _render_profile(profile: ast.ProfileBlock, *, is_base: bool, indent: int) -> str:
     prefix = "  " * indent
     if is_base:
         header = f"{prefix}base {{"
@@ -350,9 +349,9 @@ def format_dcfg(source: str, source_path: Path) -> tuple[str, list[LintIssue], s
 def _formatting_safety_issue(
     source: str,
     formatted: str,
-    source_ast: "ast.ConfigDecl",
+    source_ast: ast.ConfigDecl,
     source_path: Path,
-) -> "LintIssue | None":
+) -> LintIssue | None:
     """Return a blocking issue if reformatting would alter meaning or drop comments.
 
     The renderer is hand-written and can lag the grammar. Rather than trust it
@@ -367,10 +366,9 @@ def _formatting_safety_issue(
         return LintIssue(
             1,
             1,
-            "Formatter would drop %d comment line(s); leaving file unchanged. "
-            "ConfigDSL comments are not preserved by the formatter -- this is a "
-            "formatter limitation, not a file error."
-            % (source_comments - formatted_comments),
+            f"Formatter would drop {source_comments - formatted_comments} comment "
+            "line(s); leaving file unchanged. ConfigDSL comments are not preserved "
+            "by the formatter -- this is a formatter limitation, not a file error.",
         )
 
     try:
@@ -379,8 +377,8 @@ def _formatting_safety_issue(
         return LintIssue(
             1,
             1,
-            "Formatter produced output that fails to parse (%s); leaving file "
-            "unchanged. This is a formatter bug -- please report it." % exc,
+            f"Formatter produced output that fails to parse ({exc}); leaving file "
+            "unchanged. This is a formatter bug -- please report it.",
         )
 
     if formatted_ast != source_ast:

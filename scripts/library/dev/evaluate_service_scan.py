@@ -47,10 +47,14 @@ for _sub in ("datrix-common/src", "datrix-language/src"):
     if _pkg_path.exists() and str(_pkg_path) not in sys.path:
         sys.path.insert(0, str(_pkg_path))
 
-from datrix_common.builtins.value_struct_definitions import BUILTIN_VALUE_STRUCTS  # noqa: E402
+from datrix_common.builtins.value_struct_definitions import (  # noqa: E402
+    BUILTIN_VALUE_STRUCTS,  # noqa: E402
+)
 from datrix_common.datrix_model.containers import Application, Service  # noqa: E402
 from datrix_common.paths import ServicePaths  # noqa: E402
 from datrix_common.utils.text import PolyString  # noqa: E402
+from shared.visualization.serializer import serialize_service  # noqa: E402
+
 from dev.evaluate_generated_scan import (  # noqa: E402
     DEFAULT_CONFIG_PROFILE,
     EVAL_SUBDIR,
@@ -70,7 +74,6 @@ from dev.evaluate_generated_scan import (  # noqa: E402
     parse_application,
     write_json_file,
 )
-from shared.visualization.serializer import serialize_service  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

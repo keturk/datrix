@@ -46,7 +46,7 @@ def main() -> None:
         sys.exit(0)
 
     try:
-        with open(state_path, "r", encoding="utf-8") as handle:
+        with open(state_path, encoding="utf-8") as handle:
             state = json.load(handle)
     except (OSError, json.JSONDecodeError):
         sys.exit(0)

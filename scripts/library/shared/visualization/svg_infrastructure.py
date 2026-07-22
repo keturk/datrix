@@ -14,16 +14,9 @@ import logging
 from typing import TYPE_CHECKING
 
 from .svg_common import (
-    CARD_BG,
-    CARD_SHADOW,
-    CARD_STROKE,
-    CORNER_R,
     FONT,
-    HEADER_BG,
-    HEADER_FG,
     SVG_PAD,
     TEXT_PRIMARY,
-    TEXT_SECONDARY,
     esc,
     render_card_header,
     render_rounded_box,

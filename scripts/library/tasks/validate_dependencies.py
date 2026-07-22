@@ -482,14 +482,14 @@ def main() -> int:
 
     if payload["overall"] == OVERALL_PASS:
         print(
-            "PASS (warnings: %s, info: see details)" % payload["warning_count"]
+            f"PASS (warnings: {payload['warning_count']}, info: see details)"
             if payload["warning_count"]
             else "PASS"
         )
     else:
         print(
-            "FAIL (%s violations; warnings: %s)"
-            % (payload["violation_count"], payload["warning_count"])
+            f"FAIL ({payload['violation_count']} violations; "
+            f"warnings: {payload['warning_count']})"
         )
     print(f"Details: {output_path.resolve()}")
     return EXIT_PASS if payload["overall"] == OVERALL_PASS else EXIT_FAIL

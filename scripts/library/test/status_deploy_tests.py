@@ -13,10 +13,9 @@ import json
 import re
 import sys
 import xml.etree.ElementTree as ET
-from pathlib import Path
-from datetime import datetime
-from typing import List, Optional
 from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
 
 # Add library directory to sys.path to import from shared
 library_dir = Path(__file__).parent.parent
@@ -27,7 +26,7 @@ if library_dir.exists() and str(library_dir) not in sys.path:
 _status_script_dir = Path(__file__).resolve().parent
 if str(_status_script_dir) not in sys.path:
     sys.path.insert(0, str(_status_script_dir))
-from test_result_walk import iter_dot_test_results_dirs
+from test_result_walk import iter_dot_test_results_dirs  # noqa: E402
 
 
 # ANSI color codes
@@ -75,10 +74,10 @@ class TestResult:
     timestamp: str
     log_file: str
     # Detailed breakdown from XML (populated when --detail is used)
-    xml_suites: List[XmlSuiteResult] = field(default_factory=list)
+    xml_suites: list[XmlSuiteResult] = field(default_factory=list)
 
 
-def parse_timestamp_from_folder(folder_name: str) -> Optional[datetime]:
+def parse_timestamp_from_folder(folder_name: str) -> datetime | None:
     """
     Parse timestamp from folder name like 'deploy-test-20260107-161027'.
 
@@ -107,7 +106,7 @@ def _timestamp_from_folder_name(folder_name: str) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
-def find_latest_test_folder(test_results_dir: Path) -> Optional[Path]:
+def find_latest_test_folder(test_results_dir: Path) -> Path | None:
     """
     Find the latest deploy-test-* folder based on timestamp.
 
@@ -142,7 +141,7 @@ _INT_PROJECT_PATTERN = re.compile(r'^pytest-integration-(.+)-project\.xml$')
 _INT_SERVICE_PATTERN = re.compile(r'^pytest-integration-(.+)-service\.xml$')
 
 
-def _classify_xml_file(filename: str) -> Optional[tuple[str, str]]:
+def _classify_xml_file(filename: str) -> tuple[str, str] | None:
     """Return (category, service_name) or None if the file is not a known XML."""
     m = _SPEC_PATTERN.match(filename)
     if m:
@@ -156,7 +155,7 @@ def _classify_xml_file(filename: str) -> Optional[tuple[str, str]]:
     return None
 
 
-def _parse_junit_xml(xml_path: Path, category: str, service: str) -> Optional[XmlSuiteResult]:
+def _parse_junit_xml(xml_path: Path, category: str, service: str) -> XmlSuiteResult | None:
     """Parse a JUnit XML file and return an XmlSuiteResult."""
     try:
         tree = ET.parse(xml_path)
@@ -199,9 +198,9 @@ def _parse_junit_xml(xml_path: Path, category: str, service: str) -> Optional[Xm
     )
 
 
-def parse_xml_results(deploy_test_folder: Path) -> List[XmlSuiteResult]:
+def parse_xml_results(deploy_test_folder: Path) -> list[XmlSuiteResult]:
     """Parse all JUnit XML files in a deploy-test folder."""
-    results: List[XmlSuiteResult] = []
+    results: list[XmlSuiteResult] = []
     for xml_file in sorted(deploy_test_folder.iterdir()):
         if not xml_file.is_file() or xml_file.suffix != '.xml':
             continue
@@ -219,7 +218,7 @@ def parse_xml_results(deploy_test_folder: Path) -> List[XmlSuiteResult]:
 # Jest JSON parsing (TypeScript tests)
 # ---------------------------------------------------------------------------
 
-def _classify_jest_test_file(file_path: str) -> Optional[tuple[str, str]]:
+def _classify_jest_test_file(file_path: str) -> tuple[str, str] | None:
     """Classify a Jest test file path into (category, service_name).
 
     TypeScript test files:
@@ -272,10 +271,10 @@ def _classify_jest_test_file(file_path: str) -> Optional[tuple[str, str]]:
     return None
 
 
-def _parse_jest_json(json_path: Path) -> List[XmlSuiteResult]:
+def _parse_jest_json(json_path: Path) -> list[XmlSuiteResult]:
     """Parse a Jest JSON results file and return categorized suite results."""
     try:
-        with open(json_path, 'r', encoding='utf-8') as f:
+        with open(json_path, encoding='utf-8') as f:
             data = json.load(f)
     except (json.JSONDecodeError, FileNotFoundError):
         return []
@@ -316,7 +315,7 @@ def _parse_jest_json(json_path: Path) -> List[XmlSuiteResult]:
                 results_map[key]['skipped'] += 1
 
     # Convert to XmlSuiteResult objects
-    suite_results: List[XmlSuiteResult] = []
+    suite_results: list[XmlSuiteResult] = []
     for (category, service), counts in results_map.items():
         suite_results.append(XmlSuiteResult(
             category=category,
@@ -332,9 +331,9 @@ def _parse_jest_json(json_path: Path) -> List[XmlSuiteResult]:
     return suite_results
 
 
-def parse_jest_and_xml_results(deploy_test_folder: Path) -> List[XmlSuiteResult]:
+def parse_jest_and_xml_results(deploy_test_folder: Path) -> list[XmlSuiteResult]:
     """Parse both JUnit XML and Jest JSON files in a deploy-test folder."""
-    results: List[XmlSuiteResult] = []
+    results: list[XmlSuiteResult] = []
 
     # First try to parse Jest JSON (TypeScript tests)
     jest_json = deploy_test_folder / 'jest-deploy-results.json'
@@ -373,7 +372,7 @@ def parse_summary_log(log_file: Path) -> TestResult:
     status = "UNKNOWN"
 
     try:
-        with open(log_file, 'r', encoding='utf-8') as f:
+        with open(log_file, encoding='utf-8') as f:
             content = f.read()
 
         # Extract project path
@@ -474,7 +473,7 @@ def parse_summary_log(log_file: Path) -> TestResult:
 # Discovery
 # ---------------------------------------------------------------------------
 
-def find_all_test_results(root_dir: Path, *, detail: bool = False) -> List[TestResult]:
+def find_all_test_results(root_dir: Path, *, detail: bool = False) -> list[TestResult]:
     """
     Recursively find all .test_results folders and extract deployment test status.
 
@@ -536,8 +535,8 @@ def _shorten_path(full_path: str, root_dir: Path) -> str:
         return full_path
 
 
-def print_results(results: List[TestResult], *, detail: bool = False,
-                  root_dir: Optional[Path] = None) -> None:
+def print_results(results: list[TestResult], *, detail: bool = False,
+                  root_dir: Path | None = None) -> None:
     """
     Print the deployment test results in a formatted manner with colors.
 
@@ -658,9 +657,9 @@ def print_results(results: List[TestResult], *, detail: bool = False,
 # Markdown report generation
 # ---------------------------------------------------------------------------
 
-def generate_markdown_report(results: List[TestResult], root_dir: Path) -> str:
+def generate_markdown_report(results: list[TestResult], root_dir: Path) -> str:
     """Generate a Markdown report string from test results."""
-    lines: List[str] = []
+    lines: list[str] = []
     w = lines.append
 
     w("# Deploy Test Status Report")
@@ -683,8 +682,8 @@ def generate_markdown_report(results: List[TestResult], root_dir: Path) -> str:
 
     w("## Grand Totals")
     w("")
-    w(f"| Metric | Count |")
-    w(f"|---|---|")
+    w("| Metric | Count |")
+    w("|---|---|")
     w(f"| Total projects | {len(results)} |")
     w(f"| Projects all-green | {passed_projects} |")
     w(f"| Projects with failures | {failed_projects} |")
@@ -807,7 +806,7 @@ class _CategoryTotals:
 
 
 def _aggregate_by_category(
-    suites: List[XmlSuiteResult],
+    suites: list[XmlSuiteResult],
 ) -> tuple[_CategoryTotals, _CategoryTotals, _CategoryTotals]:
     """Aggregate suites into (spec, integration-project, integration-service)."""
     spec = _CategoryTotals()

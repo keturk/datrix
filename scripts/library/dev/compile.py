@@ -34,7 +34,7 @@ library_dir = Path(__file__).resolve().parent.parent
 if library_dir.exists() and str(library_dir) not in sys.path:
     sys.path.insert(0, str(library_dir))
 
-from shared.venv import get_datrix_root
+from shared.venv import get_datrix_root  # noqa: E402
 
 # Directories to skip during file discovery (same as syntax_checker)
 _SKIP_DIRS = frozenset({

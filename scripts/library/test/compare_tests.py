@@ -17,7 +17,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 # Same-directory helper imports. Avoid `import test.*` because it can collide
 # with the stdlib test package.
@@ -25,8 +25,7 @@ _status_script_dir = Path(__file__).resolve().parent
 if str(_status_script_dir) not in sys.path:
     sys.path.insert(0, str(_status_script_dir))
 
-from status_deploy_tests import parse_jest_and_xml_results
-
+from status_deploy_tests import parse_jest_and_xml_results  # noqa: E402
 
 UNIT_PREFIX = "unit-tests-"
 DEPLOY_PREFIX = "deploy-test-"
@@ -120,8 +119,8 @@ class ServiceComparison:
     """Latest-vs-previous comparison for one service."""
 
     service: str
-    previous: Optional[ServiceResult]
-    latest: Optional[ServiceResult]
+    previous: ServiceResult | None
+    latest: ServiceResult | None
     change: str
     history: list[str]
 
@@ -162,7 +161,7 @@ def _overall_status(services: dict[str, ServiceResult]) -> str:
     return "PASSED"
 
 
-def _parse_run_timestamp(folder_name: str, expected_prefix: str) -> Optional[datetime]:
+def _parse_run_timestamp(folder_name: str, expected_prefix: str) -> datetime | None:
     if not folder_name.startswith(expected_prefix):
         return None
     match = RUN_TIMESTAMP_RE.match(folder_name)
@@ -182,7 +181,7 @@ def _display_timestamp(timestamp: datetime) -> str:
     return timestamp.strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _read_json(path: Path) -> Optional[dict[str, Any]]:
+def _read_json(path: Path) -> dict[str, Any] | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -201,7 +200,7 @@ def _summary_project_path(summary_path: Path) -> str:
     return str(summary_path.parent.parent.parent.resolve())
 
 
-def _parse_junit_counts(xml_path: Path) -> Optional[ServiceCounts]:
+def _parse_junit_counts(xml_path: Path) -> ServiceCounts | None:
     try:
         tree = ET.parse(xml_path)
     except (ET.ParseError, OSError):
@@ -297,7 +296,7 @@ def _parse_unit_summary(run_dir: Path) -> dict[str, ServiceResult]:
         return {}
 
     services: dict[str, ServiceResult] = {}
-    current_service: Optional[str] = None
+    current_service: str | None = None
     for line in lines:
         text = _strip_error_prefix(line)
         service_match = re.match(r"Testing:\s+(.+)", text)
@@ -479,7 +478,7 @@ def find_runs(test_results_dir: Path, kind: str) -> list[TestRun]:
     return runs
 
 
-def _short_status(result: Optional[ServiceResult]) -> str:
+def _short_status(result: ServiceResult | None) -> str:
     if result is None:
         return "--"
     if result.status == "PASSED":
@@ -489,7 +488,7 @@ def _short_status(result: Optional[ServiceResult]) -> str:
     return "UNK"
 
 
-def _classify_change(previous: Optional[ServiceResult], latest: Optional[ServiceResult]) -> str:
+def _classify_change(previous: ServiceResult | None, latest: ServiceResult | None) -> str:
     if previous is None and latest is None:
         return "MISSING"
     if previous is None:
@@ -537,7 +536,7 @@ def build_service_comparisons(runs: list[TestRun]) -> list[ServiceComparison]:
     return comparisons
 
 
-def _delta_text(previous: Optional[int], latest: Optional[int]) -> str:
+def _delta_text(previous: int | None, latest: int | None) -> str:
     if previous is None and latest is None:
         return "-"
     if previous is None:
@@ -547,7 +546,7 @@ def _delta_text(previous: Optional[int], latest: Optional[int]) -> str:
     return f"{previous}->{latest} ({latest - previous:+d})"
 
 
-def _counts_delta(previous: Optional[ServiceResult], latest: Optional[ServiceResult], key: str) -> str:
+def _counts_delta(previous: ServiceResult | None, latest: ServiceResult | None, key: str) -> str:
     prev_count = getattr(previous.counts, key) if previous is not None else None
     latest_count = getattr(latest.counts, key) if latest is not None else None
     return _delta_text(prev_count, latest_count)
@@ -685,7 +684,7 @@ def print_report(test_results_dir: Path, unit_runs: list[TestRun], deploy_runs: 
     print("=" * 120)
 
 
-def _markdown_counts_delta(previous: Optional[ServiceResult], latest: Optional[ServiceResult], key: str) -> str:
+def _markdown_counts_delta(previous: ServiceResult | None, latest: ServiceResult | None, key: str) -> str:
     return _counts_delta(previous, latest, key).replace("->", " -> ")
 
 

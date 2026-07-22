@@ -453,18 +453,12 @@ def main() -> int:
     scope = "tasks" if args.include_completed else "pending tasks"
     parallel = "yes" if payload["can_parallelize"] else "no"
     print(
-        "Phase %s: %s %s -> %s waves; blockers: %s; can_parallelize: %s"
-        % (
-            format_phase(args.phase),
-            payload["task_count"],
-            scope,
-            wave_count,
-            blocker_count,
-            parallel,
-        )
+        f"Phase {format_phase(args.phase)}: {payload['task_count']} {scope} -> "
+        f"{wave_count} waves; blockers: {blocker_count}; can_parallelize: {parallel}"
     )
     if isinstance(cycle, list) and cycle:
-        print("Dependency cycle: %s" % " -> ".join(str(node) for node in cycle))
+        joined_cycle = " -> ".join(str(node) for node in cycle)
+        print(f"Dependency cycle: {joined_cycle}")
     print(f"Details: {output_path.resolve()}")
     has_cycle = isinstance(cycle, list) and bool(cycle)
     has_unschedulable = isinstance(unschedulable, list) and bool(unschedulable)

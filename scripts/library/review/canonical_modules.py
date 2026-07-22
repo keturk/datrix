@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -157,7 +157,7 @@ def load_or_build_cache(cache_path: Path, datrix_root: Path) -> dict[str, list[s
     # Write cache
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     cache_data = {
-        "built_at": datetime.now(timezone.utc).isoformat(),
+        "built_at": datetime.now(UTC).isoformat(),
         "digest": digest,
     }
     with cache_path.open("w", encoding="utf-8") as f:

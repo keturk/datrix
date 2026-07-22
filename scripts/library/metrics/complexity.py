@@ -37,13 +37,19 @@ if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
 from shared.ollama_utils import (  # noqa: E402
     OLLAMA_DEFAULT_URL,
     OLLAMA_MAX_FIX_RETRIES,
-    apply_and_verify_on_disk as _apply_and_verify_on_disk_shared,
-    call_ollama as _call_ollama_raw,
-    detect_indent as _detect_indent,
-    extract_file_context as _extract_file_context,
     parse_ollama_response,
-    run_ruff_check as _run_ruff_check_shared,
-    run_pytest as _run_pytest_shared,
+)
+from shared.ollama_utils import (  # noqa: E402
+    apply_and_verify_on_disk as _apply_and_verify_on_disk_shared,
+)
+from shared.ollama_utils import (  # noqa: E402
+    call_ollama as _call_ollama_raw,
+)
+from shared.ollama_utils import (  # noqa: E402
+    detect_indent as _detect_indent,
+)
+from shared.ollama_utils import (  # noqa: E402
+    extract_file_context as _extract_file_context,
 )
 
 try:

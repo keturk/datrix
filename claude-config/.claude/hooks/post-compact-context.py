@@ -65,7 +65,7 @@ def _abs(rel_path: str) -> str:
 
 def _read(rel_path: str) -> str:
     try:
-        with open(_abs(rel_path), "r", encoding="utf-8") as handle:
+        with open(_abs(rel_path), encoding="utf-8") as handle:
             return handle.read()
     except OSError:
         return ""
@@ -90,7 +90,7 @@ def _existing_gated_docs() -> list[tuple[str, str]]:
 def _task_status_line(task_path: str) -> str:
     """`<name> — COMPLETED|OPEN`, from the task file's own heading."""
     try:
-        with open(task_path, "r", encoding="utf-8") as handle:
+        with open(task_path, encoding="utf-8") as handle:
             head = handle.read(2048)
     except OSError:
         return ""

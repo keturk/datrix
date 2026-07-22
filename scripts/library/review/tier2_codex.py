@@ -8,9 +8,9 @@ import subprocess
 from pathlib import Path
 
 try:
-    from review_schema import ReviewResult, Finding
+    from review_schema import Finding, ReviewResult
 except ImportError:
-    from .review_schema import ReviewResult, Finding
+    from .review_schema import Finding, ReviewResult
 
 logger = logging.getLogger(__name__)
 
@@ -144,8 +144,8 @@ def invoke_tier2_codex(
     except FileNotFoundError:
         logger.error("codex_not_found command=%s", codex_cmd)
         print(
-            f"\nERROR: Codex CLI not found. "
-            f"Install from: https://github.com/anthropics/codex-cli"
+            "\nERROR: Codex CLI not found. "
+            "Install from: https://github.com/anthropics/codex-cli"
         )
         return None
 

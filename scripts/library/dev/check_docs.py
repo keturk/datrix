@@ -50,9 +50,10 @@ library_dir = Path(__file__).resolve().parent.parent
 if library_dir.exists() and str(library_dir) not in sys.path:
     sys.path.insert(0, str(library_dir))
 
-from shared.venv import get_datrix_root  # noqa: E402
-from shared.ollama_utils import OLLAMA_DEFAULT_URL, call_ollama as _call_ollama  # noqa: E402
 from shared.logging_utils import ColorCodes, colorize  # noqa: E402
+from shared.ollama_utils import OLLAMA_DEFAULT_URL  # noqa: E402
+from shared.ollama_utils import call_ollama as _call_ollama  # noqa: E402
+from shared.venv import get_datrix_root  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

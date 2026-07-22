@@ -92,7 +92,7 @@ def _required_docs() -> list[tuple[str, str]]:
 
 def _entries(transcript_path: str) -> list[dict[str, object]]:
     try:
-        with open(transcript_path, "r", encoding="utf-8", errors="ignore") as handle:
+        with open(transcript_path, encoding="utf-8", errors="ignore") as handle:
             lines = handle.readlines()
     except OSError:
         return []
@@ -193,7 +193,7 @@ def _state_signal(session_id: str) -> tuple[bool, set[str]]:
     if not os.path.isfile(state_path):
         return False, set()
     try:
-        with open(state_path, "r", encoding="utf-8") as handle:
+        with open(state_path, encoding="utf-8") as handle:
             state = json.load(handle)
     except (OSError, json.JSONDecodeError):
         return False, set()

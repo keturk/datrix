@@ -11,12 +11,12 @@ import json
 import logging
 import re
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from shared.codegen_hint_mapper import CodegenHint, get_codegen_hint
+from shared.codegen_hint_mapper import get_codegen_hint
 
 logger = logging.getLogger(__name__)
 

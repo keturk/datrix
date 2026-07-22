@@ -29,8 +29,9 @@ library_dir = Path(__file__).resolve().parent.parent
 if library_dir.exists() and str(library_dir) not in sys.path:
     sys.path.insert(0, str(library_dir))
 
-from shared.ollama_utils import OLLAMA_DEFAULT_URL, call_ollama as _call_ollama
-from shared.venv import get_datrix_root
+from shared.ollama_utils import OLLAMA_DEFAULT_URL  # noqa: E402
+from shared.ollama_utils import call_ollama as _call_ollama  # noqa: E402
+from shared.venv import get_datrix_root  # noqa: E402
 
 # Patterns for placeholder scan (path -> list of (line_no, line_text))
 PATTERN_PASS = re.compile(r"\bpass\b")
@@ -126,7 +127,6 @@ def write_report(
             for path, line, msg in sorted(syntax_errors):
                 f.write(f"- `{path}` line {line}: {msg}\n")
         f.write("\n## Placeholder scan\n\n")
-        total_hits = len(actionable_hits) + len(allowlisted_hits)
         f.write(
             f"**Actionable:** {len(actionable_hits)} files "
             f"(allowlisted excluded: {len(allowlisted_hits)}).\n\n"

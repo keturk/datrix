@@ -12,6 +12,7 @@ Usage:
 import argparse
 import atexit
 import json
+import logging
 import os
 import re
 import shutil
@@ -19,10 +20,12 @@ import signal
 import subprocess
 import sys
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Mapping, Optional, Tuple
+from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # Sentinel: git SHA not yet resolved from disk (env vars checked first each call).
 _GIT_HEAD_SHA_UNSET = object()
@@ -40,14 +43,18 @@ library_dir = Path(__file__).parent.parent
 if library_dir.exists() and str(library_dir) not in sys.path:
     sys.path.insert(0, str(library_dir))
 
-from shared.venv import get_datrix_root, get_venv_python
-from shared.logging_utils import LogConfig, TeeLogger, ColorCodes, colorize
-from shared.test_projects import get_test_projects, get_default_output_path
-from shared.generated_test_log_writer import GeneratedTestLogWriter
-from shared.aggregate_test_writer import AggregateTestWriter
-from shared.deploy_test_log_writer import DeployTestLogWriter
-from shared.deploy_test_aggregate_writer import DeployTestAggregateWriter
-from shared.ollama_utils import OLLAMA_DEFAULT_URL, call_ollama as _call_ollama
+from shared.aggregate_test_writer import AggregateTestWriter  # noqa: E402
+from shared.deploy_test_aggregate_writer import DeployTestAggregateWriter  # noqa: E402
+from shared.deploy_test_log_writer import DeployTestLogWriter  # noqa: E402
+from shared.generated_test_log_writer import GeneratedTestLogWriter  # noqa: E402
+from shared.logging_utils import ColorCodes, colorize  # noqa: E402
+from shared.ollama_utils import OLLAMA_DEFAULT_URL  # noqa: E402
+from shared.ollama_utils import call_ollama as _call_ollama  # noqa: E402
+from shared.test_projects import (  # noqa: E402
+    get_default_output_path,
+    get_test_projects,
+)
+from shared.venv import get_datrix_root, get_venv_python  # noqa: E402
 
 # Global set to track all active subprocesses
 _active_processes = set()
@@ -143,7 +150,7 @@ def _strip_ansi(line: str) -> str:
 
 
 
-def _try_git_rev_parse(repo: Path) -> Optional[str]:
+def _try_git_rev_parse(repo: Path) -> str | None:
     """Return current HEAD SHA if ``repo`` is a git checkout, else None."""
     try:
         if not repo.is_dir():
@@ -167,7 +174,7 @@ def _try_git_rev_parse(repo: Path) -> Optional[str]:
     return None
 
 
-def get_datrix_repo_sha() -> Optional[str]:
+def get_datrix_repo_sha() -> str | None:
     """SHA of the datrix repo for provenance (env override, else ``git rev-parse`` at datrix root)."""
     env_sha = (os.environ.get("DATRIX_REPO_SHA") or os.environ.get("DATRIX_CODEGEN_SHA") or "").strip()
     if env_sha:
@@ -186,12 +193,12 @@ def get_datrix_repo_sha() -> Optional[str]:
 
 def run_command(
     cmd: list[str],
-    cwd: Optional[Path] = None,
+    cwd: Path | None = None,
     description: str = "",
     capture_output: bool = False,
-    log_file: Optional[Path] = None,
-    env_overrides: Optional[Mapping[str, str]] = None,
-) -> Tuple[bool, Optional[str]]:
+    log_file: Path | None = None,
+    env_overrides: Mapping[str, str] | None = None,
+) -> tuple[bool, str | None]:
     """
     Run a command and return True if successful
 
@@ -368,7 +375,7 @@ def run_command(
             raise
 
     if returncode == 0:
-        print_success(f"[OK] Success")
+        print_success("[OK] Success")
         return True, output
     else:
         print_error(f"[FAILED] Exit code: {returncode}")
@@ -510,7 +517,7 @@ def _print_llm_post_run_summary(args: argparse.Namespace, paths: dict[str, Path]
     print(text, flush=True)
 
 
-def _find_powershell() -> Optional[str]:
+def _find_powershell() -> str | None:
     """Find PowerShell executable (pwsh preferred, powershell on Windows)."""
     import platform as platform_mod
 
@@ -546,12 +553,12 @@ def step1_syntax_checker(paths: dict[str, Path]) -> bool:
 def step2_generate(
     all_examples: bool,
     paths: dict[str, Path],
-    example_path: Optional[str] = None,
-    output_path: Optional[str] = None,
+    example_path: str | None = None,
+    output_path: str | None = None,
     language: str = "python",
     platform: str = "docker",
     test_set: str = "all",
-    hosting: Optional[str] = None,
+    hosting: str | None = None,
 ) -> bool:
     """Step 2: Generate examples via generate.ps1.
 
@@ -732,7 +739,7 @@ def _sanitize_log_filename(name: str) -> str:
 def _save_docker_logs_for_project(
     project: Path,
     deploy_test_dir: Path,
-    project_slug: Optional[str] = None,
+    project_slug: str | None = None,
 ) -> None:
     """
     Discover containers for the project via docker compose and save each container's
@@ -961,7 +968,7 @@ def save_test_summary_log(
     total_failed_tests: int,
     total_error_tests: int,
     total_skipped_tests: int,
-    step5_output_dir: Optional[Path] = None,
+    step5_output_dir: Path | None = None,
 ) -> Path:
     """Save test summary to a log file.
 
@@ -990,7 +997,7 @@ def save_test_summary_log(
         f.write(f" Successful Projects: {success_count}\n")
         f.write(f" Failed Projects: {fail_count}\n")
         f.write("\n")
-        f.write(f"Total Tests:\n")
+        f.write("Total Tests:\n")
         f.write(f" Passed: {total_passed_tests}\n")
         f.write(f" Failed: {total_failed_tests}\n")
         f.write(f" Errors: {total_error_tests}\n")
@@ -1180,12 +1187,12 @@ def _is_typescript_project(project: Path) -> bool:
     return len(_find_ts_service_dirs(project)) > 0
 
 
-def _find_pnpm() -> Optional[str]:
+def _find_pnpm() -> str | None:
     """Find pnpm executable on the system."""
     return shutil.which("pnpm")
 
 
-def _find_typescript_root(project: Path) -> Optional[Path]:
+def _find_typescript_root(project: Path) -> Path | None:
     """Find the TypeScript output root by walking up path components.
 
     Looks for a path component named ``typescript``, then returns the
@@ -1215,7 +1222,7 @@ def _run_pnpm_install(
     service_dir: Path,
     label: str,
     parallel: bool,
-    install_log: Optional[Path] = None,
+    install_log: Path | None = None,
 ) -> bool:
     """Run pnpm install for a TypeScript service if node_modules is missing."""
     node_modules = service_dir / "node_modules"
@@ -1410,7 +1417,7 @@ def _produce_structured_output(
     platform: str,
     results_dir: Path,
     duration_seconds: float,
-) -> Optional[Path]:
+) -> Path | None:
     """Produce structured test output (index.json, summary.txt, error files).
 
     Scans the results directory for JUnit XML (Python) or Jest JSON
@@ -1532,7 +1539,7 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
         stats = parse_test_statistics(output) if output else empty_stats
 
         # Produce structured output from JUnit XML (if available)
-        index_path: Optional[Path] = None
+        index_path: Path | None = None
         test_results_base = project / ".test_results"
         if test_results_base.is_dir():
             # Find the latest unit-tests-* directory
@@ -1722,7 +1729,7 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
     }
 
 
-def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path: Optional[str] = None, test_set: Optional[str] = None, language: str = "python", platform: str = "docker", verbose: bool = False) -> bool:
+def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path: str | None = None, test_set: str | None = None, language: str = "python", platform: str = "docker", verbose: bool = False) -> bool:
     """Step 3: Run unit tests for generated projects using unit_tests.py"""
     if all_examples:
         print_step(3, "Run Unit Tests for Generated Projects")
@@ -1753,7 +1760,7 @@ def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path
             return True
 
         print_info(f"Found {len(projects)} generated projects to test")
-        print_info(f"Running projects sequentially (services within each project run in parallel)...")
+        print_info("Running projects sequentially (services within each project run in parallel)...")
         print()
 
         # Run projects SEQUENTIALLY (one at a time)
@@ -1880,7 +1887,7 @@ def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path
         print_info(f" Successful Projects: {success_count}")
         print_info(f" Failed Projects: {fail_count}")
         print_info("")
-        print_info(f"Total Tests:")
+        print_info("Total Tests:")
         print_info(f" Passed: {total_passed_tests}")
         if total_failed_tests > 0:
             print_error(f" Failed: {total_failed_tests}")
@@ -1984,7 +1991,7 @@ def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path
 
 
 
-def step4_run_deployment_tests(all_examples: bool, paths: dict[str, Path], output_path: Optional[str] = None, test_set: Optional[str] = None, language: str = "python", platform: str = "docker", verbose: bool = False) -> bool:
+def step4_run_deployment_tests(all_examples: bool, paths: dict[str, Path], output_path: str | None = None, test_set: str | None = None, language: str = "python", platform: str = "docker", verbose: bool = False) -> bool:
     """Step 4: Run deployment tests (spec + integration) for generated projects using deploy_test.py"""
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 
@@ -2125,7 +2132,7 @@ def step4_run_deployment_tests(all_examples: bool, paths: dict[str, Path], outpu
         print_info(f" Successful Projects: {success_count}")
         print_info(f" Failed Projects: {fail_count}")
         print_info("")
-        print_info(f"Total Tests:")
+        print_info("Total Tests:")
         print_info(f" Passed: {total_passed_tests}")
         if total_failed_tests > 0:
             print_error(f" Failed: {total_failed_tests}")
@@ -2251,7 +2258,7 @@ def _write_deploy_structured_output(
     paths: dict[str, Path],
     timestamp: str,
     language: str,
-) -> Optional[Path]:
+) -> Path | None:
     """Write structured deploy test output for a project (advisory — never fails the pipeline).
 
     Returns:
@@ -2268,7 +2275,6 @@ def _write_deploy_structured_output(
             example = str(project.name)
 
         # Resolve .dtrx source from example path
-        datrix_root = paths["datrix_root"]
         dtrx_source = f"datrix/examples/{example}/system.dtrx"
 
         writer = DeployTestLogWriter(
@@ -2481,14 +2487,14 @@ def _run_single_project_deploy_tests(
                 env_example = project / ".env.example"
                 if env_example.exists():
                     shutil.copy2(env_example, env_file)
-                    print_info(f" [compose] Copied .env.example -> .env")
+                    print_info(" [compose] Copied .env.example -> .env")
                 else:
                     env_file.write_text("# Auto-created for deploy tests\n", encoding="utf-8")
-                    print_info(f" [compose] Created empty .env (no .env.example found)")
+                    print_info(" [compose] Created empty .env (no .env.example found)")
 
             try:
                 # Tear down any leftover containers
-                print_info(f" [compose] Tearing down previous containers...")
+                print_info(" [compose] Tearing down previous containers...")
                 run_command(
                     ["docker", "compose", "-f", str(compose_file), "down", "-v", "--remove-orphans"],
                     cwd=project,
@@ -2496,7 +2502,7 @@ def _run_single_project_deploy_tests(
                 )
 
                 # Build images
-                print_info(f" [compose] Building images...")
+                print_info(" [compose] Building images...")
                 build_ok, build_output = run_command(
                     ["docker", "compose", "-f", str(compose_file), "build", "--no-cache"],
                     cwd=project,
@@ -2532,7 +2538,7 @@ def _run_single_project_deploy_tests(
                     return result
 
                 # Start services
-                print_info(f" [compose] Starting services...")
+                print_info(" [compose] Starting services...")
                 run_command(
                     ["docker", "compose", "-f", str(compose_file), "up", "-d"],
                     cwd=project,
@@ -2645,7 +2651,7 @@ def _run_single_project_deploy_tests(
     return {"name": project_name, "success": False, **empty_stats}
 
 
-def step5_run_deployment_tests(all_examples: bool, paths: dict[str, Path], output_path: Optional[str] = None, test_set: Optional[str] = None, language: str = "python", platform: str = "docker", verbose: bool = False) -> bool:
+def step5_run_deployment_tests(all_examples: bool, paths: dict[str, Path], output_path: str | None = None, test_set: str | None = None, language: str = "python", platform: str = "docker", verbose: bool = False) -> bool:
     """Step 5: Run deployment/integration tests for generated projects using deploy_test.py"""
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 

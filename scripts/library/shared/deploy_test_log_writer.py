@@ -14,7 +14,6 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from .structured_log_writer import (
     _ANSI_ESCAPE,
@@ -157,9 +156,9 @@ class PhaseResult:
 
     result: str  # "PASSED", "FAILED", "SKIPPED"
     duration_seconds: float = 0.0
-    error_message: Optional[str] = None
+    error_message: str | None = None
     relevant_containers: list[str] = field(default_factory=list)
-    counts: Optional[dict[str, int]] = None  # For test phases
+    counts: dict[str, int] | None = None  # For test phases
 
 
 @dataclass(frozen=True)
@@ -197,8 +196,8 @@ class DeployFailure:
     error_message: str
     failure_type: str  # "logic" or "transient"
     traceback_text: str
-    generated_file: Optional[str]
-    codegen_hint: Optional[dict[str, str]]
+    generated_file: str | None
+    codegen_hint: dict[str, str] | None
 
 
 @dataclass(frozen=True)
@@ -209,10 +208,10 @@ class DeployError:
     phase: str
     error_type: str
     error_message: str
-    container: Optional[str]
-    docker_log_file: Optional[str]
-    generated_file: Optional[str]
-    codegen_hint: Optional[dict[str, str]]
+    container: str | None
+    docker_log_file: str | None
+    generated_file: str | None
+    codegen_hint: dict[str, str] | None
 
 
 @dataclass
@@ -226,7 +225,7 @@ class DeployFailureCluster:
     member_ids: list[int] = field(default_factory=list)
     services_affected: list[str] = field(default_factory=list)
     representative_id: int = 0
-    codegen_hint: Optional[dict[str, str]] = None
+    codegen_hint: dict[str, str] | None = None
 
 
 @dataclass
@@ -239,7 +238,7 @@ class DeployErrorCluster:
     member_ids: list[int] = field(default_factory=list)
     services_affected: list[str] = field(default_factory=list)
     representative_id: int = 0
-    codegen_hint: Optional[dict[str, str]] = None
+    codegen_hint: dict[str, str] | None = None
 
 
 class DeployTestLogWriter:
@@ -471,7 +470,7 @@ class DeployTestLogWriter:
             return phases
 
         lines = log_content.splitlines()
-        current_phase: Optional[str] = None
+        current_phase: str | None = None
         phase_lines: dict[str, list[str]] = {p: [] for p in DEPLOY_PHASES}
 
         # Track which phases were reached in log
@@ -793,7 +792,7 @@ class DeployTestLogWriter:
 
             # Determine generated file
             test_file = str(result.get("test_file", ""))
-            generated_file: Optional[str] = (
+            generated_file: str | None = (
                 test_file if failure_type == "logic" else None
             )
 
@@ -1028,7 +1027,7 @@ class DeployTestLogWriter:
                 for container in sorted(phase.relevant_containers):
                     docker_log_file = f"docker-logs/{container}.log"
                     log_path = self._run_dir / "docker-logs" / f"{container}.log"
-                    actual_log_file: Optional[str] = (
+                    actual_log_file: str | None = (
                         docker_log_file if log_path.exists() else None
                     )
 
@@ -1234,8 +1233,8 @@ class DeployTestLogWriter:
         self,
         phase: str,
         error_type: str,
-        container: Optional[str],
-    ) -> Optional[dict[str, str]]:
+        container: str | None,
+    ) -> dict[str, str] | None:
         """Generate a best-effort codegen hint for a failure/error.
 
         Maps phase + error type + container to probable template/generator.
@@ -1308,7 +1307,7 @@ class DeployTestLogWriter:
         self,
         timestamp: datetime,
         result: str,
-        failed_phase: Optional[str],
+        failed_phase: str | None,
         total_duration: float,
         phases: dict[str, PhaseResult],
         services: list[ServiceStatus],
@@ -1450,7 +1449,7 @@ class DeployTestLogWriter:
         self,
         timestamp: datetime,
         result: str,
-        failed_phase: Optional[str],
+        failed_phase: str | None,
         total_duration: float,
         phases: dict[str, PhaseResult],
         services: list[ServiceStatus],
@@ -1507,7 +1506,7 @@ class DeployTestLogWriter:
                 )
                 extra = ""
                 if phase.counts:
-                    extra = f"  (all passed)"
+                    extra = "  (all passed)"
                 lines.append(
                     f"  {marker} {phase_name:<17}{duration_str}{extra}"
                 )
@@ -1882,7 +1881,7 @@ class DeployTestLogWriter:
 
     def _determine_result(
         self, phases: dict[str, PhaseResult]
-    ) -> tuple[str, Optional[str]]:
+    ) -> tuple[str, str | None]:
         """Determine overall result and the first failed phase.
 
         Args:
@@ -1938,8 +1937,8 @@ class DeployTestLogWriter:
         return f"{phase.replace('-', '_')}_error".title().replace("_", "")
 
     def _get_generated_file_for_phase(
-        self, phase: str, container: Optional[str]
-    ) -> Optional[str]:
+        self, phase: str, container: str | None
+    ) -> str | None:
         """Get the most likely generated file for a phase failure.
 
         Args:

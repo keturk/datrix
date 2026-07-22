@@ -12,7 +12,6 @@ so that services connecting to the same server share a single node.
 from __future__ import annotations
 
 import logging
-from collections import defaultdict
 from typing import TYPE_CHECKING
 
 from .svg_common import (
@@ -22,7 +21,6 @@ from .svg_common import (
     HEADER_BG,
     HEADER_FG,
     SVG_PAD,
-    TEXT_MUTED,
     TEXT_SECONDARY,
     arrow_marker_def,
     esc,

@@ -11,7 +11,10 @@ _library_dir = Path(__file__).resolve().parent.parent
 if str(_library_dir) not in sys.path:
     sys.path.insert(0, str(_library_dir))
 
-from test.status_tests import _extract_counts_from_summary_line, find_all_test_results
+from test.status_tests import (  # noqa: E402
+    _extract_counts_from_summary_line,
+    find_all_test_results,
+)
 
 
 def test_extract_counts_from_summary_line_real_summary_returns_counts() -> None:

@@ -56,6 +56,7 @@ if _library_dir.exists() and str(_library_dir) not in sys.path:
     sys.path.insert(0, str(_library_dir))
 
 from shared.venv import get_datrix_root  # noqa: E402
+
 from dev.logic_map import iter_python_files, resolve_scan_paths  # noqa: E402
 
 LOG = logging.getLogger("generate_test_rules")

@@ -23,10 +23,10 @@ import ast
 import io
 import sys
 from collections import defaultdict
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator
 
 if sys.platform == "win32" and __name__ == "__main__":
     if hasattr(sys.stdout, "buffer"):
@@ -38,7 +38,7 @@ _library_dir = Path(__file__).resolve().parent.parent
 if _library_dir.exists() and str(_library_dir) not in sys.path:
     sys.path.insert(0, str(_library_dir))
 
-from shared.venv import get_datrix_root
+from shared.venv import get_datrix_root  # noqa: E402
 
 
 @dataclass(frozen=True)

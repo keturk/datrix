@@ -10,7 +10,6 @@ import logging
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +46,7 @@ class DeployTestAggregateWriter:
         self,
         project_index_paths: list[Path],
         timestamp: datetime,
-        full_log_path: Optional[Path] = None,
+        full_log_path: Path | None = None,
     ) -> Path:
         """Write aggregate output files.
 

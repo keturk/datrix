@@ -8,7 +8,7 @@ _library_dir = Path(__file__).resolve().parent.parent
 if str(_library_dir) not in sys.path:
     sys.path.insert(0, str(_library_dir))
 
-from test.run_complete import parse_test_statistics
+from test.run_complete import parse_test_statistics  # noqa: E402
 
 
 def test_single_pytest_session_passed_only() -> None:

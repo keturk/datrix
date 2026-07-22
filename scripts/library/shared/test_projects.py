@@ -8,7 +8,6 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import List, Optional
 
 from shared.venv import get_datrix_root
 
@@ -17,7 +16,7 @@ _datrix_root = get_datrix_root()
 _datrix_common_src = _datrix_root / "datrix-common" / "src"
 if _datrix_common_src.exists() and str(_datrix_common_src) not in sys.path:
     sys.path.insert(0, str(_datrix_common_src))
-from datrix_common import DATRIX_FILE_EXTENSION
+from datrix_common import DATRIX_FILE_EXTENSION  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -227,7 +226,7 @@ def get_test_projects(
  language: str = "python",
  runtime: str = DEFAULT_RUNTIME,
  profile: str = DEFAULT_PROFILE,
-) -> List[dict]:
+) -> list[dict]:
  """
  Get project definitions for a test set.
 
@@ -310,7 +309,7 @@ def get_test_projects(
  return projects
 
 
-def get_project_by_name(name: str) -> Optional[dict]:
+def get_project_by_name(name: str) -> dict | None:
  """
  Get a single project definition by name.
 
@@ -331,7 +330,7 @@ def get_project_by_name(name: str) -> Optional[dict]:
  return None
 
 
-def list_test_sets() -> List[str]:
+def list_test_sets() -> list[str]:
  """
  Get a list of all available test set names.
 
@@ -342,7 +341,7 @@ def list_test_sets() -> List[str]:
  return list(config.get("testSets", {}).keys())
 
 
-def list_projects() -> List[str]:
+def list_projects() -> list[str]:
  """
  Get a list of all available project names.
 

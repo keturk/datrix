@@ -17,7 +17,6 @@ from .traversal import (
     all_cqrs_with_service,
     all_endpoints_with_service,
     all_entities_with_service,
-    all_events_with_context,
     all_relationships_with_context,
     all_subscriptions_with_context,
     service_dependency_edges,
@@ -25,7 +24,6 @@ from .traversal import (
 
 if TYPE_CHECKING:
     from datrix_common.datrix_model.containers import Application, Service
-    from datrix_common.datrix_model.entity import Entity
 
 # ── Cardinality map (extracted from doc_generator.py, with MANY_TO_MANY added) ──
 

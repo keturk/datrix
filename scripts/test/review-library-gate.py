@@ -33,7 +33,7 @@ import json
 import sys
 import tempfile
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
@@ -123,7 +123,7 @@ def _check_review_result_construction() -> None:
         model="qwen2.5-coder:14b",
         scope="task",
         target="task-43-01-foo.md",
-        generated_at=datetime.now(timezone.utc).isoformat(),
+        generated_at=datetime.now(UTC).isoformat(),
         verdict="pass",
         findings=[],
         summary="All checks passed.",
@@ -232,7 +232,7 @@ def _check_cache_validity_fresh_cache_with_no_git_repo_is_valid() -> None:
         (root / "datrix-common/src").mkdir(parents=True)
         cache_path = root / "cache.json"
         cache_path.write_text(
-            json.dumps({"built_at": datetime.now(timezone.utc).isoformat(), "digest": {}}),
+            json.dumps({"built_at": datetime.now(UTC).isoformat(), "digest": {}}),
             encoding="utf-8",
         )
 

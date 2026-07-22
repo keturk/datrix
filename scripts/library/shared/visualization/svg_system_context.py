@@ -14,14 +14,12 @@ from collections import defaultdict
 from typing import TYPE_CHECKING
 
 from .svg_common import (
-    CARD_BG,
     CARD_STROKE,
     CORNER_R,
     FONT,
     HEADER_BG,
     HEADER_FG,
     SVG_PAD,
-    TEXT_MUTED,
     arrow_marker_def,
     esc,
     render_bezier_edge,

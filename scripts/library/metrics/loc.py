@@ -91,8 +91,7 @@ def main() -> int:
             cmd,
             text=True,
             cwd=str(project_root),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
         )
     except FileNotFoundError:
         print(

@@ -65,8 +65,8 @@ def _parse_and_snapshot(
         return False, f"Source file not found: {source_path}"
 
     try:
-        from datrix_language.parser import TreeSitterParser
         from datrix_common.semantic import SemanticAnalyzer
+        from datrix_language.parser import TreeSitterParser
 
         parser = TreeSitterParser()
         ast = parser.parse_file(source_path)

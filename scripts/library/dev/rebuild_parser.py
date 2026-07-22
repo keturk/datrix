@@ -24,7 +24,6 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 # Add datrix-common to path for logging
 _script_dir = Path(__file__).resolve().parent
@@ -32,7 +31,7 @@ _datrix_root = _script_dir.parent.parent.parent
 _core_src = _datrix_root / "datrix-common" / "src"
 if _core_src.exists() and str(_core_src) not in sys.path:
     sys.path.insert(0, str(_core_src))
-from datrix_common.logging import get_logger
+from datrix_common.logging import get_logger  # noqa: E402
 
 logger = get_logger(__name__)
 
@@ -56,7 +55,7 @@ def print_colored(message: str, color: str = '') -> None:
         print(message)
 
 
-def find_vcvarsall() -> Optional[Path]:
+def find_vcvarsall() -> Path | None:
     """
     Find Visual Studio vcvarsall.bat on Windows
 
@@ -183,11 +182,13 @@ def setup_msvc_environment() -> bool:
         # Clean up temporary batch file
         try:
             os.unlink(bat_path)
-        except:
+        except OSError:
+            # Best-effort cleanup of our own temp batch file; a failure here must
+            # not mask the build result this `finally` is unwinding from.
             pass
 
 
-def try_commands(commands: List[List[str]], success_check: callable) -> Tuple[bool, Optional[str]]:
+def try_commands(commands: list[list[str]], success_check: callable) -> tuple[bool, str | None]:
     """
     Try a list of commands until one succeeds
 
@@ -358,7 +359,7 @@ def rebuild_parser(force: bool = False) -> int:
                 capture_output=True
             )
             print_colored("Tree-sitter config initialized", Colors.GRAY)
-        except:
+        except (OSError, subprocess.SubprocessError):
             # If this fails, it's not critical - tree-sitter will work without it
             pass
 
@@ -444,7 +445,7 @@ def rebuild_parser(force: bool = False) -> int:
                     print_colored(f"Removed old library: {lib_name}", Colors.GRAY)
                 except OSError as delete_error:
                     if platform.system() == 'Windows':
-                        print_colored(f"Warning: Cannot remove old library (file may be in use): {lib_name}", Colors.YELLOW)
+                        print_colored(f"Warning: Cannot remove old library (file may be in use): {lib_name}: {delete_error}", Colors.YELLOW)
                     old_lib_path = None
 
         # Try tree-sitter CLI first, then npx as fallback

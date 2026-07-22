@@ -50,7 +50,7 @@ _library_dir = Path(__file__).resolve().parent.parent
 if _library_dir.exists() and str(_library_dir) not in sys.path:
     sys.path.insert(0, str(_library_dir))
 
-from shared.venv import get_datrix_root
+from shared.venv import get_datrix_root  # noqa: E402
 
 # scripts/library/dev -> scripts/library -> scripts -> scripts/config/semgrep-rules
 _RULES_DIR = Path(__file__).resolve().parent.parent.parent / "config" / "semgrep-rules"
@@ -439,7 +439,7 @@ def scan_with_rules(
         json_output, exit_code = run_semgrep(rule_path, targets, json_output=True)
 
         if exit_code == 127:
-            print(f" SEMGREP NOT FOUND")
+            print(" SEMGREP NOT FOUND")
             print(json_output, file=sys.stderr)
             raise RuntimeError("semgrep not found")
 

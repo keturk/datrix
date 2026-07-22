@@ -33,7 +33,7 @@ _library_dir = Path(__file__).resolve().parent.parent
 if _library_dir.exists() and str(_library_dir) not in sys.path:
     sys.path.insert(0, str(_library_dir))
 
-from shared.venv import get_datrix_root
+from shared.venv import get_datrix_root  # noqa: E402
 
 # Kind display order and labels
 _KIND_ORDER = ["canonical", "boundary", "pattern", "invariant", "test-rule"]
@@ -245,8 +245,8 @@ def _build_report(markers: list[dict[str, object]], db_path: Path) -> str:
     lines.append("")
     lines.append("## Summary")
     lines.append("")
-    lines.append(f"| Metric | Count |")
-    lines.append(f"|--------|-------|")
+    lines.append("| Metric | Count |")
+    lines.append("|--------|-------|")
     lines.append(f"| Total markers | {len(markers)} |")
     for kind in _KIND_ORDER:
         if kind in kind_counts:

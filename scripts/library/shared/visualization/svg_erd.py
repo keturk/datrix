@@ -235,7 +235,6 @@ def _assign_levels(cards: list[_EntityCard], edges: list[_RelEdge]) -> None:
     than child entities (the "*" side).
     """
     card_names = {c.name for c in cards}
-    card_map = {c.name: c for c in cards}
 
     # child -> parent (from 1-to-many edges)
     parent_of: dict[str, str] = {}

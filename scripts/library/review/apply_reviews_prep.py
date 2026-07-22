@@ -51,8 +51,9 @@ library_dir = Path(__file__).resolve().parent.parent
 if library_dir.exists() and str(library_dir) not in sys.path:
     sys.path.insert(0, str(library_dir))
 
-from review.review_schema import Finding
-from shared.venv import get_datrix_root
+from shared.venv import get_datrix_root  # noqa: E402
+
+from review.review_schema import Finding  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -383,20 +384,14 @@ def main() -> int:
     target_count = len(targets) if isinstance(targets, list) else 0
     if artifact_count == 0:
         print(
-            "No review files found for phase %s (source=%s) under %s"
-            % (phase_label, args.source, base_dir)
+            f"No review files found for phase {phase_label} "
+            f"(source={args.source}) under {base_dir}"
         )
     else:
         print(
-            "Phase %s: %s findings across %s targets from %s artifact(s); "
-            "skipped already-applied: %s"
-            % (
-                phase_label,
-                payload["total"],
-                target_count,
-                artifact_count,
-                payload["skipped_already_applied"],
-            )
+            f"Phase {phase_label}: {payload['total']} findings across "
+            f"{target_count} targets from {artifact_count} artifact(s); "
+            f"skipped already-applied: {payload['skipped_already_applied']}"
         )
     print(f"Details: {output_path.resolve()}")
     return EXIT_DONE

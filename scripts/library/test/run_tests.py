@@ -20,8 +20,8 @@ import argparse
 import shutil
 import subprocess
 import sys
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 # Ensure stdout/stderr handle Unicode (child scripts may emit rich output)
 if hasattr(sys.stdout, "reconfigure"):
@@ -33,7 +33,7 @@ library_dir = Path(__file__).resolve().parent.parent
 if library_dir.exists() and str(library_dir) not in sys.path:
     sys.path.insert(0, str(library_dir))
 
-from shared.venv import get_datrix_root
+from shared.venv import get_datrix_root  # noqa: E402
 
 LANGUAGE_PYTHON = "python"
 LANGUAGE_TYPESCRIPT = "typescript"
@@ -67,7 +67,7 @@ def _resolve_powershell_executable() -> str:
     powershell = shutil.which("powershell")
     if powershell:
         return powershell
-    raise EnvironmentError(
+    raise OSError(
         "Neither 'pwsh' nor 'powershell' was found on PATH. "
         "Install PowerShell Core (pwsh) or Windows PowerShell to run Datrix .ps1 scripts."
     )

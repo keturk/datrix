@@ -5,7 +5,6 @@ Produces typed diff results classifying changes as breaking or non-breaking.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 

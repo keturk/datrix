@@ -33,6 +33,8 @@ _LIBRARY = Path(__file__).resolve().parent.parent
 if str(_LIBRARY) not in sys.path:
     sys.path.insert(0, str(_LIBRARY))
 
+from shared.venv import get_datrix_root  # noqa: E402
+
 from dev.libcst_scanner import (  # noqa: E402
     SKIP_DIRS,
     resolve_scan_paths,
@@ -43,7 +45,7 @@ from dev.semgrep_scanner import (  # noqa: E402
     resolve_scan_targets,
     scan_with_rules,
 )
-from shared.venv import get_datrix_root  # noqa: E402
+
 
 def _discover_projects(datrix_root: Path) -> list[str]:
     """Return every ``datrix-*`` package that has a ``src/`` tree, sorted.

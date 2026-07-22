@@ -32,6 +32,8 @@ if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
 
 from shared.ollama_utils import (  # noqa: E402
     OLLAMA_DEFAULT_URL,
+)
+from shared.ollama_utils import (  # noqa: E402
     call_ollama as _call_ollama,
 )
 

@@ -6,15 +6,14 @@ finds the latest test-results-* directory (reading index.json for structured dat
 and reports test statistics.
 """
 
-import json
 import importlib.util
+import json
 import logging
 import re
 import sys
-from pathlib import Path
-from datetime import datetime
-from typing import List, Optional
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -84,14 +83,14 @@ class TestResult:
  timestamp: str
  log_file: str
  phases: dict # {'Parallel': PhaseResult, 'Serial': PhaseResult, 'Tests': PhaseResult}
- progress_percent: Optional[int] = None
+ progress_percent: int | None = None
 
 
 # Retired packages (merged into datrix-common); excluded from status report.
 RETIRED_PROJECTS = frozenset({"datrix-core", "datrix-codegen"})
 
 
-def get_datrix_projects(datrix_root: Path) -> List[str]:
+def get_datrix_projects(datrix_root: Path) -> list[str]:
  """
  Get list of active datrix projects that have tests directory.
  Excludes retired projects (datrix-core, datrix-codegen) merged into datrix-common.
@@ -129,7 +128,7 @@ def _no_log_result(project_dir: Path) -> TestResult:
  )
 
 
-def parse_timestamp_from_log_file(log_file_name: str) -> Optional[datetime]:
+def parse_timestamp_from_log_file(log_file_name: str) -> datetime | None:
  """
  Parse timestamp from a test results directory name.
 
@@ -152,7 +151,7 @@ def parse_timestamp_from_log_file(log_file_name: str) -> Optional[datetime]:
  return None
 
 
-def _read_index_json(index_path: Path) -> Optional[TestResult]:
+def _read_index_json(index_path: Path) -> TestResult | None:
  """
  Read test results from a structured index.json file.
 
@@ -264,7 +263,7 @@ def _read_index_json(index_path: Path) -> Optional[TestResult]:
   return None
 
 
-def find_latest_log_file(test_results_dir: Path) -> Optional[Path]:
+def find_latest_log_file(test_results_dir: Path) -> Path | None:
  """
  Find the latest test results directory with index.json or full.log.
 
@@ -299,7 +298,7 @@ def find_latest_log_file(test_results_dir: Path) -> Optional[Path]:
  return None
 
 
-def _extract_counts_from_summary_line(line: str) -> Optional[dict]:
+def _extract_counts_from_summary_line(line: str) -> dict | None:
  """
  Extract test counts from a pytest summary line like:
  '====== 13 passed, 1 skipped in 0.57s ======'
@@ -336,7 +335,7 @@ def _extract_counts_from_summary_line(line: str) -> Optional[dict]:
  }
 
 
-def _extract_summary_section(lines: List[str]) -> List[str]:
+def _extract_summary_section(lines: list[str]) -> list[str]:
  """Extract lines between the COMBINED TEST SUMMARY delimiters."""
  section = []
  in_summary = False
@@ -353,7 +352,7 @@ def _extract_summary_section(lines: List[str]) -> List[str]:
  return section
 
 
-def _parse_phase_statuses(lines: List[str]) -> dict:
+def _parse_phase_statuses(lines: list[str]) -> dict:
  """
  Parse the COMBINED TEST SUMMARY section to extract per-phase status.
 
@@ -376,7 +375,7 @@ _PHASE_HEADER_MAP = {
 }
 
 
-def _detect_phase(line: str) -> Optional[str]:
+def _detect_phase(line: str) -> str | None:
  """Detect phase name from a phase header line. Returns None if not a header."""
  if 'Phase' not in line:
   return None
@@ -386,7 +385,7 @@ def _detect_phase(line: str) -> Optional[str]:
  return None
 
 
-def _parse_phase_counts(lines: List[str]) -> dict:
+def _parse_phase_counts(lines: list[str]) -> dict:
  """
  Parse per-phase pytest summary counts by tracking phase headers.
 
@@ -412,12 +411,12 @@ def _parse_phase_counts(lines: List[str]) -> dict:
  return phase_counts
 
 
-def _count_warning_log_lines(lines: List[str]) -> int:
+def _count_warning_log_lines(lines: list[str]) -> int:
  """Count lines that are application WARNING log output (e.g. 'WARNING logger.name ...')."""
  return sum(1 for line in lines if line.startswith("WARNING "))
 
 
-def _extract_timestamp(lines: List[str], log_file_name: str) -> str:
+def _extract_timestamp(lines: list[str], log_file_name: str) -> str:
  """Extract timestamp from log header or filename."""
  for line in lines[:10]:
   if 'Timestamp:' in line:
@@ -430,9 +429,9 @@ def _extract_timestamp(lines: List[str], log_file_name: str) -> str:
  return ""
 
 
-def _extract_progress_percent(lines: List[str]) -> Optional[int]:
+def _extract_progress_percent(lines: list[str]) -> int | None:
  """Extract latest pytest progress percent from lines like '[gw1] [ 42%] PASSED ...'."""
- last_percent: Optional[int] = None
+ last_percent: int | None = None
  pattern = re.compile(r'\[\s*(\d{1,3})%\]')
 
  for line in lines:
@@ -464,7 +463,7 @@ def _build_phases(phase_statuses: dict, phase_counts: dict) -> dict:
  return phases
 
 
-def _compute_totals(phase_counts: dict, lines: List[str]) -> dict:
+def _compute_totals(phase_counts: dict, lines: list[str]) -> dict:
  """Compute aggregate totals from phase counts or fallback to last summary line."""
  totals = {'passed': 0, 'failed': 0, 'errors': 0, 'skipped': 0, 'warnings': 0}
  if phase_counts:
@@ -533,10 +532,10 @@ def parse_pytest_summary(log_file: Path) -> TestResult:
  phases: dict = {}
  totals = {'passed': 0, 'failed': 0, 'errors': 0, 'skipped': 0, 'warnings': 0}
  timestamp = ""
- progress_percent: Optional[int] = None
+ progress_percent: int | None = None
 
  try:
-  with open(log_file, 'r', encoding='utf-8') as f:
+  with open(log_file, encoding='utf-8') as f:
    lines = f.read().split('\n')
 
   # For full.log inside a run dir, try the directory name for timestamp
@@ -576,7 +575,7 @@ def parse_pytest_summary(log_file: Path) -> TestResult:
  )
 
 
-def find_all_test_results(root_dir: Path) -> List[TestResult]:
+def find_all_test_results(root_dir: Path) -> list[TestResult]:
  """
  Find test results for all datrix-* projects that have a tests/ directory.
 
@@ -589,7 +588,7 @@ def find_all_test_results(root_dir: Path) -> List[TestResult]:
  Returns:
  List of TestResult objects (one per testable project)
  """
- results: List[TestResult] = []
+ results: list[TestResult] = []
  projects = get_datrix_projects(root_dir)
 
  for project_name in projects:
@@ -615,7 +614,7 @@ def _colorize(text: str, color: str, use_colors: bool) -> str:
  return text
 
 
-def _phase_cell(phase: Optional[PhaseResult], width: int, use_colors: bool) -> str:
+def _phase_cell(phase: PhaseResult | None, width: int, use_colors: bool) -> str:
  """Format a single phase status cell: OK when passed, failure count when failed, - when absent."""
  if phase is None:
   return _colorize("-".center(width), Colors.GRAY, use_colors)
@@ -655,7 +654,9 @@ _PHASE_COL_WIDTH = 8
 
 def _format_result_row(result: TestResult, name_width: int, use_colors: bool) -> str:
  """Format a single project result as a table row."""
- c = lambda text, color: _colorize(text, color, use_colors)
+ def c(text: str, color: str) -> str:
+  return _colorize(text, color, use_colors)
+
  sym = _status_symbol(result.status, use_colors)
  pw = _PHASE_COL_WIDTH
  phase_cells = [_phase_cell(result.phases.get(p), pw, use_colors) for p in _PHASE_NAMES]
@@ -676,7 +677,9 @@ def _format_result_row(result: TestResult, name_width: int, use_colors: bool) ->
 
 def _format_summary_line(project_statuses: dict, use_colors: bool) -> str:
  """Format the project status summary line."""
- c = lambda text, color: _colorize(text, color, use_colors)
+ def c(text: str, color: str) -> str:
+  return _colorize(text, color, use_colors)
+
  mapping = [
   ("PASSED", "passed", Colors.GREEN),
   ("FAILED", "failed", Colors.RED),
@@ -691,7 +694,7 @@ def _format_summary_line(project_statuses: dict, use_colors: bool) -> str:
  return ", ".join(parts)
 
 
-def print_results(results: List[TestResult]):
+def print_results(results: list[TestResult]):
  """
  Print the test results in a formatted table with phase columns.
 
@@ -703,7 +706,9 @@ def print_results(results: List[TestResult]):
   return
 
  use_colors = Colors.is_color_supported()
- c = lambda text, color: _colorize(text, color, use_colors)
+
+ def c(text: str, color: str) -> str:
+  return _colorize(text, color, use_colors)
 
  name_width = max(max(len(r.project_name) for r in results), len("Project"))
  line_width = 113

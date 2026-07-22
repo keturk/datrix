@@ -16,12 +16,9 @@ import logging
 from typing import TYPE_CHECKING
 
 from .svg_common import (
-    CARD_BG,
-    CARD_STROKE,
     CORNER_R,
     FONT,
     SVG_PAD,
-    TEXT_MUTED,
     TEXT_PRIMARY,
     TEXT_SECONDARY,
     arrow_marker_def,

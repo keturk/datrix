@@ -25,7 +25,6 @@ import sys
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 # Configure UTF-8 encoding for stdout/stderr on Windows
 if sys.platform == "win32":
@@ -40,21 +39,28 @@ library_dir = Path(__file__).parent.parent
 if library_dir.exists() and str(library_dir) not in sys.path:
     sys.path.insert(0, str(library_dir))
 
-from shared.venv import get_datrix_root, get_venv_python
-from shared.logging_utils import LogConfig, TeeLogger, ColorCodes, colorize, strip_ansi
-from shared.test_projects import (
+from shared.logging_utils import (  # noqa: E402
+    ColorCodes,
+    LogConfig,
+    TeeLogger,
+    colorize,
+    strip_ansi,
+)
+from shared.test_projects import (  # noqa: E402
     build_output_path,
-    get_test_projects,
     get_default_output_path,
+    get_test_projects,
     resolve_provider,
 )
+from shared.venv import get_datrix_root, get_venv_python  # noqa: E402
 
 # Add datrix-common to path so we can use DATRIX_FILE_EXTENSION
 _datrix_root = get_datrix_root()
 _datrix_common_src = _datrix_root / "datrix-common" / "src"
 if _datrix_common_src.exists() and str(_datrix_common_src) not in sys.path:
     sys.path.insert(0, str(_datrix_common_src))
-from datrix_common import DATRIX_FILE_EXTENSION
+from datrix_common import DATRIX_FILE_EXTENSION  # noqa: E402
+
 
 def _append_datrix_generate_cli_options(cmd_args: list[str], args: argparse.Namespace) -> None:
     """Append non-target datrix generate options from script args."""
@@ -134,7 +140,7 @@ def generate_single_project(
     datrix_root: Path,
     python_exe: str,
     verbose: bool = True,
-) -> Tuple[bool, str, Path, Path, List[str], List[str], List[str]]:
+) -> tuple[bool, str, Path, Path, list[str], list[str], list[str]]:
     """
     Generate a single project.
 
@@ -354,10 +360,10 @@ def _print_generation_summary(
     projects: list,
     success_count: int,
     fail_count: int,
-    failed_projects: List[str],
+    failed_projects: list[str],
     project_warnings: dict,
     project_errors: dict,
-    logger: Optional[TeeLogger],
+    logger: TeeLogger | None,
 ) -> int:
     """
     Print the generation summary. Failed projects, Warnings, and Errors sections

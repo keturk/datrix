@@ -34,9 +34,10 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, cast
+from typing import cast
 
 _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 

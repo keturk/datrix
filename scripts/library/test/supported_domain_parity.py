@@ -73,11 +73,15 @@ from collections.abc import Mapping
 from importlib.metadata import entry_points
 from typing import Final, cast
 
+from datrix_codegen_common.parity.domain_registry import (
+    _RICH_CONTEXT_TYPES,
+    SHARED_CONTEXT_TYPES,
+)
+from datrix_codegen_common.testkit.gates.domain_self_consistency import (
+    DomainDeclaringPlugin,
+)
 from datrix_common.generation.discovery import get_language_plugin
 from datrix_common.plugin.registry import LANGUAGES_GROUP
-
-from datrix_codegen_common.parity.domain_registry import _RICH_CONTEXT_TYPES, SHARED_CONTEXT_TYPES
-from datrix_codegen_common.testkit.gates.domain_self_consistency import DomainDeclaringPlugin
 
 #: A cross-language parity comparison over 0 or 1 language is vacuous (there
 #: is nothing to compare against) -- discovery returning fewer than this many

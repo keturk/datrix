@@ -13,7 +13,6 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -60,12 +59,12 @@ class TestCaseResult:
     function: str
     duration: float
     outcome: str  # "passed", "failed", "error", "skipped"
-    error_type: Optional[str] = None
-    error_message: Optional[str] = None
-    traceback_text: Optional[str] = None
-    system_out: Optional[str] = None
-    system_err: Optional[str] = None
-    phase: Optional[str] = None  # "parallel" or "serial"
+    error_type: str | None = None
+    error_message: str | None = None
+    traceback_text: str | None = None
+    system_out: str | None = None
+    system_err: str | None = None
+    phase: str | None = None  # "parallel" or "serial"
 
 
 @dataclass(frozen=True)
@@ -123,7 +122,7 @@ class StructuredLogWriter:
         self,
         xml_paths: list[Path],
         timestamp: datetime,
-        phase_results: Optional[dict[str, dict[str, object]]] = None,
+        phase_results: dict[str, dict[str, object]] | None = None,
     ) -> Path:
         """Write all structured output files.
 
@@ -321,7 +320,7 @@ class StructuredLogWriter:
 
         return list(all_results.values())
 
-    def _detect_phase(self, xml_path: Path) -> Optional[str]:
+    def _detect_phase(self, xml_path: Path) -> str | None:
         """Detect the test phase from the XML filename.
 
         Args:
@@ -338,7 +337,7 @@ class StructuredLogWriter:
         return None
 
     def _parse_single_xml(
-        self, xml_path: Path, phase: Optional[str]
+        self, xml_path: Path, phase: str | None
     ) -> list[TestCaseResult]:
         """Parse a single JUnit XML file into test case results.
 
@@ -389,7 +388,7 @@ class StructuredLogWriter:
         return results
 
     def _parse_testcase_element(
-        self, testcase: ET.Element, phase: Optional[str]
+        self, testcase: ET.Element, phase: str | None
     ) -> TestCaseResult:
         """Parse a single <testcase> XML element.
 
@@ -556,9 +555,9 @@ class StructuredLogWriter:
             return SourceLocation("unknown", 0)
 
         # Walk bottom-up to find the best frame
-        project_frame: Optional[SourceLocation] = None
-        test_frame: Optional[SourceLocation] = None
-        non_stdlib_frame: Optional[SourceLocation] = None
+        project_frame: SourceLocation | None = None
+        test_frame: SourceLocation | None = None
+        non_stdlib_frame: SourceLocation | None = None
 
         for file_path, line_str, _func in reversed(frames):
             file_path_normalized = file_path.replace("\\", "/")
@@ -881,7 +880,7 @@ class StructuredLogWriter:
         error_clusters: list[Cluster],
         failure_file_map: dict[int, str],
         error_file_map: dict[int, str],
-        phase_results: Optional[dict[str, dict[str, object]]],
+        phase_results: dict[str, dict[str, object]] | None,
     ) -> None:
         """Write the index.json file.
 
@@ -1081,7 +1080,7 @@ class StructuredLogWriter:
         self,
         details: list[FailureDetail],
         detail_id: int,
-    ) -> Optional[FailureDetail]:
+    ) -> FailureDetail | None:
         """Find a FailureDetail by its ID.
 
         Args:

@@ -9,7 +9,6 @@ tools use directory-only traversal and only yield ``.test_results`` paths.
 import os
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Optional
 
 # Unit test summary filename under each ``unit-tests-*`` folder.
 UNIT_TEST_SUMMARY_PRIMARY: str = "unit-tests-summary.log"
@@ -78,7 +77,7 @@ def iter_dot_test_results_dirs(root_dir: Path) -> Iterator[Path]:
             continue
 
 
-def resolve_unit_test_summary_log(latest_run_folder: Path) -> Optional[Path]:
+def resolve_unit_test_summary_log(latest_run_folder: Path) -> Path | None:
     """Pick the unit-test summary file inside a ``run-unit-tests-*`` directory."""
     primary = latest_run_folder / UNIT_TEST_SUMMARY_PRIMARY
     if primary.exists():

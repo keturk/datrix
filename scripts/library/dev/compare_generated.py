@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -25,8 +24,9 @@ library_dir = Path(__file__).resolve().parent.parent
 if library_dir.exists() and str(library_dir) not in sys.path:
     sys.path.insert(0, str(library_dir))
 
-from shared.ollama_utils import OLLAMA_DEFAULT_URL, call_ollama as _call_ollama
-from shared.venv import get_datrix_root
+from shared.ollama_utils import OLLAMA_DEFAULT_URL  # noqa: E402
+from shared.ollama_utils import call_ollama as _call_ollama  # noqa: E402
+from shared.venv import get_datrix_root  # noqa: E402
 
 # Default path exclusions (dirs/files to skip when scanning)
 EXCLUDE_DIRS = frozenset({
