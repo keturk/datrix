@@ -71,7 +71,8 @@
       "Edit(/.claude/skills/verify-implementation/**)",
       "Bash(\"D:\\\\datrix\\\\.venv\\\\Scripts\\\\datrix.exe\" migrations *)",
       "Read(//d/g/CurvAero/generated/dev/**)",
-      "mcp__azure__documentation"
+      "mcp__azure__documentation",
+      "PowerShell(D:\\\\datrix\\\\datrix\\\\scripts\\\\test\\\\mypy.ps1 datrix-common -NoSave)"
     ],
     "additionalDirectories": [
       "d:\\datrix\\$repo\\tests",
