@@ -344,7 +344,7 @@ service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), desc
             }
 
             let DeviceGroupMember member = deviceDb.DeviceGroupMember.create({
-                group: group,
+                deviceGroup: group,
                 device: device,
                 joinedAt: DateTime.now()
             });

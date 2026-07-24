@@ -1,6 +1,6 @@
 ---
 description: Fix issues from structured issue reports with Root Cause Analysis and Recommended Fix
-model: claude-sonnet-4-6
+model: claude-opus-4-8
 ---
 
 # Fix Issue
