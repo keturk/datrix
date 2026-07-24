@@ -72,7 +72,9 @@
       "Bash(\"D:\\\\datrix\\\\.venv\\\\Scripts\\\\datrix.exe\" migrations *)",
       "Read(//d/g/CurvAero/generated/dev/**)",
       "mcp__azure__documentation",
-      "PowerShell(D:\\\\datrix\\\\datrix\\\\scripts\\\\test\\\\mypy.ps1 datrix-common -NoSave)"
+      "PowerShell(D:\\\\datrix\\\\datrix\\\\scripts\\\\test\\\\mypy.ps1 datrix-common -NoSave)",
+      "PowerShell(& \"d:\\\\datrix\\\\datrix\\\\scripts\\\\test\\\\mypy.ps1\" datrix-cli)",
+      "PowerShell(D:\\\\datrix\\\\datrix\\\\scripts\\\\test\\\\test.ps1 datrix-codegen-python 2>&1)"
     ],
     "additionalDirectories": [
       "d:\\datrix\\$repo\\tests",
