@@ -503,6 +503,7 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         product.save();
         assert throws(
         () => productDb.InventoryReservation.create({
+            reservationId: uuid(),
             productId: product.id,
             quantity: 0,
             expiresAt: DateTime.now().addDays(1)
