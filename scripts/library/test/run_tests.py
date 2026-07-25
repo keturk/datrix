@@ -7,8 +7,10 @@ Runs, in order:
 2. For each target language: generate.ps1 -All -L <lang>
 3. For each language whose generate succeeded: run-complete.ps1 -All -Skip1 -Skip2 -L <lang>
 
-If -L/--language is omitted, languages are python then typescript. If test.ps1 fails,
-no later steps run. If generate fails for a language, run-complete is skipped for that
+If -L/--language is omitted, every registered ``datrix.languages`` target is run
+(sorted), discovered at runtime -- never a hardcoded language literal -- so a new
+datrix-codegen-<lang> package is swept with no edit here. If test.ps1 fails, no
+later steps run. If generate fails for a language, run-complete is skipped for that
 language only; other languages still run.
 
 Exit code: first non-zero child exit code in execution order, or 0 if all succeeded.
@@ -33,11 +35,18 @@ library_dir = Path(__file__).resolve().parent.parent
 if library_dir.exists() and str(library_dir) not in sys.path:
     sys.path.insert(0, str(library_dir))
 
+from shared.registered_targets import registered_language_names  # noqa: E402
 from shared.venv import get_datrix_root  # noqa: E402
 
-LANGUAGE_PYTHON = "python"
-LANGUAGE_TYPESCRIPT = "typescript"
-ALL_LANGUAGES: tuple[str, ...] = (LANGUAGE_PYTHON, LANGUAGE_TYPESCRIPT)
+
+def all_languages() -> tuple[str, ...]:
+    """Return every registered target language, sorted.
+
+    Derived from the ``datrix.languages`` entry-point group at runtime -- never
+    a hardcoded literal -- so a new datrix-codegen-<lang> package is swept with
+    no edit here.
+    """
+    return tuple(sorted(registered_language_names()))
 
 
 def _resolve_script_paths() -> tuple[Path, Path, Path]:
@@ -102,10 +111,11 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "-L",
         "--language",
-        choices=list(ALL_LANGUAGES),
+        choices=list(all_languages()),
         dest="language",
         default=None,
-        help="Run generate and run-complete for this language only (default: python then typescript)",
+        help="Run generate and run-complete for this language only "
+        "(default: every registered language, sorted)",
     )
     return parser.parse_args(list(argv) if argv is not None else None)
 
@@ -114,7 +124,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Entry point: run orchestrated steps; return exit code for the shell."""
     args = _parse_args(argv)
     languages: tuple[str, ...] = (
-        (args.language,) if args.language is not None else ALL_LANGUAGES
+        (args.language,) if args.language is not None else all_languages()
     )
 
     test_ps1, generate_ps1, run_complete_ps1 = _resolve_script_paths()

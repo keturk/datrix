@@ -14,10 +14,15 @@
   fails the gate. This is the repo's only automated proof behind the "generated
   output is byte-identical" acceptance property.
 
-  ONE LANGUAGE PER EXAMPLE. The generator reads the target language from each
-  project's config/system.dcfg (generate.ps1's -L flag only labels the output path),
-  so each example is generated exactly once, in its declared language. This gate does
-  NOT enumerate languages and does NOT run a language matrix.
+  SWEEPS THE REGISTERED LANGUAGE SET. The target generation language is a real CLI
+  input (datrix generate --language, forwarded by generate.ps1/generate.py) rather
+  than a config/system.dcfg field, so every example is genuinely generatable in
+  every registered datrix.languages target. This gate generates and checks each
+  example once PER REGISTERED LANGUAGE (never a hardcoded python/typescript
+  literal -- derived at runtime from the installed datrix.languages entry points),
+  against that language's own <example_id>/<language>.sha256 baseline. A missing
+  baseline for a swept (example, language) pair is reported loudly as a failure,
+  never silently skipped.
 
   NON-VACUITY. Every run first proves the comparator bites: it copies a genuinely
   generated tree, mutates one byte of one file, and requires that the comparison

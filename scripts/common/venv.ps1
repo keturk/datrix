@@ -927,14 +927,22 @@ function Test-DatrixWorkspacePresent {
  Returns $false and prints a helpful message if any are missing.
  #>
  $datrixRoot = Get-DatrixRoot
+ # Curated "a complete clone must contain these" contract -- deliberately a
+ # named list (not a dynamic scan) so it can detect a repo that is MISSING.
+ # It must stay complete: every shipped language (datrix-codegen-<lang>) and
+ # platform (datrix-codegen-<provider>) package belongs here so the parity /
+ # conformance gates that sweep the registered target set are never vacuous
+ # against an incomplete workspace.
  $requiredRepos = @(
  "datrix-cli",
  "datrix-common",
  "datrix-codegen-component",
  "datrix-codegen-common",
  "datrix-codegen-python",
- "datrix-codegen-sql",
  "datrix-codegen-typescript",
+ "datrix-codegen-dotnet",
+ "datrix-codegen-java",
+ "datrix-codegen-sql",
  "datrix-language",
  "datrix-codegen-aws",
  "datrix-codegen-azure",
@@ -1525,6 +1533,9 @@ function Ensure-DatrixPackagesInstalled {
  $packages = Get-DatrixPackages
  $reinstalled = @()
 
+ # PASS 1: install every package's base editable install first (no dev extras),
+ # so all sibling datrix-* packages exist before any package's [dev] specs (which
+ # may name siblings) are resolved in PASS 2 below.
  foreach ($package in $packages) {
  $needsReinstall = $Force -or (Test-PackageNeedsReinstall -PackageName $package)
 
@@ -1554,7 +1565,17 @@ function Ensure-DatrixPackagesInstalled {
  return $false
  }
  }
+ }
 
+ # PASS 2: install each package's declared [dev] extras only after EVERY base
+ # package above is installed. Some packages list sibling datrix-* packages as
+ # dev specs (e.g. datrix-common lists datrix-language, datrix-codegen-component,
+ # datrix-codegen-docker); those bare specs resolve against the already-installed
+ # editable copies -- but only once all base installs have completed. Installing
+ # dev extras inside the base loop breaks a from-scratch venv rebuild: an early
+ # package's dev spec names a sibling not yet installed, so pip falls through to
+ # PyPI and errors ("No matching distribution found for datrix-language").
+ foreach ($package in $packages) {
  # Unconditionally verify/install this package's [dev] extras (not gated
  # behind $needsReinstall: the base editable install above always runs
  # -NoDev, so a package whose base install is already up to date can still

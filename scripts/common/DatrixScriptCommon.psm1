@@ -209,18 +209,73 @@ function Get-DatrixInstalledPlatforms {
   [string]$PythonExe
  )
 
+ return Get-DatrixInstalledTargets -PythonExe $PythonExe -Group "datrix.platforms"
+}
+
+function Get-DatrixInstalledLanguages {
+ <#
+ .SYNOPSIS
+ Return the names of all installed `datrix.languages` entry-point plugins in the given Python environment.
+
+ .DESCRIPTION
+ Enumerates the `datrix.languages` entry-point group at runtime (importlib.metadata) so the
+ installed language set is discovered, never hardcoded. Installing a datrix-codegen-<lang>
+ package makes its language name appear here with no script edit (DI-6 / D4 open
+ identity). Never hardcodes python/typescript/dotnet/java.
+
+ Fails loud (throws) on a non-zero exit from the python invocation — a query failure must be
+ distinguishable from the real, different state "zero languages installed".
+
+ .PARAMETER PythonExe
+ Path to the python.exe to query. Caller resolves this via Get-DatrixVenvPath (venv.ps1).
+ #>
+ [CmdletBinding()]
+ param(
+  [Parameter(Mandatory = $true)]
+  [string]$PythonExe
+ )
+
+ return Get-DatrixInstalledTargets -PythonExe $PythonExe -Group "datrix.languages"
+}
+
+function Get-DatrixInstalledTargets {
+ <#
+ .SYNOPSIS
+ Return the sorted names of every entry-point plugin registered under an entry-point group.
+
+ .DESCRIPTION
+ Shared enumerator behind Get-DatrixInstalledLanguages / Get-DatrixInstalledPlatforms. Queries
+ importlib.metadata at runtime so the installed target set is discovered, never hardcoded.
+ Fails loud (throws) on a non-zero python exit so a query failure is distinguishable from the
+ real, different state "zero plugins installed".
+
+ .PARAMETER PythonExe
+ Path to the python.exe to query.
+
+ .PARAMETER Group
+ Entry-point group name, e.g. "datrix.languages" or "datrix.platforms".
+ #>
+ [CmdletBinding()]
+ param(
+  [Parameter(Mandatory = $true)]
+  [string]$PythonExe,
+  [Parameter(Mandatory = $true)]
+  [string]$Group
+ )
+
  # Single-quoted here-string + single-quoted python literals + per-line print:
  # embedding double-quotes in a `python -c` argument gets mangled by Windows
  # PowerShell's native-command quoting, so this script deliberately uses no
- # double-quotes.
+ # double-quotes. The group name is passed via argv (sys.argv[1]) rather than
+ # interpolated into the source, keeping the here-string a constant.
  $pyScript = @'
-import importlib.metadata as m
-for name in sorted(e.name for e in m.entry_points(group='datrix.platforms')):
+import importlib.metadata as m, sys
+for name in sorted(e.name for e in m.entry_points(group=sys.argv[1])):
     print(name)
 '@
- $output = & $PythonExe -c $pyScript
+ $output = & $PythonExe -c $pyScript $Group
  if ($LASTEXITCODE -ne 0) {
-  throw "Failed to enumerate installed datrix.platforms plugins via $PythonExe (exit $LASTEXITCODE)."
+  throw "Failed to enumerate installed $Group plugins via $PythonExe (exit $LASTEXITCODE)."
  }
  return @($output | Where-Object { $_.Trim() -ne "" })
 }
@@ -232,5 +287,7 @@ Export-ModuleMember -Function @(
  "Get-DatrixPackageNamesGlobWithPyProject",
  "Get-DatrixTestablePackageNames",
  "Get-DatrixMonoProjectNames",
- "Get-DatrixInstalledPlatforms"
+ "Get-DatrixInstalledPlatforms",
+ "Get-DatrixInstalledLanguages",
+ "Get-DatrixInstalledTargets"
 )

@@ -44,6 +44,7 @@ if library_dir.exists() and str(library_dir) not in sys.path:
     sys.path.insert(0, str(library_dir))
 
 from shared.aggregate_test_writer import AggregateTestWriter  # noqa: E402
+from shared.registered_targets import registered_language_names  # noqa: E402
 from shared.deploy_test_aggregate_writer import DeployTestAggregateWriter  # noqa: E402
 from shared.deploy_test_log_writer import DeployTestLogWriter  # noqa: E402
 from shared.generated_test_log_writer import GeneratedTestLogWriter  # noqa: E402
@@ -2880,8 +2881,11 @@ Examples:
     "--language",
     dest="language",
     default="python",
-    choices=["python", "typescript"],
-    help="Target language (default: python). Options: python, typescript"
+    choices=sorted(registered_language_names()),
+    help="Target generation language, forwarded through generate.ps1 to "
+         "datrix generate --language -- the real generation target, not just "
+         "an output-path label (default: python; any registered "
+         "datrix.languages target)"
     )
     parser.add_argument(
     "-Platform",

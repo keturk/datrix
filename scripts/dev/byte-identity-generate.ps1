@@ -30,6 +30,13 @@
 .PARAMETER BeforeTree
  Prebuilt BEFORE source overlay directory (prepended to the worker PYTHONPATH).
 
+.PARAMETER Language
+ Generation target both sides (BEFORE and AFTER) are generated in, forwarded to
+ datrix generate --language. Required. Any registered datrix.languages target
+ (validated at runtime against the installed set, never a hardcoded
+ python/typescript list) -- language is orthogonal to the code change being
+ diffed, so both sides always use the same one.
+
 .PARAMETER Output
  Override the report.json path (report.md lands next to it).
 
@@ -37,10 +44,10 @@
  Enable debug logging in the Python script.
 
 .EXAMPLE
- .\byte-identity-generate.ps1 -Example 01-foundation -BeforeRef HEAD -Packages datrix-codegen-common
+ .\byte-identity-generate.ps1 -Example 01-foundation -BeforeRef HEAD -Packages datrix-codegen-common -Language python
 
 .EXAMPLE
- .\byte-identity-generate.ps1 -Example 01-foundation -BeforeTree D:\datrix\.tmp\my-before\src
+ .\byte-identity-generate.ps1 -Example 01-foundation -BeforeTree D:\datrix\.tmp\my-before\src -Language python
 #>
 
 [CmdletBinding()]
@@ -61,6 +68,9 @@ param(
  [string]$BeforeTree,
 
  [Parameter()]
+ [string]$Language,
+
+ [Parameter()]
  [string]$Output,
 
  [Parameter()]
@@ -78,10 +88,17 @@ $pythonScript = Join-Path $libraryDir "dev\byte_identity_generate.py"
 # Import common modules
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
+Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 . (Join-Path $commonDir "venv.ps1")
 
 if (-not (Test-Path $pythonScript)) {
  Write-Error "Error: byte_identity_generate.py not found at: $pythonScript"
+ exit 1
+}
+
+# Validate mandatory -Language parameter (not using [Parameter(Mandatory)] to avoid interactive prompt).
+if ([string]::IsNullOrWhiteSpace($Language)) {
+ Write-Error "Error: -Language parameter is required (any registered datrix.languages target)."
  exit 1
 }
 
@@ -113,6 +130,15 @@ try {
  $venvPath = Get-DatrixVenvPath
  $pythonExe = Join-Path $venvPath "Scripts\python.exe"
 
+ # Validate -Language against the installed datrix.languages set (runtime discovery,
+ # never a hardcoded python/typescript literal) so a newly installed
+ # datrix-codegen-<lang> package is accepted with no edit to this script.
+ $installedLanguages = Get-DatrixInstalledLanguages -PythonExe $pythonExe
+ if ($Language -notin $installedLanguages) {
+  Write-Error "Error: language '$Language' is not an installed datrix.languages target. Installed: $($installedLanguages -join ', '). Install the corresponding datrix-codegen-<language> package to add it."
+  exit 1
+ }
+
  # Build arguments for Python script
  $pythonArgs = @($pythonScript)
 
@@ -136,6 +162,8 @@ try {
   $pythonArgs += "--before-tree"
   $pythonArgs += $BeforeTree
  }
+ $pythonArgs += "--language"
+ $pythonArgs += $Language
  if ($Output) {
   $pythonArgs += "--output"
   $pythonArgs += $Output

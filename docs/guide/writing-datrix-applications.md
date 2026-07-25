@@ -171,14 +171,13 @@ The declaration-level `.dcfg` path points to the system ConfigDSL file:
 
 | Location | Config File | Purpose |
 |----------|-------------|---------|
-| `system QualifiedName('config/system.dcfg')` | `system.dcfg` | Language, runtime/provider/target, registry, gateway, observability, and shared system settings |
+| `system QualifiedName('config/system.dcfg')` | `system.dcfg` | Runtime/provider/target, registry, gateway, observability, and shared system settings |
 
 **system.dcfg example:**
 
 ```dcfg
 config system ecommerce.System {
     profile test {
-        language: python
         deployment {
             runtime: docker-compose
             provider: local
@@ -187,7 +186,6 @@ config system ecommerce.System {
     }
 
     profile production {
-        language: python
         deployment {
             runtime: ecs-fargate
             provider: aws
@@ -197,6 +195,8 @@ config system ecommerce.System {
     }
 }
 ```
+
+Target language is not a `.dcfg` field — it is a required generation parameter passed via `--language`/`-L` on `datrix generate`.
 
 > **📖 Reference:** See [Configuration Guide](./configuration-guide.md#system-configuration) for complete system config reference.
 

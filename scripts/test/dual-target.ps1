@@ -1,14 +1,17 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-  Run the same generation test set for Python and TypeScript and compare per-project results.
+  Run the same generation test set for every registered language and compare per-project results.
 
 .DESCRIPTION
-  Invokes generate.ps1 (default) or run-complete.ps1 with -Skip4 -Skip5 for each language,
-  then parses the latest generate-results-*.log after each run from
-  <workspace>/.generated/.results. Emits a Markdown table to stdout and exits non-zero
-  if any project failed in either language, a project is missing from a log, or outcomes
-  differ between languages (parity gap).
+  Sweeps every registered datrix.languages target (discovered at runtime -- never a
+  hardcoded python/typescript pair -- so a newly installed datrix-codegen-<lang>
+  package is compared with no edit here). Invokes generate.ps1 (default) or
+  run-complete.ps1 with -Skip4 -Skip5 for each language, then parses the latest
+  generate-results-*.log after each run from <workspace>/.generated/.results. Emits a
+  Markdown table with one column per language to stdout and exits non-zero if any
+  project failed in any language, a project is missing from a log, or outcomes
+  differ across languages (parity gap).
 
 .PARAMETER TestSet
   Name of the test set in scripts/config/test-projects.json (default: typescript-validation).
@@ -69,6 +72,14 @@ if ($Platform -notin $installedPlatforms) {
           "Install the corresponding datrix-codegen-<platform> package to add it."
 }
 
+# The languages to compare are the installed datrix.languages set, discovered at
+# runtime (never a hardcoded python/typescript pair). A cross-language comparison
+# needs at least one target; installing a new datrix-codegen-<lang> adds a column.
+$installedLanguages = @(Get-DatrixInstalledLanguages -PythonExe $pythonExe)
+if ($installedLanguages.Count -eq 0) {
+    throw "No datrix.languages targets are installed; cannot run the language comparison."
+}
+
 $datrixWorkspaceRoot = Get-DatrixWorkspaceRoot -ScriptPath $MyInvocation.MyCommand.Path
 $generateScript = Join-Path (Join-Path $datrixScriptsRoot "dev") "generate.ps1"
 $runCompleteScript = Join-Path $scriptDir "run-complete.ps1"
@@ -116,18 +127,11 @@ if (-not (Test-Path -LiteralPath $runCompleteScript)) {
 $useRunComplete = $Skip4 -and $Skip5
 
 $anyFailure = $false
-$maps = @{
-    Python     = $null
-    TypeScript = $null
-}
+# language name -> (project name -> status). Ordered by $installedLanguages so the
+# table columns are stable across runs.
+$maps = @{}
 
-foreach ($entry in @(
-        @{ Lang = "python"; Label = "Python" },
-        @{ Lang = "typescript"; Label = "TypeScript" }
-    )) {
-    $lang = $entry.Lang
-    $label = $entry.Label
-
+foreach ($lang in $installedLanguages) {
     if ($useRunComplete) {
         $childArgs = @(
             "-TestSet", $TestSet,
@@ -161,39 +165,45 @@ foreach ($entry in @(
     }
 
     $latest = Get-LatestGenerateResultsLog -ResultsDirPath $resultsDir
-    $maps[$label] = Read-GenerationStatusMap -LogFile $latest -LinePattern $statusLinePattern
+    $maps[$lang] = Read-GenerationStatusMap -LogFile $latest -LinePattern $statusLinePattern
 }
 
 $allNames = [System.Collections.Generic.HashSet[string]]::new()
-foreach ($label in @("Python", "TypeScript")) {
-    foreach ($k in $maps[$label].Keys) {
+foreach ($lang in $installedLanguages) {
+    foreach ($k in $maps[$lang].Keys) {
         [void]$allNames.Add($k)
     }
 }
 $sortedProjects = @($allNames) | Sort-Object
 
+$langHeader = ($installedLanguages -join " | ")
+$langSep = (($installedLanguages | ForEach-Object { "--------" }) -join " | ")
+
 Write-Output ""
-Write-Output "## Dual-target generation results"
+Write-Output "## Multi-language generation results"
 Write-Output ""
-Write-Output "Test set: **$TestSet** | Platform: **$Platform** | Log (latest): generation results under ``.generated/.results/``"
+Write-Output "Test set: **$TestSet** | Platform: **$Platform** | Languages: **$($installedLanguages -join ', ')** | Log (latest): generation results under ``.generated/.results/``"
 Write-Output ""
-Write-Output "| Project | Python | TypeScript | Parity |"
-Write-Output "|---------|--------|------------|--------|"
+Write-Output "| Project | $langHeader | Parity |"
+Write-Output "|---------| $langSep |--------|"
 
 foreach ($proj in $sortedProjects) {
-    $pySt = $maps["Python"][$proj]
-    $tsSt = $maps["TypeScript"][$proj]
-    if (-not $pySt) {
-        $pySt = "(missing)"
+    $statuses = @()
+    foreach ($lang in $installedLanguages) {
+        $st = $maps[$lang][$proj]
+        if (-not $st) {
+            $st = "(missing)"
+        }
+        $statuses += $st
     }
-    if (-not $tsSt) {
-        $tsSt = "(missing)"
-    }
-    $parity = if ($pySt -eq $tsSt) { "OK" } else { "Mismatch" }
-    if ($pySt -ne "Success" -or $tsSt -ne "Success") {
+    # Parity holds when every language reports the identical outcome for this project.
+    $distinct = @($statuses | Select-Object -Unique)
+    $parity = if ($distinct.Count -eq 1) { "OK" } else { "Mismatch" }
+    if (@($statuses | Where-Object { $_ -ne "Success" }).Count -gt 0) {
         $anyFailure = $true
     }
-    Write-Output "| $proj | $pySt | $tsSt | $parity |"
+    $row = $statuses -join " | "
+    Write-Output "| $proj | $row | $parity |"
 }
 
 Write-Output ""

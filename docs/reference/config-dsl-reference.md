@@ -413,7 +413,6 @@ config system ecommerce.System {
   profile development as "dev" {
     alias env = "DEV";
     alias resource = "dev";
-    language = python;
 
     deployment {
       runtime = docker-compose;
@@ -424,7 +423,6 @@ config system ecommerce.System {
   profile production as "prod" {
     alias env = "PROD";
     alias resource = "prod";
-    language = python;
 
     deployment {
       runtime = azure-app-service;
@@ -434,6 +432,8 @@ config system ecommerce.System {
   }
 }
 ```
+
+Target language is not part of ConfigDSL — it is a required generation parameter passed via `--language`/`-L` on `datrix generate`.
 
 **Flavor terminology:** ConfigDSL uses `flavor` for both service runtime flavor and infrastructure provisioning flavor. Context determines the meaning:
 

@@ -145,11 +145,12 @@ service example.MyService : version('1.0.0') {
 # ConfigDSL files use this syntax
 config system example.System {
     profile test {
-        language: python
         deployment { runtime: docker-compose, provider: local }
     }
 }
 ```
+
+Target language is not a `.dcfg` field — it is a required generation parameter passed via `--language`/`-L` on `datrix generate`.
 
 ```python
 # Generated Python code shown for reference

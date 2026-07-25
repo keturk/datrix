@@ -410,9 +410,10 @@ service library.BookService : version('1.0.0') {
  }
 }
 
-// Platform selection via config (system .dcfg: language, deployment), not CLI flags:
+// Deployment target selection via config (system .dcfg: deployment), not CLI flags.
+// Language is a required generation parameter, not config:
 // Set deployment.runtime and deployment.provider in the active profile, then:
-// datrix generate --source system.dtrx --output ./generated
+// datrix generate --source system.dtrx --output ./generated --language python
 //
 // See architecture-overview.md Decision 6: Deployment Target Contract for the full
 // deployment model (runtime, provider, target, registry).
@@ -831,12 +832,12 @@ When changing any of the following, update the corresponding documentation:
 Documentation examples must use current flag syntax. The canonical `datrix generate` invocation is:
 
 ```bash
-datrix generate --source examples/03-domains/ecommerce/system.dtrx --output generated
+datrix generate --source examples/03-domains/ecommerce/system.dtrx --output generated --language python
 ```
 
-The target language and deployment settings (runtime, provider, target, registry) are read from resolved config in the selected system `.dcfg` profile. There are no deployment-affecting CLI overrides — see [architecture-overview.md Decision 6: Deployment Target Contract](architecture-overview.md#decision-6-deployment-target-contract-stable). `--profile` selects the config profile to use.
+Deployment settings (runtime, provider, target, registry) are read from resolved config in the selected system `.dcfg` profile. There are no deployment-affecting CLI overrides — see [architecture-overview.md Decision 6: Deployment Target Contract](architecture-overview.md#decision-6-deployment-target-contract-stable). Target language is a required generation parameter, not config — pass `--language`/`-L`, resolved against the registered `datrix.languages` set via `resolve_language_id`. `--profile` selects the config profile to use.
 
-> **Migration note:** The `--hosting` / `-H` and `--platform` / `-P` flags are being removed. The `--language` / `-L` flag remains for development convenience but deployment dimensions come exclusively from config.
+> **Migration note:** The `--hosting` / `-H` and `--platform` / `-P` flags are being removed; deployment dimensions come exclusively from config. The `--language` / `-L` flag is now **required** — language is a generation target, not system configuration. A `language` key in any `config/system.dcfg` (base or profile) is a fail-loud error at generation: `language is a generation target, not system configuration. Remove 'language = "…";' from config/system.dcfg and pass 'datrix generate --language <lang>' instead.`
 
 ---
 

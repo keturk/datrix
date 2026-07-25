@@ -48,7 +48,9 @@
     D:\datrix\.test-output\ingress-gate (CLAUDE.md temp-file policy).
 
 .PARAMETER Languages
-    Comma-separated codegen languages to sweep. Default: python,typescript.
+    Comma-separated codegen languages to sweep. Default: every registered
+    datrix.languages target (discovered at runtime -- never a hardcoded
+    python/typescript list).
 
 .PARAMETER Dbg
     Forward -Dbg to generate.ps1/run-complete.ps1/regen-parity-baselines.ps1 for
@@ -69,7 +71,7 @@ param(
     [string]$OutputRoot = "D:\datrix\.test-output\ingress-gate",
 
     [Parameter()]
-    [string[]]$Languages = @("python", "typescript"),
+    [string[]]$Languages = @(),
 
     [Alias("Dbg")]
     [switch]$DebugLogging
@@ -108,6 +110,17 @@ Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 $venvActivated = Ensure-DatrixVenv
 if (-not $venvActivated) {
     throw "Could not activate the Datrix Python venv; cannot run the ingress migration conformance gate."
+}
+
+# When -Languages was not supplied, sweep every registered datrix.languages target
+# (discovered at runtime, never a hardcoded literal) so a newly installed
+# datrix-codegen-<lang> package is covered with no edit to this gate.
+$gatePythonExe = Join-Path (Get-DatrixVenvPath) "Scripts\python.exe"
+if ($Languages.Count -eq 0) {
+    $Languages = @(Get-DatrixInstalledLanguages -PythonExe $gatePythonExe)
+    if ($Languages.Count -eq 0) {
+        throw "No datrix.languages targets are installed; cannot run the ingress migration conformance gate."
+    }
 }
 
 $datrixRoot = Get-DatrixRoot

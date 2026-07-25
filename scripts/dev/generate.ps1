@@ -27,8 +27,11 @@
  Generate only domain examples (examples/02-domains). Uses test set domains.
 
 .PARAMETER Language
- Target language for output path derivation (required, options: python, typescript).
- The actual language used for generation comes from config/system.dcfg for the active profile.
+ Target generation language (required). Accepts any registered datrix.languages
+ target, validated at runtime against the installed set (never a hardcoded
+ python/typescript list). Forwarded to `datrix generate --language` as the real
+ generation target -- it also selects the output-path language segment, so the
+ two can never disagree.
  Can be abbreviated as -L.
 
 .PARAMETER Runtime
@@ -93,7 +96,6 @@ param(
 
  [Parameter()]
  [Alias("L")]
- [ValidateSet("python", "typescript")]
  [string]$Language,
 
  [Parameter()]
@@ -124,7 +126,11 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # Import common modules
+# DatrixScriptCommon is imported BEFORE DatrixPaths: the former nested-imports
+# DatrixPaths with -Force, which would strip a prior top-level DatrixPaths import
+# out of script scope. Importing DatrixPaths last keeps its exports at script scope.
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
+Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
 . (Join-Path $commonDir "venv.ps1")
 
@@ -178,9 +184,12 @@ function Show-HelpMessage {
  Write-Host ""
 }
 
-# Validate mandatory -Language parameter (not using [Parameter(Mandatory)] to avoid interactive prompt)
+# Validate mandatory -Language parameter (not using [Parameter(Mandatory)] to avoid interactive prompt).
+# Membership is validated against the installed datrix.languages set once the venv
+# python is resolved (see below) -- not a static ValidateSet -- so a newly installed
+# datrix-codegen-<lang> package is selectable here with no edit to this script.
 if ([string]::IsNullOrWhiteSpace($Language)) {
- Write-Host "Error: -Language (-L) parameter is required. Options: python, typescript." -ForegroundColor Red
+ Write-Host "Error: -Language (-L) parameter is required (any registered datrix.languages target)." -ForegroundColor Red
  Show-HelpMessage
  exit 1
 }
@@ -533,6 +542,15 @@ $("=" * 80)
  # Get Python executable from venv
  $venvPath = Get-DatrixVenvPath
  $pythonExe = Join-Path $venvPath "Scripts\python.exe"
+
+ # Validate -Language against the installed datrix.languages set (runtime discovery,
+ # never a hardcoded python/typescript literal) so a newly installed
+ # datrix-codegen-<lang> package is accepted with no edit to this script.
+ $installedLanguages = Get-DatrixInstalledLanguages -PythonExe $pythonExe
+ if ($Language -notin $installedLanguages) {
+ Write-TeeHost "Error: language '$Language' is not an installed datrix.languages target. Installed: $($installedLanguages -join ', '). Install the corresponding datrix-codegen-<language> package to add it." -ForegroundColor Red -LogFilePath $logFilePath
+ exit 1
+ }
 
  # Build arguments for Python script
  $pythonArgs = @($pythonScript)

@@ -3,7 +3,6 @@
     migrations {
       enabled = false;
     }
-    language = "python";
     deployment {
       runtime = "docker-compose";
       provider = "local";

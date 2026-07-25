@@ -6,8 +6,9 @@
 .DESCRIPTION
   Regenerates the stored baselines consumed by reference-example-parity-gate.ps1.
   For each selected example it runs the REAL generation pipeline (the same code path
-  generate.ps1 runs) and writes a per-file sha256 manifest of the whole generated
-  output tree to:
+  generate.ps1 runs) ONCE PER REGISTERED datrix.languages TARGET (never a hardcoded
+  python/typescript literal) and writes a per-file sha256 manifest of each language's
+  generated output tree to:
 
       datrix/scripts/config/parity-baselines/<example_id>/<language>.sha256
 

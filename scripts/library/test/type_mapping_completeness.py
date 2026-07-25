@@ -4,15 +4,29 @@
 Validates that all canonical types in the TypeRegistry have mappings in
 the specified language generators. Exits nonzero if any gaps are found.
 
+The language set is discovered from the ``datrix.languages`` entry-point group
+at runtime -- never a hardcoded literal -- so a new datrix-codegen-<lang>
+package is validated automatically with no edit here.
+
 Usage:
+    python type_mapping_completeness.py                       # every registered language
     python type_mapping_completeness.py --languages python,typescript
     python type_mapping_completeness.py --languages python --debug
 """
 
 import argparse
+import importlib
 import logging
 import sys
-from typing import Any
+from pathlib import Path
+from types import ModuleType
+
+# The `shared` package (registered-target discovery) lives one directory up.
+_library_dir = Path(__file__).resolve().parent.parent
+if _library_dir.exists() and str(_library_dir) not in sys.path:
+    sys.path.insert(0, str(_library_dir))
+
+from shared.registered_targets import registered_language_names  # noqa: E402
 
 
 def configure_logging(debug: bool = False) -> None:
@@ -24,48 +38,48 @@ def configure_logging(debug: bool = False) -> None:
     )
 
 
-def import_language_mappings(language: str) -> Any:
-    """Import type mapping module for a language.
+def import_language_mappings(language: str) -> ModuleType:
+    """Import a language's ``type_mappings`` module (registering its mappings).
+
+    The language's package root is resolved from its registered
+    ``datrix.languages`` plugin, so this works for every installed language
+    with no per-language branch. Importing ``<package>.type_mappings`` triggers
+    that language's registration into the global type-mapping registry.
 
     Args:
-        language: Language name (python, typescript, etc.)
+        language: A registered ``datrix.languages`` entry-point name.
 
     Returns:
-        The imported type mappings module
+        The imported ``type_mappings`` module.
 
     Raises:
-        ImportError: If the language package is not installed
+        ValueError: If *language* is not a registered ``datrix.languages`` target.
+        ImportError: If the language's ``type_mappings`` module cannot be imported.
     """
     logger = logging.getLogger(__name__)
 
-    if language == "python":
-        try:
-            from datrix_codegen_python import type_mappings
-
-            logger.debug("Imported Python type mappings")
-            return type_mappings
-        except ImportError as e:
-            raise ImportError(
-                f"Failed to import Python type mappings. "
-                f"Is datrix-codegen-python installed? Error: {e}"
-            ) from e
-
-    elif language == "typescript":
-        try:
-            from datrix_codegen_typescript import type_mappings
-
-            logger.debug("Imported TypeScript type mappings")
-            return type_mappings
-        except ImportError as e:
-            raise ImportError(
-                f"Failed to import TypeScript type mappings. "
-                f"Is datrix-codegen-typescript installed? Error: {e}"
-            ) from e
-
-    else:
+    registered = registered_language_names()
+    if language not in registered:
         raise ValueError(
-            f"Unknown language: {language}. " f"Supported languages: python, typescript"
+            f"Unknown language: {language}. "
+            f"Registered languages: {', '.join(sorted(registered))}."
         )
+
+    from datrix_common.generation.discovery import get_language_plugin
+
+    plugin = get_language_plugin(language)
+    package_root = type(plugin).__module__.split(".")[0]
+    module_name = f"{package_root}.type_mappings"
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError as e:
+        raise ImportError(
+            f"Failed to import {language} type mappings ({module_name}). "
+            f"Is datrix-codegen-{language} installed and does it ship a "
+            f"type_mappings module? Error: {e}"
+        ) from e
+    logger.debug("Imported %s type mappings from %s", language, module_name)
+    return module
 
 
 def validate_completeness(languages: list[str]) -> int:
@@ -134,8 +148,9 @@ def main() -> int:
     )
     parser.add_argument(
         "--languages",
-        required=True,
-        help="Comma-separated list of languages (e.g., python,typescript)",
+        default=None,
+        help="Comma-separated list of languages to check (e.g., python,typescript). "
+        "Default: every registered datrix.languages target.",
     )
     parser.add_argument(
         "--debug",
@@ -147,10 +162,13 @@ def main() -> int:
 
     configure_logging(debug=args.debug)
 
-    # Parse language list
-    languages = [lang.strip().lower() for lang in args.languages.split(",")]
+    # Parse language list; default to every registered language when omitted.
+    if args.languages is None:
+        languages = sorted(registered_language_names())
+    else:
+        languages = [lang.strip().lower() for lang in args.languages.split(",")]
     if not languages:
-        logging.error("No languages specified")
+        logging.error("No languages specified and none are registered")
         return 2
 
     return validate_completeness(languages)

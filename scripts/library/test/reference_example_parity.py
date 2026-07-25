@@ -31,16 +31,20 @@ that applies to its tests too), so the gate lives here, as a repo-level
 validation script -- the same shape as ``typescript-whole-system-gate.ps1`` and
 ``check-generated-file-ratchet.ps1``.
 
-ONE LANGUAGE PER EXAMPLE -- NOT A LANGUAGE MATRIX
--------------------------------------------------
-The real generator reads the target language from each project's
-``config/system.dcfg``; ``generate.ps1``'s ``-L`` flag only labels the output
-path (see ``scripts/library/dev/generate.py``).  There is therefore exactly one
-generated output per example, in one language.  The old gate forced every example
-through every installed language generator; that synthetic matrix is unreachable
-from any supported user flow, and it is what produced its 28-entry TypeScript
-"known non-generating" allowlist.  This gate generates each example exactly once,
-the way the generator does.
+SWEEPS THE REGISTERED LANGUAGE SET -- TARGET-AGNOSTIC
+------------------------------------------------------
+The target generation language is a real CLI input (``datrix generate
+--language``, forwarded by ``generate.ps1``/``scripts/library/dev/generate.py``
+-- see design 044 D4); it is no longer read from ``config/system.dcfg``. Every
+example is therefore genuinely generatable in every registered
+``datrix.languages`` target, so this gate generates each example once PER
+REGISTERED LANGUAGE (:func:`target_languages`, derived from
+``registered_language_names()`` -- never a hardcoded literal) and compares each
+``(example, language)`` pair against its own
+``parity-baselines/<example_id>/<language>.sha256`` baseline. A missing
+baseline for a swept pair is reported loudly as a failure (see
+``_check_one``) -- never silently skipped -- so the sweep's coverage is always
+visible rather than quietly partial.
 
 FAILURE OUTPUT
 --------------
@@ -52,7 +56,8 @@ The freshly generated tree is left on disk and its path is printed.
 RE-BLESSING
 -----------
 ``regen-parity-baselines.ps1 [-Example <relpath>]`` is the ONLY writer.  Baselines
-are per-example, so an intentional change to one example re-blesses one example.
+are per-example and per-language, so an intentional change to one example
+re-blesses that example across every registered language it is swept for.
 """
 
 from __future__ import annotations
@@ -66,6 +71,14 @@ import shutil
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+
+# Add library directory to sys.path to import from shared (this file lives at
+# library/test/, shared/ lives at the sibling library/shared/).
+_LIBRARY_DIR = Path(__file__).resolve().parent.parent
+if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
+    sys.path.insert(0, str(_LIBRARY_DIR))
+
+from shared.registered_targets import registered_language_names  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -95,10 +108,29 @@ SCRATCH_ROOT: Path = WORKSPACE_ROOT / ".test-output" / "parity-current"
 PROFILE: str = "test"
 
 #: Directories excluded from the manifest: post-generation build/install
-#: artifacts, not generated source. Same exclusion set as
-#: typescript-whole-system-gate.ps1.
+#: artifacts, not generated source. ``.ruff_cache``/``__pycache__`` (python),
+#: ``.tsc_cache``/``node_modules`` (typescript, also the base set
+#: typescript-whole-system-gate.ps1 uses), ``bin``/``obj`` (dotnet -- MSBuild
+#: output + NuGet restore cache written by the dotnet-build post-generation
+#: validation hook, see datrix_codegen_dotnet.hooks.language_hooks; confirmed
+#: against the generated project's own ``.gitignore``), and ``target`` (java --
+#: Maven build output written by the mvnw-compile post-generation validation
+#: hook, see datrix_codegen_java.hooks.language_hooks; confirmed against the
+#: generated project's own ``gitignore.j2`` template). Reviewed, curated names
+#: (like a ``.gitignore``) -- not derived from the registered language set,
+#: since a build tool's cache directory name is a fact about that language's
+#: own toolchain, not an enumerable target axis.
 EXCLUDED_DIRS: frozenset[str] = frozenset(
-    {".datrix", ".ruff_cache", ".tsc_cache", "node_modules", "__pycache__"}
+    {
+        ".datrix",
+        ".ruff_cache",
+        ".tsc_cache",
+        "node_modules",
+        "__pycache__",
+        "bin",
+        "obj",
+        "target",
+    }
 )
 
 #: sha256sum convention: "<path><2 spaces><hex>".
@@ -161,37 +193,14 @@ def discover_examples() -> list[Path]:
     return sorted(EXAMPLES_ROOT.rglob("system.dtrx"))
 
 
-def resolve_language(system_dtrx: Path) -> str:
-    """Return the target language the real generator uses for this example.
+def target_languages() -> frozenset[str]:
+    """Return the set of languages this gate sweeps for every example.
 
-    Reads the example's ``config/system.dcfg`` for the active profile, exactly as
-    the pipeline's ``_build_codegen_context`` does.
-
-    Args:
-        system_dtrx: Absolute path to the example's ``system.dtrx``.
-
-    Returns:
-        The declared language name (e.g. ``"python"``, ``"typescript"``).
-
-    Raises:
-        FileNotFoundError: If the example has no ``config/system.dcfg``.
+    Derived from the registered ``datrix.languages`` entry points -- never a
+    hardcoded literal -- so a future ``datrix-codegen-<lang>`` package is
+    swept automatically with no edit here (design 044 AP4/D7 open identity).
     """
-    from datrix_common.config.unified_loader import load_system_config
-
-    project_dir = system_dtrx.parent
-    config_path = project_dir / "config" / "system.dcfg"
-    if not config_path.exists():
-        raise FileNotFoundError(
-            f"Example {example_relpath(system_dtrx)!r} has no config/system.dcfg "
-            f"(expected at {config_path}). Every example the generator can build "
-            f"declares its language there; add the file or remove the example."
-        )
-    unified = load_system_config(
-        config_path=config_path,
-        project_root=project_dir,
-        profile=PROFILE,
-    )
-    return str(unified.system.language.value)
+    return registered_language_names()
 
 
 # ---------------------------------------------------------------------------
@@ -199,20 +208,35 @@ def resolve_language(system_dtrx: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
+#: Separator between an example id and a language in a known-non-generating
+#: allowlist key scoped to ONE language (e.g. ``"01-foundation::java"``). An
+#: unqualified key (no separator) applies to every swept language -- for
+#: failures at config-resolution/deployment-plan-building time, before any
+#: language-specific codegen stage runs (the two original entries in this
+#: file, both pre-dating the language sweep). A qualified key is for a defect
+#: in one language's own codegen stage while the same example generates fine
+#: in other registered languages (a case that could not exist before design
+#: 044 made every example genuinely generatable in every registered language).
+_LANGUAGE_KEY_SEP = "::"
+
+
 def load_known_non_generating() -> dict[str, str]:
     """Load and validate the known-non-generating allowlist.
 
-    The allowlist converts a genuine, pre-existing generation FAILURE into a
-    loudly-reported skip. It never hides a manifest mismatch: a listed example
-    that does generate is still hash-compared, and a listed example that has a
-    baseline is still expected to match it.
+    Each key is either a bare ``example_id`` (applies to every swept language) or
+    ``"example_id::language"`` (applies to that one language only) -- see
+    :data:`_LANGUAGE_KEY_SEP`. The allowlist converts a genuine, pre-existing
+    generation FAILURE into a loudly-reported skip. It never hides a manifest
+    mismatch: a listed (example, language) pair that does generate is still
+    hash-compared, and one that has a baseline is still expected to match it.
 
     Returns:
-        Mapping of ``example_id`` -> reason string.
+        Mapping of key (``example_id`` or ``example_id::language``) -> reason string.
 
     Raises:
-        ValueError: If the file is missing, malformed, has an empty reason, or its
-            entry count does not match the pinned ``expected_count``.
+        ValueError: If the file is missing, malformed, has an empty reason, names
+            an unregistered language in a qualified key, or its entry count does
+            not match the pinned ``expected_count``.
     """
     if not KNOWN_NON_GENERATING_PATH.exists():
         raise ValueError(
@@ -226,14 +250,24 @@ def load_known_non_generating() -> dict[str, str]:
     if not isinstance(examples, dict) or not isinstance(expected, int):
         raise ValueError(
             f"Malformed allowlist {KNOWN_NON_GENERATING_PATH}: expected an object with "
-            f"'expected_count' (int) and 'examples' (object of example_id -> reason)."
+            f"'expected_count' (int) and 'examples' (object of "
+            f"example_id[::language] -> reason)."
         )
-    for ex_id, reason in examples.items():
+    registered = registered_language_names()
+    for key, reason in examples.items():
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError(
-                f"Allowlist entry {ex_id!r} has an empty reason. Every entry must state "
+                f"Allowlist entry {key!r} has an empty reason. Every entry must state "
                 f"the defect and a tracking identifier."
             )
+        if _LANGUAGE_KEY_SEP in key:
+            _, _, language = key.partition(_LANGUAGE_KEY_SEP)
+            if language not in registered:
+                raise ValueError(
+                    f"Allowlist entry {key!r} names language {language!r}, which is not "
+                    f"in the registered datrix.languages set "
+                    f"({', '.join(sorted(registered))}). Fix the typo or the entry key."
+                )
     if len(examples) != expected:
         raise ValueError(
             f"Allowlist {KNOWN_NON_GENERATING_PATH} has {len(examples)} entries but "
@@ -241,6 +275,26 @@ def load_known_non_generating() -> dict[str, str]:
             f"reviewed value: update it in the same change that adds or removes an entry."
         )
     return {str(k): str(v) for k, v in examples.items()}
+
+
+def _known_reason(known: dict[str, str], ex_id: str, language: str) -> str | None:
+    """Return the known-non-generating reason for this (example, language) pair.
+
+    A language-qualified entry (``"ex_id::language"``) takes precedence over an
+    unqualified, all-languages entry (``"ex_id"``) for the same example.
+
+    Args:
+        known: The loaded allowlist (:func:`load_known_non_generating`).
+        ex_id: Example id.
+        language: The language being generated.
+
+    Returns:
+        The reason string, or ``None`` if this pair is not listed.
+    """
+    qualified = known.get(f"{ex_id}{_LANGUAGE_KEY_SEP}{language}")
+    if qualified is not None:
+        return qualified
+    return known.get(ex_id)
 
 
 # ---------------------------------------------------------------------------
@@ -309,11 +363,12 @@ def parse_manifest_text(text: str) -> dict[str, str]:
 
 
 def baseline_path(ex_id: str, language: str) -> Path:
-    """Return the stored baseline path for one example.
+    """Return the stored baseline path for one (example, language) pair.
 
     Args:
         ex_id: Example id from :func:`example_id`.
-        language: The example's declared language.
+        language: The registered language this baseline is for (from
+            :func:`target_languages`).
 
     Returns:
         Absolute path of the ``.sha256`` baseline file.
@@ -409,7 +464,7 @@ def render_unified_diff(rel: str, old_tree: Path, new_tree: Path) -> list[str]:
     return rendered
 
 
-def usable_cache_tree(ex_id: str, stored: dict[str, str]) -> Path | None:
+def usable_cache_tree(ex_id: str, language: str, stored: dict[str, str]) -> Path | None:
     """Return the local bless-cache tree when it still matches the baseline.
 
     A cache written by an older bless would render a misleading diff, so it is
@@ -417,16 +472,19 @@ def usable_cache_tree(ex_id: str, stored: dict[str, str]) -> Path | None:
 
     Args:
         ex_id: Example id.
+        language: The registered language this ``(example, language)`` pair
+            was generated for -- the cache is keyed per language, mirroring
+            :func:`baseline_path`.
         stored: The committed baseline manifest.
 
     Returns:
         The cached tree root, or ``None`` when absent or stale.
     """
-    cached_tree = CACHE_ROOT / ex_id
+    cached_tree = CACHE_ROOT / ex_id / language
     if not cached_tree.is_dir():
         return None
     if build_manifest(cached_tree) != stored:
-        logger.debug("parity_cache_stale example=%s", ex_id)
+        logger.debug("parity_cache_stale example=%s language=%s", ex_id, language)
         return None
     return cached_tree
 
@@ -452,15 +510,17 @@ def _render_path_list(title: str, paths: list[str]) -> list[str]:
 
 def render_failure(
     ex_id: str,
+    language: str,
     rel_example: str,
     delta: ManifestDiff,
     stored: dict[str, str],
     new_tree: Path,
 ) -> str:
-    """Build the human-readable failure report for one drifted example.
+    """Build the human-readable failure report for one drifted (example, language) pair.
 
     Args:
         ex_id: Example id.
+        language: The registered language this pair was generated for.
         rel_example: The example's path relative to ``datrix/examples/``.
         delta: The manifest delta.
         stored: The committed baseline manifest (used to validate the diff cache).
@@ -471,7 +531,7 @@ def render_failure(
         valid local bless cache is available.
     """
     lines: list[str] = [
-        f"  PARITY DRIFT  example={rel_example}",
+        f"  PARITY DRIFT  example={rel_example} language={language}",
         f"    changed={len(delta.changed)} added={len(delta.added)} "
         f"removed={len(delta.removed)}",
     ]
@@ -481,7 +541,7 @@ def render_failure(
         _render_path_list("REMOVED (in baseline, no longer generated)", delta.removed)
     )
 
-    cache_tree = usable_cache_tree(ex_id, stored)
+    cache_tree = usable_cache_tree(ex_id, language, stored)
     if cache_tree is None:
         lines.append(
             "    Content diff unavailable: no local baseline cache for this example "
@@ -551,23 +611,28 @@ def _assert_generation_environment_complete(warnings: list[str]) -> None:
     )
 
 
-def generate_example(system_dtrx: Path, output_dir: Path) -> None:
-    """Generate one example into ``output_dir`` via the REAL pipeline.
+def generate_example(system_dtrx: Path, output_dir: Path, language: str) -> None:
+    """Generate one example into ``output_dir`` via the REAL pipeline, for one language.
 
     Uses ``GenerationPipeline`` with ``PipelineConfig``'s defaults, which are the
     defaults ``datrix generate`` itself passes (profile=test, format_output=True,
-    validation_level=STANDARD, no incremental, no migrations). The output dir is
-    cleared first so generation always starts from a clean tree.
+    validation_level=STANDARD, no incremental, no migrations), except
+    ``target_language`` which is threaded from *language* exactly as
+    ``datrix generate --language`` resolves it. The output dir is cleared first
+    so generation always starts from a clean tree.
 
     Args:
         system_dtrx: Absolute path to the example's ``system.dtrx``.
         output_dir: Directory to generate into (created/cleared).
+        language: A registered ``datrix.languages`` target (from
+            :func:`target_languages`) to generate this example in.
 
     Raises:
         RuntimeError: If the pipeline reports failure, or if a post-generation tool
             was missing from the environment (which would change the output bytes).
     """
     from datrix_cli.pipeline.generation import GenerationPipeline, PipelineConfig
+    from datrix_common.plugin.identity import LanguageId
 
     if output_dir.exists():
         shutil.rmtree(output_dir)
@@ -576,7 +641,7 @@ def generate_example(system_dtrx: Path, output_dir: Path) -> None:
     result = GenerationPipeline().run(
         system_dtrx,
         output_dir,
-        PipelineConfig(profile=PROFILE),
+        PipelineConfig(target_language=LanguageId(language), profile=PROFILE),
     )
     if not result.success:
         raise RuntimeError("; ".join(result.errors) or "pipeline reported success=False")
@@ -666,14 +731,15 @@ def run_self_test(generated_tree: Path) -> list[str]:
 
 @dataclass
 class ExampleOutcome:
-    """The gate's verdict for one example."""
+    """The gate's verdict for one (example, language) pair."""
 
     ex_id: str
     rel_example: str
+    language: str
     status: str
     detail: str = ""
-    #: Root of the tree this example generated, when generation succeeded. Present
-    #: even when the manifest drifted -- a drifted example still produced real
+    #: Root of the tree this pair generated, when generation succeeded. Present
+    #: even when the manifest drifted -- a drifted pair still produced real
     #: output, and the non-vacuity self-test can run against it.
     tree: Path | None = None
 
@@ -708,7 +774,8 @@ def cmd_bless(example_filter: str | None) -> int:
     """Regenerate stored baselines. The ONLY sanctioned baseline writer.
 
     Generates into the local bless cache and keeps the tree there, so that a later
-    failing CHECK can render a real unified diff against it.
+    failing CHECK can render a real unified diff against it. Each selected example
+    is blessed once per registered language (:func:`target_languages`).
 
     Args:
         example_filter: A path relative to ``datrix/examples/``, or ``None`` for all.
@@ -718,35 +785,40 @@ def cmd_bless(example_filter: str | None) -> int:
     """
     examples = _select_examples(example_filter)
     known = load_known_non_generating()
-    print(f"Blessing parity baselines for {len(examples)} example(s).")
+    languages = sorted(target_languages())
+    print(
+        f"Blessing parity baselines for {len(examples)} example(s) x "
+        f"{len(languages)} language(s): {', '.join(languages)}."
+    )
 
     failures = 0
     blessed = 0
     for dtrx in examples:
         ex_id = example_id(dtrx)
         rel = example_relpath(dtrx)
-        language = resolve_language(dtrx)
-        tree = CACHE_ROOT / ex_id
-        try:
-            generate_example(dtrx, tree)
-        except Exception as exc:  # noqa: BLE001 -- reported per example, never swallowed
-            if ex_id in known:
-                print(f"  SKIP  {rel} [{language}] -- known non-generating: {known[ex_id]}")
+        for language in languages:
+            tree = CACHE_ROOT / ex_id / language
+            try:
+                generate_example(dtrx, tree, language)
+            except Exception as exc:  # noqa: BLE001 -- reported per example, never swallowed
+                reason = _known_reason(known, ex_id, language)
+                if reason is not None:
+                    print(f"  SKIP  {rel} [{language}] -- known non-generating: {reason}")
+                    continue
+                failures += 1
+                print(f"  FAIL  {rel} [{language}] -- generation failed: {exc}")
                 continue
-            failures += 1
-            print(f"  FAIL  {rel} [{language}] -- generation failed: {exc}")
-            continue
-        manifest = build_manifest(tree)
-        dest = baseline_path(ex_id, language)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(manifest_to_text(manifest), encoding="utf-8")
-        blessed += 1
-        print(f"  OK    {rel} [{language}] -- {len(manifest)} files -> {dest.name}")
+            manifest = build_manifest(tree)
+            dest = baseline_path(ex_id, language)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(manifest_to_text(manifest), encoding="utf-8")
+            blessed += 1
+            print(f"  OK    {rel} [{language}] -- {len(manifest)} files -> {dest.name}")
 
     print()
     if failures:
         print(
-            f"Baseline bless FAILED: {failures} example(s) could not generate. "
+            f"Baseline bless FAILED: {failures} example/language pair(s) could not generate. "
             f"No baseline was written for them. Fix the generation failure, or add the "
             f"example to {KNOWN_NON_GENERATING_PATH.name} with a reason (and bump its "
             f"expected_count) if the defect is pre-existing and tracked."
@@ -759,28 +831,32 @@ def cmd_bless(example_filter: str | None) -> int:
 
 def _check_one(
     dtrx: Path,
+    language: str,
     known: dict[str, str],
 ) -> ExampleOutcome:
-    """Generate one example and compare it against its stored baseline.
+    """Generate one example in one language and compare it against its stored baseline.
 
     Args:
         dtrx: The example's ``system.dtrx``.
+        language: The registered language to generate this example in (from
+            :func:`target_languages`).
         known: The known-non-generating allowlist.
 
     Returns:
-        The outcome for this example.
+        The outcome for this (example, language) pair.
     """
     ex_id = example_id(dtrx)
     rel = example_relpath(dtrx)
-    language = resolve_language(dtrx)
     bsl = baseline_path(ex_id, language)
 
     if not bsl.exists():
-        if ex_id in known:
-            return ExampleOutcome(ex_id, rel, "skip", known[ex_id])
+        reason = _known_reason(known, ex_id, language)
+        if reason is not None:
+            return ExampleOutcome(ex_id, rel, language, "skip", reason)
         return ExampleOutcome(
             ex_id,
             rel,
+            language,
             "fail",
             f"  NO BASELINE  example={rel} language={language}\n"
             f"    Expected {bsl}\n"
@@ -789,15 +865,17 @@ def _check_one(
             f'-Example "{rel}"',
         )
 
-    tree = SCRATCH_ROOT / ex_id
+    tree = SCRATCH_ROOT / ex_id / language
     try:
-        generate_example(dtrx, tree)
+        generate_example(dtrx, tree, language)
     except Exception as exc:  # noqa: BLE001 -- reported per example, never swallowed
-        if ex_id in known:
-            return ExampleOutcome(ex_id, rel, "skip", f"{known[ex_id]} (raised: {exc})")
+        reason = _known_reason(known, ex_id, language)
+        if reason is not None:
+            return ExampleOutcome(ex_id, rel, language, "skip", f"{reason} (raised: {exc})")
         return ExampleOutcome(
             ex_id,
             rel,
+            language,
             "fail",
             f"  GENERATION FAILED  example={rel} language={language}\n    {exc}",
         )
@@ -806,14 +884,18 @@ def _check_one(
     computed = build_manifest(tree)
     delta = diff_manifests(stored, computed)
     if delta.is_empty:
-        return ExampleOutcome(ex_id, rel, "ok", f"{len(computed)} files", tree)
+        return ExampleOutcome(ex_id, rel, language, "ok", f"{len(computed)} files", tree)
     return ExampleOutcome(
-        ex_id, rel, "fail", render_failure(ex_id, rel, delta, stored, tree), tree
+        ex_id, rel, language, "fail",
+        render_failure(ex_id, language, rel, delta, stored, tree), tree,
     )
 
 
 def cmd_check(example_filter: str | None) -> int:
-    """Run the gate: every example must match its stored baseline byte for byte.
+    """Run the gate: every (example, language) pair must match its stored baseline.
+
+    Each selected example is generated and checked once per registered language
+    (:func:`target_languages`) -- target-agnostic, per design 044 D6/AP5.
 
     Args:
         example_filter: A path relative to ``datrix/examples/``, or ``None`` for all.
@@ -823,26 +905,34 @@ def cmd_check(example_filter: str | None) -> int:
     """
     examples = _select_examples(example_filter)
     known = load_known_non_generating()
-    print(f"Reference-example parity gate: {len(examples)} example(s).")
+    languages = sorted(target_languages())
+    print(
+        f"Reference-example parity gate: {len(examples)} example(s) x "
+        f"{len(languages)} language(s): {', '.join(languages)}."
+    )
     print()
 
     outcomes: list[ExampleOutcome] = []
     self_test_problems: list[str] | None = None
 
     for dtrx in examples:
-        outcome = _check_one(dtrx, known)
-        outcomes.append(outcome)
-        if outcome.status == "ok":
-            print(f"  OK    {outcome.rel_example} ({outcome.detail})")
-        elif outcome.status == "skip":
-            print(f"  SKIP  {outcome.rel_example} -- known non-generating: {outcome.detail}")
-        else:
-            print(f"  FAIL  {outcome.rel_example}")
+        for language in languages:
+            outcome = _check_one(dtrx, language, known)
+            outcomes.append(outcome)
+            if outcome.status == "ok":
+                print(f"  OK    {outcome.rel_example} [{outcome.language}] ({outcome.detail})")
+            elif outcome.status == "skip":
+                print(
+                    f"  SKIP  {outcome.rel_example} [{outcome.language}] -- "
+                    f"known non-generating: {outcome.detail}"
+                )
+            else:
+                print(f"  FAIL  {outcome.rel_example} [{outcome.language}]")
 
-        # Non-vacuity self-test, against the first REAL generated tree this run
-        # produced -- including a drifted one, which is still real output.
-        if self_test_problems is None and outcome.tree is not None:
-            self_test_problems = run_self_test(outcome.tree)
+            # Non-vacuity self-test, against the first REAL generated tree this run
+            # produced -- including a drifted one, which is still real output.
+            if self_test_problems is None and outcome.tree is not None:
+                self_test_problems = run_self_test(outcome.tree)
 
     failed = [o for o in outcomes if o.status == "fail"]
     skipped = [o for o in outcomes if o.status == "skip"]
@@ -861,7 +951,7 @@ def cmd_check(example_filter: str | None) -> int:
         print()
         print("Known non-generating examples (real, pre-existing defects -- NOT hidden):")
         for o in skipped:
-            print(f"  {o.rel_example}: {o.detail}")
+            print(f"  {o.rel_example} [{o.language}]: {o.detail}")
         print()
 
     if self_test_problems is None:
@@ -881,11 +971,14 @@ def cmd_check(example_filter: str | None) -> int:
     )
 
     if failed:
-        print(f"PARITY GATE FAILED: {len(failed)} example(s) drifted from their baseline.")
+        print(
+            f"PARITY GATE FAILED: {len(failed)} example/language pair(s) drifted, "
+            f"failed to generate, or had no baseline."
+        )
         print("Any diff you cannot explain is a bug, not a baseline update.")
         return EXIT_FAIL
 
-    print("PARITY GATE PASSED: every example's generated output matches its baseline.")
+    print("PARITY GATE PASSED: every example/language pair matches its baseline.")
     return EXIT_OK
 
 

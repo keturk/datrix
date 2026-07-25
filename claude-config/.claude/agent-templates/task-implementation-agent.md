@@ -42,6 +42,7 @@ Read the task file at the path above. It contains everything you need: files to 
 - NO mocks/fakes in tests (`unittest.mock`, `SimpleNamespace`, `MagicMock` all banned)
 - NO stub implementations that satisfy type checkers but do nothing
 - NO `git restore`/`checkout`/`reset`/`stash`/`revert`
+- NO design-doc or task-file number/filename/ID in code comments, docstrings, or committed docs — they are `.gitignored` and ambiguously numbered across two machines, so the reference is a dangling pointer. Say what the code does and why, not "implements task 03-12 / design 044-x" (execution-contract §7A)
 
 ### 3. SELF-CHECK
 

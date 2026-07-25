@@ -1457,19 +1457,16 @@ entity Order {
 # config/system.dcfg
 config system ecommerce.System {
     profile test {
-        language: python
         deployment { runtime: docker-compose, provider: local }
         defaultTimeout: 10000
     }
 
     profile development {
-        language: python
         deployment { runtime: docker-compose, provider: local }
         defaultTimeout: 30000
     }
 
     profile staging {
-        language: python
         deployment { runtime: ecs-fargate, provider: aws, registry: ecr }
         region: us-east-1
     }
@@ -1477,7 +1474,6 @@ config system ecommerce.System {
   defaultTimeout: 60000
 
 production:
-  language: python
   hosting: aws
   region: us-east-1
   defaultTimeout: 90000

@@ -158,6 +158,19 @@ This is not a vocabulary game: **do not evade the grep by rephrasing.** Rephrasi
 past the check is a worse offense than the dodge, because it is deliberate. The rule is the
 *behavior*, not the wordlist.
 
+## 7A. Never cite a design doc or task file in a committed artifact
+
+Design docs (`design/`) and task files are `.gitignored` and authored on two machines, so their
+numbering collides (two different `044-…` docs, same-numbered tasks) and none of them exists after
+a clone. **A reference to one from anything committed is a dangling pointer** — it points at the
+wrong artifact, or nothing, on another machine.
+
+So a design-doc or task-file number, filename, ID, or path must **never** appear in: code comments,
+docstrings, committed documentation (`docs/`, READMEs), commit messages, or PR bodies. State *what*
+the code does and *why* — never "implements design 044-x" or "per task 03-12". This is exempt only
+for design/task files referencing *each other* (`Design reference:`, `Depends on:`): that is
+internal, gitignored orchestration machinery, not a committed artifact.
+
 ## 8. What "done" means
 
 A task is done when **all** hold:

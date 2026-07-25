@@ -10,7 +10,7 @@
 
 ### `dev\generate.ps1`
 
-Generates Datrix projects from `.dtrx` source files. `-Language`/`-L` and `-Runtime`/`-R` are wrapper-only output-path selectors. The output-path provider segment is read from each project's `config/system.dcfg` deployment block (active `-ConfigProfile`, default `test`), not a flag. The actual language, runtime, provider, service flavor, and infrastructure flavor used for generation are read from project config.
+Generates Datrix projects from `.dtrx` source files. `-Language`/`-L` is **mandatory** and is the real generation target — forwarded to `datrix generate --language`, and also selects the output-path language segment (the two can never disagree). `-Runtime`/`-R` is a wrapper-only output-path selector; the output-path provider segment is read from each project's `config/system.dcfg` deployment block (active `-ConfigProfile`, default `test`), not a flag. Deployment runtime/provider, service flavor, and infrastructure flavor used for generation are read from project config.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -29,7 +29,7 @@ Generates Datrix projects from `.dtrx` source files. `-Language`/`-L` and `-Runt
 | **Debug logging** | `.\dev\generate.ps1 -All -L python -Dbg` | Enable DEBUG level logging |
 | **Config profile** | `.\dev\generate.ps1 <source.dtrx> -L python -ConfigProfile production` | Select non-default config profile |
 
-**Parameters:** `-Source` (positional 0), `-Output` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (python\|typescript, output path), `-Runtime`/`-R` (docker-compose\|azure-container-apps\|azure-app-service\|ecs-fargate\|app-runner, output path), `-ConfigProfile` (config profile that also selects the provider segment read from `config/system.dcfg`, e.g. test\|development\|production; default: test), `-OutputBase` (default: .generated), `-TestSet` (default: all), `-VerboseOutput`, `-Dbg`
+**Parameters:** `-Source` (positional 0), `-Output` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (any registered `datrix.languages` target, **mandatory**, the real generation target — also selects the output-path language segment), `-Runtime`/`-R` (docker-compose\|azure-container-apps\|azure-app-service\|ecs-fargate\|app-runner, output path only), `-ConfigProfile` (config profile that also selects the provider segment read from `config/system.dcfg`, e.g. test\|development\|production; default: test), `-OutputBase` (default: .generated), `-TestSet` (default: all), `-VerboseOutput`, `-Dbg`
 
 ### `dev\syntax-checker.ps1`
 
@@ -316,11 +316,11 @@ Proves a code change is **output-neutral**: generates a corpus of examples twice
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Against a git ref** | `.\dev\byte-identity-generate.ps1 -Example "01-foundation" -BeforeRef HEAD -Packages datrix-codegen-python` | Snapshot named packages' `src/` at the ref for the "before" side |
-| **Against a prebuilt tree** | `.\dev\byte-identity-generate.ps1 -Example "01-foundation" -BeforeTree D:\datrix\.tmp\before-overlay` | Caller-supplied "before" source overlay |
-| **Test set corpus** | `.\dev\byte-identity-generate.ps1 -TestSet foundation -BeforeRef HEAD -Packages datrix-codegen-common` | Whole test set |
+| **Against a git ref** | `.\dev\byte-identity-generate.ps1 -Example "01-foundation" -BeforeRef HEAD -Packages datrix-codegen-python -Language python` | Snapshot named packages' `src/` at the ref for the "before" side |
+| **Against a prebuilt tree** | `.\dev\byte-identity-generate.ps1 -Example "01-foundation" -BeforeTree D:\datrix\.tmp\before-overlay -Language python` | Caller-supplied "before" source overlay |
+| **Test set corpus** | `.\dev\byte-identity-generate.ps1 -TestSet foundation -BeforeRef HEAD -Packages datrix-codegen-common -Language python` | Whole test set |
 
-**Parameters:** `-Example <rel-path>` (repeatable/comma) OR `-TestSet <name>`; exactly one of `-BeforeRef <git-ref>` + `-Packages <pkg,pkg>` or `-BeforeTree <dir>`; `-Output <path>`; `-Dbg`
+**Parameters:** `-Example <rel-path>` (repeatable/comma) OR `-TestSet <name>`; exactly one of `-BeforeRef <git-ref>` + `-Packages <pkg,pkg>` or `-BeforeTree <dir>`; `-Language <lang>` (any registered `datrix.languages` target, **mandatory** — both the BEFORE and AFTER sides generate in this language; language is orthogonal to the code change being diffed); `-Output <path>`; `-Dbg`
 
 **Output:** `D:\datrix\.test-output\byte-identity\report.json` + `report.md` (unified diffs of changed text files). **Exit codes:** 0 = byte-identical, 1 = differences, 2 = usage / generation failure.
 

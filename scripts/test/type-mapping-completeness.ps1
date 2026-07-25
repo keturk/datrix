@@ -8,10 +8,16 @@
  Ensures all canonical types in the TypeRegistry have mappings in each language.
 
 .PARAMETER Languages
- Comma-separated list of languages to check (e.g., "python,typescript").
+ Comma-separated list of languages to check (e.g., "python,typescript"). When
+ omitted, every registered datrix.languages target is checked (discovered at
+ runtime -- never a hardcoded python/typescript list).
 
 .PARAMETER Dbg
  Enable debug logging (DEBUG level instead of INFO).
+
+.EXAMPLE
+ .\type-mapping-completeness.ps1
+ Check type mappings for every registered language.
 
 .EXAMPLE
  .\type-mapping-completeness.ps1 -Languages python,typescript
@@ -24,8 +30,8 @@
 
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$Languages,
+    [Parameter()]
+    [string]$Languages = "",
 
     [Parameter()]
     [switch]$Dbg
@@ -72,14 +78,19 @@ Ensure-DatrixVenv
 try {
     Ensure-DatrixPackagesInstalled
 
-    # Build Python arguments
-    $pythonArgs = @($runnerScript, "--languages", $Languages)
+    # Build Python arguments. When -Languages is omitted, the runner defaults to
+    # every registered datrix.languages target (discovered at runtime).
+    $pythonArgs = @($runnerScript)
+    if (-not [string]::IsNullOrWhiteSpace($Languages)) {
+        $pythonArgs += @("--languages", $Languages)
+    }
     if ($Dbg) {
         $pythonArgs += "--debug"
     }
 
     # Run the Python script
-    Write-Host "Running type mapping completeness check for: $Languages" -ForegroundColor Cyan
+    $targetLabel = if ([string]::IsNullOrWhiteSpace($Languages)) { "all registered languages" } else { $Languages }
+    Write-Host "Running type mapping completeness check for: $targetLabel" -ForegroundColor Cyan
     python @pythonArgs
     $exitCode = $LASTEXITCODE
 

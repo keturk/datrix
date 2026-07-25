@@ -45,8 +45,8 @@ Install and usage details: [`datrix-cli/docs/commands.md`](../../datrix-cli/docs
 
 ```bash
 datrix validate path/to/specs
-datrix generate --source path/to/system.dtrx --output ./generated
-datrix generate --source path/to/system.dtrx --output ./generated --profile production
+datrix generate --source path/to/system.dtrx --output ./generated --language python
+datrix generate --source path/to/system.dtrx --output ./generated --profile production --language python
 ```
 
-**Note:** Deployment configuration (runtime and provider) is specified in ConfigDSL files via the `deployment` section, not through CLI flags. The `--language` flag remains for development convenience only.
+**Note:** Deployment configuration (runtime and provider) is specified in ConfigDSL files via the `deployment` section, not through CLI flags. `--language`/`-L` is a required CLI flag — target language is a generation parameter, not config; there is no default.

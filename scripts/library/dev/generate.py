@@ -3,14 +3,17 @@ r"""
 Generate all example projects.
 
 Usage:
-    python scripts/library/dev/generate.py [--language python] [--runtime docker-compose]
+    python scripts/library/dev/generate.py --language python [--runtime docker-compose]
     [--output-base .generated] [--test-set all] [--profile test]
 
-    The output-path provider segment is read from each project's
-    config/system.dcfg (active --profile), not passed as a flag.
+    --language is forwarded to `datrix generate --language` -- it is the real
+    generation target, not just an output-path label. --runtime only selects
+    the output-path runtime segment; the output-path provider segment is read
+    from each project's config/system.dcfg (active --profile), not passed as
+    a flag.
 
     Or use the PowerShell wrapper:
-        .\scripts\dev\generate.ps1 -All [-Language <lang>] [-Runtime <runtime>] [-TestSet <set>]
+        .\scripts\dev\generate.ps1 -All -Language <lang> [-Runtime <runtime>] [-TestSet <set>]
 """
 
 import argparse
@@ -46,6 +49,7 @@ from shared.logging_utils import (  # noqa: E402
     colorize,
     strip_ansi,
 )
+from shared.registered_targets import registered_language_names  # noqa: E402
 from shared.test_projects import (  # noqa: E402
     build_output_path,
     get_default_output_path,
@@ -63,9 +67,17 @@ from datrix_common import DATRIX_FILE_EXTENSION  # noqa: E402
 
 
 def _append_datrix_generate_cli_options(cmd_args: list[str], args: argparse.Namespace) -> None:
-    """Append non-target datrix generate options from script args."""
+    """Append datrix generate options from script args.
+
+    ``--language`` is forwarded as the real generation target (design 044 D4):
+    the output-path language segment (``args.language``, used for
+    ``build_output_path``) and the language the pipeline actually generates are
+    always the same value -- they cannot disagree.
+    """
     if getattr(args, "profile", None) is not None:
         cmd_args.extend(["--profile", args.profile])
+    if getattr(args, "language", None) is not None:
+        cmd_args.extend(["--language", args.language])
 
 
 def _active_profile(args: argparse.Namespace) -> str:
@@ -207,10 +219,12 @@ def generate_single_project(
                     output_name = f"{args.language}/{platform_segment}/{project_name}"
                     output_path = datrix_root / ".generated" / output_name
 
-        # Build datrix generate command. Language and runtime are used only for
-        # output path derivation and are not forwarded to datrix generate. The
-        # generation target (language and deployment runtime/provider) comes from
-        # config/system.dcfg for the active profile (--profile; datrix's default is test).
+        # Build datrix generate command. --language is forwarded to datrix
+        # generate as the real generation target -- the output-path language
+        # segment and the generated language are always the same value
+        # (design 044 D4: they cannot disagree). --runtime is output-path
+        # derivation only; the deployment runtime/provider still comes from
+        # config/system.dcfg for the active profile (--profile; default test).
         import os
         import tempfile
 
@@ -224,8 +238,9 @@ def generate_single_project(
             datrix_cmd_path = venv_path / "bin" / "datrix"
 
         # Build command arguments
-        # The command structure is: datrix generate [OPTIONS]
-        # Language and deployment come from config/system.dcfg for the active --profile
+        # The command structure is: datrix generate --language <lang> [OPTIONS]
+        # Language is forwarded from this script's --language flag; deployment
+        # (runtime/provider) still comes from config/system.dcfg for the active --profile
         cmd_args = [
         "generate",
         "--source",
@@ -495,7 +510,10 @@ def main():
     )
  
     # Batch mode
-    parser.add_argument("--language", type=str.lower, default="python", choices=["python", "typescript"], help="Target language")
+    # Target-language choices are the registered datrix.languages set (discovered
+    # at runtime), never a hardcoded literal -- a new datrix-codegen-<lang> package
+    # is selectable here with no edit.
+    parser.add_argument("--language", type=str.lower, default="python", choices=sorted(registered_language_names()), help="Target generation language, forwarded to datrix generate --language (also selects the output-path language segment; any registered datrix.languages target)")
     parser.add_argument("--runtime", type=str.lower, default=None, choices=["docker-compose", "azure-app-service", "ecs-fargate", "app-runner"], help="Optional output path runtime segment; generation reads runtime from resolved config")
     parser.add_argument("--output-base", type=str, default=".generated", help="Output base directory")
     parser.add_argument("--test-set", type=str, default="all", help="Test set to use (e.g. all, foundation, non-foundation, features, domains)")

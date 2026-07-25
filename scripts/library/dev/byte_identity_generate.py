@@ -33,9 +33,10 @@ and its sha256 tree manifest with the canonical volatile exclusion set
 
 Usage:
   python scripts/library/dev/byte_identity_generate.py \
-      --example 01-foundation --before-ref HEAD --packages datrix-codegen-common
+      --example 01-foundation --before-ref HEAD --packages datrix-codegen-common \
+      --language python
   .\\scripts\\dev\\byte-identity-generate.ps1 -Example 01-foundation \
-      -BeforeRef HEAD -Packages datrix-codegen-common
+      -BeforeRef HEAD -Packages datrix-codegen-common -Language python
 
 Exit codes: 0 = byte-identical, 1 = differences found, 2 = usage error or a
 generation failure (the failing side is named).
@@ -68,6 +69,7 @@ _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
+from shared.registered_targets import registered_language_names  # noqa: E402
 from shared.test_projects import load_config, normalize_path  # noqa: E402
 from shared.venv import get_datrix_root  # noqa: E402
 from test.reference_example_parity import (  # noqa: E402
@@ -462,7 +464,7 @@ def build_before_strategy(
 # ---------------------------------------------------------------------------
 
 
-def run_worker(output_root: Path, examples: list[str]) -> int:
+def run_worker(output_root: Path, examples: list[str], language: str) -> int:
     """Generate every example into ``output_root/<ex_id>`` via the REAL pipeline.
 
     Runs inside a dedicated subprocess so the parent's PYTHONPATH choice
@@ -472,6 +474,9 @@ def run_worker(output_root: Path, examples: list[str]) -> int:
     Args:
         output_root: Side root (``.../bef`` or ``.../aft``).
         examples: Example dir relpaths.
+        language: The registered ``datrix.languages`` target both sides generate
+            (a code-change byte-identity check compares the same language on
+            both sides; language is orthogonal to what is being diffed).
 
     Returns:
         0 when every example generated; 1 on the first failure (reported with
@@ -482,7 +487,7 @@ def run_worker(output_root: Path, examples: list[str]) -> int:
         dtrx = EXAMPLES_ROOT / rel / SYSTEM_DTRX_NAME
         target = output_root / example_id(dtrx)
         try:
-            generate_example(dtrx, target)
+            generate_example(dtrx, target, language)
         except Exception as exc:  # noqa: BLE001 -- reported verbatim, never swallowed
             print(f"{WORKER_FAIL_PREFIX} {rel}: {exc}")
             return 1
@@ -495,6 +500,7 @@ def run_side(
     output_root: Path,
     examples: list[str],
     pythonpath: str | None,
+    language: str,
     debug: bool,
 ) -> None:
     """Run one side's generation in a dedicated worker subprocess.
@@ -508,6 +514,8 @@ def run_side(
         output_root: Side root; cleared before generating.
         examples: Example dir relpaths.
         pythonpath: The source overlay for the worker, or ``None``.
+        language: The registered ``datrix.languages`` target both sides
+            generate, forwarded to the worker's own ``--language``.
         debug: Forward ``--debug`` to the worker.
 
     Raises:
@@ -524,12 +532,13 @@ def run_side(
         env["PYTHONPATH"] = pythonpath
 
     command = [sys.executable, str(Path(__file__).resolve()),
-               "--generate-worker", str(output_root)]
+               "--generate-worker", str(output_root),
+               "--language", language]
     for rel in examples:
         command.extend(["--example", rel])
     if debug:
         command.append("--debug")
-    logger.debug("run_side side=%s pythonpath=%s", side, pythonpath)
+    logger.debug("run_side side=%s pythonpath=%s language=%s", side, pythonpath, language)
 
     completed = subprocess.run(command, capture_output=True, text=True, check=False, env=env)
     if completed.returncode != 0:
@@ -768,8 +777,8 @@ def orchestrate(args: argparse.Namespace) -> int:
     after_root = output_home / AFTER_DIRNAME
     _assert_equal_length_roots(before_root, after_root)
 
-    run_side(SIDE_BEFORE, before_root, examples, strategy.pythonpath, bool(args.debug))
-    run_side(SIDE_AFTER, after_root, examples, None, bool(args.debug))
+    run_side(SIDE_BEFORE, before_root, examples, strategy.pythonpath, args.language, bool(args.debug))
+    run_side(SIDE_AFTER, after_root, examples, None, args.language, bool(args.debug))
 
     comparisons = compare_examples(examples, before_root, after_root)
     report_json = (
@@ -833,6 +842,16 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         help="Prebuilt BEFORE source overlay dir (prepended to the worker PYTHONPATH).",
     )
     parser.add_argument(
+        "--language",
+        type=str.lower,
+        required=True,
+        choices=sorted(registered_language_names()),
+        help="Generation target both sides are generated in -- forwarded to "
+        "datrix generate --language via reference_example_parity.generate_example "
+        "(any registered datrix.languages target; never a hardcoded literal). "
+        "Language is orthogonal to the code change being diffed.",
+    )
+    parser.add_argument(
         "--output", default=None,
         help="Override the report.json path (report.md lands next to it). The two "
         "generation roots are fixed and equal-length -- never configurable.",
@@ -865,7 +884,7 @@ def main(argv: list[str] | None = None) -> int:
         if not worker_examples:
             print(f"{WORKER_FAIL_PREFIX} no --example given to the worker")
             return 1
-        return run_worker(Path(args.generate_worker), worker_examples)
+        return run_worker(Path(args.generate_worker), worker_examples, args.language)
 
     try:
         return orchestrate(args)

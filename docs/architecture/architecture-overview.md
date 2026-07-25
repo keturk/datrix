@@ -224,7 +224,7 @@ graph TD
 
 ### Decision 6: Deployment Target Contract (Stable)
 
-> **Partially superseded by Decision 15 (Multi-Target Plugin Architecture, adopted):** `language` and `deployment.provider` are no longer closed enum value sets — they are open, plugin-registry-validated identifiers (`LanguageId`/`ProviderId`; see [datrix-common API — Open identity](../../../datrix-common/docs/datrix-common-api.md#open-identity-languageid--providerid)), and the "Generator orchestration" table below is no longer a fixed lineup — each generator declares a phase and optional `runs_after` names, and the CLI topologically sorts them (`datrix_common.generation.generator_lineup`). `deployment.runtime` is an open, plugin-declared identifier too (`RuntimeId`; each platform declares the runtimes it realizes). Runtime/provider orthogonality is preserved by construction — the two are independently resolved dimensions, and neither resolver takes the other as a parameter. The YAML shape and concept matrix below are otherwise unchanged.
+> **Partially superseded by Decision 15 (Multi-Target Plugin Architecture, adopted) and Decision 044 (Language as a Generation Target, adopted):** `deployment.provider` is no longer a closed enum value set — it is an open, plugin-registry-validated identifier (`ProviderId`; see [datrix-common API — Open identity](../../../datrix-common/docs/datrix-common-api.md#open-identity-languageid--providerid)), and the "Generator orchestration" table below is no longer a fixed lineup — each generator declares a phase and optional `runs_after` names, and the CLI topologically sorts them (`datrix_common.generation.generator_lineup`). `deployment.runtime` is an open, plugin-declared identifier too (`RuntimeId`; each platform declares the runtimes it realizes). Runtime/provider orthogonality is preserved by construction — the two are independently resolved dimensions, and neither resolver takes the other as a parameter. `language` is no longer a config field at all: it is a required generation parameter (`--language`/`-L`) resolved against the registered `datrix.languages` set (`LanguageId`, via `resolve_language_id`) — see Decision 6 below, as amended. The YAML shape and concept matrix below are otherwise unchanged, minus the removed `language` config key.
 
 **Rationale:**
 - Legacy models conflated runtime packaging shape, infrastructure provider, and cloud-managed targets into a single dimension
@@ -236,15 +236,13 @@ graph TD
 - An explicit deployment target model replaces the single `hosting` dimension with three orthogonal fields:
 
 ```yaml
-language: python | typescript
-
 deployment:
   runtime: docker-compose | azure-app-service | azure-app-service-container | ecs-fargate | app-runner
   provider: local | existing | aws | azure
   registry: acr | ecr | ...           # optional, provider-specific
 ```
 
-- `language` selects the generated application implementation
+- `language` is not part of this config model — it is a required generation parameter (`--language`/`-L`), resolved against the registered `datrix.languages` set via `resolve_language_id`; it selects the generated application implementation. A `language` key in `config/system.dcfg` (base or profile) is a fail-loud error. See the CLI contract below.
 - `deployment.runtime` selects the deployable artifact shape (Compose, Azure App Service, ECS Fargate, etc.)
 - `deployment.provider` selects the infrastructure provider or substrate owner
 - `deployment.registry` is an optional provider-specific refinement
@@ -259,7 +257,7 @@ deployment:
 
 | Concept | Examples | Owns |
 | --- | --- | --- |
-| Language | `python`, `typescript` | Application source code, framework/runtime adapters, language package/dependency files |
+| Language | `python`, `typescript` | Application source code, framework/runtime adapters, language package/dependency files — resolved from the required `--language`/`-L` CLI flag, not deployment config |
 | Runtime | `docker-compose`, `azure-app-service`, `azure-app-service-container`, `ecs-fargate`, `app-runner` | Deployable artifact shape and process model |
 | Provider | `local`, `existing`, `aws`, `azure` | Provider-managed substrate, registry, identity, networking, managed services |
 | Infrastructure flavor | `container`, `external`, `rds`, `flexible-server`, `event-hubs` | Per-block provisioning choice (RDBMS, cache, pubsub, etc.) |
@@ -269,32 +267,30 @@ deployment:
 
 ```yaml
 # Local Docker Compose
-language: python
 deployment:
   runtime: docker-compose
   provider: local
 
 # AWS App Runner
-language: python
 deployment:
   runtime: app-runner
   provider: aws
   registry: ecr
 
 # Azure App Service (native PaaS)
-language: python
 deployment:
   runtime: azure-app-service
   provider: azure
   registry: acr
 
 # AWS ECS Fargate
-language: python
 deployment:
   runtime: ecs-fargate
   provider: aws
   registry: ecr
 ```
+
+Each example above pairs with a required `--language`/`-L` flag on the `datrix generate` command; language is never read from these config blocks.
 
 **Generator orchestration** becomes multidimensional:
 
@@ -321,9 +317,9 @@ Provider-native runtimes are produced by their provider generator plus, where th
 | `ecs-fargate` | `aws` |
 | `app-runner` | `aws` |
 
-**CLI contract:** Deployment-affecting values are not accepted as one-off CLI overrides. `datrix generate` reads `language` and `deployment` from resolved config. `--hosting` and `--platform` generation-time overrides are removed. Users who need to change deployment target edit config files (or use a `datrix config set-deployment` helper command that writes config explicitly).
+**CLI contract:** Deployment-affecting values are not accepted as one-off CLI overrides. `datrix generate` requires `--language`/`-L` (resolved via `resolve_language_id` against the registered `datrix.languages` set) and reads `deployment` from resolved config. `--hosting` and `--platform` generation-time overrides are removed. Users who need to change deployment target edit config files (or use a `datrix config set-deployment` helper command that writes config explicitly).
 
-**Output path contract:** Generated output paths include language, runtime, and provider:
+**Output path contract:** Generated output paths include language (from the required `--language` flag), runtime, and provider (from resolved deployment config):
 
 ```text
 .projects/<app>/<language>/<runtime>/<provider>/
@@ -843,20 +839,19 @@ Use the CLI to validate and generate:
 datrix validate system.dtrx
 datrix validate examples/02-features/01-core-data-modeling/rest-api
 
-# Generate (defaults: profile test; language and deployment from ConfigDSL for that profile)
-datrix generate --source system.dtrx --output ./generated
+# Generate (defaults: profile test; deployment from ConfigDSL for that profile; --language is required)
+datrix generate --source system.dtrx --output ./generated --language python
 
 # Generate for a specific profile
-datrix generate --source system.dtrx --output ./generated --profile production
+datrix generate --source system.dtrx --output ./generated --profile production --language python
 
-# Override language for testing only (optional short flag)
-datrix generate --source system.dtrx --output ./generated --language typescript
-datrix generate --source system.dtrx --output ./generated -L python
+# Short flag
+datrix generate --source system.dtrx --output ./generated -L typescript
 ```
 
-**Config-driven generation:** The source of truth is ConfigDSL: `language` and `deployment` (runtime, provider, target, registry) in `config/system.dcfg`. Infrastructure flavor for individual blocks (e.g. `flexible-server`, `event-hubs`, `blob-storage`) is set in each block's `.dcfg` config file. Generation reads deployment settings from resolved config — there are no deployment-affecting CLI overrides. See [Decision 6: Deployment Target Contract](#decision-6-deployment-target-contract-stable) for the full deployment model.
+**Config-driven generation:** `language` is a required generation parameter — pass `--language`/`-L`, resolved against the registered `datrix.languages` set via `resolve_language_id`; there is no config fallback and no silent default. `deployment` (runtime, provider, target, registry) is the source of truth in `config/system.dcfg`. Infrastructure flavor for individual blocks (e.g. `flexible-server`, `event-hubs`, `blob-storage`) is set in each block's `.dcfg` config file. Generation reads deployment settings from resolved config — there are no deployment-affecting CLI overrides. See [Decision 6: Deployment Target Contract](#decision-6-deployment-target-contract-stable) for the full deployment model.
 
-> **Note:** The `--hosting` and `--platform` CLI overrides have been removed. Deployment target is configured in ConfigDSL files, not CLI flags.
+> **Note:** The `--hosting` and `--platform` CLI overrides have been removed. Deployment target is configured in ConfigDSL files, not CLI flags. `--language`/`-L` is required and is the sole source for the language target — a `language` key in ConfigDSL is a fail-loud error at generation time.
 
 ---
 

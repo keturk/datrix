@@ -114,7 +114,6 @@ All new config surfaces use the ConfigDSL generic block syntax. Here are represe
 ```dcfg
 config system ecommerce.System {
   profile production as "prod" {
-    language = python;
     deployment { runtime = ecs-fargate; provider = aws; }
 
     platforms {
@@ -369,7 +368,6 @@ To avoid repeating common values across profiles, use a `base:` section. Profile
 # config/system.dcfg — using base inheritance
 config system ecommerce.System {
   base {
-    language = python;
     deployment {
       runtime = docker-compose;
       provider = local;
@@ -396,7 +394,6 @@ config system ecommerce.System {
 config system ecommerce.System {
   profile test as "test" {
     alias env = "TEST";
-    language = python;
     deployment {
       runtime = docker-compose;
       provider = local;
@@ -405,7 +402,6 @@ config system ecommerce.System {
 
   profile development as "dev" {
     alias env = "DEV";
-    language = python;
     deployment {
       runtime = docker-compose;
       provider = local;
@@ -414,7 +410,6 @@ config system ecommerce.System {
 
   profile production as "prod" {
     alias env = "PROD";
-    language = python;
     deployment {
       runtime = ecs-fargate;
       provider = aws;
@@ -422,6 +417,8 @@ config system ecommerce.System {
   }
 }
 ```
+
+Target language is not part of `system.dcfg` — it is a required generation parameter passed via `--language`/`-L` on `datrix generate`.
 
 ### Using Profiles
 
@@ -568,7 +565,6 @@ system ecommerce.System('config/system.dcfg') : version('1.0.0') {
 ```dcfg
 config system ecommerce.System {
   base {
-    language = python;                    # Required: python or typescript
     deployment {                         # Required: deployment target
       runtime = docker-compose;           # docker-compose, ecs-fargate, app-runner, etc.
       provider = local;                   # local, existing, aws, azure
@@ -593,7 +589,6 @@ config system ecommerce.System {
 
   profile production as "prod" extends base {
     alias env = "PROD";
-    language = python;
     deployment {
       runtime = ecs-fargate;
       provider = aws;
@@ -622,9 +617,10 @@ config system ecommerce.System {
 
 | Field | Required When | Type | Description |
 |-------|--------------|------|-------------|
-| `language` | Always | `python` \| `typescript` | Target language |
 | `deployment.runtime` | Always | See [Deployment Runtime Options](#deployment-runtime-options) | Deployment runtime shape |
 | `deployment.provider` | Always | See [Deployment Provider Options](#deployment-provider-options) | Infrastructure provider |
+
+Target language is **not** a `.dcfg` field — it is a required generation parameter (`--language`/`-L`); see [Language Selection](#language-selection) below.
 
 ### Optional Fields
 
@@ -639,12 +635,15 @@ config system ecommerce.System {
 | `secrets` | Object | — | Secrets management config |
 | `encryption` | Object | — | Data encryption config |
 
-### Language Options
+### Language Selection
 
-| Value | Generates |
-|-------|-----------|
-| `python` | FastAPI application + Python code + SQL |
-| `typescript` | NestJS application + TypeScript code + SQL |
+Language is not a ConfigDSL field. It is a required generation-time CLI parameter, resolved against the registered `datrix.languages` set (`python`, `typescript`, …):
+
+```bash
+datrix generate --source system.dtrx --output ./generated --language python
+```
+
+A `language` key in `config/system.dcfg` (base or any profile) is a fail-loud error at generation. See `datrix generate --help` for the full list of registered languages.
 
 ### Deployment Runtime Options
 
@@ -2150,7 +2149,6 @@ The `configStore` section in a **system** ConfigDSL profile enables a runtime-mu
 ```dcfg
 config system ecommerce.System {
   profile production as "prod" {
-    language = python;
     deployment {
       runtime = ecs-fargate;
       provider = aws;
@@ -2230,13 +2228,11 @@ datrix generate --profile production -s specs/system.dtrx -o ./generated
 ```yaml
 # ✅ Good: Same structure across profiles
 test:
-  language: python
   deployment:
     runtime: docker-compose
     provider: local
 
 production:
-  language: python
   deployment:
     runtime: ecs-fargate
     provider: aws
@@ -2244,12 +2240,14 @@ production:
 
 # ❌ Bad: Different fields per profile
 test:
-  language: python
+  deployment:
+    runtime: docker-compose
+    provider: local
 
 production:
   deployment:
     runtime: ecs-fargate
-    provider: aws  # Missing language!
+    # Missing provider!
 ```
 
 ### 2. Logical Handles for Secrets
@@ -2300,10 +2298,18 @@ production:
 ### Error: Missing required field
 
 ```
-ConfigValidationError: Field 'language' is required in system .dcfg profile 'production'
+ConfigValidationError: Field 'deployment.runtime' is required in system .dcfg profile 'production'
 ```
 
 **Fix:** Add the missing field to the profile.
+
+### Error: `language` in ConfigDSL
+
+```
+ConfigError: language is a generation target, not system configuration. Remove 'language = "python";' from config/system.dcfg and pass 'datrix generate --language <lang>' instead.
+```
+
+**Fix:** Remove the `language` field from `config/system.dcfg` (base or any profile) and pass `--language`/`-L` on the `datrix generate` command line.
 
 ### Error: Invalid enum value
 
@@ -2329,7 +2335,7 @@ DeploymentValidationError: Service flavor 'compose' is incompatible with deploym
 
 ```
 config/
-├── system.dcfg                     # System profiles: language, deployment, gateway, registry, observability
+├── system.dcfg                     # System profiles: deployment, gateway, registry, observability
 ├── templates/                      # Optional shared ConfigDSL templates/imports
 └── <service-name>.dcfg             # Service profiles: deployment, infrastructure, dependencies, jobs, queues, integrations
 ```

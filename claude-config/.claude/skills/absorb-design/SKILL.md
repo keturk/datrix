@@ -75,6 +75,7 @@ parser/AST/grammar → `datrix-language`).
    - **Transfer action** — one of: `APPEND` (add new section), `UPDATE` (replace existing content), `CREATE` (new file, only when no existing file fits)
 4. Classify any content that does NOT belong in docs:
    - Implementation details → skip (belongs in code/docstrings)
+   - Transfer **content**, never a pointer back to the design doc — the source is being deleted and is `.gitignored`. Target docs must not cite the design doc's number, filename, or ID (execution-contract §7A).
    - Task-level instructions → skip (belongs in task files)
    - Discussion/rationale that's already resolved → skip
 

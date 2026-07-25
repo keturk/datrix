@@ -3,7 +3,6 @@ config system commerce.System {
     migrations {
       enabled = false;
     }
-    language = "typescript";
     deployment {
       runtime = "docker-compose";
       provider = "local";

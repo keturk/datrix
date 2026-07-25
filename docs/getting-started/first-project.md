@@ -138,17 +138,10 @@ From the project root (or repo root with adjusted paths):
 
 ```bash
 datrix validate .
-datrix generate --source system.dtrx --output ./generated --profile test
+datrix generate --source system.dtrx --output ./generated --profile test --language python
 ```
 
-`language` and deployment target come from `config/system.dcfg` for the active profile (default CLI profile is **`test`**). To override the language for one run:
-
-```bash
-datrix generate --source system.dtrx --output ./generated --language python
-# Short flags: --language / -L
-```
-
-Deployment target is configured in `config/system.dcfg`, not via CLI flags.
+`--language`/`-L` is required — it selects the generated application implementation, resolved against the registered `datrix.languages` set. Deployment target comes from `config/system.dcfg` for the active profile (default CLI profile is **`test`**), not from CLI flags.
 
 ---
 
@@ -213,6 +206,6 @@ curl -X POST "http://127.0.0.1:<port>/api/v1/books" \
 
 **Imports / module not found** — Run from the generated service root and install the package (`pip install -e .`) so `library_book_service` is on `PYTHONPATH`.
 
-**Wrong language or deployment settings** — Check the active profile in `config/system.dcfg` and per-service configuration; language can be overridden with `--language` for testing purposes.
+**Wrong language or deployment settings** — `--language`/`-L` is required on every `datrix generate` call and is the sole source for the language target; check the value passed. Deployment settings come from the active profile in `config/system.dcfg` and per-service configuration — check those for deployment issues.
 
 Full CLI options: [`datrix-cli/docs/commands.md`](../../datrix-cli/docs/commands.md).

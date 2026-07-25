@@ -298,10 +298,16 @@ Repo-level validation **script**, not a pytest suite (per the datrix showcase bo
 
 **Parameters:** `-Example` (path relative to `datrix/examples/`, optional — default all), `-Dbg`
 
-**One language per example — NOT a language matrix.** The generator reads the target language
-from each project's `config/system.dcfg`; `generate.ps1`'s `-L` only labels the output path. Each
-example is therefore generated exactly once, in its declared language (52 python + 1 typescript
-today). The gate never enumerates languages.
+**Sweeps the registered language set.** The target generation language is a real CLI input
+(`datrix generate --language`, forwarded by `generate.ps1`/`generate.py`) rather than a
+`config/system.dcfg` field, so every example is genuinely generatable in every registered
+`datrix.languages` target. Each selected example is generated and checked once **per registered
+language** (derived at runtime from the installed `datrix.languages` entry points — never a
+hardcoded `python`/`typescript` literal), against that language's own
+`<example_id>/<language>.sha256` baseline. A missing baseline for a swept `(example, language)`
+pair is reported loudly as a failure — never silently skipped — so coverage gaps (most examples
+currently have only a `python` baseline, one has `typescript`) are always visible rather than
+quietly ignored. Bless new `(example, language)` baselines with `regen-parity-baselines.ps1`.
 
 **Non-vacuity is enforced on every run.** Before trusting any comparison, the gate copies a real
 generated tree, mutates one byte of one file, and requires that the comparison reports exactly
@@ -324,7 +330,8 @@ pinned `expected_count`, and are reported loudly on every run — never silently
 ### `test\regen-parity-baselines.ps1`
 
 **The single re-bless command** for the reference-example parity gate. Regenerates the stored
-baselines by running the same real pipeline and writing a per-file sha256 manifest to
+baselines by running the same real pipeline **once per registered `datrix.languages` target**
+(never a hardcoded `python`/`typescript` literal) and writing a per-file sha256 manifest to
 `datrix/scripts/config/parity-baselines/<example_id>/<language>.sha256`. This is the **only**
 sanctioned baseline writer — the gate never writes baselines (no auto-heal). Run it deliberately,
 **after** you have explained the change.

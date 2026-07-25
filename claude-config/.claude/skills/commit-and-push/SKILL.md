@@ -64,6 +64,7 @@ The script's prompt enforces this style; it is documented here so the output is 
 - Blank line after the summary, then a short prose paragraph describing what behavior,
   contract, validation, generation, or workflow changed and why it matters
 - Prefer prose over bullets; never dump bare file paths (git already records changed files)
+- **Never cite a design-doc or task-file number, filename, or ID in the message** — they are `.gitignored`, ambiguously numbered across two machines, and absent after a clone, so the reference is a dangling pointer. Describe the change itself, not "task 03-12" or "design 044-x" (execution-contract §7A).
 
 ## Error Handling
 
