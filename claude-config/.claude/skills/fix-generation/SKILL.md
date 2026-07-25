@@ -41,7 +41,7 @@ See `d:\datrix\.claude\skills\_shared\fix-conventions.md` for the mandatory docu
 ## Scope
 
 - **Fix target:** generator source, templates, transformers, config resolvers, OR the generated project's `.dtrx`/`.dcfg`/config — depending on classification. **Never** edit files under `.generated/` or `.projects/` (regenerating overwrites them).
-- **Language:** confirm Python vs TypeScript from the **Output** path in the log (`...\python\...` vs `...\typescript\...`). Do NOT cross languages.
+- **Language:** confirm the target language from the **Output** path segment in the log (`...\python\...`, `...\typescript\...`, `...\dotnet\...`, `...\java\...`, or any other registered `datrix.languages` target) — cross-check it against the `stage=generate:{generator}` token. Do NOT cross languages: a fix scoped to one language's generator must not touch another's. Datrix is a multi-language generator; the set of languages grows, so treat the language as whatever the Output segment/generator token says, not a fixed Python/TypeScript pair.
 - **Git:** each `datrix-*` package and `datrix` itself are independent git repositories. Commits/status are per-repo.
 - **No git reverts** and **no workarounds** (CLAUDE.md). Trace to root cause or STOP and report.
 
@@ -105,17 +105,19 @@ Config resolution and `.dcfg` loading live in `datrix-common` / `datrix-cli` —
 
 **ALWAYS verify parameters against `datrix/scripts/dev/quick-reference.md` before running** (a pre-tool hook blocks the call otherwise). Framework examples are generated with `generate.ps1` (run from bash with `powershell -File`):
 
+`{lang}` below is the target language taken from the failing project's **Output** segment / `stage=generate:{generator}` token — `python`, `typescript`, `dotnet`, `java`, or any other registered `datrix.languages` target. Always regenerate with the **same** `{lang}` the project failed under.
+
 | Target | Command |
 |---|---|
-| **One example** | `powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" "{source.dtrx}" -L {python\|typescript}` |
-| **Foundation group** | `powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" -TestSet foundation -L python` |
-| **Domains group** | `powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" -Domains -L python` |
-| **Non-foundation group** | `powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" -TestSet non-foundation -L python` |
-| **Named test set** | `powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" -TestSet {set-name} -L python` |
-| **All examples** | `powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" -All -L python` |
+| **One example** | `powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" "{source.dtrx}" -L {lang}` |
+| **Foundation group** | `powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" -TestSet foundation -L {lang}` |
+| **Domains group** | `powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" -Domains -L {lang}` |
+| **Non-foundation group** | `powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" -TestSet non-foundation -L {lang}` |
+| **Named test set** | `powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" -TestSet {set-name} -L {lang}` |
+| **All examples** | `powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" -All -L {lang}` |
 | **Debug logging** | append `-Dbg` |
 
-`-L`/`-Runtime`/`-Provider` are output-path selectors only; the real language/runtime/provider come from project config. Use `-ConfigProfile {test\|staging\|production}` to select a non-default profile.
+`-L`/`-Language` is **mandatory** and is the real generation target (it also selects the output-path language segment — the two can never disagree). `-Runtime`/`-R` is an output-path selector only; the real runtime/provider come from each project's `config/system.dcfg` deployment block. Use `-ConfigProfile {test\|staging\|production}` to select a non-default profile.
 
 ### Triage Script (PRIMARY parse path — do not read the raw log first)
 
@@ -233,7 +235,7 @@ Unresolved (if any):
 |---|---|---|
 | `Configuration file '...' not found` / `Unable to resolve ... config` | **Either** — investigate both sides | Project `config/` tree **or** config resolver (`datrix-common`/`datrix-cli`) |
 | Jinja2 `TemplateError` / `UndefinedError` / render traceback | Generator/framework | Template + the generator that builds its context |
-| Python exception inside a `datrix_codegen_*` frame (`AttributeError`, `KeyError`, `TypeError`) | Generator/framework | Generator/transformer source |
+| Python exception inside a `datrix_codegen_*` frame (`AttributeError`, `KeyError`, `TypeError`) — every generator is Python regardless of the **target** language (dotnet/java/typescript/python/…) | Generator/framework | Generator/transformer source in the owning `datrix-codegen-{generator}` package |
 | `Generator '{name}': {phase}` with no further detail | Generator/framework | The named generator's `{phase}` step |
 | Tree-sitter parse error / syntax error in `.dtrx` | App-definition | The project `.dtrx` |
 | Semantic validation error naming a user-defined entity/service/field | App-definition | The project `.dtrx` |
