@@ -380,7 +380,10 @@ class DeployTestLogWriter:
         Returns:
             Dict of phase results based on which test artifacts exist.
         """
-        has_junit_xml = bool(list(self._run_dir.glob("pytest-*.xml")))
+        has_junit_xml = bool(
+            list(self._run_dir.glob("pytest-*.xml"))
+            or list(self._run_dir.glob("dotnet-*.xml"))
+        )
         has_jest_json = bool(
             list(self._run_dir.glob("jest-*.json"))
             or list(self._run_dir.glob("*/jest-*.json"))
@@ -401,9 +404,11 @@ class DeployTestLogWriter:
             has_spec = bool(list(self._run_dir.glob("pytest-spec-*.xml"))) or bool(
                 list(self._run_dir.glob("*/jest-spec-*.json"))
             )
-            has_integration = bool(
-                list(self._run_dir.glob("pytest-integration-*.xml"))
-            ) or bool(list(self._run_dir.glob("jest-deploy-*.json")))
+            has_integration = (
+                bool(list(self._run_dir.glob("pytest-integration-*.xml")))
+                or bool(list(self._run_dir.glob("dotnet-integration-*.xml")))
+                or bool(list(self._run_dir.glob("jest-deploy-*.json")))
+            )
 
             if has_spec:
                 phases["spec-tests"] = PhaseResult(result="PASSED")
@@ -586,6 +591,7 @@ class DeployTestLogWriter:
         """
         results: list[dict[str, object]] = []
         xml_files = sorted(self._run_dir.glob("pytest-*.xml"))
+        xml_files.extend(sorted(self._run_dir.glob("dotnet-*.xml")))
 
         for xml_path in xml_files:
             if xml_path.stat().st_size == 0:
@@ -613,9 +619,10 @@ class DeployTestLogWriter:
                 phase = "integration-tests"
 
             # Extract service name from filename pattern:
-            # pytest-spec-{service}.xml or pytest-integration-{service}-project.xml
+            # {pytest|dotnet}-spec-{service}.xml or
+            # {pytest|dotnet}-integration-{service}-project.xml
             service_match = re.search(
-                r"pytest-(?:spec|integration)-(.+?)(?:-project|-service)?$",
+                r"(?:pytest|dotnet)-(?:spec|integration)-(.+?)(?:-project|-service)?$",
                 xml_path.stem,
             )
             service_name = (

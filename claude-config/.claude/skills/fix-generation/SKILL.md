@@ -202,6 +202,16 @@ Assess after **each** project's regeneration:
 
 Confirm **every** affected project regenerates successfully before marking the cluster done — a fix that repairs the representative but not its siblings is not complete.
 
+#### Regeneration efficiency — regen only what changed, only when it can pass
+
+Regeneration runs `dotnet build`/formatters and is expensive. Two rules keep it from burning cycles proving failures you already know about:
+
+1. **Never regenerate a project until the work that unblocks it is actually complete.** If a cluster's real fix is a **feature still being implemented** (or an in-flight fix in another agent/task), regenerating its projects now only re-proves the *known* failure. Wait until the blocking work lands, then regenerate — once. This applies to **layered failures**: a single project often stacks several independent root causes, and each fix only surfaces the next. Regenerate a project after a fix **only when that fix targets the project's *current* front-line error** — not while it is still blocked on an earlier, unfixed layer.
+
+2. **Regenerate ONLY the projects whose fix just landed — never the ones that already generate.** During iteration, touch exactly the set a fix is supposed to repair. A project already at SUCCESS carries no new information on the next fix and must not be re-run each round. **Exception — one final regression pass at the very end:** when a fix touches a **shared generation path** every service uses (e.g. the DbContext/Program.cs/base-template layer), a previously-passing project *could* regress — so after all fixes are in, run a single regression check over the already-passing set (or a representative subset, one per generation shape) **once**. Never a per-round full sweep.
+
+In short: iterate narrowly on the failing front, defer projects blocked on unfinished work, and reserve any re-run of passing projects for a single end-of-run regression check.
+
 Then run the debug-artifact check on any modified package:
 ```bash
 powershell -File "d:/datrix/datrix/scripts/dev/check-debug-artifacts.ps1" {package-name}
@@ -264,6 +274,8 @@ On abort, write a partial issue report and report what was diagnosed, attempted,
 
 - **NO editing generated output** under `.generated/` or `.projects/` — fix the generator/template/project source; regeneration overwrites it.
 - **NO over-regenerating to verify** — regenerate one project/example at a time, never a group/`-All` (see Step 7).
+- **NO regenerating a project blocked on unfinished work** — if the fix is a feature/fix still being implemented, or the project is still failing on an earlier unfixed layer, regenerating now only re-proves a known failure. Wait until the blocking work lands (Step 7 → Regeneration efficiency).
+- **NO re-running already-passing projects each round** — regenerate only the projects a fix just targeted; reserve a single regression pass over the passing set for the very end, and only when a shared generation path changed (Step 7 → Regeneration efficiency).
 - **NO running a datrix script without checking** `datrix/scripts/dev/quick-reference.md` first — a pre-tool hook enforces this.
 - **NO exploring the repo from scratch** — read `.project-structure.md` and the context above.
 - **NO reading the whole generate log into context** — triage script first, then per-representative Grep only (Step 1).
