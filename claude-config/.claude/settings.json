@@ -29,7 +29,12 @@
       "Read(//d/g/CurvAero/curvaero-backend/config/**)",
       "Read(//d/g/CurvAero/curvaero-backend/**)",
       "PowerShell(powershell -File \"d:/datrix/datrix/scripts/git/commit-and-push.ps1\")",
-      "PowerShell(D:\\\\datrix\\\\datrix\\\\scripts\\\\test\\\\test.ps1 datrix-codegen-python datrix-codegen-typescript datrix-codegen-sql datrix-language datrix-cli)"
+      "PowerShell(D:\\\\datrix\\\\datrix\\\\scripts\\\\test\\\\test.ps1 datrix-codegen-python datrix-codegen-typescript datrix-codegen-sql datrix-language datrix-cli)",
+      "PowerShell(az group exists --name curvaero-system-development-rg)",
+      "PowerShell(az monitor log-analytics workspace list-deleted-workspaces --query \"[].{name:name,rg:resourceGroup,id:customerId}\" -o json 2>$null)",
+      "PowerShell(az monitor log-analytics workspace list --resource-group curvaero-system-development-rg --query \"[].{name:name,cid:customerId}\" -o json 2>$null)",
+      "PowerShell(az monitor diagnostic-settings list --resource $ns --query \"[].{name:name,ws:workspaceId}\" -o json 2>$null)",
+      "PowerShell($ns=\"/subscriptions/df5e3d07-5005-4843-a50d-99a748a59f7a/resourceGroups/curvaero-system-development-rg/providers/Microsoft.ServiceBus/namespaces/core-events-development-66e63649\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\KErca\\.claude"
