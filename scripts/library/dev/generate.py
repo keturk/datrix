@@ -69,8 +69,8 @@ from datrix_common import DATRIX_FILE_EXTENSION  # noqa: E402
 def _append_datrix_generate_cli_options(cmd_args: list[str], args: argparse.Namespace) -> None:
     """Append datrix generate options from script args.
 
-    ``--language`` is forwarded as the real generation target (design 044 D4):
-    the output-path language segment (``args.language``, used for
+    ``--language`` is forwarded as the real generation target: the
+    output-path language segment (``args.language``, used for
     ``build_output_path``) and the language the pipeline actually generates are
     always the same value -- they cannot disagree.
     """
@@ -222,7 +222,7 @@ def generate_single_project(
         # Build datrix generate command. --language is forwarded to datrix
         # generate as the real generation target -- the output-path language
         # segment and the generated language are always the same value
-        # (design 044 D4: they cannot disagree). --runtime is output-path
+        # (they cannot disagree). --runtime is output-path
         # derivation only; the deployment runtime/provider still comes from
         # config/system.dcfg for the active profile (--profile; default test).
         import os

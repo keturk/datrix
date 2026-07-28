@@ -6,7 +6,7 @@
     "gate (datrix/scripts/test/reference-example-parity-gate.ps1). It never hides output drift --",
     "a listed (example, language) pair that does generate is still hash-compared against its baseline.",
     "",
-    "KEY FORMAT (design 044 D6 language sweep): a bare example_id applies to every registered",
+    "KEY FORMAT (language sweep): a bare example_id applies to every registered",
     "language the gate sweeps -- for a failure at config-resolution/deployment-plan-building time,",
     "before any language-specific codegen stage runs (the original two entries below). An",
     "'example_id::language' key applies to that one language only -- for a defect in one language's",

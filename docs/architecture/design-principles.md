@@ -59,11 +59,11 @@ Datrix is built on proven software engineering principles that ensure:
 
 ### 2. Templates + Formatter for Code Generation
 
-**Principle:** Use Jinja2 templates with ruff format for Python code formatting, and Prettier for TypeScript.
+**Principle:** Use Jinja2 templates; after rendering, each language's `LanguageHooks` applies that language's formatter where available (ruff for Python, CSharpier for dotnet, google-java-format for Java) or uses pre-formatted templates with language-specific validation (TypeScript with tsc --noEmit).
 
 **Why:**
 - Templates are readable and look like the output
-- After files are written, `GenerationPipeline` runs `LanguageHooks` post-processing (import fix, then ruff format / Prettier when `PipelineConfig.format_output` is true, then semantic checks such as ruff rules) so output stays consistent with project standards
+- After files are written, `GenerationPipeline` runs `LanguageHooks` post-processing (import fix, then language-specific formatting when `PipelineConfig.format_output` is true — ruff for Python, CSharpier for dotnet, google-java-format for Java, or validation-only for pre-formatted languages like TypeScript — then semantic checks such as ruff rules) so output stays consistent with project standards
 - Easy to maintain and modify
 - Reusable template macros
 
@@ -89,7 +89,7 @@ Datrix is built on proven software engineering principles that ensure:
 
 **Benefits:**
 - ✅ Templates are readable and maintainable
-- ✅ Consistent formatting via ruff format/Prettier
+- ✅ Consistent formatting via language-specific tools (ruff, CSharpier, google-java-format) or pre-formatting with validation
 - ✅ Validation during formatting
 - ✅ Reusable template macros
 
@@ -172,7 +172,7 @@ Datrix is built on proven software engineering principles that ensure:
 - Loose coupling
 - Plugin architecture
 
-**Application:** Generators depend on abstractions (e.g. a formatter interface); concrete implementations (Ruff for Python, Prettier for TypeScript) live in the codebase and can be swapped. See `datrix_common` and generator packages for the interfaces.
+**Application:** Generators depend on abstractions (e.g. a formatter interface); concrete implementations (ruff for Python, CSharpier for dotnet, google-java-format for Java, or pre-formatted templates with language-specific validation) live in the codebase and can be swapped. See `datrix_common` and generator packages for the interfaces.
 
 **Benefits:**
 - ✅ Easy to add new formatters

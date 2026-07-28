@@ -5,7 +5,7 @@
 ## Core Principles
 
 1. **Fail Fast, Fail Loud** -- Errors at generation time, not runtime. Raise with context, never return None.
-2. **Templates + Formatter** -- Jinja2 templates; after write, `LanguageHooks` run ruff / Prettier when `format_output` is on. No raw string concatenation.
+2. **Templates + Formatter** -- Jinja2 templates; after write, `LanguageHooks` run language-specific formatters (ruff, CSharpier, google-java-format, etc.) or validation-only (tsc --noEmit for TypeScript) when `format_output` is on. No raw string concatenation.
 3. **Exhaustive Type Mappings** -- Every type explicitly mapped per language. Unmapped = error. No defaults/fallbacks.
 4. **Immutability — Build-Then-Sealed (Adopted)** -- AST model is mutable through parse/transform and semantic analysis; `analyze()` seals it via a recursive `__setattr__` guard on `Node`. Generators receive a sealed application; any post-seal mutation raises immediately.
 5. **Single Responsibility** -- One clear purpose per package/module.

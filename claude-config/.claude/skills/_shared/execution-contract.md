@@ -183,6 +183,28 @@ A task is done when **all** hold:
 
 Green tests are **necessary and never sufficient.**
 
+## 8A. A report is not an exit — only "finished" or Jon ends a turn
+
+Exactly two things end a turn: **the task is finished** (§8 holds for every item, or a valid §3
+blocker is proven), or **the user tells you to stop**. There is no third exit. In particular,
+*writing a report does not end the work* — the report is what you send *because* the work is done,
+never the thing you do *instead of* finishing it.
+
+- **A "what remains" list is a work queue, not a deliverable.** If your draft report contains a
+  "remaining", "still to fix", "next up", or "not yet done" section, you are not finished. Delete
+  the section and go fix those items. Naming a defect whose root cause you already know, and then
+  handing back, is the §5 "mentioning it in prose" failure wearing a status-report costume.
+- **Partial progress is not a stop point.** A large drop in the error/failure count, one item of N
+  completed, a suite turning green, a clean checkpoint, a natural-feeling pause, or simply having
+  worked a long time — none of these is an exit. They are evidence the method works; keep applying
+  it.
+- **This binds single continuous tasks, not only numbered lists.** "Fix every error in X" is
+  finished at **zero** errors on X. "Most of them, and here is the rest" is an unfinished task with
+  a summary attached.
+- **Need a decision only the user can make?** Ask in one line and keep working everything that does
+  not depend on the answer (§6 — escalate to keep going, never to stop). Drifting to a stop instead
+  of asking is the worst of both.
+
 ## 9. Report tightly
 
 Your report is read by an orchestrator or by Jon, not graded by length. State the outcome and the

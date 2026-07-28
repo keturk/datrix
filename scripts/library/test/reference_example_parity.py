@@ -34,8 +34,8 @@ validation script -- the same shape as ``typescript-whole-system-gate.ps1`` and
 SWEEPS THE REGISTERED LANGUAGE SET -- TARGET-AGNOSTIC
 ------------------------------------------------------
 The target generation language is a real CLI input (``datrix generate
---language``, forwarded by ``generate.ps1``/``scripts/library/dev/generate.py``
--- see design 044 D4); it is no longer read from ``config/system.dcfg``. Every
+--language``, forwarded by ``generate.ps1``/``scripts/library/dev/generate.py``);
+it is not read from ``config/system.dcfg``. Every
 example is therefore genuinely generatable in every registered
 ``datrix.languages`` target, so this gate generates each example once PER
 REGISTERED LANGUAGE (:func:`target_languages`, derived from
@@ -198,7 +198,7 @@ def target_languages() -> frozenset[str]:
 
     Derived from the registered ``datrix.languages`` entry points -- never a
     hardcoded literal -- so a future ``datrix-codegen-<lang>`` package is
-    swept automatically with no edit here (design 044 AP4/D7 open identity).
+    swept automatically with no edit here (open target identity).
     """
     return registered_language_names()
 
@@ -215,8 +215,8 @@ def target_languages() -> frozenset[str]:
 #: language-specific codegen stage runs (the two original entries in this
 #: file, both pre-dating the language sweep). A qualified key is for a defect
 #: in one language's own codegen stage while the same example generates fine
-#: in other registered languages (a case that could not exist before design
-#: 044 made every example genuinely generatable in every registered language).
+#: in other registered languages (a case that could not exist before every
+#: example became genuinely generatable in every registered language).
 _LANGUAGE_KEY_SEP = "::"
 
 
@@ -895,7 +895,7 @@ def cmd_check(example_filter: str | None) -> int:
     """Run the gate: every (example, language) pair must match its stored baseline.
 
     Each selected example is generated and checked once per registered language
-    (:func:`target_languages`) -- target-agnostic, per design 044 D6/AP5.
+    (:func:`target_languages`) -- target-agnostic.
 
     Args:
         example_filter: A path relative to ``datrix/examples/``, or ``None`` for all.

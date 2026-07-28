@@ -47,17 +47,29 @@ Two reasons it cannot be a package test:
   `datrix/scripts/test/`, alongside `typescript-whole-system-gate.ps1` and
   `check-generated-file-ratchet.ps1`.
 
-## One language per example — not a language matrix
+## Sweeps the registered language set — not a fixed matrix
 
-The generator reads the target language from each project's `config/system.dcfg`.
-`generate.ps1`'s `-L` flag only labels the *output path*; it does not change what is generated
-(see `datrix/scripts/library/dev/generate.py`). There is therefore exactly **one** generated
-output per example, in **one** language — 52 Python + 1 TypeScript today.
+The target generation language is a real CLI input, `datrix generate --language`, forwarded by
+`generate.ps1` / `-L` and by `scripts/library/dev/generate.py` — it is not read from
+`config/system.dcfg` and the `-L`/`--language` value is not merely an output-path label: it is
+the same value passed to `datrix generate` as the actual generation target. Every example is
+therefore genuinely generatable in every registered `datrix.languages` target, not just one.
 
-The gate generates each example exactly once, the way the generator does. It never enumerates
-languages and never runs an example through a generator its config does not select. A gate that
-forced every example through every installed language generator would be testing a code path no
-user can reach.
+The gate reflects that: for each example it sweeps every currently-registered language
+(`target_languages()`, derived at runtime from the installed `datrix.languages` entry points,
+never a hardcoded literal), and checks each `(example, language)` pair against its own
+`parity-baselines/<example_id>/<language>.sha256` baseline. A future `datrix-codegen-<lang>`
+package is swept automatically the moment it registers — no edit to the gate or this doc is
+needed.
+
+Baseline *coverage* is separate from what the gate is capable of sweeping, and today it is
+partial: of the 53 examples with baselines, only `01-foundation` is blessed in all four
+currently-registered languages (python, typescript, dotnet, java); `04-languages-typescript-service`
+is blessed in typescript only; every other example is blessed in python only. This is a coverage
+gap, not a design limit — a missing baseline for a language the gate sweeps is reported as a
+loud **failure**, never silently skipped, which is exactly why the gap is visible instead of
+quietly assumed away. Closing it means re-blessing an example in more languages
+(`regen-parity-baselines.ps1 -Example <id>`), not changing the gate.
 
 ## Non-vacuity is enforced on every run
 
@@ -129,14 +141,25 @@ generator regression, not a baseline update.
 ## Known non-generating examples
 
 `datrix/scripts/config/parity-known-nongenerating.json` lists examples the **real generator cannot
-build today**, each with a reason and a follow-up identifier, under a pinned `expected_count`.
-This is a deliberately maintained scope boundary, not an auto-heal:
+build today**, each with a reason and a follow-up identifier, under a pinned `expected_count`
+(currently 2). This is a deliberately maintained scope boundary, not an auto-heal:
 
 - Listed examples are reported **loudly on every run** — never silently skipped.
 - The allowlist only converts a genuine *generation failure* into a skip. It never hides output
-  drift: an example that generates is always hash-compared.
+  drift: a listed `(example, language)` pair that does generate is still hash-compared, and one
+  that has a baseline is still expected to match it.
 - Adding or removing an entry requires updating `expected_count` in the same change, so the set
   cannot grow silently.
+
+Since the gate sweeps every registered language per example, an entry's key controls how far its
+skip reaches:
+
+- A bare `example_id` applies to **every** language the gate sweeps for that example — for a
+  failure at config-resolution/deployment-plan-building time, before any language-specific codegen
+  stage runs. Both current entries are this form.
+- An `example_id::language` key applies to **one** language only — for a defect confined to one
+  language's own codegen stage while the same example generates fine in every other registered
+  language. The named language must itself be a registered `datrix.languages` target.
 
 ## Running it
 
