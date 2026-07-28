@@ -676,13 +676,13 @@ suite (per the datrix showcase boundary).
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Run the gate** | `.\test\shared-library-gate.ps1` | Run all 47 absorbed checks |
+| **Run the gate** | `.\test\shared-library-gate.ps1` | Run all 48 absorbed checks |
 | **Harness self-test** | `.\test\shared-library-gate.ps1 -HarnessSelfTest` | Prove the harness detects a forced failure (always reports [FAIL], exits 1) |
 | **Debug** | `.\test\shared-library-gate.ps1 -Dbg` | Print the python invocation before running |
 
 **Parameters:** `-HarnessSelfTest`, `-Dbg`
 
-**Assertions:** 47 named checks covering `structured_log_writer.py`, `test_runner.py`,
+**Assertions:** 48 named checks covering `structured_log_writer.py`, `test_runner.py`,
 `codegen_hint_mapper.py`, `deploy_test_aggregate_writer.py`, `generated_test_log_writer.py`,
 `aggregate_test_writer.py`, `deploy_test_log_writer.py`, and `logging_utils.py`'s log-content and
 cleanup functions. Several are inherently adversarial (corrupt/truncated/empty JUnit XML →

@@ -138,7 +138,7 @@ class StructuredLogWriter:
         Returns:
             Path to the written index.json file.
         """
-        test_cases = self._parse_xml_files(xml_paths)
+        test_cases, wall_seconds = self._parse_xml_files(xml_paths)
 
         if not test_cases:
             logger.warning(
@@ -179,8 +179,12 @@ class StructuredLogWriter:
         failure_clusters = self._cluster_results(failure_details)
         error_clusters = self._cluster_results(error_details)
 
-        # Compute total duration
-        total_duration = sum(tc.duration for tc in test_cases)
+        # Wall-clock duration comes from the <testsuite time="..."> attributes
+        # (pytest writes each session's wall time there). Summing per-testcase
+        # times instead would report cross-worker busy time, which overstates
+        # an xdist run's duration by roughly the worker count.
+        test_time = sum(tc.duration for tc in test_cases)
+        total_duration = wall_seconds if wall_seconds > 0 else test_time
 
         # Build counts
         counts = {
@@ -210,6 +214,7 @@ class StructuredLogWriter:
             result=result,
             counts=counts,
             total_duration=total_duration,
+            test_time=test_time,
             failure_details=failure_details,
             error_details=error_details,
             failure_clusters=failure_clusters,
@@ -277,7 +282,7 @@ class StructuredLogWriter:
 
     def _parse_xml_files(
         self, xml_paths: list[Path]
-    ) -> list[TestCaseResult]:
+    ) -> tuple[list[TestCaseResult], float]:
         """Parse multiple JUnit XML files and merge results.
 
         Filters to existing, non-empty files. Catches ParseError on each
@@ -288,9 +293,13 @@ class StructuredLogWriter:
             xml_paths: Paths to JUnit XML files.
 
         Returns:
-            Merged list of test case results, deduplicated by test_id.
+            Tuple of (merged test case results deduplicated by test_id,
+            wall-clock seconds summed from the files' testsuite-level
+            ``time`` attributes — sessions run sequentially, so the sum
+            is the run's wall time; 0.0 if no attribute was present).
         """
         all_results: dict[str, TestCaseResult] = {}
+        wall_seconds = 0.0
 
         for xml_path in xml_paths:
             if not xml_path.exists():
@@ -307,7 +316,8 @@ class StructuredLogWriter:
 
             phase = self._detect_phase(xml_path)
             try:
-                cases = self._parse_single_xml(xml_path, phase)
+                cases, file_wall = self._parse_single_xml(xml_path, phase)
+                wall_seconds += file_wall
                 for tc in cases:
                     # Deduplicate: keep the later-phase result
                     all_results[tc.test_id] = tc
@@ -318,7 +328,7 @@ class StructuredLogWriter:
                     exc,
                 )
 
-        return list(all_results.values())
+        return list(all_results.values()), wall_seconds
 
     def _detect_phase(self, xml_path: Path) -> str | None:
         """Detect the test phase from the XML filename.
@@ -338,7 +348,7 @@ class StructuredLogWriter:
 
     def _parse_single_xml(
         self, xml_path: Path, phase: str | None
-    ) -> list[TestCaseResult]:
+    ) -> tuple[list[TestCaseResult], float]:
         """Parse a single JUnit XML file into test case results.
 
         Args:
@@ -346,7 +356,10 @@ class StructuredLogWriter:
             phase: Phase name to assign to results, or None.
 
         Returns:
-            List of TestCaseResult objects parsed from the XML.
+            Tuple of (TestCaseResult objects parsed from the XML,
+            wall-clock seconds from the testsuite-level ``time``
+            attributes — pytest records the session's wall time there,
+            not the per-test sum; 0.0 if absent or unparsable).
 
         Raises:
             xml.etree.ElementTree.ParseError: If the XML is malformed.
@@ -355,6 +368,7 @@ class StructuredLogWriter:
         root = tree.getroot()
 
         results: list[TestCaseResult] = []
+        wall_seconds = 0.0
 
         # Handle both <testsuites><testsuite>... and <testsuite>... roots
         if root.tag == "testsuites":
@@ -367,9 +381,19 @@ class StructuredLogWriter:
                 root.tag,
                 xml_path,
             )
-            return results
+            return results, wall_seconds
 
         for suite in suites:
+            suite_time = suite.get("time")
+            if suite_time is not None:
+                try:
+                    wall_seconds += float(suite_time)
+                except ValueError:
+                    logger.warning(
+                        "structured_log_writer_bad_suite_time value=%r path=%s",
+                        suite_time,
+                        xml_path,
+                    )
             # Detect phase from suite name if not already set
             effective_phase = phase
             suite_name = suite.get("name", "")
@@ -385,7 +409,7 @@ class StructuredLogWriter:
                 )
                 results.append(tc_result)
 
-        return results
+        return results, wall_seconds
 
     def _parse_testcase_element(
         self, testcase: ET.Element, phase: str | None
@@ -874,6 +898,7 @@ class StructuredLogWriter:
         result: str,
         counts: dict[str, int],
         total_duration: float,
+        test_time: float,
         failure_details: list[FailureDetail],
         error_details: list[FailureDetail],
         failure_clusters: list[Cluster],
@@ -888,7 +913,9 @@ class StructuredLogWriter:
             timestamp: Run timestamp.
             result: Overall result string ("PASSED", "FAILED").
             counts: Dict of test outcome counts.
-            total_duration: Total test duration in seconds.
+            total_duration: Wall-clock duration of the run in seconds.
+            test_time: Sum of per-test durations in seconds (exceeds
+                wall clock under xdist by roughly the worker count).
             failure_details: Enriched failure details.
             error_details: Enriched error details.
             failure_clusters: Failure clusters.
@@ -960,6 +987,7 @@ class StructuredLogWriter:
             "project": self._project_name,
             "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%S"),
             "duration_seconds": round(total_duration, 2),
+            "test_time_seconds": round(test_time, 2),
             "result": result,
             "counts": counts,
             "failures": failures_json,

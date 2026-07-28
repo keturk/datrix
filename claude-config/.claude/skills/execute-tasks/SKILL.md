@@ -568,6 +568,8 @@ On abort, report what was completed, what failed, and what remains.
 
 Run the full test suite for the affected package(s) to catch cross-task integration issues.
 
+**Affected = changed packages + their reverse-dependency closure** per `d:\datrix\.claude\skills\_shared\verification-strategy.md` (a change to `datrix-common`, `datrix-codegen-common`, `datrix-language`, or any shared contract pulls in every consuming package's suite; a leaf codegen change is usually just that package). Do NOT default to `-All` — and do not skip a consumer the closure names. When the run touched a codegen package, codegen-common, language, common, or `datrix/examples`, also run `reference-example-parity-gate.ps1`.
+
 ### Input
 
 Verification results from all tasks:

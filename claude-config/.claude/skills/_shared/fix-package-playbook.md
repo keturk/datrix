@@ -152,6 +152,8 @@ After errors and failures: per unique warning in `warnings.json` (file + categor
 
 Once, after ALL fixes: `powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {PACKAGE} -Fast`
 
+If any fix touched a shared layer (`datrix-common`, `datrix-codegen-common`, `datrix-language`, or a shared contract), widen this to every package in the change's reverse-dependency closure per `d:\datrix\.claude\skills\_shared\verification-strategy.md`.
+
 ### Step 10: Report
 
 ```

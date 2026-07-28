@@ -123,7 +123,7 @@ Result: PASS ✓ / FAIL ✗
 
 #### Checkpoint D: Regression Check
 
-After every 3 fixes (or after a fix that touches shared code), run the full test suite:
+After every 3 fixes (or after a fix that touches shared code), run the full suite of the **affected set** — every changed package plus its reverse-dependency closure per `d:\datrix\.claude\skills\_shared\verification-strategy.md` (for a leaf-package fix that is just the package itself; for a shared-layer fix it is every consumer). Never `-All` by reflex:
 
 ```
 CHECKPOINT D — Regression Check (after issues #{X}-#{Y})

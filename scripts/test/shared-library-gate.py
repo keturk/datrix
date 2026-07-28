@@ -417,6 +417,54 @@ def check_structured_log_writer_index_schema() -> None:
         assert "ImportError" in error_content
 
 
+def check_structured_log_writer_wall_clock_duration() -> None:
+    """duration_seconds is WALL CLOCK (sum of testsuite-level ``time`` attrs —
+    one per sequential session), never the per-testcase sum, which under xdist
+    overstates the run by roughly the worker count (observed: a 5.7-minute
+    12-worker run reported as 55 minutes). The per-testcase sum is preserved
+    separately as test_time_seconds; a suite with no ``time`` attribute falls
+    back to the per-testcase sum."""
+    with TemporaryDirectory(prefix="slw-wall-") as tmp:
+        root = Path(tmp)
+        parallel_xml = root / "junit-parallel.xml"
+        parallel_xml.write_text(_SLW_JUNIT_PARALLEL, encoding="utf-8")
+        serial_xml = root / "junit-serial.xml"
+        serial_xml.write_text(_SLW_JUNIT_SERIAL, encoding="utf-8")
+
+        run_dir = root / "run"
+        run_dir.mkdir()
+        StructuredLogWriter("p", run_dir).write(
+            [parallel_xml, serial_xml], _TIMESTAMP
+        )
+        index = json.loads((run_dir / "index.json").read_text(encoding="utf-8"))
+        # Suite time attrs: parallel 3.5 + serial 2.0; testcase sums differ
+        # (parallel 2.5 + serial 2.0), so the wrong source is detectable.
+        assert index["duration_seconds"] == 5.5, (
+            f"duration_seconds={index['duration_seconds']!r}, expected wall clock 5.5 "
+            "(testsuite time attrs 3.5 + 2.0), not the per-testcase sum"
+        )
+        assert index["test_time_seconds"] == 4.5, (
+            f"test_time_seconds={index['test_time_seconds']!r}, expected 4.5 "
+            "(per-testcase sum 2.5 + 2.0)"
+        )
+
+        # Fallback: no testsuite time attr -> per-testcase sum.
+        no_attr_xml = root / "junit-noattr.xml"
+        no_attr_xml.write_text(
+            _SLW_JUNIT_PARALLEL.replace(' time="3.5"', ""), encoding="utf-8"
+        )
+        run_fallback = root / "run-fallback"
+        run_fallback.mkdir()
+        StructuredLogWriter("p", run_fallback).write([no_attr_xml], _TIMESTAMP)
+        index_fb = json.loads(
+            (run_fallback / "index.json").read_text(encoding="utf-8")
+        )
+        assert index_fb["duration_seconds"] == 2.5, (
+            f"duration_seconds={index_fb['duration_seconds']!r}, expected fallback "
+            "to per-testcase sum 2.5 when no testsuite time attr is present"
+        )
+
+
 def check_structured_log_writer_two_phase_merge() -> None:
     """Parallel + serial JUnit XML merge into one index; either file missing still
     yields partial (correctly-counted) results from whichever file exists."""
@@ -2768,6 +2816,7 @@ def harness_self_test() -> bool:
 _ALL_CHECKS: list[CheckFunc] = [
     # shared.structured_log_writer
     check_structured_log_writer_index_schema,
+    check_structured_log_writer_wall_clock_duration,
     check_structured_log_writer_two_phase_merge,
     check_structured_log_writer_incomplete_on_bad_xml,
     check_structured_log_writer_clustering_and_representative,
