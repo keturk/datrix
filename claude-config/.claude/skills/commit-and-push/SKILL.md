@@ -59,6 +59,7 @@ After the script completes, report:
 
 The script's prompt enforces this style; it is documented here so the output is predictable:
 
+- **English only.** The quality gate rejects any message containing non-Latin script and regenerates it — the local multilingual model otherwise drifts into another training language mid-paragraph.
 - No `chore:`/`feat:`/`fix:` conventional-commit prefix in the subject line
 - First line: a clear, concrete summary of what the commit does
 - Blank line after the summary, then a short prose paragraph describing what behavior,

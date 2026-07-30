@@ -71,7 +71,7 @@ For every repository with uncommitted changes, it generates a commit message and
 2. **Message source:**
    - If Ollama is reachable → one local-model generate call per dirty repo.
    - Otherwise → the Claude Code CLI generates the message per dirty repo (with read-only git/read tools scoped to that repo).
-   - Generated messages pass a quality gate (no path dumps, no chat-style prose, concrete subject); a deterministic fallback is used if a model cannot produce a usable message.
+   - Generated messages pass a quality gate (English only, no path dumps, no chat-style prose, concrete subject); a deterministic fallback is used if a model cannot produce a usable message. The English check matters for the local backend: a multilingual model can drift into another training language mid-paragraph, and the gate rejects the message so it is regenerated rather than committed.
 3. For each dirty repo: removes stale `.lock` files, then `git add -A`, `git commit -F <temp-file>` (handles multi-line messages), `git push`.
 4. Stops on the first git failure.
 

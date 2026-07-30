@@ -291,7 +291,8 @@ def ollama_reachable(base_url: str, timeout_ms: int) -> bool:
     uri = f"{base_url.rstrip('/')}/api/tags"
     try:
         with urllib.request.urlopen(uri, timeout=max(1, timeout_ms / 1000.0)) as resp:
-            return 200 <= resp.status < 300
+            status = int(resp.status)
+        return 200 <= status < 300
     except (urllib.error.URLError, TimeoutError, OSError):
         return False
 
@@ -325,8 +326,17 @@ def invoke_ollama_generate(
     try:
         with urllib.request.urlopen(req, timeout=max(1, timeout_ms / 1000.0)) as resp:
             data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        # The body carries the actual cause (model not found, context overflow, GPU out of
+        # memory); str(exc) is only "HTTP Error 500: Internal Server Error", which is
+        # undiagnosable. Always surface the body.
+        body = exc.read().decode("utf-8", errors="replace").strip()
+        raise ScriptError(
+            f"Ollama generate failed with HTTP {exc.code} at {uri} for model '{model}'. "
+            f"Server response: {body or '(empty body)'}"
+        ) from exc
     except (urllib.error.URLError, TimeoutError) as exc:
-        raise ScriptError(f"Ollama request failed: {exc}") from exc
+        raise ScriptError(f"Ollama request to {uri} failed: {exc}") from exc
     response = data.get("response")
     if not response:
         raise ScriptError("Ollama returned no .response field")
@@ -478,6 +488,28 @@ def is_generic_subject(subject: str, repo_name: str) -> bool:
     )
 
 
+# Commit messages must be English. Multilingual local models (the default Ollama backend is a
+# Qwen build) drift into their other training language mid-paragraph, which produced a committed
+# message whose second half was Chinese. A prompt instruction alone does not prevent the drift, so
+# any non-Latin script is rejected here: that feeds the retry ladder in request_commit_message()
+# and, if drift persists, the deterministic English fallback.
+NON_LATIN_SCRIPT_PATTERN = re.compile(
+    "["
+    "\u0400-\u04ff"  # Cyrillic
+    "\u0590-\u05ff"  # Hebrew
+    "\u0600-\u06ff"  # Arabic
+    "\u0e00-\u0e7f"  # Thai
+    "\u3000-\u303f"  # CJK symbols and punctuation
+    "\u3040-\u30ff"  # Hiragana and Katakana
+    "\u3400-\u4dbf"  # CJK unified ideographs extension A
+    "\u4e00-\u9fff"  # CJK unified ideographs
+    "\uac00-\ud7af"  # Hangul syllables
+    "\uf900-\ufaff"  # CJK compatibility ideographs
+    "\uff00-\uffef"  # halfwidth and fullwidth forms
+    "]"
+)
+
+
 def looks_like_path_dump_line(line: str) -> bool:
     stripped = line.strip()
     if stripped.startswith("- "):
@@ -492,6 +524,8 @@ def looks_like_path_dump_line(line: str) -> bool:
 def message_quality_problem(text: str, repo_name: str) -> str | None:
     if not text.strip():
         return "empty output"
+    if NON_LATIN_SCRIPT_PATTERN.search(text):
+        return "output is not written in English"
     if len(text) > 3200:
         return "message is too long"
     subject = first_line(text)
@@ -650,6 +684,8 @@ def build_user_prompt(repo_name: str, bundle: str, repair_reason: str | None = N
 
 SYSTEM_PROMPT = """You output ONLY the body of one git commit message. You are not a tutor or reviewer.
 
+Write the entire message in English. Every sentence, including the body, must be English even when GIT_OUTPUT contains other languages. Never switch language part-way through.
+
 GIT_OUTPUT may contain source files and automation scripts. Never write a walkthrough, feature list, README, or "what this script does" article. Never say "the script you've provided" or similar. Write a git log entry: what changed, in imperative mood.
 
 Forbidden in your output: addressing the reader; markdown headings; fenced code blocks; questions; suggestions; tables; explaining what git or a diff is.
@@ -724,6 +760,31 @@ def make_generator(source: str, args: argparse.Namespace, dr: DirtyRepo) -> Gene
         timeout_ms=args.claude_timeout_ms,
         system=system,
     )
+
+
+def generate_message_with_fallback(
+    dr: DirtyRepo, args: argparse.Namespace, source: str
+) -> tuple[str, str]:
+    """Generate one repo's message, returning it with the backend that is now in effect.
+
+    The auto-mode probe only asks Ollama for its model list, which still answers when the
+    server cannot actually run a generate call (an exhausted GPU, an unloadable model). Auto
+    mode promises "Ollama if usable, otherwise Claude", so a backend failure routes this repo
+    -- and the remaining repos, since the cause is server-side and persistent -- to the Claude
+    CLI instead of aborting the run with nothing committed. A forced backend still fails loudly.
+    """
+    try:
+        return request_commit_message(dr, make_generator(source, args, dr)), source
+    except ScriptError as exc:
+        if source != "ollama" or args.message_source != "auto":
+            raise
+        print(
+            f"Warning: Ollama backend failed for {dr.name}: {exc}\n"
+            f"Falling back to the Claude Code CLI model '{args.claude_model}' "
+            "for this and the remaining repos.",
+            file=sys.stderr,
+        )
+        return request_commit_message(dr, make_generator("claude", args, dr)), "claude"
 
 
 def decide_source(args: argparse.Namespace) -> str:
@@ -860,7 +921,7 @@ def main(argv: list[str]) -> int:
 
     for dr in dirty_repos:
         print(f"Generating commit message for {dr.name} via {source}...")
-        message = request_commit_message(dr, make_generator(source, args, dr))
+        message, source = generate_message_with_fallback(dr, args, source)
         print("")
         print(f"========== Commit message: {dr.name} ==========")
         print(message)
