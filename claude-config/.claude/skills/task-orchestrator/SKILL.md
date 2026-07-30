@@ -10,7 +10,7 @@ Fully automated multi-wave task orchestrator. Accepts a set of tasks (individual
 
 ## Your Role — Opus Orchestrator: Judgment, Not Typing
 
-You run on Opus 4.8 at extra-high effort because this skill performs the **highest-stakes judgment in the repo** — the design-conformance gate, the BLOCKED-is-terminal calls, the wave/enforcement ordering, and the completion decisions that phase-01 got wrong. That capability is for deciding, not for doing. You are the orchestrator and decision-maker; **execution goes to subagents on cheaper models.**
+You run on Opus 4.8 at extra-high effort because this skill performs the **highest-stakes judgment in the repo** — the design-conformance gate, the BLOCKED-is-terminal calls, the wave/enforcement ordering, and the completion decisions that a lower-scrutiny orchestrator has gotten wrong before. That capability is for deciding, not for doing. You are the orchestrator and decision-maker; **execution goes to subagents on cheaper models.**
 
 - **You (Opus) own — never delegated:** the dependency DAG and wave plan, the design-conformance contract (Step 1d), the **readiness-audit adjudication** (Step 1e — which findings are real, what task closes each gap, how dependencies rewire) and the conformance gates (3g, 3i Step A2), BLOCKED/completion decisions, failure attribution and fix-scope decisions, escalation judgment, integration across tasks, and the pass/fail verdict on every gate.
 - **You delegate DOWN — always:** implementing tasks (already delegated, 3b), gathering the readiness audit's evidence and writing the task files it adds (1e), building the shared-context digest, running test suites and conformance checks, **and implementing fixes in the fix loops (3e / 3i Step A) — do NOT edit code inline on Opus.** You decide the fix (root cause, scope, exact change); a subagent types it.
@@ -141,11 +141,11 @@ The orchestrator gates on the design, so it must hold the design in hand — not
 3. **Per task, record its `design_acceptance_property`** — the observable end-state + the executable check (negative + positive) that proves it. If a non-trivial implementation/migration task has NO design acceptance property (blank or "tests pass"), flag it: it is under-specified and its completion cannot be verified. Note it for the gate; do not silently let it pass on suite-green alone.
 4. **Map invariant → tasks.** For every invariant surface in the contract, identify which task covers it. If a surface in the design's set has NO task covering it → record a **conformance gap** now (a design-named surface with no implementer). Feed it into the Readiness Audit (Step 1e), which closes it by authoring the missing task **before** execution. (3i Step A2 remains the backstop for gaps that only surface later — but a gap visible up front must never be deferred to the phase boundary.)
 
-`design_contract` (invariants + surface sets) and per-task `design_acceptance_property` are checked by 1e (readiness), 3g (completion) and 3i Step B (phase conformance). Without this contract, the orchestrator can only check "did it run", which is exactly the phase-01 failure.
+`design_contract` (invariants + surface sets) and per-task `design_acceptance_property` are checked by 1e (readiness), 3g (completion) and 3i Step B (phase conformance). Without this contract, the orchestrator can only check "did it run" — which is exactly how a half-enforced invariant has shipped clean before.
 
 ### 1e. Readiness Audit — is this task set sufficient to satisfy the design against the CURRENT code?
 
-**Run this before ANY execution.** The task set was authored against the design and the codebase **as they were when `/generate-tasks` ran**; both may have moved since, and the generator may have missed a surface. Executing an insufficient task set produces the phase-01 outcome — every task COMPLETED, the suite green, and the design still unenforced. The audit answers one question: *if every task in this set succeeds exactly as written, will the `design_contract` from 1d hold over the code that is actually on disk today?* If the answer is anything but yes, the audit **adds the missing tasks and rewires dependencies** before Step 2 builds the DAG.
+**Run this before ANY execution.** The task set was authored against the design and the codebase **as they were when `/generate-tasks` ran**; both may have moved since, and the generator may have missed a surface. Executing an insufficient task set produces the same failure mode every time — every task COMPLETED, the suite green, and the design still unenforced. The audit answers one question: *if every task in this set succeeds exactly as written, will the `design_contract` from 1d hold over the code that is actually on disk today?* If the answer is anything but yes, the audit **adds the missing tasks and rewires dependencies** before Step 2 builds the DAG.
 
 The audit is **read-only with respect to source code** — it authors task files and updates `dependencies.md`, and touches nothing else. It **never modifies the design doc** (CLAUDE.md: design docs are scope boundaries).
 
@@ -191,7 +191,7 @@ State the chosen mode and its justification in the Audit Report line.
 - **Ready after amendment** → emit the Audit Report (below) and proceed to Step 2 with the amended task set. **Do not ask the user for permission to proceed** — closing a gap the design already mandates is in scope; the audit is reported, not negotiated.
 - **BLOCKING (dimension 7, or a design/code contradiction you cannot reconcile)** → **this is a rung-3 decision: it goes to FABLE, not to the user.** Do not `AskUserQuestion` here. Spawn a **Fable** adjudicator (`decision-adjudication-protocol.md` §5, **Door B**) with your evidence packet: what each design requires (quoted verbatim from the primary sources), what the code actually does (`file:line`), why no task can bridge them, the options you see and what each costs, and your leaning. Execute its decision (§6) — **A** no-conflict / **B** fix-elsewhere / **C** amend-task / **D** resequence / **E** spawn-follow-up / **F** ask-user. Only **F** reaches the user, and then you ask with Fable's exact question and recommendation. Never paper over the contradiction with a task that pretends the premise holds, and never hand the raw contradiction to the user as if the choice were theirs to make.
 
-  **This is the exact hole that let a phase-19/phase-31 design contradiction reach the user unadjudicated.** A cross-design conflict *feels* like the user's call precisely because it is above any single task — that feeling is the trap. It is a design-level engineering judgment, and it gets the strongest model.
+  **This is the exact hole that has let a contradiction between two design docs reach the user unadjudicated before.** A cross-design conflict *feels* like the user's call precisely because it is above any single task — that feeling is the trap. It is a design-level engineering judgment, and it gets the strongest model.
 
 ##### Audit Report (emit before the execution plan)
 
@@ -372,6 +372,16 @@ This keeps the gate's independent static-analysis value (a different agent than 
 
 The rolling pool (above) governs when the next task is dispatched — a freed slot is refilled immediately, not after the whole wave drains.
 
+**Every dispatch cites the invariant it serves. Every dispatch forbids nesting.** Two rules on the brief itself — they cost one line each and they are the cheapest scope control available, because both are visible in the dispatch you are typing.
+
+1. **Name the invariant, or don't dispatch.** The design contract you built in 1d — the numbered `G#`/`D#` invariants and their surface sets — is not just gate material; it is the **work authorization for the whole run**. Every agent brief you write must name the invariant (or the task's `design_acceptance_property`) it serves. If you cannot name one while writing the brief, you are not dispatching phase work — you are dispatching something you decided was worth doing, and it belongs in the final report as a finding for the user to schedule, not in this run. This is the check that catches self-authorized expansion at the only moment it is cheap to catch: before N agents exist. **A rule violation with no invariant behind it is a finding, not a task.**
+
+2. **Subagents do not spawn subagents.** Put `Do NOT spawn subagents. Do this work yourself, sequentially.` in every brief. A subagent that fans out again multiplies token cost with no added coverage (one such child has burned >140k tokens almost entirely on dispatch overhead), and it fragments reporting so badly that the orchestrator ends up re-verifying everything from disk anyway. Depth-1 fan-out only: you dispatch, they work.
+
+**"Found it, you fix it" covers surfaces you *touched*, not surfaces you *scanned*.** The ownership rule in CLAUDE.md is about collateral you created or disturbed. A defect you merely *observed* while grepping — in a package this phase never modified — is a **report line**, not a work item. Turning a scan across N files into ownership of N files is scope invention wearing the costume of diligence. The distinction to hold: *root cause of a failure you are fixing lies outside your files* → follow it and fix it there; *pre-existing violation you noticed while reading* → write it down and move on.
+
+**Producing a count is not a commitment to clear it.** If you promise the user a repo-wide figure, the deliverable is **the figure**. Scanning to produce a number does not convert that number into a work queue — deciding to clear it is the user's call, and it needs rule 1's invariant test like anything else.
+
 #### 3c. Collect Agent Results (per completion)
 
 Run this **each time a poll detects that one agent has completed** (the genuine check in 3b step 3 — never triggered by passively awaiting a notification) — not once per sub-group:
@@ -549,7 +559,7 @@ Stricter than 3d: **every package in the sweep set must pass its FULL suite with
 
 ##### Step A2 — Phase-end DESIGN-CONFORMANCE gate (runs at EVERY phase end, including single-phase runs)
 
-A green suite proves the code runs; it does NOT prove the design holds. This gate verifies phase `P` actually satisfied the `design_contract` built in Step 1d. **It runs at the end of every phase — including a single-phase run — and a phase cannot be declared complete without it, even when Step A is fully green.** This is the gate phase-01 lacked.
+A green suite proves the code runs; it does NOT prove the design holds. This gate verifies phase `P` actually satisfied the `design_contract` built in Step 1d. **It runs at the end of every phase — including a single-phase run — and a phase cannot be declared complete without it, even when Step A is fully green.** Skipping it is exactly how a half-enforced invariant has shipped undetected before.
 
 **A2 is the phase's single authoritative EXECUTION of the acceptance checks.** Implementation agents run them and paste evidence; 3g verifies that evidence; A2 is where the orchestrator itself executes each invariant's check, once, across the full surface set. Do not treat the earlier evidence as a reason to skip A2, and do not add executions elsewhere. Where a quality-gate agent ran this phase (3b), **read its static-checklist findings first** (stub scan, coverage sanity, How-Solved contradictions) and disposition every one — they are input to this gate, not a substitute for its executions.
 
@@ -562,7 +572,7 @@ For each invariant / numbered decision (D#/G#) in phase `P`'s `design_contract`:
    For an invariant claiming **output-neutrality** ("X replaces Y with byte-identical output"), prove it with `dev\byte-identity-generate.ps1` rather than a hand-rolled hash comparison.
    - *Negative:* the forbidden construct/state is gone on that surface (e.g. `grep` finds zero raw `env(...)` on secret positions in the migrated tree).
    - *Positive:* the new path is actually exercised (e.g. the generated service resolves each secret via `get_secret(<handle>)`; no `${VAR}`/literal secret remains).
-2. **Any surface in the design's set that is unguarded / unconverted is a CONFORMANCE FAILURE** — even if every task is COMPLETED and every suite is GREEN. A half-implemented invariant (guarded on the easy surface, silently dropped on the rest) is exactly the phase-01 escape; this step is built to catch it.
+2. **Any surface in the design's set that is unguarded / unconverted is a CONFORMANCE FAILURE** — even if every task is COMPLETED and every suite is GREEN. A half-implemented invariant (guarded on the easy surface, silently dropped on the rest) is exactly the escape mode this step is built to catch.
 3. **Verify every task's `design_acceptance_property` was actually proven** (its check + output is in its How-Solved). A COMPLETED task whose property is unproven is a conformance failure — reopen it.
 4. **Check the conformance gaps recorded in Step 1d** (design-named surfaces with no covering task). Any unresolved gap is a phase-level failure.
 

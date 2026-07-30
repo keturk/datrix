@@ -1,25 +1,43 @@
-"""Cross-language SUPPORTED-domain-set parity gate (G3 final).
+"""Cross-language SUPPORTED-domain-set parity gate (G3 final, full scope).
 
-Generalizes ``shared39_supported_parity.py`` (java<->python only) into a gate
-over EVERY registered ``datrix.languages`` entry point -- so dotnet (and any
-future ``datrix-codegen-<lang>``) is actually covered, not silently excluded
-by a two-language hardcoding. That is the ONE change from the superseded gate:
-more TARGETS. The DOMAIN scope is unchanged --
-G3 has never required every registered language to
-implement every other language's PRIVATE domains (e.g. java's
-``function``/``helper``/``dev_scripts``); it requires agreement only on the
-domains multiple languages could plausibly commit a cross-language-stable
-structural glob for -- the seven rich cross-language domains
-that are also shared-39 members. See ``_RICH_AND_SHARED39_IDS`` below for the
-cited source of that restriction.
+Every registered ``datrix.languages`` entry point's derived SUPPORTED domain
+set -- the FULL set (every domain a plugin declares ``status == "supported"``),
+not pre-filtered to any subset -- must be identical across ALL registered
+languages, zero symmetric difference.
 
 **Language set is never hardcoded.** ``registered_language_names`` derives
 the comparison universe from ``importlib.metadata.entry_points(group=
 "datrix.languages")`` at runtime, so a future ``datrix-codegen-<lang>``
-package is picked up automatically with no edit to this script. (The domain
-SCOPE restriction below is a different axis -- WHICH domains are compared,
-not WHICH languages -- and is deliberately a named, cited constant, not a
-target list; see ``_RICH_AND_SHARED39_IDS``.)
+package is picked up automatically with no edit to this script.
+
+**Domain scope is the full shared universe, not a restricted subset.**
+Earlier revisions of this gate (and its predecessor
+``shared39_supported_parity.py``, java<->python only) restricted the compared
+domain scope to the seven domains that also have a dedicated SHARED
+context-model type, on the stated rationale that the remaining domains
+belonged only to individual languages (e.g. java's
+``function``/``helper``/``dev_scripts``). That rationale was verifiably
+false: ``function`` and ``helper`` are registered by all four languages, and
+``dev_scripts`` by three. Restricting the scope therefore hid real,
+detectable divergence (e.g. typescript declaring ``graphql`` unsupported
+while dotnet declares it supported) -- exactly the class of drift this gate
+exists to catch. The scope is now the FULL
+:data:`~datrix_codegen_common.parity.domain_registry.SHARED_CONTEXT_TYPES`
+universe (currently 39 domain ids); no restriction, no exemption list. Once
+every registered language declares the same 37-domain union (``discovery``
+and ``resilience`` are supported by no registered language and so are simply
+absent from every set), the comparison holds without any per-domain carve-out.
+
+**Supersedes ``shared39_supported_parity.py``.** That script's cross-language
+assertion (java's and python's SUPPORTED sets agree, restricted to the seven
+rich cross-language / shared-39 domains) is strictly implied by this
+script's FULL-set identity comparison: a subset of two identical sets is
+itself identical, so if all N registered languages' FULL supported sets
+agree, any restriction of those sets (java's and python's included) agrees
+too. Its second assertion (8 infra-family ``_test`` domains excluded from
+the restricted set) is subsumed the same way. ``shared39_supported_parity.py``
+and its ``.ps1`` wrapper were therefore deleted rather than kept as a
+redundant, narrower gate.
 
 **The MariaDB engine boundary needs no special-case code.** The
 MariaDB engine boundary is an ENGINE CHOICE inside the ``rdbms``/migration
@@ -28,31 +46,13 @@ this script's grain. This script compares by ``domain_id`` (a coarser grain
 than per-engine), so MariaDB is naturally never a domain-id-level diff. Do
 not add a per-engine special case here.
 
-**Supersedes ``shared39_supported_parity.py``.** That script's cross-language
-assertion (java's and python's SUPPORTED sets agree, restricted to
-``_RICH_AND_SHARED39_IDS``) is strictly implied by this script's assertion
-(EVERY registered language's set, restricted to the SAME
-``_RICH_AND_SHARED39_IDS``, is identical): if all N registered languages'
-restricted sets pairwise agree, then in particular java's and python's do
-too -- a straight generalization from 2 targets to N, same invariant. Its
-second assertion (8 infra-family ``_test`` domains excluded from the
-restricted set) was already vacuous by construction -- those 8 domains are
-shared-39 members that are provably disjoint from the seven rich domains
-(``_RICH_AND_SHARED39_IDS ∩ _INFRA_FAMILY_TEST_DOMAINS == ∅``), so the
-restricted set could never contain one regardless of what either language
-declares. ``shared39_supported_parity.py`` and its ``.ps1`` wrapper are
-therefore deleted rather than kept as a redundant, narrower gate.
-
 **Built-in non-vacuity self-test, every invocation.** Before any real
 comparison is trusted, ``run_self_test`` feeds the comparator a synthetic
 matching pair (must report zero divergence) and a synthetic forced-mismatch
 pair (must report the missing domain). A parity gate that cannot detect a
 real divergence is worthless -- this mirrors the self-test pattern already
 used by ``reference-example-parity-gate.ps1``, ``check-generated-file-ratchet.ps1``,
-and ``check-docs-conformance.ps1``. This tests the COMPARATOR mechanism
-itself (domain-scope-agnostic); the domain-scope restriction is separately
-proven live by temporarily removing a real, in-scope glob (see task
-05-27's How-Solved for the command + output).
+and ``check-docs-conformance.ps1``.
 
 **Fails loud on an empty/single-target discovery.** Fewer than 2 registered
 languages makes a cross-language comparison vacuous; ``check_supported_domain_parity``
@@ -73,10 +73,7 @@ from collections.abc import Mapping
 from importlib.metadata import entry_points
 from typing import Final, cast
 
-from datrix_codegen_common.parity.domain_registry import (
-    _RICH_CONTEXT_TYPES,
-    SHARED_CONTEXT_TYPES,
-)
+from datrix_codegen_common.parity.domain_registry import SHARED_CONTEXT_TYPES
 from datrix_codegen_common.testkit.gates.domain_self_consistency import (
     DomainDeclaringPlugin,
 )
@@ -87,32 +84,6 @@ from datrix_common.plugin.registry import LANGUAGES_GROUP
 #: is nothing to compare against) -- discovery returning fewer than this many
 #: registered languages is a fail-loud condition, never a silent "pass".
 _MIN_LANGUAGES_FOR_COMPARISON: Final[int] = 2
-
-#: G3's DOMAIN-scope restriction (inherited
-#: unchanged from the superseded ``shared39_supported_parity.py`` -- NOT a
-#: target/language list, so it does not violate the no-hardcoded-targets
-#: rule; it answers "which domains", not "which languages"). Sourced from
-#: :mod:`datrix_codegen_common.parity.domain_registry`:
-#: ``_RICH_CONTEXT_TYPES`` is the seven domains that each have a
-#: dedicated SHARED context-model type (entity, schema, service_layer,
-#: cache, pubsub, cqrs, jobs -- the same seven the pre-D9
-#: ``parity/contract.py`` ``DOMAIN_CONTRACTS`` covered), intersected with
-#: ``SHARED_CONTEXT_TYPES`` (every domain id any ``COMMON_GENERATOR_
-#: REGISTRATIONS`` entry declares -- the "shared-39" universe D9 governs).
-#: Every one of the seven IS a shared-39 member (``_build_shared_context_
-#: types`` maps every COMMON registration's domain id, rich or not), so the
-#: intersection equals ``frozenset(_RICH_CONTEXT_TYPES)`` today -- taken as
-#: an intersection anyway (never a bare literal) so this scope tracks
-#: ``SHARED_CONTEXT_TYPES`` if that ever changes, matching the superseded
-#: gate's own defensive style. G3 restricts to this scope because these are
-#: the only domains multiple languages could plausibly commit a
-#: cross-language-stable structural glob for; a language's OWN additional
-#: domain outside this set (java's ``function``/``helper``/``dev_scripts``,
-#: python's/typescript's various ``_test`` domains) is a legitimate private
-#: addition, never a G3 violation.
-_RICH_AND_SHARED39_IDS: Final[frozenset[str]] = frozenset(_RICH_CONTEXT_TYPES) & frozenset(
-    SHARED_CONTEXT_TYPES
-)
 
 #: Synthetic language names used only by the self-test below. Deliberately
 #: NOT real registered language names (`python`/`dotnet`/`java`/`typescript`)
@@ -162,10 +133,9 @@ def registered_language_names() -> frozenset[str]:
 def supported_domain_ids(language_name: str) -> frozenset[str]:
     """Return the FULL set of domain ids *language_name*'s plugin declares 'supported'.
 
-    Unrestricted -- includes the language's own private domains (e.g. java's
-    ``function``/``helper``/``dev_scripts``), not just the G3 comparison
-    scope. Callers that need the G3 comparison set intersect this with
-    ``_RICH_AND_SHARED39_IDS`` (see ``check_supported_domain_parity``).
+    This is the full set the plugin's ``domain_declarations`` records --
+    callers compare it directly, with no further restriction (see
+    ``check_supported_domain_parity``).
 
     Args:
         language_name: A ``datrix.languages`` entry-point name (e.g.
@@ -277,15 +247,15 @@ def run_self_test() -> None:
 
 
 def check_supported_domain_parity() -> int:
-    """Compare every registered language's derived supported-domain set,
-    restricted to the G3 domain scope (``_RICH_AND_SHARED39_IDS``).
+    """Compare every registered language's derived supported-domain set
+    over the full shared domain universe.
 
     Returns:
-        Exit code (0 = every registered language's RESTRICTED supported set
-        agrees, 1 = a divergence was found for at least one language within
-        that restricted scope, 2 = fewer than ``_MIN_LANGUAGES_FOR_COMPARISON``
-        languages are registered -- a cross-language comparison over 0 or 1
-        language is vacuous and must fail loud rather than silently "pass").
+        Exit code (0 = every registered language's supported-domain set
+        agrees, 1 = a divergence was found for at least one language, 2 =
+        fewer than ``_MIN_LANGUAGES_FOR_COMPARISON`` languages are
+        registered -- a cross-language comparison over 0 or 1 language is
+        vacuous and must fail loud rather than silently "pass").
     """
     logger = logging.getLogger(__name__)
     languages = sorted(registered_language_names())
@@ -305,13 +275,11 @@ def check_supported_domain_parity() -> int:
         return 2
 
     logger.info(
-        "Comparing %d registered languages: %s (restricted to the %d rich "
-        "cross-language / shared-39 domains: %s)",
-        len(languages), languages, len(_RICH_AND_SHARED39_IDS), sorted(_RICH_AND_SHARED39_IDS),
+        "Comparing %d registered languages: %s (full %d-domain shared "
+        "universe: %s)",
+        len(languages), languages, len(SHARED_CONTEXT_TYPES), sorted(SHARED_CONTEXT_TYPES),
     )
-    per_language_supported = {
-        name: supported_domain_ids(name) & _RICH_AND_SHARED39_IDS for name in languages
-    }
+    per_language_supported = {name: supported_domain_ids(name) for name in languages}
     missing_by_language = compare_supported_domain_sets(per_language_supported)
 
     ok = True
@@ -320,10 +288,9 @@ def check_supported_domain_parity() -> int:
         if missing:
             ok = False
             logger.error(
-                "G3 VIOLATION: %s's derived supported-domain set (restricted "
-                "to the rich cross-language/shared-39 scope) is missing %d "
-                "domain(s) that at least one other registered language "
-                "supports: %s. %s.supported(restricted)=%s",
+                "G3 VIOLATION: %s's derived supported-domain set is missing "
+                "%d domain(s) that at least one other registered language "
+                "supports: %s. %s.supported=%s",
                 name, len(missing), sorted(missing), name, sorted(per_language_supported[name]),
             )
 
@@ -331,8 +298,8 @@ def check_supported_domain_parity() -> int:
         agreed = per_language_supported[languages[0]]
         logger.info(
             "G3 holds: all %d registered languages' (%s) derived "
-            "supported-domain sets, restricted to the rich cross-language/"
-            "shared-39 scope, are identical: %s",
+            "supported-domain sets are identical over the full shared "
+            "domain universe: %s",
             len(languages), languages, sorted(agreed),
         )
 
@@ -350,8 +317,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Prove every registered datrix.languages plugin's derived "
-            "SUPPORTED domain set, restricted to the rich cross-language / "
-            "shared-39 domain scope, is identical (G3 final)."
+            "SUPPORTED domain set, over the full shared domain universe, "
+            "is identical (G3 final)."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

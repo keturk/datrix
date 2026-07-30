@@ -231,14 +231,14 @@ def test_typescript_transpiler_satisfies_protocol():
 - Storage entities in extern-service REST signatures fail, even block-qualified
 
 **REST tests:**
-- REST endpoint body with bare `Member.findOne(...)` uses `rest_api ... rdbms(memberDb)`
+- REST endpoint body with bare `Member.findOrFail(...)` uses `rest_api ... rdbms(memberDb)`
 - REST API-local function body uses API defaults
 - REST `resource` and `batch` can use API defaults or explicit block-qualified names
 - Adding an unrelated second storage block does not change resolution
 - No single-RDBMS fallback remains
 
 **GraphQL tests:**
-- GraphQL operation body with bare `Member.findOne(...)` uses `graphql_api ... rdbms(memberDb)`
+- GraphQL operation body with bare `Member.findOrFail(...)` uses `graphql_api ... rdbms(memberDb)`
 - GraphQL type and data-loader inference use API defaults
 - Pure GraphQL API without storage access remains valid without defaults
 - GraphQL storage access without default or explicit block fails

@@ -36,6 +36,50 @@ from shared.logging_utils import ColorCodes, LogConfig, TeeLogger, colorize
 from shared.venv import get_venv_python
 
 
+def _target_depth_sort_key(target: str) -> tuple[int, str]:
+ """Sort key that orders pytest collection targets by DESCENDING path depth.
+
+ Works around a real pytest collection-tree defect that fires whenever a
+ single pytest invocation is given several explicit file-level targets
+ (exactly what a comma-separated ``-Specific`` batch produces) that share a
+ package ancestor: pytest's own ``Session.collect()`` intentionally does
+ NOT cache a file's *immediate parent* collector ("files given directly
+ multiple times on the command line should not be deduplicated" --
+ ``_pytest/main.py``'s ``handle_dupes`` for a final, file-level path
+ match), so that parent's ``.collect()`` runs again for every sibling
+ explicit-file target under it. ``Package.collect()``/``Dir.collect()``
+ build brand-new child collector objects on every call (no memoization),
+ and conftest fixture visibility is bound to collector OBJECT IDENTITY
+ (``FixtureManager._matchfactories``: ``fixturedef.node in parent_nodes``)
+ rather than to the directory's path string. So re-collecting a shared
+ ancestor package orphans any fixture already registered against the
+ previous collector instance for that same path -- any test collected
+ through a DIFFERENT (later-created) instance of that ancestor silently
+ loses the fixture ("fixture 'x' not found"), even though the conftest.py
+ that defines it imported successfully.
+
+ A target with FEWER path segments is more likely to be a *direct* child
+ of a package that also owns OTHER, deeper subdirectories carrying their
+ own conftest fixtures (e.g. ``tests/unit/test_registry.py`` is a direct
+ child of ``tests/unit``, which also owns ``tests/unit/generators/`` and
+ its nested conftest chain). Processing targets in descending depth order
+ -- deepest/most-nested files first, shallow direct-package-children last
+ -- guarantees every deeper file's ancestor chain is already resolved
+ (its fixtures matched against the collector instance current at THAT
+ time) before any shallower target can trigger a re-collection that would
+ otherwise orphan it. This is a genuine ordering invariant, not a lucky
+ workaround: a shallow target's re-collection can only ever endanger
+ targets nested BELOW it, and depth-descending order ensures none remain
+ unprocessed when that happens.
+
+ Ties (equal depth) fall back to a stable alphabetical key so the ordering
+ is fully deterministic, not merely "depth descending, ties arbitrary".
+ """
+ file_part = target.split("::", 1)[0]
+ depth = file_part.count("/") + file_part.count("\\")
+ return (-depth, file_part)
+
+
 @dataclass
 class TestConfig:
  """Configuration for test execution."""
@@ -185,6 +229,10 @@ class TestRunner:
   # node IDs (e.g. "test_foo.py::test_bar[1,2]") are literal, not separators.
   if test_path:
    test_targets = [t.strip() for t in re.split(r",(?![^\[]*\])", test_path) if t.strip()]
+   # Depth-descending order avoids a real pytest collection-tree defect when
+   # several explicit file targets are batched into one session -- see
+   # _target_depth_sort_key's docstring for the full mechanism.
+   test_targets.sort(key=_target_depth_sort_key)
   else:
    test_targets = [self.config.test_dir]
   args = [python_exe, "-m", "pytest", *test_targets]

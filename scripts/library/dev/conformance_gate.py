@@ -2,10 +2,11 @@
 """Declarative design-acceptance assertion runner over a file tree.
 
 Replaces the recurring hand-rolled acceptance-check scripts in
-``D:\\datrix\\.scripts`` (``a2_conformance_check.py``, ``gate_16_19_verify.py``,
-the ``i5_*``/``prove_*`` families, ``task-31-03-acceptance-check.py``): a JSON
-spec declares assertions over a target tree (generated output or package
-src), the gate evaluates them and writes a per-assertion PASS/FAIL ledger.
+``D:\\datrix\\.scripts`` -- one-off, per-task/per-gate scripts named after
+whatever they were checking (a design invariant, a numbered gate, or a
+specific task's acceptance criteria): a JSON spec declares assertions over a
+target tree (generated output or package src), the gate evaluates them and
+writes a per-assertion PASS/FAIL ledger.
 
 Spec schema::
 
