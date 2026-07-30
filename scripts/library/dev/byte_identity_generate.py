@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Prove a code change is output-neutral: generate a corpus twice and byte-diff.
 
-Promotes the hand-rolled ``byte_identity_16_*.ps1/.py`` / ``gen_16_17.ps1`` /
-``diff_16_17.py`` / ``31-09-verify-31-03-tag-stability.py`` family from
-``D:\\datrix\\.scripts`` into a permanent utility. Two generations of the same
+Promotes the recurring family of hand-rolled, one-off byte-identity /
+tag-stability verification scripts from ``D:\\datrix\\.scripts`` (each named
+after whatever task or gate it was written to prove) into a permanent
+utility. Two generations of the same
 examples are compared byte-for-byte:
 
 * **BEFORE** -- the sources of one or more named packages snapshotted at a git

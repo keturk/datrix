@@ -190,6 +190,8 @@ Apply the implementation described in the task file:
 - The task's file list is the **expected surface, not a fence**. If the root cause lies outside it, **follow it and fix it there**, then report the expansion under `scope_expansion`.
 - Growing beyond the task's estimate is **not** a stopping condition — an estimate is a prediction, not a permission slip.
 - Do NOT make unrelated "improvements" to surrounding code. (Following a root cause is not an improvement — it is the job.)
+- **Root cause you are chasing vs. violation you merely noticed — these pull in opposite directions, and confusing them is how a task becomes an audit.** A root cause of the failure you are fixing → follow it wherever it lives and fix it there, even in another package. A pre-existing rule violation you *happened to see* while reading (a stale reference, a naming breach, a lint smell in code you did not touch) → **write it down in your report and move on.** "Found it, you fix it" covers surfaces you **touched**, not surfaces you **scanned**; a grep across N files does not make you the owner of N files. When both readings are available, ask: *does this block the fix I was sent to make?* If no, it is a report line.
+- **Do NOT spawn subagents.** Do your task's work yourself, sequentially. Fanning out again multiplies cost without adding coverage and fragments the report the orchestrator has to act on.
 
 **STUCK protocol — fix it; BLOCKED is a claim you must prove** (execution-contract §1–§3):
 - **Your default outcome is: the problem is fixed.** Not investigated, not reported.

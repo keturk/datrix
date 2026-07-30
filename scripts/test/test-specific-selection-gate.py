@@ -372,7 +372,7 @@ def run_dir_exclusivity_check(scratch_root: Path) -> bool:
         _fail(
             f"{racers} CONCURRENT runs that computed the same preferred directory name "
             f"got only {len(set(concurrent))} distinct run directories -- the directory "
-            f"claim is not atomic. This is the 17-14 defect."
+            f"claim is not atomic."
         )
         ok = False
     else:
@@ -479,7 +479,7 @@ def concurrency_check(package: str, file_a: str, file_b: str) -> bool:
         _fail(
             f"both concurrent runs claimed the SAME run directory ({dir_a}). They "
             "overwrite each other's junit-*.xml and index.json, so at least one run's "
-            "reported results belong to the other run. This is the 17-14 defect."
+            "reported results belong to the other run."
         )
         ok = False
 

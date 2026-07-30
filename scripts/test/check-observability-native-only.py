@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-r"""Observability native-only example-conformance guard (design 019 Phase 4).
+r"""Observability native-only example-conformance guard.
 
 Scans every datrix/examples/**/config/system.dcfg for an observability
-provider pairing design 019 D1 forbids: a PORTABLE provider (one no cloud
-platform declares as native) configured together with a CLOUD deployment
-target (provider aws or azure) in the SAME resolved profile. Design 019
-verified (2026-07-18) that every current example observability block sits on
+provider pairing the platform-boundary rule forbids: a PORTABLE provider (one
+no cloud platform declares as native) configured together with a CLOUD
+deployment target (provider aws or azure) in the SAME resolved profile.
+Verified (2026-07-18) that every current example observability block sits on
 a LOCAL target; this script is the RETAINED standing guard against future
-drift (design doc Phase 4: "the Phase-4 grep is retained as a conformance
-check").
+drift.
 
 Every profile of every system.dcfg is checked (not just the default "test"
 profile) -- a violation could hide in a non-default profile whose deployment
@@ -61,24 +60,24 @@ _NATIVE_ONLY_VIOLATION_PATTERN = re.compile(
     r"(?P<category>\w+) provider '(?P<provider>[^']+)'\."
 )
 
-# Portable provider values per category (design 019 D1 table + provider
-# enums, models.py:26-62). "datadog" stays listed even though task 41-12
-# independently removes MetricsProvider.DATADOG from the enum -- harmless
-# either way (see Codebase Context), and keeps this set literally mirroring
-# the design doc's D1 table.
+# Portable provider values per category (values with no native cloud-platform
+# realization, mirrored from the provider enums in models.py:26-62).
+# "datadog" stays listed even if MetricsProvider.DATADOG is later removed
+# from the enum independently -- harmless either way, since a value no
+# config can produce simply never matches.
 PORTABLE_METRICS_PROVIDERS: frozenset[str] = frozenset({"prometheus", "datadog"})
 PORTABLE_TRACING_PROVIDERS: frozenset[str] = frozenset({"jaeger", "zipkin"})
 PORTABLE_LOGGING_PROVIDERS: frozenset[str] = frozenset({"loki"})
 PORTABLE_VISUALIZATION_PROVIDERS: frozenset[str] = frozenset({"grafana"})
 PORTABLE_ALERTING_PROVIDERS: frozenset[str] = frozenset({"alertmanager"})
 
-# Cloud deployment provider values (design 019 "Target platforms" table).
+# Cloud deployment provider values (the cloud deployment targets datrix supports).
 CLOUD_DEPLOYMENT_PROVIDERS: frozenset[str] = frozenset({"aws", "azure"})
 
 
 @dataclass(frozen=True)
 class Violation:
-    """One (example, profile, category, provider) pairing that violates D1."""
+    """One (example, profile, category, provider) pairing that violates the native-only observability rule."""
 
     example: str  # repo-relative path to the system.dcfg
     profile: str  # resolved profile name
@@ -104,15 +103,15 @@ def profile_names(config_path: Path) -> list[str]:
 def check_profile(
     config_path: Path, project_root: Path, profile: str, example_relpath: str
 ) -> list[Violation]:
-    """Resolve one profile and return every D1 violation it contains.
+    """Resolve one profile and return every native-only-observability violation it contains.
 
-    Since design-019 task 41-05, ``load_system_config`` itself now wires a
-    native-only observability ``@model_validator`` onto
-    ``SystemConfigProfileConfig`` (see ``validate_native_observability_providers``
-    in ``datrix_common.plugin.capability_resolution``), which raises
+    ``load_system_config`` itself wires a native-only observability
+    ``@model_validator`` onto ``SystemConfigProfileConfig`` (see
+    ``validate_native_observability_providers`` in
+    ``datrix_common.plugin.capability_resolution``), which raises
     ``GenerationError`` for exactly a cloud+portable pairing -- before this
     function's own resolved-config inspection below would otherwise catch it.
-    That raise IS a D1 violation the live validator detected, so it is caught
+    That raise IS a violation the live validator detected, so it is caught
     and converted into a ``Violation`` here rather than left to abort the
     scan. A ``GenerationError`` whose message does NOT match the native-only
     observability pattern is a genuinely unrelated failure (a pre-existing
@@ -340,7 +339,7 @@ def auto_detect_examples_root(script_path: Path) -> Path:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Observability native-only example-conformance guard (design 019 Phase 4)",
+        description="Observability native-only example-conformance guard",
     )
     parser.add_argument("-w", "--warn", action="store_true", help="Report violations but exit 0")
     parser.add_argument(
@@ -357,7 +356,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    _step("Self-test: observability native-only guard scanner edge cases (design 019 Phase 4)")
+    _step("Self-test: observability native-only guard scanner edge cases")
     self_test_passed = run_self_test_checks(_SELF_TEST_CHECKS)
     if args.self_test:
         return 0 if self_test_passed else 1
@@ -386,7 +385,7 @@ def main() -> int:
 
     if violations:
         mode = "Warning" if args.warn else "Error"
-        print(f"{mode}: {len(violations)} native-only observability violation(s) (design 019 D1):\n")
+        print(f"{mode}: {len(violations)} native-only observability violation(s):\n")
         for v in violations:
             print(
                 f"{v.example} (profile={v.profile}): {v.category}={v.provider} "

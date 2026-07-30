@@ -461,7 +461,7 @@ Before proceeding to Phase 5, answer:
 10. **Coverage check:** Count the migration steps in the design. Count the migration tasks I generated. If the second number is less than the first, I stopped early.
 10a. **Design-reference check:** Does every task carry `**Design reference:**` + `**Design acceptance property:**` naming the specific D#/G#/numbered invariant, with a provable (negative + positive) acceptance check — not just "tests pass"?
 10b. **Enforcement-ordering check:** Does every invariant-enforcing task (guard/validator/rejection) precede and gate the tasks that rely on it? Is any migration in an earlier-or-equal wave to its guard? If yes, reorder.
-10c. **Invariant-surface check:** If the design states an invariant over a SET of surfaces, did I create a task (or QG criterion) for EVERY surface — or did I cover the easy ones and silently drop the rest (the phase-01 failure mode)?
+10c. **Invariant-surface check:** If the design states an invariant over a SET of surfaces, did I create a task (or QG criterion) for EVERY surface — or did I cover the easy ones and silently drop the rest (a recurring failure mode: a guard shipped on the obvious surface while a less obvious one stayed unguarded)?
 11. Did I deviate from any instruction in this phase? If yes, why?
 
 If you deviated: STOP and explain the deviation to the user.
@@ -539,7 +539,7 @@ Design: preserved at {path}
 - **NO dodging** — "out of scope", "pre-existing", "categorically behavioral", "should be tracked separately", "not my package" are **not** blockers; they are the work. A `SubagentStop` hook greps reports for this vocabulary.
 - **NO bloated dependencies.md** — the dependencies document is for AI agent consumption only; it is the Step-7 JSON document (tasks + dependencies + provenance stamp), nothing else. No markdown headers, tables, task inventories, dependency text blocks, or prose around it, and never the legacy "Group N" text format. See generate-tasks Step 7 for the exact schema.
 - **YES design document references in task files** — Phase 5 preserves the design doc, so every task carries `**Design reference:**` + `**Design acceptance property:**` pointing at it AND inlines the relevant content. (Reference for traceability, inline for self-sufficiency.) Do NOT strip the reference.
-- **NO marking a task/phase done on "generates clean" or "suite green" alone** — a task is done only when its `**Design acceptance property:**` is PROVEN by an executable check (negative + positive) whose output is pasted. A green suite over a half-enforced invariant is a false pass (the phase-01 env()-third-path failure).
+- **NO marking a task/phase done on "generates clean" or "suite green" alone** — a task is done only when its `**Design acceptance property:**` is PROVEN by an executable check (negative + positive) whose output is pasted. A green suite over a half-enforced invariant is a false pass (this is exactly how a config-driven escape hatch once slipped past a validator that only covered the more obvious code path).
 - **NO tasks without targeted tests** — every implementation and test task must have a `## Targeted Tests` section specifying which tests to run for focused verification
 - **NO missing quality gates** — every package with 2+ code tasks must have a quality gate task as the final dependency
 - **NO partial task generation** — generate ALL tasks in Phase 4, not a subset with a "roadmap"

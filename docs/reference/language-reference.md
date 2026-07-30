@@ -161,19 +161,19 @@ rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(db) {
 ```dtrx
 rest_api MemberAPI : basePath("/api/v1/members"), rdbms(memberDb) {
     get(UUID id) -> Member {
-        return Member.findOne({ id: id });
+        return Member.findOrFail(id);
     }
 }
 
 graphql_api MemberGraphQL : basePath("/graphql"), rdbms(memberDb) {
     query member(UUID id) -> Member {
-        return Member.findOne({ id: id });
+        return Member.findOrFail(id);
     }
 }
 
 rest_api CatalogAPI : basePath("/api/v1/catalog"), nosql(catalogStore) {
     get(String sku) -> ProductDocument {
-        return ProductDocument.findOne({ sku: sku });
+        return ProductDocument.findOrFail(sku);
     }
 }
 ```
@@ -209,7 +209,7 @@ service MemberService {
 
     rest_api MemberAPI : basePath("/members"), rdbms(memberDb) {
         get(UUID id) -> Member {
-            return Member.findOne({ id: id });
+            return Member.findOrFail(id);
         }
     }
 }
@@ -231,7 +231,7 @@ service MemberService {
 
     rest_api MemberAPI : basePath("/members"), rdbms(memberDb) {
         getAudit(UUID id) -> auditDb.AuditEntry {
-            return auditDb.AuditEntry.findOne({ id: id });
+            return auditDb.AuditEntry.findOrFail(id);
         }
     }
 }
@@ -244,7 +244,7 @@ service MemberService {
 ```dtrx
 rest_api MemberAPI : basePath("/members") {
     get(UUID id) -> Member {
-        return Member.findOne({ id: id });
+        return Member.findOrFail(id);
     }
 }
 ```
@@ -256,7 +256,7 @@ This is invalid when `Member` is a storage entity. The user must either declare 
 ```dtrx
 rest_api SearchAPI : basePath("/search"), rdbms(sqlDb), nosql(documentStore) {
     get(UUID id) -> Product {
-        return Product.findOne({ id: id });
+        return Product.findOrFail(id);
     }
 }
 ```

@@ -186,6 +186,21 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
    - Never pass -NoSave or -VerboseOutput to test.ps1 (they hide saved progress / burn tokens).
    - Never call pytest (or python -m pytest) directly — use test.ps1 / test-single.ps1.
    - Never run mypy or any standalone type-checker — write typed code, but don't run a type-check command.
+
+   Do NOT spawn subagents. Do this task's work yourself, sequentially. Fanning out
+   again multiplies cost without adding coverage and fragments the report the
+   orchestrator has to act on.
+
+   SCOPE — root cause you are chasing vs. violation you merely noticed. These pull in
+   opposite directions and confusing them turns a task into an audit:
+   - Root cause of the failure you were sent to fix → follow it wherever it lives and
+     fix it there, even in another package. Report it under scope_expansion.
+   - Pre-existing rule violation you happened to SEE while reading (a stale reference,
+     a naming breach, a smell in code you did not touch) → write it down in your report
+     and move on. "Found it, you fix it" covers surfaces you TOUCHED, not surfaces you
+     SCANNED; a grep across N files does not make you the owner of N files.
+   When both readings are available, ask: does this block the fix I was sent to make?
+   If no, it is a report line.
    ```
 
    **See the template file for:**

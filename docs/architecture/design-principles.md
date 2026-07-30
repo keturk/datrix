@@ -260,7 +260,7 @@ service MemberService {
     // This API works because of the rdbms(memberDb) default
     rest_api MemberAPI : basePath("/members"), rdbms(memberDb) {
         get(UUID id) -> Member {
-            return Member.findOne({ id: id });
+            return Member.findOrFail(id);
         }
     }
 }

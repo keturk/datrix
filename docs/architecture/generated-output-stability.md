@@ -142,7 +142,9 @@ generator regression, not a baseline update.
 
 `datrix/scripts/config/parity-known-nongenerating.json` lists examples the **real generator cannot
 build today**, each with a reason and a follow-up identifier, under a pinned `expected_count`
-(currently 2). This is a deliberately maintained scope boundary, not an auto-heal:
+(currently 17: 2 bare `example_id` entries plus 15 `example_id::language` entries surfaced once
+baseline-blessing swept every registered language across the examples exercising cross-language
+surfaces). This is a deliberately maintained scope boundary, not an auto-heal:
 
 - Listed examples are reported **loudly on every run** — never silently skipped.
 - The allowlist only converts a genuine *generation failure* into a skip. It never hides output
@@ -156,10 +158,12 @@ skip reaches:
 
 - A bare `example_id` applies to **every** language the gate sweeps for that example — for a
   failure at config-resolution/deployment-plan-building time, before any language-specific codegen
-  stage runs. Both current entries are this form.
+  stage runs. Two current entries are this form.
 - An `example_id::language` key applies to **one** language only — for a defect confined to one
   language's own codegen stage while the same example generates fine in every other registered
-  language. The named language must itself be a registered `datrix.languages` target.
+  language. The named language must itself be a registered `datrix.languages` target. The
+  remaining fifteen current entries are this form, each a real, language-specific generation
+  defect (dotnet/java-only), never a blanket "language X can't build example Y."
 
 ## Running it
 

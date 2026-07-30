@@ -1,15 +1,15 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Observability native-only example-conformance guard (design 019 Phase 4).
+ Observability native-only example-conformance guard.
 
 .DESCRIPTION
  Scans every datrix/examples/**/config/system.dcfg for a portable
  observability provider (prometheus/datadog metrics, jaeger/zipkin tracing,
  loki logging, grafana visualization, alertmanager alerting) paired with a
  cloud deployment target (provider aws or azure) in the same resolved
- profile. Design 019 D1's native-only platform-boundary rule forbids this
- pairing; this is the retained Phase-4 example-conformance guard.
+ profile. The native-only platform-boundary rule forbids this pairing; this
+ is the retained standing example-conformance guard against future drift.
 
  Exit codes:
    0 = clean (no violations), or -Warn mode

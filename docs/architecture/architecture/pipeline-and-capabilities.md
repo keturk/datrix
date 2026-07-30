@@ -581,7 +581,7 @@ serverGroups {
 
 **Platform-neutral contract:** `PooledGroup` / `PooledMember` in `datrix_codegen_common.pooling.models` is consumed identically by Python/TypeScript × Azure/AWS/Docker. The contract is platform-agnostic and language-agnostic; every generator receives pre-resolved `list[PooledGroup]` and iterates `group.members` for per-child wiring. Cross-reference: [Pooling Contract Reference](../../../../datrix-codegen-common/docs/pooling-contract.md).
 
-**Profile-scoped identity:** `(group_name, profile)` is the shared-resource key; staging and production never share a physical resource. Migration state is target-scoped (`.datrix/rdbms-migrations/<target>/...` per phase-55), and resource identity is resolved per deployment profile during config resolution.
+**Profile-scoped identity:** `(group_name, profile)` is the shared-resource key; staging and production never share a physical resource. Migration state is target-scoped (`.datrix/rdbms-migrations/<target>/...`), and resource identity is resolved per deployment profile during config resolution.
 
 **Per-child isolation is a required output:** Connection secret, RBAC/IAM scope, migration identity, and observability dimensions are emitted by the grouping pre-pass per member, not assumed correct. Validators enforce per-child secret distinctness, per-child RBAC/IAM scope binding, cross-group migration-identity UUID uniqueness, and per-child observability tagging. No shared admin secret; no wildcard grant.
 
