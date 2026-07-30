@@ -33,23 +33,42 @@ mislabeled `duration_seconds`) as wall time.
    `mypy.ps1` for each changed package.
 3. **Phase boundary / pre-commit:** affected set + the repo-level gates whose surface
    was touched (see "Repo gates"). NOT an unconditional `-All`.
-4. **Full `-All` sweep:** only when the affected set already *is* everything
-   (a `datrix-common` change), when explicitly requested, or as a scheduled
-   background/nightly run. Never as a reflex.
+4. **Full `-All` sweep:** only when explicitly requested, or as a scheduled
+   background/nightly run. Never as a reflex, and **never as the way to
+   re-verify after a follow-up edit** — re-run only the packages whose suites can
+   actually observe that edit. A change touching a `datrix-common` *surface* is
+   NOT grounds for `-All`: scope by surface (next section), not by package name.
+   Two full sweeps to verify one fix is a defect in method.
 
 ## The affected set
 
-`affected(change) = changed packages ∪ reverse-dependency closure of each`,
+`affected(change) = changed packages ∪ consumers of the CHANGED SURFACE`,
 where the dependency graph is **actual imports (src AND tests) plus declared
 pyproject deps** — pyproject alone under-declares (verified 2026-07-28: several
 packages import `datrix_codegen_common` without declaring it).
 
-Reverse-closure table (derived 2026-07-28 — re-derive with the commands below if
-packages or imports may have changed):
+**Scope by surface, not by package.** The unit of impact is the symbol/module you
+edited, not the package that contains it. `datrix-common` holds many unrelated
+surfaces, and importing the package is not the same as consuming the surface: a
+change to the runtime-requirements manifest is observable in azure/aws/docker
+(+ cli, which runs the pipeline) and in nothing else, so python/typescript/java/
+dotnet/sql/component/extensions are provably unaffected and must not be swept.
+Find the real consumers by grepping for the changed symbol, not the package:
 
-| Changed package | Also run (closure) |
+```bash
+# consumers of a SURFACE = files importing the symbol you actually changed
+grep -rlE "(from|import).*(runtime_requirements|PreflightAction)" \
+  datrix-*/src datrix-*/tests --include="*.py" | cut -d/ -f1 | sort -u
+```
+
+The table below is the **package-level** closure — a fallback upper bound for a
+change whose surface genuinely spans a package (a base model every consumer
+constructs, a pipeline stage every generator runs). Use the surface grep first;
+fall back to the table only when the surface really is that broad.
+
+| Changed package | Also run (closure upper bound) |
 |---|---|
-| datrix-common | **everything** (all 14) |
+| datrix-common | up to all 14 — **narrow it by surface first** |
 | datrix-language | all except datrix-common, datrix-extensions (12) |
 | datrix-codegen-common | itself + all codegen-*, datrix-cli (11) |
 | datrix-codegen-component | itself, dotnet, java, python, cli (5) |
