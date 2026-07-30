@@ -638,7 +638,7 @@ Every externally reachable surface carries an explicit `auth(...)` contract (mod
 
 **System entities (OR11):** `IdentityProfile` and `IdentityLink` are reserved entity names injected by the identity planner. `IdentityProfile` stores projected provider identity fields per-user; `IdentityLink` tracks per-provider credential linkage (sub claim, issuer, linked-at timestamp). User-defined entities with these names fail validation.
 
-**Secret provider matrix (OR2):** Provider secrets (client secrets, JWKS signing keys, webhook secrets) are referenced via `ConfigSecretRef` with a `secretProvider` field. Supported providers: `env`, `aws-secrets-manager`, `aws-ssm`, `azure-key-vault`, `docker-secret`.
+**Secret references (OR2):** Provider secrets (client secrets, JWKS signing keys, webhook secrets) are referenced by **logical secret handle** — a plain name declared in the service-level `secrets` table. App config carries no provider string: each target's secret renderer maps the handle to its native backend (env, AWS Secrets Manager, AWS SSM, Azure Key Vault, Docker secret).
 
 **Identity capability declarations (OR14):** Each platform plugin declares, on its own `PlatformCapabilityDeclaration`, which identity provider types it can realize and the capability set it supports for each (MFA, social providers, custom claims, machine audience, etc.). Generators gate feature emission through the one generic validator in `datrix_common/plugin/capability_resolution.py`, which asks the resolved platform's declaration — unsupported capabilities raise a codegen error carrying the platform's declared reason rather than silently omitting code. There is no central identity policy table.
 
