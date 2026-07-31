@@ -130,6 +130,25 @@ Any defect you discover on a surface you touched is **yours**. Three outcomes, a
    the failure mode this contract exists to prevent. If it was worth typing a sentence about, it
    was worth a fix or a task file.
 
+**Filing is bounded — it is never authorization to open a new phase.** A filed task goes in the
+phase you are **currently executing**, in the owning package's existing `.tasks\phase-{NN}\`,
+numbered as that phase's next free `{TT}`
+(`validate-dependencies.ps1 -Phase {NN} -NextTaskNumber`). **No agent may create a
+`.tasks\phase-NN\` directory that does not already exist** — foreground, background, subagent,
+orchestrator, or fix loop alike. Creating a phase is a planning act reserved to Jon and to the
+planning skills he invokes by name (`/generate-tasks`, `/operationalize-design`); a phase that
+appears on its own silently seeds the next orchestration run with work nobody scheduled, and it
+moves what `latest-phase.ps1` reports.
+
+**And filing into your own phase does not get the work out of your gate.** The task you just filed
+is now part of that phase's completion bar: you finish it before the phase is declared done, or you
+carry a valid B1–B4 blocker with the four-part proof for it, exactly as for any other task. If you
+are filing a task *because* you would rather not do the work inside this run, you have found the
+exact reason the rule exists — filing forward is deferral wearing the costume of diligence.
+
+The legitimate reason to file rather than fix is that the fix is a **genuinely separate root cause
+or a decision that is not yours** (a product/security call, a B2). Say which, in the task file.
+
 ## 6. Escalate before you stop — never instead of fixing
 
 If you are genuinely stuck on a *technical* question (not one of B1–B4), you escalate **before**

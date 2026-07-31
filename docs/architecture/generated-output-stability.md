@@ -8,7 +8,8 @@ green test suite says nothing about output preservation.
 
 ## What the gate protects
 
-For every example `system.dtrx` under `datrix/examples/`, the gate:
+For ONE reference example — `PARITY_EXAMPLE_RELPATH` in
+`scripts/library/test/reference_example_parity.py` — the gate:
 
 1. Runs the **real generation pipeline** — `datrix_cli.pipeline.generation.GenerationPipeline`,
    the exact code path `generate.ps1` runs, with the same `PipelineConfig` defaults
@@ -62,14 +63,30 @@ never a hardcoded literal), and checks each `(example, language)` pair against i
 package is swept automatically the moment it registers — no edit to the gate or this doc is
 needed.
 
-Baseline *coverage* is separate from what the gate is capable of sweeping, and today it is
-partial: of the 53 examples with baselines, only `01-foundation` is blessed in all four
-currently-registered languages (python, typescript, dotnet, java); `04-languages-typescript-service`
-is blessed in typescript only; every other example is blessed in python only. This is a coverage
-gap, not a design limit — a missing baseline for a language the gate sweeps is reported as a
-loud **failure**, never silently skipped, which is exactly why the gap is visible instead of
-quietly assumed away. Closing it means re-blessing an example in more languages
-(`regen-parity-baselines.ps1 -Example <id>`), not changing the gate.
+## One example, not the whole corpus
+
+`datrix/examples/` exists to cover DSL features; this gate exists to detect output drift, and
+those two jobs want very different corpus sizes. Drift in a shared template surfaces in the
+**first** example that renders it, so additional examples buy redundancy here rather than
+coverage — while costing one full pipeline run each, per registered language.
+
+The second cost mattered more. Baselines are whole-tree manifests written at **example**
+granularity, so with a broad corpus an intentional one-line change could not be blessed without
+simultaneously blessing every unrelated pending delta sitting in the same tree. That turns the
+gate from a regression detector into noise the moment two people work in the tree at once.
+
+**The corpus example must generate in every registered language.** This is a real constraint,
+not a formality: most examples do not. `03-domains/ecommerce`, for instance, generates in python
+alone — dotnet cannot derive a contract-violating value for `.length` on a collection, java does
+not transpile struct-level function bodies, and typescript's output fails `tsc` with imports for
+modules it never generates. An example that builds in only one language would silently reduce
+the gate to a single-language check, with the rest parked in
+`parity-known-nongenerating.json`.
+
+Narrowing the EXAMPLE corpus never narrows the LANGUAGE sweep, and it does not remove targeted
+capability from other gates: an explicit `-Example` still selects any example in the tree, which
+is how `ingress-migration-conformance-gate.ps1` blesses the identity example as its own
+byte-level proof.
 
 ## Non-vacuity is enforced on every run
 
@@ -124,16 +141,16 @@ Then do the only thing that matters: **explain the diff.**
 ## The re-bless command
 
 ```powershell
-# The normal case: one intentional change -> re-bless the one affected example.
-powershell -File "d:/datrix/datrix/scripts/test/regen-parity-baselines.ps1" -Example "01-foundation"
-
-# Only for a change that legitimately moves every example's output.
+# The normal case: re-bless the corpus example, once per registered language.
 powershell -File "d:/datrix/datrix/scripts/test/regen-parity-baselines.ps1"
+
+# Any other example by name -- for a gate that blesses its own byte-level proof.
+powershell -File "d:/datrix/datrix/scripts/test/regen-parity-baselines.ps1" -Example "02-features/01-core-data-modeling/identity"
 ```
 
 `regen-parity-baselines.ps1` is the **only** sanctioned baseline writer. The gate never writes
-baselines (no auto-heal). Baselines are **per example**, which is what keeps the gate cheap to
-keep green: an intentional change to one example re-blesses one example, not all 53.
+baselines (no auto-heal). With a one-example corpus a re-bless is cheap and its blast radius is
+a single baseline directory, rather than every example's tree at once.
 
 Always review the resulting baseline diff before committing. An unexpected baseline change is a
 generator regression, not a baseline update.
@@ -153,6 +170,12 @@ surfaces). This is a deliberately maintained scope boundary, not an auto-heal:
 - Adding or removing an entry requires updating `expected_count` in the same change, so the set
   cannot grow silently.
 
+Every current entry names an example outside the gate's corpus, so none of them is reachable by a
+default run today. The file is kept, and still validated on every run, because each entry is a
+written record of a real, reproduced generator defect — deleting them would destroy that record,
+not resolve it. An entry becomes live again the moment its example is used, whether as the corpus
+or via an explicit `-Example`.
+
 Since the gate sweeps every registered language per example, an entry's key controls how far its
 skip reaches:
 
@@ -168,11 +191,11 @@ skip reaches:
 ## Running it
 
 ```powershell
-# Full gate (all examples, ~4 minutes).
+# The gate: the corpus example, once per registered language.
 powershell -File "d:/datrix/datrix/scripts/test/reference-example-parity-gate.ps1"
 
-# One example, while iterating on a generator.
-powershell -File "d:/datrix/datrix/scripts/test/reference-example-parity-gate.ps1" -Example "01-foundation"
+# Any other example by name, while iterating on a generator.
+powershell -File "d:/datrix/datrix/scripts/test/reference-example-parity-gate.ps1" -Example "02-features/01-core-data-modeling/identity"
 ```
 
 Exit codes: `0` = every example matches its baseline and the comparator is non-vacuous;

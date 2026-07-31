@@ -88,7 +88,7 @@ Determine what to test **based on issue type**:
 
 ### Phase 4: Final Gate and Report
 
-After all issues in this invocation are fixed and their targeted tests pass, run the affected package's **full test suite ONCE** as the final gate: `powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}`. This replaces per-issue full-suite runs (see Anti-Patterns). If any fix touched a shared layer (`datrix-common`, `datrix-codegen-common`, `datrix-language`, or a shared contract), the final gate is the full suite of **every package in the change's reverse-dependency closure** per `d:\datrix\.claude\skills\_shared\verification-strategy.md` — fired concurrently, verdict read via `gate-verdict.ps1`.
+After all issues in this invocation are fixed and their targeted tests pass, run the affected package's **full test suite ONCE** as the final gate: `powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}`. This replaces per-issue full-suite runs (see Anti-Patterns). If any fix touched a shared layer (`datrix-common`, `datrix-codegen-common`, `datrix-language`, or a shared contract), the final gate is `powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects {closure}` — it derives that same closure via `affected-set.ps1`'s own module (per `d:\datrix\.claude\skills\_shared\verification-strategy.md`), runs every member concurrently under a worker budget, and returns one verdict via `gate-verdict.ps1`'s own per-project evaluation.
 
 ```
 FIX-ISSUE COMPLETE

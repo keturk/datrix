@@ -793,7 +793,7 @@ The design's seven end-state invariants (I1–I7) hold today as executable gates
 
 ---
 
-### Decision 26: Native-Only Observability Providers per Target Platform (Adopted)
+### Decision 27: Native-Only Observability Providers per Target Platform (Adopted)
 
 **Rationale:**
 - Every deployment target has a first-class native observability stack — LOCAL/docker: self-hosted Prometheus/Jaeger/Loki/Grafana/Alertmanager; AWS: CloudWatch (+ X-Ray); Azure: Azure Monitor + Application Insights. The former cross-platform portable overlay (AWS/Azure Managed Grafana over managed-Prometheus) duplicated the native stack and only worked when metrics were Prometheus.
@@ -808,6 +808,65 @@ The design's seven end-state invariants (I1–I7) hold today as executable gates
 - **Rejected alternatives:** a hardcoded per-platform allow-list matrix in `datrix-common` (it references the deleted `DeploymentProvider`/`DeploymentRuntime` enums and violates principle 10 / the I1 gate); silently dropping non-native providers on a cloud (fail-loud is required).
 
 **Reference:** [datrix-common API — PlatformCapabilityDeclaration.native_observability_providers](../../../datrix-common/docs/datrix-common-api.md#platformcapabilitydeclaration) | [datrix-common — Observability: Native provider resolution](../../../datrix-common/docs/observability.md#native-provider-resolution-platform-boundary) | [AWS architecture — CloudWatch Dashboards](../../../datrix-codegen-aws/docs/architecture.md#cloudwatch-dashboards) | [Azure architecture — Azure Monitor Workbooks](../../../datrix-codegen-azure/docs/architecture.md#azure-monitor-workbooks); implemented in phase 41.
+
+---
+
+### Decision 28: Cross-Target Parity Enforcement — Derived Gates and Declared Capability Holes (Approved — Implementation In Progress)
+
+**Rationale:**
+- Language-target and platform-target discrepancies were being caught only when a person happened to notice them: the byte-baseline matrix carries far more ungenerated pairs than blessed ones, no repo-level check compares platform capability declarations against each other, and builtin-claim equality rests on independently hand-maintained per-language literals instead of derivation.
+- Hand-authored gate inventories already exclude newly registered languages by construction, and a parked example with no baseline is skipped without even attempting generation, so a fixed defect has no way to announce itself.
+
+**Result:**
+- **Every discrepancy class becomes a red check.** Each class of language-target and platform-target drift is closed by a gate that fails in the drifting package or at the repo level, rather than depending on a reviewer noticing.
+- **New repo-level gates follow one house pattern.** Target sets are enumerated from entry points at runtime rather than hardcoded; every gate carries a built-in non-vacuity self-test (a synthetic pass and a synthetic forced failure) on each invocation; and no gate is permitted to pass vacuously against fewer than two targets.
+- **Gate inventories derive from registration, never hand lists.** Where a gate previously iterated a literal module or package tuple, it instead derives its target set from the same plugin registration every other target-agnostic mechanism already reads.
+- **Known gaps land as typed, reviewed exemptions, never silence.** A gate that would be red today against a catalogued capability hole lands anyway, backed by an exemption file whose entries each carry coordinates and a reason and whose total count is pinned; remediation work removes an entry and decrements the pinned count in the same change. A gate is never blocked on its own remediation, and a hole is never silent.
+- **New gate concepts:** platform block-realization/capability parity (the first repo-level consumer of the platform capability declaration), builtin-claims parity (derived comparison of claimed builtin groups across every registered language), cross-language artifact-role parity (presence of each domain role compared across languages, derived from blessed baseline manifests at zero additional generation cost — complementing, not replacing, the byte-baseline gate that pins content), example-universe registry consistency, a grow-only blessed-coverage ratchet, a parked-pair generation probe (a parked, baseline-less pair is attempted at check time, so a fixed defect surfaces as "unpark me" instead of staying parked indefinitely), and a standing committed conformance-spec corpus so a design-acceptance negative check outlives the change that landed it.
+
+---
+
+### Decision 29: Language-Target Capability Parity to the Reference Surface (Approved — Implementation In Progress)
+
+**Rationale:**
+- Python is the most complete language surface Datrix generates from, and every other registered language had accumulated its own untracked capability gaps against it — some visible only as a language silently emitting nothing for a construct another language realizes, the same emit-nothing-report-success defect class as a silent narrowing rather than a fail-loud boundary that would at least be noticed.
+- Claimed builtin groups, extension type-map coverage, and provider-name handling had each drifted per language with nothing forcing them back into agreement.
+
+**Result:**
+- **Python is the reference surface; every other registered language is brought to it** for each catalogued capability gap — python's own capability surface does not change as part of this work.
+- **The messaging builtin group becomes claimed by every registered language**, with its full method-by-provider matrix mapped per language rather than left partially wired against runtime clients that already ship.
+- **Extension type-map keys become exhaustive.** Every installed extension pack gets a corresponding type-map key in every registered language, closing the defect class where an extension generates on some languages and is rejected before generation on others.
+- **Provider-name string literals leave the language packages.** Facts that used to live as string comparisons against a provider name move onto the platform and realization seams that already declare those facts, so a language package asks a declaration instead of branching on a provider's name.
+- **The parity baseline matrix is driven to total coverage.** Every swept example-by-language pair ends this work either blessed or parked with a recorded reason — no pair is left silently ungenerated.
+
+---
+
+### Decision 30: Platform-Target Validation Floor and Realization Parity (Approved — Implementation In Progress)
+
+**Rationale:**
+- The registered platform targets had drifted along three independent lines: pre-generation validation ran on some platforms and not others, config surfaces existed that no platform actually consumed, and capabilities realized on one platform were silently absent on the others with no record of whether the absence was a genuine impossibility or an oversight.
+
+**Result:**
+- **A uniform pre-generation validation floor runs on every registered platform.** Every silent skip becomes either fail-loud or realized, and the same validation gates run regardless of target — a config accepted on one platform and silently dropped on another is the defect class being closed.
+- **Config surfaces no platform consumes are deleted, not deprecated.** Dead configuration that still parses is a lie to the person who wrote it; there is no backward-compatibility shim. Reintroducing a deleted surface is reserved for a future design that ships together with a real consumer.
+- **A capability realized on one platform is realized on the others or declared unsupported with a reason.** Genuine platform impossibilities become explicit declarations carrying a reason, never silence — the same declare-or-realize discipline the capability declaration already establishes for block realization.
+- **Provider-shaped facts move onto platform declarations.** Gateway type, TLS termination posture, and injected test identity providers become facts each platform declares and that generic shared validators consult, so no provider name enters a shared layer to express what used to be a per-platform special case.
+
+---
+
+### Decision 31: Mini-DSL Consolidation — Declared Surfaces Replace Imperative Bypasses (Approved — Implementation In Progress)
+
+**Rationale:**
+- Repeated parity drift traces back to a structural cause: per-target behavior is hand-written once per language or platform instead of declared once and realized generically, so the same behavior can silently diverge every time a target is added or a branch is edited on only one side.
+- The existing mini-DSL layers already prevent this class of drift wherever they are actually used — the surfaces where they are bypassed by imperative branches are exactly where drift keeps recurring, so the structural cause is attacked directly rather than patched per instance again.
+
+**Result:**
+- **The emit-table schema gains typed predicate columns** — receiver shape, arity, literal-argument, receiver-type restriction, and a flag guard resolved against a closed per-language flag registry — so declared rows can replace imperative branches they previously had no way to express, with validation staying closed at construction time.
+- **Shared test-generator emission plans cover every test kind**, leaving each language's per-kind file as a thin naming/path/template/render adapter over one shared decision surface instead of a second, independently drifting implementation.
+- **The seed surface becomes a real, closed pipeline surface.** Seed documents load into the application and are validated once during semantic analysis, before any generator runs, with one deterministic-identifier implementation and shared plan writers consumed by every language; the parallel, untyped YAML seed path is deleted.
+- **Declared-file coverage plus a shared emission-path gate make the declaration the only emission path** in every language package, so an output path can no longer be produced by an undeclared imperative site alongside its declared one.
+- **Queue and serverless block realization join normal table dispatch**, and provisioning-artifact patterns move onto the realization declaration itself, so the declaration and the conformance check that verifies it can no longer drift apart.
+- **Non-goal:** template bodies are never shared across languages. Decision logic and structure are what get consolidated; each language's rendered output stays that language's own.
 
 ---
 

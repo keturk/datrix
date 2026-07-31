@@ -139,6 +139,8 @@ Also check test fixtures at:
 
 ### Step 4: Determine Phase and Task Numbers
 
+> **This skill is one of the few things allowed to open a new phase, and only because Jon invoked it to plan work.** Executing agents — orchestrators, background subagents, fix loops — may **never** create a `.tasks\phase-NN\` directory that does not already exist; a task they must file goes in the phase they are executing. See CLAUDE.md "Task Orchestration" and execution-contract §5. When *this* skill is invoked to add tasks to work already in flight, add them to the existing phase rather than opening a new one.
+
 Run the latest-phase script to find the highest existing phase number:
 ```powershell
 powershell -File d:\datrix\datrix\scripts\tasks\latest-phase.ps1 -BaseDir "D:\datrix"

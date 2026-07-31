@@ -721,6 +721,12 @@ genDSL compiler intermediate structures stay in process memory and are rebuilt e
 
 **F4 — Text is earned:** new surfaces default to typed data declarations with validating loaders; a textual grammar is justified only where authoring ergonomics demand it. genDSL's own tokenizer, parser, and validator measure 1,940 LOC — that cost buys a readable embedded-docstring surface for generator authors, not a default for every future decision family. Computation stays in Python: DSLs declare structure, never implement algorithms.
 
+**F5 — Declarations are the only emission path (Approved — implementation in progress):** A parallel imperative path that emits the same artifacts a mini-DSL's declarations already describe is not a coexisting option — it is a bypass and a drift source. Once a concern has a declared row, the declared row is the sole emission path for it; a surviving parallel branch is closed, not tolerated.
+
+**F6 — Typed predicate columns, never text; plan modules for pipelines (Approved — implementation in progress):** Where a declaration schema cannot yet express a routing decision (receiver shape, arity, a literal argument, a transpiler-flag guard), the fix is to extend the schema with typed predicate columns — the authoring unit stays a table row, never a fallback to free text, and the branch is never left imperative indefinitely. Boundary: this is for single-step dispatch, not multi-step lowering. A pipeline that lowers a construct across several dependent steps (a query chain, a statement sequence) is not row dispatch and is never forced into one; its consolidation path is shared **plan** modules that hold the decision logic once. Template bodies are never shared across languages this way — decision logic and structure are what get shared, never the body.
+
+**F7 — Declaration and its check share one source (Approved — implementation in progress):** A declared surface's provisioning/output patterns (which artifacts a declaration is expected to produce) live on the declaration itself, never re-supplied as a parameter by whichever check polices it — so the declaration and the conformance check that verifies it cannot drift apart from each other.
+
 **Design reference:** [GenDSL Design Decisions 14–17](../../../datrix-codegen-common/docs/gendsl/design-decisions.md#decision-14-closed-compilation--typed-context-validation-and-eager-reference-resolution) (adopted and complete 2026-07-08)
 
 ---

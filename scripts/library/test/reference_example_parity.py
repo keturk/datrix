@@ -2,7 +2,7 @@
 
 WHAT THIS GATE PROTECTS
 -----------------------
-For every reference example under ``datrix/examples/`` this gate runs the REAL
+For ONE reference example (:data:`PARITY_EXAMPLE_RELPATH`) this gate runs the REAL
 generation pipeline (``datrix_cli.pipeline.generation.GenerationPipeline`` -- the
 exact code path ``generate.ps1`` runs, with the same ``PipelineConfig`` defaults)
 and compares a per-file sha256 manifest of the whole generated tree against a
@@ -11,6 +11,17 @@ appears or disappears, fails the gate.
 
 It is the only automated proof behind the "generated output is byte-identical"
 acceptance property that refactors in this repo routinely claim.
+
+WHY ONE EXAMPLE AND NOT THE WHOLE CORPUS
+----------------------------------------
+``datrix/examples/`` exists to cover DSL features; this gate exists to detect
+output drift.  Drift in a shared template surfaces in the FIRST example that
+renders it, so sweeping the whole corpus buys redundancy rather than coverage --
+at one full pipeline run per example per registered language.  It also made
+re-blessing unusable: baselines are whole-tree manifests written at example
+granularity, so an intentional one-line change could not be blessed without
+simultaneously blessing every unrelated pending delta in the same tree.  See
+:data:`PARITY_EXAMPLE_RELPATH`.
 
 WHY THE PIPELINE, NOT A FIXTURE PATH
 ------------------------------------
@@ -37,7 +48,7 @@ The target generation language is a real CLI input (``datrix generate
 --language``, forwarded by ``generate.ps1``/``scripts/library/dev/generate.py``);
 it is not read from ``config/system.dcfg``. Every
 example is therefore genuinely generatable in every registered
-``datrix.languages`` target, so this gate generates each example once PER
+``datrix.languages`` target, so this gate generates its corpus example once PER
 REGISTERED LANGUAGE (:func:`target_languages`, derived from
 ``registered_language_names()`` -- never a hardcoded literal) and compares each
 ``(example, language)`` pair against its own
@@ -181,16 +192,68 @@ def example_relpath(system_dtrx: Path) -> str:
     return system_dtrx.parent.relative_to(EXAMPLES_ROOT).as_posix()
 
 
-def discover_examples() -> list[Path]:
-    """Return every example ``system.dtrx``, sorted.
+#: The single reference example this gate checks, relative to :data:`EXAMPLES_ROOT`.
+#:
+#: The gate deliberately does NOT sweep every example under ``datrix/examples/``.
+#: That corpus exists to cover DSL features; this gate exists to detect output
+#: drift, and the two jobs want very different corpus sizes. Drift in a shared
+#: template surfaces in the FIRST example that renders it, so additional examples
+#: buy redundancy here rather than coverage -- while costing one full pipeline run
+#: each, per registered language.
+#:
+#: The second cost is subtler and mattered more: baselines are whole-tree
+#: manifests blessed at example granularity, so a broad corpus means an
+#: intentional one-line change cannot be blessed without simultaneously blessing
+#: every other pending delta sitting in the same tree. One example keeps the drift
+#: signal while making a re-bless cheap and its blast radius one directory.
+#:
+#: Feature coverage remains the job of each package's own test suite.
+#:
+#: The corpus example must GENERATE in every registered language, or the gate
+#: degrades into a single-language check with the rest permanently parked in
+#: ``parity-known-nongenerating.json``. That is a real constraint, not a
+#: formality: most examples do not currently build in every target (e.g.
+#: ``03-domains/ecommerce`` generates in python alone -- dotnet cannot derive a
+#: contract-violating value for ``.length`` on a collection, java does not
+#: transpile struct-level function bodies, and typescript emits imports for
+#: modules it never generates). ``01-foundation`` is one of the few that builds
+#: cleanly in all four, which is why it holds this role.
+PARITY_EXAMPLE_RELPATH = "01-foundation"
 
-    Discovery is a glob -- the example count is never hard-coded, so the gate
-    stays current as examples are added or removed.
+
+def discover_examples() -> list[Path]:
+    """Return the gate's example corpus: exactly one ``system.dtrx``.
+
+    See :data:`PARITY_EXAMPLE_RELPATH` for why the gate checks a single example
+    rather than globbing every example under :data:`EXAMPLES_ROOT`. The language
+    sweep is unaffected -- this example is still checked once per registered
+    language (:func:`target_languages`).
 
     Returns:
-        Sorted absolute paths to every ``system.dtrx`` under ``EXAMPLES_ROOT``.
+        A single-element list holding the absolute path to the corpus example's
+        ``system.dtrx``.
+
+    Raises:
+        ValueError: If the configured example has no ``system.dtrx``. An empty
+            corpus would leave every check iterating nothing and exiting 0 -- a
+            vacuously green gate that proves nothing -- so a missing corpus is a
+            hard failure, never a skip.
     """
-    return sorted(EXAMPLES_ROOT.rglob("system.dtrx"))
+    system_dtrx = EXAMPLES_ROOT / PARITY_EXAMPLE_RELPATH / "system.dtrx"
+    if not system_dtrx.is_file():
+        available = "\n  ".join(
+            sorted(
+                p.parent.relative_to(EXAMPLES_ROOT).as_posix()
+                for p in EXAMPLES_ROOT.rglob("system.dtrx")
+            )
+        )
+        raise ValueError(
+            f"Parity corpus example {PARITY_EXAMPLE_RELPATH!r} has no system.dtrx at "
+            f"{system_dtrx}. This gate checks exactly one example, so a missing corpus "
+            f"means it can prove nothing about output stability. Fix: point "
+            f"PARITY_EXAMPLE_RELPATH at an existing example. Available:\n  {available}"
+        )
+    return [system_dtrx]
 
 
 def target_languages() -> frozenset[str]:
@@ -611,6 +674,31 @@ def _assert_generation_environment_complete(warnings: list[str]) -> None:
     )
 
 
+def _remove_tree(target: Path) -> None:
+    """Delete *target* and everything beneath it, MAX_PATH-safe on Windows.
+
+    Generated trees routinely exceed Windows' 260-character ``MAX_PATH``: a
+    language's post-generation validation hook installs its own dependency tree,
+    and pnpm nests those as
+    ``node_modules/.pnpm/<pkg>_<hash>/node_modules/<pkg>/build/...``, which
+    measured 267 characters for this repo's own corpus example. Plain
+    :func:`shutil.rmtree` then fails partway with ``[WinError 145] The directory
+    is not empty`` -- it cannot enumerate the deepest children, so their parents
+    never become empty and the removal aborts. Prefixing a fully-qualified path
+    with ``\\\\?\\`` selects the extended-length path APIs, which carry no such
+    limit.
+
+    Args:
+        target: Directory to remove. A no-op when it does not exist.
+    """
+    if not target.exists():
+        return
+    if sys.platform == "win32":
+        shutil.rmtree(rf"\\?\{target.resolve()}")
+        return
+    shutil.rmtree(target)
+
+
 def generate_example(system_dtrx: Path, output_dir: Path, language: str) -> None:
     """Generate one example into ``output_dir`` via the REAL pipeline, for one language.
 
@@ -634,8 +722,7 @@ def generate_example(system_dtrx: Path, output_dir: Path, language: str) -> None
     from datrix_cli.pipeline.generation import GenerationPipeline, PipelineConfig
     from datrix_common.plugin.identity import LanguageId
 
-    if output_dir.exists():
-        shutil.rmtree(output_dir)
+    _remove_tree(output_dir)
     output_dir.mkdir(parents=True)
 
     result = GenerationPipeline().run(
@@ -682,9 +769,14 @@ def run_self_test(generated_tree: Path) -> list[str]:
     """
     problems: list[str] = []
     mutant_tree = SCRATCH_ROOT / "_self_test_mutant"
-    if mutant_tree.exists():
-        shutil.rmtree(mutant_tree)
-    shutil.copytree(generated_tree, mutant_tree)
+    _remove_tree(mutant_tree)
+    # Copy only what the manifest actually covers. EXCLUDED_DIRS holds the
+    # toolchain caches and installed dependency trees, which the comparison
+    # ignores anyway -- copying them would add minutes and re-expose the
+    # MAX_PATH limit that _remove_tree exists to work around.
+    shutil.copytree(
+        generated_tree, mutant_tree, ignore=shutil.ignore_patterns(*EXCLUDED_DIRS)
+    )
 
     original = build_manifest(generated_tree)
     if not original:
@@ -720,7 +812,7 @@ def run_self_test(generated_tree: Path) -> list[str]:
             f"content. Rendered:\n" + "\n".join(diff_lines)
         )
 
-    shutil.rmtree(mutant_tree)
+    _remove_tree(mutant_tree)
     return problems
 
 
@@ -747,27 +839,42 @@ class ExampleOutcome:
 def _select_examples(example_filter: str | None) -> list[Path]:
     """Return the examples to operate on.
 
+    Two distinct scopes, deliberately:
+
+    * **No filter** -- the gate's own corpus (:func:`discover_examples`, a single
+      example). This is what a plain gate or bless run checks.
+    * **An explicit filter** -- ANY example under :data:`EXAMPLES_ROOT`, corpus
+      member or not. Other repo-level gates bless a specific example's baseline
+      as their own byte-level proof (``ingress-migration-conformance-gate.ps1``
+      does this for the identity example), and narrowing the default corpus must
+      not take that targeted capability away from them.
+
     Args:
-        example_filter: A path relative to ``datrix/examples/``, or ``None`` for all.
+        example_filter: A path relative to ``datrix/examples/``, or ``None`` for
+            the gate's corpus.
 
     Returns:
         The matching ``system.dtrx`` paths.
 
     Raises:
-        ValueError: If the filter matches no example.
+        ValueError: If an explicit filter names no existing example.
     """
-    all_examples = discover_examples()
     if example_filter is None:
-        return all_examples
-    target_dir = (EXAMPLES_ROOT / example_filter).resolve()
-    selected = [p for p in all_examples if p.parent.resolve() == target_dir]
-    if not selected:
-        available = "\n  ".join(example_relpath(p) for p in all_examples)
-        raise ValueError(
-            f"No system.dtrx found for example {example_filter!r} (looked in {target_dir}). "
-            f"Pass a path relative to datrix/examples/. Available:\n  {available}"
+        return discover_examples()
+    system_dtrx = EXAMPLES_ROOT / example_filter / "system.dtrx"
+    if not system_dtrx.is_file():
+        available = "\n  ".join(
+            sorted(
+                p.parent.relative_to(EXAMPLES_ROOT).as_posix()
+                for p in EXAMPLES_ROOT.rglob("system.dtrx")
+            )
         )
-    return selected
+        raise ValueError(
+            f"No system.dtrx found for example {example_filter!r} (looked at "
+            f"{system_dtrx}). Pass a path relative to datrix/examples/. "
+            f"Available:\n  {available}"
+        )
+    return [system_dtrx]
 
 
 def cmd_bless(example_filter: str | None) -> int:
@@ -778,7 +885,8 @@ def cmd_bless(example_filter: str | None) -> int:
     is blessed once per registered language (:func:`target_languages`).
 
     Args:
-        example_filter: A path relative to ``datrix/examples/``, or ``None`` for all.
+        example_filter: A path relative to ``datrix/examples/``, or ``None`` for
+            the whole corpus (a single example -- see :func:`discover_examples`).
 
     Returns:
         Process exit code.
@@ -898,7 +1006,8 @@ def cmd_check(example_filter: str | None) -> int:
     (:func:`target_languages`) -- target-agnostic.
 
     Args:
-        example_filter: A path relative to ``datrix/examples/``, or ``None`` for all.
+        example_filter: A path relative to ``datrix/examples/``, or ``None`` for
+            the whole corpus (a single example -- see :func:`discover_examples`).
 
     Returns:
         Process exit code.
@@ -1014,8 +1123,10 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         metavar="RELPATH",
         default=None,
         help=(
-            "Path relative to datrix/examples/ for a single example "
-            "(e.g. '01-foundation'). Omit for all examples."
+            "Path relative to datrix/examples/ for a single example. Omit to use "
+            "the gate's corpus example. An explicit value may name ANY example, "
+            "corpus member or not -- other repo gates bless a specific example's "
+            "baseline as their own byte-level proof."
         ),
     )
     parser.add_argument(

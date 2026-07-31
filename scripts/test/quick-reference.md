@@ -278,8 +278,9 @@ Validates that all canonical types in the TypeRegistry have mappings in the requ
 
 ### `test\reference-example-parity-gate.ps1`
 
-**The repo's proof that generated output does not change unintentionally.** For every example
-`system.dtrx` under `datrix/examples/`, runs the **real generation pipeline**
+**The repo's proof that generated output does not change unintentionally.** For ONE reference
+example (`PARITY_EXAMPLE_RELPATH` in `scripts/library/test/reference_example_parity.py`), runs
+the **real generation pipeline**
 (`datrix_cli.pipeline.generation.GenerationPipeline` — the same code path `generate.ps1` runs,
 with the same `PipelineConfig` defaults: profile `test`, `format_output=True`,
 `validation_level=STANDARD`) and compares a per-file sha256 manifest of the **whole generated
@@ -287,16 +288,25 @@ output tree** against the stored baseline in
 `datrix/scripts/config/parity-baselines/<example_id>/<language>.sha256`. Any changed byte in any
 generated file, and any file that appears or disappears, fails the gate.
 
+**One example, not the corpus.** `datrix/examples/` covers DSL features; this gate detects
+drift, and drift in a shared template surfaces in the FIRST example that renders it — so
+sweeping all of them bought redundancy rather than coverage, at one full pipeline run per
+example per language. It also made blessing unusable: whole-tree manifests written at example
+granularity meant an intentional one-line change could not be blessed without also blessing
+every unrelated pending delta in the same tree. The corpus example must generate in EVERY
+registered language, which is a real constraint — most examples do not.
+
 Repo-level validation **script**, not a pytest suite (per the datrix showcase boundary), and
 `datrix_codegen_common` may not import `datrix_cli`.
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Run the gate** | `.\test\reference-example-parity-gate.ps1` | Check every example against its baseline (~4 min) |
-| **Single example** | `.\test\reference-example-parity-gate.ps1 -Example "01-foundation"` | Check one example (fast iteration on a generator) |
+| **Run the gate** | `.\test\reference-example-parity-gate.ps1` | Check the corpus example, once per registered language |
+| **Another example** | `.\test\reference-example-parity-gate.ps1 -Example "02-features/01-core-data-modeling/identity"` | Check any example by name, corpus member or not |
 | **Debug** | `.\test\reference-example-parity-gate.ps1 -Dbg` | DEBUG logging (very verbose: every pipeline stage) |
 
-**Parameters:** `-Example` (path relative to `datrix/examples/`, optional — default all), `-Dbg`
+**Parameters:** `-Example` (path relative to `datrix/examples/`, optional — default is the corpus
+example; an explicit value may name ANY example), `-Dbg`
 
 **Sweeps the registered language set.** The target generation language is a real CLI input
 (`datrix generate --language`, forwarded by `generate.ps1`/`generate.py`) rather than a
@@ -305,9 +315,9 @@ Repo-level validation **script**, not a pytest suite (per the datrix showcase bo
 language** (derived at runtime from the installed `datrix.languages` entry points — never a
 hardcoded `python`/`typescript` literal), against that language's own
 `<example_id>/<language>.sha256` baseline. A missing baseline for a swept `(example, language)`
-pair is reported loudly as a failure — never silently skipped — so coverage gaps (most examples
-currently have only a `python` baseline, one has `typescript`) are always visible rather than
-quietly ignored. Bless new `(example, language)` baselines with `regen-parity-baselines.ps1`.
+pair is reported loudly as a failure — never silently skipped. Narrowing the EXAMPLE corpus
+never narrows the LANGUAGE sweep: a new `datrix-codegen-<lang>` package is picked up with no
+edit here. Bless new `(example, language)` baselines with `regen-parity-baselines.ps1`.
 
 **Non-vacuity is enforced on every run.** Before trusting any comparison, the gate copies a real
 generated tree, mutates one byte of one file, and requires that the comparison reports exactly
@@ -338,14 +348,17 @@ sanctioned baseline writer — the gate never writes baselines (no auto-heal). R
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Re-bless one example** | `.\test\regen-parity-baselines.ps1 -Example "01-foundation"` | The normal case: one intentional change → one example re-blessed |
-| **Re-bless all** | `.\test\regen-parity-baselines.ps1` | Only for a change that legitimately moves every example's output |
+| **Re-bless the corpus** | `.\test\regen-parity-baselines.ps1` | The normal case: the corpus example, once per registered language |
+| **Re-bless another example** | `.\test\regen-parity-baselines.ps1 -Example "02-features/01-core-data-modeling/identity"` | Bless any example by name, corpus member or not |
 | **Debug** | `.\test\regen-parity-baselines.ps1 -Dbg` | Debug logging |
 
-**Parameters:** `-Example` (path relative to `datrix/examples/`, optional — default all), `-Dbg`
+**Parameters:** `-Example` (path relative to `datrix/examples/`, optional — default is the corpus
+example; an explicit value may name ANY example), `-Dbg`
 
-**Per-example granularity is the point:** an intentional change affecting one example re-blesses
-one example, not all 53. The full generated tree of each blessed example is kept under
+**Why the explicit `-Example` still reaches beyond the corpus:** other repo gates bless a
+specific example's baseline as their own byte-level proof — `ingress-migration-conformance-gate.ps1`
+does exactly this for the identity example — and narrowing the gate's default corpus must not
+take that capability away. The full generated tree of each blessed example is kept under
 `.test-output/parity-baseline-cache/` so a later failing gate can show a real unified diff.
 
 **Note:** an example that cannot generate is never blessed — the run fails and names it. Always
@@ -694,3 +707,59 @@ itself is not vacuous by registering one deliberately-failing dummy check and co
 reported `[FAIL]` with a nonzero exit.
 
 **Exit codes:** 0 = every check passed, 1 = at least one check (or the harness self-test) failed, 2 = usage error.
+
+---
+
+### `test\affected-set.ps1`
+
+Derives the reverse-dependency closure of every `datrix-*` package from actual imports (never a hand-maintained table). Discovers packages from disk by `pyproject.toml` presence, builds the import graph from each package's `src/`, `tests/`, and root-level `conftest.py` (the file class that hides test-time-only edges like datrix-common's consumption of datrix-language/datrix-cli) unioned with declared `pyproject.toml` dependencies, and computes each requested package's transitive reverse closure -- the set of packages that must also be tested whenever it changes. `affected-gate.ps1` consumes this module directly. This is a repo-level validation **script** (per the datrix showcase boundary -- no pytest suite lives in datrix).
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **One package's closure** | `.\test\affected-set.ps1 -Projects datrix-language` | Print datrix-language's reverse closure |
+| **Several packages** | `.\test\affected-set.ps1 -Projects datrix-language,datrix-cli` | Print each package's own closure |
+| **Every package** | `.\test\affected-set.ps1 -All` | Print every discovered package's closure |
+| **Custom output path** | `.\test\affected-set.ps1 -All -Output D:\datrix\.tmp\test\my-closure.json` | Override the JSON output path |
+| **Self-test only** | `.\test\affected-set.ps1 -SelfTest` | Run only the scanner's own edge-case self-test suite; skip the real derivation |
+| **Debug** | `.\test\affected-set.ps1 -Projects datrix-common -Dbg` | Debug logging |
+
+**Parameters:** `-Projects <comma-separated>` OR `-All`, `-Output <path>`, `-SelfTest`, `-Dbg`
+
+**Self-test runs automatically, every invocation.** A plain-Python self-test suite (`--self-test` on the underlying `.py`; no pytest -- real `tempfile.TemporaryDirectory()` fixtures and `assert` statements, per the datrix showcase boundary) covers `discover_packages`, the root-conftest-only import edge (must be detected when the conftest scan is enabled, and adversarially proven ABSENT when it is disabled), BOM-prefixed source files, a cyclic/self-referential edge (must terminate, not hang), the non-vacuity guard (`check_closure_not_smaller_than_declared`), and unreadable/corrupt `pyproject.toml` input. This suite runs, unconditionally, as step 1 of every invocation (self-test failure aborts before the real derivation, exit 1); `-SelfTest` runs it in isolation and skips the real derivation.
+
+**Assertions:**
+- Package discovery is by `pyproject.toml` presence under a `datrix-*`-prefixed directory name -- never a hardcoded list or count.
+- An import edge from a package's root-level `conftest.py` (outside both `src/` and `tests/`) is detected exactly as an import from `src/` or `tests/` would be.
+- The full (import+declared) reverse closure of every package is never a strict subset of its declared-pyproject-deps-only closure; a violation fails the run loud (exit 1), never silently.
+
+**Exit codes:** 0 = derivation completed (or a successful `-SelfTest` run), 1 = the non-vacuity self-check failed (or `-SelfTest` reports a failing check), 2 = usage error or unreadable input (corrupt/unreadable `pyproject.toml` or source file, unknown `-Projects` name, no `datrix-*` packages found).
+
+---
+
+### `test\affected-gate.ps1`
+
+Runs the affected set of Datrix package suites concurrently and returns one GREEN/RED verdict. Derives the affected set (changed packages union their reverse-dependency closure) via `affected-set.ps1`'s own module, schedules `test.ps1 <pkg>` child processes longest-first under a `PYTEST_XDIST_AUTO_NUM_WORKERS` budget so concurrently running children never oversubscribe the machine, and aggregates the final verdict by reusing `gate-verdict.ps1`'s own per-project evaluation -- never reimplementing `index.json` parsing. This is a repo-level validation **script** (per the datrix showcase boundary -- no pytest suite lives in datrix). It only SCHEDULES existing runners; it never duplicates `test.ps1`'s or `gate-verdict.ps1`'s own logic.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Changed packages** | `.\test\affected-gate.ps1 -Projects datrix-common` | Run datrix-common + its full reverse closure concurrently |
+| **Everything** | `.\test\affected-gate.ps1 -All` | Run every discovered package concurrently |
+| **Custom budget** | `.\test\affected-gate.ps1 -Projects datrix-cli -MaxConcurrent 2` | Fewer concurrent slots, more workers each |
+| **With mypy** | `.\test\affected-gate.ps1 -Projects datrix-common -Mypy` | Also type-check the changed packages, same budget |
+| **Force past an in-progress run** | `.\test\affected-gate.ps1 -Projects datrix-cli -Force` | Start even if a requested package's newest run looks in-progress |
+| **Self-test only** | `.\test\affected-gate.ps1 -SelfTest` | Run only the scheduler's own edge-case self-test suite |
+| **Debug** | `.\test\affected-gate.ps1 -Projects datrix-common -Dbg` | Debug logging |
+
+**Parameters:** `-Projects <comma-separated>` OR `-All`, `-MaxConcurrent <n>` (default 4), `-WorkersPerChild <n>` (default `floor(logical cores / MaxConcurrent)`), `-Mypy`, `-Force`, `-Output <path>`, `-SelfTest`, `-Dbg`
+
+**Self-test runs automatically, every invocation.** A plain-Python self-test suite (`--self-test` on the underlying `.py`; no pytest -- real `tempfile.TemporaryDirectory()` fixtures and `assert` statements, per the datrix showcase boundary) covers the worker-budget invariant over a simulated schedule, longest-first ordering, the missing-`index.json`-falls-back-to-LOC case, same-package double-request rejection, a child that dies without producing an `index.json` forcing RED (never a stale GREEN), and `-MaxConcurrent 1` degenerating to sequential execution. This suite runs, unconditionally, as step 1 of every invocation (self-test failure aborts before real scheduling, exit 1); `-SelfTest` runs it in isolation.
+
+**Assertions:**
+- At no point do concurrently-running children's declared `PYTEST_XDIST_AUTO_NUM_WORKERS` values sum above the logical core count.
+- The scheduler never launches two live children for the same package.
+- A package whose newest run directory has no/INCOMPLETE `index.json` (a run in progress) is refused unless `-Force`.
+- A child that exits without advancing its package's newest run directory past its pre-launch baseline is reported RED with reason `CHILD_PRODUCED_NO_RUN`, never silently defaulting to whatever stale prior result exists.
+
+**Exit codes:** 0 = overall GREEN (or a successful `-SelfTest` run), 1 = overall RED (or `-SelfTest` reports a failing check), 2 = usage error (bad `-MaxConcurrent`/`-WorkersPerChild`, unknown/duplicate package name, both `-Projects` and `-All` given).
+
+---

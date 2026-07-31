@@ -4,7 +4,8 @@
   Reference-example parity gate: proves generated output has not changed unintentionally.
 
 .DESCRIPTION
-  For every example system.dtrx under datrix/examples/, runs the REAL generation
+  For ONE reference example (PARITY_EXAMPLE_RELPATH in
+  scripts/library/test/reference_example_parity.py), runs the REAL generation
   pipeline (datrix_cli.pipeline.generation.GenerationPipeline -- the same code path
   generate.ps1 runs, with the same PipelineConfig defaults) and compares a per-file
   sha256 manifest of the whole generated output tree against the stored baseline in
@@ -14,15 +15,24 @@
   fails the gate. This is the repo's only automated proof behind the "generated
   output is byte-identical" acceptance property.
 
+  ONE EXAMPLE, NOT THE CORPUS. datrix/examples/ exists to cover DSL features; this
+  gate exists to detect drift, and drift in a shared template surfaces in the FIRST
+  example that renders it. Sweeping every example bought redundancy rather than
+  coverage, at one full pipeline run per example per language -- and because
+  baselines are whole-tree manifests written at example granularity, it made an
+  intentional one-line change impossible to bless without also blessing every
+  unrelated pending delta in the same tree.
+
   SWEEPS THE REGISTERED LANGUAGE SET. The target generation language is a real CLI
   input (datrix generate --language, forwarded by generate.ps1/generate.py) rather
   than a config/system.dcfg field, so every example is genuinely generatable in
-  every registered datrix.languages target. This gate generates and checks each
-  example once PER REGISTERED LANGUAGE (never a hardcoded python/typescript
+  every registered datrix.languages target. This gate generates and checks its
+  corpus example once PER REGISTERED LANGUAGE (never a hardcoded python/typescript
   literal -- derived at runtime from the installed datrix.languages entry points),
   against that language's own <example_id>/<language>.sha256 baseline. A missing
   baseline for a swept (example, language) pair is reported loudly as a failure,
-  never silently skipped.
+  never silently skipped. Narrowing the EXAMPLE corpus never narrows the LANGUAGE
+  sweep: a new datrix-codegen-<lang> package is picked up with no edit here.
 
   NON-VACUITY. Every run first proves the comparator bites: it copies a genuinely
   generated tree, mutates one byte of one file, and requires that the comparison
@@ -41,19 +51,15 @@
   = scripts, not pytest"), and datrix_codegen_common may not import datrix_cli.
 
 .PARAMETER Example
-  Path relative to datrix/examples/ for a single example (e.g. "01-foundation" or
-  "02-features/01-core-data-modeling/entities"). Omit to check every example.
+  Path relative to datrix/examples/ for a single example. Omit to check the gate's
+  corpus example. An explicit value may name ANY example, corpus member or not.
 
 .PARAMETER Dbg
   Enable DEBUG-level logging (very verbose: the pipeline logs every stage).
 
 .EXAMPLE
   .\reference-example-parity-gate.ps1
-  Check every example against its stored baseline.
-
-.EXAMPLE
-  .\reference-example-parity-gate.ps1 -Example "01-foundation"
-  Check one example (fast iteration while changing a generator).
+  Check the corpus example, once per registered language, against its baselines.
 
 .NOTES
   Exit codes: 0 = every example matches its baseline (and the comparator is
@@ -113,7 +119,7 @@ try {
         $pythonArgs += "--debug"
     }
 
-    $scope = if ($Example) { "example=$Example" } else { "all examples" }
+    $scope = if ($Example) { "example=$Example" } else { "the corpus example" }
     Write-Host "Reference-example parity gate: $scope" -ForegroundColor Cyan
     Write-Host ""
 

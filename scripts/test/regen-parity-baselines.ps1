@@ -5,7 +5,7 @@
 
 .DESCRIPTION
   Regenerates the stored baselines consumed by reference-example-parity-gate.ps1.
-  For each selected example it runs the REAL generation pipeline (the same code path
+  For the corpus example it runs the REAL generation pipeline (the same code path
   generate.ps1 runs) ONCE PER REGISTERED datrix.languages TARGET (never a hardcoded
   python/typescript literal) and writes a per-file sha256 manifest of each language's
   generated output tree to:
@@ -15,8 +15,11 @@
   This is the ONLY sanctioned baseline writer -- the gate never writes baselines
   (no auto-heal). Run it deliberately, AFTER you have explained the change.
 
-  PER-EXAMPLE GRANULARITY. An intentional change that affects one example re-blesses
-  ONE example: `-Example "01-foundation"`. There is no need to re-bless all of them.
+  ONE-EXAMPLE CORPUS. The gate checks a single reference example
+  (PARITY_EXAMPLE_RELPATH in scripts/library/test/reference_example_parity.py), so a
+  re-bless writes that example's baseline once per registered language. Re-blessing
+  is correspondingly cheap, and its blast radius is one baseline directory rather
+  than every example's tree.
 
   The full generated tree of each blessed example is kept under
   .test-output/parity-baseline-cache/, so that when the gate later fails it can show
@@ -27,19 +30,18 @@
   expected_count) only when the defect is genuine, pre-existing, and tracked.
 
 .PARAMETER Example
-  Path relative to datrix/examples/ for a single example (e.g. "01-foundation" or
-  "02-features/01-core-data-modeling/entities"). Omit to re-bless every example.
+  Path relative to datrix/examples/ for a single example. Omit to re-bless the gate's
+  corpus example. An explicit value may name ANY example, corpus member or not --
+  ingress-migration-conformance-gate.ps1 blesses the identity example this way as its
+  own byte-level proof, and narrowing the corpus must not take that away.
 
 .PARAMETER Dbg
   Enable DEBUG-level logging (very verbose: the pipeline logs every stage).
 
 .EXAMPLE
-  .\regen-parity-baselines.ps1 -Example "01-foundation"
-  Re-bless one example after an intentional, reviewed change to its output.
-
-.EXAMPLE
   .\regen-parity-baselines.ps1
-  Re-bless every example (only for a change that legitimately moves all output).
+  Re-bless the corpus example, once per registered language, after an intentional
+  and reviewed change to generated output.
 
 .NOTES
   Exit codes: 0 = all selected baselines written, 1 = an example failed to generate,
@@ -98,7 +100,7 @@ try {
         $pythonArgs += "--debug"
     }
 
-    $scope = if ($Example) { "example=$Example" } else { "ALL examples" }
+    $scope = if ($Example) { "example=$Example" } else { "the corpus example" }
     Write-Host "Re-blessing parity baselines: $scope" -ForegroundColor Cyan
     Write-Host ""
 

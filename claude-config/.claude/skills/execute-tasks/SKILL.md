@@ -433,6 +433,8 @@ If verification PASSED:
    - If the task requires "X replaces Y", tests must prove X works AND Y is gone — not just that the code doesn't crash
 
 3. **Design-acceptance verification + self-contradiction check (MANDATORY — suite-green is not enough):**
+   **Any follow-up task you file goes in the phase you are executing — never a new one.** You may not create a `.tasks\phase-NN\` directory that does not already exist (CLAUDE.md "Task Orchestration", execution-contract §5); a task filed mid-run joins this phase's completion bar and is finished before the phase is reported done.
+
    Apply conditions 3 and 4 of the shared checklist `d:\datrix\.claude\skills\_shared\completion-eligibility.md`: prove the task's `**Design acceptance property:**` with an executable negative + positive check (command + output pasted into "How Solved"; for "X replaces Y", Y is gone everywhere on the surface), and scan your "How Solved" narrative for the BLOCKED/partial/workaround/dual-path red-flag phrases. Any unproven property or red-flag phrase → the task is **not complete** and must not be marked COMPLETED. It is also **not automatically BLOCKED**: run the **Decision Adjudication Protocol** (`_shared/decision-adjudication-protocol.md`) on the underlying obstacle — investigate it, and if it survives, let the **Fable** adjudicator decide what happens instead. A task is only recorded as blocked after that adjudication, with the confirmed B-code and Fable's decision attached.
 
 2. **Mark task as completed using the script:**
@@ -599,13 +601,11 @@ Verification results from all tasks:
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
    ```
 
-3. **Run the full suite yourself — one run per affected package, fired concurrently** (a single message with one Bash call per package; each package writes its own `.test_results/` folder so parallel runs do not collide). Do NOT stop and ask the user to run anything. This is the ONE full-suite run per package for the whole skill invocation — the quality-gate task's own listed suite command was already suppressed in Phase 3.
-
-4. **Read the multi-package verdict with the gate script** (canonical `index.json` results, never stdout):
+3. **Run the sweep set concurrently and read the verdict in one call:**
    ```
-   powershell -File "d:/datrix/datrix/scripts/test/gate-verdict.ps1" -Projects {pkg1},{pkg2}
+   powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects {pkg1},{pkg2}
    ```
-   One GREEN/RED console line per package + `OVERALL`; per-package counts and failing-test lists in its `Details:` JSON. Sanity-check each package's `run_dir` in the JSON against the runs you just fired. GREEN only when `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0` — errors are red, exactly like failures (the script applies this; UNKNOWN/missing results are RED).
+   Do NOT stop and ask the user to run anything. This is the ONE full-suite run per package for the whole skill invocation — the quality-gate task's own listed suite command was already suppressed in Phase 3. `affected-gate.ps1` schedules `test.ps1 <pkg>` for every requested package concurrently under a worker budget (each package writes its own `.test_results/` folder so parallel runs do not collide) and aggregates one GREEN/RED verdict by reusing `gate-verdict.ps1`'s own per-project evaluation — this replaces firing `test.ps1` per package and separately calling `gate-verdict.ps1`. One GREEN/RED console line per package + `OVERALL`; per-package counts and failing-test lists in its `Details:` JSON. Sanity-check each package's `run_dir` in the JSON against the run you just fired. GREEN only when `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0` — errors are red, exactly like failures (the script applies this; UNKNOWN/missing results are RED).
 
 5. **Attribute failures (if any):**
    - For each RED package, run `collect-failure-data.ps1` on its run dir (from the gate JSON) — the clusters give the failing test files and erroring modules

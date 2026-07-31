@@ -308,6 +308,8 @@ If you deviated: STOP and explain the deviation to the user.
 
 **MANDATORY FIRST STEP:** Read `d:\datrix\.claude\skills\generate-tasks\SKILL.md` completely before generating any tasks (you read it once; include the relevant template slice in each writer agent's prompt so they don't each re-read it). This skill follows the same workflow as `/generate-tasks` with one critical override described below.
 
+**Phase creation.** This skill is invoked by Jon to plan work, so it is one of the few things allowed to open a new phase. That authority is **not** inherited by the agents it dispatches: a Phase-4 writer agent writes task files into the phase number YOU resolved and must never create a different `.tasks\phase-NN\` directory. Executing skills (`/task-orchestrator`, `/execute-tasks*`) may never create one at all — a task they must file goes in the phase they are executing (CLAUDE.md "Task Orchestration", execution-contract §5).
+
 **HARD CONSTRAINT — Task Location Allowlist:** the full allowlist (15 framework projects) and its rules live in `/generate-tasks` SKILL.md ("Task Location Allowlist — HARD CONSTRAINT"), which the mandatory first step below makes you read. The bindings that bite here: every task file path AND `dependencies.md` MUST begin with `D:\datrix\{project}\.tasks\` where `{project}` is one of the 15 allowlisted names; **the design document being operationalized often lives inside a customer/generated project (e.g. `D:\g\<customer-project>\`) — the tasks it produces NEVER go there**; tasks with no specific package go in the `D:\datrix\datrix\.tasks` fallback. Task tooling only scans `D:\datrix\*/.tasks` — a `.tasks` folder anywhere else is invisible and its tasks silently never run.
 
 **BEFORE generating tasks:**

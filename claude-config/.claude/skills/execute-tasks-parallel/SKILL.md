@@ -299,13 +299,11 @@ Implementation results from all agents + task metadata from pre_check.
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
    ```
 
-3. **Run the full suite yourself — one run per affected package, fired concurrently** (a single message with one Bash call per package; each package writes its own `.test_results/` folder so parallel runs do not collide). Do NOT stop and ask the user to run anything — this skill runs every test itself.
-
-4. **Read the multi-package verdict with the gate script** (canonical `index.json` results, never stdout):
+3. **Run the sweep set concurrently and read the verdict in one call:**
    ```
-   powershell -File "d:/datrix/datrix/scripts/test/gate-verdict.ps1" -Projects {pkg1},{pkg2}
+   powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects {pkg1},{pkg2}
    ```
-   One GREEN/RED line per package + `OVERALL`; counts and failing-test lists in its `Details:` JSON (sanity-check each `run_dir` against the runs you just fired). GREEN only when `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0` — a pytest error is red, exactly like a failure (the script applies this; UNKNOWN/missing results are RED).
+   Do NOT stop and ask the user to run anything — this skill runs every test itself. `affected-gate.ps1` schedules `test.ps1 <pkg>` for every requested package concurrently under a worker budget (each package writes its own `.test_results/` folder so parallel runs do not collide) and aggregates one GREEN/RED verdict by reusing `gate-verdict.ps1`'s own per-project evaluation — this replaces firing `test.ps1` per package and separately calling `gate-verdict.ps1`. One GREEN/RED line per package + `OVERALL`; counts and failing-test lists in its `Details:` JSON (sanity-check each `run_dir` against the run you just fired). GREEN only when `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0` — a pytest error is red, exactly like a failure (the script applies this; UNKNOWN/missing results are RED).
 
 #### Step 2: Attribute Failures to Tasks
 
@@ -357,6 +355,7 @@ After the fix loop (skip entirely if Step 1 found zero failures):
 For each task with status IMPLEMENTED:
 
 - Apply the shared **completion-eligibility checklist**: read and follow `d:\datrix\.claude\skills\_shared\completion-eligibility.md` (4 conditions — tests green / not-BLOCKED-terminal / How-Solved clean / design-acceptance proven by a check YOU run; `complete.ps1` + proof-of-work on pass; BLOCKED recorded honestly with a tracked follow-up on fail). For this skill, condition #1's governing gate is the Phase-3 full suite for the package.
+- **Any follow-up task you file goes in the phase you are executing — never a new one.** You may not create a `.tasks\phase-NN\` directory that does not already exist (CLAUDE.md "Task Orchestration", execution-contract §5), and a task filed mid-run joins this phase's completion bar: finish it before reporting the phase done.
 
 - **If tests still fail after fix loop:**
   - Update task file: change title to `# FAILED: Task {NN}-{TT}: {Title}`

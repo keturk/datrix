@@ -23,6 +23,7 @@ import io
 import json
 import logging
 import sys
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -215,6 +216,97 @@ def _format_project_line(row: ProjectVerdict) -> str:
     )
 
 
+@dataclass(frozen=True)
+class GateVerdictResult:
+    """Aggregate GREEN/RED verdict across a set of projects.
+
+    Returned by ``evaluate_projects``, the public entry point other modules
+    (e.g. a concurrent scheduler) use to reuse this module's own per-project
+    evaluation and formatting instead of reimplementing ``index.json``
+    parsing or verdict-line formatting.
+    """
+
+    rows: list[ProjectVerdict]
+    overall: str
+    payload: dict[str, object]
+    report_lines: list[str]
+    exit_code: int
+
+
+def _forced_red_verdict(project: str, reason: str) -> ProjectVerdict:
+    """Verdict row for a project reported RED by caller instruction, without
+    consulting its newest run.
+
+    Used by ``evaluate_projects``'s ``forced_red`` argument: a caller that
+    knows a project's test run crashed before producing any results must not
+    fall through to this module's own newest-run lookup, which would find
+    whatever OLDER run is sitting on disk -- including a stale GREEN one.
+    """
+    return ProjectVerdict(
+        project=project,
+        run_dir=None,
+        result=None,
+        counts=None,
+        verdict=_RED,
+        reason=reason,
+        failing=[],
+        failing_total=0,
+        age_minutes=None,
+    )
+
+
+def evaluate_projects(
+    workspace: Path,
+    projects: Sequence[str],
+    *,
+    forced_red: Mapping[str, str] | None = None,
+) -> GateVerdictResult:
+    """Evaluate each project's newest run and return the aggregate verdict.
+
+    This is the module's public entry point for reuse by other tooling
+    (e.g. a concurrent scheduler that must aggregate a final verdict without
+    reimplementing ``index.json`` parsing or verdict-line formatting). The
+    CLI (``_run``) also calls this function, so its own console output and
+    exit codes stay driven by exactly one evaluation path.
+
+    Args:
+        workspace: Monorepo root containing the package directories.
+        projects: Package names to evaluate, in report order.
+        forced_red: Optional package -> reason map. A package listed here is
+            reported RED with that reason WITHOUT consulting its newest run --
+            used by callers that know a run crashed and must not be allowed to
+            pass on a stale prior result.
+
+    Returns:
+        The aggregate result: per-project rows, the overall verdict, the
+        serializable payload, the formatted per-project report lines, and
+        the process exit code.
+    """
+    forced = forced_red or {}
+    rows = [
+        _forced_red_verdict(project, forced[project])
+        if project in forced
+        else _evaluate_project(workspace, project)
+        for project in projects
+    ]
+    overall = _GREEN if all(row.verdict == _GREEN for row in rows) else _RED
+    payload: dict[str, object] = {
+        "schema_version": _SCHEMA_VERSION,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "overall_verdict": overall,
+        "projects": [row.to_json() for row in rows],
+    }
+    report_lines = [_format_project_line(row) for row in rows]
+    exit_code = _EXIT_GREEN if overall == _GREEN else _EXIT_RED
+    return GateVerdictResult(
+        rows=rows,
+        overall=overall,
+        payload=payload,
+        report_lines=report_lines,
+        exit_code=exit_code,
+    )
+
+
 def _resolve_projects(args: argparse.Namespace, workspace: Path) -> list[str]:
     """Resolve and validate the requested project list."""
     testable = get_datrix_projects(workspace)
@@ -291,24 +383,17 @@ def _run(args: argparse.Namespace) -> int:
     projects = _resolve_projects(args, workspace)
     output_path = _resolve_output_path(args.output, workspace)
 
-    rows = [_evaluate_project(workspace, project) for project in projects]
-    overall = _GREEN if all(row.verdict == _GREEN for row in rows) else _RED
+    result = evaluate_projects(workspace, projects)
 
-    payload: dict[str, object] = {
-        "schema_version": _SCHEMA_VERSION,
-        "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "overall_verdict": overall,
-        "projects": [row.to_json() for row in rows],
-    }
     output_path.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        json.dumps(result.payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
 
-    for row in rows:
-        print(_format_project_line(row))
-    print(f"OVERALL: {overall}")
+    for line in result.report_lines:
+        print(line)
+    print(f"OVERALL: {result.overall}")
     print(f"Details: {output_path}")
-    return _EXIT_GREEN if overall == _GREEN else _EXIT_RED
+    return result.exit_code
 
 
 def main() -> int:
