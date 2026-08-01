@@ -74,7 +74,8 @@
       "mcp__azure__documentation",
       "PowerShell(D:\\\\datrix\\\\datrix\\\\scripts\\\\test\\\\mypy.ps1 datrix-common -NoSave)",
       "PowerShell(& \"d:\\\\datrix\\\\datrix\\\\scripts\\\\test\\\\mypy.ps1\" datrix-cli)",
-      "PowerShell(D:\\\\datrix\\\\datrix\\\\scripts\\\\test\\\\test.ps1 datrix-codegen-python 2>&1)"
+      "PowerShell(D:\\\\datrix\\\\datrix\\\\scripts\\\\test\\\\test.ps1 datrix-codegen-python 2>&1)",
+      "PowerShell(Get-CimInstance Win32_Process -Filter \"Name='python.exe'\")"
     ],
     "additionalDirectories": [
       "d:\\datrix\\$repo\\tests",
@@ -128,7 +129,8 @@
       "d:\\datrix\\datrix-codegen-python\\.tasks\\phase-72",
       "d:\\datrix\\.generated\\python\\docker\\02-features\\01-core-data-modeling\\enums\\.test_results\\deploy-test-20260428-225742",
       "D:\\datrix\\datrix\\claude-config\\.claude\\skills\\operationalize-design-v2",
-      "C:\\Users\\KErca\\.claude"
+      "C:\\Users\\KErca\\.claude",
+      "D:\\datrix\\.tmp\\merge\\azure-run2"
     ]
   }
 }

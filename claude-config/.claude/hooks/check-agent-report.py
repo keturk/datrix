@@ -56,6 +56,19 @@ _NEGATION_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Quoting a dodge phrase is not committing it. An agent that cites the rule
+# ("I did not treat it as 'out of scope'") or pastes task text containing the
+# words must not be blocked for it — a rule that punishes its own documentation
+# teaches agents not to document it. Fenced blocks, inline code, and quoted
+# spans are blanked before matching, so only the agent's own prose counts.
+_QUOTED_SPAN_RE = re.compile(
+    r"```.*?```"  # fenced code
+    r"|`[^`\n]*`"  # inline code
+    r"|\"[^\"\n]*\""  # straight double quotes
+    r"|“[^”\n]*”",  # curly double quotes
+    re.DOTALL,
+)
+
 # Markers that make an otherwise-flagged report legitimate.
 _PROOF_RE = re.compile(
     r"("
@@ -104,7 +117,8 @@ def _last_assistant_text(transcript_path: str) -> str:
 
 
 def _find_unnegated_dodge(text: str) -> str:
-    """Return the first dodge phrase that is not negated, or '' if none."""
+    """Return the first dodge phrase that is neither quoted nor negated, or ''."""
+    text = _QUOTED_SPAN_RE.sub(" ", text)
     for match in _DODGE_RE.finditer(text):
         window = text[max(0, match.start() - _NEGATION_LOOKBACK) : match.start()]
         if _NEGATION_RE.search(window):

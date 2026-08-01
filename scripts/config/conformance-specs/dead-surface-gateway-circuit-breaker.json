@@ -1,0 +1,13 @@
+{
+  "target": "D:\\datrix\\datrix\\examples",
+  "negative_control": "D:\\datrix\\datrix\\scripts\\config\\conformance-specs-fixtures\\deleted-config-surfaces-control",
+  "assertions": [
+    {
+      "id": "gateway-circuit-breaker-block-absent",
+      "type": "must_not_contain",
+      "pattern": "\\bcircuitBreaker\\s*\\{",
+      "glob": "**/system.dcfg",
+      "description": "The gateway 'circuitBreaker {}' block has zero generator consumers on any platform and was deleted from the config model. Distinct from the surviving 'resilience.circuitBreaker' surface (a different, per-dependency client-resilience block, not deleted) and from the scalar 'circuitBreakerFailMax'/'circuitBreakerResetSeconds' fields on 'microserviceClientOps' (also not deleted) -- this pattern requires the block-opening '{' and matches neither."
+    }
+  ]
+}

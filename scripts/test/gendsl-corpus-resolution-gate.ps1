@@ -5,9 +5,10 @@
 
 .DESCRIPTION
  Proves the real, shipped corpus of builder/call/context/appends references
- across every consumer package (datrix-codegen-python, -typescript, -sql,
- -docker, -aws, -azure, -component) is genuinely resolvable. Imports each
- package's genDSL definitions module -- import succeeding IS the assertion;
+ across every DISCOVERED genDSL target -- derived from
+ datrix.gendsl_generator_targets + datrix.platforms entry-point discovery,
+ never a hardcoded package list -- is genuinely resolvable. Imports each
+ target's genDSL definitions module -- import succeeding IS the assertion;
  a bad reference raises GenDSLReferenceResolutionError at import time.
 
  Repo-level validation script (per the datrix showcase boundary -- no pytest
@@ -22,7 +23,7 @@
 
 .EXAMPLE
  .\gendsl-corpus-resolution-gate.ps1
- Run the gate for all seven packages.
+ Run the gate for every discovered genDSL target.
 
 .EXAMPLE
  .\gendsl-corpus-resolution-gate.ps1 -Dbg
@@ -72,7 +73,7 @@ try {
         $pythonArgs += "--debug"
     }
 
-    Write-Host "Running GenDSL corpus resolution gate (7 packages)" -ForegroundColor Cyan
+    Write-Host "Running GenDSL corpus resolution gate (all discovered targets)" -ForegroundColor Cyan
     python @pythonArgs
     $exitCode = $LASTEXITCODE
 

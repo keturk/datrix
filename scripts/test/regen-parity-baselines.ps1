@@ -29,6 +29,12 @@
   to scripts/config/parity-known-nongenerating.json (with a reason and a bumped
   expected_count) only when the defect is genuine, pre-existing, and tracked.
 
+  Every successful bless (whether the default corpus example or an explicit
+  -Example target) also updates scripts/config/parity-blessed-count.json --
+  the grow-only ratchet the check gate uses to detect a baseline silently
+  deleted outside this script (D8.1). A partial bless (any example/language
+  pair failed to generate) writes nothing, ratchet included.
+
 .PARAMETER Example
   Path relative to datrix/examples/ for a single example. Omit to re-bless the gate's
   corpus example. An explicit value may name ANY example, corpus member or not --
@@ -49,6 +55,10 @@
 
   ALWAYS review the resulting baseline diff before committing. An unexpected baseline
   change is a generator regression, not a baseline update.
+
+  The blessed-coverage ratchet (scripts/config/parity-blessed-count.json) is
+  updated by this script alone, in the same operation as any successful
+  bless -- never hand-edit that file.
 #>
 
 [CmdletBinding()]

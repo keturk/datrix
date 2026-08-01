@@ -258,21 +258,45 @@ Aggregates the newest run of each requested package into a GREEN/RED gate verdic
 
 ### `test\type-mapping-completeness.ps1`
 
-Validates that all canonical types in the TypeRegistry have mappings in the requested language generators. This is a repo-level cross-package validation script that checks type mapping completeness across language packages.
+Two independent checks over the language type-mapping surfaces, both run on every invocation:
+
+1. **Canonical-type completeness** — every canonical type in `TypeRegistry` has a mapping in
+   each requested language's `TYPE_MAP` (`global_registry.unmapped_types`). Restricted by
+   `-Languages` when given; defaults to every registered `datrix.languages` target (derived at
+   runtime from the installed entry points — never a hardcoded literal). **SQL is not covered by
+   this leg** — it is not a `datrix.languages` plugin and its `type_mappings` module does not
+   register with `global_registry`.
+2. **Extension-map completeness** (D3) — for every installed `datrix.extensions` pack, every
+   registered language's `*_EXTENSION_MAPS` dict (`PYTHON_EXTENSION_MAPS`, `JAVA_EXTENSION_MAPS`,
+   `TS_EXTENSION_MAPS`, `DOTNET_EXTENSION_MAPS`) **and SQL's** (`SQL_EXTENSION_MAPS`) must carry a
+   key for that pack's name — an entry present but empty is correct for a pack contributing zero
+   scalars. This leg is unconditional: `-Languages` never narrows it. SQL is checked here via its
+   `datrix.generators` registration (`list_available_generators()`), not via `datrix.languages`.
+
+**Built-in non-vacuity self-test, every invocation.** Before any real check is trusted, the script
+feeds the extension-map comparator a synthetic surface that DOES carry a synthetic pack's key
+(must report zero missing) and a synthetic surface that does NOT (must report exactly that pack
+missing); a comparator that cannot detect the forced gap aborts (exit 2) before either real check
+runs.
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Python only** | `.\test\type-mapping-completeness.ps1 -Languages python` | Check Python type mappings |
-| **TypeScript only** | `.\test\type-mapping-completeness.ps1 -Languages typescript` | Check TypeScript type mappings |
-| **Both languages** | `.\test\type-mapping-completeness.ps1 -Languages python,typescript` | Check both Python and TypeScript |
-| **SQL dialects** | `.\test\type-mapping-completeness.ps1 -Languages sql` | Check SQL type mappings for all dialects |
-| **Debug** | `.\test\type-mapping-completeness.ps1 -Languages python -Dbg` | Debug logging |
+| **Both checks, every registered language** | `.\test\type-mapping-completeness.ps1` | Canonical-type check over every registered language + extension-map check over every registered language and sql |
+| **Restrict canonical-type check** | `.\test\type-mapping-completeness.ps1 -Languages python,typescript` | Canonical-type check limited to the named languages; extension-map check still covers everyone |
+| **Debug** | `.\test\type-mapping-completeness.ps1 -Dbg` | Debug logging |
+| **Self-test only** | `.\test\type-mapping-completeness.ps1 -SelfTest` | Run only the extension-map comparator's non-vacuity self-test; skip both real checks |
 
-**Parameters:** `-Languages` (comma-separated list: python, typescript, sql; required), `-Dbg`
+**Parameters:** `-Languages` (comma-separated subset of the REGISTERED `datrix.languages` set;
+optional — omit for every registered language; restricts the canonical-type leg only), `-SelfTest`,
+`-Dbg`
 
-**Exit codes:** 0 = all types mapped, 1 = missing mappings found
+**Assertions:** canonical-type leg — `global_registry.unmapped_types(language)` is empty for every
+requested language. Extension-map leg — `compare_extension_map_completeness` reports zero missing
+packs for every surface (every registered language + sql).
 
-**Purpose:** This script replaces package-local cross-language type mapping tests. Individual language packages test only their own mappings; this repo-level script validates completeness across all requested languages.
+**Exit codes:** 0 = both checks pass (or a successful `-SelfTest` run), 1 = either check found a
+gap, 2 = the non-vacuity self-test failed, no languages are registered/requested, or a
+discovery/import error occurred.
 
 ---
 
@@ -332,6 +356,8 @@ freshly generated tree is left under `.test-output/parity-current/<example_id>/`
 **Known non-generating examples** live in `scripts/config/parity-known-nongenerating.json` with a
 pinned `expected_count`, and are reported loudly on every run — never silently skipped.
 
+**Blessed-coverage ratchet.** Every check run also compares the live count of `.sha256` files under `scripts/config/parity-baselines/` against the pinned value in `scripts/config/parity-blessed-count.json`; a live count LOWER than the pinned value fails the gate (a baseline was deleted without a park entry). Growth never fails. `regen-parity-baselines.ps1` is the only writer of the pinned value.
+
 **Exit codes:** 0 = every example matches its baseline and the comparator is non-vacuous,
 1 = drift / missing baseline / generation failure / self-test failure, 2 = usage or config error.
 
@@ -364,6 +390,8 @@ take that capability away. The full generated tree of each blessed example is ke
 **Note:** an example that cannot generate is never blessed — the run fails and names it. Always
 review the resulting baseline diff before committing: **an unexpected baseline change is a
 generator regression, not a baseline update.**
+
+**Also updates the blessed-coverage ratchet** (`scripts/config/parity-blessed-count.json`) in the same operation as any successful bless — the check gate's proof that coverage can never silently regress.
 
 **Exit codes:** 0 = all selected baselines written, 1 = an example failed to generate, 2 = usage
 or config error.
@@ -567,20 +595,173 @@ G3 final cross-language parity proof: EVERY registered `datrix.languages` plugin
 
 ---
 
-### `test\gendsl-corpus-resolution-gate.ps1`
+### `test\artifact-role-parity-gate.ps1`
 
-GenDSL 2 D1/I1 corpus proof: eager builder/call-expression reference resolution runs at `@generator_definition` registration time (`datrix_codegen_common.gendsl.resolver`). Importing each consumer package's genDSL definitions module (`datrix_codegen_python.gendsl.definitions`, `datrix_codegen_typescript.gendsl_definitions`, `datrix_codegen_sql.gendsl.sql_definitions`, `datrix_codegen_docker.gendsl_definitions`, `datrix_codegen_aws.gendsl.aws_definitions`, `datrix_codegen_azure.gendsl.azure_definitions`, `datrix_codegen_component.gendsl_definitions`) IS the assertion: a bad reference raises `GenDSLReferenceResolutionError` at import time.
-
-This gate previously lived as a pytest test inside `datrix-codegen-common` (`tests/integration/gendsl/test_resolution_corpus.py`) that imported all seven concrete target packages directly — a `datrix_codegen_common`-must-not-import-concrete-target-packages boundary violation **and** a cross-package test (prohibited everywhere in the repo, not only in the showcase package). The proof is inherently repo-level, so it moved here (deleting the pytest test) rather than allowlisting the violation — the allowlist is terminal-empty (Invariant I7) and adding an entry would be a regression.
+Cross-language artifact-role parity gate (D7) -- the G-A closure: detects a language silently emitting nothing for a construct another language realizes, without generating anything. For every example with >= 2 blessed language baselines under `scripts/config/parity-baselines/`, classifies each blessed manifest's paths by domain role via that language's own derived `DomainDeclaration.structural_pattern` set (the same fnmatch globs the domain self-consistency gate uses) and asserts the role set is identical across the example's blessed languages. Paths matching no pattern are reported in an "unclassified" bucket but never compared -- template-level naming legitimately differs by language; the role SET is the contract. Replaces nothing: `reference-example-parity-gate.ps1` still pins byte-level CONTENT per pair; this gate pins cross-language PRESENCE. Its coverage grows automatically as later phases bless more of the `(example, language)` matrix -- no code change needed here when that happens.
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Run gate** | `.\test\gendsl-corpus-resolution-gate.ps1` | Import all seven packages' genDSL definitions, fail on any unresolved reference |
-| **Debug** | `.\test\gendsl-corpus-resolution-gate.ps1 -Dbg` | Debug logging |
+| **Run gate** | `.\test\artifact-role-parity-gate.ps1` | Compare role sets for every example with >= 2 blessed language baselines |
+| **Debug** | `.\test\artifact-role-parity-gate.ps1 -Dbg` | Debug logging |
+| **Self-test only** | `.\test\artifact-role-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real comparison |
+
+**Parameters:** `-Dbg`, `-SelfTest`
+
+**Assertions:**
+- Every example directory under `scripts/config/parity-baselines/` with >= 2 registered-language `.sha256` manifests is compared.
+- A domain role present (>= 1 matching path) in one blessed language's manifest for an example and absent from another blessed language's manifest for the SAME example is a violation, unless a reviewed entry exists in `scripts/config/artifact-role-exemptions.json`.
+- Non-vacuity self-test (every invocation): a synthetic matching role-set pair reports zero divergence; a synthetic forced-mismatch pair reports exactly the planted gap; a synthetic manifest/declaration pair proves `classify_paths` buckets matched vs. unclassified paths correctly.
+
+**Exit codes:** 0 = every comparable example's role sets agree modulo reviewed exemptions (or a successful `-SelfTest`), 1 = an un-exempted role drift was found, 2 = the self-test failed, zero examples have >= 2 blessed language baselines, or the exemption file is missing/malformed/miscounted.
+
+---
+
+### `test\example-registry-gate.ps1`
+
+Example-universe consistency gate (D9): every `system.dtrx` under `datrix/examples/` must appear in >= 1 named test set of `scripts/config/test-projects.json`, or carry a reviewed entry in `scripts/config/test-set-exclusions.json`. An unregistered example is never built by `generate.ps1 -All`/`run-complete.ps1 -All`, which select their corpus FROM `test-projects.json`'s test sets -- this is exactly how the `config-store` and `replayable-ingestion` whole-example parked defects (tracked in `parity-known-nongenerating.json`) went unnoticed for a full generation cycle before this gate landed.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\test\example-registry-gate.ps1` | Compare disk examples against test-projects.json + test-set-exclusions.json |
+| **Debug** | `.\test\example-registry-gate.ps1 -Dbg` | Debug logging |
+| **Self-test only** | `.\test\example-registry-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real comparison |
+
+**Parameters:** `-Dbg`, `-SelfTest`
+
+**Assertions:**
+- Every `system.dtrx` under `datrix/examples/` has an id reachable from >= 1 `testSets` entry, or a `test-set-exclusions.json` entry.
+- An exclusion naming an example with no `system.dtrx` on disk is a stale-exclusion violation.
+- An example both excluded AND registered in some test set is a redundant-exclusion violation.
+- Non-vacuity self-test (every invocation, no file I/O): synthetic ids prove the pure comparator detects each of the three violation classes and reports a clean state as clean.
+
+**Exit codes:** 0 = fully consistent (or a successful `-SelfTest`), 1 = at least one violation, 2 = the self-test failed, zero examples exist on disk, or a config file is missing/malformed/miscounted.
+
+---
+
+### `test\block-realization-parity-gate.ps1`
+
+Cross-platform capability-declaration parity gate (D1): the platform-axis counterpart of
+`supported-domain-parity-gate.ps1`. Every installed `datrix.platforms` plugin declares a
+`PlatformCapabilityDeclaration` — block realizations, secret backends, observability providers,
+deployment runtimes, identity providers/features, and roughly a dozen scalar/mapping capability
+flags. This gate computes the union of every capability coordinate any installed platform
+declares, across seven surfaces (block-realization cells, secret backends, native observability
+providers per category, deployment runtimes, identity `(provider_type, feature)` cells, every
+remaining optional scalar/mapping field, and `unrealizable_surfaces`), and fails loud if another
+installed platform has made no decision at all about a coordinate — unless the gap carries a
+reviewed entry in `datrix/scripts/config/platform-capability-holes.json`.
+
+Derives its target platform set from `importlib.metadata.entry_points(group="datrix.platforms")`
+at runtime — never a hardcoded `aws`/`azure`/`docker`/`local` literal.
+
+**Built-in non-vacuity self-test, every invocation.** Feeds the comparator a synthetic matching
+declaration pair (must report zero gaps) and a synthetic pair with one planted missing union cell
+(must report exactly that gap). Fails loud (exit 2) if fewer than 2 platforms are registered.
+
+| Mode | Command | Description |
+|------|---------|--------------|
+| **Run gate** | `.\test\block-realization-parity-gate.ps1` | Compare every registered platform's declared capability coordinates |
+| **Debug** | `.\test\block-realization-parity-gate.ps1 -Dbg` | Debug logging |
+| **Self-test only** | `.\test\block-realization-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real comparison |
+
+**Parameters:** `-Dbg`, `-SelfTest`
+
+**Exit codes:** 0 = every union coordinate is declared or exempted, 1 = at least one unexempted
+gap was found, 2 = the non-vacuity self-test failed or fewer than 2 platforms are registered.
+
+---
+
+### `test\builtin-claims-parity-gate.ps1`
+
+Cross-language builtin-claims parity gate (D2). Two independent surfaces: (1) every registered
+`datrix.languages` plugin's `CLAIMED_BUILTIN_GROUPS` must be identical — no exemption path; (2) for
+every builtin in the full `BUILTIN_REGISTRY`, **including `group=None` ("optional everywhere")
+members** (Log, Seed, Microservice, Crypto, Auth, JSON, Array — structurally invisible to the
+existing per-package `validate_builtin_coverage`), a builtin mapped by at least one registered
+language and unmapped by another must carry a reviewed entry in
+`datrix/scripts/config/builtin-mapping-exemptions.json` (`{language, category, method, reason}`,
+pinned `expected_count`).
+
+Derives its target language set from `importlib.metadata.entry_points(group="datrix.languages")`
+at runtime — never a hardcoded `python`/`typescript`/`dotnet`/`java` literal.
+
+**Built-in non-vacuity self-test, every invocation.** Feeds both comparators a synthetic matching
+pair (must report zero divergence) and a synthetic forced-mismatch pair (must report the planted
+gap) — plus a synthetic "mapped by neither language" case that must never be flagged. Fails loud
+(exit 2) if fewer than 2 languages are registered.
+
+| Mode | Command | Description |
+|------|---------|--------------|
+| **Run gate** | `.\test\builtin-claims-parity-gate.ps1` | Compare every registered language's claimed groups and mapped-builtin sets |
+| **Debug** | `.\test\builtin-claims-parity-gate.ps1 -Dbg` | Debug logging |
+| **Self-test only** | `.\test\builtin-claims-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real comparison |
+
+**Parameters:** `-Dbg`, `-SelfTest`
+
+**Exit codes:** 0 = claim sets identical and every mapped-set hole is exempted, 1 = a claim-set
+divergence or an unexempted mapped-set hole was found, 2 = the non-vacuity self-test failed or
+fewer than 2 languages are registered.
+
+---
+
+### `test\gendsl-corpus-resolution-gate.ps1`
+
+GenDSL D1/I1 corpus proof: eager builder/call-expression reference resolution runs at
+`@generator_definition` registration time (`datrix_codegen_common.gendsl.resolver`). Importing
+each discovered target's genDSL definitions module IS the assertion: a bad reference raises
+`GenDSLReferenceResolutionError` at import time.
+
+**Target set is derived, never hardcoded.** The module list comes from
+`datrix_codegen_common.gendsl.target_registry.target_kind_map()` +
+`definition_modules_for()`, folded from `datrix.gendsl_generator_targets` entry-point discovery --
+every target, including aws/azure/docker, self-registers its definition modules there (platform
+KIND classification separately derives from `datrix.platforms` membership). A future
+`datrix-codegen-<x>` package that registers either entry-point group is swept automatically, with
+no edit to this gate.
+
+This gate previously lived as a pytest test inside `datrix-codegen-common`
+(`tests/integration/gendsl/test_resolution_corpus.py`) that imported every concrete target package
+directly — a `datrix_codegen_common`-must-not-import-concrete-target-packages boundary violation
+**and** a cross-package test (prohibited everywhere in the repo, not only in the showcase package).
+The proof is inherently repo-level, so it moved here (deleting the pytest test) rather than
+allowlisting the violation — the allowlist is terminal-empty (Invariant I7) and adding an entry
+would be a regression.
+
+**Each target's module is imported in its own dedicated subprocess** — never in this process — so
+no single process ever holds more than one generator package's genDSL modules loaded at once (a
+registration from one package's earlier import could otherwise silently satisfy a reference the
+next package's own corpus does not actually resolve on its own).
+
+| Mode | Command | Description |
+|------|---------|--------------|
+| **Run gate** | `.\test\gendsl-corpus-resolution-gate.ps1` | Import every discovered target's genDSL definitions, fail on any unresolved reference |
+| **Debug** | `.\test\gendsl-corpus-resolution-gate.ps1 -Dbg` | Debug logging (also prints the discovered module list and count) |
 
 **Parameters:** `-Dbg`
 
-**Exit codes:** 0 = every package's genDSL corpus resolved at import, 1 = at least one package failed to resolve or import.
+**Exit codes:** 0 = every discovered target's genDSL corpus resolved at import, 1 = at least one
+target failed to resolve or import.
+
+---
+
+### `test\standing-conformance-gate.ps1`
+
+Standing conformance-spec corpus gate (D10): runs every committed `conformance_gate.py` spec under `scripts/config/conformance-specs/` (top-level `*.json` files only -- fixture subdirectories such as `_fixtures/` are never swept). Each spec's own self-test runs first, exactly as `conformance_gate.py`'s single-spec CLI already guarantees on every invocation.
+
+**Policy this gate exists to serve:** a design-acceptance NEGATIVE check ("the old state is gone on every surface") that outlives its landing must either become a real test in the owning package (preferred, per the prefer-a-test-over-a-scratch-script rule), or a committed spec here -- never a one-off run nobody re-executes. When a change's acceptance proof is "the old construct no longer exists anywhere" and that proof cannot naturally live as a package test, add a spec JSON here.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\test\standing-conformance-gate.ps1` | Run every committed spec |
+| **Debug** | `.\test\standing-conformance-gate.ps1 -Dbg` | Debug logging, forwarded per-spec |
+
+**Parameters:** `-Dbg`
+
+**Assertions:**
+- Every `*.json` file directly under `scripts/config/conformance-specs/` is a spec, run via `conformance_gate.py --spec <file>` (its own built-in self-test runs first, per-spec, aborting that spec with exit 2 before any real result is trusted).
+- Seed spec `gendsl-corpus-no-hand-authored-module-tuple.json`: `gendsl_corpus_resolution.py` contains none of the seven retired hand-authored genDSL definitions-module literal strings, proven non-vacuous by a dedicated negative-control fixture under `scripts/config/conformance-specs/_fixtures/` that intentionally still contains them.
+
+**Exit codes:** 0 = every spec passed, 1 = at least one spec's assertions failed, 2 = the spec directory is missing/empty, or any individual spec's own self-test failed (that spec's run aborts before its real assertions are evaluated).
 
 ---
 

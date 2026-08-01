@@ -106,6 +106,24 @@ Computes the execution plan for a phase: Kahn topological waves over the depende
 
 **Parameters:** phase number (positional, required), `-IncludeCompleted`, `-BaseDir`, `-Output <path>`, `-Dbg`. **Exit codes:** 0 = plan clean, 1 = blockers/cycle present (read the JSON), 2 = usage error.
 
+## `tasks\plan-waves-multi.ps1`
+
+Same plan, but over SEVERAL phases run as one batch. Use it when phases are executed together rather than one after another: a dependency into another batched phase becomes an ordinary graph edge instead of an `UNMET_CROSS_PHASE_DEP` blocker, so the batch collapses to its real dependency depth instead of the sum of the per-phase plans.
+
+Batching also hides a conflict `plan-waves.ps1` cannot see — it plans one phase, so two tasks in DIFFERENT phases writing the same file are invisible to its wave splitter, and nothing stops the later phase's task from being scheduled first. This script closes that: it adds the minimum dependency edges needed to stop a later phase's task running at or before an earlier phase's task on a shared file (reported as `implicit_order_edges`, never silent), then asserts as a post-condition that no wave contains two writers of one file (`residual_file_conflicts`, which must be empty).
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Plan a phase range** | `.\tasks\plan-waves-multi.ps1 5-8` | Phases 5,6,7,8 as one batch → `D:\datrix\.tmp\tasks\phases-05-08-waves.json` |
+| **Plan a phase list** | `.\tasks\plan-waves-multi.ps1 5,6,7,8` | Same, comma form (mixes allowed: `5-6,8`) |
+| **Include completed** | `.\tasks\plan-waves-multi.ps1 5-8 -IncludeCompleted` | Full batch wave structure (audit/compare use) |
+
+**Parameters:** phase spec (positional, required — range `5-8`, list `5,6,7,8`, or mix `5-6,8`; at least two phases), `-IncludeCompleted`, `-BaseDir`, `-Output <path>`, `-Dbg`. **Exit codes:** 0 = plan clean, 1 = blockers/cycle/residual conflicts present (read the JSON), 2 = usage error.
+
+**Output fields beyond `plan-waves.ps1`'s:** `phases`, `implicit_order_edges` (each with the task pair, the shared file, and why the edge was added), `order_repair_passes`, `residual_file_conflicts` (must be empty), and a `phases` list on every `wave_details` entry.
+
+**Note:** a dependency on a phase OUTSIDE the batch is still held to the original rule — it must exist and be COMPLETED, since nothing in the batch will produce it. Single phase → use `plan-waves.ps1`; this script rejects a spec selecting fewer than two.
+
 ## `tasks\validate-dependencies.ps1`
 
 Validates a phase's `dependencies.md` + task numbering: valid Step-7 JSON (legacy "Group N" format → WARN) covering ALL discovered task files, every dependency resolves, graph acyclic, each task file's `**Depends on:**` matches its JSON entry exactly, `task_path`s absolute + existing, task numbers unique and sequential across repos, provenance stamp present (INFO). `-NextTaskNumber` mode prints ONLY the next free two-digit task number for the phase (for `/generate-tasks` and readiness audits).

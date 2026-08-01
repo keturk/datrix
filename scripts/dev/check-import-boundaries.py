@@ -18,8 +18,11 @@ opt-in via --check-provider-conditionals, it AST-scans the LANGUAGE
 package src/ trees (LANGUAGE_PACKAGES, the declared taxonomy) for
 platform-identity CONDITIONALS -- the successor forms of the removed
 DeploymentProvider branches (`== ProviderId(...)`, `.value == "..."`,
-`match`/`case` over a provider) -- and fails if any file's count increases
-past its frozen baseline (scripts/config/provider-conditional-baseline.toml).
+`match`/`case` over a provider), PLUS a second AST pattern class (D5): a
+bare `<var> == "<provider-id>"` comparison with no `ProviderId`/`.provider`
+wrapper, and a closed-world provider-id collection literal such as
+`frozenset({"azure"})` -- and fails if any file's count increases past its
+frozen baseline (scripts/config/provider-conditional-baseline.toml).
 These sites are DI-5-deferred; the ratchet freezes them so they cannot grow,
 and drives to zero as each cluster is migrated onto a decision engine.
 --update-baseline (combined with --check-provider-conditionals) recomputes
@@ -71,6 +74,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+# D5: the provider-literal ratchet must enumerate provider ids from the
+# installed datrix.platforms entry points, never a hardcoded
+# "aws"/"azure"/"docker"/"local" literal. registered_platform_names() lives
+# under scripts/library/shared/ (a script tree, not an installed package),
+# so it is reached the same way reference_example_parity.py reaches
+# shared.registered_targets: insert scripts/library/ onto sys.path.
+_LIBRARY_DIR = Path(__file__).resolve().parent.parent / "library"
+if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
+    sys.path.insert(0, str(_LIBRARY_DIR))
+
+from shared.registered_targets import registered_platform_names  # noqa: E402
+
 
 @dataclass(frozen=True)
 class BoundaryRule:
@@ -90,7 +105,7 @@ class BoundaryRule:
 # platform generators (docker, aws, azure) are permitted to import.
 # Adding a seventh subtree requires a doc + rule edit and review.
 #
-# Covers all 13 distinct datrix_codegen_common modules that platforms import today:
+# Covers all 14 distinct datrix_codegen_common modules that platforms import today:
 #   gendsl.*       — GenDSL compiler/executor/registry/scope
 #   dashboards.*   — shared Grafana dashboard builder (builder, models)
 #   algorithms.serverless            — serverless block plan algorithm
@@ -139,6 +154,15 @@ PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
         # Redundant with the broader ``datrix_codegen_common.platform`` entry
         # above; listed explicitly so this edge is reviewable on its own.
         "datrix_codegen_common.platform.container_image_supply",
+        # The canonical, subscriber-scoped Azure Service Bus subscription-name
+        # algorithm -- a deterministic infrastructure-naming function with
+        # zero per-target variation, sibling in kind to the already-allowed
+        # ``algorithms.serverless``. Consumed by azure src (the Service Bus
+        # topic/subscription provisioning builder in
+        # ``resource_mapping/_pubsub.py``), plus the Python and .NET
+        # messaging-runtime emit helpers, so the name a subscriber binds at
+        # runtime and the name Azure provisions can never drift out of sync.
+        "datrix_codegen_common.algorithms.servicebus_naming",
     ]
 )
 
@@ -505,6 +529,106 @@ def _match_subject_is_provider(subject: ast.AST) -> bool:
     return False
 
 
+def _string_literal_value(node: ast.AST) -> str | None:
+    """Bare string-literal value of *node*, or None for any other expression
+    shape (a Name, an f-string, a call, ...). Both D5 sub-patterns below only
+    fire on an ACTUAL literal, never a variable that merely happens to be
+    assigned a provider-id string elsewhere -- that keeps the ratchet
+    precise (see ``_provider_literal_compare_kind``'s docstring for why a
+    look-alike like ``"consul"`` must never match).
+    """
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return None
+
+
+def _provider_literal_compare_kind(
+    node: ast.Compare, provider_ids: frozenset[str]
+) -> Literal["provider_literal_compare"] | None:
+    """D5's first provider-literal sub-pattern (invariant I6 successor,
+    second AST pattern class): a plain Eq/NotEq comparison whose comparand
+    (either side) is a bare string literal exactly equal to a REGISTERED
+    platform provider id -- e.g. ``backend == "azure"``. This is the
+    successor form the existing ``_provider_conditional_compare_kind`` does
+    not cover: no ``ProviderId(...)`` wrapper, no ``.provider`` root, just a
+    plain variable compared to a plain provider-name string.
+
+    Only called for a Compare node the FIRST (ProviderId-shaped) pattern
+    already rejected -- see ``_walk_for_provider_conditionals`` -- so the two
+    never double-count the same node.
+
+    Specificity comes entirely from membership in *provider_ids* (enumerated
+    from the installed ``datrix.platforms`` entry points at scan time, never
+    hardcoded): a literal equal to some OTHER string -- e.g. ``"consul"``, a
+    service-discovery type, or ``"elasticsearch"``, a search backend -- never
+    matches, however provider-adjacent the surrounding code looks.
+
+    Args:
+        node: The `ast.Compare` node under consideration.
+        provider_ids: The registered platform provider ids for this scan run.
+
+    Returns:
+        ``"provider_literal_compare"`` on a match, else ``None``.
+    """
+    if len(node.ops) != 1 or not isinstance(node.ops[0], (ast.Eq, ast.NotEq)):
+        return None
+    sides = [node.left, node.comparators[0]]
+    if any(_string_literal_value(side) in provider_ids for side in sides):
+        return "provider_literal_compare"
+    return None
+
+
+def _provider_literal_container_ids(
+    node: ast.AST, provider_ids: frozenset[str]
+) -> frozenset[str]:
+    """Provider ids among a List/Tuple/Set literal's OWN elements (D5's
+    second provider-literal sub-pattern).
+
+    Catches a closed-world provider-id collection literal wherever it is
+    DEFINED -- ``frozenset({"azure"})``, ``{"aws", "azure"}``,
+    ``("aws", "azure")`` -- not only when it sits directly inside a
+    ``Compare``/``in`` test. This is the shape the confirmed real site at
+    ``datrix-codegen-dotnet/.../generators/service/_infra_secret_handles.py:31``
+    needs: ``_ALWAYS_REQUIRES_CREDENTIALS = frozenset({"azure"})`` is a
+    collection-literal DEFINITION; the later ``backend in
+    _ALWAYS_REQUIRES_CREDENTIALS`` membership test (a different line) compares
+    against a bare ``Name``, which a Compare-only scan would never resolve
+    back to the literal. Scanning every qualifying collection literal as its
+    own node -- independent of its parent -- closes that gap.
+
+    CLOSED-WORLD requirement (the precision fix a real scan run surfaced):
+    every string-literal element of the collection must ITSELF be a
+    registered provider id, not merely at-least-one. A collection that mixes
+    a provider id with an OTHER axis's own literal -- e.g.
+    ``SUPPORTED_STORAGE_PROVIDERS = frozenset({"s3", "minio", "azure_blob",
+    "local"})`` in ``datrix-codegen-dotnet/.../generators/persistence/
+    storage_generator.py`` -- is that StorageProvider axis's own closed
+    world (``s3``/``minio``/``azure_blob`` are never registered platform
+    provider ids), not a platform-identity collection; "local" landing in it
+    is coincidental token overlap, not a deployment-platform conditional, and
+    must not ratchet. A genuine platform-identity collection (like
+    ``_ALWAYS_REQUIRES_CREDENTIALS`` above) is drawn ENTIRELY from
+    ``provider_ids`` with no off-axis sibling literal, so the subset check
+    below distinguishes the two without any axis-name heuristic.
+
+    Args:
+        node: Any AST node; only `ast.List`/`ast.Tuple`/`ast.Set` produce hits.
+        provider_ids: The registered platform provider ids for this scan run.
+
+    Returns:
+        *node*'s string-literal elements when they are a non-empty subset of
+        *provider_ids* (i.e. closed-world), else an empty frozenset.
+    """
+    if not isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        return frozenset()
+    string_literals = frozenset(
+        value for elt in node.elts if (value := _string_literal_value(elt)) is not None
+    )
+    if not string_literals or not string_literals.issubset(provider_ids):
+        return frozenset()
+    return string_literals
+
+
 @dataclass(frozen=True)
 class ProviderConditionalHit:
     """One occurrence of a platform-identity conditional in a language-package file."""
@@ -515,6 +639,8 @@ class ProviderConditionalHit:
         "providerid_compare",
         "deployment_provider_value_compare",
         "match_case_provider_subject",
+        "provider_literal_compare",
+        "provider_literal_container",
     ]
 
 
@@ -952,7 +1078,7 @@ def load_target_literal_baseline(baseline_path: Path) -> dict[str, int]:
         import tomllib  # Python 3.11+
     except ImportError:
         try:
-            import tomli as tomllib  # type: ignore[no-redef]
+            import tomli as tomllib  # type: ignore[no-redef, import-not-found]
         except ImportError:
             print(
                 "Warning: TOML library not available. Install tomli for baseline support.",
@@ -1045,6 +1171,7 @@ def _walk_for_provider_conditionals(
     node: ast.AST,
     file_path: Path,
     hits: list[ProviderConditionalHit],
+    provider_ids: frozenset[str],
 ) -> None:
     """Recursively walk *node* collecting ``ProviderConditionalHit``s.
 
@@ -1058,6 +1185,17 @@ def _walk_for_provider_conditionals(
     skipped while patterns and bodies are still walked normally (a guard
     is only ever the provider-identity check the match already counted;
     unrelated real conditionals inside a case body are not exempted).
+
+    D5 second pattern class (added by this task): every ``ast.Compare`` node
+    the existing ``ProviderId``-shaped pattern rejects is ALSO checked against
+    ``_provider_literal_compare_kind`` (a bare literal comparand), and every
+    ``ast.List``/``ast.Tuple``/``ast.Set`` node encountered anywhere in the
+    walk is checked against ``_provider_literal_container_ids`` (a
+    closed-world provider-id collection literal). Neither new check can
+    double-count a node the first three forms already claimed, because the
+    literal-compare check only runs when the ProviderId-shaped check returned
+    ``None``, and the container check is a disjoint node type (a Compare node
+    is never simultaneously a List/Tuple/Set node).
     """
     if isinstance(node, ast.Match):
         if _match_subject_is_provider(node.subject):
@@ -1071,33 +1209,55 @@ def _walk_for_provider_conditionals(
         for case in node.cases:
             # Deliberately skip case.guard -- see docstring above.
             for stmt in case.body:
-                _walk_for_provider_conditionals(stmt, file_path, hits)
+                _walk_for_provider_conditionals(stmt, file_path, hits, provider_ids)
         return
 
     if isinstance(node, ast.Compare):
-        kind = _provider_conditional_compare_kind(node)
+        compare_kind: (
+            Literal[
+                "providerid_compare",
+                "deployment_provider_value_compare",
+                "provider_literal_compare",
+            ]
+            | None
+        ) = _provider_conditional_compare_kind(node)
+        if compare_kind is None:
+            compare_kind = _provider_literal_compare_kind(node, provider_ids)
+        kind = compare_kind
         if kind is not None:
             hits.append(
                 ProviderConditionalHit(
                     file_path=file_path, line_number=node.lineno, kind=kind
                 )
             )
+    elif isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        if _provider_literal_container_ids(node, provider_ids):
+            hits.append(
+                ProviderConditionalHit(
+                    file_path=file_path,
+                    line_number=node.lineno,
+                    kind="provider_literal_container",
+                )
+            )
 
     for child in ast.iter_child_nodes(node):
-        _walk_for_provider_conditionals(child, file_path, hits)
+        _walk_for_provider_conditionals(child, file_path, hits, provider_ids)
 
 
 def scan_file_for_provider_conditionals(
-    file_path: Path,
+    file_path: Path, provider_ids: frozenset[str]
 ) -> list[ProviderConditionalHit]:
     """AST-walk *file_path* for platform-identity conditionals (I6 successor
-    ratchet, DI-4/DI-5).
+    ratchet, DI-4/DI-5, plus the D5 provider-literal patterns).
 
-    See ``_provider_conditional_compare_kind`` and ``_match_subject_is_provider``
+    See ``_provider_conditional_compare_kind``, ``_match_subject_is_provider``,
+    ``_provider_literal_compare_kind``, and ``_provider_literal_container_ids``
     for the exact matched/excluded shapes.
 
     Args:
         file_path: Path to Python source file.
+        provider_ids: The registered platform provider ids this scan run
+            checks literals against (see ``registered_platform_names()``).
 
     Returns:
         List of hits found in the file, in AST-walk order.
@@ -1113,7 +1273,7 @@ def scan_file_for_provider_conditionals(
     tree = ast.parse(source_code, filename=str(file_path))
 
     hits: list[ProviderConditionalHit] = []
-    _walk_for_provider_conditionals(tree, file_path, hits)
+    _walk_for_provider_conditionals(tree, file_path, hits, provider_ids)
     return hits
 
 
@@ -1123,7 +1283,9 @@ def scan_provider_conditionals(
 ) -> dict[Path, list[ProviderConditionalHit]]:
     """Scan every ``.py`` file under each of ``PROVIDER_CONDITIONAL_LANGUAGE_PACKAGES``'
     ``src/`` tree (via *packages*, as already discovered by ``discover_packages``)
-    for platform-identity conditionals.
+    for platform-identity conditionals. Provider ids are derived once per
+    call via ``registered_platform_names()`` -- never hardcoded -- and passed
+    to every per-file scan.
 
     Args:
         packages: Package name -> PackageInfo, as returned by discover_packages().
@@ -1133,6 +1295,7 @@ def scan_provider_conditionals(
         Mapping of file path -> hits in that file (files with zero hits omitted).
     """
     results: dict[Path, list[ProviderConditionalHit]] = {}
+    provider_ids = registered_platform_names()
 
     for package_name in PROVIDER_CONDITIONAL_LANGUAGE_PACKAGES:
         package_info = packages.get(package_name)
@@ -1141,7 +1304,7 @@ def scan_provider_conditionals(
 
         for py_file in package_info.src_dir.rglob("*.py"):
             try:
-                hits = scan_file_for_provider_conditionals(py_file)
+                hits = scan_file_for_provider_conditionals(py_file, provider_ids)
             except SyntaxError as e:
                 rel_path = py_file.relative_to(monorepo_root)
                 print(
@@ -1662,7 +1825,7 @@ def _rule_forbids(source_package: str, imported_module: str) -> bool:
 def _self_test_allowed_denied_subtrees() -> bool:
     """The platform allowed-subtree carve-out constant is frozen exactly, and
     every representative allowed/denied import is classified correctly."""
-    _step("Self-test 1/9: platform allowed/denied codegen-common subtrees")
+    _step("Self-test 1/10: platform allowed/denied codegen-common subtrees")
     ok = True
 
     expected_allowed_subtrees: frozenset[str] = frozenset(
@@ -1681,6 +1844,7 @@ def _self_test_allowed_denied_subtrees() -> bool:
             "datrix_codegen_common.orchestration.resolved_runtime_plan",
             "datrix_codegen_common.testkit",
             "datrix_codegen_common.platform.container_image_supply",
+            "datrix_codegen_common.algorithms.servicebus_naming",
         ]
     )
     ok &= _check(
@@ -1734,7 +1898,7 @@ def _self_test_allowed_denied_subtrees() -> bool:
 def _self_test_dotted_precision_and_carveout() -> bool:
     """Subtree matching is exact-or-child (not raw prefix), and the carve-out
     never leaks to a package that did not opt in."""
-    _step("Self-test 2/9: dotted-boundary precision and carve-out non-leakage")
+    _step("Self-test 2/10: dotted-boundary precision and carve-out non-leakage")
     ok = True
     platform_source = "datrix_codegen_aws"
 
@@ -1779,7 +1943,7 @@ def _self_test_dotted_precision_and_carveout() -> bool:
 def _self_test_sql_and_component_coverage() -> bool:
     """BOUNDARY_RULES covers datrix_codegen_sql and datrix_codegen_component,
     each enforcing the sibling-language prohibition absolutely."""
-    _step("Self-test 3/9: SQL and Component boundary rule coverage")
+    _step("Self-test 3/10: SQL and Component boundary rule coverage")
     ok = True
 
     ok &= _check(
@@ -1860,7 +2024,7 @@ def _self_test_platform_to_platform_prohibition() -> bool:
     ``datrix_codegen_common.platform.container_image_supply``) is NOT flagged
     -- otherwise the rule would forbid the correct fix along with the wrong one.
     """
-    _step("Self-test 4/9: platform -> sibling-platform import prohibition")
+    _step("Self-test 4/10: platform -> sibling-platform import prohibition")
     ok = True
 
     for source in _PLATFORM_PACKAGES:
@@ -1961,7 +2125,7 @@ def _self_test_platform_cli_non_vacuity() -> bool:
     clears (exit 0) -- i.e. the rule flags the defect and permits the fix.
     """
     _step(
-        "Self-test 9/9: platform -> platform CLI mutation non-vacuity "
+        "Self-test 9/10: platform -> platform CLI mutation non-vacuity "
         "(plant a real aws -> docker import, prove detection, prove the shared-layer fix clears it)"
     )
     ok = True
@@ -2002,11 +2166,119 @@ def _self_test_platform_cli_non_vacuity() -> bool:
     return ok
 
 
+def _self_test_provider_literal_build_fixture_monorepo(tmp_root: Path) -> Path:
+    """Build a minimal isolated monorepo: one datrix-codegen-python package
+    with a module carrying NO provider-literal conditional, plus a baseline
+    TOML freezing that file at count 0."""
+    package_src = tmp_root / "datrix-codegen-python" / "src" / "datrix_codegen_python"
+    package_src.mkdir(parents=True, exist_ok=True)
+    (package_src / "__init__.py").write_text("", encoding="utf-8")
+
+    module_path = package_src / "sample_backend.py"
+    module_path.write_text(
+        "def resolve(backend: str) -> bool:\n    return backend == 'elasticsearch'\n",
+        encoding="utf-8",
+    )
+
+    config_dir = tmp_root / "datrix" / "scripts" / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    baseline_path = config_dir / "provider-conditional-baseline.toml"
+    baseline_path.write_text(
+        "[[baseline]]\n"
+        'file = "datrix-codegen-python/src/datrix_codegen_python/sample_backend.py"\n'
+        "count = 0\n",
+        encoding="utf-8",
+    )
+    return module_path
+
+
+def _self_test_provider_literal_run_cli(
+    tmp_root: Path,
+) -> "subprocess.CompletedProcess[str]":
+    """Invoke THIS script as a real subprocess against the isolated fixture."""
+    return subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "--base-dir",
+            str(tmp_root),
+            "--check-provider-conditionals",
+            "--skip-auto-self-test",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+
+def _self_test_provider_literal_cli_non_vacuity() -> bool:
+    """End-to-end proof the D5 provider-literal ratchet actually FIRES.
+
+    Plants a real ``== "azure"`` conditional in a real, isolated fixture
+    monorepo whose baseline freezes the file at 0, proves the scanner exits 1
+    and names the file plus the exact count delta, then reverts the mutation
+    and proves the failure clears (exit 0). This is the manifest's required
+    NEGATIVE acceptance proof ("a planted new `== \"azure\"` conditional in
+    ANY language package fails the ratchet"), run against a synthetic fixture
+    monorepo rather than the real committed baseline.
+    """
+    _step(
+        "Self-test 10/10: provider-literal ratchet CLI mutation non-vacuity "
+        '(plant a real == "azure" conditional, prove detection, prove it clears on revert)'
+    )
+    ok = True
+    tmp_root = _SELF_TEST_SCRATCH_ROOT / f"provider-literal-cli-{uuid.uuid4().hex}"
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    try:
+        module_path = _self_test_provider_literal_build_fixture_monorepo(tmp_root)
+
+        clean_result = _self_test_provider_literal_run_cli(tmp_root)
+        ok &= _check(
+            f"clean fixture (no provider literal) exits 0, got {clean_result.returncode}",
+            clean_result.returncode == 0,
+        )
+
+        module_path.write_text(
+            "def resolve(backend: str) -> bool:\n    return backend == 'azure'\n",
+            encoding="utf-8",
+        )
+        failing_result = _self_test_provider_literal_run_cli(tmp_root)
+        ok &= _check(
+            f"planted '== \"azure\"' conditional exits 1, got {failing_result.returncode}",
+            failing_result.returncode == 1,
+        )
+        ok &= _check(
+            "failure output names the mutated file",
+            "sample_backend.py" in failing_result.stdout,
+        )
+        ok &= _check(
+            "failure output names the exact count delta (0 -> 1)",
+            "increased from baseline 0 to 1" in failing_result.stdout,
+        )
+
+        module_path.write_text(
+            "def resolve(backend: str) -> bool:\n    return backend == 'elasticsearch'\n",
+            encoding="utf-8",
+        )
+        reverted_result = _self_test_provider_literal_run_cli(tmp_root)
+        ok &= _check(
+            f"reverting the mutation clears the failure, got exit {reverted_result.returncode}",
+            reverted_result.returncode == 0,
+        )
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+    return ok
+
+
 def _self_test_provider_conditional_scanner() -> bool:
     """scan_file_for_provider_conditionals detects every known DI-5-deferred
-    conditional shape and excludes every look-alike that must not ratchet."""
-    _step("Self-test 5/9: provider-conditional AST scanner (detection + exclusion)")
+    conditional shape (ProviderId-shaped, deployment-provider-value, match/case,
+    and -- added by this task -- the two D5 provider-literal sub-patterns) and
+    excludes every look-alike that must not ratchet."""
+    _step("Self-test 5/10: provider-conditional AST scanner (detection + exclusion)")
     ok = True
+    provider_ids = registered_platform_names()
     scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"provider-scanner-{uuid.uuid4().hex}"
     scratch_dir.mkdir(parents=True, exist_ok=True)
     cases: tuple[tuple[str, str, int, str], ...] = (
@@ -2083,12 +2355,59 @@ def _self_test_provider_conditional_scanner() -> bool:
             0,
             "",
         ),
+        (
+            "provider_literal_eq.py",
+            "def f(backend):\n    if backend == 'azure':\n        return True\n"
+            "    return False\n",
+            1,
+            "provider_literal_compare",
+        ),
+        (
+            "provider_literal_container.py",
+            "_ALWAYS_REQUIRES_CREDENTIALS: frozenset = frozenset({'azure'})\n\n"
+            "def f(backend):\n    return backend in _ALWAYS_REQUIRES_CREDENTIALS\n",
+            1,
+            "provider_literal_container",
+        ),
+        (
+            "provider_literal_inline_membership.py",
+            "def f(provider_name):\n    return provider_name in ('aws', 'azure')\n",
+            1,
+            "provider_literal_container",
+        ),
+        (
+            "non_provider_literal_excluded.py",
+            "def f(discovery_type):\n    return discovery_type.lower() == 'consul'\n",
+            0,
+            "",
+        ),
+        (
+            "provider_literal_in_log_excluded.py",
+            "import logging\n\n_LOGGER = logging.getLogger(__name__)\n\n"
+            "def f() -> None:\n    _LOGGER.info('azure backend selected')\n",
+            0,
+            "",
+        ),
+        (
+            "provider_literal_in_docstring_excluded.py",
+            'def f() -> None:\n    """Selects the azure backend when configured."""\n'
+            "    return None\n",
+            0,
+            "",
+        ),
+        (
+            "provider_literal_mixed_axis_excluded.py",
+            "SUPPORTED_STORAGE_PROVIDERS: frozenset = frozenset(\n"
+            "    {'s3', 'minio', 'azure_blob', 'local'}\n)\n",
+            0,
+            "",
+        ),
     )
     try:
         for filename, source, expected_count, expected_kind in cases:
             file_path = scratch_dir / filename
             file_path.write_text(source, encoding="utf-8")
-            hits = scan_file_for_provider_conditionals(file_path)
+            hits = scan_file_for_provider_conditionals(file_path, provider_ids)
             ok &= _check(
                 f"{filename}: expected {expected_count} hit(s), got {len(hits)}",
                 len(hits) == expected_count,
@@ -2107,7 +2426,7 @@ def _self_test_function_level_import_scanner() -> bool:
     """scan_file_for_function_level_imports counts zero for module-top
     imports and exactly one for each nested (function/TYPE_CHECKING/
     try-except) import."""
-    _step("Self-test 6/9: function-level-import AST scanner")
+    _step("Self-test 6/10: function-level-import AST scanner")
     ok = True
     scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"fli-scanner-{uuid.uuid4().hex}"
     scratch_dir.mkdir(parents=True, exist_ok=True)
@@ -2149,7 +2468,7 @@ def _self_test_function_level_import_scanner() -> bool:
 def _self_test_ratchets() -> bool:
     """Both ratchet comparators fire on any per-file increase, never on a
     decrease, and treat a baseline-absent file as baseline 0."""
-    _step("Self-test 7/9: ratchet comparators (regression / no-regression / missing-baseline-as-zero)")
+    _step("Self-test 7/10: ratchet comparators (regression / no-regression / missing-baseline-as-zero)")
     ok = True
 
     clean = check_provider_conditional_ratchet(
@@ -2280,7 +2599,7 @@ def _self_test_cli_non_vacuity() -> bool:
     temporarily-mutated fixture tree -- never a simulated one, and never the
     real datrix-common source tree."""
     _step(
-        "Self-test 8/9: function-level-import CLI mutation non-vacuity "
+        "Self-test 8/10: function-level-import CLI mutation non-vacuity "
         "(plant a real regression, prove detection, prove it clears on revert)"
     )
     ok = True
@@ -2340,6 +2659,7 @@ def run_self_test() -> bool:
         _self_test_ratchets(),
         _self_test_cli_non_vacuity(),
         _self_test_platform_cli_non_vacuity(),
+        _self_test_provider_literal_cli_non_vacuity(),
     ]
     print()
     if all(results):
@@ -2401,7 +2721,8 @@ def main() -> int:
         "--check-provider-conditionals",
         action="store_true",
         help=(
-            "Run the I6 successor ratchet check (invariant I6, DI-4/DI-5) "
+            "Run the I6 successor ratchet check (invariant I6, DI-4/DI-5) -- both the "
+            "ProviderId-shaped pattern and the plain-string-literal pattern (D5) -- "
             "in addition to the import-boundary check"
         ),
     )

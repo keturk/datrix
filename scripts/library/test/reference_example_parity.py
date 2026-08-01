@@ -80,6 +80,7 @@ import json
 import logging
 import shutil
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -104,6 +105,9 @@ EXAMPLES_ROOT: Path = DATRIX_DIR / "examples"
 BASELINES_ROOT: Path = DATRIX_DIR / "scripts" / "config" / "parity-baselines"
 KNOWN_NON_GENERATING_PATH: Path = (
     DATRIX_DIR / "scripts" / "config" / "parity-known-nongenerating.json"
+)
+BLESSED_COUNT_PATH: Path = (
+    DATRIX_DIR / "scripts" / "config" / "parity-blessed-count.json"
 )
 
 #: Full generated trees kept from the last bless, so a failing gate can show a
@@ -439,6 +443,160 @@ def baseline_path(ex_id: str, language: str) -> Path:
     return BASELINES_ROOT / ex_id / f"{language}.sha256"
 
 
+# ---------------------------------------------------------------------------
+# Blessed-coverage ratchet (D8.1)
+# ---------------------------------------------------------------------------
+
+
+def count_blessed_pairs(baselines_root: Path = BASELINES_ROOT) -> int:
+    """Count every blessed (example, language) pair on disk.
+
+    Args:
+        baselines_root: Root of the parity-baselines tree. Defaults to the
+            real committed tree; the self-test below passes a synthetic
+            scratch directory so the ratchet's NEGATIVE proof never touches
+            or deletes a real committed baseline.
+
+    Returns:
+        The number of ``*.sha256`` files anywhere under *baselines_root* --
+        one per blessed pair, regardless of which gate blessed it. This
+        gate's own corpus is a single example, but ``regen-parity-baselines.ps1
+        -Example <other>`` and other repo gates (e.g.
+        ``ingress-migration-conformance-gate.ps1``, which blesses the
+        ``identity`` example directly) bless additional examples, and every
+        one of those pairs counts toward this ratchet too.
+    """
+    if not baselines_root.is_dir():
+        return 0
+    return sum(1 for _ in baselines_root.rglob("*.sha256"))
+
+
+def load_blessed_count(path: Path = BLESSED_COUNT_PATH) -> int:
+    """Load the pinned blessed-pair count ratchet.
+
+    Args:
+        path: The count file. Defaults to the real committed file; tests
+            pass a synthetic temp path.
+
+    Returns:
+        The recorded (last known-good) count.
+
+    Raises:
+        ValueError: If the file is missing or malformed (not an object with
+            a non-negative integer ``blessed_count`` field).
+    """
+    if not path.exists():
+        raise ValueError(
+            f"Missing blessed-coverage ratchet {path}. It records the last "
+            f"known-good count of blessed (example, language) pairs. Restore it "
+            f"from git; regen-parity-baselines.ps1 is the only writer."
+        )
+    data = json.loads(path.read_text(encoding="utf-8"))
+    count = data.get("blessed_count")
+    if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+        raise ValueError(
+            f"Malformed {path}: expected an object with a non-negative integer "
+            f"'blessed_count' field, got {data!r}."
+        )
+    return count
+
+
+def write_blessed_count(count: int, path: Path = BLESSED_COUNT_PATH) -> None:
+    """Write the blessed-pair count ratchet. Called ONLY by :func:`cmd_bless`,
+    and only after a bless run with zero generation failures.
+
+    Args:
+        count: The freshly computed count (:func:`count_blessed_pairs`).
+        path: The count file to write. Defaults to the real committed file;
+            tests pass a synthetic temp path.
+    """
+    payload = {
+        "_comment": [
+            "Grow-only ratchet: the count of blessed (example, language) pairs on",
+            "disk under scripts/config/parity-baselines/. A check run whose LIVE",
+            "count is LOWER than this value fails -- a baseline was deleted",
+            "without recording a park entry in parity-known-nongenerating.json.",
+            "regen-parity-baselines.ps1 is the ONLY writer; it updates this file",
+            "in the same operation as any successful bless. The gate itself",
+            "never writes this file.",
+        ],
+        "blessed_count": count,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def check_blessed_coverage_ratchet(current: int, recorded: int) -> str | None:
+    """Compare the live blessed-pair count against the recorded ratchet.
+
+    Args:
+        current: Freshly computed count (:func:`count_blessed_pairs`).
+        recorded: The pinned count (:func:`load_blessed_count`).
+
+    Returns:
+        A failure message if ``current < recorded``, else ``None``. Never
+        flags an INCREASE -- the ratchet only guards against silent loss;
+        legitimate coverage growth from a later bless run is always allowed
+        and re-pins the ratchet higher via :func:`write_blessed_count`.
+    """
+    if current < recorded:
+        return (
+            f"BLESSED-COVERAGE REGRESSION: {current} blessed (example, language) "
+            f"pair(s) found on disk, but the recorded ratchet expects at least "
+            f"{recorded}. A baseline was deleted without recording a park entry "
+            f"in parity-known-nongenerating.json. If the loss is intentional and "
+            f"reviewed (the pair is now permanently unsupported), park it there "
+            f"first and re-bless; otherwise restore the missing baseline file."
+        )
+    return None
+
+
+def run_blessed_coverage_self_test() -> list[str]:
+    """Prove the blessed-coverage ratchet detects a synthetic regression, and
+    never flags a synthetic no-op or a synthetic growth -- entirely via a
+    scratch directory, never the real committed ``parity-baselines/`` tree.
+    This is the manifest's required negative proof: "proven by a SYNTHETIC
+    run, never by deleting a committed baseline."
+
+    Returns:
+        Problem descriptions; empty means the ratchet comparator is sound.
+    """
+    problems: list[str] = []
+    scratch = SCRATCH_ROOT / "_blessed_coverage_self_test"
+    _remove_tree(scratch)
+    example_dir = scratch / "self-test-example"
+    example_dir.mkdir(parents=True)
+    for language in ("python", "typescript", "dotnet"):
+        (example_dir / f"{language}.sha256").write_text(
+            "dummy.txt  0000000000000000000000000000000000000000000000000000000000000000\n",
+            encoding="utf-8",
+        )
+
+    count = count_blessed_pairs(scratch)
+    if count != 3:
+        problems.append(
+            f"self-test: count_blessed_pairs miscounted a synthetic tree: "
+            f"{count} != 3"
+        )
+
+    clean = check_blessed_coverage_ratchet(current=count, recorded=count)
+    if clean is not None:
+        problems.append(f"self-test: no-op comparison should pass, got: {clean!r}")
+
+    growth = check_blessed_coverage_ratchet(current=count + 1, recorded=count)
+    if growth is not None:
+        problems.append(f"self-test: growth should never fail, got: {growth!r}")
+
+    regression = check_blessed_coverage_ratchet(current=count - 1, recorded=count)
+    if regression is None:
+        problems.append("self-test: a synthetic 1-pair regression was not detected")
+    elif "BLESSED-COVERAGE REGRESSION" not in regression:
+        problems.append(f"self-test: regression message missing marker: {regression!r}")
+
+    _remove_tree(scratch)
+    return problems
+
+
 @dataclass(frozen=True)
 class ManifestDiff:
     """The delta between a stored baseline manifest and a computed one."""
@@ -648,6 +806,15 @@ def render_failure(
 #: warning contract, not off any particular language or tool name.
 _TOOL_MISSING_MARKER = "not found on PATH"
 
+#: D3: the exact failure message a parked, baseline-less pair emits the moment its generation
+#: SUCCEEDS in check mode -- the unpark instruction is part of the message itself so a reader of
+#: the failure report never has to guess the next step.
+PARKED_PAIR_NOW_GENERATES_MESSAGE: str = (
+    "PARKED PAIR NOW GENERATES — remove its entry from "
+    "parity-known-nongenerating.json, decrement expected_count, and bless "
+    "with regen-parity-baselines.ps1"
+)
+
 
 def _assert_generation_environment_complete(warnings: list[str]) -> None:
     """Fail loud when a post-generation tool was missing from the environment.
@@ -674,6 +841,17 @@ def _assert_generation_environment_complete(warnings: list[str]) -> None:
     )
 
 
+#: A freshly written tree (thousands of files from a language's post-generation
+#: install/format hooks) is briefly held open by Windows Defender's real-time
+#: scan immediately after the writes complete. ``shutil.rmtree`` hitting that
+#: window raises ``PermissionError: [WinError 32] ... used by another process``
+#: even though nothing in THIS process still holds the file -- the lock clears
+#: on its own within a second or two. Retrying tolerates that race instead of
+#: crashing the whole check run on a transient OS-level lock.
+_REMOVE_TREE_RETRIES = 5
+_REMOVE_TREE_RETRY_DELAY_SECONDS = 1.0
+
+
 def _remove_tree(target: Path) -> None:
     """Delete *target* and everything beneath it, MAX_PATH-safe on Windows.
 
@@ -688,15 +866,34 @@ def _remove_tree(target: Path) -> None:
     with ``\\\\?\\`` selects the extended-length path APIs, which carry no such
     limit.
 
+    A second, unrelated Windows failure mode -- a transient
+    ``PermissionError: [WinError 32]`` from a real-time antivirus scan still
+    holding one of the just-written files -- is handled by
+    :data:`_REMOVE_TREE_RETRIES` retries with a short delay (see its docstring).
+
     Args:
         target: Directory to remove. A no-op when it does not exist.
+
+    Raises:
+        OSError: If removal still fails after every retry (a genuine failure,
+            not a transient lock).
     """
     if not target.exists():
         return
-    if sys.platform == "win32":
-        shutil.rmtree(rf"\\?\{target.resolve()}")
-        return
-    shutil.rmtree(target)
+    last_error: OSError | None = None
+    for attempt in range(_REMOVE_TREE_RETRIES):
+        try:
+            if sys.platform == "win32":
+                shutil.rmtree(rf"\\?\{target.resolve()}")
+            else:
+                shutil.rmtree(target)
+            return
+        except OSError as exc:
+            last_error = exc
+            if attempt < _REMOVE_TREE_RETRIES - 1:
+                time.sleep(_REMOVE_TREE_RETRY_DELAY_SECONDS)
+    assert last_error is not None  # the loop always sets it before exhausting
+    raise last_error
 
 
 def generate_example(system_dtrx: Path, output_dir: Path, language: str) -> None:
@@ -932,9 +1129,62 @@ def cmd_bless(example_filter: str | None) -> int:
             f"expected_count) if the defect is pre-existing and tracked."
         )
         return EXIT_FAIL
+
+    blessed_count = count_blessed_pairs()
+    write_blessed_count(blessed_count)
     print(f"Blessed {blessed} baseline(s) under {BASELINES_ROOT}.")
+    print(
+        f"Blessed-coverage ratchet updated: {blessed_count} pair(s) recorded at "
+        f"{BLESSED_COUNT_PATH.name}."
+    )
     print("REVIEW THE BASELINE DIFF BEFORE COMMITTING -- an unexpected change is a bug.")
     return EXIT_OK
+
+
+def _probe_parked_pair(
+    dtrx: Path, ex_id: str, rel: str, language: str, reason: str
+) -> ExampleOutcome:
+    """Attempt real generation for a parked, baseline-less (example, language) pair.
+
+    D3: a parked pair must not be skipped without attempting generation --
+    the recorded reason in parity-known-nongenerating.json could be stale
+    (the underlying defect was fixed by unrelated work) and the gate would
+    silently keep reporting it as parked forever. This moves the SAME
+    generate-then-branch shape cmd_bless already uses into check mode, into
+    the check path's own SCRATCH_ROOT (never the bless cache -- a failed
+    probe attempt must not pollute the diff cache real blessed generations
+    populate).
+
+    Args:
+        dtrx: The example's system.dtrx.
+        ex_id: Example id (from example_id()).
+        rel: Example path relative to EXAMPLES_ROOT (from example_relpath()).
+        language: The registered language to generate this pair in.
+        reason: The recorded known-non-generating reason for this pair.
+
+    Returns:
+        A 'fail' outcome carrying PARKED_PAIR_NOW_GENERATES_MESSAGE when
+        generation now SUCCEEDS (the pair must be unparked); a 'skip'
+        outcome carrying the recorded reason PLUS the fresh error's first
+        line when generation still fails (so a stale recorded reason is
+        detectable without becoming a hard failure).
+    """
+    tree = SCRATCH_ROOT / ex_id / language
+    try:
+        generate_example(dtrx, tree, language)
+    except Exception as exc:  # noqa: BLE001 -- reported, never swallowed
+        message = str(exc)
+        fresh_first_line = message.splitlines()[0] if message else repr(exc)
+        return ExampleOutcome(
+            ex_id, rel, language, "skip",
+            f"{reason} | fresh error: {fresh_first_line}",
+        )
+    return ExampleOutcome(
+        ex_id, rel, language, "fail",
+        f"  {PARKED_PAIR_NOW_GENERATES_MESSAGE}\n"
+        f"    example={rel} language={language}\n"
+        f"    recorded reason: {reason}",
+    )
 
 
 def _check_one(
@@ -960,7 +1210,7 @@ def _check_one(
     if not bsl.exists():
         reason = _known_reason(known, ex_id, language)
         if reason is not None:
-            return ExampleOutcome(ex_id, rel, language, "skip", reason)
+            return _probe_parked_pair(dtrx, ex_id, rel, language, reason)
         return ExampleOutcome(
             ex_id,
             rel,
@@ -1078,6 +1328,23 @@ def cmd_check(example_filter: str | None) -> int:
         "non-vacuity self-test: PASS "
         "(a one-byte mutation of real generated output is detected and diffed)"
     )
+
+    blessed_coverage_problems = run_blessed_coverage_self_test()
+    if blessed_coverage_problems:
+        print("BLESSED-COVERAGE RATCHET SELF-TEST FAILED:")
+        for p in blessed_coverage_problems:
+            print(f"  {p}")
+        return EXIT_FAIL
+    print("blessed-coverage ratchet self-test: PASS (synthetic regression/growth/no-op all correct)")
+
+    blessed_current = count_blessed_pairs()
+    blessed_recorded = load_blessed_count()
+    coverage_problem = check_blessed_coverage_ratchet(blessed_current, blessed_recorded)
+    if coverage_problem is not None:
+        print()
+        print(coverage_problem)
+        return EXIT_FAIL
+    print(f"blessed-coverage ratchet: PASS ({blessed_current} pair(s) on disk, >= {blessed_recorded} recorded)")
 
     if failed:
         print(

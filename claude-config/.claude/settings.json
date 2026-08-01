@@ -38,7 +38,8 @@
       "PowerShell(datrix/scripts/test/test.ps1 datrix-common datrix-codegen-azure datrix-codegen-aws 2>&1)"
     ],
     "additionalDirectories": [
-      "C:\\Users\\KErca\\.claude"
+      "C:\\Users\\KErca\\.claude",
+      "D:\\datrix\\.tmp\\merge\\azure-run2"
     ]
   },
   "hooks": {
@@ -68,6 +69,15 @@
             "command": "python \"d:/datrix/.claude/hooks/gate-mandatory-reads.py\""
           }
         ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/gate-decision-escalation.py\""
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -77,6 +87,15 @@
           {
             "type": "command",
             "command": "python \"d:/datrix/.claude/hooks/track-mandatory-reads.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|NotebookEdit|Bash|PowerShell|Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/observe-task-activity.py\""
           }
         ]
       }
@@ -98,6 +117,27 @@
           {
             "type": "command",
             "command": "python \"d:/datrix/.claude/hooks/check-agent-report.py\""
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/arm-orchestration-run.py\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/gate-orchestration-stop.py\"",
+            "timeout": 240
           }
         ]
       }

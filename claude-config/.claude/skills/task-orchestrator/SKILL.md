@@ -159,6 +159,21 @@ The audit is **read-only with respect to source code** — it authors task files
 6. **Missing dependency edge** — task B modifies or imports a file/symbol task A creates, but B does not `Depends on` A; or two tasks in the same prospective wave write the same file with no ordering.
 7. **Unresolvable premise (BLOCKING)** — the design contradicts the code in a way no task can reconcile (the design names an API/symbol/behavior that does not and cannot exist as described). This is not an audit fix; it is a STOP.
 
+##### Audit scope — the phase you are about to execute, and no further (binding)
+
+**Audit exactly one phase: the one whose first wave you are about to dispatch.** In a multi-phase run, phase `P+1`'s audit runs at the phase boundary (3i), immediately before its first wave — never up front alongside phase `P`'s.
+
+This is not a cost concession, it is the more accurate ordering: the audit's whole question is *does this task set hold against the code on disk today*, and phase `P` is about to change that code. An audit of phase `P+1` performed before phase `P` runs is answering the question against a codebase that will not exist by the time those tasks execute.
+
+**The audit is the run's largest pre-execution cost and it sits on the critical path — bound it.** An unattended run that spends its whole window auditing and dispatches zero implementation agents has failed completely, and no amount of audit quality redeems that. Hard limits:
+
+- **One dispatch round.** Fan out the audit agents once, in parallel, and adjudicate what comes back. A second round is licensed only by a finding that *changes which surfaces need auditing* — never by "let me be thorough."
+- **Cap the fan-out at 6 agents** (light mode: 1–2). More packages than that → give one agent several packages, not one agent each.
+- **Sonnet, never Opus, for evidence gathering.** The verdicts are yours; the reading is not.
+- **If the audit is still running when its round returns nothing actionable, it is over.** Emit the report and plan waves.
+
+The audit is a gate on *correctness of the task set*, not a research project. Its output is a short list of gaps and edges — if you have spent more tokens auditing than you expect the phase's implementation to cost, you have already overrun.
+
 ##### Audit mode — full vs. light (decide first)
 
 The audit's cost must match what could have drifted. Read `dependencies.md`'s `provenance` stamp (see `dependencies-format.md`):
@@ -251,6 +266,10 @@ Executing...
 ```
 
 Do NOT wait for user confirmation — proceed directly to execution. The plan is informational.
+
+**Do not OFFER to wait, either.** The plan block ends at `Executing...` and the very next thing you do is spawn wave 1's agents — in the same turn, with no sentence in between that invites a reply. Every one of these is banned here and at every later boundary, however politely phrased: *"if you'd rather I stop at a specific wave, say so"* · *"shall I continue?"* · *"this will be expensive — confirm before I proceed"* · *"let me know if you want to review first"*. An offer to hold is functionally identical to holding: it ends the turn, and an unattended run then sits idle until morning with zero tasks executed. **This has happened — a 185-task run spent its entire overnight window on the readiness audit and ended on exactly such an offer.** The Stop gate (`.claude/hooks/gate-orchestration-stop.py`) now refuses that ending, but do not make it do your job.
+
+Cost is not a reason to check in. The run's size was known when Jon invoked it with the phase list; reporting the bill back to him mid-run buys nothing and risks the whole window. If the run is genuinely larger than the task set implied, note it in **one clause** inside the plan block and keep dispatching.
 
 ---
 

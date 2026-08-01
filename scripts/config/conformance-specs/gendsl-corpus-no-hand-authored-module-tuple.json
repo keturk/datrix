@@ -1,0 +1,13 @@
+{
+  "target": "D:/datrix/datrix/scripts/library/test",
+  "negative_control": "D:/datrix/datrix/scripts/config/conformance-specs/_fixtures/gendsl-corpus-no-hand-authored-module-tuple/negative-control",
+  "assertions": [
+    {
+      "id": "no-hand-authored-gendsl-module-tuple",
+      "type": "must_not_contain",
+      "description": "gendsl_corpus_resolution.py must derive its genDSL definitions-module inventory from registration (datrix.gendsl_generator_targets entry points + the interim platform map), never re-introduce the retired hand-authored 7-module literal tuple.",
+      "pattern": "datrix_codegen_python\\.gendsl\\.definitions|datrix_codegen_typescript\\.gendsl_definitions|datrix_codegen_sql\\.gendsl\\.sql_definitions|datrix_codegen_docker\\.gendsl_definitions|datrix_codegen_aws\\.gendsl\\.aws_definitions|datrix_codegen_azure\\.gendsl\\.azure_definitions|datrix_codegen_component\\.gendsl_definitions",
+      "glob": "gendsl_corpus_resolution.py"
+    }
+  ]
+}

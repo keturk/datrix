@@ -128,6 +128,67 @@ def _active_tasks(now: float) -> list[str]:
     return lines
 
 
+_PHASE_DIR_RE: Final = re.compile(r"^phase-(\d{1,3})$", re.IGNORECASE)
+
+
+def _pending_by_phase() -> dict[int, tuple[int, int]]:
+    """{phase: (pending, total)} counted from task-file headings across every package."""
+    counts: dict[int, tuple[int, int]] = {}
+    for package in os.listdir(_REPO_ROOT):
+        tasks_dir = os.path.join(_REPO_ROOT, package, ".tasks")
+        if not os.path.isdir(tasks_dir):
+            continue
+        for entry in os.listdir(tasks_dir):
+            match = _PHASE_DIR_RE.match(entry)
+            phase_dir = os.path.join(tasks_dir, entry)
+            if not match or not os.path.isdir(phase_dir):
+                continue
+            phase = int(match.group(1))
+            pending, total = counts.get(phase, (0, 0))
+            for name in os.listdir(phase_dir):
+                if not name.startswith("task-") or not name.endswith(".md"):
+                    continue
+                total += 1
+                try:
+                    with open(os.path.join(phase_dir, name), encoding="utf-8") as handle:
+                        head = handle.read(2048)
+                except OSError:
+                    continue
+                if not _COMPLETED_HEADING_RE.search(head):
+                    pending += 1
+            counts[phase] = (pending, total)
+    return counts
+
+
+def _ledger_section() -> str:
+    """The task ledger as disk truth — the one fact a compaction must not blur.
+
+    A compaction re-injects the CONTRACT (prose the agent already agreed with and
+    stopped anyway). What it loses is the LEDGER: how much work is actually left. An
+    agent that resumes believing it is near the end writes a summary; one that resumes
+    reading "45 of 61 pending" dispatches the next wave. So the number is restored
+    alongside the rules, straight off the task files, owing nothing to the summary.
+    """
+    counts = {p: v for p, v in _pending_by_phase().items() if v[0]}
+    if not counts:
+        return ""
+    lines = [
+        f"  phase {phase:02d}: {pending} of {total} tasks NOT finished"
+        for phase, (pending, total) in sorted(counts.items(), reverse=True)
+    ]
+    total_pending = sum(pending for pending, _ in counts.values())
+    return (
+        "===== TASK LEDGER — DISK TRUTH =====\n\n"
+        f"{total_pending} task(s) are not COMPLETED right now:\n\n"
+        + "\n".join(lines)
+        + "\n\nIf a run is in flight, this is what finished means — every one of them "
+        "COMPLETED or carrying a valid B1-B4 proof. A green test suite, a clean "
+        "summary, and a phase boundary are not exits, and neither is handing a "
+        "decision to Jon (that is rung 3: spawn a Fable adjudicator). The Stop hook "
+        "reads these same files and will refuse a turn that ends above zero."
+    )
+
+
 def _arm_gate(session_id: str, gated: list[tuple[str, str]]) -> None:
     """Write the state file that `gate-mandatory-reads.py` enforces."""
     if not session_id or not gated:
@@ -202,6 +263,10 @@ def _build_context(gated: list[tuple[str, str]], now: float, transcript_path: st
             "post-compaction window. Reading them first costs you one step; "
             "discovering the block costs you a turn."
         )
+
+    ledger = _ledger_section()
+    if ledger:
+        parts.append(ledger)
 
     tasks = _active_tasks(now)
     if tasks:

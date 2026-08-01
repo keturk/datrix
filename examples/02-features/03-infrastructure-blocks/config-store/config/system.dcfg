@@ -9,11 +9,6 @@ config system shop.System {
     }
     defaultTimeout = 30000;
     maxPageSize = 100;
-    env {
-      DEBUG = false;
-      CORS_ORIGINS = "[\"*\"]";
-      SECRETS_BACKEND = "environment";
-    }
     platforms {
       docker {
         kafka_default_retention_ms = 604800000;
@@ -69,7 +64,6 @@ config system shop.System {
       }
     }
     gateway {
-      port = 80;
       rateLimit {
         default {
           requests = 100;
@@ -111,12 +105,6 @@ config system shop.System {
       alerting {
         provider = "alertmanager";
       }
-    }
-    serviceDiscovery {
-      type = "consul";
-      host = "localhost";
-      port = 8500;
-      datacenter = "dc1";
     }
 
     // Runtime config store. Authors write 'flavor' (mapped to the canonical

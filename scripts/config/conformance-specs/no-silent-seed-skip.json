@@ -1,0 +1,13 @@
+{
+  "target": "D:/datrix/datrix-codegen-dotnet/src",
+  "negative_control": "D:/datrix/datrix/scripts/config/conformance-specs/_fixtures/no-silent-seed-skip/negative-control",
+  "assertions": [
+    {
+      "id": "no-silent-seed-skip",
+      "type": "must_not_contain",
+      "pattern": "reason=no_rdbms_components",
+      "glob": "**/*.py",
+      "description": "The dotnet seed generator must never silently narrow its seed components to RDBMS-only and report success under a debug-level skip. NoSQL and storage seed components must be realized like every other language, not silently dropped -- the same emit-nothing-report-success failure class as a fail-loud boundary that went missing."
+    }
+  ]
+}

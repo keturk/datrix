@@ -184,7 +184,7 @@ Enforces cross-package import boundary rules across the monorepo. Scans each pac
 | **Show files** | `.\dev\check-import-boundaries.ps1 -ShowFiles` | Print each file being scanned |
 | **I1 ratchet check** | `.\dev\check-import-boundaries.ps1 -CheckTargetLiterals` | Run the target-literal ratchet against the frozen baseline |
 | **Freeze/update baseline** | `.\dev\check-import-boundaries.ps1 -CheckTargetLiterals -UpdateBaseline` | Recompute and overwrite the frozen baseline |
-| **I6 successor ratchet check** | `.\dev\check-import-boundaries.ps1 -CheckProviderConditionals` | Run the provider-conditional ratchet (invariant I6, DI-4/DI-5) against the frozen baseline |
+| **I6 successor ratchet check** | `.\dev\check-import-boundaries.ps1 -CheckProviderConditionals` | Run the provider-conditional ratchet (invariant I6, DI-4/DI-5) — both the `ProviderId`-shaped pattern and the plain-string-literal pattern (D5) — against the frozen baseline |
 | **Freeze/update provider-conditional baseline** | `.\dev\check-import-boundaries.ps1 -CheckProviderConditionals -UpdateBaseline` | Recompute and overwrite the frozen provider-conditional baseline |
 | **Function-level-import ratchet check** | `.\dev\check-import-boundaries.ps1 -CheckFunctionLevelImports` | Run the function-level-import ratchet (structural-layering effort, D4/I6 — see [Architecture Overview — Decision 20](../../../datrix/docs/architecture/architecture-overview.md#decision-20-sealed-generated-ast-model-adopted)) against the frozen baseline |
 | **Freeze/update function-level-import baseline** | `.\dev\check-import-boundaries.ps1 -CheckFunctionLevelImports -UpdateBaseline` | Recompute and overwrite the frozen function-level-import baseline |
@@ -196,7 +196,7 @@ Enforces cross-package import boundary rules across the monorepo. Scans each pac
 
 **Self-test detail:** the script's own non-vacuity proof (rule-model invariants for `BOUNDARY_RULES`/allowed-subtree carve-outs, the provider-conditional and function-level-import AST scanners' detection + exclusion cases, both ratchet comparators' regression/no-regression/missing-baseline-as-zero behavior, and a real mutation-based CLI proof that plants a regression in an isolated fixture monorepo, proves detection, and proves it clears on revert). Runs automatically as **step 1 of every invocation** of this script (not only when `-SelfTest` is passed) — a self-test failure aborts before any real finding is reported. Pass `-SelfTest` alone to run only the self-test and skip the real scan.
 
-**I6 successor ratchet detail:** scans `datrix-codegen-python/src` and `datrix-codegen-typescript/src` `.py` files (the LANGUAGE packages only — not a shared-layer scan like I1) for platform-identity conditionals: `== ProviderId(...)` / `!= ProviderId(...)` comparisons, `<deployment>.provider.value`/`str(<deployment>.provider)` string comparisons, and `match`/`case` over a provider subject. Excludes other provider axes (StorageProvider/EmailProvider/SmsProvider/SearchProvider/PaymentProvider/metrics-tracing provider), the `resolve_provider_identity` boundary function's own `ProviderId(x.value)` rewrap, and dict-dispatch-table lookups (`in`/`not in`, `.get(...)`) — those are a different successor shape not yet in scope. Baseline: `datrix/scripts/config/provider-conditional-baseline.toml`.
+**I6 successor ratchet detail:** scans `datrix-codegen-python/src`, `datrix-codegen-typescript/src`, `datrix-codegen-dotnet/src`, and `datrix-codegen-java/src` `.py` files (the LANGUAGE packages — not a shared-layer scan like I1) for platform-identity conditionals: `== ProviderId(...)` / `!= ProviderId(...)` comparisons, `<deployment>.provider.value`/`str(<deployment>.provider)` string comparisons, `match`/`case` over a provider subject, a bare `<var> == "<provider-id>"` comparison with no `ProviderId`/`.provider` wrapper (D5), and a closed-world provider-id collection literal such as `frozenset({"azure"})` (D5). Excludes other provider axes (StorageProvider/EmailProvider/SmsProvider/SearchProvider/PaymentProvider/metrics-tracing provider), the `resolve_provider_identity` boundary function's own `ProviderId(x.value)` rewrap, and any string literal in a non-conditional position (log messages, docstrings). Baseline: `datrix/scripts/config/provider-conditional-baseline.toml`.
 
 **Function-level-import ratchet detail:** scans ONLY `datrix-common/src` `.py` files (the structural-layering effort's own package-scoped ratchet, D4/I6 — never extend to other packages) for function-level imports: any `Import`/`ImportFrom` AST node that is not a direct top-level statement of its module (nested in a function/method body, an `if TYPE_CHECKING:` block, or a `try`/`except`). Baseline: `datrix/scripts/config/function-level-import-baseline.toml`, frozen after the `Service`/`Shared` decomposition landed.
 
@@ -340,14 +340,15 @@ Declarative design-acceptance assertion runner over a tree (generated output or 
 
 ### `dev\gendsl-census.ps1`
 
-Per-domain census of a language's compiled genDSL definitions: file-clause counts (recursing `domain.files` + iteration/children), domain builders, declaring domains, **double-emit offenders** (declares files AND keeps a domain builder), and bridgeless declaring domains. Target list discovered from installed entry points at runtime — never hardcoded.
+Per-domain census of a language's compiled genDSL definitions: file-clause counts (recursing `domain.files` + iteration/children), domain builders, declaring domains, **double-emit offenders** (declares files AND keeps a domain builder), and **bridgeless-declaring domains** (declares files but no bridge callable carries the `MICRO_GENERATOR_CLS` owning-class attribute). Target list discovered from installed entry points at runtime — never hardcoded. Its own non-vacuity self-test (proves the double-emit and bridgeless comparators can each detect a forced synthetic defect) runs automatically as **step 1 of every invocation**, including a real census — a self-test failure aborts before any real finding is reported.
 
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Census a target** | `.\dev\gendsl-census.ps1 -Language python` | → `D:\datrix\.tmp\dev\gendsl-census-python.json` |
 | **Unknown target** | `.\dev\gendsl-census.ps1 -Language cobol` | Fails loud listing installed targets |
+| **Self-test only** | `.\dev\gendsl-census.ps1 -SelfTest` | Run only the non-vacuity self-test; no `-Language` needed |
 
-**Parameters:** `-Language <name>` (required), `-Output <path>`, `-Dbg`. **Exit codes:** 0 = no double-emit offenders, 1 = offenders found, 2 = usage / unknown target.
+**Parameters:** `-Language <name>` (required unless `-SelfTest`), `-Output <path>`, `-Dbg`, `-SelfTest`. **Exit codes:** 0 = no double-emit offenders AND no bridgeless-declaring domains, 1 = double-emit offenders OR bridgeless-declaring domains found, 2 = usage / unknown target / the non-vacuity self-test failed.
 
 ---
 

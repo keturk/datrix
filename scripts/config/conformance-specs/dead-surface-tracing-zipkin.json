@@ -1,0 +1,13 @@
+{
+  "target": "D:\\datrix\\datrix\\examples",
+  "negative_control": "D:\\datrix\\datrix\\scripts\\config\\conformance-specs-fixtures\\deleted-config-surfaces-control",
+  "assertions": [
+    {
+      "id": "tracing-zipkin-value-absent",
+      "type": "must_not_contain",
+      "pattern": "(?i)zipkin",
+      "glob": "**/system.dcfg",
+      "description": "TracingProvider.ZIPKIN is native to no platform (the shared native-provider validator already rejects it pre-generation on every target) and was deleted from the tracing-provider enum; no example may select it."
+    }
+  ]
+}

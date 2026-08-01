@@ -543,9 +543,9 @@ Provider-native runtimes are produced by their provider generator plus, where th
 
 - **Secrets backend (Key Vault / Secrets Manager / file)** resolves credentials by logical handle. The backend, endpoint, and naming policy are baked constants in `config/secrets_resolver.py`:
   - Azure: Azure Key Vault via `SECRETS_STORE_ENDPOINT` + managed-identity credential.
-  - AWS: Secrets Manager via the instance-role boto3 client + baked `REGION`. (`aws-ssm` is **not** a valid backend for generated service runtime; reintroducing it would require a separate design.)
+  - AWS: Secrets Manager via the instance-role boto3 client + baked `REGION`. (The `aws-ssm` value no longer exists as a `SecretBackend` member.)
   - LOCAL: file backend reads from `SECRETS_DIR_PATH`; no network, no credentials.
-  - The legacy `env` backend (reading secrets from environment variables) is not a valid backend for a zero-environment generated service — selecting it **fails at generation time**, and the canonical resolver emits no environment fetch branch.
+  - The `env` backend is realizable only on the Docker/local platform (declared in that platform's `supported_secret_backends`, rendered as compose `.env` substitution); it is not a member of the AWS or Azure platform's supported backends, so selecting it there **fails at generation time**.
   - Generated services emit exactly **one** secret API — the canonical `config/secrets_resolver.py`. The obsolete `secrets_manager` package (and any provider-specific runtime secret-manager modules) is not emitted; all generated consumers call the canonical resolver directly.
 
 - **`AppSettings` (frozen at startup)** is assembled once during the lifespan `startup` phase by `assemble_settings(config_client, secrets_resolver)`. It composes connection strings from the config-store `connections` namespace (non-secret parts) plus `SecretsResolver` (credential parts). No connection string, endpoint URL, or secret value is baked at generation time; all are composed at startup from the two runtime sources. `get_settings()` raises `RuntimeError` if called before `assemble_settings()` completes — there is no silent default or fallback.

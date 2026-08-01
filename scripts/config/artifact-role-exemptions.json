@@ -1,0 +1,15 @@
+{
+  "_comment": [
+    "Reviewed holes in the cross-language artifact-role parity gate",
+    "(datrix/scripts/test/artifact-role-parity-gate.ps1). Each entry names one",
+    "(example, domain, language) coordinate where that language's blessed baseline",
+    "has zero files matching the domain's structural_pattern, even though >= 1",
+    "other blessed language for the SAME example has one. This is a genuine,",
+    "reviewed gap -- never a suppression of an unexplained finding.",
+    "",
+    "expected_count is a pinned, reviewed value: change it only in the same",
+    "change that adds or removes an entry."
+  ],
+  "expected_count": 0,
+  "exemptions": []
+}

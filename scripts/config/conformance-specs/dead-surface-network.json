@@ -1,0 +1,13 @@
+{
+  "target": "D:\\datrix\\datrix\\examples",
+  "negative_control": "D:\\datrix\\datrix\\scripts\\config\\conformance-specs-fixtures\\deleted-config-surfaces-control",
+  "assertions": [
+    {
+      "id": "network-block-absent",
+      "type": "must_not_contain",
+      "pattern": "\\bnetwork\\s*\\{",
+      "glob": "**/system.dcfg",
+      "description": "The system-level 'network {}' block has zero generator consumers on any platform and was deleted from the config model; no example may reintroduce it."
+    }
+  ]
+}

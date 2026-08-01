@@ -1,0 +1,13 @@
+{
+  "target": "D:\\datrix\\datrix\\examples",
+  "negative_control": "D:\\datrix\\datrix\\scripts\\config\\conformance-specs-fixtures\\deleted-config-surfaces-control",
+  "assertions": [
+    {
+      "id": "gateway-port-field-absent",
+      "type": "must_not_contain",
+      "pattern": "gateway\\s*\\{\\s*port\\s*=",
+      "glob": "**/system.dcfg",
+      "description": "'gateway.port' is ignored by every platform (nginx hardcodes 80; the cloud gateways have no listen-port concept) and was deleted from the config model. Scoped to a 'port' key immediately inside a 'gateway {}' block so it does not false-positive on unrelated 'port' fields (zitadelIdentity.port, RDBMS pooled-group ports, etc.)."
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+// SYNTHETIC NON-VACUITY CONTROL FIXTURE -- never parsed by the real ConfigDSL
+// pipeline, never a real example. Exists only so each dead-surface conformance
+// spec's must_not_contain assertion can prove its pattern is not vacuous (the
+// runner requires the forbidden pattern to appear in the negative_control tree,
+// or the check fails as VACUOUS). Every snippet below is inert plain text.
+
+network {
+  vpcId = "vpc-control-only";
+}
+
+serviceDiscovery {
+  type = consul;
+}
+
+gateway {
+  port = 9999;
+  circuitBreaker {
+    failureThreshold = 1;
+  }
+}
+
+observability {
+  tracing {
+    provider = zipkin;
+  }
+}

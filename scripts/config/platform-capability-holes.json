@@ -1,0 +1,1307 @@
+{
+  "_comment": [
+    "Every (platform, surface, coordinate) triple where an installed datrix.platforms plugin",
+    "has NOT declared a decision that another installed platform HAS declared -- the seven",
+    "capability surfaces the block-realization parity gate checks (block cells, secret",
+    "backends, observability providers per category, deployment runtimes, identity",
+    "(provider_type, feature) cells, scalar capability fields, unrealizable_surfaces).",
+    "",
+    "This is a DELIBERATELY MAINTAINED SCOPE BOUNDARY, not an auto-heal: every entry is a real,",
+    "reviewed gap in a platform's PlatformCapabilityDeclaration, catalogued here so the gate can",
+    "run green while the underlying gap is fixed on its own schedule. Removing an entry means the",
+    "platform's declaration was updated to cover that coordinate -- do it in the same change that",
+    "edits the declaration.",
+    "",
+    "expected_count is a pinned, reviewed value: change it only in the same change that adds or",
+    "removes an entry.",
+    "",
+    "coordinate format is surface-specific: 'block_type:flavor' for block_realizations,",
+    "the bare enum .value for supported_secret_backends/supported_runtimes,",
+    "'category:provider_value' for native_observability_providers,",
+    "'provider_type:feature' for identity_feature_realizations,",
+    "the bare field name (or 'scalar:<field>' union-value coordinate) for a scalar surface,",
+    "the bare surface_name for unrealizable_surfaces.",
+    "",
+    "Surface 5 (identity_feature_realizations) carries the largest share of entries: each",
+    "platform declares full feature coverage only for the identity provider type(s) it can",
+    "actually host (aws->cognito, azure->entra-id/entra-external-id, docker/local->zitadel);",
+    "'external' (client wiring to a pre-existing IdP) is declared symmetrically by all three,",
+    "so it contributes zero entries here. This is real, previously-uncatalogued platform state,",
+    "not a gate artifact."
+  ],
+  "expected_count": 212,
+  "holes": [
+    {
+      "platform": "azure",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:account_linking",
+      "reason": "Azure does not realize identity provider type 'cognito' at all (native to aws), so it has no 'account_linking' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and Azure declares none for 'cognito'."
+    },
+    {
+      "platform": "azure",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:admin_operation",
+      "reason": "Azure does not realize identity provider type 'cognito' at all (native to aws), so it has no 'admin_operation' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and Azure declares none for 'cognito'."
+    },
+    {
+      "platform": "azure",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:audience",
+      "reason": "Azure does not realize identity provider type 'cognito' at all (native to aws), so it has no 'audience' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and Azure declares none for 'cognito'."
+    },
+    {
+      "platform": "azure",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:custom_attributes",
+      "reason": "Azure does not realize identity provider type 'cognito' at all (native to aws), so it has no 'custom_attributes' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and Azure declares none for 'cognito'."
+    },
+    {
+      "platform": "azure",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:discovery",
+      "reason": "Azure does not realize identity provider type 'cognito' at all (native to aws), so it has no 'discovery' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and Azure declares none for 'cognito'."
+    },
+    {
+      "platform": "azure",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:machine_flow",
+      "reason": "Azure does not realize identity provider type 'cognito' at all (native to aws), so it has no 'machine_flow' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and Azure declares none for 'cognito'."
+    },
+    {
+      "platform": "azure",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:mfa",
+      "reason": "Azure does not realize identity provider type 'cognito' at all (native to aws), so it has no 'mfa' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and Azure declares none for 'cognito'."
+    },
+    {
+      "platform": "azure",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:mode",
+      "reason": "Azure does not realize identity provider type 'cognito' at all (native to aws), so it has no 'mode' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and Azure declares none for 'cognito'."
+    },
+    {
+      "platform": "azure",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:social_provider",
+      "reason": "Azure does not realize identity provider type 'cognito' at all (native to aws), so it has no 'social_provider' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and Azure declares none for 'cognito'."
+    },
+    {
+      "platform": "azure",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:token_validation",
+      "reason": "Azure does not realize identity provider type 'cognito' at all (native to aws), so it has no 'token_validation' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and Azure declares none for 'cognito'."
+    },
+    {
+      "platform": "azure",
+      "surface": "identity_feature_realizations",
+      "coordinate": "zitadel:account_linking",
+      "reason": "Azure does not realize identity provider type 'zitadel' at all (native to docker, local), so it has no 'account_linking' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and Azure declares none for 'zitadel'."
+    },
+    {
+      "platform": "azure",
+      "surface": "identity_feature_realizations",
+      "coordinate": "zitadel:admin_operation",
+      "reason": "Azure does not realize identity provider type 'zitadel' at all (native to docker, local), so it has no 'admin_operation' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and Azure declares none for 'zitadel'."
+    },
+    {
+      "platform": "azure",
+      "surface": "identity_feature_realizations",
+      "coordinate": "zitadel:audience",
+      "reason": "Azure does not realize identity provider type 'zitadel' at all (native to docker, local), so it has no 'audience' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and Azure declares none for 'zitadel'."
+    },
+    {
+      "platform": "azure",
+      "surface": "identity_feature_realizations",
+      "coordinate": "zitadel:custom_attributes",
+      "reason": "Azure does not realize identity provider type 'zitadel' at all (native to docker, local), so it has no 'custom_attributes' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and Azure declares none for 'zitadel'."
+    },
+    {
+      "platform": "azure",
+      "surface": "identity_feature_realizations",
+      "coordinate": "zitadel:discovery",
+      "reason": "Azure does not realize identity provider type 'zitadel' at all (native to docker, local), so it has no 'discovery' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and Azure declares none for 'zitadel'."
+    },
+    {
+      "platform": "azure",
+      "surface": "identity_feature_realizations",
+      "coordinate": "zitadel:machine_flow",
+      "reason": "Azure does not realize identity provider type 'zitadel' at all (native to docker, local), so it has no 'machine_flow' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and Azure declares none for 'zitadel'."
+    },
+    {
+      "platform": "azure",
+      "surface": "identity_feature_realizations",
+      "coordinate": "zitadel:mfa",
+      "reason": "Azure does not realize identity provider type 'zitadel' at all (native to docker, local), so it has no 'mfa' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and Azure declares none for 'zitadel'."
+    },
+    {
+      "platform": "azure",
+      "surface": "identity_feature_realizations",
+      "coordinate": "zitadel:mode",
+      "reason": "Azure does not realize identity provider type 'zitadel' at all (native to docker, local), so it has no 'mode' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and Azure declares none for 'zitadel'."
+    },
+    {
+      "platform": "azure",
+      "surface": "identity_feature_realizations",
+      "coordinate": "zitadel:social_provider",
+      "reason": "Azure does not realize identity provider type 'zitadel' at all (native to docker, local), so it has no 'social_provider' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and Azure declares none for 'zitadel'."
+    },
+    {
+      "platform": "azure",
+      "surface": "identity_feature_realizations",
+      "coordinate": "zitadel:token_validation",
+      "reason": "Azure does not realize identity provider type 'zitadel' at all (native to docker, local), so it has no 'token_validation' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and Azure declares none for 'zitadel'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:account_linking",
+      "reason": "the docker runtime generator does not realize identity provider type 'cognito' at all (native to aws), so it has no 'account_linking' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'cognito'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:admin_operation",
+      "reason": "the docker runtime generator does not realize identity provider type 'cognito' at all (native to aws), so it has no 'admin_operation' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'cognito'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:audience",
+      "reason": "the docker runtime generator does not realize identity provider type 'cognito' at all (native to aws), so it has no 'audience' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'cognito'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:custom_attributes",
+      "reason": "the docker runtime generator does not realize identity provider type 'cognito' at all (native to aws), so it has no 'custom_attributes' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'cognito'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:discovery",
+      "reason": "the docker runtime generator does not realize identity provider type 'cognito' at all (native to aws), so it has no 'discovery' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'cognito'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:machine_flow",
+      "reason": "the docker runtime generator does not realize identity provider type 'cognito' at all (native to aws), so it has no 'machine_flow' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'cognito'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:mfa",
+      "reason": "the docker runtime generator does not realize identity provider type 'cognito' at all (native to aws), so it has no 'mfa' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'cognito'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:mode",
+      "reason": "the docker runtime generator does not realize identity provider type 'cognito' at all (native to aws), so it has no 'mode' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'cognito'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:social_provider",
+      "reason": "the docker runtime generator does not realize identity provider type 'cognito' at all (native to aws), so it has no 'social_provider' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'cognito'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:token_validation",
+      "reason": "the docker runtime generator does not realize identity provider type 'cognito' at all (native to aws), so it has no 'token_validation' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'cognito'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-external-id:account_linking",
+      "reason": "the docker runtime generator does not realize identity provider type 'entra-external-id' at all (native to azure), so it has no 'account_linking' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'entra-external-id'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-external-id:admin_operation",
+      "reason": "the docker runtime generator does not realize identity provider type 'entra-external-id' at all (native to azure), so it has no 'admin_operation' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'entra-external-id'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-external-id:audience",
+      "reason": "the docker runtime generator does not realize identity provider type 'entra-external-id' at all (native to azure), so it has no 'audience' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'entra-external-id'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-external-id:custom_attributes",
+      "reason": "the docker runtime generator does not realize identity provider type 'entra-external-id' at all (native to azure), so it has no 'custom_attributes' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'entra-external-id'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-external-id:discovery",
+      "reason": "the docker runtime generator does not realize identity provider type 'entra-external-id' at all (native to azure), so it has no 'discovery' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'entra-external-id'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-external-id:machine_flow",
+      "reason": "the docker runtime generator does not realize identity provider type 'entra-external-id' at all (native to azure), so it has no 'machine_flow' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'entra-external-id'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-external-id:mfa",
+      "reason": "the docker runtime generator does not realize identity provider type 'entra-external-id' at all (native to azure), so it has no 'mfa' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'entra-external-id'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-external-id:mode",
+      "reason": "the docker runtime generator does not realize identity provider type 'entra-external-id' at all (native to azure), so it has no 'mode' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'entra-external-id'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-external-id:social_provider",
+      "reason": "the docker runtime generator does not realize identity provider type 'entra-external-id' at all (native to azure), so it has no 'social_provider' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'entra-external-id'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-external-id:token_validation",
+      "reason": "the docker runtime generator does not realize identity provider type 'entra-external-id' at all (native to azure), so it has no 'token_validation' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'entra-external-id'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-id:account_linking",
+      "reason": "the docker runtime generator does not realize identity provider type 'entra-id' at all (native to azure), so it has no 'account_linking' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'entra-id'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-id:admin_operation",
+      "reason": "the docker runtime generator does not realize identity provider type 'entra-id' at all (native to azure), so it has no 'admin_operation' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'entra-id'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-id:audience",
+      "reason": "the docker runtime generator does not realize identity provider type 'entra-id' at all (native to azure), so it has no 'audience' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'entra-id'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-id:custom_attributes",
+      "reason": "the docker runtime generator does not realize identity provider type 'entra-id' at all (native to azure), so it has no 'custom_attributes' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'entra-id'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-id:discovery",
+      "reason": "the docker runtime generator does not realize identity provider type 'entra-id' at all (native to azure), so it has no 'discovery' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'entra-id'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-id:machine_flow",
+      "reason": "the docker runtime generator does not realize identity provider type 'entra-id' at all (native to azure), so it has no 'machine_flow' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'entra-id'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-id:mfa",
+      "reason": "the docker runtime generator does not realize identity provider type 'entra-id' at all (native to azure), so it has no 'mfa' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'entra-id'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-id:mode",
+      "reason": "the docker runtime generator does not realize identity provider type 'entra-id' at all (native to azure), so it has no 'mode' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'entra-id'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-id:social_provider",
+      "reason": "the docker runtime generator does not realize identity provider type 'entra-id' at all (native to azure), so it has no 'social_provider' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'entra-id'."
+    },
+    {
+      "platform": "docker",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-id:token_validation",
+      "reason": "the docker runtime generator does not realize identity provider type 'entra-id' at all (native to azure), so it has no 'token_validation' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the docker runtime generator declares none for 'entra-id'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:account_linking",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'cognito' at all (native to aws), so it has no 'account_linking' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'cognito'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:admin_operation",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'cognito' at all (native to aws), so it has no 'admin_operation' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'cognito'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:audience",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'cognito' at all (native to aws), so it has no 'audience' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'cognito'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:custom_attributes",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'cognito' at all (native to aws), so it has no 'custom_attributes' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'cognito'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:discovery",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'cognito' at all (native to aws), so it has no 'discovery' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'cognito'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:machine_flow",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'cognito' at all (native to aws), so it has no 'machine_flow' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'cognito'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:mfa",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'cognito' at all (native to aws), so it has no 'mfa' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'cognito'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:mode",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'cognito' at all (native to aws), so it has no 'mode' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'cognito'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:social_provider",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'cognito' at all (native to aws), so it has no 'social_provider' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'cognito'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "cognito:token_validation",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'cognito' at all (native to aws), so it has no 'token_validation' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'cognito'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-external-id:account_linking",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'entra-external-id' at all (native to azure), so it has no 'account_linking' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'entra-external-id'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-external-id:admin_operation",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'entra-external-id' at all (native to azure), so it has no 'admin_operation' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'entra-external-id'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-external-id:audience",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'entra-external-id' at all (native to azure), so it has no 'audience' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'entra-external-id'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-external-id:custom_attributes",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'entra-external-id' at all (native to azure), so it has no 'custom_attributes' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'entra-external-id'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-external-id:discovery",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'entra-external-id' at all (native to azure), so it has no 'discovery' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'entra-external-id'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-external-id:machine_flow",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'entra-external-id' at all (native to azure), so it has no 'machine_flow' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'entra-external-id'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-external-id:mfa",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'entra-external-id' at all (native to azure), so it has no 'mfa' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'entra-external-id'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-external-id:mode",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'entra-external-id' at all (native to azure), so it has no 'mode' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'entra-external-id'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-external-id:social_provider",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'entra-external-id' at all (native to azure), so it has no 'social_provider' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'entra-external-id'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-external-id:token_validation",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'entra-external-id' at all (native to azure), so it has no 'token_validation' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'entra-external-id'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-id:account_linking",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'entra-id' at all (native to azure), so it has no 'account_linking' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'entra-id'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-id:admin_operation",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'entra-id' at all (native to azure), so it has no 'admin_operation' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'entra-id'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-id:audience",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'entra-id' at all (native to azure), so it has no 'audience' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'entra-id'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-id:custom_attributes",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'entra-id' at all (native to azure), so it has no 'custom_attributes' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'entra-id'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-id:discovery",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'entra-id' at all (native to azure), so it has no 'discovery' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'entra-id'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-id:machine_flow",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'entra-id' at all (native to azure), so it has no 'machine_flow' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'entra-id'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-id:mfa",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'entra-id' at all (native to azure), so it has no 'mfa' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'entra-id'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-id:mode",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'entra-id' at all (native to azure), so it has no 'mode' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'entra-id'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-id:social_provider",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'entra-id' at all (native to azure), so it has no 'social_provider' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'entra-id'."
+    },
+    {
+      "platform": "local",
+      "surface": "identity_feature_realizations",
+      "coordinate": "entra-id:token_validation",
+      "reason": "the local docker-compose provider identity does not realize identity provider type 'entra-id' at all (native to azure), so it has no 'token_validation' feature cell for it -- identity_feature_realizations requires a matching identity_provider_realizations entry first, and the local docker-compose provider identity declares none for 'entra-id'."
+    },
+    {
+      "platform": "aws",
+      "surface": "native_observability_providers:alerting",
+      "coordinate": "alertmanager",
+      "reason": "AWS does not natively realize alerting provider 'alertmanager' (native to docker, local); AWS's native_observability_providers for the 'alerting' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "azure",
+      "surface": "native_observability_providers:alerting",
+      "coordinate": "alertmanager",
+      "reason": "Azure does not natively realize alerting provider 'alertmanager' (native to docker, local); Azure's native_observability_providers for the 'alerting' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "azure",
+      "surface": "native_observability_providers:alerting",
+      "coordinate": "cloudwatch-alarms",
+      "reason": "Azure does not natively realize alerting provider 'cloudwatch-alarms' (native to aws); Azure's native_observability_providers for the 'alerting' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "docker",
+      "surface": "native_observability_providers:alerting",
+      "coordinate": "cloudwatch-alarms",
+      "reason": "the docker runtime generator does not natively realize alerting provider 'cloudwatch-alarms' (native to aws); the docker runtime generator's native_observability_providers for the 'alerting' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "local",
+      "surface": "native_observability_providers:alerting",
+      "coordinate": "cloudwatch-alarms",
+      "reason": "the local docker-compose provider identity does not natively realize alerting provider 'cloudwatch-alarms' (native to aws); the local docker-compose provider identity's native_observability_providers for the 'alerting' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "aws",
+      "surface": "native_observability_providers:alerting",
+      "coordinate": "azure-monitor-alerts",
+      "reason": "AWS does not natively realize alerting provider 'azure-monitor-alerts' (native to azure); AWS's native_observability_providers for the 'alerting' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "docker",
+      "surface": "native_observability_providers:alerting",
+      "coordinate": "azure-monitor-alerts",
+      "reason": "the docker runtime generator does not natively realize alerting provider 'azure-monitor-alerts' (native to azure); the docker runtime generator's native_observability_providers for the 'alerting' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "local",
+      "surface": "native_observability_providers:alerting",
+      "coordinate": "azure-monitor-alerts",
+      "reason": "the local docker-compose provider identity does not natively realize alerting provider 'azure-monitor-alerts' (native to azure); the local docker-compose provider identity's native_observability_providers for the 'alerting' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "aws",
+      "surface": "native_observability_providers:logging",
+      "coordinate": "loki",
+      "reason": "AWS does not natively realize logging provider 'loki' (native to docker, local); AWS's native_observability_providers for the 'logging' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "azure",
+      "surface": "native_observability_providers:logging",
+      "coordinate": "loki",
+      "reason": "Azure does not natively realize logging provider 'loki' (native to docker, local); Azure's native_observability_providers for the 'logging' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "azure",
+      "surface": "native_observability_providers:logging",
+      "coordinate": "cloudwatch-logs",
+      "reason": "Azure does not natively realize logging provider 'cloudwatch-logs' (native to aws); Azure's native_observability_providers for the 'logging' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "docker",
+      "surface": "native_observability_providers:logging",
+      "coordinate": "cloudwatch-logs",
+      "reason": "the docker runtime generator does not natively realize logging provider 'cloudwatch-logs' (native to aws); the docker runtime generator's native_observability_providers for the 'logging' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "local",
+      "surface": "native_observability_providers:logging",
+      "coordinate": "cloudwatch-logs",
+      "reason": "the local docker-compose provider identity does not natively realize logging provider 'cloudwatch-logs' (native to aws); the local docker-compose provider identity's native_observability_providers for the 'logging' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "aws",
+      "surface": "native_observability_providers:logging",
+      "coordinate": "log-analytics",
+      "reason": "AWS does not natively realize logging provider 'log-analytics' (native to azure); AWS's native_observability_providers for the 'logging' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "docker",
+      "surface": "native_observability_providers:logging",
+      "coordinate": "log-analytics",
+      "reason": "the docker runtime generator does not natively realize logging provider 'log-analytics' (native to azure); the docker runtime generator's native_observability_providers for the 'logging' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "local",
+      "surface": "native_observability_providers:logging",
+      "coordinate": "log-analytics",
+      "reason": "the local docker-compose provider identity does not natively realize logging provider 'log-analytics' (native to azure); the local docker-compose provider identity's native_observability_providers for the 'logging' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "aws",
+      "surface": "native_observability_providers:metrics",
+      "coordinate": "azure-monitor",
+      "reason": "AWS does not natively realize metrics provider 'azure-monitor' (native to azure); AWS's native_observability_providers for the 'metrics' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "aws",
+      "surface": "native_observability_providers:metrics",
+      "coordinate": "prometheus",
+      "reason": "AWS does not natively realize metrics provider 'prometheus' (native to docker, local); AWS's native_observability_providers for the 'metrics' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "azure",
+      "surface": "native_observability_providers:metrics",
+      "coordinate": "cloudwatch",
+      "reason": "Azure does not natively realize metrics provider 'cloudwatch' (native to aws); Azure's native_observability_providers for the 'metrics' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "azure",
+      "surface": "native_observability_providers:metrics",
+      "coordinate": "prometheus",
+      "reason": "Azure does not natively realize metrics provider 'prometheus' (native to docker, local); Azure's native_observability_providers for the 'metrics' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "docker",
+      "surface": "native_observability_providers:metrics",
+      "coordinate": "azure-monitor",
+      "reason": "the docker runtime generator does not natively realize metrics provider 'azure-monitor' (native to azure); the docker runtime generator's native_observability_providers for the 'metrics' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "docker",
+      "surface": "native_observability_providers:metrics",
+      "coordinate": "cloudwatch",
+      "reason": "the docker runtime generator does not natively realize metrics provider 'cloudwatch' (native to aws); the docker runtime generator's native_observability_providers for the 'metrics' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "local",
+      "surface": "native_observability_providers:metrics",
+      "coordinate": "azure-monitor",
+      "reason": "the local docker-compose provider identity does not natively realize metrics provider 'azure-monitor' (native to azure); the local docker-compose provider identity's native_observability_providers for the 'metrics' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "local",
+      "surface": "native_observability_providers:metrics",
+      "coordinate": "cloudwatch",
+      "reason": "the local docker-compose provider identity does not natively realize metrics provider 'cloudwatch' (native to aws); the local docker-compose provider identity's native_observability_providers for the 'metrics' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "aws",
+      "surface": "native_observability_providers:tracing",
+      "coordinate": "application-insights",
+      "reason": "AWS does not natively realize tracing provider 'application-insights' (native to azure); AWS's native_observability_providers for the 'tracing' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "aws",
+      "surface": "native_observability_providers:tracing",
+      "coordinate": "jaeger",
+      "reason": "AWS does not natively realize tracing provider 'jaeger' (native to docker, local); AWS's native_observability_providers for the 'tracing' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "aws",
+      "surface": "native_observability_providers:tracing",
+      "coordinate": "otel",
+      "reason": "AWS does not natively realize tracing provider 'otel' (native to docker, local); AWS's native_observability_providers for the 'tracing' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "azure",
+      "surface": "native_observability_providers:tracing",
+      "coordinate": "jaeger",
+      "reason": "Azure does not natively realize tracing provider 'jaeger' (native to docker, local); Azure's native_observability_providers for the 'tracing' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "azure",
+      "surface": "native_observability_providers:tracing",
+      "coordinate": "otel",
+      "reason": "Azure does not natively realize tracing provider 'otel' (native to docker, local); Azure's native_observability_providers for the 'tracing' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "azure",
+      "surface": "native_observability_providers:tracing",
+      "coordinate": "xray",
+      "reason": "Azure does not natively realize tracing provider 'xray' (native to aws); Azure's native_observability_providers for the 'tracing' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "docker",
+      "surface": "native_observability_providers:tracing",
+      "coordinate": "application-insights",
+      "reason": "the docker runtime generator does not natively realize tracing provider 'application-insights' (native to azure); the docker runtime generator's native_observability_providers for the 'tracing' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "docker",
+      "surface": "native_observability_providers:tracing",
+      "coordinate": "xray",
+      "reason": "the docker runtime generator does not natively realize tracing provider 'xray' (native to aws); the docker runtime generator's native_observability_providers for the 'tracing' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "local",
+      "surface": "native_observability_providers:tracing",
+      "coordinate": "application-insights",
+      "reason": "the local docker-compose provider identity does not natively realize tracing provider 'application-insights' (native to azure); the local docker-compose provider identity's native_observability_providers for the 'tracing' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "local",
+      "surface": "native_observability_providers:tracing",
+      "coordinate": "xray",
+      "reason": "the local docker-compose provider identity does not natively realize tracing provider 'xray' (native to aws); the local docker-compose provider identity's native_observability_providers for the 'tracing' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "aws",
+      "surface": "native_observability_providers:visualization",
+      "coordinate": "azure-monitor",
+      "reason": "AWS does not natively realize visualization provider 'azure-monitor' (native to azure); AWS's native_observability_providers for the 'visualization' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "aws",
+      "surface": "native_observability_providers:visualization",
+      "coordinate": "grafana",
+      "reason": "AWS does not natively realize visualization provider 'grafana' (native to docker, local); AWS's native_observability_providers for the 'visualization' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "azure",
+      "surface": "native_observability_providers:visualization",
+      "coordinate": "cloudwatch",
+      "reason": "Azure does not natively realize visualization provider 'cloudwatch' (native to aws); Azure's native_observability_providers for the 'visualization' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "azure",
+      "surface": "native_observability_providers:visualization",
+      "coordinate": "grafana",
+      "reason": "Azure does not natively realize visualization provider 'grafana' (native to docker, local); Azure's native_observability_providers for the 'visualization' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "docker",
+      "surface": "native_observability_providers:visualization",
+      "coordinate": "azure-monitor",
+      "reason": "the docker runtime generator does not natively realize visualization provider 'azure-monitor' (native to azure); the docker runtime generator's native_observability_providers for the 'visualization' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "docker",
+      "surface": "native_observability_providers:visualization",
+      "coordinate": "cloudwatch",
+      "reason": "the docker runtime generator does not natively realize visualization provider 'cloudwatch' (native to aws); the docker runtime generator's native_observability_providers for the 'visualization' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "local",
+      "surface": "native_observability_providers:visualization",
+      "coordinate": "azure-monitor",
+      "reason": "the local docker-compose provider identity does not natively realize visualization provider 'azure-monitor' (native to azure); the local docker-compose provider identity's native_observability_providers for the 'visualization' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "local",
+      "surface": "native_observability_providers:visualization",
+      "coordinate": "cloudwatch",
+      "reason": "the local docker-compose provider identity does not natively realize visualization provider 'cloudwatch' (native to aws); the local docker-compose provider identity's native_observability_providers for the 'visualization' category lists only its own native provider(s)."
+    },
+    {
+      "platform": "aws",
+      "surface": "scalar",
+      "coordinate": "realizes_inprocess_async_hosting",
+      "reason": "Only Azure declares realizes_inprocess_async_hosting=True. AWS realizes the ServerlessSectionConfig.hosting in-process mode differently (or not at all) today."
+    },
+    {
+      "platform": "docker",
+      "surface": "scalar",
+      "coordinate": "identity_plan_wheel_deployed",
+      "reason": "the docker runtime generator declares identity_plan_wheel_deployed=False (the default); it mounts and deploy-time-rewrites the identity provider plan instead of bundling it into a self-contained wheel package, unlike aws/azure's wheel-deployed services."
+    },
+    {
+      "platform": "docker",
+      "surface": "scalar",
+      "coordinate": "owns_provider_platform_generator",
+      "reason": "the docker runtime generator declares owns_provider_platform_generator=False (the default); only the cloud platforms that emit provider infrastructure (aws, azure) declare True. Docker/local's container output is owned by the docker runtime generator axis instead of a provider-owned platform generator."
+    },
+    {
+      "platform": "docker",
+      "surface": "scalar",
+      "coordinate": "provides_cdn_cache_invalidation",
+      "reason": "the docker runtime generator declares no provides_cdn_cache_invalidation (defaults to False); only AWS declares True (CloudFront app-code SDK invalidation). the docker runtime generator provisions no equivalent app-code CDN-invalidation SDK utility today."
+    },
+    {
+      "platform": "docker",
+      "surface": "scalar",
+      "coordinate": "cdn_invalidation_realization",
+      "reason": "the docker runtime generator declares no cdn_invalidation_realization (defaults to None) because it also declares provides_cdn_cache_invalidation=False -- the field's own __post_init__ invariant requires a realization only when that flag is True. Only AWS declares both."
+    },
+    {
+      "platform": "docker",
+      "surface": "scalar",
+      "coordinate": "realizes_inprocess_async_hosting",
+      "reason": "the docker runtime generator declares no realizes_inprocess_async_hosting (defaults to False); only Azure realizes the per-profile ServerlessSectionConfig.hosting in-process mode. the docker runtime generator realizes serverless/async hosting differently (or not at all) today."
+    },
+    {
+      "platform": "docker",
+      "surface": "scalar",
+      "coordinate": "requires_trusted_caller_behind_managed_gateway",
+      "reason": "the docker runtime generator declares no requires_trusted_caller_behind_managed_gateway (defaults to False); only Azure's services sit behind a managed gateway that requires the trusted-caller middleware + peer-client token attachment. the docker runtime generator's front door has no equivalent prerequisite today."
+    },
+    {
+      "platform": "local",
+      "surface": "scalar",
+      "coordinate": "identity_plan_wheel_deployed",
+      "reason": "the local docker-compose provider identity declares identity_plan_wheel_deployed=False (the default); it mounts and deploy-time-rewrites the identity provider plan instead of bundling it into a self-contained wheel package, unlike aws/azure's wheel-deployed services."
+    },
+    {
+      "platform": "local",
+      "surface": "scalar",
+      "coordinate": "owns_provider_platform_generator",
+      "reason": "the local docker-compose provider identity declares owns_provider_platform_generator=False (the default); only the cloud platforms that emit provider infrastructure (aws, azure) declare True. Docker/local's container output is owned by the docker runtime generator axis instead of a provider-owned platform generator."
+    },
+    {
+      "platform": "local",
+      "surface": "scalar",
+      "coordinate": "provides_cdn_cache_invalidation",
+      "reason": "the local docker-compose provider identity declares no provides_cdn_cache_invalidation (defaults to False); only AWS declares True (CloudFront app-code SDK invalidation). the local docker-compose provider identity provisions no equivalent app-code CDN-invalidation SDK utility today."
+    },
+    {
+      "platform": "local",
+      "surface": "scalar",
+      "coordinate": "cdn_invalidation_realization",
+      "reason": "the local docker-compose provider identity declares no cdn_invalidation_realization (defaults to None) because it also declares provides_cdn_cache_invalidation=False -- the field's own __post_init__ invariant requires a realization only when that flag is True. Only AWS declares both."
+    },
+    {
+      "platform": "local",
+      "surface": "scalar",
+      "coordinate": "realizes_inprocess_async_hosting",
+      "reason": "the local docker-compose provider identity declares no realizes_inprocess_async_hosting (defaults to False); only Azure realizes the per-profile ServerlessSectionConfig.hosting in-process mode. the local docker-compose provider identity realizes serverless/async hosting differently (or not at all) today."
+    },
+    {
+      "platform": "local",
+      "surface": "scalar",
+      "coordinate": "requires_trusted_caller_behind_managed_gateway",
+      "reason": "the local docker-compose provider identity declares no requires_trusted_caller_behind_managed_gateway (defaults to False); only Azure's services sit behind a managed gateway that requires the trusted-caller middleware + peer-client token attachment. the local docker-compose provider identity's front door has no equivalent prerequisite today."
+    },
+    {
+      "platform": "aws",
+      "surface": "scalar:container_scaffold_runtimes",
+      "coordinate": "app-runner",
+      "reason": "AWS does not contribute container/orchestration scaffolding for runtime 'app-runner'. Only the docker platform generator declares container_scaffold_runtimes (it owns Dockerfile/compose emission for every container-based runtime); AWS emits no such scaffolding for this runtime."
+    },
+    {
+      "platform": "aws",
+      "surface": "scalar:container_scaffold_runtimes",
+      "coordinate": "azure-app-service-container",
+      "reason": "AWS does not contribute container/orchestration scaffolding for runtime 'azure-app-service-container'. Only the docker platform generator declares container_scaffold_runtimes (it owns Dockerfile/compose emission for every container-based runtime); AWS emits no such scaffolding for this runtime."
+    },
+    {
+      "platform": "aws",
+      "surface": "scalar:container_scaffold_runtimes",
+      "coordinate": "docker-compose",
+      "reason": "AWS does not contribute container/orchestration scaffolding for runtime 'docker-compose'. Only the docker platform generator declares container_scaffold_runtimes (it owns Dockerfile/compose emission for every container-based runtime); AWS emits no such scaffolding for this runtime."
+    },
+    {
+      "platform": "aws",
+      "surface": "scalar:container_scaffold_runtimes",
+      "coordinate": "ecs-fargate",
+      "reason": "AWS does not contribute container/orchestration scaffolding for runtime 'ecs-fargate'. Only the docker platform generator declares container_scaffold_runtimes (it owns Dockerfile/compose emission for every container-based runtime); AWS emits no such scaffolding for this runtime."
+    },
+    {
+      "platform": "azure",
+      "surface": "scalar:container_scaffold_runtimes",
+      "coordinate": "app-runner",
+      "reason": "Azure does not contribute container/orchestration scaffolding for runtime 'app-runner'. Only the docker platform generator declares container_scaffold_runtimes (it owns Dockerfile/compose emission for every container-based runtime); Azure emits no such scaffolding for this runtime."
+    },
+    {
+      "platform": "azure",
+      "surface": "scalar:container_scaffold_runtimes",
+      "coordinate": "azure-app-service-container",
+      "reason": "Azure does not contribute container/orchestration scaffolding for runtime 'azure-app-service-container'. Only the docker platform generator declares container_scaffold_runtimes (it owns Dockerfile/compose emission for every container-based runtime); Azure emits no such scaffolding for this runtime."
+    },
+    {
+      "platform": "azure",
+      "surface": "scalar:container_scaffold_runtimes",
+      "coordinate": "docker-compose",
+      "reason": "Azure does not contribute container/orchestration scaffolding for runtime 'docker-compose'. Only the docker platform generator declares container_scaffold_runtimes (it owns Dockerfile/compose emission for every container-based runtime); Azure emits no such scaffolding for this runtime."
+    },
+    {
+      "platform": "azure",
+      "surface": "scalar:container_scaffold_runtimes",
+      "coordinate": "ecs-fargate",
+      "reason": "Azure does not contribute container/orchestration scaffolding for runtime 'ecs-fargate'. Only the docker platform generator declares container_scaffold_runtimes (it owns Dockerfile/compose emission for every container-based runtime); Azure emits no such scaffolding for this runtime."
+    },
+    {
+      "platform": "local",
+      "surface": "scalar:container_scaffold_runtimes",
+      "coordinate": "app-runner",
+      "reason": "the local docker-compose provider identity does not contribute container/orchestration scaffolding for runtime 'app-runner'. Only the docker platform generator declares container_scaffold_runtimes (it owns Dockerfile/compose emission for every container-based runtime); the local docker-compose provider identity emits no such scaffolding for this runtime."
+    },
+    {
+      "platform": "local",
+      "surface": "scalar:container_scaffold_runtimes",
+      "coordinate": "azure-app-service-container",
+      "reason": "the local docker-compose provider identity does not contribute container/orchestration scaffolding for runtime 'azure-app-service-container'. Only the docker platform generator declares container_scaffold_runtimes (it owns Dockerfile/compose emission for every container-based runtime); the local docker-compose provider identity emits no such scaffolding for this runtime."
+    },
+    {
+      "platform": "local",
+      "surface": "scalar:container_scaffold_runtimes",
+      "coordinate": "docker-compose",
+      "reason": "the local docker-compose provider identity does not contribute container/orchestration scaffolding for runtime 'docker-compose'. Only the docker platform generator declares container_scaffold_runtimes (it owns Dockerfile/compose emission for every container-based runtime); the local docker-compose provider identity emits no such scaffolding for this runtime."
+    },
+    {
+      "platform": "local",
+      "surface": "scalar:container_scaffold_runtimes",
+      "coordinate": "ecs-fargate",
+      "reason": "the local docker-compose provider identity does not contribute container/orchestration scaffolding for runtime 'ecs-fargate'. Only the docker platform generator declares container_scaffold_runtimes (it owns Dockerfile/compose emission for every container-based runtime); the local docker-compose provider identity emits no such scaffolding for this runtime."
+    },
+    {
+      "platform": "azure",
+      "surface": "scalar:native_cloud_helper_packages",
+      "coordinate": "push",
+      "reason": "Azure declares no native_cloud_helper_packages entry for the 'push' ambient helper capability; only AWS declares native boto3/botocore cloud-SDK packages for this helper today. Azure ships no equivalent native cloud-helper SDK for it."
+    },
+    {
+      "platform": "azure",
+      "surface": "scalar:native_cloud_helper_packages",
+      "coordinate": "sms",
+      "reason": "Azure declares no native_cloud_helper_packages entry for the 'sms' ambient helper capability; only AWS declares native boto3/botocore cloud-SDK packages for this helper today. Azure ships no equivalent native cloud-helper SDK for it."
+    },
+    {
+      "platform": "azure",
+      "surface": "scalar:native_cloud_helper_packages",
+      "coordinate": "storage",
+      "reason": "Azure declares no native_cloud_helper_packages entry for the 'storage' ambient helper capability; only AWS declares native boto3/botocore cloud-SDK packages for this helper today. Azure ships no equivalent native cloud-helper SDK for it."
+    },
+    {
+      "platform": "azure",
+      "surface": "scalar:native_cloud_helper_packages",
+      "coordinate": "identity",
+      "reason": "Azure declares no native_cloud_helper_packages entry for the 'identity' ambient helper capability; only AWS declares native boto3/botocore cloud-SDK packages for it (Cognito's admin-api-attribute write-back client calls boto3's cognito-idp AdminUpdateUserAttributes). Azure ships no equivalent native cloud-helper SDK for it."
+    },
+    {
+      "platform": "docker",
+      "surface": "scalar:native_cloud_helper_packages",
+      "coordinate": "push",
+      "reason": "the docker runtime generator declares no native_cloud_helper_packages entry for the 'push' ambient helper capability; only AWS declares native boto3/botocore cloud-SDK packages for this helper today. the docker runtime generator ships no equivalent native cloud-helper SDK for it."
+    },
+    {
+      "platform": "docker",
+      "surface": "scalar:native_cloud_helper_packages",
+      "coordinate": "sms",
+      "reason": "the docker runtime generator declares no native_cloud_helper_packages entry for the 'sms' ambient helper capability; only AWS declares native boto3/botocore cloud-SDK packages for this helper today. the docker runtime generator ships no equivalent native cloud-helper SDK for it."
+    },
+    {
+      "platform": "docker",
+      "surface": "scalar:native_cloud_helper_packages",
+      "coordinate": "storage",
+      "reason": "the docker runtime generator declares no native_cloud_helper_packages entry for the 'storage' ambient helper capability; only AWS declares native boto3/botocore cloud-SDK packages for this helper today. the docker runtime generator ships no equivalent native cloud-helper SDK for it."
+    },
+    {
+      "platform": "docker",
+      "surface": "scalar:native_cloud_helper_packages",
+      "coordinate": "identity",
+      "reason": "the docker runtime generator declares no native_cloud_helper_packages entry for the 'identity' ambient helper capability; only AWS declares native boto3/botocore cloud-SDK packages for it (Cognito's admin-api-attribute write-back client calls boto3's cognito-idp AdminUpdateUserAttributes). the docker runtime generator ships no equivalent native cloud-helper SDK for it."
+    },
+    {
+      "platform": "local",
+      "surface": "scalar:native_cloud_helper_packages",
+      "coordinate": "push",
+      "reason": "the local docker-compose provider identity declares no native_cloud_helper_packages entry for the 'push' ambient helper capability; only AWS declares native boto3/botocore cloud-SDK packages for this helper today. the local docker-compose provider identity ships no equivalent native cloud-helper SDK for it."
+    },
+    {
+      "platform": "local",
+      "surface": "scalar:native_cloud_helper_packages",
+      "coordinate": "sms",
+      "reason": "the local docker-compose provider identity declares no native_cloud_helper_packages entry for the 'sms' ambient helper capability; only AWS declares native boto3/botocore cloud-SDK packages for this helper today. the local docker-compose provider identity ships no equivalent native cloud-helper SDK for it."
+    },
+    {
+      "platform": "local",
+      "surface": "scalar:native_cloud_helper_packages",
+      "coordinate": "storage",
+      "reason": "the local docker-compose provider identity declares no native_cloud_helper_packages entry for the 'storage' ambient helper capability; only AWS declares native boto3/botocore cloud-SDK packages for this helper today. the local docker-compose provider identity ships no equivalent native cloud-helper SDK for it."
+    },
+    {
+      "platform": "local",
+      "surface": "scalar:native_cloud_helper_packages",
+      "coordinate": "identity",
+      "reason": "the local docker-compose provider identity declares no native_cloud_helper_packages entry for the 'identity' ambient helper capability; only AWS declares native boto3/botocore cloud-SDK packages for it (Cognito's admin-api-attribute write-back client calls boto3's cognito-idp AdminUpdateUserAttributes). the local docker-compose provider identity ships no equivalent native cloud-helper SDK for it."
+    },
+    {
+      "platform": "docker",
+      "surface": "scalar:native_notification_vendors",
+      "coordinate": "push",
+      "reason": "the docker runtime generator declares no native_notification_vendors entry for the 'push' channel; docker/local's declared native vendor column covers only 'email' (smtp, the only vendor this self-hosted target can actually provision) -- an undeclared 'push' channel falls back to the shared cross-platform channel default instead of a the docker runtime generator-native vendor."
+    },
+    {
+      "platform": "docker",
+      "surface": "scalar:native_notification_vendors",
+      "coordinate": "sms",
+      "reason": "the docker runtime generator declares no native_notification_vendors entry for the 'sms' channel; docker/local's declared native vendor column covers only 'email' (smtp, the only vendor this self-hosted target can actually provision) -- an undeclared 'sms' channel falls back to the shared cross-platform channel default instead of a the docker runtime generator-native vendor."
+    },
+    {
+      "platform": "local",
+      "surface": "scalar:native_notification_vendors",
+      "coordinate": "push",
+      "reason": "the local docker-compose provider identity declares no native_notification_vendors entry for the 'push' channel; docker/local's declared native vendor column covers only 'email' (smtp, the only vendor this self-hosted target can actually provision) -- an undeclared 'push' channel falls back to the shared cross-platform channel default instead of a the local docker-compose provider identity-native vendor."
+    },
+    {
+      "platform": "local",
+      "surface": "scalar:native_notification_vendors",
+      "coordinate": "sms",
+      "reason": "the local docker-compose provider identity declares no native_notification_vendors entry for the 'sms' channel; docker/local's declared native vendor column covers only 'email' (smtp, the only vendor this self-hosted target can actually provision) -- an undeclared 'sms' channel falls back to the shared cross-platform channel default instead of a the local docker-compose provider identity-native vendor."
+    },
+    {
+      "platform": "aws",
+      "surface": "scalar:platform_allowed_host_patterns",
+      "coordinate": "*.azurewebsites.net",
+      "reason": "AWS declares no additional settings.ALLOWED_HOSTS pattern '*.azurewebsites.net'; only Azure's App Service runtime front-door presents this fixed single-label host pattern in the HTTP Host header. AWS serves on no such fixed single-label domain."
+    },
+    {
+      "platform": "azure",
+      "surface": "scalar:platform_allowed_host_patterns",
+      "coordinate": "*.awsapprunner.com",
+      "reason": "Azure declares no additional settings.ALLOWED_HOSTS pattern '*.awsapprunner.com'; only AWS's App Runner runtime front-door presents this fixed single-label host pattern in the HTTP Host header. Azure serves on no such fixed single-label domain."
+    },
+    {
+      "platform": "docker",
+      "surface": "scalar:platform_allowed_host_patterns",
+      "coordinate": "*.awsapprunner.com",
+      "reason": "the docker runtime generator declares no additional settings.ALLOWED_HOSTS pattern '*.awsapprunner.com'; only AWS's App Runner runtime front-door presents this fixed single-label host pattern in the HTTP Host header. the docker runtime generator serves on no such fixed single-label domain."
+    },
+    {
+      "platform": "docker",
+      "surface": "scalar:platform_allowed_host_patterns",
+      "coordinate": "*.azurewebsites.net",
+      "reason": "the docker runtime generator declares no additional settings.ALLOWED_HOSTS pattern '*.azurewebsites.net'; only Azure's App Service runtime front-door presents this fixed single-label host pattern in the HTTP Host header. the docker runtime generator serves on no such fixed single-label domain."
+    },
+    {
+      "platform": "local",
+      "surface": "scalar:platform_allowed_host_patterns",
+      "coordinate": "*.awsapprunner.com",
+      "reason": "the local docker-compose provider identity declares no additional settings.ALLOWED_HOSTS pattern '*.awsapprunner.com'; only AWS's App Runner runtime front-door presents this fixed single-label host pattern in the HTTP Host header. the local docker-compose provider identity serves on no such fixed single-label domain."
+    },
+    {
+      "platform": "local",
+      "surface": "scalar:platform_allowed_host_patterns",
+      "coordinate": "*.azurewebsites.net",
+      "reason": "the local docker-compose provider identity declares no additional settings.ALLOWED_HOSTS pattern '*.azurewebsites.net'; only Azure's App Service runtime front-door presents this fixed single-label host pattern in the HTTP Host header. the local docker-compose provider identity serves on no such fixed single-label domain."
+    },
+    {
+      "platform": "aws",
+      "surface": "scalar:supported_config_stores",
+      "coordinate": "(<ConfigStoreEngine.AZURE_MANAGED: 'azure-managed'>, <ConfigStorePlatform.MANAGED: 'managed'>)",
+      "reason": "AWS does not declare this (config-store engine, platform) combination in supported_config_stores (native to azure); AWS realizes only the engine/platform pairs it can actually provision."
+    },
+    {
+      "platform": "aws",
+      "surface": "scalar:supported_config_stores",
+      "coordinate": "(<ConfigStoreEngine.CONSUL: 'consul'>, <ConfigStorePlatform.CONTAINER: 'container'>)",
+      "reason": "AWS does not declare this (config-store engine, platform) combination in supported_config_stores (native to docker, local); AWS realizes only the engine/platform pairs it can actually provision."
+    },
+    {
+      "platform": "aws",
+      "surface": "scalar:supported_config_stores",
+      "coordinate": "(<ConfigStoreEngine.FILE: 'file'>, <ConfigStorePlatform.CONTAINER: 'container'>)",
+      "reason": "AWS does not declare this (config-store engine, platform) combination in supported_config_stores (native to docker, local); AWS realizes only the engine/platform pairs it can actually provision."
+    },
+    {
+      "platform": "azure",
+      "surface": "scalar:supported_config_stores",
+      "coordinate": "(<ConfigStoreEngine.AWS_MANAGED: 'aws-managed'>, <ConfigStorePlatform.MANAGED: 'managed'>)",
+      "reason": "Azure does not declare this (config-store engine, platform) combination in supported_config_stores (native to aws); Azure realizes only the engine/platform pairs it can actually provision."
+    },
+    {
+      "platform": "azure",
+      "surface": "scalar:supported_config_stores",
+      "coordinate": "(<ConfigStoreEngine.CONSUL: 'consul'>, <ConfigStorePlatform.CONTAINER: 'container'>)",
+      "reason": "Azure does not declare this (config-store engine, platform) combination in supported_config_stores (native to docker, local); Azure realizes only the engine/platform pairs it can actually provision."
+    },
+    {
+      "platform": "azure",
+      "surface": "scalar:supported_config_stores",
+      "coordinate": "(<ConfigStoreEngine.FILE: 'file'>, <ConfigStorePlatform.CONTAINER: 'container'>)",
+      "reason": "Azure does not declare this (config-store engine, platform) combination in supported_config_stores (native to docker, local); Azure realizes only the engine/platform pairs it can actually provision."
+    },
+    {
+      "platform": "docker",
+      "surface": "scalar:supported_config_stores",
+      "coordinate": "(<ConfigStoreEngine.AWS_MANAGED: 'aws-managed'>, <ConfigStorePlatform.MANAGED: 'managed'>)",
+      "reason": "the docker runtime generator does not declare this (config-store engine, platform) combination in supported_config_stores (native to aws); the docker runtime generator realizes only the engine/platform pairs it can actually provision."
+    },
+    {
+      "platform": "docker",
+      "surface": "scalar:supported_config_stores",
+      "coordinate": "(<ConfigStoreEngine.AZURE_MANAGED: 'azure-managed'>, <ConfigStorePlatform.MANAGED: 'managed'>)",
+      "reason": "the docker runtime generator does not declare this (config-store engine, platform) combination in supported_config_stores (native to azure); the docker runtime generator realizes only the engine/platform pairs it can actually provision."
+    },
+    {
+      "platform": "local",
+      "surface": "scalar:supported_config_stores",
+      "coordinate": "(<ConfigStoreEngine.AWS_MANAGED: 'aws-managed'>, <ConfigStorePlatform.MANAGED: 'managed'>)",
+      "reason": "the local docker-compose provider identity does not declare this (config-store engine, platform) combination in supported_config_stores (native to aws); the local docker-compose provider identity realizes only the engine/platform pairs it can actually provision."
+    },
+    {
+      "platform": "local",
+      "surface": "scalar:supported_config_stores",
+      "coordinate": "(<ConfigStoreEngine.AZURE_MANAGED: 'azure-managed'>, <ConfigStorePlatform.MANAGED: 'managed'>)",
+      "reason": "the local docker-compose provider identity does not declare this (config-store engine, platform) combination in supported_config_stores (native to azure); the local docker-compose provider identity realizes only the engine/platform pairs it can actually provision."
+    },
+    {
+      "platform": "aws",
+      "surface": "supported_runtimes",
+      "coordinate": "azure-app-service",
+      "reason": "AWS does not declare deployment runtime 'azure-app-service' in its supported_runtimes (native to azure); AWS is not a valid deployment target for that runtime."
+    },
+    {
+      "platform": "aws",
+      "surface": "supported_runtimes",
+      "coordinate": "azure-app-service-container",
+      "reason": "AWS does not declare deployment runtime 'azure-app-service-container' in its supported_runtimes (native to azure); AWS is not a valid deployment target for that runtime."
+    },
+    {
+      "platform": "aws",
+      "surface": "supported_runtimes",
+      "coordinate": "docker-compose",
+      "reason": "AWS does not declare deployment runtime 'docker-compose' in its supported_runtimes (native to docker, local); AWS is not a valid deployment target for that runtime."
+    },
+    {
+      "platform": "azure",
+      "surface": "supported_runtimes",
+      "coordinate": "app-runner",
+      "reason": "Azure does not declare deployment runtime 'app-runner' in its supported_runtimes (native to aws); Azure is not a valid deployment target for that runtime."
+    },
+    {
+      "platform": "azure",
+      "surface": "supported_runtimes",
+      "coordinate": "docker-compose",
+      "reason": "Azure does not declare deployment runtime 'docker-compose' in its supported_runtimes (native to docker, local); Azure is not a valid deployment target for that runtime."
+    },
+    {
+      "platform": "azure",
+      "surface": "supported_runtimes",
+      "coordinate": "ecs-fargate",
+      "reason": "Azure does not declare deployment runtime 'ecs-fargate' in its supported_runtimes (native to aws); Azure is not a valid deployment target for that runtime."
+    },
+    {
+      "platform": "docker",
+      "surface": "supported_runtimes",
+      "coordinate": "app-runner",
+      "reason": "the docker runtime generator does not declare deployment runtime 'app-runner' in its supported_runtimes (native to aws); the docker runtime generator is not a valid deployment target for that runtime."
+    },
+    {
+      "platform": "docker",
+      "surface": "supported_runtimes",
+      "coordinate": "azure-app-service",
+      "reason": "the docker runtime generator does not declare deployment runtime 'azure-app-service' in its supported_runtimes (native to azure); the docker runtime generator is not a valid deployment target for that runtime."
+    },
+    {
+      "platform": "docker",
+      "surface": "supported_runtimes",
+      "coordinate": "azure-app-service-container",
+      "reason": "the docker runtime generator does not declare deployment runtime 'azure-app-service-container' in its supported_runtimes (native to azure); the docker runtime generator is not a valid deployment target for that runtime."
+    },
+    {
+      "platform": "docker",
+      "surface": "supported_runtimes",
+      "coordinate": "ecs-fargate",
+      "reason": "the docker runtime generator does not declare deployment runtime 'ecs-fargate' in its supported_runtimes (native to aws); the docker runtime generator is not a valid deployment target for that runtime."
+    },
+    {
+      "platform": "local",
+      "surface": "supported_runtimes",
+      "coordinate": "app-runner",
+      "reason": "the local docker-compose provider identity does not declare deployment runtime 'app-runner' in its supported_runtimes (native to aws); the local docker-compose provider identity is not a valid deployment target for that runtime."
+    },
+    {
+      "platform": "local",
+      "surface": "supported_runtimes",
+      "coordinate": "azure-app-service",
+      "reason": "the local docker-compose provider identity does not declare deployment runtime 'azure-app-service' in its supported_runtimes (native to azure); the local docker-compose provider identity is not a valid deployment target for that runtime."
+    },
+    {
+      "platform": "local",
+      "surface": "supported_runtimes",
+      "coordinate": "azure-app-service-container",
+      "reason": "the local docker-compose provider identity does not declare deployment runtime 'azure-app-service-container' in its supported_runtimes (native to azure); the local docker-compose provider identity is not a valid deployment target for that runtime."
+    },
+    {
+      "platform": "local",
+      "surface": "supported_runtimes",
+      "coordinate": "ecs-fargate",
+      "reason": "the local docker-compose provider identity does not declare deployment runtime 'ecs-fargate' in its supported_runtimes (native to aws); the local docker-compose provider identity is not a valid deployment target for that runtime."
+    },
+    {
+      "platform": "aws",
+      "surface": "supported_secret_backends",
+      "coordinate": "env",
+      "reason": "AWS does not declare secret backend 'env' in its own supported_secret_backends; it is native to docker, local only (a compose-mounted environment variable, not a cloud secret store). AWS realizes secrets exclusively via its own declared backend(s)."
+    },
+    {
+      "platform": "azure",
+      "surface": "supported_secret_backends",
+      "coordinate": "env",
+      "reason": "Azure does not declare secret backend 'env' in its own supported_secret_backends; it is native to docker, local only (a compose-mounted environment variable, not a cloud secret store). Azure realizes secrets exclusively via its own declared backend(s)."
+    },
+    {
+      "platform": "aws",
+      "surface": "supported_secret_backends",
+      "coordinate": "azure-key-vault",
+      "reason": "AWS does not declare secret backend 'azure-key-vault' in its own supported_secret_backends; it is native to azure only. AWS realizes secrets exclusively via its own declared backend(s)."
+    },
+    {
+      "platform": "aws",
+      "surface": "supported_secret_backends",
+      "coordinate": "docker-secret",
+      "reason": "AWS does not declare secret backend 'docker-secret' in its own supported_secret_backends; it is native to docker, local only. AWS realizes secrets exclusively via its own declared backend(s)."
+    },
+    {
+      "platform": "aws",
+      "surface": "supported_secret_backends",
+      "coordinate": "file",
+      "reason": "AWS does not declare secret backend 'file' in its own supported_secret_backends; it is native to docker, local only. AWS realizes secrets exclusively via its own declared backend(s)."
+    },
+    {
+      "platform": "azure",
+      "surface": "supported_secret_backends",
+      "coordinate": "aws-secrets-manager",
+      "reason": "Azure does not declare secret backend 'aws-secrets-manager' in its own supported_secret_backends; it is native to aws only. Azure realizes secrets exclusively via its own declared backend(s)."
+    },
+    {
+      "platform": "azure",
+      "surface": "supported_secret_backends",
+      "coordinate": "docker-secret",
+      "reason": "Azure does not declare secret backend 'docker-secret' in its own supported_secret_backends; it is native to docker, local only. Azure realizes secrets exclusively via its own declared backend(s)."
+    },
+    {
+      "platform": "azure",
+      "surface": "supported_secret_backends",
+      "coordinate": "file",
+      "reason": "Azure does not declare secret backend 'file' in its own supported_secret_backends; it is native to docker, local only. Azure realizes secrets exclusively via its own declared backend(s)."
+    },
+    {
+      "platform": "docker",
+      "surface": "supported_secret_backends",
+      "coordinate": "aws-secrets-manager",
+      "reason": "the docker runtime generator does not declare secret backend 'aws-secrets-manager' in its own supported_secret_backends; it is native to aws only. the docker runtime generator realizes secrets exclusively via its own declared backend(s)."
+    },
+    {
+      "platform": "docker",
+      "surface": "supported_secret_backends",
+      "coordinate": "azure-key-vault",
+      "reason": "the docker runtime generator does not declare secret backend 'azure-key-vault' in its own supported_secret_backends; it is native to azure only. the docker runtime generator realizes secrets exclusively via its own declared backend(s)."
+    },
+    {
+      "platform": "local",
+      "surface": "supported_secret_backends",
+      "coordinate": "aws-secrets-manager",
+      "reason": "the local docker-compose provider identity does not declare secret backend 'aws-secrets-manager' in its own supported_secret_backends; it is native to aws only. the local docker-compose provider identity realizes secrets exclusively via its own declared backend(s)."
+    },
+    {
+      "platform": "local",
+      "surface": "supported_secret_backends",
+      "coordinate": "azure-key-vault",
+      "reason": "the local docker-compose provider identity does not declare secret backend 'azure-key-vault' in its own supported_secret_backends; it is native to azure only. the local docker-compose provider identity realizes secrets exclusively via its own declared backend(s)."
+    },
+    {
+      "platform": "aws",
+      "surface": "unrealizable_surfaces",
+      "coordinate": "registry",
+      "reason": "AWS declares no unrealizable_surfaces entry for 'registry'; only Azure's generator has an audited, confirmed inability to realize the 'registry{}' config surface. AWS's generator has not been audited against this surface, so it is neither confirmed realizable nor confirmed unrealizable here."
+    },
+    {
+      "platform": "docker",
+      "surface": "unrealizable_surfaces",
+      "coordinate": "registry",
+      "reason": "the docker runtime generator declares no unrealizable_surfaces entry for 'registry'; only Azure's generator has an audited, confirmed inability to realize the 'registry{}' config surface. the docker runtime generator's generator has not been audited against this surface, so it is neither confirmed realizable nor confirmed unrealizable here."
+    },
+    {
+      "platform": "local",
+      "surface": "unrealizable_surfaces",
+      "coordinate": "registry",
+      "reason": "the local docker-compose provider identity declares no unrealizable_surfaces entry for 'registry'; only Azure's generator has an audited, confirmed inability to realize the 'registry{}' config surface. the local docker-compose provider identity's generator has not been audited against this surface, so it is neither confirmed realizable nor confirmed unrealizable here."
+    },
+    {
+      "platform": "aws",
+      "surface": "scalar:supported_gateway_types",
+      "coordinate": "nginx",
+      "reason": "AWS API Gateway (REST and HTTP) is a fully managed edge service with no self-hosted nginx realization; AWS's supported_gateway_types declares only 'managed'."
+    },
+    {
+      "platform": "azure",
+      "surface": "scalar:supported_gateway_types",
+      "coordinate": "nginx",
+      "reason": "Azure API Management is a fully managed edge service with no self-hosted nginx realization; Azure's supported_gateway_types declares only 'managed'."
+    },
+    {
+      "platform": "docker",
+      "surface": "scalar:supported_gateway_types",
+      "coordinate": "managed",
+      "reason": "the docker runtime generator self-hosts only the nginx reverse proxy; it has no cloud-managed gateway service (AWS API Gateway / Azure APIM) realization. the docker runtime generator's supported_gateway_types declares only 'nginx'."
+    },
+    {
+      "platform": "local",
+      "surface": "scalar:supported_gateway_types",
+      "coordinate": "managed",
+      "reason": "the local docker-compose provider identity self-hosts only the nginx reverse proxy; it has no cloud-managed gateway service (AWS API Gateway / Azure APIM) realization. the local docker-compose provider identity's supported_gateway_types declares only 'nginx'."
+    }
+  ]
+}

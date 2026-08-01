@@ -70,7 +70,7 @@ Each new surface lives in one of two config locations, chosen by ownership bound
 | AWS AppConfig rollout (growth/bake/replicate) | `platforms.aws.appConfig` | E | system | `appConfig { rollout { growth = 10; … } }` |
 | AWS CloudFront (connection retries/timeout) | `platforms.aws.cloudFront` | E | system | `cloudFront { connectionRetries = 3; … }` |
 | AWS S3 Lifecycle (transition days) | `platforms.aws.sorLifecycle` | C | system | `sorLifecycle { transitionDays = 90; }` |
-| Azure App Insights (sampling %, retention days) | `platforms.azure.appInsights` | F | system | `appInsights { samplingPercent = 100; … }` |
+| Azure App Insights (retention days, region) | `platforms.azure.appInsights` | F | system | `appInsights { retentionDays = 30; … }` |
 | Azure Event Hubs (retention days) | `platforms.azure.eventHubs` | F | system | `eventHubs { retentionDays = 7; }` |
 | Azure migration job sizing (CPU, memory) | `platforms.azure.migrationJob` | F | system | `migrationJob { cpu = "0.25"; … }` |
 | Azure replica job (timeout, retry limit) | `platforms.azure.replicaJob` | F | system | `replicaJob { timeoutSeconds = 300; … }` |
@@ -140,8 +140,8 @@ config system ecommerce.System {
       azure {
         # Wave F: App Insights
         appInsights {
-          samplingPercent = 100.0;
           retentionDays = 30;
+          region = "eastus2";
         }
         # Wave G: Database defaults
         databaseDefaults {
@@ -584,7 +584,6 @@ config system ecommerce.System {
       tracing { provider = jaeger; samplingRate = 0.1; }
       logging { level = info; format = json; }
     }
-    serviceDiscovery { type = consul; host = "localhost"; port = 8500; }
   }
 
   profile production as "prod" extends base {
@@ -595,11 +594,6 @@ config system ecommerce.System {
     }
     region = "us-east-1";                  # AWS region (required for AWS provider)
     defaultTimeout = 60000;
-    network {                            # VPC configuration (required for AWS)
-      vpcId = "vpc-abc123";
-      appSubnets = ["subnet-app-1", "subnet-app-2"];
-      dataSubnets = ["subnet-data-1", "subnet-data-2"];
-    }
     registry = "123456789012.dkr.ecr.us-east-1.amazonaws.com";  # Docker registry
     secrets {                            # Secrets management
       provider = aws-secrets-manager;     # aws-secrets-manager or azure-key-vault
@@ -1372,6 +1366,14 @@ production:
 | `rateLimit` | Object | Rate limiting configuration |
 | `authentication` | Object | Authentication configuration |
 
+### AWS Platform-Fixed Limits
+
+On the AWS target, API Gateway's request/response payload ceiling (10 MB) and
+the Application Load Balancer's default idle timeout (60 seconds) are fixed
+AWS service defaults, not knobs this generator exposes per-app -- they are
+intentional, undeclarable-per-app platform limits, not missing configuration
+surface.
+
 ---
 
 ## Registry Configuration
@@ -1431,7 +1433,7 @@ test:
 
   tracing:
     enabled: true
-    type: jaeger               # jaeger, zipkin, aws-xray, azure-monitor
+    type: jaeger               # jaeger, aws-xray, azure-monitor
     endpoint: http://localhost:14268/api/traces
     sampleRate: 1.0            # 100% sampling in test
 
@@ -2066,9 +2068,10 @@ config system ecommerce.System {
 }
 ```
 
-Runtime-valid backends are `aws-secrets-manager`, `azure-key-vault`, `file`, and
-`docker-secret`. The `env` and `aws-ssm` backends are **rejected at generation time**
-(they would break the zero-env contract).
+Runtime-valid backends are `aws-secrets-manager`, `azure-key-vault`, `file`,
+`docker-secret`, and `env` (Docker/local only, declared in that platform's
+`supported_secret_backends`). The `aws-ssm` backend no longer exists as a
+`SecretBackend` member.
 
 | Deployment target | Secret store | How the app authenticates |
 |---|---|---|

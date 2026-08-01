@@ -25,12 +25,16 @@ file = "datrix-common/src/datrix_common/builders.py"
 count = 2
 
 [[baseline]]
+file = "datrix-common/src/datrix_common/builtins/member_types.py"
+count = 1
+
+[[baseline]]
 file = "datrix-common/src/datrix_common/config/config_store/compatibility.py"
 count = 2
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/config/datasource/validation.py"
-count = 1
+count = 4
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/config/dcfg/group_models.py"
@@ -46,7 +50,7 @@ count = 7
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/config/deployment_validation.py"
-count = 3
+count = 5
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/config/env_ref_scan.py"
@@ -54,7 +58,7 @@ count = 1
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/config/integrations/detection.py"
-count = 7
+count = 5
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/config/integrations/provisioning.py"
@@ -134,7 +138,11 @@ count = 1
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/extern_service.py"
-count = 24
+count = 23
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/imports.py"
+count = 1
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/ingress.py"
@@ -158,7 +166,7 @@ count = 5
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/service_accessors.py"
-count = 15
+count = 16
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/shared_accessors.py"
@@ -174,7 +182,7 @@ count = 1
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/deployment/connection_surface.py"
-count = 8
+count = 4
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/deployment/secret_backend.py"
@@ -209,12 +217,16 @@ file = "datrix-common/src/datrix_common/generation/framework_secret_handles.py"
 count = 2
 
 [[baseline]]
+file = "datrix-common/src/datrix_common/generation/gateway_routes.py"
+count = 4
+
+[[baseline]]
 file = "datrix-common/src/datrix_common/generation/generator.py"
 count = 2
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/generation/generator_lineup.py"
-count = 2
+count = 3
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/generation/hook_analysis.py"
@@ -230,7 +242,7 @@ count = 1
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/generation/language_generator.py"
-count = 7
+count = 6
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/generation/language_helpers.py"
@@ -238,19 +250,19 @@ count = 9
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/generation/language_runtime_spec.py"
-count = 3
+count = 6
 
 [[baseline]]
-# Reviewed increase (platform-declared notification-vendor defaults): one
-# TYPE_CHECKING import of PlatformCapabilityDeclaration -- a module-top import
-# is a real cycle (plugin.capability's __post_init__ validation imports this
-# module's VENDOR_TOKENS_BY_CHANNEL).
+file = "datrix-common/src/datrix_common/generation/nested_collection_routes.py"
+count = 5
+
+[[baseline]]
 file = "datrix-common/src/datrix_common/generation/notification_vendor_profile.py"
 count = 1
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/generation/orchestrator.py"
-count = 10
+count = 11
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/generation/payment_gateway_dsl.py"
@@ -258,7 +270,7 @@ count = 1
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/generation/plugin_helpers.py"
-count = 6
+count = 7
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/generation/registry.py"
@@ -274,7 +286,7 @@ count = 2
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/generation/service_pubsub_scope.py"
-count = 4
+count = 3
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/generation/snapshot.py"
@@ -314,7 +326,7 @@ count = 2
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/identity/plan_artifact.py"
-count = 7
+count = 8
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/infra/registry.py"
@@ -341,22 +353,12 @@ file = "datrix-common/src/datrix_common/plugin/__init__.py"
 count = 8
 
 [[baseline]]
-# Reviewed increase (platform-declared notification-vendor defaults): +1 for
-# the __post_init__ import of VENDOR_TOKENS_BY_CHANNEL -- a module-top import
-# of the generation package from here is a real cycle (generation.__init__
-# transitively imports plugin.capability via plugin.protocol/registry).
 file = "datrix-common/src/datrix_common/plugin/capability.py"
-count = 3
+count = 2
 
 [[baseline]]
-# Reviewed increase (platform-declared notification-vendor defaults): two
-# TYPE_CHECKING imports (DeploymentConfig, Application -- annotation-only, the
-# plugin layer must not drag the config/model layers in at import time) plus
-# one function-level SystemConfigProfileConfig import inside
-# declaration_for_application (mirrors config.integrations.detection's own
-# deferred import of the same symbol).
 file = "datrix-common/src/datrix_common/plugin/capability_resolution.py"
-count = 3
+count = 4
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/plugin/descriptor.py"
@@ -375,13 +377,7 @@ file = "datrix-common/src/datrix_common/plugin/platform_config_contract.py"
 count = 3
 
 [[baseline]]
-# Type-only GeneratorOutput contract reference (see the
-# language_plugin.py precedent); hand-added, not -UpdateBaseline.
 file = "datrix-common/src/datrix_common/plugin/protocol.py"
-count = 1
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/plugin/registry.py"
 count = 1
 
 [[baseline]]
@@ -411,6 +407,10 @@ count = 22
 [[baseline]]
 file = "datrix-common/src/datrix_common/semantic/api_defaults.py"
 count = 15
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/auth_contract_lowering.py"
+count = 2
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/semantic/callable_blocks.py"
@@ -494,7 +494,7 @@ count = 3
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/semantic/validators/_legacy_auth_shared.py"
-count = 4
+count = 3
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/semantic/validators/_pooling_shared.py"
@@ -578,7 +578,7 @@ count = 2
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/semantic/validators/identity_dangling_provider.py"
-count = 1
+count = 2
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/semantic/validators/identity_endpoint_checks.py"
@@ -618,7 +618,7 @@ count = 4
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/semantic/validators/replayable_topic.py"
-count = 3
+count = 2
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/semantic/validators/required_body.py"
@@ -682,11 +682,11 @@ count = 1
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/testing/identity_example.py"
-count = 2
+count = 3
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/testing/parsing.py"
-count = 5
+count = 8
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/testing/pipelines.py"
@@ -702,7 +702,7 @@ count = 1
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/transpiler/base.py"
-count = 2
+count = 3
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/transpiler/context.py"
@@ -730,7 +730,7 @@ count = 4
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/types/registry.py"
-count = 7
+count = 6
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/utils/engine_helpers.py"
@@ -741,5 +741,9 @@ file = "datrix-common/src/datrix_common/utils/provider_helpers.py"
 count = 1
 
 [[baseline]]
+file = "datrix-common/src/datrix_common/utils/pubsub_helpers.py"
+count = 1
+
+[[baseline]]
 file = "datrix-common/src/datrix_common/utils/service_container_memory.py"
-count = 2
+count = 1

@@ -1,0 +1,18 @@
+{
+  "_comment": [
+    "Examples under datrix/examples/ that are DELIBERATELY not registered in any",
+    "test-projects.json test set, with a reviewed reason -- the example-registry",
+    "consistency gate (datrix/scripts/test/example-registry-gate.ps1) treats every",
+    "OTHER unregistered example as a defect. There is no legitimate reason for an",
+    "example to be permanently excluded from every test set (an example that",
+    "should never run anywhere should not exist under datrix/examples/ at all),",
+    "so this file starts and is expected to stay EMPTY -- it exists as the",
+    "typed escape hatch the house pattern requires, not because a real",
+    "exclusion is anticipated.",
+    "",
+    "expected_count is a pinned, reviewed value: change it only in the same",
+    "change that adds or removes an entry."
+  ],
+  "expected_count": 0,
+  "exclusions": {}
+}

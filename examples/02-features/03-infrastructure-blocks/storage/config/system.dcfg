@@ -9,11 +9,6 @@
     }
     defaultTimeout = 30000;
     maxPageSize = 100;
-    env {
-      DEBUG = false;
-      CORS_ORIGINS = "[\"*\"]";
-      SECRETS_BACKEND = "environment";
-    }
     platforms {
       docker {
         kafka_default_retention_ms = 604800000;
@@ -90,12 +85,6 @@
         provider = "alertmanager";
       }
     }
-    serviceDiscovery {
-      type = "consul";
-      host = "localhost";
-      port = 8500;
-      datacenter = "dc1";
-    }
     configStore {
       engine = "file";
       flavor = "container";
@@ -129,12 +118,6 @@
       tracing {
         endpoint = "http://jaeger:4317";
       }
-    }
-    serviceDiscovery {
-      type = "consul";
-      host = "localhost";
-      port = 8500;
-      datacenter = "dc1";
     }
     region = "us-east-1";
   }

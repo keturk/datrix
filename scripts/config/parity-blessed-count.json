@@ -1,0 +1,12 @@
+{
+  "_comment": [
+    "Grow-only ratchet: the count of blessed (example, language) pairs on",
+    "disk under scripts/config/parity-baselines/. A check run whose LIVE",
+    "count is LOWER than this value fails -- a baseline was deleted",
+    "without recording a park entry in parity-known-nongenerating.json.",
+    "regen-parity-baselines.ps1 is the ONLY writer; it updates this file",
+    "in the same operation as any successful bless. The gate itself",
+    "never writes this file."
+  ],
+  "blessed_count": 74
+}

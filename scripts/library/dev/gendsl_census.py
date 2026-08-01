@@ -26,10 +26,12 @@ multi-platform generator and new targets appear with no edit here.
 
 Usage:
   python scripts/library/dev/gendsl_census.py --language python
+  python scripts/library/dev/gendsl_census.py --self-test
   .\\scripts\\dev\\gendsl-census.ps1 python
 
-Exit codes: 0 = no double-emit offenders, 1 = offenders found,
-2 = usage error (unknown/definition-less target).
+Exit codes: 0 = no double-emit offenders AND no bridgeless-declaring domains,
+1 = at least one of either, 2 = usage error (unknown/definition-less target)
+or the non-vacuity self-test failed.
 """
 
 from __future__ import annotations
@@ -67,6 +69,7 @@ from datrix_common.generation.gendsl_ir import (  # noqa: E402
     FileDefinition,
     GeneratorDefinition,
     IterationBlock,
+    ResolvedFunctionRef,
 )
 from shared.venv import get_datrix_root  # noqa: E402
 
@@ -84,6 +87,11 @@ OUTPUT_FILENAME_TEMPLATE = "gendsl-census-{language}.json"
 
 class UsageError(Exception):
     """Invalid usage or unresolvable input; the script exits with code 2."""
+
+
+#: Definition name used only by the self-test fixtures below -- deliberately
+#: not a real compiled definition name.
+_SELF_TEST_DEFINITION_NAME = "__gendsl_census_self_test__"
 
 
 @dataclass(frozen=True)
@@ -253,6 +261,101 @@ def census_domain(definition_name: str, domain: DomainDefinition) -> DomainCensu
     )
 
 
+def _self_test_clean_domain() -> DomainDefinition:
+    """A domain with one declared file whose builder carries the D4 bridge
+    attribute -- the comparator must report it clean (not bridgeless)."""
+
+    def _bridged_builder() -> None:
+        return None
+
+    setattr(_bridged_builder, MICRO_GENERATOR_ATTR, object)
+    return DomainDefinition(
+        name="clean_domain",
+        feature_gates=(),
+        semantic_requirements=(),
+        context=None,
+        iteration=(),
+        files=(
+            FileDefinition(
+                name="model",
+                language="python",
+                template_name=None,
+                builder=ResolvedFunctionRef(ref="self_test.clean", callable_=_bridged_builder),
+                path_template="{entity.name}.py",
+                collects=None,
+            ),
+        ),
+        appends=(),
+        domain_builders=(),
+    )
+
+
+def _self_test_bridgeless_domain() -> DomainDefinition:
+    """A domain with one declared file whose builder carries NO bridge
+    attribute -- the comparator must report it bridgeless."""
+
+    def _unbridged_builder() -> None:
+        return None
+
+    return DomainDefinition(
+        name="bridgeless_domain",
+        feature_gates=(),
+        semantic_requirements=(),
+        context=None,
+        iteration=(),
+        files=(
+            FileDefinition(
+                name="model",
+                language="python",
+                template_name=None,
+                builder=ResolvedFunctionRef(ref="self_test.bridgeless", callable_=_unbridged_builder),
+                path_template="{entity.name}.py",
+                collects=None,
+            ),
+        ),
+        appends=(),
+        domain_builders=(),
+    )
+
+
+def run_self_test() -> None:
+    """Prove ``census_domain`` can detect a forced bridgeless defect and
+    correctly leaves a clean domain unflagged, before trusting either flag
+    against real data.
+
+    Mirrors the house non-vacuity pattern
+    (``scripts/library/test/supported_domain_parity.py::run_self_test``):
+    feed the comparator a synthetic CLEAN case (must report zero offenders)
+    and a synthetic DEFECT case (must report exactly the planted defect).
+
+    Raises:
+        AssertionError: If either synthetic case does not produce the
+            expected result.
+    """
+    clean_row = census_domain(_SELF_TEST_DEFINITION_NAME, _self_test_clean_domain())
+    if clean_row.double_emit_offender or clean_row.bridgeless_declaring:
+        raise AssertionError(
+            f"Non-vacuity self-test FAILED: census_domain flagged a synthetic "
+            f"CLEAN domain as an offender ({clean_row}) -- the comparator is "
+            f"over-triggering and cannot be trusted to judge real data."
+        )
+
+    bridgeless_row = census_domain(_SELF_TEST_DEFINITION_NAME, _self_test_bridgeless_domain())
+    if not bridgeless_row.bridgeless_declaring:
+        raise AssertionError(
+            f"Non-vacuity self-test FAILED: census_domain did not detect the "
+            f"forced bridgeless defect ({bridgeless_row}) -- a census that "
+            f"cannot detect a real bridgeless domain is worthless."
+        )
+    if bridgeless_row.double_emit_offender:
+        raise AssertionError(
+            f"Non-vacuity self-test FAILED: the bridgeless fixture was also "
+            f"flagged as a double-emit offender ({bridgeless_row}) -- the two "
+            f"flags are not independent, which would make the exit-code OR "
+            f"impossible to attribute to the right defect class."
+        )
+
+
 def run_census(language: str) -> tuple[str, list[GeneratorDefinition], list[DomainCensus]]:
     """Compile-and-walk the census for one installed gendsl target.
 
@@ -357,9 +460,10 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--language",
-        required=True,
+        required=False,
+        default=None,
         help="Installed gendsl target name (e.g. python). Unknown names fail loud "
-        "listing every installed target.",
+        "listing every installed target. Not required with --self-test.",
     )
     parser.add_argument(
         "--output",
@@ -368,6 +472,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         "<workspace>/.tmp/dev/gendsl-census-<language>.json).",
     )
     parser.add_argument("--debug", action="store_true", help="Enable DEBUG logging.")
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help="Run only the non-vacuity self-test and skip the real census.",
+    )
     return parser.parse_args(argv)
 
 
@@ -378,8 +487,9 @@ def main(argv: list[str] | None = None) -> int:
         argv: Argument list (defaults to ``sys.argv[1:]``).
 
     Returns:
-        Process exit code: 0 = no double-emit offenders, 1 = offenders,
-        2 = usage error.
+        Exit code: 0 = no double-emit offenders AND no bridgeless-declaring
+        domains, 1 = at least one of either, 2 = usage error or the
+        non-vacuity self-test failed.
     """
     args = _parse_args(argv if argv is not None else sys.argv[1:])
     logging.basicConfig(
@@ -388,8 +498,23 @@ def main(argv: list[str] | None = None) -> int:
         stream=sys.stderr,
     )
 
-    language = str(args.language)
     try:
+        run_self_test()
+    except AssertionError as exc:
+        logger.error("%s", exc)
+        return EXIT_USAGE
+    if args.self_test:
+        print("Non-vacuity self-test passed.")
+        return EXIT_OK
+
+    try:
+        if not args.language:
+            raise UsageError(
+                "--language is required unless --self-test is passed. Pass an "
+                "installed gendsl target name (e.g. python), or --self-test to "
+                "run only the non-vacuity self-test."
+            )
+        language = str(args.language)
         target_kind, definitions, rows = run_census(language)
     except UsageError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -412,7 +537,11 @@ def main(argv: list[str] | None = None) -> int:
         f"{totals.bridgeless_declaring} bridgeless"
     )
     print(f"Details: {output_path}")
-    return EXIT_OFFENDERS if totals.double_emit_offenders else EXIT_OK
+    return (
+        EXIT_OFFENDERS
+        if totals.double_emit_offenders or totals.bridgeless_declaring
+        else EXIT_OK
+    )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,13 @@
+{
+  "connections": {
+    "book_db_database": "library_books",
+    "book_db_host": "localhost",
+    "book_db_port": 5432,
+    "book_db_user": "postgres",
+    "mq_brokers": "localhost:9092",
+    "mq_port": 9092
+  },
+  "settings": {
+    "debugMode": false
+  }
+}

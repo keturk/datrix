@@ -23,17 +23,20 @@ spans every generator package -- so it belongs as a script under
 not inside any single package's own test suite.
 
 **Each module is imported in its own dedicated subprocess -- never in this
-process.** All seven packages register their genDSL definitions into the
-SAME global ``@generator_definition`` registry within whichever process
-imports them. If two packages' modules were both imported into this one
+process.** Every discovered target registers its genDSL definitions into
+the SAME global ``@generator_definition`` registry within whichever process
+imports them. If two targets' modules were both imported into this one
 process (as a single ``importlib.import_module`` loop would do), a reference
-in package B that would fail to resolve on its own could be silently
-satisfied by a registration that package A's earlier import happened to
+in target B that would fail to resolve on its own could be silently
+satisfied by a registration that target A's earlier import happened to
 make -- reintroducing, inside this script, the exact cross-package coupling
-the pytest test was removed for. Running each package's import in its own
+the pytest test was removed for. Running each target's import in its own
 subprocess guarantees no single process ever holds more than one generator
-package's genDSL modules loaded at once, so each package's corpus is proven
-to resolve entirely on its own.
+package's genDSL modules loaded at once, so each target's corpus is proven
+to resolve entirely on its own. The target set itself is derived from
+``datrix.gendsl_generator_targets`` + ``datrix.platforms`` entry-point
+discovery (see :func:`discover_gendsl_definition_modules`), never a
+hardcoded package count or list.
 
 Usage:
     python gendsl_corpus_resolution.py
@@ -48,18 +51,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 
-#: Every consumer package's genDSL definitions module. Importing each module
-#: triggers eager reference resolution for its full corpus of builder/call/
-#: context/appends references.
-GENDSL_DEFINITION_MODULES: tuple[str, ...] = (
-    "datrix_codegen_python.gendsl.definitions",
-    "datrix_codegen_typescript.gendsl_definitions",
-    "datrix_codegen_sql.gendsl.sql_definitions",
-    "datrix_codegen_docker.gendsl_definitions",
-    "datrix_codegen_aws.gendsl.aws_definitions",
-    "datrix_codegen_azure.gendsl.azure_definitions",
-    "datrix_codegen_component.gendsl_definitions",
-)
+from datrix_codegen_common.gendsl import target_registry
 
 #: Generous ceiling for a single package's genDSL-definitions import. Eager
 #: reference resolution walks one package's compiled IR tree in memory; a
@@ -76,6 +68,42 @@ class ModuleResolutionResult:
     module_name: str
     succeeded: bool
     error_output: str
+
+
+def discover_gendsl_definition_modules() -> tuple[str, ...]:
+    """Derive every discovered gendsl target's definition modules.
+
+    Replaces the former 7-entry hand-authored tuple. Every target
+    registered under `datrix.gendsl_generator_targets` (python, typescript,
+    dotnet, java, sql, component today) contributes its own
+    `GendslTargetContribution.definition_modules`; every platform
+    registered under `datrix.platforms` (aws, azure, docker today)
+    contributes via `target_registry`'s interim platform-definition-module
+    map -- a single source this gate follows automatically once that
+    residual is retired and platform definition modules become a
+    first-class `GendslTargetContribution` fact.
+
+    Calling `target_registry.target_kind_map()`/`definition_modules_for()`
+    here, in this script's own single process, is safe: both only ever
+    import the dependency-light `*_gendsl_registration`-shaped modules
+    (never the heavier `gendsl.definitions` modules whose import runs
+    `@generator_definition` registration as a side effect) -- the
+    one-subprocess-per-package isolation this gate enforces below applies
+    to THOSE modules, not to this discovery step.
+
+    Returns:
+        The sorted, deduplicated tuple of every discovered target's
+        definition-module dotted paths.
+
+    Raises:
+        PluginError: Propagated from target_registry discovery/loading
+            failures -- a bad entry-point registration must fail this
+            gate loud, never silently shrink the corpus it proves.
+    """
+    modules: set[str] = set()
+    for target in target_registry.target_kind_map():
+        modules.update(target_registry.definition_modules_for(target))
+    return tuple(sorted(modules))
 
 
 def configure_logging(debug: bool = False) -> None:
@@ -182,10 +210,12 @@ def main() -> int:
     """
     parser = argparse.ArgumentParser(
         description=(
-            "Prove every consumer package's genDSL builder/call/context/"
+            "Prove every discovered gendsl target's builder/call/context/"
             "appends reference corpus resolves at import time, one "
-            "subprocess per package so no single process ever holds more "
-            "than one generator package's genDSL modules loaded at once."
+            "subprocess per target so no single process ever holds more "
+            "than one generator package's genDSL modules loaded at once. "
+            "The target set is derived from datrix.gendsl_generator_targets "
+            "+ datrix.platforms entry-point discovery -- never hardcoded."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -194,7 +224,12 @@ def main() -> int:
 
     configure_logging(debug=args.debug)
 
-    return check_corpus_resolution(sys.executable, GENDSL_DEFINITION_MODULES)
+    modules = discover_gendsl_definition_modules()
+    logging.getLogger(__name__).info(
+        "Discovered %d genDSL definition module(s) across every registered "
+        "target: %s", len(modules), modules,
+    )
+    return check_corpus_resolution(sys.executable, modules)
 
 
 if __name__ == "__main__":
