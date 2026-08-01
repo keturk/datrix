@@ -72,7 +72,18 @@ This is a communication rule, not a thinking rule: think as much as the problem 
 | Test output / result logs | `D:\datrix\.test-output\` |
 | All other temp / scratch files | `D:\datrix\.tmp\` |
 
-These folders are cleared regularly — never store anything important in them. Create the folder if it doesn't exist. If a tool or command defaults to writing output elsewhere, redirect it to the appropriate folder above.
+These folders are cleared regularly — never store anything important in them. Create them at the workspace root if they don't exist. If a tool or command defaults to writing output elsewhere, redirect it to the appropriate folder above.
+
+**Never create a directory inside a package repo.** Each of these 15 directories is its own **git repository**, and anything an agent drops inside one gets committed and pushed unless a human happens to notice and add an ignore rule:
+
+`datrix`, `datrix-cli`, `datrix-codegen-aws`, `datrix-codegen-azure`, `datrix-codegen-common`, `datrix-codegen-component`, `datrix-codegen-docker`, `datrix-codegen-dotnet`, `datrix-codegen-java`, `datrix-codegen-python`, `datrix-codegen-sql`, `datrix-codegen-typescript`, `datrix-common`, `datrix-extensions`, `datrix-language`
+
+- **No temp/scratch/output directory inside any of them** — no `.test-output\`, `.tmp\`, `.temp\`, `.scratch\`, `.scripts\`, `.agent_output\`, `tmp\`, `temp\`, `scratch\`, at any depth. It goes at the workspace root, per the table above. (`.test_results\`, written by `test.ps1`, is the one sanctioned exception and is already ignored.)
+- **Adding it to `.gitignore` is not the fix** — the ignore entries are a backstop for accidents, not permission to create the folder. The folder does not belong in the repo at all.
+- **A tool that defaults to writing inside the package gets an explicit output path** under one of the workspace folders. Do not let it create its own.
+- **New non-temp directories** (a real source, test, or docs folder) are part of the package's structure: create one only when the work actually calls for it, never as a side effect of a run.
+
+Enforced by the harness: `PreToolUse(Write|Edit|NotebookEdit)` and `PreToolUse(Bash|PowerShell)` → `guard-repo-temp-dirs.py` blocks the write, the `mkdir`, the redirect, and the `-Output*` argument. Inspecting or deleting an existing stray directory stays allowed, so cleanup is never blocked. Its checks are covered by `.claude/hooks/test-repo-temp-dirs.py`.
 
 ## Running Python
 
@@ -81,8 +92,9 @@ These folders are cleared regularly — never store anything important in them. 
 | To do this | Use this |
 |---|---|
 | Run a package's tests | `datrix/scripts/test/test.ps1 <package>` — **suites only; it cannot run an arbitrary script** |
-| Type-check | `datrix/scripts/test/mypy.ps1` |
 | Run a one-off script | `D:\datrix\.venv\Scripts\python.exe <script>` |
+
+**Never run a standalone type-checker.** Type-checking is not part of regular verification — no agent, skill, or gate invokes `mypy` (or any equivalent). Write fully type-hinted code; the package test suites are the gate.
 
 **Never invoke `pytest` directly, and never reverse-engineer `test.ps1` to discover which interpreter it activates** — it's the venv above. Read `datrix/scripts/quick-reference.md` before calling any repo script.
 
@@ -182,7 +194,7 @@ Query `d:/datrix/.logic-map/markers.db` before implementing significant new logi
 
 ## Code Standards
 
-Type hints on all fns; `mypy --strict` must pass. No `Any` (exception: Pydantic `@model_validator(mode="before")` data param). Logging: `logging.getLogger(__name__)`, %-style. Cognitive complexity ≤15; max 3 nesting; early returns. DRY — search existing fns first. Named constants only. Error msgs: what went wrong + expected + valid options + fix suggestion. Testing: real objects only, no `unittest.mock`/`SimpleNamespace`/fakes; guidelines in `datrix-common/docs/contributing/test-guidelines/`.
+Type hints on all fns (written to be strict-clean; never run a type-checker to prove it). No `Any` (exception: Pydantic `@model_validator(mode="before")` data param). Logging: `logging.getLogger(__name__)`, %-style. Cognitive complexity ≤15; max 3 nesting; early returns. DRY — search existing fns first. Named constants only. Error msgs: what went wrong + expected + valid options + fix suggestion. Testing: real objects only, no `unittest.mock`/`SimpleNamespace`/fakes; guidelines in `datrix-common/docs/contributing/test-guidelines/`.
 
 ## No Workarounds
 

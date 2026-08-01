@@ -66,7 +66,7 @@ Includes runaway detection: stops if modified files exceed 2x the estimate or wo
 
 ### `/codegen-review`
 
-Pre-submission quality checklist with 14 items covering: no placeholders, no mocks, mypy strict compliance, test coverage, cognitive complexity, type annotations, logging format, and marker usage. Also includes per-package repository rules for `datrix-common`, `datrix-language`, and `codegen-*`.
+Pre-submission quality checklist with 14 items covering: no placeholders, no mocks, test coverage, cognitive complexity, type annotations, logging format, and marker usage. Also includes per-package repository rules for `datrix-common`, `datrix-language`, and `codegen-*`.
 
 ### `/complexity-reducer`
 
@@ -74,7 +74,7 @@ Refactors Python functions with cognitive complexity above 15. Uses Radon and `c
 
 **Strategies:** early returns, extract helpers, replace flags with state objects, comprehensions, guard clauses, strategy pattern.
 
-**Validation:** AST parsing, `mypy --strict`, `pytest`, behavior preservation.
+**Validation:** AST parsing, `pytest`, behavior preservation.
 
 ### `/delegate`
 

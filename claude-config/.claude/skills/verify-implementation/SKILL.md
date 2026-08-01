@@ -150,7 +150,7 @@ For each finding, in dependency order (fix an enforcement/guard gap before the c
 
 1. **Trace to root cause** before touching code. Understand why the design requirement is unmet — a missing branch, a wrong layer, a dropped surface, a guard that was never wired.
 2. **Design the fix at the most agnostic layer that can own it** (generality-preserving rule). If the requirement is a shared invariant, fix it in the shared layer once — not per-consumer.
-3. **Implement** it. Follow all code standards (type hints, `mypy --strict`, no `Any`, no mocks in tests, named constants, complexity ≤15). If the requirement needed a test that was never written, write it (real objects, per the test guidelines) — but never a cross-package or language/provider matrix test.
+3. **Implement** it. Follow all code standards (full type hints — never run a type-checker, no `Any`, no mocks in tests, named constants, complexity ≤15). If the requirement needed a test that was never written, write it (real objects, per the test guidelines) — but never a cross-package or language/provider matrix test.
 4. **If the root cause is outside the task/design scope** (a pre-existing bug in an unrelated subsystem) → STOP and report it as a blocker; do NOT paper over it with a workaround to make this design "pass".
 
 **Cross-surface discipline:** if you touch a shared layer, list every consuming package and note, for each, the **specific tests that cover the behavior you changed** — those are what you run in Phase 4. The finding's own package is not the whole blast radius, and no package's full suite is the answer either.

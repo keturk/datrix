@@ -3,8 +3,9 @@
 **Purpose:** run the smallest test sweep that is still *sound* for a given change.
 Selection is by provable non-impact (dependency closure), never by sampling or
 "probably fine". This governs which package suites a gate runs; it does not relax
-any other verification a task requires (design-acceptance checks, parity gates,
-mypy).
+any other verification a task requires (design-acceptance checks, parity gates).
+Type-checking is **not** part of any tier: never run `mypy` or any standalone
+type-checker.
 
 This file is git-tracked in the `datrix` repository via the `d:\datrix\.claude` ->
 `d:\datrix\datrix\claude-config\.claude` symlink, so an edit through either path
@@ -42,8 +43,8 @@ sequential sum even though concurrent runs of *different* packages are safe (see
 2. **Task / wave gate:** `affected-gate.ps1 -Projects <changed>` — derives the
    affected set (changed packages + reverse-dependency closure, via
    `affected-set.ps1`'s own closure module) and runs it CONCURRENTLY under a
-   worker budget, returning one verdict. Add `-Mypy` to also run `mypy.ps1`
-   for each changed package inside the same budget.
+   worker budget, returning one verdict. Never pass `-Mypy` — type-checking is
+   not part of regular verification.
 3. **Phase boundary / pre-commit:** `affected-gate.ps1 -Projects <all changes
    so far>` + the repo-level gates whose surface was touched (see "Repo
    gates"). NOT an unconditional `-All`.

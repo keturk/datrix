@@ -1,6 +1,6 @@
 {
-  "target": "D:/datrix/datrix/scripts/library/test",
-  "negative_control": "D:/datrix/datrix/scripts/config/conformance-specs/_fixtures/gendsl-corpus-no-hand-authored-module-tuple/negative-control",
+  "target": "../../library/test",
+  "negative_control": "_fixtures/gendsl-corpus-no-hand-authored-module-tuple/negative-control",
   "assertions": [
     {
       "id": "no-hand-authored-gendsl-module-tuple",

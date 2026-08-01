@@ -3,6 +3,17 @@
 // spec's must_not_contain assertion can prove its pattern is not vacuous (the
 // runner requires the forbidden pattern to appear in the negative_control tree,
 // or the check fails as VACUOUS). Every snippet below is inert plain text.
+//
+// SHARED by four specs (dead-surface-network, dead-surface-service-discovery,
+// dead-surface-gateway-port, dead-surface-gateway-circuit-breaker,
+// dead-surface-tracing-zipkin), which is why it lives under _fixtures/_shared/
+// rather than a per-spec _fixtures/<spec-stem>/ directory. Do not delete or
+// "tidy" any snippet: removing one silently degrades its spec's assertion to
+// "always passes, proves nothing".
+//
+// The filename matters: the runner scans a negative-control tree with the SAME
+// glob as the assertion, and every spec sharing this fixture uses
+// '**/system.dcfg'.
 
 network {
   vpcId = "vpc-control-only";

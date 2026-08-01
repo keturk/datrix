@@ -177,7 +177,7 @@ Process fixes in the planned order from Phase 1 (app definition fixes first).
 3. **Read the affected generator/template code**
 4. **Implement the fix:**
    - Fix the root cause in the generator/template, NOT in generated code
-   - Follow all code standards (type hints, mypy strict, cognitive complexity <=15)
+   - Follow all code standards (full type hints — never run a type-checker, cognitive complexity <=15)
    - Check for logic map markers (`@canonical`, `@pattern`, `@boundary`, `@invariant`) before modifying
 5. **If the fix affects a codegen package with its own fix skill**, delegate. Every codegen package has one, and the name is derived — `datrix-codegen-<lang>` → `/fix-codegen-<lang>`:
    - `datrix-codegen-python` → use `/fix-codegen-python` patterns

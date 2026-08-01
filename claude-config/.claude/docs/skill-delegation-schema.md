@@ -321,7 +321,7 @@ delegation-strategy:
     - name: "quality_gate"
       model: "opus"
       parallelizable: false
-      description: "Run full suite and mypy for final validation"
+      description: "Run full suite for final validation"
 ---
 
 # Execute Tasks
@@ -368,7 +368,7 @@ Run targeted tests and compare to baseline.
 <!-- PHASE: quality_gate -->
 ## Quality Gate
 
-Run full suite and mypy for final validation.
+Run full suite for final validation.
 
 [Self-contained instructions...]
 <!-- END_PHASE: quality_gate -->

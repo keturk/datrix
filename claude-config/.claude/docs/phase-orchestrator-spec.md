@@ -284,7 +284,6 @@ Results: {success_count}/{total_count} successful
 **Quality gate:**
 ```
 Full suite: 185/185 tests passing
-mypy --strict: clean
 No new failures detected.
 ```
 

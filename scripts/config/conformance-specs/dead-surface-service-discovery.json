@@ -1,6 +1,6 @@
 {
-  "target": "D:\\datrix\\datrix\\examples",
-  "negative_control": "D:\\datrix\\datrix\\scripts\\config\\conformance-specs-fixtures\\deleted-config-surfaces-control",
+  "target": "../../../examples",
+  "negative_control": "_fixtures/_shared/deleted-config-surfaces-control",
   "assertions": [
     {
       "id": "service-discovery-block-absent",

@@ -20,7 +20,7 @@ Most checklist items below have a deterministic scanner — run the scanners on 
 | Cognitive complexity ≤15 | `metrics\complexity.ps1 {package}` |
 | No redundant code | `metrics\duplicate.ps1 {package}`; dead code: `metrics\vulture.ps1 {package}` |
 | No magic constants | `dev\find-constants.ps1 {package} -Output D:\datrix\.test-output\strings.md` (report defaults to CWD — always redirect) |
-| No `Any` type annotations | `test\mypy.ps1 {package}` + Grep for `: Any` |
+| No `Any` type annotations | Grep for `: Any` (never run a type-checker) |
 | Lint clean | `metrics\ruff.ps1 {package}` |
 
 Manual judgment remains for: mocks/fakes in tests, test-guideline conformance, docstrings, key=value logging format, logic-map markers, and generated-code validity.

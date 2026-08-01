@@ -219,12 +219,7 @@ Phase prompts should include:
    powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package-name}
    ```
 
-2. Also run mypy:
-   ```
-   mypy --strict src/{package_underscored}/
-   ```
-
-3. Record results:
+2. Record results:
    - Total tests
    - Pass count
    - Fail count
@@ -232,7 +227,6 @@ Phase prompts should include:
 ### Error Conditions
 
 - If test command fails (e.g., package not found) → record error in output JSON
-- If mypy fails → include mypy errors in output
 ```
 
 ### Use Structured Outputs (JSON)
@@ -501,7 +495,7 @@ delegation-strategy:
     - name: "quality_gate"
       model: "opus"
       parallelizable: false
-      description: "Run full suite and mypy"
+      description: "Run full suite"
 ---
 
 # Execute Tasks

@@ -1,6 +1,6 @@
 {
-  "target": "D:/datrix/datrix-codegen-dotnet/src",
-  "negative_control": "D:/datrix/datrix/scripts/config/conformance-specs/_fixtures/no-silent-seed-skip/negative-control",
+  "target": "../../../../datrix-codegen-dotnet/src",
+  "negative_control": "_fixtures/no-silent-seed-skip/negative-control",
   "assertions": [
     {
       "id": "no-silent-seed-skip",

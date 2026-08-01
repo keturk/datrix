@@ -54,6 +54,10 @@
           {
             "type": "command",
             "command": "python \"d:/datrix/.claude/hooks/guard-forbidden-commands.py\""
+          },
+          {
+            "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/guard-repo-temp-dirs.py\""
           }
         ]
       },
@@ -63,6 +67,10 @@
           {
             "type": "command",
             "command": "python \"d:/datrix/.claude/hooks/guard-temp-file-policy.py\""
+          },
+          {
+            "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/guard-repo-temp-dirs.py\""
           },
           {
             "type": "command",

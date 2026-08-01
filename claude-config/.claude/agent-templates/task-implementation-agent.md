@@ -27,7 +27,7 @@ Read the task file at the path above. It contains everything you need: files to 
 
 - Create/modify files as specified in the task
 - Follow all code skeletons, type hints, patterns from the task file
-- Apply full type hints on all functions (`mypy --strict` must pass)
+- Apply full type hints on all functions (written to be strict-clean; never run a type-checker)
 - Use standard logging: `logger = logging.getLogger(__name__)`, %-style formatting
 - Use Jinja2 templates + formatter for code generation (NO raw string concatenation)
 - Delete replaced functionality completely (no dead code, no backward-compat wrappers)

@@ -23,6 +23,22 @@
  rather than running conformance_gate.py by hand once and discarding the
  command.
 
+ PATH CONVENTION, enforced here before any spec runs: a committed spec's
+ 'target' and 'negative_control' must be RELATIVE to the spec file.
+ conformance_gate.py accepts either form (an absolute path is fine for a
+ one-off hand-run spec), but a committed absolute path bakes one machine's
+ checkout location into the repo -- and since the runner hard-fails exit 2
+ on a directory that does not exist, such a spec does not degrade
+ gracefully elsewhere, it simply cannot run. Every spec in this corpus is
+ therefore checked for rooted paths up front, and the whole sweep aborts
+ (exit 2) naming the offenders rather than running a partial corpus.
+
+ Negative-control fixtures live under scripts/config/conformance-specs/
+ _fixtures/ -- per-spec in _fixtures/<spec-stem>/negative-control/, or in
+ _fixtures/_shared/<name>/ when several specs police the same retired
+ surface. A control tree is scanned with its assertion's own glob, so the
+ fixture's filenames must satisfy that glob.
+
  Fails loud (exit 2) if the spec directory is missing or contains zero
  *.json files -- an empty corpus would make this gate vacuously pass.
 
@@ -85,6 +101,28 @@ try {
     $specs = Get-ChildItem -Path $specsDir -Filter "*.json" -File | Sort-Object Name
     if ($specs.Count -eq 0) {
         Write-Host "STANDING CONFORMANCE GATE CANNOT RUN: zero spec files directly under $specsDir -- an empty corpus would be a vacuous pass." -ForegroundColor Red
+        exit 2
+    }
+
+    # Path convention (see .DESCRIPTION): a committed spec must address its
+    # trees relative to itself, so the corpus runs from any checkout location.
+    # Checked for the WHOLE corpus before any spec runs -- a portability defect
+    # is a corpus-level fault, not a per-spec one.
+    $rootedFields = @()
+    foreach ($spec in $specs) {
+        $spec_json = Get-Content -LiteralPath $spec.FullName -Raw | ConvertFrom-Json
+        foreach ($field in @("target", "negative_control")) {
+            $value = $spec_json.$field
+            if ($value -is [string] -and [System.IO.Path]::IsPathRooted($value)) {
+                $rootedFields += "$($spec.Name): '$field' = '$value'"
+            }
+        }
+    }
+    if ($rootedFields.Count -gt 0) {
+        Write-Host "STANDING CONFORMANCE GATE CANNOT RUN: $($rootedFields.Count) committed spec field(s) use an absolute path. A committed spec must address its trees RELATIVE to the spec file, or the corpus only runs on the machine whose checkout path was baked in (the runner hard-fails on a missing directory)." -ForegroundColor Red
+        foreach ($rooted in $rootedFields) {
+            Write-Host "  $rooted" -ForegroundColor Red
+        }
         exit 2
     }
 
