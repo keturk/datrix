@@ -1,0 +1,16 @@
+# Generated for dotnet project
+bin/
+obj/
+*.user
+*.suo
+.vs/
+[Dd]ebug/
+[Rr]elease/
+TestResults/
+
+# Infrastructure (build/state/cache outputs)
+cdk.out/
+.terraform/
+terraform.tfstate*
+.serverless/
+*.tfvars

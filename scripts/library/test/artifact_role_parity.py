@@ -46,9 +46,10 @@ import logging
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Final, cast
 
+from datrix_codegen_common.parity.derived_declarations import DerivationError
 from datrix_codegen_common.parity.domain_declaration import (
     DomainDeclaration,
     DomainDeclarations,
@@ -210,6 +211,32 @@ def language_domain_declarations(language: str) -> DomainDeclarations:
     )
 
 
+#: Package-init marker basenames: language package-structure boilerplate
+#: (e.g. Python's `__init__.py`, created wherever a package directory exists
+#: for ANY reason) rather than domain-specific generated content. A trailing
+#: `*.py`-shaped structural_pattern trivially matches this marker for every
+#: domain whose files happen to share that directory, manufacturing a false
+#: "domain present" signal with no bearing on what the DSL actually declared.
+#: Excluded from classification entirely (routed to "unclassified") rather
+#: than credited to any domain.
+_PACKAGE_MARKER_BASENAMES: Final[frozenset[str]] = frozenset({"__init__.py"})
+
+
+def _pattern_specificity(pattern: str) -> int:
+    """Number of '/'-separated segments in a structural_pattern glob.
+
+    `fnmatch.fnmatch`'s `*` spans `/` (by design -- the leading `*/` absorbs
+    a variable-depth service-directory prefix). A side effect: when one
+    domain's pattern is a strict directory-shallower generalization of a
+    sibling domain's pattern (e.g. struct's `*/src/*/schemas/*.py` vs
+    schema's `*/src/*/schemas/*/*.py`), the shallower pattern also matches
+    files that structurally belong to the deeper, more specific sibling.
+    Segment count is the tie-break: the pattern requiring more path segments
+    is the more specific match for a path both patterns accept.
+    """
+    return pattern.count("/")
+
+
 def classify_paths(
     paths: list[str], declarations: Mapping[str, DomainDeclaration]
 ) -> tuple[frozenset[str], list[str]]:
@@ -217,15 +244,25 @@ def classify_paths(
     SUPPORTED declaration's structural_pattern -- the same glob shape
     `domain_self_consistency._pattern_mismatch_violations` uses.
 
+    When a path matches more than one domain's pattern, only the most
+    SPECIFIC match (see `_pattern_specificity`) is credited -- this is a
+    property of this gate's own aggregation, not a different fnmatch rule:
+    each candidate is still tested with the exact same `fnmatch.fnmatch`
+    call domain_self_consistency uses. A package-init marker basename (see
+    `_PACKAGE_MARKER_BASENAMES`) is routed to `unclassified` before any
+    pattern is even tried -- it is package-structure boilerplate, never
+    domain-specific content.
+
     Args:
         paths: Relative paths from one blessed manifest.
         declarations: `domain_id -> DomainDeclaration`.
 
     Returns:
         `(role_set, unclassified_paths)`. `role_set` is every domain id with
-        >= 1 matching path. `unclassified_paths` is reported by the caller
-        but never compared -- template-level naming legitimately differs by
-        language; the role set is the contract, not the literal path shape.
+        >= 1 matching path (after the most-specific tie-break).
+        `unclassified_paths` is reported by the caller but never compared --
+        template-level naming legitimately differs by language; the role set
+        is the contract, not the literal path shape.
     """
     supported: list[tuple[str, str]] = [
         (domain_id, decl.structural_pattern)
@@ -235,13 +272,21 @@ def classify_paths(
     roles: set[str] = set()
     unclassified: list[str] = []
     for path in paths:
-        matched_any = False
-        for domain_id, pattern in supported:
-            if fnmatch.fnmatch(path, pattern):
-                roles.add(domain_id)
-                matched_any = True
-        if not matched_any:
+        if PurePosixPath(path).name in _PACKAGE_MARKER_BASENAMES:
             unclassified.append(path)
+            continue
+        matches = [
+            (domain_id, pattern)
+            for domain_id, pattern in supported
+            if fnmatch.fnmatch(path, pattern)
+        ]
+        if not matches:
+            unclassified.append(path)
+            continue
+        most_specific = max(_pattern_specificity(pattern) for _, pattern in matches)
+        for domain_id, pattern in matches:
+            if _pattern_specificity(pattern) == most_specific:
+                roles.add(domain_id)
     return frozenset(roles), unclassified
 
 
@@ -313,7 +358,12 @@ def load_exemptions() -> tuple[list[ExemptionEntry], int]:
         domain = raw.get("domain")
         language = raw.get("language")
         reason = raw.get("reason")
-        if not all(isinstance(v, str) and v.strip() for v in (example, domain, language, reason)):
+        if (
+            not isinstance(example, str) or not example.strip()
+            or not isinstance(domain, str) or not domain.strip()
+            or not isinstance(language, str) or not language.strip()
+            or not isinstance(reason, str) or not reason.strip()
+        ):
             raise ValueError(
                 f"exemptions[{i}] must have non-empty string 'example', 'domain', "
                 f"'language', and 'reason' fields; got {raw!r}."
@@ -393,6 +443,56 @@ def run_self_test() -> list[str]:
         problems.append(f"self-test: classify_paths role mismatch: {roles}")
     if unclassified != ["svc/unrelated/readme.md"]:
         problems.append(f"self-test: classify_paths unclassified mismatch: {unclassified}")
+
+    # Package-init marker exclusion: __init__.py sitting in a domain's own
+    # matching directory is package-structure boilerplate, never credited,
+    # even though its bare name would otherwise satisfy a trailing `*` glob.
+    marker_declarations: DomainDeclarations = {
+        _SELF_TEST_DOMAIN_SHARED: DomainDeclaration(
+            domain_id=_SELF_TEST_DOMAIN_SHARED,
+            status="supported",
+            structural_pattern="*/orders/*.py",
+        ),
+    }
+    marker_roles, marker_unclassified = classify_paths(
+        ["svc/orders/__init__.py"], marker_declarations
+    )
+    if marker_roles != frozenset():
+        problems.append(
+            f"self-test: classify_paths credited a package-init marker to a "
+            f"domain: {marker_roles}"
+        )
+    if marker_unclassified != ["svc/orders/__init__.py"]:
+        problems.append(
+            f"self-test: classify_paths did not route the package-init marker to "
+            f"unclassified: {marker_unclassified}"
+        )
+
+    # Most-specific-wins tie-break: a shallow pattern that also matches a
+    # sibling's deeper, more specific path must NOT be credited for that path.
+    _SELF_TEST_DOMAIN_SHALLOW = "self_test_order_shallow"
+    _SELF_TEST_DOMAIN_DEEP = "self_test_order_deep"
+    overlap_declarations: DomainDeclarations = {
+        _SELF_TEST_DOMAIN_SHALLOW: DomainDeclaration(
+            domain_id=_SELF_TEST_DOMAIN_SHALLOW,
+            status="supported",
+            structural_pattern="*/orders/*.txt",
+        ),
+        _SELF_TEST_DOMAIN_DEEP: DomainDeclaration(
+            domain_id=_SELF_TEST_DOMAIN_DEEP,
+            status="supported",
+            structural_pattern="*/orders/*/*.txt",
+        ),
+    }
+    overlap_roles, _ = classify_paths(
+        ["svc/orders/archive/order.txt", "svc/orders/order.txt"], overlap_declarations
+    )
+    if overlap_roles != frozenset({_SELF_TEST_DOMAIN_SHALLOW, _SELF_TEST_DOMAIN_DEEP}):
+        problems.append(
+            f"self-test: classify_paths most-specific tie-break failed: expected both "
+            f"domains credited (one per path, at its own most-specific match), got "
+            f"{overlap_roles}"
+        )
 
     try:
         compare_role_sets({_SELF_TEST_LANGUAGE_A: frozenset()})
@@ -502,7 +602,8 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         Process exit code: 0 = gate passed (or a successful `--self-test`),
         1 = an un-exempted role drift was found, 2 = self-test failure, zero
-        comparable examples, or a malformed exemption file.
+        comparable examples, a malformed exemption file, or an underivable
+        domain declaration.
     """
     args = _parse_args(argv if argv is not None else sys.argv[1:])
     logging.basicConfig(
@@ -523,7 +624,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         return check_artifact_role_parity()
-    except ValueError as exc:
+    except (ValueError, DerivationError) as exc:
         logger.error("ERROR: %s", exc)
         return EXIT_USAGE
 

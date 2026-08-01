@@ -1,0 +1,21 @@
+groups:
+  - name: examples-ingestion-service-standard
+    rules:
+      - alert: HighErrorRate
+        expr: sum(rate(http_errors_total{service="examples-ingestion-service",status_code=~"5.."}[5m])) / clamp_min(sum(rate(http_requests_total{service="examples-ingestion-service"}[5m])), 1e-9) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          service: examples-ingestion-service
+        annotations:
+          summary: "High error rate on examples-ingestion-service"
+          description: "5xx error rate above 5% for 5 minutes."
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service="examples-ingestion-service"}[5m])) by (le)) > 2
+        for: 5m
+        labels:
+          severity: warning
+          service: examples-ingestion-service
+        annotations:
+          summary: "High P95 latency on examples-ingestion-service"
+          description: "P95 latency above 2 seconds for 5 minutes."

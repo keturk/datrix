@@ -1,0 +1,302 @@
+services:
+  warehouse-warehouse-service:
+    build:
+      context: ./warehouse_warehouse_service
+      dockerfile: Dockerfile
+    image: warehouse-warehouse-service:latest
+    container_name: warehouse-warehouse-service
+    ports:
+    - 127.0.0.1::8000
+    environment:
+      PORT: '8000'
+      SERVICE_NAME: warehouse-warehouse-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://warehouse-system-jaeger:4317
+      DEBUG: 'false'
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+      JWT_ALGORITHM: RS256
+      JWT_EXPIRY: '3600'
+      JWT_ISSUER: warehouse
+    depends_on:
+      warehouse-warehouse-service-warehouse-db-db:
+        condition: service_healthy
+      warehouse-system-jaeger:
+        condition: service_healthy
+    volumes:
+    - ./secrets/jwt-private-key.pem:/run/secrets/jwt_private_key:ro
+    - ./secrets/jwt-public-key.pem:/run/secrets/jwt_public_key:ro
+    - ./config/services/warehouse-warehouse-service/config-store.json:/app/config/config-store.json:ro
+    secrets:
+    - source: warehouse-warehouse-service__warehouse_db_password
+      target: warehouse_db_password
+    deploy:
+      resources:
+        limits:
+          cpus: 0.5
+          memory: 512M
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget --no-verbose --tries=1 --spider http://localhost:8000/ready || exit 1
+      interval: 10s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    networks:
+    - backend
+    - database
+    - observability
+    restart: unless-stopped
+  warehouse-warehouse-service-warehouse-db-db:
+    image: postgis/postgis:17-3.5
+    platform: linux/amd64
+    container_name: warehouse-warehouse-service-warehouse-db-db
+    ports:
+    - '5432'
+    environment:
+      POSTGRES_DB: warehouse_geo
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: u0B8oimX-SOMDqlLCte5zpbX
+    volumes:
+    - warehouse-warehouse-service-warehouse-db-db-data:/var/lib/postgresql/data
+    - ./scripts/init-db/warehouse-warehouse-service-warehouse-db-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U $$POSTGRES_USER
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+    - database
+    restart: unless-stopped
+  warehouse-system-cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: warehouse-system-cadvisor
+    ports:
+    - '8080'
+    volumes:
+    - /:/rootfs:ro
+    - /var/run:/var/run:ro
+    - /sys:/sys:ro
+    - /var/lib/docker/:/var/lib/docker:ro
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
+      - http://localhost:8080/healthz
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+    - observability
+    restart: unless-stopped
+  warehouse-system-prometheus:
+    image: prom/prometheus:v2.49.1
+    container_name: warehouse-system-prometheus
+    ports:
+    - '9090'
+    volumes:
+    - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    - ./config/prometheus/rules:/etc/prometheus/rules:ro
+    - prometheus-data:/prometheus
+    command:
+    - --config.file=/etc/prometheus/prometheus.yml
+    - --storage.tsdb.path=/prometheus
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
+      - http://localhost:9090/-/healthy
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+    - backend
+    - observability
+    restart: unless-stopped
+  warehouse-system-jaeger:
+    image: jaegertracing/all-in-one:1.53
+    container_name: warehouse-system-jaeger
+    ports:
+    - '16686'
+    - '14268'
+    - '4317'
+    environment:
+      COLLECTOR_OTLP_ENABLED: 'true'
+    volumes:
+    - ./config/jaeger/sampling_strategies.json:/etc/jaeger/sampling_strategies.json:ro
+    command:
+    - --sampling.strategies-file=/etc/jaeger/sampling_strategies.json
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
+      - http://localhost:14269/
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+    - observability
+    restart: unless-stopped
+  warehouse-system-loki:
+    image: grafana/loki:2.9.10
+    container_name: warehouse-system-loki
+    ports:
+    - '3100'
+    volumes:
+    - loki-data:/loki
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget --no-verbose --tries=1 --spider http://localhost:3100/ready || exit 1
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+    - observability
+    restart: unless-stopped
+  warehouse-system-promtail:
+    image: grafana/promtail:2.9.10
+    container_name: warehouse-system-promtail
+    ports:
+    - '9080'
+    volumes:
+    - ./config/promtail/promtail-config.yaml:/etc/promtail/config.yml:ro
+    - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    - /var/run/docker.sock:/var/run/docker.sock:ro
+    command:
+    - -config.file=/etc/promtail/config.yml
+    depends_on:
+      warehouse-system-loki:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget --no-verbose --tries=1 --spider http://localhost:9080/ready || exit 1
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+    - observability
+    restart: unless-stopped
+  warehouse-system-alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: warehouse-system-alertmanager
+    ports:
+    - '9093'
+    volumes:
+    - ./config/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+    - --config.file=/etc/alertmanager/alertmanager.yml
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget --no-verbose --tries=1 --spider http://localhost:9093/-/healthy || exit
+        1
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+    - observability
+    restart: unless-stopped
+  warehouse-system-grafana:
+    image: grafana/grafana:10.2.3
+    container_name: warehouse-system-grafana
+    ports:
+    - '3000'
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_SERVER_ROOT_URL: http://${GATEWAY_HOST:-localhost}:${GATEWAY_PORT:-8080}/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: 'true'
+    volumes:
+    - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+    - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    - grafana-data:/var/lib/grafana
+    depends_on:
+      warehouse-system-cadvisor:
+        condition: service_healthy
+      warehouse-system-prometheus:
+        condition: service_healthy
+      warehouse-system-jaeger:
+        condition: service_healthy
+      warehouse-system-loki:
+        condition: service_healthy
+      warehouse-system-promtail:
+        condition: service_healthy
+      warehouse-system-alertmanager:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -f http://localhost:3000/api/health || exit 1
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+    - observability
+    restart: unless-stopped
+  warehouse-system-api-gateway:
+    image: nginx:1.25-alpine
+    container_name: warehouse-system-api-gateway
+    ports:
+    - ${GATEWAY_PORT:-8080}:80
+    volumes:
+    - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      warehouse-warehouse-service:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - nginx
+      - -t
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+    - backend
+    - frontend
+    - observability
+    restart: unless-stopped
+volumes:
+  warehouse-warehouse-service-warehouse-db-db-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  loki-data:
+    driver: local
+networks:
+  backend:
+    driver: bridge
+  database:
+    driver: bridge
+  frontend:
+    driver: bridge
+  observability:
+    driver: bridge
+secrets:
+  warehouse-warehouse-service__warehouse_db_password:
+    file: ./secrets/warehouse-warehouse-service/warehouse_db_password

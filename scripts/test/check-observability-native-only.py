@@ -216,9 +216,12 @@ def _step(msg: str) -> None:
     print(f"\n{_CYAN}=== {msg}{_RESET}")
 
 
+#: The self-test fixtures deliberately carry no ``language`` key: the generation
+#: target is a CLI input (``datrix generate --language <lang>``), not system
+#: configuration, and ``SystemConfigProfileConfig`` rejects it outright. A fixture
+#: carrying it aborts this gate before a single real check runs.
 _VIOLATION_DCFG = """config system fixture.System {
   base {
-    language = "python";
     deployment {
       runtime = "ecs-fargate";
       provider = "aws";
@@ -237,7 +240,6 @@ _VIOLATION_DCFG = """config system fixture.System {
 
 _CLEAN_LOCAL_DCFG = """config system fixture.System {
   base {
-    language = "python";
     deployment {
       runtime = "docker-compose";
       provider = "local";
@@ -256,7 +258,6 @@ _CLEAN_LOCAL_DCFG = """config system fixture.System {
 
 _CLEAN_CLOUD_NATIVE_DCFG = """config system fixture.System {
   base {
-    language = "python";
     deployment {
       runtime = "ecs-fargate";
       provider = "aws";

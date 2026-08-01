@@ -1,0 +1,668 @@
+services:
+  library-book-service:
+    build:
+      context: ./library_book_service
+      dockerfile: Dockerfile
+    image: library-book-service:latest
+    container_name: library-book-service
+    ports:
+    - 127.0.0.1::8000
+    environment:
+      PORT: '8000'
+      SERVICE_NAME: library-book-service
+      UV_THREADPOOL_SIZE: '16'
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+      JWT_ALGORITHM: RS256
+      SERVICE_JWT_EXPIRY_MINUTES: ${SERVICE_JWT_EXPIRY_MINUTES:-60}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://library-system-jaeger:4317
+      DEBUG: 'false'
+      JWT_EXPIRY: '3600'
+      JWT_ISSUER: library
+      IDENTITY_MEMBER_CLIENT_SECRET_REF: ${IDENTITY_MEMBER_CLIENT_SECRET_REF}
+      IDENTITY_INTERNAL_CLIENT_SECRET_REF: ${IDENTITY_INTERNAL_CLIENT_SECRET_REF}
+      IDENTITY_MACHINE_CREDENTIALS_FILE: /machine-credentials/credentials.json
+    depends_on:
+      library-system-postgresql:
+        condition: service_healthy
+      library-book-service-cache:
+        condition: service_healthy
+      library-book-service-mq:
+        condition: service_healthy
+      library-book-service-docdb:
+        condition: service_healthy
+      library-book-service-mq-init:
+        condition: service_completed_successfully
+      library-system-jaeger:
+        condition: service_healthy
+      library-system-zitadel:
+        condition: service_healthy
+      library-system-zitadel-init:
+        condition: service_completed_successfully
+    volumes:
+    - ./secrets/jwt-private-key.pem:/run/secrets/jwt_private_key:ro
+    - ./secrets/jwt-public-key.pem:/run/secrets/jwt_public_key:ro
+    - ./config/identity/identity-providers.json:/app/config/identity/identity-providers.json:ro
+    - library-system-machine-credentials:/machine-credentials:ro
+    - ./config/services/library-book-service/config-store.json:/app/config/config-store.json:ro
+    secrets:
+    - source: library-book-service__book_db_password
+      target: book_db_password
+    - source: library-book-service__docdb_secret-key
+      target: docdb_secret-key
+    deploy:
+      resources:
+        limits:
+          cpus: 0.5
+          memory: 1024M
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget --no-verbose --tries=1 --spider http://localhost:8000/ready || exit 1
+      interval: 10s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    networks:
+    - backend
+    - broker
+    - cache
+    - database
+    - observability
+    restart: unless-stopped
+  library-member-service:
+    build:
+      context: ./library_member_service
+      dockerfile: Dockerfile
+    image: library-member-service:latest
+    container_name: library-member-service
+    ports:
+    - 127.0.0.1::8002
+    environment:
+      PORT: '8002'
+      SERVICE_NAME: library-member-service
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+      JWT_ALGORITHM: RS256
+      SERVICE_JWT_EXPIRY_MINUTES: ${SERVICE_JWT_EXPIRY_MINUTES:-60}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://library-system-jaeger:4317
+      DEBUG: 'false'
+      JWT_EXPIRY: '3600'
+      JWT_ISSUER: library
+      IDENTITY_MEMBER_CLIENT_SECRET_REF: ${IDENTITY_MEMBER_CLIENT_SECRET_REF}
+      IDENTITY_INTERNAL_CLIENT_SECRET_REF: ${IDENTITY_INTERNAL_CLIENT_SECRET_REF}
+      IDENTITY_MACHINE_CREDENTIALS_FILE: /machine-credentials/credentials.json
+    depends_on:
+      library-system-postgresql:
+        condition: service_healthy
+      library-system-jaeger:
+        condition: service_healthy
+      library-system-zitadel:
+        condition: service_healthy
+      library-system-zitadel-init:
+        condition: service_completed_successfully
+    volumes:
+    - ./secrets/jwt-private-key.pem:/run/secrets/jwt_private_key:ro
+    - ./secrets/jwt-public-key.pem:/run/secrets/jwt_public_key:ro
+    - ./config/identity/identity-providers.json:/app/config/identity/identity-providers.json:ro
+    - library-system-machine-credentials:/machine-credentials:ro
+    - ./config/services/library-member-service/config-store.json:/app/config/config-store.json:ro
+    secrets:
+    - source: library-member-service__member_db_password
+      target: member_db_password
+    deploy:
+      resources:
+        limits:
+          cpus: 0.5
+          memory: 512M
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget --no-verbose --tries=1 --spider http://localhost:8002/ready || exit 1
+      interval: 10s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    networks:
+    - backend
+    - database
+    - observability
+    restart: unless-stopped
+  library-loan-service:
+    build:
+      context: ./library_loan_service
+      dockerfile: Dockerfile
+    image: library-loan-service:latest
+    container_name: library-loan-service
+    ports:
+    - 127.0.0.1::8001
+    environment:
+      PORT: '8001'
+      SERVICE_NAME: library-loan-service
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+      JWT_ALGORITHM: RS256
+      SERVICE_JWT_EXPIRY_MINUTES: ${SERVICE_JWT_EXPIRY_MINUTES:-60}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://library-system-jaeger:4317
+      LIBRARY_BOOK_SERVICE_SERVICE_URL: http://library-book-service:8000
+      LIBRARY_MEMBER_SERVICE_SERVICE_URL: http://library-member-service:8002
+      DEBUG: 'false'
+      JWT_EXPIRY: '3600'
+      JWT_ISSUER: library
+      IDENTITY_MEMBER_CLIENT_SECRET_REF: ${IDENTITY_MEMBER_CLIENT_SECRET_REF}
+      IDENTITY_INTERNAL_CLIENT_SECRET_REF: ${IDENTITY_INTERNAL_CLIENT_SECRET_REF}
+      IDENTITY_MACHINE_CREDENTIALS_FILE: /machine-credentials/credentials.json
+    depends_on:
+      library-system-postgresql:
+        condition: service_healthy
+      library-system-jaeger:
+        condition: service_healthy
+      library-system-zitadel:
+        condition: service_healthy
+      library-system-zitadel-init:
+        condition: service_completed_successfully
+    volumes:
+    - ./secrets/jwt-private-key.pem:/run/secrets/jwt_private_key:ro
+    - ./secrets/jwt-public-key.pem:/run/secrets/jwt_public_key:ro
+    - ./config/identity/identity-providers.json:/app/config/identity/identity-providers.json:ro
+    - library-system-machine-credentials:/machine-credentials:ro
+    - ./config/services/library-loan-service/config-store.json:/app/config/config-store.json:ro
+    secrets:
+    - source: library-loan-service__loan_db_password
+      target: loan_db_password
+    deploy:
+      resources:
+        limits:
+          cpus: 0.5
+          memory: 512M
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget --no-verbose --tries=1 --spider http://localhost:8001/ready || exit 1
+      interval: 10s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    networks:
+    - backend
+    - database
+    - observability
+    restart: unless-stopped
+  library-system-postgresql:
+    image: postgres:17-alpine
+    container_name: library-system-postgresql
+    ports:
+    - '5432'
+    environment:
+      POSTGRES_DB: library_books
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: K7A4czNEwZgZ_Nc-iQGJseBF
+    volumes:
+    - library-system-postgresql-data:/var/lib/postgresql/data
+    - ./scripts/init-db/library-system-postgresql.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U $$POSTGRES_USER
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+    - database
+    restart: unless-stopped
+  library-book-service-cache:
+    image: redis:7-alpine
+    container_name: library-book-service-cache
+    ports:
+    - '6379'
+    volumes:
+    - library-book-service-cache-data:/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - redis-cli ping
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+    - cache
+    restart: unless-stopped
+  library-book-service-docdb:
+    image: mongo:7
+    container_name: library-book-service-docdb
+    ports:
+    - '27017'
+    environment:
+      MONGO_INITDB_DATABASE: docdb
+      MONGO_INITDB_ROOT_USERNAME: app
+      MONGO_INITDB_ROOT_PASSWORD: Zy2jh5Z-XF5CrNg4N3TEfmQM
+    volumes:
+    - library-book-service-docdb-data:/data/db
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - 'mongosh --eval ''db.adminCommand({ ping: 1 })'''
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+    - database
+    restart: unless-stopped
+  library-book-service-mq:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: library-book-service-mq
+    ports:
+    - '9092'
+    environment:
+      KAFKA_NODE_ID: '1'
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@library-book-service-mq:9093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://library-book-service-mq:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: '1'
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    volumes:
+    - library-book-service-mq-data:/var/lib/kafka/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - kafka-broker-api-versions --bootstrap-server localhost:9092 >/dev/null 2>&1
+      interval: 10s
+      timeout: 15s
+      retries: 20
+      start_period: 60s
+    networks:
+    - broker
+    restart: unless-stopped
+  library-book-service-mq-init:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: library-book-service-mq-init
+    volumes:
+    - ./scripts/init-topics:/scripts/init-topics:ro
+    command:
+    - /bin/bash
+    - /scripts/init-topics/library-book-service-mq.sh
+    depends_on:
+      library-book-service-mq:
+        condition: service_healthy
+    networks:
+    - broker
+    restart: 'no'
+  library-system-cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: library-system-cadvisor
+    ports:
+    - '8080'
+    volumes:
+    - /:/rootfs:ro
+    - /var/run:/var/run:ro
+    - /sys:/sys:ro
+    - /var/lib/docker/:/var/lib/docker:ro
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
+      - http://localhost:8080/healthz
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+    - observability
+    restart: unless-stopped
+  library-system-prometheus:
+    image: prom/prometheus:v2.49.1
+    container_name: library-system-prometheus
+    ports:
+    - '9090'
+    volumes:
+    - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    - ./config/prometheus/rules:/etc/prometheus/rules:ro
+    - prometheus-data:/prometheus
+    command:
+    - --config.file=/etc/prometheus/prometheus.yml
+    - --storage.tsdb.path=/prometheus
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
+      - http://localhost:9090/-/healthy
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+    - backend
+    - observability
+    restart: unless-stopped
+  library-system-jaeger:
+    image: jaegertracing/all-in-one:1.53
+    container_name: library-system-jaeger
+    ports:
+    - '16686'
+    - '14268'
+    - '4317'
+    environment:
+      COLLECTOR_OTLP_ENABLED: 'true'
+    volumes:
+    - ./config/jaeger/sampling_strategies.json:/etc/jaeger/sampling_strategies.json:ro
+    command:
+    - --sampling.strategies-file=/etc/jaeger/sampling_strategies.json
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
+      - http://localhost:14269/
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+    - observability
+    restart: unless-stopped
+  library-system-loki:
+    image: grafana/loki:2.9.10
+    container_name: library-system-loki
+    ports:
+    - '3100'
+    volumes:
+    - loki-data:/loki
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget --no-verbose --tries=1 --spider http://localhost:3100/ready || exit 1
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+    - observability
+    restart: unless-stopped
+  library-system-promtail:
+    image: grafana/promtail:2.9.10
+    container_name: library-system-promtail
+    ports:
+    - '9080'
+    volumes:
+    - ./config/promtail/promtail-config.yaml:/etc/promtail/config.yml:ro
+    - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    - /var/run/docker.sock:/var/run/docker.sock:ro
+    command:
+    - -config.file=/etc/promtail/config.yml
+    depends_on:
+      library-system-loki:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget --no-verbose --tries=1 --spider http://localhost:9080/ready || exit 1
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+    - observability
+    restart: unless-stopped
+  library-system-alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: library-system-alertmanager
+    ports:
+    - '9093'
+    volumes:
+    - ./config/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+    - --config.file=/etc/alertmanager/alertmanager.yml
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget --no-verbose --tries=1 --spider http://localhost:9093/-/healthy || exit
+        1
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+    - observability
+    restart: unless-stopped
+  library-system-grafana:
+    image: grafana/grafana:10.2.3
+    container_name: library-system-grafana
+    ports:
+    - '3000'
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_SERVER_ROOT_URL: http://${GATEWAY_HOST:-localhost}:${GATEWAY_PORT:-8080}/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: 'true'
+    volumes:
+    - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+    - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    - grafana-data:/var/lib/grafana
+    depends_on:
+      library-system-cadvisor:
+        condition: service_healthy
+      library-system-prometheus:
+        condition: service_healthy
+      library-system-jaeger:
+        condition: service_healthy
+      library-system-loki:
+        condition: service_healthy
+      library-system-promtail:
+        condition: service_healthy
+      library-system-alertmanager:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -f http://localhost:3000/api/health || exit 1
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+    - observability
+    restart: unless-stopped
+  library-system-zitadel-db:
+    image: postgres:16-alpine
+    container_name: library-system-zitadel-db
+    environment:
+      POSTGRES_DB: zitadel
+      POSTGRES_USER: zitadel
+      POSTGRES_PASSWORD: ${LIBRARY_SYSTEM_ZITADEL_DB_PASSWORD}
+    volumes:
+    - library-system-zitadel-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U zitadel -d zitadel
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+    - backend
+    - database
+    restart: unless-stopped
+  library-system-zitadel-machinekey-init:
+    image: busybox:1.37
+    container_name: library-system-zitadel-machinekey-init
+    volumes:
+    - library-system-zitadel-machinekey:/machinekey
+    command:
+    - chown
+    - 1000:1000
+    - /machinekey
+    networks:
+    - backend
+    restart: 'no'
+  library-system-zitadel:
+    image: ghcr.io/zitadel/zitadel:v3.0.0
+    container_name: library-system-zitadel
+    environment:
+      ZITADEL_DATABASE_POSTGRES_HOST: library-system-zitadel-db
+      ZITADEL_DATABASE_POSTGRES_PORT: '5432'
+      ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_USERNAME: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: ${LIBRARY_SYSTEM_ZITADEL_DB_PASSWORD}
+      ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: zitadel
+      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: ${LIBRARY_SYSTEM_ZITADEL_DB_PASSWORD}
+      ZITADEL_MASTERKEY: ${IDENTITY_ZITADEL_MASTER_KEY}
+      ZITADEL_TLS_ENABLED: 'false'
+      ZITADEL_EXTERNALDOMAIN: localhost
+      ZITADEL_EXTERNALSECURE: 'false'
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: admin
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: ${IDENTITY_ZITADEL_ADMIN_PASSWORD}
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME: datrix-provisioner
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME: Datrix Provisioner
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_EXPIRATIONDATE: '9999-12-31T23:59:59Z'
+      ZITADEL_FIRSTINSTANCE_PATPATH: /machinekey/provisioner.pat
+      ZITADEL_EXTERNALPORT: '8080'
+    volumes:
+    - library-system-zitadel-machinekey:/machinekey
+    command:
+    - start-from-init
+    - --masterkeyFromEnv
+    - --tlsMode
+    - disabled
+    depends_on:
+      library-system-zitadel-db:
+        condition: service_healthy
+      library-system-zitadel-machinekey-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+      - CMD
+      - /app/zitadel
+      - ready
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 120s
+    networks:
+      backend:
+        aliases:
+        - zitadel.host
+    restart: unless-stopped
+  library-system-zitadel-init:
+    image: python:3.12-slim
+    container_name: library-system-zitadel-init
+    environment:
+      ZITADEL_INSTANCE_URL: http://library-system-zitadel:8080
+      ZITADEL_HOST_HEADER: localhost:8080
+      ZITADEL_PAT_FILE: /machinekey/provisioner.pat
+      ZITADEL_PROVISIONING_PATH: /provisioning/zitadel-provisioning.json
+      IDENTITY_PROVIDER_PLAN_FILE: /identity/identity-providers.json
+      IDENTITY_MACHINE_CREDENTIALS_FILE: /machine-credentials/credentials.json
+    volumes:
+    - ./config/identity/zitadel-provisioning.json:/provisioning/zitadel-provisioning.json:ro
+    - ./scripts/zitadel/apply_provisioning.py:/scripts/apply_provisioning.py:ro
+    - ./config/identity/identity-providers.json:/identity/identity-providers.json
+    - library-system-zitadel-machinekey:/machinekey:ro
+    - library-system-machine-credentials:/machine-credentials
+    command:
+    - python
+    - /scripts/apply_provisioning.py
+    depends_on:
+      library-system-zitadel:
+        condition: service_healthy
+    networks:
+    - backend
+    restart: 'no'
+  datrix-test-jwks:
+    image: python:3.12-slim
+    container_name: datrix-test-jwks
+    volumes:
+    - ./scripts/test_jwks_server.py:/jwks/test_jwks_server.py:ro
+    command:
+    - python
+    - /jwks/test_jwks_server.py
+    networks:
+    - backend
+    restart: unless-stopped
+  library-system-api-gateway:
+    image: nginx:1.25-alpine
+    container_name: library-system-api-gateway
+    ports:
+    - ${GATEWAY_PORT:-8080}:80
+    volumes:
+    - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      library-book-service:
+        condition: service_healthy
+      library-member-service:
+        condition: service_healthy
+      library-loan-service:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - nginx
+      - -t
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+    - backend
+    - frontend
+    - observability
+    restart: unless-stopped
+volumes:
+  library-system-postgresql-data:
+    driver: local
+  library-book-service-cache-data:
+    driver: local
+  library-book-service-docdb-data:
+    driver: local
+  library-book-service-mq-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  loki-data:
+    driver: local
+  library-system-zitadel-db-data:
+    driver: local
+  library-system-machine-credentials:
+    driver: local
+  library-system-zitadel-machinekey:
+    driver: local
+networks:
+  backend:
+    driver: bridge
+  broker:
+    driver: bridge
+  cache:
+    driver: bridge
+  database:
+    driver: bridge
+  frontend:
+    driver: bridge
+  observability:
+    driver: bridge
+secrets:
+  library-book-service__book_db_password:
+    file: ./secrets/library-book-service/book_db_password
+  library-book-service__docdb_secret-key:
+    file: ./secrets/library-book-service/docdb_secret-key
+  library-member-service__member_db_password:
+    file: ./secrets/library-member-service/member_db_password
+  library-loan-service__loan_db_password:
+    file: ./secrets/library-loan-service/loan_db_password

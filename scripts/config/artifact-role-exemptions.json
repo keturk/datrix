@@ -7,9 +7,138 @@
     "other blessed language for the SAME example has one. This is a genuine,",
     "reviewed gap -- never a suppression of an unexplained finding.",
     "",
+    "Every entry below was investigated by reading the actual blessed manifest",
+    "paths and the declared structural_pattern before being recorded. Two",
+    "further categories of apparent divergence turned out to be fixable in the",
+    "gate's OWN classifier rather than needing an exemption at all (see",
+    "_pattern_specificity's most-specific-match tie-break and",
+    "_PACKAGE_MARKER_BASENAMES in artifact_role_parity.py) -- a shallower",
+    "sibling domain's glob no longer steals credit from a deeper, more",
+    "specific one, and a bare package-init marker (e.g. __init__.py) is never",
+    "credited to any domain. What remains below are the genuine gaps:",
+    "  (1) dotnet's helper/Support/*.cs output is emitted only when the DSL",
+    "      invokes a gating builtin category or an extension that declares its",
+    "      own Support helper; python/typescript/java instead always emit",
+    "      baseline helper-utility scaffolding regardless of DSL content.",
+    "",
     "expected_count is a pinned, reviewed value: change it only in the same",
     "change that adds or removes an entry."
   ],
-  "expected_count": 0,
-  "exemptions": []
+  "expected_count": 19,
+  "exemptions": [
+    {
+      "example": "02-features-02-service-architecture-modules-imports",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source (loan-service.dtrx/member-service.dtrx/common.dtrx): no Auth./Json./Validator./Request. builtin calls (the `request.bookId`/`request.memberId` occurrences are references to an inter-service call's own response variable named `request`, not `Request.*` builtin property-access calls), no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no extension usage, no Crypto.* call at all. python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference the other entries in this file record, not a missing capability."
+    },
+    {
+      "example": "01-foundation",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "dotnet emits Support/*.cs only when the DSL invokes a gating builtin category (Auth/JSON/Validator/Request/Log) or an extension that declares its own Support helper (e.g. the geo extension, where dotnet's Support/GeoHelpers.cs is present and this domain is not exempted for that example). This example invokes none of those, so dotnet's blessed baseline holds zero Support files. python/typescript/java instead always emit baseline helper-utility scaffolding (_datrix_helpers.py, _archiveHelpers.ts, MapSupport.java) regardless of DSL content. A genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-02-service-architecture-pubsub",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "dotnet emits Support/*.cs only when the DSL invokes a gating builtin category or an extension that declares its own Support helper. This example invokes none of those, so dotnet's blessed baseline holds zero Support files. python/typescript instead always emit baseline helper-utility scaffolding (_datrix_helpers.py, _queueHelpers.ts, etc.) regardless of DSL content. A genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-02-service-architecture-resilience",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "dotnet emits Support/*.cs only when the DSL invokes a gating builtin category or an extension that declares its own Support helper. This example invokes none of those, so dotnet's blessed baseline holds zero Support files. python/typescript instead always emit baseline helper-utility scaffolding regardless of DSL content. A genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-02-service-architecture-serverless",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "dotnet emits Support/*.cs only when the DSL invokes a gating builtin category or an extension that declares its own Support helper. This example invokes none of those, so dotnet's blessed baseline holds zero Support files. python/java instead always emit baseline helper-utility scaffolding (_datrix_helpers.py, _microservice_helpers.py, MapSupport.java) regardless of DSL content. A genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-03-infrastructure-blocks-graphql",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "dotnet emits Support/*.cs only when the DSL invokes a gating builtin category or an extension that declares its own Support helper. This example invokes none of those, so dotnet's blessed baseline holds zero Support files. python/typescript/java instead always emit baseline helper-utility scaffolding regardless of DSL content. A genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-03-infrastructure-blocks-queue",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "dotnet emits Support/*.cs only when the DSL invokes a gating builtin category or an extension that declares its own Support helper. This example invokes none of those, so dotnet's blessed baseline holds zero Support files. python/typescript instead always emit baseline helper-utility scaffolding (_queue_helpers.py, _queueHelpers.ts, etc.) regardless of DSL content. A genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-03-infrastructure-blocks-storage",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "dotnet emits Support/*.cs only when the DSL invokes a gating builtin category or an extension that declares its own Support helper. This example invokes none of those, so dotnet's blessed baseline holds zero Support files. python/typescript/java instead always emit baseline helper-utility scaffolding (_datrix_helpers.py, _storageHelpers.ts, MapSupport.java) regardless of DSL content. A genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-03-infrastructure-blocks-cache",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source (book-service.dtrx/loan-service.dtrx/member-service.dtrx): no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no extension usage; the DSL's only Crypto.* call is Crypto.bcryptHash, which lowers to an inline BCrypt.Net.BCrypt.HashPassword(...) static call (transpiler/builtins.py) needing only a NuGet PackageReference, never a Support/*.cs helper. python's blessed manifest for this example DOES always emit _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference the other entries in this file record, not a missing capability."
+    },
+    {
+      "example": "02-features-03-infrastructure-blocks-nosql",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source: no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no extension usage; the only Crypto.* call is Crypto.bcryptHash (inline BCrypt.Net.BCrypt.HashPassword(...) lowering, no Support helper). python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-04-advanced-data-features-advanced-cache",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source: no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no extension usage; the only Crypto.* call is Crypto.bcryptHash (inline lowering, no Support helper). python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-04-advanced-data-features-batch-operations",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source (book-service.dtrx/loan-service.dtrx/member-service.dtrx): no Auth./Json./Validator./Request. BUILTIN calls -- the DSL's numerous `auth(required, providers: [...], roles: [...])` occurrences are REST endpoint auth-mode declarations (a separate mechanism gating JWT-bearer middleware/NuGet packages, `_JWT_VALIDATED_MODES` in _project_dependencies.py), not `Auth.*` builtin property-access calls, so they do not gate AuthContext.cs; the `JSON?`/`JSON` occurrences are field TYPE declarations, not `JSON.*` builtin calls. No Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no extension usage; the only Crypto.* call is Crypto.bcryptHash (inline BCrypt.Net.BCrypt.HashPassword(...) lowering, no Support helper). python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-04-advanced-data-features-field-security",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source: no Auth./Json./Validator./Request. builtin calls (the DSL's `auth(...)` occurrences are REST endpoint auth-mode declarations, not `Auth.*` builtin calls), no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no extension usage; the only Crypto.* call is Crypto.bcryptHash (inline lowering, no Support helper). python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-04-advanced-data-features-transactions",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source: no Auth./Json./Validator./Request. builtin calls (the DSL's `auth(...)` occurrences are REST endpoint auth-mode declarations, not `Auth.*` builtin calls), no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no extension usage; the only Crypto.* call is Crypto.bcryptHash (inline lowering, no Support helper). python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-04-advanced-data-features-webhooks",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source: no Auth./Json./Validator./Request. builtin calls (the DSL's `auth(...)` occurrences are REST endpoint auth-mode declarations, not `Auth.*` builtin calls), no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no extension usage; the only Crypto.* call is Crypto.bcryptHash (inline lowering, no Support helper). python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-05-infrastructure-combinations-mixed-infrastructure",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source: no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no Crypto.bcryptHash, no extension usage. python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-05-infrastructure-combinations-multi-database",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source: no Auth./Json./Validator./Request. builtin calls (the DSL's `auth(...)` occurrences are REST endpoint auth-mode declarations, not `Auth.*` builtin calls), no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no extension usage; the only Crypto.* call is Crypto.bcryptHash (inline lowering, no Support helper). python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-05-infrastructure-combinations-mixed-infrastructure",
+      "domain": "nosql_test",
+      "language": "python",
+      "reason": "Python's declared nosql_test structural_pattern (*/tests/unit/docdb/test_*.py) hardcodes the literal nosql-block directory name 'docdb' from the original nosql-blocks example instead of a block-name wildcard. This example's nosql block is named 'analytics', so python's real, present output (tests/unit/analytics/test_reading_history.py -- verified in the freshly generated tree) does not match the declared literal. A structural_pattern precision gap in the classifier's declared glob, not a missing capability: python does generate nosql_test-domain output for this example. Widening the pattern to a bare block wildcard was rejected because it would tie in specificity with cache_test's own pattern at the same path depth and falsely credit nosql_test for a redis cache-test file; tracked as a follow-up task in the owning package's task queue since the correct fix needs a per-domain multi-pattern or negative-match capability the current DomainDeclaration shape does not have."
+    },
+    {
+      "example": "02-features-06-advanced-language-features-external-integration",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source: no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no extension usage; the only Crypto.* call is Crypto.bcryptHash (inline lowering, no Support helper). python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    }
+  ]
 }

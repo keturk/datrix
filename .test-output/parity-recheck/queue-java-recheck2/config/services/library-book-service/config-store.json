@@ -1,0 +1,15 @@
+{
+  "connections": {
+    "book_db_database": "library_books",
+    "book_db_host": "library-system-postgresql",
+    "book_db_port": 5432,
+    "book_db_user": "postgres",
+    "mq_brokers": "library-book-service-mq:9092",
+    "mq_port": 9092,
+    "queues_host": "library-book-service-queue-rabbitmq",
+    "queues_port": 5672
+  },
+  "settings": {
+    "debugMode": false
+  }
+}

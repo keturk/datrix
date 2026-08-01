@@ -1,0 +1,12 @@
+{
+  "projects": [
+    {
+      "identityProviders": [],
+      "machineUser": null,
+      "name": "library",
+      "oidcApps": [],
+      "projectRoleAssertion": false,
+      "roles": []
+    }
+  ]
+}

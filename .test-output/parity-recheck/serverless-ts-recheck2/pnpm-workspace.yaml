@@ -1,0 +1,30 @@
+# Datrix TypeScript Language-Level Workspace Configuration
+#
+# CRITICAL: This file configures pnpm to treat ALL generated TypeScript code
+# as a single workspace, sharing ONE node_modules directory at typescript/node_modules.
+#
+# Without this workspace configuration:
+#   - Each service would install dependencies separately
+#   - 47 examples × 3 platforms = 141 node_modules folders
+#   - Gigabytes of wasted disk space
+#   - Slow installation and validation
+#
+# With this workspace:
+#   - ONE shared node_modules at typescript/node_modules
+#   - Fast installations (dependencies installed once)
+#   - Fast validation (TypeScript compiler runs against shared deps)
+#
+# The glob patterns below automatically discover ALL package.json files
+# in generated projects across ALL platforms and examples, so this file
+# never needs updates when examples are added or removed.
+
+packages:
+  # Docker — recursive so every *_service and tests/ tree is a workspace member (any nesting depth).
+  - 'docker/**/*_service'
+  - 'docker/**/tests'
+
+  - 'aws/**/*_service'
+  - 'aws/**/tests'
+
+  - 'azure/**/*_service'
+  - 'azure/**/tests'

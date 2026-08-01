@@ -1,0 +1,8 @@
+{
+  "connections": {
+    "examples_ingestion_service_base_url": "http://examples-ingestion-service:8002"
+  },
+  "settings": {
+    "debugMode": false
+  }
+}

@@ -73,15 +73,20 @@ class ModuleResolutionResult:
 def discover_gendsl_definition_modules() -> tuple[str, ...]:
     """Derive every discovered gendsl target's definition modules.
 
-    Replaces the former 7-entry hand-authored tuple. Every target
-    registered under `datrix.gendsl_generator_targets` (python, typescript,
-    dotnet, java, sql, component today) contributes its own
-    `GendslTargetContribution.definition_modules`; every platform
-    registered under `datrix.platforms` (aws, azure, docker today)
-    contributes via `target_registry`'s interim platform-definition-module
-    map -- a single source this gate follows automatically once that
-    residual is retired and platform definition modules become a
-    first-class `GendslTargetContribution` fact.
+    Replaces the former 7-entry hand-authored tuple. EVERY target --
+    language, platform, artifact or component alike -- contributes its own
+    `GendslTargetContribution.definition_modules`, resolved uniformly
+    through `target_registry.definition_modules_for()`. There is no
+    separate platform path: the transitional platform-definition-module map
+    that once carried aws/azure/docker has been retired, and platform
+    definition modules are now a first-class `GendslTargetContribution`
+    fact like any other target's.
+
+    Consequence: the target set is never a literal here. A target that
+    declares no genDSL definition modules of its own correctly resolves to
+    an empty tuple (as `local` does -- its artifacts are declared by the
+    docker package that owns it), and a future `datrix-codegen-<x>` is
+    swept with no edit to this gate.
 
     Calling `target_registry.target_kind_map()`/`definition_modules_for()`
     here, in this script's own single process, is safe: both only ever

@@ -419,6 +419,28 @@ Whole-system **TypeScript** generation gate: proves the whole-system generate pa
 
 ---
 
+### `test\java-generation-determinism-gate.ps1`
+
+Java generation-pipeline determinism gate: the SAME source tree, generated N times in a row via the documented single-project `generate.ps1` path, must never produce two different outcomes (same failure mode every time, or a byte-identical success manifest every time). Each run is its own `generate.ps1` process (fresh `python.exe`, fresh `PYTHONHASHSEED`), so this also exercises hash-seed-driven set-iteration-order bugs a single long-lived process would never surface. Targets `examples/02-features/03-infrastructure-blocks/nosql/system.dtrx` — the example a java parity bless sweep found producing three different outcomes (a struct-test planning failure, then two different `mvnw compile` failures) from the identical, unchanged-tree invocation. Unlike `dev\byte-identity-generate.ps1` (diffs a "before" code state against the current tree — proves a CODE CHANGE is output-neutral), this gate runs the SAME code N times and compares outcomes to each other, so it catches non-determinism a before/after diff cannot. This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate (5 runs)** | `.\test\java-generation-determinism-gate.ps1` | Generate 5 times, assert identical outcomes |
+| **Custom run count** | `.\test\java-generation-determinism-gate.ps1 -Runs 3` | Fewer/more repeated generations (must be >= 2) |
+| **Custom output root** | `.\test\java-generation-determinism-gate.ps1 -OutputRoot D:\datrix\.test-output\java-determinism-gate` | Override run1..runN location |
+| **Debug** | `.\test\java-generation-determinism-gate.ps1 -Dbg` | Forward `-Dbg` to generate.ps1 |
+
+**Parameters:** `-OutputRoot` (default: `d:/datrix/.test-output/java-determinism-gate`), `-Runs` (default: 5, must be >= 2), `-Dbg`/`-DebugLogging`
+
+**Assertions:**
+- Every run's classification (SUCCESS vs FAILED) matches run 1's.
+- A SUCCESS run's per-relative-path sha256 manifest of the generated source tree (excluding `.datrix/`, whose audit log / snapshot / manifest `generated_at` timestamp are expected to differ every invocation by design) matches run 1's manifest exactly.
+- A FAILED run's generation-results log, normalized (run-specific `--output` directory replaced with a fixed placeholder; timestamp/log-path preamble lines stripped) and hashed, matches run 1's normalized fingerprint exactly.
+
+**Exit codes:** 0 = all N runs produced the identical outcome, 1 = a classification or fingerprint mismatch was found (non-deterministic generation), non-zero PowerShell error = usage/environment error (e.g. venv activation failure, missing example).
+
+---
+
 ### `test\ingress-migration-conformance-gate.ps1`
 
 Declaration-driven service ingress migration conformance gate. Repo-level, independent proof that regenerating the framework's own showcase examples produces only the four intended DI-6 realized-exposure deltas. Regenerates three representative registered examples individually (`identity` for delta d, `shared-block` for delta a, `authentication` + `01-foundation` for delta c) via single-project explicit-output `generate.ps1` calls, separately runs the existing full-tree example generation gate (`run-complete.ps1 -All -Skip3 -Skip4`) over every registered example, diffs the `identity` parity baseline via `regen-parity-baselines.ps1`, and greps for the removed config keys. This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).

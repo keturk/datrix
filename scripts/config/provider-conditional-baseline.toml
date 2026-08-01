@@ -15,7 +15,3 @@
 #   [[baseline]]
 #   file = "path/relative/to/monorepo-root, forward slashes"
 #   count = <int>
-
-[[baseline]]
-file = "datrix-codegen-java/src/datrix_codegen_java/generators/persistence/search_generator.py"
-count = 1

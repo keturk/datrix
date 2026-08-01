@@ -1,0 +1,10 @@
+# Spring Boot test profile for library.LoanService (JUnit 5 + Spring Boot Test)
+spring:
+  threads:
+    virtual:
+      enabled: true
+  jpa:
+    hibernate:
+      ddl-auto: none
+  liquibase:
+    enabled: false

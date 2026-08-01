@@ -1,0 +1,13 @@
+# Generated for java project
+target/
+*.class
+!.mvn/wrapper/maven-wrapper.jar
+.idea/
+*.iml
+
+# Infrastructure (build/state/cache outputs)
+cdk.out/
+.terraform/
+terraform.tfstate*
+.serverless/
+*.tfvars

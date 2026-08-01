@@ -28,6 +28,14 @@ and drives to zero as each cluster is migrated onto a decision engine.
 --update-baseline (combined with --check-provider-conditionals) recomputes
 and overwrites that baseline.
 
+Also implements a DISTINCT, stricter D6.1 check that runs unconditionally
+whenever --check-provider-conditionals is passed: the same two D5 patterns
+plus the pre-existing ProviderId/match-case forms, applied to the three
+SHARED packages (datrix_common, datrix_codegen_common, datrix_cli) and held
+at a hard zero with no baseline file to grandfather a hit into -- any single
+occurrence fails, since shared layers must never encode platform-specific
+policy (Principle 10, D1).
+
 Also implements the function-level-import ratchet (D4/I6):
 opt-in via --check-function-level-imports, it AST-scans ONLY the
 datrix-common src/ tree for function-level imports (an Import/ImportFrom AST
@@ -388,6 +396,20 @@ TARGET_LITERAL_ENUM_MEMBERS: dict[str, frozenset[str]] = {
 # silently accumulating provider conditionals until someone remembers this tuple.
 # A package with no src/ tree yet contributes no files and no baseline entries.
 PROVIDER_CONDITIONAL_LANGUAGE_PACKAGES: tuple[str, ...] = LANGUAGE_PACKAGES
+
+
+# D6.1 second half: the SHARED packages the provider-literal pattern's scan
+# scope extends to, held at a HARD ZERO (not the language packages' decrease-
+# only ratchet against a grandfathered baseline -- see
+# check_shared_package_provider_literals below for why the enforcement shape
+# is deliberately different). Mirrors TARGET_LITERAL_SHARED_PACKAGES exactly:
+# the three packages D1 names as the shared layer that must never encode
+# platform-specific policy itself.
+PROVIDER_LITERAL_SHARED_PACKAGES: tuple[str, ...] = (
+    "datrix_common",
+    "datrix_codegen_common",
+    "datrix_cli",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1443,6 +1465,94 @@ def check_provider_conditional_ratchet(
     return messages
 
 
+def scan_shared_package_provider_literals(
+    packages: dict[str, PackageInfo],
+    monorepo_root: Path,
+) -> dict[Path, list[ProviderConditionalHit]]:
+    """Scan every ``.py`` file under each of ``PROVIDER_LITERAL_SHARED_PACKAGES``'
+    ``src/`` tree for platform-identity conditionals -- REUSES
+    ``scan_file_for_provider_conditionals`` (the two D5 sub-patterns plus the
+    pre-existing ``ProviderId``/``match``-case forms) unmodified; only the
+    package SCOPE differs from ``scan_provider_conditionals`` (which targets
+    ``PROVIDER_CONDITIONAL_LANGUAGE_PACKAGES``).
+
+    Args:
+        packages: Package name -> PackageInfo, as returned by discover_packages().
+        monorepo_root: Monorepo root for relative path reporting.
+
+    Returns:
+        Mapping of file path -> hits in that file (files with zero hits omitted).
+    """
+    results: dict[Path, list[ProviderConditionalHit]] = {}
+    provider_ids = registered_platform_names()
+
+    for package_name in PROVIDER_LITERAL_SHARED_PACKAGES:
+        package_info = packages.get(package_name)
+        if package_info is None:
+            continue
+
+        for py_file in package_info.src_dir.rglob("*.py"):
+            try:
+                hits = scan_file_for_provider_conditionals(py_file, provider_ids)
+            except SyntaxError as e:
+                rel_path = py_file.relative_to(monorepo_root)
+                print(
+                    f"ERROR: Failed to parse {rel_path}:{e.lineno} - {e.msg}. "
+                    f"A policed file that cannot be parsed would escape this scan "
+                    f"(a silent blind spot); fix its syntax or encoding.",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+            except OSError as e:
+                rel_path = py_file.relative_to(monorepo_root)
+                print(
+                    f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
+                    f"cannot be read would escape this scan; resolve the read error.",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+
+            if hits:
+                results[py_file] = hits
+
+    return results
+
+
+def check_shared_package_provider_literals(
+    hits_by_file: dict[Path, list[ProviderConditionalHit]],
+    monorepo_root: Path,
+) -> list[str]:
+    """Return one message per hit found in a shared package -- ANY hit fails.
+
+    Unlike ``check_provider_conditional_ratchet`` (decrease-only against a
+    frozen, non-zero baseline for the language packages), this comparator
+    has no baseline at all: a shared package's provider-literal count must
+    be exactly zero, always. Returns an empty list only when
+    ``hits_by_file`` is empty.
+
+    Args:
+        hits_by_file: Output of `scan_shared_package_provider_literals`.
+        monorepo_root: Monorepo root for relative path reporting.
+
+    Returns:
+        List of human-readable failure messages, one per hit, sorted by
+        (file, line).
+    """
+    messages: list[str] = []
+    for file_path in sorted(hits_by_file):
+        rel_path = file_path.relative_to(monorepo_root)
+        for hit in sorted(hits_by_file[file_path], key=lambda h: h.line_number):
+            messages.append(
+                f"{rel_path}:{hit.line_number}: shared-package provider-literal "
+                f"conditional ({hit.kind}) -- shared layers must never encode "
+                "platform-specific policy (Principle 10, D1). Fix: replace this "
+                "conditional with a PlatformCapabilityDeclaration/LanguagePlugin "
+                "field the affected platform declares, and ask the resolved "
+                "plugin instead of comparing a provider identifier here."
+            )
+    return messages
+
+
 def scan_file_for_function_level_imports(
     file_path: Path,
 ) -> list[FunctionLevelImportHit]:
@@ -1825,7 +1935,7 @@ def _rule_forbids(source_package: str, imported_module: str) -> bool:
 def _self_test_allowed_denied_subtrees() -> bool:
     """The platform allowed-subtree carve-out constant is frozen exactly, and
     every representative allowed/denied import is classified correctly."""
-    _step("Self-test 1/10: platform allowed/denied codegen-common subtrees")
+    _step("Self-test 1/11: platform allowed/denied codegen-common subtrees")
     ok = True
 
     expected_allowed_subtrees: frozenset[str] = frozenset(
@@ -1898,7 +2008,7 @@ def _self_test_allowed_denied_subtrees() -> bool:
 def _self_test_dotted_precision_and_carveout() -> bool:
     """Subtree matching is exact-or-child (not raw prefix), and the carve-out
     never leaks to a package that did not opt in."""
-    _step("Self-test 2/10: dotted-boundary precision and carve-out non-leakage")
+    _step("Self-test 2/11: dotted-boundary precision and carve-out non-leakage")
     ok = True
     platform_source = "datrix_codegen_aws"
 
@@ -1943,7 +2053,7 @@ def _self_test_dotted_precision_and_carveout() -> bool:
 def _self_test_sql_and_component_coverage() -> bool:
     """BOUNDARY_RULES covers datrix_codegen_sql and datrix_codegen_component,
     each enforcing the sibling-language prohibition absolutely."""
-    _step("Self-test 3/10: SQL and Component boundary rule coverage")
+    _step("Self-test 3/11: SQL and Component boundary rule coverage")
     ok = True
 
     ok &= _check(
@@ -2024,7 +2134,7 @@ def _self_test_platform_to_platform_prohibition() -> bool:
     ``datrix_codegen_common.platform.container_image_supply``) is NOT flagged
     -- otherwise the rule would forbid the correct fix along with the wrong one.
     """
-    _step("Self-test 4/10: platform -> sibling-platform import prohibition")
+    _step("Self-test 4/11: platform -> sibling-platform import prohibition")
     ok = True
 
     for source in _PLATFORM_PACKAGES:
@@ -2125,7 +2235,7 @@ def _self_test_platform_cli_non_vacuity() -> bool:
     clears (exit 0) -- i.e. the rule flags the defect and permits the fix.
     """
     _step(
-        "Self-test 9/10: platform -> platform CLI mutation non-vacuity "
+        "Self-test 9/11: platform -> platform CLI mutation non-vacuity "
         "(plant a real aws -> docker import, prove detection, prove the shared-layer fix clears it)"
     )
     ok = True
@@ -2224,7 +2334,7 @@ def _self_test_provider_literal_cli_non_vacuity() -> bool:
     monorepo rather than the real committed baseline.
     """
     _step(
-        "Self-test 10/10: provider-literal ratchet CLI mutation non-vacuity "
+        "Self-test 10/11: provider-literal ratchet CLI mutation non-vacuity "
         '(plant a real == "azure" conditional, prove detection, prove it clears on revert)'
     )
     ok = True
@@ -2271,12 +2381,105 @@ def _self_test_provider_literal_cli_non_vacuity() -> bool:
     return ok
 
 
+def _self_test_shared_package_provider_literal_build_fixture_monorepo(
+    tmp_root: Path,
+) -> Path:
+    """Build a minimal isolated monorepo: one datrix-common package with a
+    module carrying NO provider-literal conditional (clean shared-package
+    fixture -- no baseline file needed, since the shared-package check has
+    none)."""
+    package_src = tmp_root / "datrix-common" / "src" / "datrix_common"
+    package_src.mkdir(parents=True, exist_ok=True)
+    (package_src / "__init__.py").write_text("", encoding="utf-8")
+
+    module_path = package_src / "sample_orchestrator.py"
+    module_path.write_text(
+        "def resolve(backend: str) -> bool:\n    return backend == 'elasticsearch'\n",
+        encoding="utf-8",
+    )
+
+    # The shared-package check has no baseline of its own, but it shares the
+    # --check-provider-conditionals flag with the language-package ratchet,
+    # which DOES require its baseline file to exist. This fixture monorepo
+    # has no language package, so an empty (header-only) baseline is correct
+    # -- it must merely exist, not carry any [[baseline]] entries.
+    config_dir = tmp_root / "datrix" / "scripts" / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "provider-conditional-baseline.toml").write_text(
+        "# empty: no language package present in this fixture monorepo\n",
+        encoding="utf-8",
+    )
+    return module_path
+
+
+def _self_test_shared_package_provider_literal_cli_non_vacuity() -> bool:
+    """End-to-end proof the shared-package zero-tolerance check actually FIRES.
+
+    Plants a real ``== "azure"`` conditional in a SHARED package (datrix-common)
+    in an isolated fixture monorepo carrying NO baseline entry for it (there
+    is no baseline mechanism for shared packages at all), proves the scanner
+    exits 1, then reverts and proves it clears. This is the manifest's
+    required NEGATIVE acceptance proof for D6.1's shared-package half.
+    """
+    _step(
+        "Self-test 11/11: shared-package provider-literal zero-tolerance CLI "
+        'mutation non-vacuity (plant a real == "azure" conditional in '
+        "datrix-common, prove detection, prove it clears on revert)"
+    )
+    ok = True
+    tmp_root = _SELF_TEST_SCRATCH_ROOT / f"shared-provider-literal-{uuid.uuid4().hex}"
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    try:
+        module_path = _self_test_shared_package_provider_literal_build_fixture_monorepo(
+            tmp_root
+        )
+
+        clean_result = _self_test_provider_literal_run_cli(tmp_root)
+        ok &= _check(
+            f"clean shared-package fixture exits 0, got {clean_result.returncode}",
+            clean_result.returncode == 0,
+        )
+
+        module_path.write_text(
+            "def resolve(backend: str) -> bool:\n    return backend == 'azure'\n",
+            encoding="utf-8",
+        )
+        failing_result = _self_test_provider_literal_run_cli(tmp_root)
+        ok &= _check(
+            "planted shared-package '== \"azure\"' conditional exits 1, got "
+            f"{failing_result.returncode}",
+            failing_result.returncode == 1,
+        )
+        ok &= _check(
+            "failure output names the mutated shared-package file",
+            "sample_orchestrator.py" in failing_result.stdout,
+        )
+        ok &= _check(
+            "failure output identifies it as a SHARED-package violation, not "
+            "a baseline-ratchet message",
+            "shared-package provider-literal" in failing_result.stdout,
+        )
+
+        module_path.write_text(
+            "def resolve(backend: str) -> bool:\n    return backend == 'elasticsearch'\n",
+            encoding="utf-8",
+        )
+        reverted_result = _self_test_provider_literal_run_cli(tmp_root)
+        ok &= _check(
+            f"reverting clears the failure, got exit {reverted_result.returncode}",
+            reverted_result.returncode == 0,
+        )
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+    return ok
+
+
 def _self_test_provider_conditional_scanner() -> bool:
     """scan_file_for_provider_conditionals detects every known DI-5-deferred
     conditional shape (ProviderId-shaped, deployment-provider-value, match/case,
     and -- added by this task -- the two D5 provider-literal sub-patterns) and
     excludes every look-alike that must not ratchet."""
-    _step("Self-test 5/10: provider-conditional AST scanner (detection + exclusion)")
+    _step("Self-test 5/11: provider-conditional AST scanner (detection + exclusion)")
     ok = True
     provider_ids = registered_platform_names()
     scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"provider-scanner-{uuid.uuid4().hex}"
@@ -2426,7 +2629,7 @@ def _self_test_function_level_import_scanner() -> bool:
     """scan_file_for_function_level_imports counts zero for module-top
     imports and exactly one for each nested (function/TYPE_CHECKING/
     try-except) import."""
-    _step("Self-test 6/10: function-level-import AST scanner")
+    _step("Self-test 6/11: function-level-import AST scanner")
     ok = True
     scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"fli-scanner-{uuid.uuid4().hex}"
     scratch_dir.mkdir(parents=True, exist_ok=True)
@@ -2468,7 +2671,7 @@ def _self_test_function_level_import_scanner() -> bool:
 def _self_test_ratchets() -> bool:
     """Both ratchet comparators fire on any per-file increase, never on a
     decrease, and treat a baseline-absent file as baseline 0."""
-    _step("Self-test 7/10: ratchet comparators (regression / no-regression / missing-baseline-as-zero)")
+    _step("Self-test 7/11: ratchet comparators (regression / no-regression / missing-baseline-as-zero)")
     ok = True
 
     clean = check_provider_conditional_ratchet(
@@ -2599,7 +2802,7 @@ def _self_test_cli_non_vacuity() -> bool:
     temporarily-mutated fixture tree -- never a simulated one, and never the
     real datrix-common source tree."""
     _step(
-        "Self-test 8/10: function-level-import CLI mutation non-vacuity "
+        "Self-test 8/11: function-level-import CLI mutation non-vacuity "
         "(plant a real regression, prove detection, prove it clears on revert)"
     )
     ok = True
@@ -2660,6 +2863,7 @@ def run_self_test() -> bool:
         _self_test_cli_non_vacuity(),
         _self_test_platform_cli_non_vacuity(),
         _self_test_provider_literal_cli_non_vacuity(),
+        _self_test_shared_package_provider_literal_cli_non_vacuity(),
     ]
     print()
     if all(results):
@@ -2850,6 +3054,20 @@ def main() -> int:
         / "function-level-import-baseline.toml"
     )
 
+    # D6.1 shared-package zero-tolerance check (distinct from the I6
+    # language-package ratchet above) -- runs UNCONDITIONALLY whenever
+    # --check-provider-conditionals is passed, in both --update-baseline and
+    # normal-scan modes. It has no baseline file to seed or grandfather into,
+    # so it is computed once here rather than inside either mode's branch.
+    shared_package_provider_literal_messages: list[str] = []
+    if args.check_provider_conditionals:
+        shared_package_hits_by_file = scan_shared_package_provider_literals(
+            packages, monorepo_root
+        )
+        shared_package_provider_literal_messages = check_shared_package_provider_literals(
+            shared_package_hits_by_file, monorepo_root
+        )
+
     if args.update_baseline:
         updated_any = False
 
@@ -2904,6 +3122,17 @@ def main() -> int:
                 f"recorded at {target_literal_baseline_path.relative_to(monorepo_root)}"
             )
             updated_any = True
+
+        if shared_package_provider_literal_messages:
+            print(
+                f"Error: shared-package provider-literal zero-tolerance check failed "
+                f"for {len(shared_package_provider_literal_messages)} occurrence(s) -- "
+                "these packages have no baseline to update; fix the code instead:\n"
+            )
+            for message in shared_package_provider_literal_messages:
+                print(message)
+            print()
+            return 1
 
         if updated_any:
             return 0
@@ -2981,6 +3210,7 @@ def main() -> int:
         non_allowlisted_violations
         or target_literal_messages
         or provider_conditional_messages
+        or shared_package_provider_literal_messages
         or function_level_import_messages
     ):
         mode = "Warning" if args.warn else "Error"
@@ -3011,6 +3241,16 @@ def main() -> int:
                 print(message)
             print()
 
+        if shared_package_provider_literal_messages:
+            print(
+                f"{mode}: shared-package provider-literal zero-tolerance check "
+                f"failed for {len(shared_package_provider_literal_messages)} "
+                f"occurrence(s) (no baseline -- any hit fails):\n"
+            )
+            for message in shared_package_provider_literal_messages:
+                print(message)
+            print()
+
         if function_level_import_messages:
             print(
                 f"{mode}: function-level-import ratchet failed for "
@@ -3025,6 +3265,13 @@ def main() -> int:
         return 1
 
     # Clean
+    if args.check_provider_conditionals:
+        shared_package_list = ", ".join(PROVIDER_LITERAL_SHARED_PACKAGES)
+        print(
+            "Shared-package provider-literal zero-tolerance check: 0 hits "
+            f"({shared_package_list})."
+        )
+
     if args.verbose:
         print("No import boundary violations found.", file=sys.stderr)
         if args.check_target_literals:

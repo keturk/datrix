@@ -1,0 +1,194 @@
+{
+  "application": "application",
+  "environment": "test",
+  "providers": {
+    "member": {
+      "allowedAlgorithms": [
+        "RS256"
+      ],
+      "allowedAudienceRefs": [],
+      "allowedAudiences": [
+        "zitadel-project-audience:library"
+      ],
+      "attributeMappings": {},
+      "audience": "customer",
+      "discoveryUri": "http://localhost:8080/.well-known/openid-configuration",
+      "issuer": "http://localhost:8080",
+      "jwksCacheTtlSeconds": 3600,
+      "jwksUri": "http://localhost:8080/oauth/v2/keys",
+      "localIdentity": {
+        "mode": "deterministicUuid5",
+        "namespace": "c9a255a1-350b-4414-beb9-7f06f7dfd92d"
+      },
+      "mode": "platformManaged",
+      "name": "member",
+      "principalType": "human",
+      "providerType": "zitadel",
+      "revocationMode": "none",
+      "roleMappings": {},
+      "roleSource": {
+        "claimPath": "urn:zitadel:iam:org:project:roles"
+      },
+      "secretRefs": {
+        "clientSecret": "IDENTITY_MEMBER_CLIENT_SECRET_REF"
+      }
+    },
+    "test_auth": {
+      "allowedAlgorithms": [
+        "RS256"
+      ],
+      "allowedAudiences": [],
+      "attributeMappings": {},
+      "audience": "customer",
+      "issuer": "http://datrix-test-jwks:8080",
+      "jwksCacheTtlSeconds": 300,
+      "jwksUri": "http://datrix-test-jwks:8080/.well-known/jwks.json",
+      "localIdentity": {
+        "mode": "subjectText"
+      },
+      "mode": "self",
+      "name": "test_auth",
+      "principalType": "human",
+      "providerType": "zitadel",
+      "revocationMode": "none",
+      "roleMappings": {},
+      "roleSource": {
+        "claimPath": "roles"
+      },
+      "secretRefs": {}
+    }
+  },
+  "schemaVersion": 2,
+  "surfaces": {
+    "delete:delete_book": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "member",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "delete:delete_member": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "member",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "get:get_book": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "member",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "get:get_member": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "member",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "get:list_books": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "member",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "get:list_members": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "member",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "post:create_book": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "member",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "post:create_member": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "member",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "put:update_book": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "member",
+        "test_auth"
+      ],
+      "roles": []
+    },
+    "put:update_member": {
+      "delegation": "none",
+      "mode": "required",
+      "principalTypes": [
+        "human"
+      ],
+      "profile": "none",
+      "providers": [
+        "member",
+        "test_auth"
+      ],
+      "roles": []
+    }
+  }
+}

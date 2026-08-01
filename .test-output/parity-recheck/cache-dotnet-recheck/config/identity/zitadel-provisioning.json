@@ -1,0 +1,29 @@
+{
+  "projects": [
+    {
+      "identityProviders": [],
+      "machineUser": null,
+      "name": "library-identity",
+      "oidcApps": [],
+      "projectRoleAssertion": true,
+      "roles": [
+        {
+          "description": "Datrix role mapped from provider-local group ''librarians''",
+          "displayName": "librarian",
+          "key": "librarian"
+        }
+      ]
+    },
+    {
+      "identityProviders": [],
+      "machineUser": {
+        "name": "library-platform service account",
+        "userName": "library-platform-service-account"
+      },
+      "name": "library-platform",
+      "oidcApps": [],
+      "projectRoleAssertion": false,
+      "roles": []
+    }
+  ]
+}

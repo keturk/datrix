@@ -1,0 +1,11 @@
+{
+  "connections": {
+    "member_db_database": "library_books",
+    "member_db_host": "library-system-postgresql",
+    "member_db_port": 5432,
+    "member_db_user": "postgres"
+  },
+  "settings": {
+    "debugMode": false
+  }
+}

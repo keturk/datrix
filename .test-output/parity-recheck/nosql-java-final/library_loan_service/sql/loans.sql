@@ -1,0 +1,2 @@
+CREATE TABLE "loans" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),    "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,    "updated_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,    "book_id" UUID NOT NULL,    "member_id" UUID NOT NULL,    "status" VARCHAR(50) NOT NULL DEFAULT 'Active',    "due_date" TIMESTAMPTZ NOT NULL,    "returned_at" TIMESTAMPTZ,    CONSTRAINT pk_loans PRIMARY KEY (id),    CONSTRAINT chk_loans_status_enum CHECK (status IN ('Active', 'Returned', 'Overdue')));

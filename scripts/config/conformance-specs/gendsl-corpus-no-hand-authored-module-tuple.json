@@ -5,7 +5,7 @@
     {
       "id": "no-hand-authored-gendsl-module-tuple",
       "type": "must_not_contain",
-      "description": "gendsl_corpus_resolution.py must derive its genDSL definitions-module inventory from registration (datrix.gendsl_generator_targets entry points + the interim platform map), never re-introduce the retired hand-authored 7-module literal tuple.",
+      "description": "gendsl_corpus_resolution.py must derive its genDSL definitions-module inventory from registration alone -- every target, language and platform alike, contributes its own GendslTargetContribution.definition_modules via target_registry.definition_modules_for(); the transitional platform-definition-module map is retired. It must never re-introduce the hand-authored 7-module literal tuple.",
       "pattern": "datrix_codegen_python\\.gendsl\\.definitions|datrix_codegen_typescript\\.gendsl_definitions|datrix_codegen_sql\\.gendsl\\.sql_definitions|datrix_codegen_docker\\.gendsl_definitions|datrix_codegen_aws\\.gendsl\\.aws_definitions|datrix_codegen_azure\\.gendsl\\.azure_definitions|datrix_codegen_component\\.gendsl_definitions",
       "glob": "gendsl_corpus_resolution.py"
     }

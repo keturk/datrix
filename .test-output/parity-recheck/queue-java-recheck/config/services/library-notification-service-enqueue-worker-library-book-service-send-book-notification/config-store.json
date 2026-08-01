@@ -1,0 +1,14 @@
+{
+  "connections": {
+    "library_book_service_base_url": "http://library-book-service:8000",
+    "notif_db_database": "notifdb",
+    "notif_db_host": "library-system-postgresql",
+    "notif_db_port": 5432,
+    "notif_db_user": "postgres",
+    "queues_host": "library-book-service-queue-rabbitmq",
+    "queues_port": 5672
+  },
+  "settings": {
+    "debugMode": false
+  }
+}

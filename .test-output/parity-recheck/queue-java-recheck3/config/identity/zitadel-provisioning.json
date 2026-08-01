@@ -1,0 +1,23 @@
+{
+  "projects": [
+    {
+      "identityProviders": [],
+      "machineUser": null,
+      "name": "library",
+      "oidcApps": [],
+      "projectRoleAssertion": true,
+      "roles": [
+        {
+          "description": "Datrix role mapped from provider-local group ''administrators''",
+          "displayName": "admin",
+          "key": "admin"
+        },
+        {
+          "description": "Datrix role mapped from provider-local group ''librarians''",
+          "displayName": "librarian",
+          "key": "librarian"
+        }
+      ]
+    }
+  ]
+}
