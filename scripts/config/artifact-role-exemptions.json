@@ -24,7 +24,7 @@
     "expected_count is a pinned, reviewed value: change it only in the same",
     "change that adds or removes an entry."
   ],
-  "expected_count": 19,
+  "expected_count": 18,
   "exemptions": [
     {
       "example": "02-features-02-service-architecture-modules-imports",
@@ -127,12 +127,6 @@
       "domain": "helper",
       "language": "dotnet",
       "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source: no Auth./Json./Validator./Request. builtin calls (the DSL's `auth(...)` occurrences are REST endpoint auth-mode declarations, not `Auth.*` builtin calls), no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no extension usage; the only Crypto.* call is Crypto.bcryptHash (inline lowering, no Support helper). python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
-    },
-    {
-      "example": "02-features-05-infrastructure-combinations-mixed-infrastructure",
-      "domain": "nosql_test",
-      "language": "python",
-      "reason": "Python's declared nosql_test structural_pattern (*/tests/unit/docdb/test_*.py) hardcodes the literal nosql-block directory name 'docdb' from the original nosql-blocks example instead of a block-name wildcard. This example's nosql block is named 'analytics', so python's real, present output (tests/unit/analytics/test_reading_history.py -- verified in the freshly generated tree) does not match the declared literal. A structural_pattern precision gap in the classifier's declared glob, not a missing capability: python does generate nosql_test-domain output for this example. Widening the pattern to a bare block wildcard was rejected because it would tie in specificity with cache_test's own pattern at the same path depth and falsely credit nosql_test for a redis cache-test file; tracked as a follow-up task in the owning package's task queue since the correct fix needs a per-domain multi-pattern or negative-match capability the current DomainDeclaration shape does not have."
     },
     {
       "example": "02-features-06-advanced-language-features-external-integration",
