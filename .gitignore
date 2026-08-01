@@ -234,3 +234,14 @@ __marimo__/
 # 12 of the former were committed by stray `git add .` before this rule existed.
 claude-config/.claude/hooks/.state/
 claude-config/.claude/scheduled_tasks.lock
+
+# Temp / scratch / test-output directories must never be created inside a
+# package repo at all -- they belong outside the repo tree. This is a backstop
+# for the rule, not a licence: a stray `.test-output/` was committed here once.
+.test-output/
+.test_output/
+.tmp/
+.temp/
+.scratch/
+.scripts/
+.agent_output/

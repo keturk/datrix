@@ -1,2 +1,0 @@
-CREATE TABLE "notification_delivery_logs" (
-    "id" UUID NOT NULL DEFAULT gen_random_uuid(),    "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,    "updated_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,    "book_id" UUID NOT NULL,    "recipient_email" VARCHAR(320) NOT NULL,    "message_preview" VARCHAR(2000) NOT NULL,    CONSTRAINT pk_notification_delivery_logs PRIMARY KEY (id));
