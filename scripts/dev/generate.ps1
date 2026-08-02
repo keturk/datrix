@@ -150,14 +150,22 @@ Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
 function Get-LogFilePath {
  param(
  [Parameter(Mandatory = $true)]
- [string]$LogResultsDir
+ [string]$LogResultsDir,
+
+ [Parameter(Mandatory = $true)]
+ [string]$LogLanguage
  )
  if (-not (Test-Path $LogResultsDir)) {
  $null = New-Item -ItemType Directory -Path $LogResultsDir -Force
  }
 
  $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
- $logFileName = "generate-results-$timestamp.log"
+ # The language segment keeps concurrent invocations (the same example generated
+ # for several languages at once) from opening the same log file and failing on a
+ # sharing violation, and says which run each log belongs to. The timestamp stays
+ # leading so sorting by name remains chronological for the consumers that glob
+ # generate-results-*.log.
+ $logFileName = "generate-results-$timestamp-$LogLanguage.log"
  return Join-Path $LogResultsDir $logFileName
 }
 
@@ -472,7 +480,7 @@ try {
  $logResultsDir = Join-Path (Join-Path $datrixWorkspaceRoot ".generated") ".results"
 
  # Set up logging
- $logFilePath = Get-LogFilePath -LogResultsDir $logResultsDir
+ $logFilePath = Get-LogFilePath -LogResultsDir $logResultsDir -LogLanguage $Language
  
  # Write header to log file (UTF-8)
  $header = @"

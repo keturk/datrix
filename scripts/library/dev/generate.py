@@ -546,7 +546,12 @@ def main():
         log_dir.mkdir(parents=True, exist_ok=True)
 
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        log_file_path = log_dir / f"generate-results-{timestamp}.log"
+        # The language segment keeps concurrent invocations (the same example
+        # generated for several languages at once) from opening the same log
+        # file and failing on a sharing violation, and says which run each log
+        # belongs to. The timestamp stays leading so sorting by name remains
+        # chronological for the consumers that glob generate-results-*.log.
+        log_file_path = log_dir / f"generate-results-{timestamp}-{args.language}.log"
 
         log_config = LogConfig(
             log_dir=str(log_dir),
