@@ -24,7 +24,7 @@
     "expected_count is a pinned, reviewed value: change it only in the same",
     "change that adds or removes an entry."
   ],
-  "expected_count": 18,
+  "expected_count": 37,
   "exemptions": [
     {
       "example": "02-features-02-service-architecture-modules-imports",
@@ -133,6 +133,120 @@
       "domain": "helper",
       "language": "dotnet",
       "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source: no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no extension usage; the only Crypto.* call is Crypto.bcryptHash (inline lowering, no Support helper). python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-01-core-data-modeling-authentication",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source (book-service.dtrx): no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no extension usage; the only Crypto.* call is Crypto.bcryptHash (`passwordHash = Crypto.bcryptHash(passwordHash)`), which lowers to an inline BCrypt.Net.BCrypt.HashPassword(...) static call needing only a NuGet PackageReference, never a Support/*.cs helper. python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-01-core-data-modeling-computed-fields",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source (book-service.dtrx): no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no Crypto.* call at all, no extension usage. python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-01-core-data-modeling-entities",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source (book-service.dtrx): no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no Crypto.* call at all, no extension usage. python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-01-core-data-modeling-enums",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source (book-service.dtrx): no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no Crypto.* call at all, no extension usage. python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-01-core-data-modeling-lifecycle-hooks",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source (book-service.dtrx): no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no Crypto.* call at all, no extension usage. python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-01-core-data-modeling-relationships",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source (book-service.dtrx): no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no Crypto.* call at all, no extension usage. python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-01-core-data-modeling-rest-api",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source (book-service.dtrx): no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no Crypto.* call at all, no extension usage. python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-01-core-data-modeling-validation",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source (book-service.dtrx): no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no Crypto.* call at all, no extension usage. python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-02-service-architecture-functions",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source (book-service.dtrx): no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no Crypto.* call at all, no extension usage. python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-02-service-architecture-multi-service",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source (book-service.dtrx, common.dtrx, member-service.dtrx): no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no Crypto.* call at all, no extension usage. python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-02-service-architecture-shared-block",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source (cache-reader-service.dtrx, publisher-service.dtrx, reader-service.dtrx, shared-data-exchange.dtrx, shared-events.dtrx, shared-reference-db.dtrx, shared-session-store.dtrx, storage-writer-service.dtrx, subscriber-service.dtrx): no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no Crypto.* call at all, no extension usage. python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-03-infrastructure-blocks-cqrs",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source (book-service.dtrx, loan-service.dtrx, member-service.dtrx): no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no extension usage; the only Crypto.* call (in book-service.dtrx) is Crypto.bcryptHash, which lowers to an inline BCrypt.Net.BCrypt.HashPassword(...) static call needing only a NuGet PackageReference, never a Support/*.cs helper. python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-03-infrastructure-blocks-jobs",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source (book-service.dtrx, loan-service.dtrx, member-service.dtrx): no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no extension usage; the only Crypto.* call (in book-service.dtrx) is Crypto.bcryptHash, which lowers to an inline BCrypt.Net.BCrypt.HashPassword(...) static call needing only a NuGet PackageReference, never a Support/*.cs helper. python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-04-advanced-data-features-advanced-queries",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source (book-service.dtrx): no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no Crypto.* call at all, no extension usage. python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-04-advanced-data-features-advanced-relationships",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source (book-service.dtrx): no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no Crypto.* call at all, no extension usage. python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-04-advanced-data-features-advanced-types",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source (book-service.dtrx): no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no Crypto.* call at all, no extension usage. python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-04-advanced-data-features-fulltext-search",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source (book-service.dtrx): no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no Crypto.* call at all, no extension usage. python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "02-features-05-infrastructure-combinations-dual-api",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source (book-service.dtrx): no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no Crypto.* call at all, no extension usage. python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
+    },
+    {
+      "example": "04-languages-typescript-service",
+      "domain": "helper",
+      "language": "dotnet",
+      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source (product-service.dtrx): no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no Crypto.* call at all, no extension usage. python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
     }
   ]
 }

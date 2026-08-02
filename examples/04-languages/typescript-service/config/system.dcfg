@@ -107,7 +107,7 @@ config system commerce.System {
       }
     }
     configStore {
-      engine = "consul";
+      engine = "file";
       flavor = "container";
       applicationName = "commerce-system";
       environment = "dev";
