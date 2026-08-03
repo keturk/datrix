@@ -5,7 +5,7 @@ model: claude-opus-4-8
 
 # Fix Generation
 
-Diagnose and fix **generation-time** failures captured in a `generate-results-*.log` produced by `generate.ps1`. These are failures of the generation pipeline itself (parse → transform → generate), **not** test failures of already-generated code. For test failures use `/troubleshoot-and-fix` or `/fix-codegen-*` instead.
+Diagnose and fix **generation-time** failures captured in a `generate-results-*.log` produced by `generate.ps1`. These are failures of the generation pipeline itself (parse → transform → generate), **not** test failures of already-generated code. For test failures of already-generated code use `/fix-codegen-*` instead.
 
 **Reasoning effort: HIGH.** Apply STOP AND THINK on every cluster — read the generator/template/transformer and the offending `.dtrx`/`.dcfg` before forming a hypothesis. One correct root-cause fix beats five quick patches. Generation failures fan out: a single root cause typically fails dozens of projects with an identical signature, so misdiagnosing one cluster wastes the whole batch.
 
@@ -115,9 +115,10 @@ Config resolution and `.dcfg` loading live in `datrix-common` / `datrix-cli` —
 **Group generation does not exist for you.** `-All`, `-Domains`, and `-TestSet` are **hard-blocked by
 `PreToolUse` → `validate-script-invocation.py`**, and the block cannot be overridden by the
 `VERIFIED_AGAINST_QUICK_REFERENCE` marker. Do not attempt them, and do not go looking for a wrapper
-that gets around them. You regenerate exactly one project — the one you are fixing — per Step 0 and
-CLAUDE.md generation granularity. To generate that one example across every registered language at
-once (the sanctioned parallelism), run the single-example command once per language.
+that gets around them. You regenerate exactly one project — the one you are fixing — in exactly one
+language: **the `{lang}` it failed under**. Generating the same example in the other registered
+languages is a separate, permission-gated question (Step 0, rules 2–3), not part of verifying your
+fix.
 
 `-L`/`-Language` is **mandatory** and is the real generation target (it also selects the output-path language segment — the two can never disagree). `-Runtime`/`-R` is an output-path selector only; the real runtime/provider come from each project's `config/system.dcfg` deployment block. Use `-ConfigProfile {test\|staging\|production}` to select a non-default profile.
 
@@ -142,34 +143,32 @@ powershell -File "d:/datrix/datrix/scripts/dev/status-generation.ps1"
 
 ## Workflow
 
-### Step 0: ONE EXAMPLE AT A TIME — this governs every step below
+### Step 0: ONE EXAMPLE, ONE LANGUAGE — this governs every step below
 
-**A log naming twenty failing examples is not permission to work twenty examples.** Pick ONE, drive it
-to zero errors AND zero warnings across every registered language, and only then look at the next.
-This is not a style preference — it is how shared root causes surface. Driving a single example to the
-bottom repeatedly turns out to fix examples nobody touched; sweeping breadth-first produces a wide map
-of partial failures and fixes nothing.
+**A log naming twenty failing examples is not permission to work twenty examples.** Pick ONE, fix it
+for **the language it actually failed under**, and stop there. This is not a style preference — it is
+the difference between a bounded task and an open-ended sweep that consumes a week of budget.
 
-Three hard rules:
+Four hard rules:
 
 1. **Fix one example at a time.** Multiple examples in the input log changes nothing — they are a
    queue, not a batch. Finish the current one before reading the next one's errors.
-2. **Never generate another example before the current one is fixed.** Not to "check whether it's
-   related", not to "see if the fix generalises", not as a no-regression check mid-fix. If you want to
-   know whether a fix generalises, **write a test** — it proves the invariant permanently, where a
-   regeneration proves it once and evaporates.
-3. **Never run group generation.** `-All`, `-Domains`, `-TestSet` on `generate.ps1` are
-   **hard-blocked by a PreToolUse hook** (`validate-script-invocation.py`) and cannot be overridden.
-   Verification regenerates the ONE affected project's `system.dtrx`, per CLAUDE.md generation
-   granularity.
+2. **Fix only the language that failed.** If the log shows ecommerce failing on java, you fix java.
+   **Do not generate that example for the other registered languages** to find out whether they are
+   affected too — that quadruples the cost of a question nobody asked.
+3. **Ask permission before checking any other language.** One line, then wait. Widening from one
+   language to four is Jon's budget decision, not yours.
+4. **Never generate another example before the current one is fixed**, and **never run group
+   generation** — `-All`, `-Domains`, `-TestSet` are hard-blocked by `PreToolUse` →
+   `validate-script-invocation.py` and cannot be overridden.
 
-Generate that one example for **every registered language in parallel** — that is the sanctioned
-parallelism, and the only one. Parallel across *languages* for one example: yes. Parallel across
-*examples*: never.
+To prove a fix generalises — to another language, another example, or another shape — **write a test**
+in the owning package. It proves the invariant permanently; a regeneration proves it once and
+evaporates, at a fraction of the coverage and several times the price.
 
-No-regression checking belongs at the END, run centrally **once**, after the example is green — never
-inside each fix iteration and never inside each dispatched agent's acceptance criteria (that
-duplicates one check by the number of agents; see execution-contract §10.3).
+No-regression checking belongs at the END, run centrally **once**, over only what you were asked to
+touch — never inside each fix iteration and never inside each dispatched agent's acceptance criteria
+(that duplicates one check by the number of agents; see execution-contract §10.3).
 
 ### Step 1: Triage the Log (scripted — never read the whole log)
 

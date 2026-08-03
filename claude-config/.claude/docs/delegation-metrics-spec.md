@@ -263,7 +263,7 @@ Each line in `metrics.jsonl` is a JSON object representing one metric event:
 {
   "timestamp": "2026-05-09T14:33:42.123Z",
   "event_type": "user_intervention",
-  "skill_name": "troubleshoot-and-fix",
+  "skill_name": "fix-generation",
   "phase_name": "root_cause_analysis",
   "data": {
     "reason": "confidence_gate",

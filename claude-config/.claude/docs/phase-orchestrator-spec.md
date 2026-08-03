@@ -119,7 +119,7 @@ else:
 
 **Work item determination (phase-specific):**
 - For `/execute-tasks` baseline phase: number of task files provided
-- For `/troubleshoot-and-fix` log_parsing phase: number of log folders provided
+- For `/fix-generation` triage phase: number of failure clusters identified
 - For non-parallelizable phases: always 1
 
 **Output:** Number of agents to spawn for this phase

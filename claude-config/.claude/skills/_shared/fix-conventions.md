@@ -1,4 +1,4 @@
-# Fix Conventions (shared) — referenced by /fix, /fix-issue, /fix-bug-report, /fix-tests, /fix-generation, /troubleshoot-and-fix, /troubleshoot-generated, /codegen-fix-loop
+# Fix Conventions (shared) — referenced by /fix, /fix-issue, /fix-bug-report, /fix-tests, /fix-generation, /troubleshoot-generated, /codegen-fix-loop
 
 Shared conventions used across the fix/troubleshoot skill family. The invoking skill's own scope, phases, and package-specific detail live in its own `SKILL.md` — this doc holds only the parts that were duplicated verbatim across multiple skills.
 

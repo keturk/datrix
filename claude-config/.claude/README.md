@@ -22,7 +22,6 @@ This directory configures Claude Code for the Datrix project. `CLAUDE.md` define
 | `/apply-reviews` | Apply review artifacts from Tier 1 (local) and Tier 2 (Codex) | Interactive |
 | `/scope` | Anchor session with language/file/directory constraints | Reference |
 | `/checkpoint-debug` | Structured multi-bug debugging with checkpoints | Interactive |
-| `/troubleshoot-and-fix` | Autonomous diagnose → fix → verify pipeline | Interactive |
 | `/codegen-fix-loop` | Self-correcting iterative fix loop with hard limits | Interactive |
 | `/operationalize-design` | Design doc → decisions → docs → tasks → cleanup | Interactive |
 | `/execute-tasks` | Execute tasks one at a time with verification | Interactive |
@@ -149,14 +148,6 @@ Structured debugging for sessions with multiple bugs. Each fix follows a strict 
 **Checkpoint cycle:** Understand (A) → Fix (B) → Verify (C) → Regression Check (D, every 3 fixes).
 
 **Key constraints:** One issue at a time. User approves execution order. A new failure you introduce is yours — fix it. No skipping checkpoints.
-
-### `/troubleshoot-and-fix`
-
-Autonomous end-to-end pipeline: diagnose generated code test failures → trace to codegen root cause → implement fixes → regenerate → verify. Collapses the two-session troubleshoot+fix pattern into one.
-
-**Pipeline:** Diagnose (read-only) → Plan Fixes → Implement (one at a time) → Regenerate → Final Report.
-
-**Key constraints:** Confidence gates between phases (low confidence = read more, not stop). Scope growth means expand and report, never abort. Never fix generated code directly — always fix the generator. One root cause at a time with verification.
 
 ### `/codegen-fix-loop`
 
@@ -334,7 +325,6 @@ Skills that support delegation:
 
 - `/execute-tasks` — Parallel baseline capture and verification
 - `/execute-tasks-parallel` — Parallel task implementation without dependency analysis
-- `/troubleshoot-and-fix` — Parallel log parsing and regeneration
 - `/premortem` — Parallel deep analysis agents (up to 9 concurrent) for failure scenario analysis
 
 ### Implementation Details
@@ -343,7 +333,7 @@ Skills that support delegation:
 
 **Failure handling:** Phases fail fast — if a phase fails, execution stops and the user is presented with the failure report.
 
-**Progress visibility:** Phase checkpoints are streamed to the user as each phase completes (consistent with existing `/fix-tests` and `/troubleshoot-and-fix` checkpoint patterns).
+**Progress visibility:** Phase checkpoints are streamed to the user as each phase completes (consistent with the existing `/fix-tests` checkpoint pattern).
 
 **Backward compatibility:** Skills without `delegation-strategy` continue to work as monolithic prompts. Delegation is opt-in.
 
@@ -397,7 +387,6 @@ Skills that support delegation:
     evaluate-generated-service/skill.md
     generate-tasks/SKILL.md
     troubleshoot-generated/skill.md
-    troubleshoot-and-fix/skill.md
     apply-reviews/SKILL.md
     scope/SKILL.md
     checkpoint-debug/SKILL.md

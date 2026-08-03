@@ -295,13 +295,20 @@ agents where two would do multiplies cost by three and a half for a result that 
 sooner. Parallelise when the workstreams are genuinely independent and the total is bounded — not to
 feel busy.
 
-### 10.6 Never sweep the corpus
+### 10.6 Never sweep — not across examples, not across languages
 
 Regenerating unrelated examples, running `-All` suites reflexively, or re-verifying already-green
 work "to be safe" is the single easiest way to burn budget for no information. Generation granularity
 and affected-only verification are cost rules as much as correctness rules. To prove a fix
 generalises, **write a test** — it proves the invariant permanently and costs once, where a corpus
 sweep proves it once and evaporates.
+
+**Scope is one example AND one language.** Fix the example for the language it actually failed under.
+Do **not** generate it for the other registered languages to discover whether they are affected too —
+that multiplies the cost of the task you were given by the number of targets, to answer a question
+nobody asked. Widening scope that way is Jon's budget decision: **ask in one line and wait.** Group
+generation (`-All`/`-Domains`/`-TestSet`) is hard-blocked by `PreToolUse` →
+`validate-script-invocation.py` and cannot be overridden.
 
 ### 10.7 Interrupted work is not banked
 
