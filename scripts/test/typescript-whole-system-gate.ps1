@@ -14,11 +14,12 @@
   a real end-to-end TypeScript whole-system run is possible, and this gate proves it.
 
   The gate:
-    1. Generates the TypeScript example project TWICE, into two explicit --output
-       directories (run1 / run2), via the documented generate.ps1 --source/--output
-       single-project mode. Language is resolved from the example's config/system.dcfg
-       (language = "typescript"); the -L flag is only the wrapper's output-path label,
-       so an explicit --output dir is used to bypass it entirely.
+    1. Generates a LANGUAGE-NEUTRAL example project TWICE with -Language typescript,
+       into two explicit --output directories (run1 / run2), via the documented
+       generate.ps1 --source/--output single-project mode. The target language comes
+       solely from that flag (generate.ps1 forwards it to generate.py as --language);
+       no example pins a language, and none may -- a 'language' key in a system .dcfg
+       is rejected at load time by datrix_common's system-config loader.
     2. REALNESS: asserts the run produced real TypeScript source (generated *.ts
        count > 0) AND that the SERVICE IMPLEMENTATION is TypeScript, not Python
        (no *.py under any generated `src/` tree -- the true hollow/leak guard).
@@ -86,10 +87,14 @@ if (-not (Test-Path -LiteralPath $generateScript)) {
     throw "generate.ps1 not found at: $generateScript"
 }
 
-# The TypeScript-configured example (config/system.dcfg -> language = "typescript").
-$exampleSource = Join-Path $datrixRoot "datrix/examples/04-languages/typescript-service/system.dtrx"
+# A language-NEUTRAL example. Datrix has no language-specific examples: every
+# example models domain content only, and the generation target is chosen by the
+# caller. 01-foundation is used because it is the one example known to generate
+# cleanly in every registered language (the same reason the reference-example
+# parity gate holds it as its corpus).
+$exampleSource = Join-Path $datrixRoot "datrix/examples/01-foundation/system.dtrx"
 if (-not (Test-Path -LiteralPath $exampleSource)) {
-    throw "TypeScript example not found at: $exampleSource"
+    throw "Gate example not found at: $exampleSource"
 }
 
 # Directory names that are post-generation build/install artifacts, never
@@ -110,9 +115,9 @@ function Invoke-TsGeneration {
     if (Test-Path -LiteralPath $OutputDir) {
         Remove-Item -LiteralPath $OutputDir -Recurse -Force
     }
-    # Named-parameter splat: -Language is only the wrapper's output-path label;
-    # the real language is resolved from config/system.dcfg (typescript). The
-    # explicit -Output dir is what the gate actually compares.
+    # Named-parameter splat: -Language IS the target selector (generate.ps1
+    # forwards it as --language). The explicit -Output dir is what the gate
+    # actually compares.
     $genArgs = @{
         Source   = $exampleSource
         Output   = $OutputDir

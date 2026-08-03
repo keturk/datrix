@@ -54,8 +54,12 @@
     }
     jobs {
       jobs {
-        replayCatalogFeed {
+        replayCatalogFeedBackfill {
           schedule = "0 3 * * *";
+          timeout = "3600s";
+        }
+        compactCatalogFeed {
+          schedule = "0 4 * * *";
           timeout = "3600s";
         }
       }

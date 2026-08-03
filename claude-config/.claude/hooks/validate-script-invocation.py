@@ -54,6 +54,17 @@ _DIRECT_PYTEST_RE = re.compile(
     r"(?:^|[\s;|&(])(?:py\.?test\b|python[\w.]*\s+(?:-\S+\s+)*-m\s+py\.?test\b)"
 )
 
+# Group-generation flags on generate.ps1. CLAUDE.md ("Generation granularity"):
+# regenerate only the affected project; never run group generation to verify a
+# change. One sweep costs minutes per example and proves nothing a unit test in
+# the owning package would not prove permanently. Scoped to generate.ps1 alone —
+# `-All` is legitimate on test.ps1 / compile.ps1 / libcst.ps1 / semgrep.ps1.
+_GROUP_GENERATION_FLAGS = ("-all", "-domains", "-testset")
+
+# `generate.ps1` as its own path segment, so `generate-doc-fragments.ps1` and
+# `generate-test-rules.ps1` (which legitimately take -All) never match.
+_GENERATE_SCRIPT_RE = re.compile(r"(?:^|[/\\])generate\.ps1\b")
+
 
 def _block(msg: str) -> None:
     """Write feedback to stderr and exit with the block code."""
@@ -116,6 +127,31 @@ def main() -> None:
             "  (or test-single.ps1 for a single node id). "
             "Then read the run's index.json for the canonical result."
         )
+
+    # 3. generate.ps1 must never run group generation. Verification regenerates
+    #    the ONE affected project; a corpus sweep is wasted minutes per example
+    #    and belongs in a unit test in the owning package instead.
+    if _GENERATE_SCRIPT_RE.search(normalized):
+        used = [
+            flag
+            for flag in _GROUP_GENERATION_FLAGS
+            if re.search(rf"(?:^|\s){re.escape(flag)}(?![\w-])", normalized)
+        ]
+        if used:
+            _block(
+                f"BLOCKED: generate.ps1 must not be run with {' or '.join(used)}.\n"
+                "CLAUDE.md (Generation granularity): regenerate only the AFFECTED "
+                "project's system.dtrx. Never run group/-All/-TestSet/-Domains "
+                "generation.\n"
+                "Each example costs minutes to generate, and which example is worked "
+                "next is Jon's call, not an agent's.\n"
+                "To verify one project:\n"
+                '  powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" '
+                '"d:/datrix/datrix/examples/{group}/{example}/system.dtrx" -L {language}\n'
+                "To prove a fix generalizes beyond one example, write a test in the "
+                "owning datrix-codegen-* package — it proves the invariant forever, "
+                "whereas a sweep proves it once and evaporates."
+            )
 
     # Only intercept powershell script calls under datrix/scripts/
     if "datrix/scripts/" not in normalized:

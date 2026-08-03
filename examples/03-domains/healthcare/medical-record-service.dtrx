@@ -98,8 +98,9 @@ service healthcare.MedicalRecordService('config/medical-record-service.dcfg') : 
     }
 
     struct AddAttachmentRequest {
-        // 'Blob' type for binary file uploads
-        Blob file;
+        // 'UploadedFile' carries the uploaded bytes plus their metadata
+        // (contentType, size, filename). 'Blob'/'Bytes' is raw bytes only.
+        UploadedFile file;
         String filename;
         String? description;
     }

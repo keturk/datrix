@@ -61,29 +61,6 @@
       corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
     }
-    secrets {
-      secret search_username {
-        required = true;
-        purpose = "Username for the full-text search engine bound to BookService.";
-      }
-      secret search_password {
-        required = true;
-        purpose = "Password for the full-text search engine bound to BookService.";
-      }
-    }
-    integrations {
-      search {
-        provider = "elasticsearch";
-        flavor = "container";
-        host = "localhost";
-        port = 9200;
-        authRequired = true;
-        credentials {
-          usernameCredentialRef = "search_username";
-          passwordCredentialRef = "search_password";
-        }
-      }
-    }
     cacheOps {
       ttlSeconds = 300;
       keyMaxLength = 100;

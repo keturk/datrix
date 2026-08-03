@@ -48,6 +48,18 @@
 - **Generality-preserving design rule:** place fixes and features at the most language/platform-agnostic layer that can own them; language/provider specifics live only in the owning codegen package. Never hardcode the assumption that currently-shipped languages/providers are the only targets.
 - **No git reverts.** Never use `git checkout`, `git restore`, `git reset`, `git stash`, `git revert`, or any variant to revert or discard changes. The agent does not know how many prior tasks have modified working tree files — reverting may destroy uncommitted work. Undo your own edits manually.
 
+## Delegation Economy — Budget Is Yours To Manage
+
+**Full text: `.claude/skills/_shared/execution-contract.md` §10.** A subagent is a purchase, not a free action. Budget is a shared, exhaustible pool; a run that reaches the right answer by spending a week of it in a day is not a good run. **Not being able to see the meter is not an excuse** — every agent reports its token usage, and you can count how many you dispatched.
+
+- **Do it yourself unless delegation pays.** If you already have the root cause at `file:line` and the change is small, **make the edit**. A dispatch costs 100k–800k tokens; the same edit direct costs a few tool calls. Never dispatch to apply a fix you have already diagnosed, edit a fixture or config, correct docs, or run a command and read its output.
+- **Size the dispatch to the defect.** Every extra acceptance criterion is budget the agent will spend. Ask for the smallest evidence that actually proves the fix.
+- **Verify centrally, once.** Do NOT put a "also regenerate these other examples / re-run these other suites" list in every dispatch — if the orchestrator verifies the shared set after the wave (and it should), each per-agent copy is duplication multiplied by agent count. One central check catches the same regressions at 1/N the cost.
+- **A large or empty return is a signal.** An agent that returns no usable report after a large spend was mis-sized: shrink the next dispatch, never re-dispatch the same shape at the same size. Two such returns means your sizing model is wrong.
+- **Cap concurrency to the real constraint.** Parallel agents buy wall-clock, which is rarely binding. Seven agents where two would do costs 3.5× for a marginally earlier result.
+- **Never sweep the corpus.** Regenerating unrelated examples or reflexively running `-All` burns budget for no information. To prove a fix generalises, **write a test** — permanent, and paid for once.
+- **Interrupted work is not banked.** Re-measure from disk; a killed agent's partial edits are unverified.
+
 ## Output Style — Be Concise
 
 **Answer the question, report the outcome, stop. Every extra word costs Jon reading time.** This governs prose written to Jon (chat replies, PR/commit bodies, summaries) — it does NOT relax any *verification* the task requires. Do the full work; just report it tightly.
@@ -170,6 +182,15 @@ Never run `complete.ps1` on a task whose agent returned BLOCKED, whose `## How S
 **Pipeline skills and optional deps:** In pipeline skills like `/operationalize-design`, when an optional dependency is absent but the pipeline can still produce its core deliverable, take the graceful-degradation path, note the degradation in the summary, and continue. Do not halt with an AskUserQuestion gate for missing optional validators. STOP only for genuinely blocking conditions (unresolved required decisions, missing required inputs, technical impossibility).
 
 **Generation granularity:** `generate.ps1` generates a whole project from its `system.dtrx` — there is **no** single-service generation mode (a per-service `.dtrx` is part of the system, not independently generable). A change affecting one service still requires regenerating that project's full system. To verify, regenerate only the affected project (its `system.dtrx`); do not regenerate unrelated projects or run group/`-All`/`-TestSet`/`-Domains` generation.
+
+**Fixing generation issues — ONE EXAMPLE, ONE LANGUAGE.** A log naming twenty failing examples is a queue, not a batch. Pick ONE example, fix it **for the language it actually failed under**, and stop there.
+
+- **Only the failing language.** Do not generate the example for the other registered languages to "see if they're affected". If ecommerce failed on java, you fix java. Whether dotnet/python/typescript also fail is a separate question you have not been asked.
+- **Ask permission before checking any other language.** Checking three more languages costs roughly 4× the budget of the one you were asked about. That is Jon's call, not yours — ask in one line and wait.
+- **Never generate another example before the current one is fixed** — not to check whether it's related, not to see if a fix generalises, not as a mid-fix regression check. To prove a fix generalises, **write a test**: permanent, and paid for once.
+- **No-regression checks run centrally, ONCE, after the work is done and only over what you were asked to touch** — never inside each fix iteration, and never pasted into every dispatched agent's acceptance criteria.
+
+**This is enforced by the harness, not left to the agent.** `PreToolUse(Bash|PowerShell)` → `validate-script-invocation.py` hard-blocks `generate.ps1` carrying `-All`, `-Domains`, or `-TestSet`; the block cannot be overridden by the `VERIFIED_AGAINST_QUICK_REFERENCE` marker. It is scoped to `generate.ps1` alone, so `-All` stays legal on `test.ps1`/`compile.ps1`/`libcst.ps1`/`semgrep.ps1`. Its checks — both directions, block *and* over-block — are covered by `.claude/hooks/test-group-generation-guard.py`. An agent swept all 13 domain examples with `-Domains` while this rule was already written down, which is why it is a block rather than an instruction. **To prove a fix generalizes beyond one example, write a test in the owning `datrix-codegen-*` package** — a test proves the invariant forever; a corpus sweep proves it once, costs minutes per example, and evaporates.
 
 ## Design Doc Workflow
 

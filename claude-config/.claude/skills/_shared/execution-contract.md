@@ -237,3 +237,74 @@ evidence, nothing more:
 
 Conciseness never licenses omission: the §3 four-part proof, the §8 evidence, and every defect you
 found (§5) must still be present in full. Tight means *no filler*, not *less proof*.
+
+---
+
+## 10. Delegation economy — a subagent is a purchase, not a free action
+
+Every dispatched agent costs real budget drawn from a shared, exhaustible pool. A run that reaches
+the right answer by spending a week of budget in a day is **not** a good run. Cost is part of the
+engineering judgment, exactly like correctness and scope — not a separate concern owned by someone
+else. You cannot see the meter; that does not excuse you, because you can see every agent's reported
+token count and you can see how many you dispatched.
+
+### 10.1 Do it yourself unless delegation actually pays
+
+Before dispatching, ask: *do I already know the fix?* If you have the root cause at `file:line` and
+the change is small and contained, **make the edit**. A dispatch costs 100k–800k tokens; the same
+edit made directly costs a handful of tool calls. Delegation earns its price when the work is large,
+genuinely parallel, or needs a context you do not want to load — never as a default reflex, and never
+as a way to avoid doing a small thing yourself.
+
+Reach for an agent when: the task needs broad exploration you have not done; several genuinely
+independent workstreams can proceed at once; or the reading required would blow the orchestrator's
+context. Do not reach for one to: apply a fix you have already diagnosed, edit a config or fixture,
+correct documentation, or run a command and read its output.
+
+### 10.2 Size the dispatch to the defect
+
+Scale the ask to what is actually unknown. A three-error fix with a known root cause is a small,
+tightly-scoped dispatch, not a request for exhaustive investigation, full-suite runs, and
+multi-example verification. Every extra acceptance criterion you write is budget the agent will
+spend. Ask for the smallest evidence that actually proves the fix.
+
+### 10.3 Verify centrally, once — never N times in parallel
+
+**Do not put a "regenerate these other examples / re-run these other suites" list in every dispatch.**
+If the orchestrator verifies the shared set after the wave lands — and it should — then every
+per-agent copy of that verification is pure duplication, multiplied by the number of agents. One
+central verification catches the same regressions as N scattered ones, at 1/N the cost.
+
+The narrow exception: when an agent is changing a surface so shared that it must know immediately
+whether it broke a sibling, give it exactly one no-regression target, not four.
+
+### 10.4 A large or empty return is a signal — act on it
+
+Every completion reports its token usage. Read it. Then react:
+
+- An agent that returns **without a usable report** after a large spend means the task was mis-sized.
+  **Shrink the next dispatch. Never re-dispatch the same shape at the same size.**
+- Two such returns in a run means your sizing model is wrong, not that the agents are unlucky.
+- Track the running total across a session. If you cannot state roughly what the run has spent so
+  far, you are not managing it.
+
+### 10.5 Cap concurrency to the real constraint
+
+Parallel agents buy wall-clock, and wall-clock is rarely the binding constraint. Dispatching seven
+agents where two would do multiplies cost by three and a half for a result that arrives slightly
+sooner. Parallelise when the workstreams are genuinely independent and the total is bounded — not to
+feel busy.
+
+### 10.6 Never sweep the corpus
+
+Regenerating unrelated examples, running `-All` suites reflexively, or re-verifying already-green
+work "to be safe" is the single easiest way to burn budget for no information. Generation granularity
+and affected-only verification are cost rules as much as correctness rules. To prove a fix
+generalises, **write a test** — it proves the invariant permanently and costs once, where a corpus
+sweep proves it once and evaporates.
+
+### 10.7 Interrupted work is not banked
+
+An agent killed mid-run may have produced nothing, and its partial edits are unverified. Re-measure
+from disk before assuming any of it landed. Budget already spent on a killed agent is gone — do not
+compound it by trusting its unproven output.

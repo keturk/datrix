@@ -108,13 +108,14 @@ config system shop.System {
     }
 
     // Runtime config store. Authors write 'flavor' (mapped to the canonical
-    // 'platform' at the emitter boundary); the local Consul container profile
-    // needs no cloud credentials. Present here so generation emits the runtime
-    // client, the remote_defaults.json artifact, and the Docker config-store
-    // service. featureFlag profiles allow Boolean-only keys; freeform profiles
-    // allow any scalar type with optional constraints.
+    // 'platform' at the emitter boundary); the 'file' engine is the LOCAL
+    // self-host engine -- a baked JSON profile read from a mounted path, so it
+    // needs no cloud credentials and no network. Present here so generation
+    // emits the runtime client, the remote_defaults.json artifact, and the
+    // Docker config-store service. featureFlag profiles allow Boolean-only
+    // keys; freeform profiles allow any scalar type with optional constraints.
     configStore {
-      engine = "consul";
+      engine = "file";
       flavor = "container";
       applicationName = "shop-catalog";
       environment = "dev";

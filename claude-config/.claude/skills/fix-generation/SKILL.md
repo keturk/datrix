@@ -109,13 +109,15 @@ Config resolution and `.dcfg` loading live in `datrix-common` / `datrix-cli` —
 
 | Target | Command |
 |---|---|
-| **One example** | `powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" "{source.dtrx}" -L {lang}` |
-| **Foundation group** | `powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" -TestSet foundation -L {lang}` |
-| **Domains group** | `powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" -Domains -L {lang}` |
-| **Non-foundation group** | `powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" -TestSet non-foundation -L {lang}` |
-| **Named test set** | `powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" -TestSet {set-name} -L {lang}` |
-| **All examples** | `powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" -All -L {lang}` |
+| **One example** (the ONLY sanctioned form) | `powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" "{source.dtrx}" -L {lang}` |
 | **Debug logging** | append `-Dbg` |
+
+**Group generation does not exist for you.** `-All`, `-Domains`, and `-TestSet` are **hard-blocked by
+`PreToolUse` → `validate-script-invocation.py`**, and the block cannot be overridden by the
+`VERIFIED_AGAINST_QUICK_REFERENCE` marker. Do not attempt them, and do not go looking for a wrapper
+that gets around them. You regenerate exactly one project — the one you are fixing — per Step 0 and
+CLAUDE.md generation granularity. To generate that one example across every registered language at
+once (the sanctioned parallelism), run the single-example command once per language.
 
 `-L`/`-Language` is **mandatory** and is the real generation target (it also selects the output-path language segment — the two can never disagree). `-Runtime`/`-R` is an output-path selector only; the real runtime/provider come from each project's `config/system.dcfg` deployment block. Use `-ConfigProfile {test\|staging\|production}` to select a non-default profile.
 
@@ -139,6 +141,35 @@ powershell -File "d:/datrix/datrix/scripts/dev/status-generation.ps1"
 ---
 
 ## Workflow
+
+### Step 0: ONE EXAMPLE AT A TIME — this governs every step below
+
+**A log naming twenty failing examples is not permission to work twenty examples.** Pick ONE, drive it
+to zero errors AND zero warnings across every registered language, and only then look at the next.
+This is not a style preference — it is how shared root causes surface. Driving a single example to the
+bottom repeatedly turns out to fix examples nobody touched; sweeping breadth-first produces a wide map
+of partial failures and fixes nothing.
+
+Three hard rules:
+
+1. **Fix one example at a time.** Multiple examples in the input log changes nothing — they are a
+   queue, not a batch. Finish the current one before reading the next one's errors.
+2. **Never generate another example before the current one is fixed.** Not to "check whether it's
+   related", not to "see if the fix generalises", not as a no-regression check mid-fix. If you want to
+   know whether a fix generalises, **write a test** — it proves the invariant permanently, where a
+   regeneration proves it once and evaporates.
+3. **Never run group generation.** `-All`, `-Domains`, `-TestSet` on `generate.ps1` are
+   **hard-blocked by a PreToolUse hook** (`validate-script-invocation.py`) and cannot be overridden.
+   Verification regenerates the ONE affected project's `system.dtrx`, per CLAUDE.md generation
+   granularity.
+
+Generate that one example for **every registered language in parallel** — that is the sanctioned
+parallelism, and the only one. Parallel across *languages* for one example: yes. Parallel across
+*examples*: never.
+
+No-regression checking belongs at the END, run centrally **once**, after the example is green — never
+inside each fix iteration and never inside each dispatched agent's acceptance criteria (that
+duplicates one check by the number of agents; see execution-contract §10.3).
 
 ### Step 1: Triage the Log (scripted — never read the whole log)
 

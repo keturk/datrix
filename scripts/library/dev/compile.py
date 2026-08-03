@@ -162,13 +162,21 @@ def check_import(
 ) -> ImportErrorResult | None:
     """
     Import the package and all its submodules so cross-package imports (e.g. from datrix_language.parser)
-    are exercised. Uses pythonpath_entries to set PYTHONPATH so sibling packages are resolvable.
+    are exercised.
+
+    Sibling packages resolve through the shared venv, where every ``datrix-*`` package is
+    installed in editable mode -- so *pythonpath_entries* is accepted for signature
+    compatibility but deliberately NOT injected into ``PYTHONPATH``. Putting the raw
+    ``src`` directories on ``sys.path`` shadows those editable installs with plain
+    directories that carry no ``.dist-info``, which silently strips the packages' entry
+    points. A generator package whose GenDSL definitions validate their own target
+    against the discovered-plugin registry at import time then fails with a bogus
+    "Unknown generator target" -- reporting a package that imports correctly in every
+    real code path as an import error. Resolution is identical either way, since the
+    editable installs point back at these same source trees.
     """
+    del pythonpath_entries
     env = os.environ.copy()
-    if pythonpath_entries:
-        src_dirs = [str(p / "src") for p in pythonpath_entries if (p / "src").is_dir()]
-        if src_dirs:
-            env["PYTHONPATH"] = os.pathsep.join(src_dirs)
     script = _make_import_check_script(package_name)
     try:
         result = subprocess.run(

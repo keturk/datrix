@@ -12,6 +12,25 @@ Always persist agent output to disk:
 1. Create a session subfolder: `d:/datrix/.agent_output/<date>-<task>/`
 2. Give each agent a unique filename: `agent-<role>-<number>.md`
 
+## Before You Dispatch — is an agent the right purchase?
+
+A subagent is a purchase drawn from a shared, exhaustible budget, not a free action. A dispatch costs
+**100k–800k tokens**; the same edit made directly costs a few tool calls. Binding detail:
+execution-contract §10.
+
+**Do NOT dispatch when you already hold the answer.** If you have the root cause at `file:line` and
+the change is small and contained — a fixture, a config value, a doc correction, a known three-line
+fix, running a command and reading its output — **do it yourself**. Delegating work you have already
+diagnosed pays the full price of an agent for none of its benefit.
+
+**DO dispatch** when the task needs broad exploration you have not done, when several genuinely
+independent workstreams can run at once, or when the reading required would blow your context.
+
+Then size it: scale the ask to what is actually *unknown*. Every extra acceptance criterion is budget
+the agent will spend. Ask for the smallest evidence that really proves the fix — and never paste a
+"also regenerate/re-run these other things" list into each agent when you will verify the shared set
+centrally once afterwards.
+
 ## Model Selection
 
 Pick the least powerful model that fits the task:

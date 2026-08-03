@@ -543,19 +543,25 @@ Fix results from fix_implementation phase + original log folder paths:
 
 ### Steps
 
-For each affected example:
+**ONE example at a time.** Fix the current example to zero errors AND zero warnings across every
+registered language before generating the next one. Never generate a second example to check whether
+a fix generalises — write a test instead. (CLAUDE.md "Fixing generation issues"; `fix-generation`
+Step 0.)
+
+For the affected example:
 
 #### Step 1: Regenerate the example
 
-Run the generation script:
+Run the generation script against that project's `system.dtrx` — the single-project form is the only
+one available:
 
 ```
-powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" -TestSet {test-set} -L {language}
+powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" "{path}/system.dtrx" -L {language}
 ```
 
-**Determine test set and language from example path:**
-- `01-foundation/01-library` → `-TestSet foundation -L python`
-- `02-features/...` → `-TestSet features -L python`
+`-All`, `-Domains`, and `-TestSet` are **hard-blocked by `PreToolUse` → `validate-script-invocation.py`**
+and cannot be overridden. To cover every registered language for this one example, run the command
+once per language.
 
 Record:
 - Generation output (success/failure)

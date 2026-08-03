@@ -400,7 +400,7 @@ or config error.
 
 ### `test\typescript-whole-system-gate.ps1`
 
-Whole-system **TypeScript** generation gate: proves the whole-system generate path emits real TypeScript (not a hollow/failed run) and is byte-deterministic. Generates `examples/04-languages/typescript-service` twice into two explicit `--output` dirs and asserts realness + byte-stability. This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
+Whole-system **TypeScript** generation gate: proves the whole-system generate path emits real TypeScript (not a hollow/failed run) and is byte-deterministic. Generates the language-neutral `examples/01-foundation` twice with `-Language typescript`, into two explicit `--output` dirs, and asserts realness + byte-stability. The target comes solely from the flag — Datrix has no language-specific examples, and a `language` key in a system `.dcfg` is rejected at load time. This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
 
 | Mode | Command | Description |
 |------|---------|-------------|

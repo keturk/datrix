@@ -24,7 +24,7 @@
     "expected_count is a pinned, reviewed value: change it only in the same",
     "change that adds or removes an entry."
   ],
-  "expected_count": 37,
+  "expected_count": 36,
   "exemptions": [
     {
       "example": "02-features-02-service-architecture-modules-imports",
@@ -241,12 +241,6 @@
       "domain": "helper",
       "language": "dotnet",
       "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source (book-service.dtrx): no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no Crypto.* call at all, no extension usage. python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
-    },
-    {
-      "example": "04-languages-typescript-service",
-      "domain": "helper",
-      "language": "dotnet",
-      "reason": "Verified against the real generated output (dotnet.sha256 blessed manifest): zero `Support/*.cs` paths. Verified against the DSL source (product-service.dtrx): no Auth./Json./Validator./Request. builtin calls, no Log.withContext/setLevel, no Geo/GeoShape/Crypto.sign, no Crypto.* call at all, no extension usage. python's blessed manifest always emits _datrix_helpers.py regardless of DSL content -- the same genuine per-language boilerplate-emission design difference, not a missing capability."
     }
   ]
 }
