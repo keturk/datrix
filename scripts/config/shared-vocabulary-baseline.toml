@@ -1,0 +1,15 @@
+# G1 Shared-Vocabulary Ratchet Baseline (Decision D3, Invariant I2)
+#
+# Frozen per-file counts of module-level frozenset/set/dict
+# declarations in the four datrix-codegen-{lang} packages whose
+# normalized member set duplicates a datrix_codegen_common.enums
+# vocabulary. Any INCREASE in a file's count fails
+# datrix/scripts/dev/check-import-boundaries.py --check-shared-vocabulary.
+# Decreases are always allowed and should be captured by re-running
+# with --update-baseline once a later change deletes a redundant
+# container (the terminal state is 0 for every entry here).
+#
+# Format:
+#   [[baseline]]
+#   file = "path/relative/to/monorepo-root, forward slashes"
+#   count = <int>

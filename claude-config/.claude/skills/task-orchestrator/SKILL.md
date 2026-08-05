@@ -44,6 +44,7 @@ Because you ARE Opus at extra-high effort, the old "escalate up to a more-capabl
 
 **Key differences from `/execute-tasks-parallel`:**
 - **Readiness audit before any execution** (Step 1e) — audits the task set against the design doc AND the current implementation, then authors the missing tasks and rewires `dependencies.md` before planning waves
+- **Optimization pass before any execution** (Step 1f) — having established the set is *sufficient*, makes it *efficient*: retires already-satisfied tasks, merges duplicated scope, drops dependency edges that serialize nothing, splits over-broad tasks, and repairs defective targeted-test lists — then executes the result with co-dispatch batching (3b). Never at the cost of a design invariant
 - Dependency-aware grouping (builds a DAG, topologically sorts into waves)
 - Automatic wave advancement (no human intervention between waves)
 - Handles tasks with cross-dependencies (separates into waves instead of blocking)
@@ -155,7 +156,7 @@ The orchestrator gates on the design, so it must hold the design in hand — not
 
 **Run this before ANY execution.** The task set was authored against the design and the codebase **as they were when `/generate-tasks` ran**; both may have moved since, and the generator may have missed a surface. Executing an insufficient task set produces the same failure mode every time — every task COMPLETED, the suite green, and the design still unenforced. The audit answers one question: *if every task in this set succeeds exactly as written, will the `design_contract` from 1d hold over the code that is actually on disk today?* If the answer is anything but yes, the audit **adds the missing tasks and rewires dependencies** before Step 2 builds the DAG.
 
-The audit is **read-only with respect to source code** — it authors task files and updates `dependencies.md`, and touches nothing else. It **never modifies the design doc** (CLAUDE.md: design docs are scope boundaries).
+The audit is **read-only with respect to source code** — it authors task files and updates `dependencies.md`, and touches nothing else. It **never modifies the design doc** (CLAUDE.md: design docs are scope boundaries). The run's single permitted design-doc write is Step 4's `Status:`-line update, at the very end, after every task implementing that doc is COMPLETE — never here, and never mid-run.
 
 ##### Audit dimensions (each finding needs evidence — a file:line you read or a command + its output)
 
@@ -169,7 +170,7 @@ The audit is **read-only with respect to source code** — it authors task files
 
 ##### Audit scope — the phase you are about to execute, and no further (binding)
 
-**Audit exactly one phase: the one whose first wave you are about to dispatch.** In a multi-phase run, phase `P+1`'s audit runs at the phase boundary (3i), immediately before its first wave — never up front alongside phase `P`'s.
+**Audit exactly one phase: the one whose first wave you are about to dispatch.** In a multi-phase run, phase `P+1`'s audit — and the optimization pass (1f) that follows it — run at the phase boundary (3i), immediately before its first wave, never up front alongside phase `P`'s.
 
 This is not a cost concession, it is the more accurate ordering: the audit's whole question is *does this task set hold against the code on disk today*, and phase `P` is about to change that code. An audit of phase `P+1` performed before phase `P` runs is answering the question against a codebase that will not exist by the time those tasks execute.
 
@@ -230,13 +231,64 @@ dependencies.md: updated ({N} entries, {E} edges)
 
 Omit any line with nothing to report. If no gaps: `READINESS AUDIT — phase {NN}: {N} tasks, no gaps; task set satisfies the design contract.`
 
+### 1f. Optimization Pass — same design, reached for less
+
+**1e asks "is this task set sufficient?" 1f asks "is this task set efficient?"** They are different questions and both run before any agent is dispatched. A task set is a *plan*, and `/generate-tasks` authored it without knowing what the graph would look like once it was scheduled — so it routinely carries work that is duplicated across two tasks, edges that serialize tasks nothing actually orders, and tasks whose `## Targeted Tests` name a suite the harness will refuse to run. Executing that as-written costs agents, waves, and wall-clock for no added conformance.
+
+**Run 1f immediately after 1e, over the amended set, before Step 2 plans waves.** In a multi-phase run it runs per phase, paired with that phase's audit — up front for the first phase, at the phase boundary (3i) for each later one, for the same reason 1e is scoped that way: phase `P` is about to change the code phase `P+1`'s plan is optimized against.
+
+##### Cost bound (binding — this pass must not become the thing it optimizes)
+
+**1f spends no new subagents and reads no new source code.** Everything it needs is already in hand: `phase-{NN}-status.json` (1b), the baseline `phase-{NN}-waves.json` (1c), the design contract (1d), and 1e's adjudicated findings. It is a judgment pass over metadata you already hold, and its edits are field-level — per the delegation economy you make them yourself rather than buying a 400k dispatch to type a `**Depends on:**` line. The one exception is authoring a *new* task file for a split (O4), which follows 1e's authoring mechanism (you spec it, a sonnet agent types it).
+
+**Bias to no-op.** A set from a recent `/generate-tasks` is usually already close to optimal; 1f's normal output is a single line. Hunting marginal merges on Opus tokens is the same overrun that once burned an entire overnight window on a readiness audit — five tasks run as authored are cheaper than an hour spent proving four would do. If a transform's saving is not obvious from the JSON in front of you, it is not there.
+
+##### The six transforms — the list is closed
+
+Anything not on this list is not an optimization you may apply.
+
+1. **O1 Retire an already-satisfied task.** 1e dimension 4 *finds* these; 1f is where one leaves the graph. Requires its acceptance check (negative + positive) run and its output pasted. Never on "it looks done."
+2. **O2 Drop a spurious dependency edge.** `B depends on A` where B neither reads, imports, nor modifies anything A creates, and the two write no common file. Dropping it widens the wave and shortens the critical path — usually the single largest saving available. **Never drop:** an enforcement edge (a guard, validator, or fail-loud check before what it governs — CLAUDE.md, and 1e dimension 2 exists to *add* these); a shared-file write-ordering edge; or any edge you cannot positively prove is spurious. **The costs are asymmetric and that decides ties:** a wrongly-kept edge costs one wave of wall-clock, a wrongly-dropped one costs a race, a clobbered file, or a migration running ahead of its guard. **Default is keep.**
+3. **O3 Merge duplicate scope.** Two tasks whose `files_to_create_modify` and acceptance properties describe the same work. Fold into a survivor. **Never merge across packages, across implementation languages, or across a guard/migration boundary** — a merged guard+migration is a task that polices itself.
+4. **O4 Split an over-broad task.** Only when the halves are genuinely independent (disjoint files, no shared symbol) **and** the split actually shortens the critical path — a split that just widens an already-wide wave buys nothing and costs a dispatch. A `MIXED_LANGUAGE_TASK` from 1c is a **mandatory** split, not an optional one.
+5. **O5 Repair a defective `## Targeted Tests`.** A task naming a bare full suite (`test.ps1 <pkg>`, `-All`, a tier sweep) is a defective task file per CLAUDE.md, and `guard-full-suite-runs.py` blocks its agent unconditionally — so leaving it is not just wasteful, it is a dispatch that will fail. Replace it with the specific test files covering the code that task changes.
+6. **O6 Fix the model tier now, while you hold the whole set.** Record the intended 3b tier (haiku / sonnet / opus) per task here. One judgment pass across the set is both cheaper and more consistent than N ad-hoc calls made under dispatch pressure.
+
+##### Merge and retire bookkeeping — the completion bar does not move
+
+**Never delete a task file.** `validate-dependencies.ps1` requires task numbers unique and sequential across repos and `dependencies.md` to cover every discovered file; a deleted file breaks both. An absorbed (O3) or retired (O1) task stays on disk and stays on the phase's completion bar:
+
+- Add `**Superseded by:** task-{NN}-{TT}` to its body, and move every inbound edge to the survivor.
+- **An absorbed task is marked COMPLETED at the same 3g gate as its survivor — never at 1f** — with a `## How Solved` carrying the survivor's acceptance evidence verbatim. Completing it at optimization time is a false completion (the work does not exist yet); leaving it unresolved wedges the Stop gate, which counts any task that is neither COMPLETED nor carrying a B1–B4 proof.
+- A retired already-satisfied task (O1) *may* be completed here, and only here, because its `## How Solved` is the acceptance check output you just pasted — that is real proof of work, not a status you picked.
+
+##### Four invariants 1f may never break (verify all four before Step 2)
+
+1. **Every invariant surface in the 1d `design_contract` still maps to at least one task** — re-run 1d step 4 over the optimized set. An optimization that orphans a surface has traded away the thing the run exists to prove.
+2. **`validate-dependencies.ps1 -Phase {NN}` PASSES** — task files' `**Depends on:**` and `dependencies.md` stay in lockstep exactly as in 1e step 4. Every merge, retire, split, and dropped edge is written to BOTH.
+3. **`plan-waves.ps1 {NN}` returns no `cycle` and no `blocking_issues`** — a graph broken by your own rewiring is a bug to fix, not to ship.
+4. **No task's `design_acceptance_property` was weakened.** 1f changes *how* the design is reached; it never changes *what* is proven. If a transform would trade conformance for speed it is not an optimization — drop it. **Conformance over throughput binds here exactly as it does at the gates.**
+
+##### Optimization Report (emit after the Audit Report, before the execution plan)
+
+```
+OPTIMIZATION — phase {NN}: {N} → {M} tasks, {W_before} → {W_after} waves
+Merged:   task-{NN}-{TT} ← task-{NN}-{TT}  ({the scope they shared})
+Split:    task-{NN}-{TT} → task-{NN}-{TT} + task-{NN}-{TT}  ({why, and what it shortens})
+Retired:  task-{NN}-{TT} — already satisfied ({acceptance check + its output})
+Unedged:  task-{NN}-{TT} ⊥ task-{NN}-{TT}  ({why the edge was not real})
+Tests:    task-{NN}-{TT} — bare full suite → {specific files}
+```
+
+Omit any line with nothing to report. If nothing cleared the bar: `OPTIMIZATION — phase {NN}: {N} tasks, {W} waves; no changes.` — and that is a good outcome, not a failure to find something.
+
 ---
 
 ## Step 2: Build Dependency DAG and Plan Waves (scripted)
 
 ### 2a–2e. Compute the plan with the wave planner
 
-The entire DAG/cycle/wave/conflict/ordering computation is one script call over the **amended** task set (the tasks added and edges rewired by 1e are ordinary members of the graph — re-run the script after any amendment):
+The entire DAG/cycle/wave/conflict/ordering computation is one script call over the **amended and optimized** task set (the tasks added and edges rewired by 1e, and merged/split/re-edged by 1f, are ordinary members of the graph — re-run the script after any amendment; the plan you execute is computed from the post-1f set, never the baseline):
 
 ```bash
 powershell -File "d:/datrix/datrix/scripts/tasks/plan-waves.ps1" {NN}
@@ -299,11 +351,11 @@ When the run covers more than one phase, the wave loop of Step 3 runs over **eve
 | Task-failure prompt | A task failed after the directed-fix attempt, **Fable** adjudicated and returned **F**, and the user chose to stop | 3f |
 | Blocking readiness finding | Design/code contradiction no task can reconcile, **which Fable adjudicated to F**. A contradiction alone is NOT an exit — Fable's A–E (amend, resequence, fix-elsewhere, follow-up) resolve it and the run continues | 1e, dimension 7 |
 | Test-infrastructure failure | `test.ps1` itself errors twice | Error Recovery |
-| **Run complete** | **The last wave of the LAST phase has passed its gates** | Step 4 |
+| **Run complete** | **The last wave of the LAST phase has passed its gates** | Steps 4–5 |
 
 **Note what is NOT on this list:** a red phase, a failed task, a design contradiction, a coverage gap, an ordering conflict, or an unclear fix scope. **None of those is an exit** — every one is a rung-3 decision that goes to Fable, and only a Fable **F** can turn one into a stop. The run ends when the work is done or when Fable says a human must decide. Nothing else.
 
-**Step 4's Final Report is emitted once, at the end of the LAST phase — never at an intermediate phase boundary.** An intermediate boundary emits the Phase Checkpoint only.
+**Step 4's design-status update and Step 5's Final Report happen once, at the end of the LAST phase — never at an intermediate phase boundary.** An intermediate boundary emits the Phase Checkpoint only, and never touches a design doc.
 
 If the user chose *Proceed anyway* at a Step C halt, the run continues into phase `P+1` and the same rule applies to every later boundary: keep going to the last phase.
 
@@ -329,7 +381,9 @@ The digest is **reference context, not a substitute for the task file** — agen
 Maintain these state variables throughout the loop:
 
 - `completed_tasks[]` — tasks that passed all checks and were marked complete
-- `audit_added_tasks[]` — tasks authored by the Readiness Audit (1e) to close a design gap; they execute like any other task and are reported separately in Step 4
+- `audit_added_tasks[]` — tasks authored by the Readiness Audit (1e) to close a design gap; they execute like any other task and are reported separately in Step 5
+- `optimizations[]` — the transforms 1f applied (merge / retire / split / dropped edge / repaired targeted tests), with the before→after wave counts; reported in Step 5
+- `superseded_tasks{}` — map of `absorbed task_id → surviving task_id` from 1f O3. Each absorbed task is completed at its survivor's 3g gate, carrying the survivor's acceptance evidence — never before
 - `failed_tasks[]` — tasks that failed after 3 fix attempts
 - `skipped_tasks[]` — tasks skipped because a dependency failed
 - `current_wave` — wave number being executed
@@ -374,6 +428,21 @@ A re-spawn (NEEDS_CONTEXT answered, or escalation recommendation ready) goes bac
 - `"haiku"` — **documentation-only** tasks, **and** trivial mechanical code tasks where the change is unambiguous and self-contained: pure renames, moving/extracting a named constant, a single-import or single-symbol edit, mechanical signature propagation. Only when you are confident the task carries no design judgment.
 - `"claude-sonnet-4-6"` — all substantive code tasks (default for anything touching logic, new files, multi-file edits, or anything you are not certain is trivial). When in doubt, use Sonnet, not Haiku.
 - `"opus"` — the top **implementer** tier, spawned only for **hard/cross-cutting execution** (a subtle root cause, an implementation needing strong reasoning). Orchestration judgment (attribution, fix-scope, conformance, escalation analysis) is **never** delegated — it stays in YOUR context; you are the Opus orchestrator at extra-high effort, and only implementers are ever spawned to type.
+
+**Co-dispatch — one agent, several small tasks (the execution half of 1f).** A dispatch costs 100k–800k tokens, most of it spent *before the first edit*: reading the shared context, the task file, and the surrounding code. Two small tasks on the same surface pay that startup twice for one body of reading. Batch several tasks into **one** agent when ALL hold:
+
+- same package, and all in the **same wave**;
+- each is individually small (the tier you fixed at 1f O6 is haiku or low-end sonnet);
+- they share files or the same surface, so the second task is nearly free once the first is understood;
+- combined, they still fit comfortably in one agent's context and 40 turns.
+
+**One narrow extension:** you may pull in a task from the immediately-following conflict sub-wave when that sub-wave exists *only* because 2d split a file conflict with a task in this batch. One agent works them sequentially, so the conflict cannot race — this collapses a split the planner had to make conservatively.
+
+Rules for a batched dispatch:
+- Give the agent every task file path and require a **separate JSON result entry per task**. Each task keeps its own 3c handling, its own acceptance evidence, and its own 3g completion decision — batching changes who types, never what is proven.
+- It occupies **one** pool slot; record the union of its assigned files for the polling snapshot.
+- **Never batch** across packages, across implementation languages, or a Quality Gate task with implementation tasks (the QG agent's value is being a *different* reader from the implementers).
+- A batch that returns BLOCKED or FAILED on one task does not condemn the others — adjudicate each entry on its own.
 
 **Fallback when background agents are genuinely unavailable** (the harness cannot spawn background tasks at all, or a deterministic run is required): fall back to foreground batches, but size them to **balance**, not rigid 5s — e.g. dispatch 6 tasks as 3+3, not 5+1, so a lone trailer never wastes a whole barrier. Aim for `ceil(N / ceil(N / CAP))` per batch. The polled rolling pool is preferred; this is only the degraded path. Note: a flaky or absent **completion-notification** channel is NOT a reason to fall back — the polling protocol does not depend on notifications, so the background rolling pool still works.
 
@@ -540,6 +609,7 @@ Apply the shared 5-condition checklist `d:\datrix\.claude\skills\_shared\complet
 - Condition 4 uses the `design_acceptance_property` recorded in Step 1d, applied **evidence-first**: verify the agent's pasted check (commands are real, outputs consistent with the tree/artifacts you can read) and re-execute it yourself only when the evidence is missing, unparseable, or contradicted. The authoritative execution of every acceptance check happens exactly once per phase, at 3i Step A2 — do not run it a third time here when the agent's evidence verifies. An unprovable property routes to 3e/escalation as a conformance failure, not a pass.
 - **On failure of any of 2–4:** no `complete.ps1`; record in `failed_tasks` with the unmet condition, spawn the blocker as a tracked follow-up task (a real task file, not a footnote), compute transitive dependents into `skipped_tasks`, continue.
 - **On pass of all 4:** run `complete.ps1 "{task_path}"` (include `VERIFIED_AGAINST_QUICK_REFERENCE` in the Bash description), add the proof-of-work `## How Solved`, and append to `completed_tasks`.
+- **Superseded tasks (1f O3) settle here, with their survivor.** For every `absorbed → survivor` pair in `superseded_tasks{}`, when the survivor passes all 4 conditions, complete the absorbed task in the same step: `complete.ps1` on its path with a `## How Solved` carrying the survivor's acceptance evidence verbatim plus the `**Superseded by:**` pointer. If the survivor fails, the absorbed task fails with it — the merge did not make it disappear, and leaving it neither COMPLETED nor blocker-proofed wedges the Stop gate.
 
 #### 3h. Wave Checkpoint
 
@@ -612,8 +682,9 @@ Partition phase `P`'s tasks into `completed`, `failed`, and `skipped` (using the
 
 > **A task filed during the phase joins that phase's completion bar.** Re-run `phase-status.ps1 {NN}` before declaring a phase green and confirm zero pending tasks; a task you added at a gate (a discovered defect, a readiness-audit gap) is finished here, not deferred. You may not create a new phase to park it in — see 1e and CLAUDE.md "Task Orchestration". Declaring a phase COMPLETE while one of its own tasks sits NOT STARTED is a false completion, and filing forward to dodge this gate is precisely the move this rule forbids.
 - Emit the Phase Checkpoint (below) — a one-line progress marker, **not** a report and **not** a conclusion.
+- **Run phase `P+1`'s 1d → 1e → 1f now** (its design contract, readiness audit, and optimization pass), against the code phase `P` just changed — then plan its waves (Step 2). This is the boundary work, not a stopping point.
 - **Immediately spawn the first wave of phase `P+1` (3a/3b), in this same turn.** No pause, no `AskUserQuestion`, no "phase {P} is complete — shall I continue?", no summary of the phase's accomplishments. A green gate is the *authorization* to continue, and continuing is the only thing you may do with it (Multi-Phase Continuation, above).
-- Only when phase `P` is the **last** phase in the run does a green gate lead to Step 4's final report instead of a next wave.
+- Only when phase `P` is the **last** phase in the run does a green gate lead to Step 4's design-status update and Step 5's final report instead of a next wave.
 
 ##### Step C — Red phase
 
@@ -647,15 +718,45 @@ Phase {P} COMPLETE — {completed}/{phase_total} tasks | tests: {package}: {pass
 
 (`carried green` names the packages whose all-green status was carried forward without a re-sweep — green at their last full run with zero recorded changes since. Multi-phase runs only; omit for single-phase runs.)
 
-The `→ Starting phase {P+1}` line is a **commitment, not a plan announcement**: the very next thing you do after emitting it is dispatch phase `P+1`'s first wave. Emitting it and then ending the turn is the failure this gate exists to prevent. Omit that line only when `P` is the last phase in the run (then Step 4 follows).
+The `→ Starting phase {P+1}` line is a **commitment, not a plan announcement**: the very next thing you do after emitting it is dispatch phase `P+1`'s first wave. Emitting it and then ending the turn is the failure this gate exists to prevent. Omit that line only when `P` is the last phase in the run (then Steps 4–5 follow).
 
 Track phases as their own TodoWrite group so the user can see phase-level progress distinct from wave-level progress. Keep the next phase's todos visibly pending at every boundary — an unstarted phase in the todo list is a standing reminder that the run is not over.
 
 ---
 
-## Step 4: Final Report
+## Step 4: Design Status Update (end of run only)
 
-Emit this **once**, after the **last wave of the LAST phase** has passed its wave gate and that phase has passed its 3i gates — or when execution was halted by the user (3f *Stop*, or 3i Step C *Stop*). **Never at an intermediate phase boundary**: if any phase in the run still has unexecuted waves, you are not at Step 4, you are at 3i Step B and your next action is a wave dispatch.
+Runs **once**, after the LAST phase has passed its 3i gates and **before** the final report. It updates the `Status:` line of every design doc this run finished — and nothing else in the doc, ever.
+
+**The carve-out, stated precisely.** CLAUDE.md's "never modify design docs during implementation" and 1e's read-only rule both still bind: no section, requirement, scope boundary, decision, or wording in the body may change, at any point in the run. This step rewrites exactly one line — `Status:` — and only after every task implementing that doc is COMPLETE and its conformance gate has passed. A doc whose status still reads "ready for operationalization" after its last task landed is a stale pointer that aims the next reader, and the next planning run, at work that is already done.
+
+1. **Collect the docs.** From every task's `design_reference` (in each phase's `phase-{NN}-status.json`), take the absolute `d:\datrix\design\*.md` path the field begins with. Deduplicate. Skip references that name no `design/` doc (`none — …`, or a pointer to an already-absorbed `docs/` file) — they have no status line to own.
+
+2. **Enumerate every task implementing each doc, across ALL phases — not just this run's.** A design doc is routinely split over several phases; finishing the phases you ran does not make the doc done.
+   ```bash
+   grep -rl "{design-doc-filename}" d:/datrix/*/.tasks/ --include="task-*.md"
+   ```
+   For each hit, read its first heading from disk: complete iff it starts `# COMPLETED:`. Read disk — do not infer completeness from this run's state variables.
+
+3. **Decide, per doc:**
+   - **Every referencing task COMPLETED**, and every phase this run executed for that doc passed 3i Step A (full-suite) **and** Step A2 (design-conformance) → update the status, per item 4 below.
+   - **Any referencing task not COMPLETED** — a pending task in a phase outside this run, or one of this run's `failed_tasks` / `skipped_tasks` → **leave the doc untouched** and report it in Step 5's `Design:` line as `{doc} — {N} task(s) outstanding`. Never write a partial or in-progress status: a half-updated status line is worse than a stale one, and the outstanding tasks are what the report is for.
+
+4. **Rewrite the `Status:` line and only that line.** Use `Edit` with the doc's existing status line as the exact `old_string`, so the change cannot spill past it:
+   ```
+   Status: **Implemented — phase(s) {NN}[, {NN}] complete; verified by the phase-boundary test and design-conformance gates.**
+   ```
+   - No `^Status:` line in the doc → do **not** add one and do **not** edit the doc; report `{doc} — no Status line, not updated`.
+   - Already reading `Implemented` → leave it. This step is idempotent.
+   - A `Status:` line whose text you cannot fit the template to (an unusual state you did not author) is a rung-3 call, not a rewrite-and-hope: leave the doc alone and report it.
+
+5. **Touch nothing else.** Not the body, not a "remaining work" section that the run happened to close out, not a date elsewhere in the doc. The doc stays on disk; folding its content into the official docs is `/absorb-design`, a separate act Jon invokes — Step 5 names each updated doc so he can decide.
+
+---
+
+## Step 5: Final Report
+
+Emit this **once**, after the **last wave of the LAST phase** has passed its wave gate, that phase has passed its 3i gates, and Step 4 has run — or when execution was halted by the user (3f *Stop*, or 3i Step C *Stop*; a halted run still runs Step 4, which will simply find outstanding tasks and leave the docs alone). **Never at an intermediate phase boundary**: if any phase in the run still has unexecuted waves, you are not at Step 5, you are at 3i Step B and your next action is a wave dispatch.
 
 Then emit a lean report:
 
@@ -663,12 +764,14 @@ Then emit a lean report:
 DONE: {COMPLETED|PARTIAL|HALTED} — {completed}/{total} tasks, {waves_executed}/{total_waves} waves
 Phases: {P}: COMPLETE | {P+1}: PARTIAL | {P+2}: NOT STARTED   (only for multi-phase runs)
 Audit: {N} tasks added to close design gaps: {task-id} ({gap})  (only if the readiness audit amended the set)
+Optimized: {N} merged, {N} retired, {N} split, {N} edges dropped, {W_before}→{W_after} waves  (only if 1f changed the set)
+Design: {design-doc} → Implemented | {design-doc} — {N} task(s) outstanding   (only if the run resolved any design reference)
 Tests: {package}: {passed}/{total} | {package}: {passed}/{total}
 Failed: {task-id} — {reason}  (only if any)
 Skipped: {task-id} — blocked by {dep}  (only if any)
 ```
 
-Do NOT list completed tasks — success is the default. Only list failures, skips, and audit-added tasks (`audit_added_tasks[]` — the user needs to know the task set grew and why). For multi-phase runs, include the per-phase status line: a phase is `COMPLETE` (passed its phase gate), `PARTIAL` (started, advanced past the gate with failures via "Proceed anyway"), or `NOT STARTED` (never reached because an earlier phase gate halted).
+Do NOT list completed tasks — success is the default. Only list failures, skips, and audit-added tasks (`audit_added_tasks[]` — the user needs to know the task set grew and why). For multi-phase runs, include the per-phase status line: a phase is `COMPLETE` (passed its phase gate), `PARTIAL` (started, advanced past the gate with failures via "Proceed anyway"), or `NOT STARTED` (never reached because an earlier phase gate halted). The `Design:` line reports Step 4's outcome per doc — which docs are now marked `Implemented`, and which were left untouched because tasks elsewhere still reference them.
 
 ---
 
@@ -676,16 +779,18 @@ Do NOT list completed tasks — success is the default. Only list failures, skip
 
 All rules from `d:\datrix\.claude\CLAUDE.md` apply. Key rules for the orchestrator:
 
-- **NEVER STOP AT A GREEN PHASE BOUNDARY** — in a multi-phase run, a phase passing its 3i gates authorizes the next phase; it does not end the run. Emit the Phase Checkpoint and dispatch phase `P+1`'s first wave **in the same turn**. Do not ask "shall I continue?", do not summarize the finished phase as if concluding, and do not emit Step 4's report while any phase still has unexecuted waves. The only exits are 3i Step C (phase still red after Opus-led recovery), 3f (*Stop*), a blocking 1e finding, a double test-infrastructure failure, and the end of the last phase — see **Multi-Phase Continuation**. Run length, token spend, and "the user may want to review" are not exits.
+- **NEVER STOP AT A GREEN PHASE BOUNDARY** — in a multi-phase run, a phase passing its 3i gates authorizes the next phase; it does not end the run. Emit the Phase Checkpoint and dispatch phase `P+1`'s first wave **in the same turn**. Do not ask "shall I continue?", do not summarize the finished phase as if concluding, and do not run Step 4's design-status update or emit Step 5's report while any phase still has unexecuted waves. The only exits are 3i Step C (phase still red after Opus-led recovery), 3f (*Stop*), a blocking 1e finding, a double test-infrastructure failure, and the end of the last phase — see **Multi-Phase Continuation**. Run length, token spend, and "the user may want to review" are not exits.
 - **CONFORMANCE OVER THROUGHPUT** — enforced by the 3g completion checklist (`_shared/completion-eligibility.md`) and the 3i Step A2 conformance gate; never relaxed for a green suite.
 - **NEVER STOP ON A SUBAGENT'S BLOCKED, AND NEVER RELAY IT** — a background agent's BLOCKED is a *claim*. Investigate it yourself against the code and the docs (`_shared/decision-adjudication-protocol.md`, Door A): reproduce the error, read the attempted fix at its `file:line`, trace the root cause, check the governing design doc. Bogus → correct the agent and re-dispatch (it is not a failure and never enters `failed_tasks`). Real → a **Fable** adjudicator (`model: "fable"`, `effort: "high"`) decides, and you execute that decision. Accepting a four-part proof *because it has four parts* is a skill-level failure — form is not truth.
 - **NEVER TAKE A DECISION TO THE USER THAT FABLE HAS NOT SEEN** — the user is rung 4, reachable only through a Fable **F**. Every conflict *you* hit (contradicting designs, an unowned invariant surface, a false task premise, an ambiguous fix scope, a red gate, an ordering conflict) enters `_shared/decision-adjudication-protocol.md` at **Door B** and climbs the same ladder. The pull to ask the user is strongest exactly when the decision is *above any single task* — that feeling is the trap, not the signal. Only the protocol's §7 closed list (absent credential · irreversible outward-facing action · genuine product call · prohibition to lift) goes straight to the user. **Asking the user is not the safe default; it is a rung you must earn.**
 - **NEVER ESCALATE A DECISION YOU COULD HAVE MADE** — rung 3 is for genuine ties *after* real investigation. An under-researched question is not a tie; it is rung 1 you have not finished. Read the design docs, the architecture docs, and the code first — most "decisions" dissolve into missing information.
 - **NEVER EXECUTE AN UNAUDITED TASK SET** — Step 1e runs before Step 2, every run, no exception. A task set is a *hypothesis* about what the design needs against the code that existed when it was written; the audit tests that hypothesis against today's code before 5 agents act on it. Skipping it to "just start the waves" is how a phase finishes green with a design invariant unenforced. Gaps it finds are closed as real tasks with provable acceptance properties — never as a note in the report, a footnote, or a stub task.
+- **NEVER EXECUTE AN UNOPTIMIZED TASK SET, AND NEVER OPTIMIZE AWAY CONFORMANCE** — Step 1f runs after 1e, every phase, before waves are planned: retire what is already satisfied, merge duplicated scope, drop edges that order nothing, repair bare-full-suite targeted tests, and batch co-located small tasks at dispatch (3b). It spends **no new agents and reads no new source** — it is a pass over metadata you already hold, and its normal output is one line. But an optimization that orphans a design surface, weakens an acceptance property, drops an enforcement edge, or merges a guard with the migration it polices is not an optimization — it is the conformance failure the gates exist to catch, bought a few minutes earlier. **Default is keep the edge; default is no-op.**
 - **NO ASSUMING — ENUMERATE AND VERIFY STATE** — characterize a corpus by enumerating ALL of it (counted), not a sample; reason about git/working-tree from the CURRENT on-disk state you just read, never a remembered snapshot. Paste real command output for every conformance claim.
 - **GENUINE agent monitoring, never assumption** — when agents run in the background pool, drive them with the Agent Progress Polling Protocol: check every ~5 minutes what each agent is *actually* doing (status **and** on-disk artifacts). Never report an agent as "working" without that evidence, and never rely on a completion notification to know an agent finished.
 - **JUDGMENT INLINE, TYPING DELEGATED** — you are the Opus orchestrator: decompose, attribute, decide fix-scope, gate conformance, and analyze escalations in YOUR context; dispatch subagents (haiku/sonnet/opus) to read widely, run suites, and apply fixes. Do NOT edit code inline on Opus in the fix loops (3e/3i) — decide the fix, then hand the edit to a subagent. Reading the minimum code needed to decide is fine; doing the whole implementation inline is not.
 - **NEVER DELEGATE THE DECISION** — the old "escalate up to a more-capable agent" is gone; you ARE the Opus brain. Analyze in-context at extra-high effort, then dispatch a cheaper implementer (an `opus` subagent only for a genuinely hard/cross-cutting fix). Verify every returned result with a check you run (or delegate the run and read `index.json`) — a subagent's self-report never substitutes for the design-acceptance evidence you paste into the gate.
+- **NEVER EDIT A DESIGN DOC BEYOND ITS `Status:` LINE, AND NEVER BEFORE THE RUN IS OVER** — design docs are scope boundaries (CLAUDE.md). The one permitted write is Step 4's status-line rewrite, at the end of the last phase, only for a doc whose every referencing task — across ALL phases, not just this run's — is COMPLETED. A doc with outstanding tasks anywhere is left untouched and reported. Never write a partial status, never edit the body, and never mark a doc implemented off this run's state variables instead of what the task files on disk say.
 - **NO workarounds** — fix root causes, not symptoms. If something is broken, trace to root cause
 - **NO git reverts** — never use `git checkout`, `git restore`, `git reset`, `git stash`, `git revert`
 - **NO debug scatter** — zero temporary logging statements left behind

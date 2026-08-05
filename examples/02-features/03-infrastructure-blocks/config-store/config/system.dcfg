@@ -17,6 +17,7 @@ config system shop.System {
             interval = "10s";
             timeout = "10s";
             retries = 10;
+            startPeriod = "30s";
           }
           elasticsearchHealthcheck {
             interval = "10s";

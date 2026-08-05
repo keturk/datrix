@@ -1,0 +1,29 @@
+# G2 Shared-Layer Target-Name Ratchet Baseline (Decision D4, Invariant I3)
+#
+# Frozen per-file counts of shared-layer identifiers (class, function,
+# dataclass field, type alias, or type reference) carrying a registered
+# language name as an identifier segment, in datrix_codegen_common.
+# Any INCREASE in a file's count fails
+# datrix/scripts/dev/check-import-boundaries.py --check-shared-target-names.
+# Decreases are always allowed and should be captured by re-running with
+# --update-baseline once a later change deletes a target-named surface.
+# The terminal state is a single reviewed exemption entry --
+# container_image_supply.py count 1, the scope-fenced PYTHON_BASE_IMAGE_DIR
+# (the shared per-system base-image directory name every platform emitter
+# must agree on byte-for-byte) -- every other entry drives to 0 as later
+# migration work removes each remaining target-named surface. The four
+# sql/nosql-substring identifiers considered during this ratchet's design
+# (sql_engine, sql_dialect, NoSQLSeedWriter, NoSqlFilterSyntax) are NOT hits
+# under this ratchet's languages-only vocabulary (sql is not a registered
+# datrix.languages entry) -- they are proven non-matches by this ratchet's
+# own self-test, not baseline entries.
+#
+# Format:
+#   [[baseline]]
+#   file = "path/relative/to/monorepo-root, forward slashes"
+#   count = <int>
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/platform/container_image_supply.py"
+count = 1
+reason = "PYTHON_BASE_IMAGE_DIR (:60) is a genuine target name, but datrix-codegen-docker consumes it directly and this design excludes datrix-codegen-docker from scope -- scope-fenced exemption; needs a follow-up design scoping docker's base-image-family naming. NOTE: _BASE_IMAGE_FAMILY_SUFFIX (:53) is NOT a hit -- its IDENTIFIER carries no language segment; only its string VALUE ('-python-base') does, which is outside this ratchet's identifier scope."

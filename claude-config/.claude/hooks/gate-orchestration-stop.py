@@ -17,14 +17,25 @@ An instruction competes with whatever is in context and can lose. A blocked Stop
 cannot be forgotten past. That is the whole design: this is the main-loop twin of
 check-agent-report.py, which already does the same job for subagents.
 
-A GATE THAT IS NEVER ARMED IS NOT A GATE
-----------------------------------------
-The first version armed only when a user prompt literally named one of three skills.
-Two weeks of transcripts show `/task-orchestrator` invoked in ~14 sessions and ZERO
-state files ever reaching `"status": "running"` — the enforcement described above was
-switched off for every one of them. Arming now also happens from the agent's own
-task-file mutations (`observe-task-activity.py`), which survives compaction, session
-resume, plain-English continuation, and any skill name.
+THIS GATE APPLIES TO `/task-orchestrator` AND TO NOTHING ELSE
+------------------------------------------------------------
+Outside an armed run this hook is inert: no advisory guard, no fallback phase, no
+opinion about how a turn ends. It exists to hold ONE skill to its contract.
+
+A previous version armed from the agent's own task-file mutations, so that a run
+resumed after a compaction or continued with "keep going" stayed enforced. That signal
+cannot tell AUTHORING a task file from IMPLEMENTING one — they are the same tool call —
+so it armed on planning runs too. A `/operationalize-design` session finished its five
+phases, was refused its Stop over the 5 task files it had just authored, read the
+refusal as authorization, and began implementing a phase nobody had scheduled. Arming
+is now Jon's explicit `/task-orchestrator` invocation, and only that.
+
+WHICH PHASES: FROM JON'S `PHASE:` LINE, OR NONE
+----------------------------------------------
+There is deliberately no "guess the phase" fallback. `latest-phase.ps1` used to serve as
+one, and it reports the NEWEST phase on disk — which, right after a planning run, is the
+phase that run just authored: the trap above, reachable a second way. With no phase
+named, the gate degrades to the solicitation guard (`verifiable: false`).
 
 WHAT COUNTS AS DONE IS READ OFF DISK, NOT ASKED OF THE MODEL
 -----------------------------------------------------------
@@ -57,18 +68,12 @@ _STATE_DIR: Final = os.path.join(_REPO_ROOT, ".claude", "hooks", ".state")
 _STATUS_SCRIPT: Final = os.path.join(
     _REPO_ROOT, "datrix", "scripts", "tasks", "phase-status.ps1"
 )
-_LATEST_PHASE_SCRIPT: Final = os.path.join(
-    _REPO_ROOT, "datrix", "scripts", "tasks", "latest-phase.ps1"
-)
 _SNAPSHOT_DIR: Final = os.path.join(_REPO_ROOT, ".tmp", "tasks")
 
 # Backstop against an unkillable session. A 13-wave run legitimately hits this
 # gate a handful of times; 40 is far above that and far below "forever".
 _MAX_BLOCKS: Final = 40
-# The solicitation guard is advisory, so it gets a much tighter leash.
-_MAX_SOLICIT_BLOCKS: Final = 2
 _STATUS_TIMEOUT_S: Final = 180
-_LATEST_PHASE_TIMEOUT_S: Final = 60
 # Checking every phase a long run has touched must not outlive the hook's own timeout.
 _MAX_PHASES_CHECKED: Final = 6
 
@@ -202,42 +207,16 @@ def _phase_snapshot(phase: int) -> dict[str, object] | None:
     return loaded if isinstance(loaded, dict) else None
 
 
-def _latest_phase() -> list[int]:
-    """The highest phase on disk, as a last-resort target. Empty list on any failure."""
-    if not os.path.isfile(_LATEST_PHASE_SCRIPT):
-        return []
-    try:
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-File", _LATEST_PHASE_SCRIPT],
-            capture_output=True,
-            text=True,
-            timeout=_LATEST_PHASE_TIMEOUT_S,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return []
-    match = re.search(r"\d{1,3}", result.stdout or "")
-    return [int(match.group(0))] if match else []
-
-
 def _target_phases(state: dict[str, object]) -> list[int]:
-    """Which phases to hold this run to, in descending order of authority.
+    """Which phases to hold this run to: Jon's own `PHASE:` line, or nothing.
 
-    1. `phases` — parsed from Jon's own `PHASE:` line when he named one.
-    2. `phases_observed` — phases whose task files this session actually mutated.
-       This is what rescues every run that was never launched by name: resumed after a
-       compaction, continued with "keep going", or already in flight when the hooks
-       changed.
-    3. `latest-phase.ps1` — the phase on disk, when the session is armed but neither of
-       the above says which.
+    Inferring a target is what turned this gate on a planning run, so it does not infer.
+    An armed run with no phase named degrades to the solicitation guard.
     """
-    for key in ("phases", "phases_observed"):
-        value = state.get(key)
-        if isinstance(value, list):
-            phases = [p for p in value if isinstance(p, int)]
-            if phases:
-                return phases
-    return _latest_phase()
+    value = state.get("phases")
+    if not isinstance(value, list):
+        return []
+    return [p for p in value if isinstance(p, int)]
 
 
 def _carries_blocker_proof(task_path: str) -> bool:
@@ -310,24 +289,12 @@ def main() -> None:
     state = _load_state(path)
     text = _last_assistant_text(data.get("transcript_path", ""))
 
-    if state.get("status") in ("stopped_by_user", "gate_exhausted"):
-        # Jon's word is one of the two legitimate exits, and an exhausted gate has
-        # already given up. Neither gets second-guessed by the advisory guard.
-        sys.exit(0)
-
     if state.get("status") != "running":
-        # Outside a tracked run the gate is advisory only: it refuses an explicit
-        # offer to pause mid-work, twice at most, then stays out of the way.
-        solicit_blocks = int(state.get("solicit_blocks", 0) or 0)
-        if text and _SOLICIT_RE.search(_strip_quoted(text)) and solicit_blocks < _MAX_SOLICIT_BLOCKS:
-            state["solicit_blocks"] = solicit_blocks + 1
-            state.setdefault("status", "idle")
-            _save_state(path, state)
-            sys.stderr.write(
-                "STOP REJECTED — you are ending the turn by asking permission to "
-                "continue your own work.\n\n" + _CONTRACT
-            )
-            sys.exit(2)
+        # Not an armed `/task-orchestrator` run — this also covers Jon's stop and an
+        # exhausted gate. The hook has no opinion about how any other turn ends. It used
+        # to keep an advisory solicitation guard live here, which meant EVERY session in
+        # the workspace could be refused a Stop; a planning run closing with "let me know
+        # if you'd like me to…" is not the failure this gate exists for.
         sys.exit(0)
 
     blocks = int(state.get("blocks", 0) or 0)

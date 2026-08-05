@@ -49,37 +49,78 @@ the changes that touch each file allow.
 --update-baseline (combined with --check-function-level-imports) recomputes
 and overwrites that baseline.
 
+Also implements the G1 shared-vocabulary ratchet (Decision D3, Invariant I2):
+opt-in via --check-shared-vocabulary, it AST-scans the LANGUAGE package src/
+trees (LANGUAGE_PACKAGES, the declared taxonomy) for a module-level
+frozenset/set/dict whose normalized member set duplicates a vocabulary
+already declared in datrix_codegen_common.enums (read live from the
+installed package at scan time, never mirrored) -- the DSL vocabulary
+re-scattered as hand-rolled string literals after being centralised -- and
+fails if any file's count increases past its frozen baseline
+(scripts/config/shared-vocabulary-baseline.toml). A container built entirely
+from qualified EnumClass.MEMBER references is CONSUMING the enum, not
+hardcoding it, and is never flagged. The canonical side of this comparison
+covers every module-level member-set declaration in enums.py, not only
+``str, Enum`` classes: a plain module-level dict's KEY set (e.g.
+DSL_EXCEPTION_HTTP_STATUS, NOSQL_UNSUPPORTED_METHODS) or a set/frozenset's
+element set (e.g. LOG_BUILTIN_METHODS, itself derived from BUILTIN_REGISTRY
+rather than hand-listed) is exactly as canonical as an Enum class's value
+set, and a bare-literal redeclaration of either is the same defect.
+--update-baseline (combined with --check-shared-vocabulary) recomputes and
+overwrites that baseline.
+
+Also implements the G2 shared-layer target-name ratchet (Decision D4, Invariant I3):
+opt-in via --check-shared-target-names, it AST-scans ONLY datrix_codegen_common's
+src/ tree (SHARED_TARGET_NAME_PACKAGES, a single-package tuple -- deliberately
+narrower than I1's three-package scope) for any class, function, dataclass field,
+type alias, or type reference whose identifier carries a registered LANGUAGE name
+as an identifier segment (read live via registered_language_names() --
+datrix.platforms is never consulted, since the registered platform name "local" is
+also an ordinary English word). This is a DIFFERENT check from I1: I1 matches a
+frozen list of specific central-table names, G2 matches the SHAPE of an identifier
+against an open, runtime-derived vocabulary, so it would catch a brand-new
+language-named class I1's frozen list has never heard of. Fails if any file's
+count increases past its frozen baseline
+(scripts/config/shared-target-name-baseline.toml).
+--update-baseline (combined with --check-shared-target-names) recomputes and
+overwrites that baseline.
+
 Self-test (--self-test): proves the rule model (BOUNDARY_RULES, the allowed-
 subtree carve-outs), the AST scanners (provider-conditional,
-function-level-import), and both ratchet comparators are non-vacuous --
-including a real mutation-based CLI proof (plants a regression in an
-isolated fixture monorepo, proves the CLI detects it, proves it clears on
-revert). The self-test runs automatically as step 1 of EVERY normal
-invocation of this script (not only when --self-test is passed): a run whose
-self-test fails aborts before any real finding is reported, since a checker
-that cannot prove its own logic cannot be trusted. Pass --self-test alone to
-run only the self-test and skip the real scan. --skip-auto-self-test is an
-internal flag used solely by the self-test's own nested CLI invocation (to
-avoid it recursively re-running the self-test on itself) and is not intended
-for direct use.
+function-level-import, shared-vocabulary, shared-target-name), and the ratchet
+comparators are non-vacuous -- including a real mutation-based CLI proof (plants a
+regression in an isolated fixture monorepo, proves the CLI detects it,
+proves it clears on revert). The self-test runs automatically as step 1 of
+EVERY normal invocation of this script (not only when --self-test is
+passed): a run whose self-test fails aborts before any real finding is
+reported, since a checker that cannot prove its own logic cannot be trusted.
+Pass --self-test alone to run only the self-test and skip the real scan.
+--skip-auto-self-test is an internal flag used solely by the self-test's own
+nested CLI invocation (to avoid it recursively re-running the self-test on
+itself) and is not intended for direct use.
 
 Exit codes:
     0: Clean (no violations) or --warn mode
     1: Violations found in fail mode (import-boundary and/or I1/I6/function-
-       level-import ratchets), or a self-test failure
+       level-import/shared-vocabulary/shared-target-name ratchets), or a
+       self-test failure
     2: Usage error, configuration error, or (with --check-target-literals,
-       --check-provider-conditionals, or --check-function-level-imports) a
-       missing baseline file
+       --check-provider-conditionals, --check-function-level-imports,
+       --check-shared-vocabulary, or --check-shared-target-names) a missing
+       baseline file
 """
 
 import argparse
 import ast
+import enum
+import re
 import shutil
 import subprocess
 import sys
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 from typing import Literal
 
 # D5: the provider-literal ratchet must enumerate provider ids from the
@@ -92,7 +133,10 @@ _LIBRARY_DIR = Path(__file__).resolve().parent.parent / "library"
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
-from shared.registered_targets import registered_platform_names  # noqa: E402
+from shared.registered_targets import (  # noqa: E402
+    registered_language_names,
+    registered_platform_names,
+)
 
 
 @dataclass(frozen=True)
@@ -1764,6 +1808,1008 @@ def check_function_level_import_ratchet(
     return messages
 
 
+# ---------------------------------------------------------------------------
+# G1 Shared-Vocabulary Ratchet (Decision D3, Invariant I2)
+#
+# Fails when a datrix-codegen-{lang} module declares a module-level
+# frozenset/set/dict whose normalized member set equals a member set already
+# declared in datrix_codegen_common.enums. The four LANGUAGE packages this
+# ratchet polices -- reuses LANGUAGE_PACKAGES (the single taxonomy
+# declaration near the top of this file) so a new language generator is
+# policed from its first commit, with no edit here.
+SHARED_VOCABULARY_LANGUAGE_PACKAGES: tuple[str, ...] = LANGUAGE_PACKAGES
+
+
+def _import_shared_enums_module() -> ModuleType:
+    """Import and return ``datrix_codegen_common.enums``, the single module
+    every G1 canonical-source harvest function (Enum and non-Enum alike)
+    reads live at scan time -- never a hardcoded mirror of its content.
+
+    Returns:
+        The imported ``datrix_codegen_common.enums`` module object.
+
+    Raises:
+        RuntimeError: if the module cannot be imported (the shared
+            vocabulary layer is not installed in the active venv).
+    """
+    try:
+        from datrix_codegen_common import enums as shared_enums
+    except ImportError as exc:
+        raise RuntimeError(
+            "Failed to import datrix_codegen_common.enums -- the G1 "
+            "shared-vocabulary ratchet requires datrix-codegen-common "
+            "installed in the active environment (D:\\datrix\\.venv). Fix: "
+            "run this script via check-import-boundaries.ps1, which "
+            "activates the venv first."
+        ) from exc
+    return shared_enums
+
+
+def _shared_enum_members() -> dict[str, dict[str, str]]:
+    """Every ``str, Enum`` class declared in ``datrix_codegen_common.enums``,
+    keyed by class name, mapped to ``{member_name: member_value}``.
+
+    Read from the INSTALLED package at scan time -- never a hardcoded mirror
+    of enums.py's content -- so an Enum vocabulary added there later is
+    picked up with zero edit to this scanner. This covers ONLY the ``str,
+    Enum`` half of the canonical source; ``_shared_non_enum_vocabularies``
+    covers the plain dict/set/frozenset half (Decision D3's DSL exception-
+    status map, the NoSQL unsupported-method map, and the derived
+    log-builtin-method set are deliberately not Enums -- see that function).
+
+    Returns:
+        Mapping of enum class name -> {member name -> member value}.
+
+    Raises:
+        RuntimeError: if datrix_codegen_common.enums cannot be imported (the
+            shared vocabulary layer is not installed in the active venv).
+    """
+    shared_enums = _import_shared_enums_module()
+
+    members: dict[str, dict[str, str]] = {}
+    for name, candidate in vars(shared_enums).items():
+        if (
+            isinstance(candidate, type)
+            and issubclass(candidate, enum.Enum)
+            and candidate is not enum.Enum
+        ):
+            members[name] = {item.name: str(item.value) for item in candidate}
+    return members
+
+
+# AST call-target names recognized as wrapping a set/frozenset display when
+# deciding whether a module-level assignment in enums.py is a container
+# constant (see ``_is_module_level_container_assignment``).
+_VOCABULARY_CONTAINER_CALL_NAMES: frozenset[str] = frozenset({"frozenset", "set"})
+
+
+def _is_module_level_container_assignment(stmt: ast.stmt) -> str | None:
+    """Return the assigned name if *stmt* is a module-level ``Assign``/
+    ``AnnAssign`` to a single bare ``Name`` whose right-hand side is a dict
+    display, a set display, or a ``frozenset(...)``/``set(...)`` call --
+    else ``None``.
+
+    This is a SHAPE test only (does this statement declare a container
+    constant?), never a name test -- no vocabulary name is ever hardcoded
+    here, so a new dict/set/frozenset constant added to ``enums.py`` later
+    is picked up with zero edit to this scanner, mirroring
+    ``_shared_enum_members``'s "read live, never mirrored" property for the
+    Enum half. The RHS's own inner shape is deliberately not inspected any
+    further here (a ``frozenset(...)`` call's argument may be a literal
+    display or a generator expression -- e.g. ``LOG_BUILTIN_METHODS`` -- both
+    count as "container-shaped"; the actual member VALUES always come from
+    the live imported object in ``_non_enum_vocabulary_member_set``, never
+    from re-parsing this argument).
+
+    Args:
+        stmt: A top-level statement from ``enums.py``'s module body.
+
+    Returns:
+        The assigned identifier, or ``None`` if *stmt* is not a qualifying
+        module-level container assignment.
+    """
+    if isinstance(stmt, ast.Assign):
+        if len(stmt.targets) != 1 or not isinstance(stmt.targets[0], ast.Name):
+            return None
+        name_node = stmt.targets[0]
+        value_node = stmt.value
+    elif isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
+        if not isinstance(stmt.target, ast.Name):
+            return None
+        name_node = stmt.target
+        value_node = stmt.value
+    else:
+        return None
+
+    if isinstance(value_node, (ast.Dict, ast.Set)):
+        return name_node.id
+    if (
+        isinstance(value_node, ast.Call)
+        and isinstance(value_node.func, ast.Name)
+        and value_node.func.id in _VOCABULARY_CONTAINER_CALL_NAMES
+    ):
+        return name_node.id
+    return None
+
+
+def _non_enum_vocabulary_member_set(name: str, runtime_value: object) -> frozenset[str]:
+    """Resolve *runtime_value* (the live object bound to *name* in the
+    imported ``enums.py``) to its canonical member-value set.
+
+    A ``dict``'s canonical member set is its KEYS -- that is what a
+    redeclaring copy duplicates (e.g. ``DSL_EXCEPTION_HTTP_STATUS``'s keys,
+    never its status-code values). A ``set``/``frozenset``'s canonical
+    member set is its elements directly.
+
+    Args:
+        name: The module-level identifier this value is bound to (for error
+            messages only).
+        runtime_value: The actual object ``getattr(enums_module, name)``.
+
+    Returns:
+        The frozenset of canonical member strings.
+
+    Raises:
+        TypeError: if *runtime_value* is not a dict/set/frozenset, or any of
+            its keys/elements is not a string. A canonical declaration whose
+            members cannot be determined must fail loudly here, never be
+            silently skipped -- a silently-skipped canonical source is the
+            exact coverage gap this harvest exists to close.
+    """
+    if isinstance(runtime_value, dict):
+        candidate_members = runtime_value.keys()
+        shape = "dict keys"
+    elif isinstance(runtime_value, (frozenset, set)):
+        candidate_members = runtime_value
+        shape = "set/frozenset elements"
+    else:
+        raise TypeError(
+            f"G1 harvest: '{name}' in datrix_codegen_common.enums has a "
+            f"module-level dict/set/frozenset assignment shape but its live "
+            f"value is a {type(runtime_value).__name__}, not a dict/set/"
+            f"frozenset. Expected the runtime type to match the declared "
+            f"shape. Fix: keep '{name}' bound to a dict/set/frozenset, or "
+            f"restructure it so it is no longer a bare module-level "
+            f"assignment (e.g. move it behind a function)."
+        )
+
+    members: set[str] = set()
+    for element in candidate_members:
+        if not isinstance(element, str):
+            raise TypeError(
+                f"G1 harvest: '{name}' in datrix_codegen_common.enums has a "
+                f"non-string member ({element!r}, type "
+                f"{type(element).__name__}) among its {shape}. Expected "
+                f"every member to be a str so it can be compared against a "
+                f"redeclaring copy's string literals. Fix: make '{name}' "
+                f"string-keyed/valued, or valid options are to exclude it "
+                f"from module-level container declarations in enums.py."
+            )
+        members.add(element)
+    return frozenset(members)
+
+
+def _shared_non_enum_vocabularies() -> dict[str, frozenset[str]]:
+    """Every module-level ``dict``/``set``/``frozenset`` constant DECLARED IN
+    ``enums.py``'s own source (never an imported symbol merely visible
+    through it, e.g. ``BUILTIN_REGISTRY``) that is not a ``str, Enum`` class,
+    mapped to its canonical member-value set.
+
+    Covers value-derived declarations the AST cannot evaluate on its own --
+    e.g. ``LOG_BUILTIN_METHODS = frozenset(method for category, method in
+    BUILTIN_REGISTRY if category == "Log")``, a generator expression, not a
+    literal display. The AST is used ONLY to decide WHICH names are
+    container-shaped constants (``_is_module_level_container_assignment``);
+    the member set always comes from the live imported object, which
+    already carries the fully-derived value regardless of how it was
+    computed.
+
+    No vocabulary name is ever hardcoded: a dict/set/frozenset constant
+    added to ``enums.py`` later is harvested with zero edit here, the same
+    generality property ``_shared_enum_members`` already has for the Enum
+    half (Decision D3, Invariant I2; design principle 16 -- shared layers
+    ask, target plugins answer).
+
+    Returns:
+        Mapping of module-level constant name -> canonical member-value set.
+
+    Raises:
+        RuntimeError: if datrix_codegen_common.enums cannot be imported, or
+            if a name the AST identifies as a module-level assignment is
+            missing from the imported module (source/installed-package
+            mismatch).
+        TypeError: if a qualifying container's members cannot be determined
+            as strings (propagated from ``_non_enum_vocabulary_member_set``).
+    """
+    shared_enums = _import_shared_enums_module()
+    source_path = Path(shared_enums.__file__)
+    source_code = source_path.read_text(encoding="utf-8-sig")
+    tree = ast.parse(source_code, filename=str(source_path))
+
+    vocabularies: dict[str, frozenset[str]] = {}
+    for stmt in tree.body:
+        name = _is_module_level_container_assignment(stmt)
+        if name is None:
+            continue
+        if not hasattr(shared_enums, name):
+            raise RuntimeError(
+                f"G1 harvest: '{name}' is assigned at module level in "
+                f"{source_path} but is not an attribute of the imported "
+                f"datrix_codegen_common.enums module. Expected the source "
+                f"file and the installed package to agree. Fix: reinstall "
+                f"datrix-codegen-common in the active environment (D:\\"
+                f"datrix\\.venv)."
+            )
+        runtime_value = getattr(shared_enums, name)
+        vocabularies[name] = _non_enum_vocabulary_member_set(name, runtime_value)
+    return vocabularies
+
+
+@dataclass(frozen=True)
+class SharedVocabularyHit:
+    """One module-level container in a language package whose normalized
+    member set duplicates a datrix_codegen_common.enums vocabulary -- an
+    Enum class's value set or a plain module-level dict/set/frozenset's
+    key/element set alike."""
+
+    file_path: Path
+    line_number: int
+    container_name: str
+    matched_vocabulary: str
+
+
+def _resolve_vocabulary_element(
+    node: ast.AST, enum_members: dict[str, dict[str, str]]
+) -> tuple[str, bool] | None:
+    """Resolve one set/frozenset/dict-key element to ``(value, is_bare)``.
+
+    ``is_bare`` is True for a plain string constant (``"all"``), False for a
+    qualified enum-member reference (``QueryTerminal.ALL``) resolved through
+    *enum_members* to the member's real value (``"all"``) -- both forms
+    compare equal once resolved, but only the bare form counts toward
+    "hardcodes the literal" (see ``_normalize_container`` docstring).
+
+    Returns:
+        ``None`` for any other node shape (a Name, an f-string, a call, an
+        ``EnumClass.MEMBER`` pair the enum does not actually declare, ...) --
+        such an element means the container is not a closed vocabulary
+        literal at all, and the caller skips it entirely.
+    """
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value, True
+    if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+        member_map = enum_members.get(node.value.id)
+        if member_map is not None and node.attr in member_map:
+            return member_map[node.attr], False
+    return None
+
+
+@dataclass(frozen=True)
+class _NormalizedContainer:
+    """A module-level container literal, resolved to its member value set."""
+
+    values: frozenset[str]
+    has_bare_literal: bool
+
+
+def _normalize_container(
+    node: ast.AST, enum_members: dict[str, dict[str, str]]
+) -> "_NormalizedContainer | None":
+    """Normalize a module-level ``frozenset(...)``/``set(...)``/``{...}``/
+    dict-literal RHS to its member value set, resolving both bare string
+    literals and qualified ``EnumClass.MEMBER`` references to the same
+    underlying strings so the two forms compare equal (see
+    ``_resolve_vocabulary_element``).
+
+    Returns:
+        ``None`` if *node* is not a recognized set/frozenset/dict literal,
+        has zero elements, or contains any element that is not a bare string
+        or a resolvable qualified enum-member reference -- an unrecognized
+        element means "not provably a closed vocabulary literal", not
+        "clean"; the caller simply cannot compare a partially-unresolvable
+        container against a specific enum's exact member set.
+    """
+    elements: list[ast.AST]
+    if isinstance(node, ast.Call):
+        func = node.func
+        if not (isinstance(func, ast.Name) and func.id in ("frozenset", "set")):
+            return None
+        if len(node.args) != 1 or not isinstance(
+            node.args[0], (ast.Set, ast.List, ast.Tuple)
+        ):
+            return None
+        elements = list(node.args[0].elts)
+    elif isinstance(node, ast.Set):
+        elements = list(node.elts)
+    elif isinstance(node, ast.Dict):
+        if any(key is None for key in node.keys):
+            return None  # a **spread entry -- not a closed literal
+        elements = [key for key in node.keys if key is not None]
+    else:
+        return None
+
+    if not elements:
+        return None
+
+    values: set[str] = set()
+    has_bare_literal = False
+    for element in elements:
+        resolved = _resolve_vocabulary_element(element, enum_members)
+        if resolved is None:
+            return None
+        value, is_bare = resolved
+        values.add(value)
+        has_bare_literal = has_bare_literal or is_bare
+
+    return _NormalizedContainer(
+        values=frozenset(values), has_bare_literal=has_bare_literal
+    )
+
+
+def scan_file_for_shared_vocabulary(
+    file_path: Path,
+    enum_members: dict[str, dict[str, str]],
+    non_enum_vocabularies: dict[str, frozenset[str]],
+) -> list[SharedVocabularyHit]:
+    """AST-walk *file_path* for module-level set/frozenset/dict declarations
+    whose normalized member set equals a ``datrix_codegen_common.enums``
+    vocabulary's own value set (Decision D3, Invariant I2) -- an Enum
+    class's value set, or a plain module-level dict's key set / set's
+    frozenset's element set (``non_enum_vocabularies``) alike. G1's own
+    specification never restricts the canonical side to Enum classes; a
+    name -> value lookup table like ``DSL_EXCEPTION_HTTP_STATUS`` or a
+    derived set like ``LOG_BUILTIN_METHODS`` is exactly as canonical as
+    ``HTTPMethod``, and a bare-literal redeclaration of either is the same
+    defect.
+
+    A hit requires TWO conditions: the normalized member set exactly equals
+    some enum class's value set, AND the container includes at least one
+    BARE STRING LITERAL element. A container built ENTIRELY from qualified
+    enum-member references (e.g. ``frozenset({QueryTerminal.ALL,
+    QueryTerminal.FIRST, QueryTerminal.FIRST_OR_FAIL, QueryTerminal.COUNT})``,
+    the real, already-compliant case at
+    ``datrix-codegen-python/.../_transpiler_query_builder.py:19-24``) is
+    CONSUMING the enum, not hardcoding it, and must not be flagged -- only a
+    container containing at least one hand-spelled string is "the DSL
+    vocabulary re-scattered after being centralised" (design doc S2.3).
+
+    Only module-level (top-of-file) ``Assign``/``AnnAssign`` statements are
+    scanned -- a set built inside a function body is a local computation,
+    never a closed-world vocabulary table.
+
+    Args:
+        file_path: Path to Python source file.
+        enum_members: Output of ``_shared_enum_members()``.
+        non_enum_vocabularies: Output of ``_shared_non_enum_vocabularies()``.
+
+    Returns:
+        List of hits found in the file, in source order.
+
+    Raises:
+        SyntaxError: propagated from ast.parse (caller decides how to report).
+        OSError: propagated if the file cannot be read.
+    """
+    source_code = file_path.read_text(encoding="utf-8-sig")
+    tree = ast.parse(source_code, filename=str(file_path))
+
+    canonical_value_sets: dict[str, frozenset[str]] = {
+        class_name: frozenset(values.values())
+        for class_name, values in enum_members.items()
+    }
+    canonical_value_sets.update(non_enum_vocabularies)
+
+    hits: list[SharedVocabularyHit] = []
+    for stmt in tree.body:
+        if isinstance(stmt, ast.Assign):
+            targets = stmt.targets
+            value_node = stmt.value
+        elif isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
+            targets = [stmt.target]
+            value_node = stmt.value
+        else:
+            continue
+
+        normalized = _normalize_container(value_node, enum_members)
+        if normalized is None or not normalized.has_bare_literal:
+            continue
+
+        matched_vocabulary = next(
+            (
+                vocabulary_name
+                for vocabulary_name, value_set in canonical_value_sets.items()
+                if value_set == normalized.values
+            ),
+            None,
+        )
+        if matched_vocabulary is None:
+            continue
+
+        container_name = ", ".join(
+            target.id for target in targets if isinstance(target, ast.Name)
+        )
+        hits.append(
+            SharedVocabularyHit(
+                file_path=file_path,
+                line_number=stmt.lineno,
+                container_name=container_name or "<unknown>",
+                matched_vocabulary=matched_vocabulary,
+            )
+        )
+
+    return hits
+
+
+def scan_shared_vocabulary(
+    packages: dict[str, PackageInfo],
+    monorepo_root: Path,
+) -> dict[Path, list[SharedVocabularyHit]]:
+    """Scan every ``.py`` file under each of
+    ``SHARED_VOCABULARY_LANGUAGE_PACKAGES``' ``src/`` tree for module-level
+    vocabulary duplication against ``datrix_codegen_common.enums``.
+
+    Args:
+        packages: Package name -> PackageInfo, as returned by discover_packages().
+        monorepo_root: Monorepo root for relative path reporting.
+
+    Returns:
+        Mapping of file path -> hits in that file (files with zero hits omitted).
+    """
+    results: dict[Path, list[SharedVocabularyHit]] = {}
+    enum_members = _shared_enum_members()
+    non_enum_vocabularies = _shared_non_enum_vocabularies()
+
+    for package_name in SHARED_VOCABULARY_LANGUAGE_PACKAGES:
+        package_info = packages.get(package_name)
+        if package_info is None:
+            continue
+
+        for py_file in package_info.src_dir.rglob("*.py"):
+            try:
+                hits = scan_file_for_shared_vocabulary(
+                    py_file, enum_members, non_enum_vocabularies
+                )
+            except SyntaxError as e:
+                rel_path = py_file.relative_to(monorepo_root)
+                print(
+                    f"ERROR: Failed to parse {rel_path}:{e.lineno} - {e.msg}. "
+                    f"A policed file that cannot be parsed would escape this scan "
+                    f"(a silent blind spot); fix its syntax or encoding.",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+            except OSError as e:
+                rel_path = py_file.relative_to(monorepo_root)
+                print(
+                    f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
+                    f"cannot be read would escape this scan; resolve the read error.",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+
+            if hits:
+                results[py_file] = hits
+
+    return results
+
+
+def load_shared_vocabulary_baseline(baseline_path: Path) -> dict[str, int]:
+    """Load ``{relative_file: frozen_count}`` from the shared-vocabulary
+    baseline TOML.
+
+    Args:
+        baseline_path: Path to the shared-vocabulary baseline TOML file.
+
+    Returns:
+        An empty dict if the file does not exist yet (first-ever run, before
+        this task's `--update-baseline` freezes it).
+    """
+    if not baseline_path.exists():
+        return {}
+
+    try:
+        import tomllib  # Python 3.11+
+    except ImportError:
+        try:
+            import tomli as tomllib  # type: ignore[no-redef, import-not-found]
+        except ImportError:
+            print(
+                "Warning: TOML library not available. Install tomli for baseline support.",
+                file=sys.stderr,
+            )
+            return {}
+
+    with baseline_path.open("rb") as f:
+        data = tomllib.load(f)
+
+    counts: dict[str, int] = {}
+    for entry in data.get("baseline", []):
+        if not isinstance(entry, dict):
+            continue
+        file_rel = entry.get("file", "")
+        count = entry.get("count")
+        if file_rel and isinstance(count, int):
+            counts[file_rel] = count
+
+    return counts
+
+
+def write_shared_vocabulary_baseline(baseline_path: Path, counts: dict[str, int]) -> None:
+    """Write ``counts`` to the shared-vocabulary baseline TOML as
+    ``[[baseline]] file=... count=...`` entries, sorted by file for
+    deterministic diffs.
+
+    Args:
+        baseline_path: Path to the shared-vocabulary baseline TOML file to write.
+        counts: Mapping of relative file path (forward slashes) -> hit count.
+    """
+    header = (
+        "# G1 Shared-Vocabulary Ratchet Baseline (Decision D3, Invariant I2)\n"
+        "#\n"
+        "# Frozen per-file counts of module-level frozenset/set/dict\n"
+        "# declarations in the four datrix-codegen-{lang} packages whose\n"
+        "# normalized member set duplicates a datrix_codegen_common.enums\n"
+        "# vocabulary. Any INCREASE in a file's count fails\n"
+        "# datrix/scripts/dev/check-import-boundaries.py --check-shared-vocabulary.\n"
+        "# Decreases are always allowed and should be captured by re-running\n"
+        "# with --update-baseline once a later change deletes a redundant\n"
+        "# container (the terminal state is 0 for every entry here).\n"
+        "#\n"
+        "# Format:\n"
+        "#   [[baseline]]\n"
+        '#   file = "path/relative/to/monorepo-root, forward slashes"\n'
+        "#   count = <int>\n"
+    )
+
+    lines = [header]
+    for file_rel in sorted(counts.keys()):
+        lines.append("\n[[baseline]]\n")
+        lines.append(f'file = "{file_rel}"\n')
+        lines.append(f"count = {counts[file_rel]}\n")
+
+    baseline_path.parent.mkdir(parents=True, exist_ok=True)
+    baseline_path.write_text("".join(lines), encoding="utf-8")
+
+
+def check_shared_vocabulary_ratchet(
+    current_counts: dict[str, int],
+    baseline: dict[str, int],
+) -> list[str]:
+    """Compare *current_counts* against *baseline*; return one message per
+    file whose count INCREASED (baseline missing == baseline 0). Never flags
+    a decrease -- the ratchet only tightens.
+
+    Args:
+        current_counts: Relative file path -> current hit count.
+        baseline: Relative file path -> frozen baseline count.
+
+    Returns:
+        List of human-readable ratchet-failure messages, one per regressed
+        file, sorted by file path.
+    """
+    messages: list[str] = []
+    for file_rel in sorted(current_counts.keys()):
+        current = current_counts[file_rel]
+        frozen = baseline.get(file_rel, 0)
+        if current > frozen:
+            messages.append(
+                f"{file_rel}: shared-vocabulary count increased from baseline "
+                f"{frozen} to {current}"
+            )
+    return messages
+
+
+# ---------------------------------------------------------------------------
+# G2 Shared-Layer Target-Name Ratchet (Decision D4, Invariant I3)
+#
+# The single shared-layer package this ratchet polices. `datrix_common` and
+# `datrix_cli` are deliberately excluded (design §8): they hold platform
+# config-schema models (AwsPlatformConfig, AzureCosmosConfig,
+# DockerHealthcheckConfig, ...) whose relocation into the platform packages
+# is a separate Decision-22-shaped question, and documented public API
+# (PythonFileScope, TypeScriptFileScope -- both listed as canonical imports
+# in datrix-common/docs/contributing/ai-agent-rules/canonical-imports.md),
+# so renaming them would be a breaking change to a published surface. Kept
+# as its own tuple (not reused from TARGET_LITERAL_SHARED_PACKAGES, whose
+# three-package scope belongs to the I1 ratchet only) per this file's
+# established one-tuple-per-ratchet precedent (see
+# PROVIDER_LITERAL_SHARED_PACKAGES above).
+SHARED_TARGET_NAME_PACKAGES: tuple[str, ...] = (
+    "datrix_codegen_common",
+)
+
+# Registered-target identifier-segment call names this ratchet treats as a
+# TYPE reference (the second argument names a class/type, not a value).
+_TYPE_REFERENCE_CALL_NAMES: frozenset[str] = frozenset({"isinstance", "issubclass"})
+
+_CAMEL_TO_SNAKE_RE1 = re.compile(r"(.)([A-Z][a-z]+)")
+_CAMEL_TO_SNAKE_RE2 = re.compile(r"([a-z0-9])([A-Z])")
+
+
+def _identifier_segments(identifier: str) -> tuple[str, ...]:
+    """Tokenize *identifier* into lowercase segments, splitting on ``_`` and
+    at camelCase word boundaries (``fooBar`` -> ``foo``, ``bar``;
+    ``PythonStructFieldRow`` -> ``python``, ``struct``, ``field``, ``row``).
+    """
+    with_boundaries = _CAMEL_TO_SNAKE_RE1.sub(r"\1_\2", identifier)
+    with_boundaries = _CAMEL_TO_SNAKE_RE2.sub(r"\1_\2", with_boundaries)
+    return tuple(seg.lower() for seg in with_boundaries.split("_") if seg)
+
+
+def _identifier_carries_target_name(
+    identifier: str, target_names: frozenset[str]
+) -> str | None:
+    """Return the registered target name *identifier* carries as a segment
+    (or a contiguous run of adjacent camelCase segments -- e.g.
+    ``TypeScript`` tokenizes as ``type`` + ``script``, which must still
+    match the single registered target name ``typescript``), or ``None`` if
+    it carries none.
+
+    Segment-EXACT matching (never bare substring) is deliberate: ``java``
+    must never match inside a hypothetical ``javascript`` identifier (a
+    single, unsplit segment, since it has no internal capital or
+    underscore) -- only a genuine identifier segment, or an exact
+    concatenation of adjacent segments, counts.
+
+    Args:
+        identifier: The identifier to test.
+        target_names: Registered language names, lowercased
+            (``registered_language_names()``).
+
+    Returns:
+        The matched target name, or ``None``.
+    """
+    segments = _identifier_segments(identifier)
+    for start in range(len(segments)):
+        for end in range(start + 1, len(segments) + 1):
+            candidate = "".join(segments[start:end])
+            if candidate in target_names:
+                return candidate
+    return None
+
+
+def _identifiers_in_type_expression(node: ast.AST) -> list[tuple[str, int]]:
+    """Every ``(identifier, line_number)`` pair reachable from *node* by
+    walking ONLY the syntactic shapes a type expression / isinstance
+    argument can take: a bare name, a dotted attribute (``mod.Name``), a
+    ``X | Y`` union, a generic subscript (``Callable[..., X | Y]``,
+    ``Union[X, Y]``), a tuple of names (the ``isinstance(x, (A, B))`` form),
+    or a string forward-reference.
+
+    Does NOT descend into a function/lambda body, a comprehension, or any
+    other executable-statement context -- this is only ever called on an
+    annotation / isinstance-argument / base-class / type-alias-value
+    expression, which is what keeps an ordinary local variable (e.g.
+    ``local_cache = {}`` inside a function body) out of scope entirely: it
+    is never a type expression (see the module docstring for why this
+    matters -- a bare local variable can coincidentally be named after a
+    registered language, e.g. ``java = fetch_stat()``).
+    """
+    results: list[tuple[str, int]] = []
+    stack: list[ast.AST] = [node]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, ast.Name):
+            results.append((current.id, current.lineno))
+        elif isinstance(current, ast.Attribute):
+            results.append((current.attr, current.lineno))
+        elif isinstance(current, ast.BinOp) and isinstance(current.op, ast.BitOr):
+            stack.extend([current.left, current.right])
+        elif isinstance(current, ast.Subscript):
+            stack.append(current.value)
+            stack.append(current.slice)
+        elif isinstance(current, (ast.Tuple, ast.List)):
+            stack.extend(current.elts)
+        elif isinstance(current, ast.Constant) and isinstance(current.value, str):
+            results.append((current.value, current.lineno))
+    return results
+
+
+@dataclass(frozen=True)
+class SharedTargetNameHit:
+    """One shared-layer identifier carrying a registered target name as an
+    identifier segment (Decision D4, Invariant I3)."""
+
+    file_path: Path
+    line_number: int
+    identifier: str
+    matched_target: str
+    kind: Literal["class_def", "function_def", "field_or_alias", "type_reference"]
+
+
+def _scoped_plain_assign_targets(tree: ast.Module) -> list[tuple[str, int]]:
+    """Every ``(identifier, line_number)`` target of a plain (unannotated)
+    ``ast.Assign`` statement declared at MODULE top level or immediate
+    CLASS-BODY level -- never inside a function/method body.
+
+    This is the scoped counterpart to the ``ast.AnnAssign`` handling in
+    ``scan_file_for_shared_target_names``: an annotated declaration
+    (``StructSliceBuilder: TypeAlias = ...``) is always a genuine module- or
+    class-level declaration syntactically, but a PLAIN assignment
+    (``PYTHON_BASE_IMAGE_DIR = "python-base"``) is syntactically identical
+    to an ordinary function-local variable assignment -- the only thing
+    that distinguishes a real module constant from
+    ``def f(): python_helper = 1`` is WHERE the statement sits in the tree.
+    Restricting to ``tree.body`` and each ``ClassDef.body`` (a SCOPED
+    traversal, never a blanket ``ast.walk``) is what keeps a function-body
+    assignment out of scope, exactly like the declaration/type-reference-only
+    dispatch in ``scan_file_for_shared_target_names`` keeps a bare local
+    variable out of scope.
+
+    Args:
+        tree: The parsed module AST.
+
+    Returns:
+        ``(identifier, line_number)`` pairs for every ``ast.Name`` target of
+        a qualifying plain ``Assign`` statement.
+    """
+    targets: list[tuple[str, int]] = []
+    for stmt in tree.body:
+        if isinstance(stmt, ast.Assign):
+            targets.extend(
+                (target.id, stmt.lineno)
+                for target in stmt.targets
+                if isinstance(target, ast.Name)
+            )
+        elif isinstance(stmt, ast.ClassDef):
+            for class_stmt in stmt.body:
+                if isinstance(class_stmt, ast.Assign):
+                    targets.extend(
+                        (target.id, class_stmt.lineno)
+                        for target in class_stmt.targets
+                        if isinstance(target, ast.Name)
+                    )
+    return targets
+
+
+def scan_file_for_shared_target_names(
+    file_path: Path, target_names: frozenset[str]
+) -> list[SharedTargetNameHit]:
+    """AST-walk *file_path* for shared-layer identifiers that carry a
+    registered target name as an identifier segment: a class or
+    function/method DEFINITION, a dataclass field or type alias declared at
+    module or class-body level (either annotated, e.g. ``x: TypeAlias =
+    ...``, or a plain assignment, e.g. ``PYTHON_BASE_IMAGE_DIR = "..."``), or
+    a type reference (an ``isinstance()``/``issubclass()`` argument, a base
+    class, a type annotation, or a type-alias union member).
+
+    Deliberately scoped to DECLARATION and TYPE-REFERENCE positions only --
+    never a bare local variable, function parameter, loop variable, or
+    attribute READ inside a function body. A qualified attribute access
+    (``some_obj.python_package``) is never emitted as its own hit kind: it is
+    a READ of a field declared somewhere else -- G2's own contract is
+    declarations "in datrix_codegen_common source", and counting a read as a
+    declaration is a scanner false positive, not a genuine hit (confirmed by
+    the residual-hit review: every attribute-access hit measured was a read
+    of a ``datrix_common.paths.ServicePaths`` field, a package this design
+    explicitly fences out of scope). A type expression's own attribute chain
+    (``mod.Name`` in an annotation, base class, or ``isinstance`` argument)
+    still resolves via ``_identifiers_in_type_expression`` and is still
+    emitted as ``type_reference`` -- that is a genuine signal a plain
+    attribute-access sweep would also have caught, so removing the blanket
+    attribute-access kind loses no real coverage. See the module-level
+    "vocabulary is datrix.languages only" note in this task's spec: an
+    unscoped scan flagged 305 unrelated occurrences of the segment "local" in
+    datrix-common/src alone, zero of them a target-named SURFACE -- part of
+    why platforms are excluded from the vocabulary entirely. Restricting to
+    declaration/type-reference positions catches every confirmed offender
+    (the struct-slice dataclasses, the ``StructSliceBuilder`` union, the
+    ``build_struct_context`` isinstance ladder,
+    ``CqrsBusRegistration.import_line_python``, and the plain module-level
+    constant ``PYTHON_BASE_IMAGE_DIR``) while leaving ordinary local code and
+    reads of out-of-scope packages' fields untouched.
+
+    Args:
+        file_path: Path to Python source file.
+        target_names: Registered language names (lowercased), from
+            ``registered_language_names()``.
+
+    Returns:
+        List of hits found in the file, in AST-walk order.
+
+    Raises:
+        SyntaxError: propagated from ast.parse (caller decides how to report).
+        OSError: propagated if the file cannot be read.
+    """
+    source_code = file_path.read_text(encoding="utf-8-sig")
+    tree = ast.parse(source_code, filename=str(file_path))
+
+    hits: list[SharedTargetNameHit] = []
+
+    def _emit(identifier: str, line_number: int, kind: str) -> None:
+        matched = _identifier_carries_target_name(identifier, target_names)
+        if matched is not None:
+            hits.append(
+                SharedTargetNameHit(
+                    file_path=file_path,
+                    line_number=line_number,
+                    identifier=identifier,
+                    matched_target=matched,
+                    kind=kind,  # type: ignore[arg-type]
+                )
+            )
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            _emit(node.name, node.lineno, "class_def")
+            for base in node.bases:
+                for identifier, lineno in _identifiers_in_type_expression(base):
+                    _emit(identifier, lineno, "type_reference")
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            _emit(node.name, node.lineno, "function_def")
+            all_args = [
+                *node.args.args,
+                *node.args.kwonlyargs,
+                node.args.vararg,
+                node.args.kwarg,
+            ]
+            for arg in all_args:
+                if arg is not None and arg.annotation is not None:
+                    for identifier, lineno in _identifiers_in_type_expression(arg.annotation):
+                        _emit(identifier, lineno, "type_reference")
+            if node.returns is not None:
+                for identifier, lineno in _identifiers_in_type_expression(node.returns):
+                    _emit(identifier, lineno, "type_reference")
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            _emit(node.target.id, node.lineno, "field_or_alias")
+            if node.value is not None:
+                for identifier, lineno in _identifiers_in_type_expression(node.value):
+                    _emit(identifier, lineno, "type_reference")
+            for identifier, lineno in _identifiers_in_type_expression(node.annotation):
+                _emit(identifier, lineno, "type_reference")
+        elif isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Name) and func.id in _TYPE_REFERENCE_CALL_NAMES:
+                for call_arg in node.args[1:]:
+                    for identifier, lineno in _identifiers_in_type_expression(call_arg):
+                        _emit(identifier, lineno, "type_reference")
+
+    for identifier, line_number in _scoped_plain_assign_targets(tree):
+        _emit(identifier, line_number, "field_or_alias")
+
+    return hits
+
+
+def scan_shared_target_names(
+    packages: dict[str, PackageInfo],
+    monorepo_root: Path,
+) -> dict[Path, list[SharedTargetNameHit]]:
+    """Scan every ``.py`` file under each of ``SHARED_TARGET_NAME_PACKAGES``'
+    ``src/`` tree for identifiers carrying a registered target-name segment.
+
+    Args:
+        packages: Package name -> PackageInfo, as returned by discover_packages().
+        monorepo_root: Monorepo root for relative path reporting.
+
+    Returns:
+        Mapping of file path -> hits in that file (files with zero hits omitted).
+    """
+    results: dict[Path, list[SharedTargetNameHit]] = {}
+    target_names = frozenset(name.lower() for name in registered_language_names())
+
+    for package_name in SHARED_TARGET_NAME_PACKAGES:
+        package_info = packages.get(package_name)
+        if package_info is None:
+            continue
+
+        for py_file in package_info.src_dir.rglob("*.py"):
+            try:
+                hits = scan_file_for_shared_target_names(py_file, target_names)
+            except SyntaxError as e:
+                rel_path = py_file.relative_to(monorepo_root)
+                print(
+                    f"ERROR: Failed to parse {rel_path}:{e.lineno} - {e.msg}. "
+                    f"A policed file that cannot be parsed would escape this scan "
+                    f"(a silent blind spot); fix its syntax or encoding.",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+            except OSError as e:
+                rel_path = py_file.relative_to(monorepo_root)
+                print(
+                    f"ERROR: Failed to read {rel_path} - {e}. A policed file that "
+                    f"cannot be read would escape this scan; resolve the read error.",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+
+            if hits:
+                results[py_file] = hits
+
+    return results
+
+
+def load_shared_target_name_baseline(baseline_path: Path) -> dict[str, int]:
+    """Load ``{relative_file: frozen_count}`` from the shared-target-name
+    baseline TOML. Returns an empty dict if the file does not exist yet."""
+    if not baseline_path.exists():
+        return {}
+
+    try:
+        import tomllib  # Python 3.11+
+    except ImportError:
+        try:
+            import tomli as tomllib  # type: ignore[no-redef, import-not-found]
+        except ImportError:
+            print(
+                "Warning: TOML library not available. Install tomli for baseline support.",
+                file=sys.stderr,
+            )
+            return {}
+
+    with baseline_path.open("rb") as f:
+        data = tomllib.load(f)
+
+    counts: dict[str, int] = {}
+    for entry in data.get("baseline", []):
+        if not isinstance(entry, dict):
+            continue
+        file_rel = entry.get("file", "")
+        count = entry.get("count")
+        if file_rel and isinstance(count, int):
+            counts[file_rel] = count
+
+    return counts
+
+
+def write_shared_target_name_baseline(baseline_path: Path, counts: dict[str, int]) -> None:
+    """Write ``counts`` to the shared-target-name baseline TOML as
+    ``[[baseline]] file=... count=...`` entries, sorted by file."""
+    header = (
+        "# G2 Shared-Layer Target-Name Ratchet Baseline (Decision D4, Invariant I3)\n"
+        "#\n"
+        "# Frozen per-file counts of shared-layer identifiers (class, function,\n"
+        "# dataclass field, type alias, or type reference) carrying a registered\n"
+        "# language name as an identifier segment, in datrix_codegen_common.\n"
+        "# Any INCREASE in a file's count fails\n"
+        "# datrix/scripts/dev/check-import-boundaries.py --check-shared-target-names.\n"
+        "# Decreases are always allowed and should be captured by re-running with\n"
+        "# --update-baseline once a later change deletes a target-named surface.\n"
+        "# The terminal state is a single reviewed exemption entry --\n"
+        "# container_image_supply.py count 1, the scope-fenced PYTHON_BASE_IMAGE_DIR\n"
+        "# (the shared per-system base-image directory name every platform emitter\n"
+        "# must agree on byte-for-byte) -- every other entry drives to 0 as later\n"
+        "# migration work removes each remaining target-named surface. The four\n"
+        "# sql/nosql-substring identifiers considered during this ratchet's design\n"
+        "# (sql_engine, sql_dialect, NoSQLSeedWriter, NoSqlFilterSyntax) are NOT hits\n"
+        "# under this ratchet's languages-only vocabulary (sql is not a registered\n"
+        "# datrix.languages entry) -- they are proven non-matches by this ratchet's\n"
+        "# own self-test, not baseline entries.\n"
+        "#\n"
+        "# Format:\n"
+        "#   [[baseline]]\n"
+        '#   file = "path/relative/to/monorepo-root, forward slashes"\n'
+        "#   count = <int>\n"
+    )
+
+    lines = [header]
+    for file_rel in sorted(counts.keys()):
+        lines.append("\n[[baseline]]\n")
+        lines.append(f'file = "{file_rel}"\n')
+        lines.append(f"count = {counts[file_rel]}\n")
+
+    baseline_path.parent.mkdir(parents=True, exist_ok=True)
+    baseline_path.write_text("".join(lines), encoding="utf-8")
+
+
+def check_shared_target_name_ratchet(
+    current_counts: dict[str, int],
+    baseline: dict[str, int],
+) -> list[str]:
+    """Compare *current_counts* against *baseline*; return one message per
+    file whose count INCREASED (baseline missing == baseline 0). Never flags
+    a decrease -- the ratchet only tightens."""
+    messages: list[str] = []
+    for file_rel in sorted(current_counts.keys()):
+        current = current_counts[file_rel]
+        frozen = baseline.get(file_rel, 0)
+        if current > frozen:
+            messages.append(
+                f"{file_rel}: shared-target-name count increased from baseline "
+                f"{frozen} to {current}"
+            )
+    return messages
+
+
 def load_allowlist(allowlist_path: Path) -> list[AllowlistEntry]:
     """Load allowlist entries from TOML file.
 
@@ -1935,7 +2981,7 @@ def _rule_forbids(source_package: str, imported_module: str) -> bool:
 def _self_test_allowed_denied_subtrees() -> bool:
     """The platform allowed-subtree carve-out constant is frozen exactly, and
     every representative allowed/denied import is classified correctly."""
-    _step("Self-test 1/11: platform allowed/denied codegen-common subtrees")
+    _step("Self-test 1/15: platform allowed/denied codegen-common subtrees")
     ok = True
 
     expected_allowed_subtrees: frozenset[str] = frozenset(
@@ -2008,7 +3054,7 @@ def _self_test_allowed_denied_subtrees() -> bool:
 def _self_test_dotted_precision_and_carveout() -> bool:
     """Subtree matching is exact-or-child (not raw prefix), and the carve-out
     never leaks to a package that did not opt in."""
-    _step("Self-test 2/11: dotted-boundary precision and carve-out non-leakage")
+    _step("Self-test 2/15: dotted-boundary precision and carve-out non-leakage")
     ok = True
     platform_source = "datrix_codegen_aws"
 
@@ -2053,7 +3099,7 @@ def _self_test_dotted_precision_and_carveout() -> bool:
 def _self_test_sql_and_component_coverage() -> bool:
     """BOUNDARY_RULES covers datrix_codegen_sql and datrix_codegen_component,
     each enforcing the sibling-language prohibition absolutely."""
-    _step("Self-test 3/11: SQL and Component boundary rule coverage")
+    _step("Self-test 3/15: SQL and Component boundary rule coverage")
     ok = True
 
     ok &= _check(
@@ -2134,7 +3180,7 @@ def _self_test_platform_to_platform_prohibition() -> bool:
     ``datrix_codegen_common.platform.container_image_supply``) is NOT flagged
     -- otherwise the rule would forbid the correct fix along with the wrong one.
     """
-    _step("Self-test 4/11: platform -> sibling-platform import prohibition")
+    _step("Self-test 4/15: platform -> sibling-platform import prohibition")
     ok = True
 
     for source in _PLATFORM_PACKAGES:
@@ -2235,7 +3281,7 @@ def _self_test_platform_cli_non_vacuity() -> bool:
     clears (exit 0) -- i.e. the rule flags the defect and permits the fix.
     """
     _step(
-        "Self-test 9/11: platform -> platform CLI mutation non-vacuity "
+        "Self-test 9/15: platform -> platform CLI mutation non-vacuity "
         "(plant a real aws -> docker import, prove detection, prove the shared-layer fix clears it)"
     )
     ok = True
@@ -2334,7 +3380,7 @@ def _self_test_provider_literal_cli_non_vacuity() -> bool:
     monorepo rather than the real committed baseline.
     """
     _step(
-        "Self-test 10/11: provider-literal ratchet CLI mutation non-vacuity "
+        "Self-test 10/15: provider-literal ratchet CLI mutation non-vacuity "
         '(plant a real == "azure" conditional, prove detection, prove it clears on revert)'
     )
     ok = True
@@ -2422,7 +3468,7 @@ def _self_test_shared_package_provider_literal_cli_non_vacuity() -> bool:
     required NEGATIVE acceptance proof for D6.1's shared-package half.
     """
     _step(
-        "Self-test 11/11: shared-package provider-literal zero-tolerance CLI "
+        "Self-test 11/15: shared-package provider-literal zero-tolerance CLI "
         'mutation non-vacuity (plant a real == "azure" conditional in '
         "datrix-common, prove detection, prove it clears on revert)"
     )
@@ -2474,12 +3520,659 @@ def _self_test_shared_package_provider_literal_cli_non_vacuity() -> bool:
     return ok
 
 
+def _self_test_shared_vocabulary_scanner() -> bool:
+    """scan_file_for_shared_vocabulary detects a bare-literal redeclaration
+    of a known enum's member set, does NOT flag a container built entirely
+    from qualified enum-member references, and does NOT flag an unrelated
+    container whose members don't match any known vocabulary -- PLUS (added
+    when the canonical-source harvest was widened past ``str, Enum``
+    classes) the non-Enum harvest actually contains the three dict/frozenset
+    canonical vocabularies, a harvest restricted to Enum classes alone would
+    have missed every one of them, and each non-Enum shape's bare-literal
+    redeclaration is detected while its importing form is not."""
+    _step(
+        "Self-test 12/15: shared-vocabulary scanner (detection + exemption "
+        "non-vacuity, Enum and non-Enum canonical sources alike)"
+    )
+    ok = True
+
+    enum_members = {
+        "QueryTerminal": {
+            "ALL": "all",
+            "FIRST": "first",
+            "FIRST_OR_FAIL": "firstOrFail",
+            "COUNT": "count",
+        },
+    }
+
+    scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"shared-vocab-scanner-{uuid.uuid4().hex}"
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        bare_literal_file = scratch_dir / "bare_literal.py"
+        bare_literal_file.write_text(
+            '_TERMINAL_METHODS = frozenset({"all", "first", "firstOrFail", "count"})\n',
+            encoding="utf-8",
+        )
+        bare_hits = scan_file_for_shared_vocabulary(bare_literal_file, enum_members, {})
+        ok &= _check(
+            "bare-string redeclaration of QueryTerminal's four members is flagged",
+            len(bare_hits) == 1 and bare_hits[0].matched_vocabulary == "QueryTerminal",
+        )
+
+        qualified_only_file = scratch_dir / "qualified_only.py"
+        qualified_only_file.write_text(
+            "from datrix_codegen_common.enums import QueryTerminal\n\n"
+            "_QB_EXECUTE_TERMINALS = frozenset({\n"
+            "    QueryTerminal.ALL,\n"
+            "    QueryTerminal.FIRST,\n"
+            "    QueryTerminal.FIRST_OR_FAIL,\n"
+            "    QueryTerminal.COUNT,\n"
+            "})\n",
+            encoding="utf-8",
+        )
+        qualified_hits = scan_file_for_shared_vocabulary(
+            qualified_only_file, enum_members, {}
+        )
+        ok &= _check(
+            "a container built entirely from qualified QueryTerminal.X references is NOT flagged",
+            qualified_hits == [],
+        )
+
+        unrelated_file = scratch_dir / "unrelated.py"
+        unrelated_file.write_text(
+            '_HTTP_STATUS_CATEGORIES = frozenset({"informational", "success", "error"})\n',
+            encoding="utf-8",
+        )
+        unrelated_hits = scan_file_for_shared_vocabulary(unrelated_file, enum_members, {})
+        ok &= _check(
+            "an unrelated container matching no known vocabulary is NOT flagged",
+            unrelated_hits == [],
+        )
+
+        # --- Non-Enum canonical-source harvest completeness -----------------
+        # A harvest restricted to `str, Enum` classes (the pre-widening
+        # behaviour) is what `_shared_enum_members()` alone still returns;
+        # proving these three names are ABSENT from it, while the widened
+        # `_shared_non_enum_vocabularies()` DOES contain them, is the direct
+        # proof that an Enum-only harvest would FAIL to cover them.
+        from datrix_codegen_common.enums import (
+            DSL_EXCEPTION_HTTP_STATUS,
+            LOG_BUILTIN_METHODS,
+            NOSQL_UNSUPPORTED_METHODS,
+        )
+
+        enum_only_harvest = _shared_enum_members()
+        non_enum_harvest = _shared_non_enum_vocabularies()
+        for vocabulary_name in (
+            "DSL_EXCEPTION_HTTP_STATUS",
+            "NOSQL_UNSUPPORTED_METHODS",
+            "LOG_BUILTIN_METHODS",
+        ):
+            ok &= _check(
+                f"a str,Enum-only harvest does not contain {vocabulary_name} "
+                f"(proves an Enum-only harvest FAILS to cover a non-Enum "
+                f"canonical source)",
+                vocabulary_name not in enum_only_harvest,
+            )
+        ok &= _check(
+            "the widened harvest contains DSL_EXCEPTION_HTTP_STATUS's keys",
+            non_enum_harvest.get("DSL_EXCEPTION_HTTP_STATUS")
+            == frozenset(DSL_EXCEPTION_HTTP_STATUS.keys()),
+        )
+        ok &= _check(
+            "the widened harvest contains NOSQL_UNSUPPORTED_METHODS's keys",
+            non_enum_harvest.get("NOSQL_UNSUPPORTED_METHODS")
+            == frozenset(NOSQL_UNSUPPORTED_METHODS.keys()),
+        )
+        ok &= _check(
+            "the widened harvest contains LOG_BUILTIN_METHODS's members "
+            "(value-derived from BUILTIN_REGISTRY, not a literal display)",
+            non_enum_harvest.get("LOG_BUILTIN_METHODS")
+            == frozenset(LOG_BUILTIN_METHODS),
+        )
+
+        # --- Non-Enum shape 1: dict-keys (DSL_EXCEPTION_HTTP_STATUS) --------
+        dict_shape_bare_file = scratch_dir / "dict_shape_bare.py"
+        dict_shape_bare_file.write_text(
+            f"_EXCEPTION_STATUS_MAP = {DSL_EXCEPTION_HTTP_STATUS!r}\n",
+            encoding="utf-8",
+        )
+        dict_shape_bare_hits = scan_file_for_shared_vocabulary(
+            dict_shape_bare_file, {}, non_enum_harvest
+        )
+        ok &= _check(
+            "a bare dict literal redeclaring DSL_EXCEPTION_HTTP_STATUS's keys is flagged",
+            len(dict_shape_bare_hits) == 1
+            and dict_shape_bare_hits[0].matched_vocabulary
+            == "DSL_EXCEPTION_HTTP_STATUS",
+        )
+
+        dict_shape_importing_file = scratch_dir / "dict_shape_importing.py"
+        dict_shape_importing_file.write_text(
+            "from datrix_codegen_common.enums import DSL_EXCEPTION_HTTP_STATUS\n\n"
+            "def status_for(exc_name: str) -> int:\n"
+            "    return DSL_EXCEPTION_HTTP_STATUS[exc_name]\n",
+            encoding="utf-8",
+        )
+        dict_shape_importing_hits = scan_file_for_shared_vocabulary(
+            dict_shape_importing_file, {}, non_enum_harvest
+        )
+        ok &= _check(
+            "importing DSL_EXCEPTION_HTTP_STATUS instead of redeclaring it is NOT flagged",
+            dict_shape_importing_hits == [],
+        )
+
+        # --- Non-Enum shape 2: dict-keys (NOSQL_UNSUPPORTED_METHODS) --------
+        second_dict_shape_bare_file = scratch_dir / "second_dict_shape_bare.py"
+        second_dict_shape_bare_file.write_text(
+            f"_NOSQL_UNSUPPORTED = {NOSQL_UNSUPPORTED_METHODS!r}\n",
+            encoding="utf-8",
+        )
+        second_dict_shape_bare_hits = scan_file_for_shared_vocabulary(
+            second_dict_shape_bare_file, {}, non_enum_harvest
+        )
+        ok &= _check(
+            "a bare dict literal redeclaring NOSQL_UNSUPPORTED_METHODS's keys is flagged",
+            len(second_dict_shape_bare_hits) == 1
+            and second_dict_shape_bare_hits[0].matched_vocabulary
+            == "NOSQL_UNSUPPORTED_METHODS",
+        )
+
+        second_dict_shape_importing_file = scratch_dir / "second_dict_shape_importing.py"
+        second_dict_shape_importing_file.write_text(
+            "from datrix_codegen_common.enums import NOSQL_UNSUPPORTED_METHODS\n\n"
+            "def reason_for(method: str) -> str:\n"
+            "    return NOSQL_UNSUPPORTED_METHODS[method]\n",
+            encoding="utf-8",
+        )
+        second_dict_shape_importing_hits = scan_file_for_shared_vocabulary(
+            second_dict_shape_importing_file, {}, non_enum_harvest
+        )
+        ok &= _check(
+            "importing NOSQL_UNSUPPORTED_METHODS instead of redeclaring it is NOT flagged",
+            second_dict_shape_importing_hits == [],
+        )
+
+        # --- Non-Enum shape 3: frozenset elements (LOG_BUILTIN_METHODS) -----
+        frozenset_shape_bare_file = scratch_dir / "frozenset_shape_bare.py"
+        frozenset_shape_bare_file.write_text(
+            f"_LOG_METHODS = {frozenset(LOG_BUILTIN_METHODS)!r}\n",
+            encoding="utf-8",
+        )
+        frozenset_shape_bare_hits = scan_file_for_shared_vocabulary(
+            frozenset_shape_bare_file, {}, non_enum_harvest
+        )
+        ok &= _check(
+            "a bare frozenset literal redeclaring LOG_BUILTIN_METHODS's members is flagged",
+            len(frozenset_shape_bare_hits) == 1
+            and frozenset_shape_bare_hits[0].matched_vocabulary == "LOG_BUILTIN_METHODS",
+        )
+
+        frozenset_shape_importing_file = scratch_dir / "frozenset_shape_importing.py"
+        frozenset_shape_importing_file.write_text(
+            "from datrix_codegen_common.enums import LOG_BUILTIN_METHODS\n\n"
+            "def is_log_builtin(method: str) -> bool:\n"
+            "    return method in LOG_BUILTIN_METHODS\n",
+            encoding="utf-8",
+        )
+        frozenset_shape_importing_hits = scan_file_for_shared_vocabulary(
+            frozenset_shape_importing_file, {}, non_enum_harvest
+        )
+        ok &= _check(
+            "importing LOG_BUILTIN_METHODS instead of redeclaring it is NOT flagged",
+            frozenset_shape_importing_hits == [],
+        )
+    finally:
+        shutil.rmtree(scratch_dir, ignore_errors=True)
+
+    return ok
+
+
+def _self_test_shared_vocabulary_build_fixture_monorepo(tmp_root: Path) -> Path:
+    """Build a minimal isolated monorepo: one datrix-codegen-python package
+    whose module IMPORTS QueryTerminal (clean, no local redeclaration), plus
+    a baseline TOML freezing that file at count 0."""
+    package_src = tmp_root / "datrix-codegen-python" / "src" / "datrix_codegen_python"
+    package_src.mkdir(parents=True, exist_ok=True)
+    (package_src / "__init__.py").write_text("", encoding="utf-8")
+
+    module_path = package_src / "sample_query_chain.py"
+    module_path.write_text(
+        "from datrix_codegen_common.enums import QueryTerminal\n\n"
+        "def is_terminal(method: str) -> bool:\n"
+        "    return method in {t.value for t in QueryTerminal}\n",
+        encoding="utf-8",
+    )
+
+    config_dir = tmp_root / "datrix" / "scripts" / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "shared-vocabulary-baseline.toml").write_text(
+        "[[baseline]]\n"
+        'file = "datrix-codegen-python/src/datrix_codegen_python/sample_query_chain.py"\n'
+        "count = 0\n",
+        encoding="utf-8",
+    )
+    return module_path
+
+
+def _self_test_shared_vocabulary_run_cli(tmp_root: Path) -> "subprocess.CompletedProcess[str]":
+    """Invoke THIS script as a real subprocess against the isolated fixture."""
+    return subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "--base-dir",
+            str(tmp_root),
+            "--check-shared-vocabulary",
+            "--skip-auto-self-test",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+
+def _self_test_shared_vocabulary_non_enum_cli_cycle(
+    tmp_root: Path,
+    module_path: Path,
+    clean_source: str,
+    *,
+    vocabulary_name: str,
+    container_name: str,
+    literal_source: str,
+) -> bool:
+    """Run one mutate -> detect -> revert -> clear CLI round-trip for a
+    single non-Enum canonical vocabulary against the already-clean fixture
+    at *module_path*, restoring *clean_source* before returning either way.
+
+    Args:
+        tmp_root: The isolated fixture monorepo root (for CLI invocation).
+        module_path: The fixture module file to mutate in place.
+        clean_source: The known-clean source to append to / restore.
+        vocabulary_name: The canonical vocabulary this cycle redeclares
+            (for assertion messages only).
+        container_name: The bare container's assigned name in the planted
+            source line (e.g. ``_EXCEPTION_STATUS_MAP``).
+        literal_source: The full ``name = <literal>`` statement to append.
+
+    Returns:
+        True iff every assertion in this cycle passed.
+    """
+    ok = True
+    module_path.write_text(clean_source + "\n" + literal_source, encoding="utf-8")
+    failing_result = _self_test_shared_vocabulary_run_cli(tmp_root)
+    ok &= _check(
+        f"redeclaring {vocabulary_name} as a bare {container_name} literal "
+        f"exits 1, got {failing_result.returncode}",
+        failing_result.returncode == 1,
+    )
+    ok &= _check(
+        f"{vocabulary_name} redeclaration failure output names the mutated file",
+        module_path.name in failing_result.stdout,
+    )
+    ok &= _check(
+        f"{vocabulary_name} redeclaration failure output names the exact count delta (0 -> 1)",
+        "increased from baseline 0 to 1" in failing_result.stdout,
+    )
+
+    module_path.write_text(clean_source, encoding="utf-8")
+    reverted_result = _self_test_shared_vocabulary_run_cli(tmp_root)
+    ok &= _check(
+        f"reverting the {vocabulary_name} mutation clears the failure, "
+        f"got exit {reverted_result.returncode}",
+        reverted_result.returncode == 0,
+    )
+    return ok
+
+
+def _self_test_shared_vocabulary_cli_non_vacuity() -> bool:
+    """End-to-end proof the G1 shared-vocabulary ratchet actually FIRES --
+    for the Enum-sourced case AND, added when the harvest was widened past
+    ``str, Enum`` classes, for each of the three non-Enum canonical shapes.
+
+    Starts from a fixture that IMPORTS QueryTerminal (the design's required
+    POSITIVE case: exits 0), mutates it to ALSO bare-string-redeclare
+    QueryTerminal's four members (the required NEGATIVE case: exits 1, names
+    the file and the exact count delta), reverts and proves it clears, then
+    repeats one mutate/detect/revert cycle per non-Enum vocabulary
+    (``DSL_EXCEPTION_HTTP_STATUS`` and ``NOSQL_UNSUPPORTED_METHODS`` as bare
+    dict literals redeclaring their keys, ``LOG_BUILTIN_METHODS`` as a bare
+    frozenset literal redeclaring its members) against the SAME clean
+    fixture file.
+    """
+    _step(
+        "Self-test 13/15: shared-vocabulary ratchet CLI mutation non-vacuity "
+        "(fixture importing QueryTerminal exits 0; redeclaring its four "
+        "members as bare literals exits 1; reverting clears it -- plus one "
+        "mutate/detect/revert cycle per non-Enum canonical vocabulary)"
+    )
+    ok = True
+    tmp_root = _SELF_TEST_SCRATCH_ROOT / f"shared-vocab-cli-{uuid.uuid4().hex}"
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    try:
+        module_path = _self_test_shared_vocabulary_build_fixture_monorepo(tmp_root)
+        clean_source = module_path.read_text(encoding="utf-8")
+
+        clean_result = _self_test_shared_vocabulary_run_cli(tmp_root)
+        ok &= _check(
+            f"fixture importing QueryTerminal (no redeclaration) exits 0, got {clean_result.returncode}",
+            clean_result.returncode == 0,
+        )
+
+        module_path.write_text(
+            clean_source
+            + '\n_TERMINAL_METHODS = frozenset({"all", "first", "firstOrFail", "count"})\n',
+            encoding="utf-8",
+        )
+        failing_result = _self_test_shared_vocabulary_run_cli(tmp_root)
+        ok &= _check(
+            f"redeclaring QueryTerminal's four members as bare literals exits 1, got {failing_result.returncode}",
+            failing_result.returncode == 1,
+        )
+        ok &= _check(
+            "failure output names the mutated file",
+            "sample_query_chain.py" in failing_result.stdout,
+        )
+        ok &= _check(
+            "failure output names the exact count delta (0 -> 1)",
+            "increased from baseline 0 to 1" in failing_result.stdout,
+        )
+
+        module_path.write_text(clean_source, encoding="utf-8")
+        reverted_result = _self_test_shared_vocabulary_run_cli(tmp_root)
+        ok &= _check(
+            f"reverting the mutation clears the failure, got exit {reverted_result.returncode}",
+            reverted_result.returncode == 0,
+        )
+
+        from datrix_codegen_common.enums import (
+            DSL_EXCEPTION_HTTP_STATUS,
+            LOG_BUILTIN_METHODS,
+            NOSQL_UNSUPPORTED_METHODS,
+        )
+
+        ok &= _self_test_shared_vocabulary_non_enum_cli_cycle(
+            tmp_root,
+            module_path,
+            clean_source,
+            vocabulary_name="DSL_EXCEPTION_HTTP_STATUS",
+            container_name="dict",
+            literal_source=f"_EXCEPTION_STATUS_MAP = {DSL_EXCEPTION_HTTP_STATUS!r}\n",
+        )
+        ok &= _self_test_shared_vocabulary_non_enum_cli_cycle(
+            tmp_root,
+            module_path,
+            clean_source,
+            vocabulary_name="NOSQL_UNSUPPORTED_METHODS",
+            container_name="dict",
+            literal_source=f"_NOSQL_UNSUPPORTED = {NOSQL_UNSUPPORTED_METHODS!r}\n",
+        )
+        ok &= _self_test_shared_vocabulary_non_enum_cli_cycle(
+            tmp_root,
+            module_path,
+            clean_source,
+            vocabulary_name="LOG_BUILTIN_METHODS",
+            container_name="frozenset",
+            literal_source=f"_LOG_METHODS = {frozenset(LOG_BUILTIN_METHODS)!r}\n",
+        )
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+    return ok
+
+
+def _self_test_shared_target_name_scanner() -> bool:
+    """_identifier_carries_target_name detects a target-name segment
+    (including a compound camelCase target like TypeScript across two
+    adjacent segments), rejects a look-alike single-segment word (java vs.
+    javascript) and every sql/nosql-substring look-alike named in the
+    design, and the full scanner does not flag a bare local variable inside
+    a function body but DOES detect a plain module-level constant via the
+    scoped Assign path."""
+    _step("Self-test 14/15: shared-target-name scanner (segment matching + non-flood proof)")
+    ok = True
+
+    target_names = frozenset({"python", "typescript", "java", "dotnet"})
+
+    ok &= _check(
+        "PythonStructFieldRow carries the segment 'python'",
+        _identifier_carries_target_name("PythonStructFieldRow", target_names) == "python",
+    )
+    ok &= _check(
+        "TypeScriptStructTemplateSlice carries 'typescript' across two adjacent camelCase segments",
+        _identifier_carries_target_name("TypeScriptStructTemplateSlice", target_names) == "typescript",
+    )
+    ok &= _check(
+        "import_line_python carries the segment 'python'",
+        _identifier_carries_target_name("import_line_python", target_names) == "python",
+    )
+    ok &= _check(
+        "a hypothetical 'javascript' identifier does NOT match 'java' (no bare-substring false positive)",
+        _identifier_carries_target_name("javascript", target_names) is None,
+    )
+    ok &= _check(
+        "a target-neutral name (FooSliceProtocol) matches nothing",
+        _identifier_carries_target_name("FooSliceProtocol", target_names) is None,
+    )
+
+    # The design named these four sql/nosql-substring identifiers as
+    # look-alikes: the substring denotes a database technology
+    # (postgresql/mysql dialects, the NoSQL store category), "sql" is not a
+    # registered datrix.languages entry, and widening this vocabulary to any
+    # group containing "sql" must break these assertions loudly.
+    for lookalike in ("sql_engine", "sql_dialect", "NoSQLSeedWriter", "NoSqlFilterSyntax"):
+        ok &= _check(
+            f"{lookalike!r} is NOT flagged ('sql' is not a registered language)",
+            _identifier_carries_target_name(lookalike, target_names) is None,
+        )
+
+    scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"shared-target-scanner-{uuid.uuid4().hex}"
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        non_flood_file = scratch_dir / "non_flood.py"
+        non_flood_file.write_text(
+            "def resolve_something() -> dict[str, object]:\n"
+            "    local_cache = {}\n"
+            "    is_local = True\n"
+            "    for local in range(3):\n"
+            "        local_cache[local] = is_local\n"
+            "    return local_cache\n",
+            encoding="utf-8",
+        )
+        non_flood_hits = scan_file_for_shared_target_names(non_flood_file, target_names)
+        ok &= _check(
+            "bare local variables/loop variables named 'local'/'local_cache'/'is_local' "
+            "inside a function body produce ZERO hits",
+            non_flood_hits == [],
+        )
+
+        function_body_assign_file = scratch_dir / "function_body_assign.py"
+        function_body_assign_file.write_text(
+            "def f() -> None:\n    python_helper = 1\n    return None\n",
+            encoding="utf-8",
+        )
+        function_body_assign_hits = scan_file_for_shared_target_names(
+            function_body_assign_file, target_names
+        )
+        ok &= _check(
+            "a plain assignment INSIDE a function body (python_helper = 1) is NOT "
+            "flagged -- the scoped Assign path covers module/class level only",
+            function_body_assign_hits == [],
+        )
+
+        declaration_file = scratch_dir / "declaration.py"
+        declaration_file.write_text("class PythonFooSlice:\n    value: str\n", encoding="utf-8")
+        declaration_hits = scan_file_for_shared_target_names(declaration_file, target_names)
+        ok &= _check(
+            "a class declaration carrying a target-name segment IS flagged",
+            len(declaration_hits) >= 1
+            and any(h.matched_target == "python" for h in declaration_hits),
+        )
+
+        module_constant_file = scratch_dir / "module_constant.py"
+        module_constant_file.write_text(
+            'PYTHON_BASE_IMAGE_DIR = "python-base"\n', encoding="utf-8"
+        )
+        module_constant_hits = scan_file_for_shared_target_names(
+            module_constant_file, target_names
+        )
+        ok &= _check(
+            "a plain MODULE-level constant (PYTHON_BASE_IMAGE_DIR) IS flagged via "
+            "the scoped Assign path, matched_target == 'python'",
+            len(module_constant_hits) == 1
+            and module_constant_hits[0].matched_target == "python"
+            and module_constant_hits[0].kind == "field_or_alias",
+        )
+
+        # Declaration-vs-read precision pair (D4 residual-hit review): a
+        # module DECLARING a field named for a target must still be flagged
+        # after attribute_access was dropped as a declaration kind, while a
+        # module that only READS an identically-named attribute off some
+        # other object -- e.g. datrix-common's own ``ServicePaths.python_package``
+        # -- must NOT be, because a read is not a declaration under G2's own
+        # contract. Both live in ONE file so a single AST walk exercises the
+        # AnnAssign declaration path and the plain-Attribute read in the same
+        # scan, proving the narrowing removed exactly the false-positive kind
+        # and nothing else.
+        declaration_vs_read_file = scratch_dir / "declaration_vs_read.py"
+        declaration_vs_read_file.write_text(
+            "python_package: str = 'shared_pkg'\n"
+            "\n"
+            "def describe(paths: object) -> str:\n"
+            "    return paths.python_package\n",
+            encoding="utf-8",
+        )
+        declaration_vs_read_hits = scan_file_for_shared_target_names(
+            declaration_vs_read_file, target_names
+        )
+        ok &= _check(
+            "a module-level DECLARATION named 'python_package' IS flagged "
+            "(exactly once, via the scoped Assign path)",
+            len(declaration_vs_read_hits) == 1
+            and declaration_vs_read_hits[0].identifier == "python_package"
+            and declaration_vs_read_hits[0].matched_target == "python"
+            and declaration_vs_read_hits[0].kind == "field_or_alias",
+        )
+
+        read_only_file = scratch_dir / "read_only.py"
+        read_only_file.write_text(
+            "def describe(paths: object) -> str:\n"
+            "    return paths.python_package\n",
+            encoding="utf-8",
+        )
+        read_only_hits = scan_file_for_shared_target_names(read_only_file, target_names)
+        ok &= _check(
+            "a bare READ of 'some_obj.python_package' (no local declaration of "
+            "that name) produces ZERO hits -- attribute_access was dropped as a "
+            "declaration kind because a read is not a declaration",
+            read_only_hits == [],
+        )
+    finally:
+        shutil.rmtree(scratch_dir, ignore_errors=True)
+
+    return ok
+
+
+def _self_test_shared_target_name_build_fixture_monorepo(tmp_root: Path) -> Path:
+    """Build a minimal isolated monorepo: one datrix-codegen-common package
+    with a module declaring a target-NEUTRAL class, plus a baseline TOML
+    freezing that file at count 0."""
+    package_src = tmp_root / "datrix-codegen-common" / "src" / "datrix_codegen_common"
+    package_src.mkdir(parents=True, exist_ok=True)
+    (package_src / "__init__.py").write_text("", encoding="utf-8")
+
+    module_path = package_src / "sample_slice.py"
+    module_path.write_text(
+        "class FooSliceProtocol:\n    value: str\n",
+        encoding="utf-8",
+    )
+
+    config_dir = tmp_root / "datrix" / "scripts" / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "shared-target-name-baseline.toml").write_text(
+        "[[baseline]]\n"
+        'file = "datrix-codegen-common/src/datrix_codegen_common/sample_slice.py"\n'
+        "count = 0\n",
+        encoding="utf-8",
+    )
+    return module_path
+
+
+def _self_test_shared_target_name_run_cli(tmp_root: Path) -> "subprocess.CompletedProcess[str]":
+    """Invoke THIS script as a real subprocess against the isolated fixture."""
+    return subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "--base-dir",
+            str(tmp_root),
+            "--check-shared-target-names",
+            "--skip-auto-self-test",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+
+def _self_test_shared_target_name_cli_non_vacuity() -> bool:
+    """End-to-end proof the G2 shared-target-name ratchet actually FIRES.
+
+    Starts from a fixture declaring a target-NEUTRAL class (the design's
+    required POSITIVE case: exits 0), mutates it to a target-NAMED class
+    (the required NEGATIVE case: exits 1, names the file), then reverts and
+    proves it clears.
+    """
+    _step(
+        "Self-test 15/15: shared-target-name ratchet CLI mutation non-vacuity "
+        "('class PythonFooSlice' exits 1; 'class FooSliceProtocol' exits 0)"
+    )
+    ok = True
+    tmp_root = _SELF_TEST_SCRATCH_ROOT / f"shared-target-cli-{uuid.uuid4().hex}"
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    try:
+        module_path = _self_test_shared_target_name_build_fixture_monorepo(tmp_root)
+        clean_source = module_path.read_text(encoding="utf-8")
+
+        clean_result = _self_test_shared_target_name_run_cli(tmp_root)
+        ok &= _check(
+            f"target-neutral fixture (FooSliceProtocol) exits 0, got {clean_result.returncode}",
+            clean_result.returncode == 0,
+        )
+
+        module_path.write_text("class PythonFooSlice:\n    value: str\n", encoding="utf-8")
+        failing_result = _self_test_shared_target_name_run_cli(tmp_root)
+        ok &= _check(
+            f"target-named fixture (PythonFooSlice) exits 1, got {failing_result.returncode}",
+            failing_result.returncode == 1,
+        )
+        ok &= _check(
+            "failure output names the mutated file",
+            "sample_slice.py" in failing_result.stdout,
+        )
+        ok &= _check(
+            "failure output names the exact count delta (0 -> 1)",
+            "increased from baseline 0 to 1" in failing_result.stdout,
+        )
+
+        module_path.write_text(clean_source, encoding="utf-8")
+        reverted_result = _self_test_shared_target_name_run_cli(tmp_root)
+        ok &= _check(
+            f"reverting the mutation clears the failure, got exit {reverted_result.returncode}",
+            reverted_result.returncode == 0,
+        )
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+    return ok
+
+
 def _self_test_provider_conditional_scanner() -> bool:
     """scan_file_for_provider_conditionals detects every known DI-5-deferred
     conditional shape (ProviderId-shaped, deployment-provider-value, match/case,
     and -- added by this task -- the two D5 provider-literal sub-patterns) and
     excludes every look-alike that must not ratchet."""
-    _step("Self-test 5/11: provider-conditional AST scanner (detection + exclusion)")
+    _step("Self-test 5/15: provider-conditional AST scanner (detection + exclusion)")
     ok = True
     provider_ids = registered_platform_names()
     scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"provider-scanner-{uuid.uuid4().hex}"
@@ -2629,7 +4322,7 @@ def _self_test_function_level_import_scanner() -> bool:
     """scan_file_for_function_level_imports counts zero for module-top
     imports and exactly one for each nested (function/TYPE_CHECKING/
     try-except) import."""
-    _step("Self-test 6/11: function-level-import AST scanner")
+    _step("Self-test 6/15: function-level-import AST scanner")
     ok = True
     scratch_dir = _SELF_TEST_SCRATCH_ROOT / f"fli-scanner-{uuid.uuid4().hex}"
     scratch_dir.mkdir(parents=True, exist_ok=True)
@@ -2669,9 +4362,9 @@ def _self_test_function_level_import_scanner() -> bool:
 
 
 def _self_test_ratchets() -> bool:
-    """Both ratchet comparators fire on any per-file increase, never on a
-    decrease, and treat a baseline-absent file as baseline 0."""
-    _step("Self-test 7/11: ratchet comparators (regression / no-regression / missing-baseline-as-zero)")
+    """All three ratchet comparators fire on any per-file increase, never on
+    a decrease, and treat a baseline-absent file as baseline 0."""
+    _step("Self-test 7/15: ratchet comparators (regression / no-regression / missing-baseline-as-zero)")
     ok = True
 
     clean = check_provider_conditional_ratchet(
@@ -2733,6 +4426,79 @@ def _self_test_ratchets() -> bool:
         "function-level-import ratchet: a file absent from baseline is treated as baseline 0",
         len(fli_missing_baseline) == 1
         and "increased from baseline 0 to 1" in fli_missing_baseline[0],
+    )
+
+    shared_vocab_clean = check_shared_vocabulary_ratchet(
+        {"datrix-codegen-python/src/datrix_codegen_python/foo.py": 2},
+        {"datrix-codegen-python/src/datrix_codegen_python/foo.py": 2},
+    )
+    ok &= _check(
+        "shared-vocabulary ratchet: clean when current == baseline", shared_vocab_clean == []
+    )
+
+    shared_vocab_increase = check_shared_vocabulary_ratchet(
+        {"datrix-codegen-python/src/datrix_codegen_python/foo.py": 3},
+        {"datrix-codegen-python/src/datrix_codegen_python/foo.py": 2},
+    )
+    ok &= _check(
+        "shared-vocabulary ratchet: fires once on a real increase, naming file + delta",
+        len(shared_vocab_increase) == 1
+        and "foo.py" in shared_vocab_increase[0]
+        and "increased from baseline 2 to 3" in shared_vocab_increase[0],
+    )
+
+    shared_vocab_decrease = check_shared_vocabulary_ratchet(
+        {"datrix-codegen-python/src/datrix_codegen_python/foo.py": 1},
+        {"datrix-codegen-python/src/datrix_codegen_python/foo.py": 5},
+    )
+    ok &= _check(
+        "shared-vocabulary ratchet: allows a decrease", shared_vocab_decrease == []
+    )
+
+    shared_vocab_missing_baseline = check_shared_vocabulary_ratchet(
+        {"datrix-codegen-python/src/datrix_codegen_python/new_file.py": 1}, {}
+    )
+    ok &= _check(
+        "shared-vocabulary ratchet: a file absent from baseline is treated as baseline 0",
+        len(shared_vocab_missing_baseline) == 1
+        and "increased from baseline 0 to 1" in shared_vocab_missing_baseline[0],
+    )
+
+    shared_target_name_clean = check_shared_target_name_ratchet(
+        {"datrix-codegen-common/src/datrix_codegen_common/foo.py": 2},
+        {"datrix-codegen-common/src/datrix_codegen_common/foo.py": 2},
+    )
+    ok &= _check(
+        "shared-target-name ratchet: clean when current == baseline",
+        shared_target_name_clean == [],
+    )
+
+    shared_target_name_increase = check_shared_target_name_ratchet(
+        {"datrix-codegen-common/src/datrix_codegen_common/foo.py": 3},
+        {"datrix-codegen-common/src/datrix_codegen_common/foo.py": 2},
+    )
+    ok &= _check(
+        "shared-target-name ratchet: fires once on a real increase, naming file + delta",
+        len(shared_target_name_increase) == 1
+        and "foo.py" in shared_target_name_increase[0]
+        and "increased from baseline 2 to 3" in shared_target_name_increase[0],
+    )
+
+    shared_target_name_decrease = check_shared_target_name_ratchet(
+        {"datrix-codegen-common/src/datrix_codegen_common/foo.py": 1},
+        {"datrix-codegen-common/src/datrix_codegen_common/foo.py": 5},
+    )
+    ok &= _check(
+        "shared-target-name ratchet: allows a decrease", shared_target_name_decrease == []
+    )
+
+    shared_target_name_missing_baseline = check_shared_target_name_ratchet(
+        {"datrix-codegen-common/src/datrix_codegen_common/new_file.py": 1}, {}
+    )
+    ok &= _check(
+        "shared-target-name ratchet: a file absent from baseline is treated as baseline 0",
+        len(shared_target_name_missing_baseline) == 1
+        and "increased from baseline 0 to 1" in shared_target_name_missing_baseline[0],
     )
 
     return ok
@@ -2802,7 +4568,7 @@ def _self_test_cli_non_vacuity() -> bool:
     temporarily-mutated fixture tree -- never a simulated one, and never the
     real datrix-common source tree."""
     _step(
-        "Self-test 8/11: function-level-import CLI mutation non-vacuity "
+        "Self-test 8/15: function-level-import CLI mutation non-vacuity "
         "(plant a real regression, prove detection, prove it clears on revert)"
     )
     ok = True
@@ -2864,6 +4630,10 @@ def run_self_test() -> bool:
         _self_test_platform_cli_non_vacuity(),
         _self_test_provider_literal_cli_non_vacuity(),
         _self_test_shared_package_provider_literal_cli_non_vacuity(),
+        _self_test_shared_vocabulary_scanner(),
+        _self_test_shared_vocabulary_cli_non_vacuity(),
+        _self_test_shared_target_name_scanner(),
+        _self_test_shared_target_name_cli_non_vacuity(),
     ]
     print()
     if all(results):
@@ -2937,6 +4707,29 @@ def main() -> int:
             "Run the function-level-import ratchet check (D4/I6) "
             "in addition to the import-boundary check. Scoped to "
             "datrix-common's src/ tree only."
+        ),
+    )
+    parser.add_argument(
+        "--check-shared-vocabulary",
+        action="store_true",
+        help=(
+            "Run the G1 shared-vocabulary ratchet check (Decision D3, "
+            "Invariant I2) in addition to the import-boundary check. Fails "
+            "when a datrix-codegen-{lang} module declares a module-level "
+            "frozenset/set/dict whose normalized member set duplicates a "
+            "vocabulary already declared in datrix_codegen_common.enums."
+        ),
+    )
+    parser.add_argument(
+        "--check-shared-target-names",
+        action="store_true",
+        help=(
+            "Run the G2 shared-layer target-name ratchet check (Decision D4, "
+            "Invariant I3) in addition to the import-boundary check. Fails "
+            "when a class, function, dataclass field, type alias, or type "
+            "reference declared in datrix_codegen_common carries a "
+            "registered LANGUAGE name (datrix.languages only, never "
+            "datrix.platforms) as an identifier segment."
         ),
     )
     parser.add_argument(
@@ -3053,6 +4846,24 @@ def main() -> int:
         / "config"
         / "function-level-import-baseline.toml"
     )
+    # G1 shared-vocabulary ratchet (Decision D3, Invariant I2) — opt-in
+    # via --check-shared-vocabulary.
+    shared_vocabulary_baseline_path = (
+        monorepo_root
+        / "datrix"
+        / "scripts"
+        / "config"
+        / "shared-vocabulary-baseline.toml"
+    )
+    # G2 shared-layer target-name ratchet (Decision D4, Invariant I3) — opt-in
+    # via --check-shared-target-names.
+    shared_target_name_baseline_path = (
+        monorepo_root
+        / "datrix"
+        / "scripts"
+        / "config"
+        / "shared-target-name-baseline.toml"
+    )
 
     # D6.1 shared-package zero-tolerance check (distinct from the I6
     # language-package ratchet above) -- runs UNCONDITIONALLY whenever
@@ -3108,8 +4919,39 @@ def main() -> int:
             )
             updated_any = True
 
+        if args.check_shared_vocabulary:
+            shared_vocabulary_hits_by_file = scan_shared_vocabulary(packages, monorepo_root)
+            current_counts = {
+                str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
+                for file_path, hits in shared_vocabulary_hits_by_file.items()
+            }
+            write_shared_vocabulary_baseline(shared_vocabulary_baseline_path, current_counts)
+            print(
+                f"Updated G1 shared-vocabulary baseline: {len(current_counts)} file(s) "
+                f"recorded at {shared_vocabulary_baseline_path.relative_to(monorepo_root)}"
+            )
+            updated_any = True
+
+        if args.check_shared_target_names:
+            shared_target_name_hits_by_file = scan_shared_target_names(
+                packages, monorepo_root
+            )
+            current_counts = {
+                str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
+                for file_path, hits in shared_target_name_hits_by_file.items()
+            }
+            write_shared_target_name_baseline(shared_target_name_baseline_path, current_counts)
+            print(
+                f"Updated G2 shared-target-name baseline: {len(current_counts)} file(s) "
+                f"recorded at {shared_target_name_baseline_path.relative_to(monorepo_root)}"
+            )
+            updated_any = True
+
         if args.check_target_literals or not (
-            args.check_provider_conditionals or args.check_function_level_imports
+            args.check_provider_conditionals
+            or args.check_function_level_imports
+            or args.check_shared_vocabulary
+            or args.check_shared_target_names
         ):
             target_literal_hits_by_file = scan_target_literals(packages, monorepo_root)
             current_counts = {
@@ -3205,6 +5047,50 @@ def main() -> int:
             current_counts, baseline
         )
 
+    shared_vocabulary_messages: list[str] = []
+    if args.check_shared_vocabulary:
+        if not shared_vocabulary_baseline_path.exists():
+            print(
+                f"Error: G1 shared-vocabulary baseline not found at "
+                f"{shared_vocabulary_baseline_path}. Run "
+                f"'check-import-boundaries.py --check-shared-vocabulary --update-baseline' "
+                f"first to freeze the initial baseline.",
+                file=sys.stderr,
+            )
+            return 2
+
+        baseline = load_shared_vocabulary_baseline(shared_vocabulary_baseline_path)
+        shared_vocabulary_hits_by_file = scan_shared_vocabulary(packages, monorepo_root)
+        current_counts = {
+            str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
+            for file_path, hits in shared_vocabulary_hits_by_file.items()
+        }
+        shared_vocabulary_messages = check_shared_vocabulary_ratchet(
+            current_counts, baseline
+        )
+
+    shared_target_name_messages: list[str] = []
+    if args.check_shared_target_names:
+        if not shared_target_name_baseline_path.exists():
+            print(
+                f"Error: G2 shared-target-name baseline not found at "
+                f"{shared_target_name_baseline_path}. Run "
+                f"'check-import-boundaries.py --check-shared-target-names --update-baseline' "
+                f"first to freeze the initial baseline.",
+                file=sys.stderr,
+            )
+            return 2
+
+        baseline = load_shared_target_name_baseline(shared_target_name_baseline_path)
+        shared_target_name_hits_by_file = scan_shared_target_names(packages, monorepo_root)
+        current_counts = {
+            str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
+            for file_path, hits in shared_target_name_hits_by_file.items()
+        }
+        shared_target_name_messages = check_shared_target_name_ratchet(
+            current_counts, baseline
+        )
+
     # Report violations / ratchet failures
     if (
         non_allowlisted_violations
@@ -3212,6 +5098,8 @@ def main() -> int:
         or provider_conditional_messages
         or shared_package_provider_literal_messages
         or function_level_import_messages
+        or shared_vocabulary_messages
+        or shared_target_name_messages
     ):
         mode = "Warning" if args.warn else "Error"
 
@@ -3260,6 +5148,24 @@ def main() -> int:
                 print(message)
             print()
 
+        if shared_vocabulary_messages:
+            print(
+                f"{mode}: G1 shared-vocabulary ratchet failed for "
+                f"{len(shared_vocabulary_messages)} file(s):\n"
+            )
+            for message in shared_vocabulary_messages:
+                print(message)
+            print()
+
+        if shared_target_name_messages:
+            print(
+                f"{mode}: G2 shared-target-name ratchet failed for "
+                f"{len(shared_target_name_messages)} file(s):\n"
+            )
+            for message in shared_target_name_messages:
+                print(message)
+            print()
+
         if args.warn:
             return 0
         return 1
@@ -3283,6 +5189,14 @@ def main() -> int:
         if args.check_function_level_imports:
             print(
                 "No function-level-import ratchet regressions found.", file=sys.stderr
+            )
+        if args.check_shared_vocabulary:
+            print(
+                "No G1 shared-vocabulary ratchet regressions found.", file=sys.stderr
+            )
+        if args.check_shared_target_names:
+            print(
+                "No G2 shared-target-name ratchet regressions found.", file=sys.stderr
             )
 
     return 0

@@ -305,7 +305,7 @@ Each example above pairs with a required `--language`/`-L` flag on the `datrix g
 | Python ECS Fargate | `component`, `python`, `sql` | `docker` (containers need Dockerfiles) | `aws` ECS/Fargate/managed infra |
 | Python App Runner | `component`, `python`, `sql` | `docker` (image-based PaaS pulls an ECR image) | `aws` App Runner + managed infra |
 
-Provider-native runtimes are produced by their provider generator plus, where the runtime is container-based, the shared `docker` runtime generator supplying Dockerfiles. The `docker-compose` runtime is local-only — it is never paired with a cloud provider, and provider generators never augment Compose output. For `runtime: azure-app-service` (code-based delivery), the Azure generator produces all infrastructure Bicep and there is no separate runtime generator — no containers are involved. For `runtime: azure-app-service-container`, the Azure generator produces the infrastructure Bicep and the `docker` runtime generator supplies the Dockerfile for the custom-container delivery mode. For `runtime: ecs-fargate`, the AWS generator produces the infrastructure and the `docker` runtime generator supplies per-service Dockerfiles. For `runtime: app-runner`, the AWS generator produces the infrastructure; App Runner's own generated stack pulls an ECR image, so it likewise requires the `docker` runtime generator to supply that image's Dockerfile — App Runner is image-based PaaS, not containerless.
+Provider-native runtimes are produced by their provider generator plus, where the runtime is container-based, the shared `docker` runtime generator supplying Dockerfiles. Container artifacts for the `docker-compose` runtime always come from the `docker` runtime generator, whichever provider is selected: the platform set for a run is the sum of the runtime axis and the provider axis, so the two compose independently. Paired with `local`, no provider generator augments the Compose output, because `local` provisions nothing. Decision 35 approves a second pairing — `azure-vm`, cloud-hosted compute — where the provider emits its own infrastructure alongside unchanged Compose output; it is not implemented yet. For `runtime: azure-app-service` (code-based delivery), the Azure generator produces all infrastructure Bicep and there is no separate runtime generator — no containers are involved. For `runtime: azure-app-service-container`, the Azure generator produces the infrastructure Bicep and the `docker` runtime generator supplies the Dockerfile for the custom-container delivery mode. For `runtime: ecs-fargate`, the AWS generator produces the infrastructure and the `docker` runtime generator supplies per-service Dockerfiles. For `runtime: app-runner`, the AWS generator produces the infrastructure; App Runner's own generated stack pulls an ECR image, so it likewise requires the `docker` runtime generator to supply that image's Dockerfile — App Runner is image-based PaaS, not containerless.
 
 **Explicit config rule:** Defaults are an anti-pattern for deployment generation. Every deployment-relevant field must come from resolved config. Missing required fields must produce explicit errors naming the config path and expected field. Invalid combinations must produce validation errors rather than being corrected silently. No generator may override a user-provided config value.
 
@@ -313,7 +313,7 @@ Provider-native runtimes are produced by their provider generator plus, where th
 
 | Runtime | Valid providers |
 | --- | --- |
-| `docker-compose` | `local` |
+| `docker-compose` | `local`; `azure-vm` (Decision 35 — approved, not yet implemented) |
 | `azure-app-service` | `azure` |
 | `azure-app-service-container` | `azure` |
 | `ecs-fargate` | `aws` |
@@ -867,6 +867,201 @@ The design's seven end-state invariants (I1–I7) hold today as executable gates
 - **Declared-file coverage plus a shared emission-path gate make the declaration the only emission path** in every language package, so an output path can no longer be produced by an undeclared imperative site alongside its declared one.
 - **Queue and serverless block realization join normal table dispatch**, and provisioning-artifact patterns move onto the realization declaration itself, so the declaration and the conformance check that verifies it can no longer drift apart.
 - **Non-goal:** template bodies are never shared across languages. Decision logic and structure are what get consolidated; each language's rendered output stays that language's own.
+
+---
+
+### Decision 32: Portable Telemetry-Volume and Platform-Diagnostics Contracts, with Realization Conformance (Adopted)
+
+**Rationale:**
+- Three telemetry-cost defects were each closed as a point patch inside a single language or platform package. `observability.tracing.samplingRate` was accepted by the DSL but never realized for AWS/X-Ray until a reviewer noticed and patched it. The identical defect then recurred on Azure/Application Insights and cost a pilot environment $94.56 of Log Analytics ingestion — 56% of that environment's running cost, roughly $1.05 per uptime-hour — before a human reading a bill caught it. A third live instance surfaced on the dotnet target during an unrelated investigation: its tracing generator never receives the tracing config at all, so both the declared provider and `samplingRate` are inert, and unlike python and typescript, dotnet does not fail loud either — it silently emits unconditional OTLP.
+- Each patch was correct at the target it touched but sat at the wrong altitude: it realized a portable concept inside one target, leaving every other registered target free to keep the same defect and every future target free to reintroduce it. The defect class is recurrence, not any one bug — two of the three instances were caught only by a human reading a bill or a docstring, the third by an investigation aimed at something else entirely. Nothing in the repo would have caught a fourth.
+- Point-patching also produced a structurally incomplete fix: bounding the trace signal alone leaves the log and metric exporters running at 100%, so the log stream becomes the new dominant cost term. The trace patch could not finish the job because the portable model had nowhere to express the other two signals.
+
+**Result:**
+
+- **D1 — Portable telemetry-volume contract (`datrix-common`).** Export volume for every OpenTelemetry signal is modeled at the portable layer, so no target has to invent it and no signal is unreachable from the DSL:
+
+```
+observability {
+  tracing { provider = "..."; samplingRate = 0.1; }
+  logging { provider = "..."; level = "info"; exportLevel = "warning"; }
+  metrics { provider = "..."; exportIntervalSeconds = 60; }
+}
+```
+
+  - `samplingRate` stays exactly where it is on the tracing config — already portable and realized by five targets today; relocating it would be churn with no gain.
+  - `logging.exportLevel` is the severity floor for records shipped to the aggregation backend, distinct from `level` (what the application emits). It is meaningful on every backend — Log Analytics, CloudWatch Logs, Loki.
+  - `metrics.exportIntervalSeconds` is the portable spelling of metric export cadence.
+  - Every new field defaults to today's effective behavior, so no existing profile changes a single generated byte. Verified state behind those defaults: no target has any log-export severity filter today, so the emit floor is the export floor; and every application-side metrics path is a pull-based scrape endpoint, so cadence lives on the scraper today (the LOCAL Prometheus scrape interval and the AWS CloudWatch-agent sidecar interval are generation-time literals). The defaults are therefore "no export floor" and "the target's current cadence" — the mechanism ships, the cost decision stays with the config owner.
+
+- **D2 — Portable platform-diagnostics contract (`datrix-common`).** One shared model for platform-collected telemetry, distinct from D1's application-emitted telemetry, projected by each platform package onto its native mechanism. It lands on the shared platform-config base so a newly added platform package inherits the surface rather than inventing one:
+
+```
+platforms {
+  <target> {
+    diagnostics { verbosity = "all"; retentionDays = 30; dailyBudgetGb = 5; }
+  }
+}
+```
+
+  | Field | azure projection | aws projection | local/docker projection |
+  | --- | --- | --- | --- |
+  | `verbosity` (`all`\|`audit`\|`none`) | diagnostic-settings category group / empty log selection | log-collection scope on the emitted CloudWatch surface | projects onto the emitted log-shipping pipeline, or is declared unsupported with a reason |
+  | `retentionDays` | Log Analytics workspace retention | log-group retention | same |
+  | `dailyBudgetGb` | workspace daily-quota capping | declared unsupported with a reason | same |
+
+  Consequences, each resolving an open defect rather than adding surface:
+  - The azure-only log-selection field a prior point patch added becomes the projection of the portable `verbosity`, not its own field.
+  - The AWS platform config's log-retention field folds into `diagnostics.retentionDays` as a straight rename — the old field is deleted outright, not kept alongside the new one.
+  - The azure diagnostics retention field stops being accept-and-ignore. Verified current state: it is validated fail-loud and threaded into the render context, but the diagnostic-settings template never emits it — Azure rejects per-setting retention policies on new diagnostic settings, and workspace retention is actually fed from a second, separately named Application Insights retention field. Two names for one concept, one of which is validated and discarded. The portable `diagnostics.retentionDays` becomes the single feed for workspace retention, and the duplicate Application Insights retention field is removed.
+  - Every registered platform is in scope: a platform either projects each field onto its native mechanism or declares it unsupported with a reason. Both are honest; accepting and ignoring is not.
+
+- **D3 — Realization conformance: no knob may be silently inert.** A knob is realized when perturbing it changes the emitted artifact in a functional position, checked mechanically at two tiers:
+  - **Tier 1 — inert field.** Perturb one field, regenerate, diff. Byte-identical output means the knob is dead.
+  - **Tier 2 — cosmetic-only.** Output changed, but only inside comments or strings, so the value reached the text and not the behavior — exactly the Azure sampling defect, where the declared rate appeared in a docstring and a log line while export ran at 100%. Tier 1 cannot see it, and neither can a substring assertion.
+  - Home is per-package, not a repo-level sweep: each generator package asserts realization for the config surface it consumes, honoring the rule that each package tests only its own surface and avoiding a full-pipeline run per field across every package at once. The conformance surface per package is the platform configuration model that package receives plus the portable observability profile configuration.
+  - Mechanics: perturbation is derived from the models, never hand-listed — the config models expose annotation, default, and constraint metadata, are frozen, and support producing a perturbed copy. Emission uses each package's existing whole-output seam. The perturb/diff engine is shared in the codegen-common conformance kit; each package supplies only its own significant-text normalizer (which spans are comments and strings in the language it emits) — the one genuinely per-target piece, and it lives in the owning package. Legitimately-inert fields go in a hand-reviewed exemption baseline owned by the package, each entry carrying a written reason, with a pinned expected count enforced so an entry cannot be added or removed without updating the count in the same change. A non-vacuity self-test runs every time: feed the comparator a knob known to be realized (must pass) and a deliberately severed one (must fail).
+
+- **D4 — Provider × target realization matrix.** Generalizes the fail-loud gate python and typescript already implement, and makes the matrix a single queryable fact instead of divergent per-package literals.
+  - Each target declares the provider set it realizes, per observability category, covering the same five categories the platform capability declaration already uses — metrics, tracing, logging, visualization, alerting. The specifics stay in the package that owns the knowledge; a category a target declares empty means it realizes none.
+  - The matrix is assembled from the registered targets at runtime via the language and platform entry-point groups — never a hardcoded literal — so a newly added generator package is covered with no edit to shared code.
+  - Declaring a provider the resolved target does not realize is a loud config error, raised uniformly on every target.
+  - The matrix is what D3's conformance iterates, so "declared supported" and "actually realized" cannot drift: claiming support obliges passing realization.
+  - **The declaration is two axes, not one, and they are not policed identically.** Visualization, alerting, and logging-*provider* are realized by the resolved PLATFORM's infrastructure (a shipped Grafana container, an Alertmanager service, a Loki/CloudWatch Logs/Log Analytics backend) — no language generator branches on them. Every language declares those three categories empty for exactly that reason, and the LANGUAGE-axis validator must skip them rather than reject a provider the PLATFORM natively realizes; only metrics and tracing (where the language emits provider-specific exporter/SDK wiring) stay policed on both axes. This was not obvious from the platform-axis precedent alone and cost two live defects to learn: an early language declaration realized every logging provider ("log-shipping destination is a platform-layer concern") while other languages declared none of the identical fact ("backend routing is a platform-axis concern") — the same portable config generated cleanly on one language and failed generation on another — and a first cut of the language-axis validator policed all five categories uniformly, which rejected `visualization.provider = "grafana"` (a platform-provisioned, framework-example-blessed config) on every language. Both are now fixed; the cross-target discovery in the next bullet is what proved it and is what keeps it fixed.
+
+**Invariant table:**
+
+| # | Invariant | Enforcement mechanism (planned) |
+| --- | --- | --- |
+| 1 | Every OpenTelemetry signal has a portable export-volume field | Volume fields on the portable observability models; a profile declaring each one produces a functionally different artifact on every target that realizes it |
+| 2 | Adopting the new fields changes no existing generated byte | Every new field defaults to today's effective behavior |
+| 3 | No platform package defines its own retention or verbosity field | A scan of the platform configs finds the portable `diagnostics` block and zero surviving per-platform retention/log-selection declarations |
+| 4 | A knob a target accepts is a knob it realizes | Per-package perturb/regenerate/diff conformance, Tier 1 (inert) and Tier 2 (cosmetic-only) |
+| 5 | A legitimately-inert field is a reviewed exemption with a pinned count, never silence | Package-owned exemption baseline; the count is enforced against the entry list |
+| 6 | The conformance gate proves its own non-vacuity every run | A known-realized knob must pass and a deliberately severed one must fail, checked before the real comparison |
+| 7 | (provider × target) realization is one fact assembled from the registered target set | Per-target declarations folded into a matrix derived from entry points; every pair marked supported must pass the realization check; declaring an unsupported pair is a loud validation error on every target |
+| 8 | The language axis and the platform axis agree about which of the two realizes a given observability category | Repo-level cross-target parity gate: every registered language declares the empty set for every platform-only category, and every provider a registered platform declares native validates cleanly against every registered language — target sets from entry points, non-vacuity self-test every run |
+
+**Scope boundaries:** Not a change to any provider's semantics or to which providers exist. Not a new telemetry backend, dashboard, or alerting surface beyond the log-collection scope `verbosity` requires on AWS. Not a value choice — this ships mechanisms with behavior-preserving defaults; what a deployment sets stays the config owner's call. It does not attempt to detect a hardcoded constant that should have been a knob, which is not mechanically decidable and stays a design and review concern — stated so the conformance work is not credited with coverage it lacks.
+
+**Builds on and overlaps with** [Decision 27](#decision-27-native-only-observability-providers-per-target-platform-adopted) (native-only observability providers per target platform) and the cross-target parity program spanning [Decision 28](#decision-28-cross-target-parity-enforcement--derived-gates-and-declared-capability-holes-approved--implementation-in-progress) through [Decision 31](#decision-31-mini-dsl-consolidation--declared-surfaces-replace-imperative-bypasses-approved--implementation-in-progress). This decision's conformance engine and derived matrix are the first concrete instances of that program's house pattern — runtime target discovery from entry points, a mandatory non-vacuity self-test, pinned-count exemption files, "declared cannot diverge from realized" — seeding the pattern rather than duplicating it. The axis differs, though: the parity program addresses capability-presence parity between targets, while this decision addresses field-level realization within a target.
+
+**Status:** Adopted. `logging.exportLevel`, `metrics.exportIntervalSeconds`, and the `diagnostics` platform block are live on the portable config models; the perturb/diff conformance kit (`datrix_codegen_common.testkit.gates.config_realization`) is landed and every consuming package (aws, azure, docker, python, typescript, java, dotnet, component) carries its own exemption baseline and passing conformance suite — see [datrix-codegen-common architecture — Config-Realization Conformance Engine](../../../datrix-codegen-common/docs/architecture.md#config-realization-conformance-engine). The provider × target realization matrix is assembled from the registered `datrix.languages`/`datrix.platforms` entry points — see [datrix-common API — LanguageCapabilityDeclaration](../../../datrix-common/docs/datrix-common-api.md#languagecapabilitydeclaration) — and invariant 8's cross-target gate is `datrix/scripts/test/observability-axis-parity-gate.ps1`.
+
+---
+
+### Decision 33: Self-Hosted Compute with Managed State on the Compose Target (Adopted)
+
+**Rationale:**
+- The docker-compose target realizes an infrastructure block one of two ways: as a container it provisions, or as an `external` flavor it connects to without provisioning. Two flavors naming a cloud-managed service — object storage as blob storage, and pub/sub as a managed broker — are declared unsupported there, with the reason that a cloud-managed service cannot be provisioned on a self-hosted host.
+- That reason conflates two separate questions: *can this target provision the resource*, and *can this target realize a block that consumes it*. The already-supported `rdbms/external` and `storage/minio-external` cells answer them separately — the target connects and does not provision — so the compose target already has the shape; only these two cells are missing it.
+- The consequence is a deployment topology the generator cannot express at all: containers on a single self-hosted host, with the three stateful components that dominate disk and memory — relational storage, object storage, message broker — held by managed services the host reaches using its platform-assigned workload identity, with no connection strings or account keys authored anywhere. Running those three as containers is what forces a large host; running the whole stack on a cloud provider's managed compute is what makes an always-on environment expensive. The hybrid sits between the two and is unreachable today.
+- The gap is a single platform package's realization, not a missing capability. The language-side clients for both flavors already exist and are exercised by the cloud platform target, dispatching on engine and provider rather than on deployment platform; nothing in the language layer needs to change.
+
+**Result:**
+
+- **D1 — Both cells become supported connect-don't-provision realizations** on the compose target, carrying the same structural pattern as the existing external cells. The generic `(block_type, flavor)` capability gate stops rejecting them, and the platform's managed-realization dispatch returns the same empty provisioning plan every other locally-realizable cell returns: the target realizes the block, just not as a resource it creates.
+
+- **D2 — The container-suppression predicate is local to the platform package.** The shared skip-provisioning set is left unchanged. It is defined as the complement of cloud-managed provisioning, so adding a cloud-managed flavor to it would switch that same flavor's provisioning *off* on the cloud platforms that do provision it — a cross-target regression from an edit that looks local. Per design principle 16, "does this target provision a container for this block" is the target's own question to answer in its own package, alongside the existing storage-side predicate that already answers it for the external object-storage flavor.
+
+- **D3 — Connection values come from authored configuration, never from a resolved container.** A managed pub/sub block takes the same connection branch as an external one, so the authored broker endpoint carries the namespace FQDN the generated client consumes; a blob-storage block's account URL is seeded from its authored endpoint. A key that is neither authored nor provisioned stays unseeded, and the local preflight fails loud naming it rather than emitting an empty placeholder. (Decision 35 supersedes this rule for its own provider only, where the value is resolved from provisioned infrastructure instead of authored configuration; it still governs the compose target's own `local` realization.)
+
+- **D4 — Suppression is total across the emitted tree, not just the compose file.** For a block realized as managed state the target emits: no container, no init container, no init or bootstrap script, no host-gateway extra-host, no `depends_on` edge to a container that is not emitted, and no credential environment or secret surface for a client that authenticates by workload identity. Each of those is a separate emission site and each is a separate check — a suppression that covers the compose file while an init script survives in the generated script tree is a half-realized cell.
+
+**Invariant table:**
+
+| # | Invariant | Enforcement mechanism (planned) |
+| --- | --- | --- |
+| 1 | A cloud-managed flavor a target can connect to is supported there, not rejected for being unprovisionable | The two cells are declared supported; the capability gate admits them and the flavor-gate test proves the pair no longer raises |
+| 2 | Marking a flavor non-provisioning on one target never changes provisioning on another | The shared skip-provisioning set is untouched; suppression lives in the platform package, and the cloud platforms' own cells are unchanged |
+| 3 | Every supported cell has a fixture that exercises it | The package's existing kit-CI check already fails loud, naming any supported cell with no fixture service |
+| 4 | Suppression covers every emission site, not just the compose file | One check per site — container, init container, init script, extra-host, `depends_on`, credential surface — over real generated output |
+| 5 | A connection value is authored or the preflight refuses to start | Unseeded required keys fail loud naming the key; no empty placeholder is ever seeded |
+
+**Scope boundaries:** These two boundaries held for the compose target's own realization cells and have since been superseded by Decision 35: the compose target itself still emits no cloud infrastructure templates for these resources and still provisions them out of band, and the topology described here is still a set of realization cells on the existing target rather than a new one — but Decision 35 introduces a distinct provider that does emit infrastructure-as-code for the equivalent resources on cloud-hosted compute. Not a change to any other target's cells, to the language-side clients, or to which flavors exist. Realization ships on the Python language target; other language targets are unchanged and may declare the same shape independently.
+
+**Status:** Adopted. Both cells are declared supported and registered on the compose target, the platform-local suppression predicate exists, and the realization is exercised by the package's own integration and unit tests covering managed-state generation, managed pub/sub realization, managed storage wiring, and docker validation.
+
+---
+
+### Decision 34: Codegen Shared-Layer Consolidation — Target-Agnostic Logic Leaves the Language Packages (Adopted)
+
+**Rationale:**
+- The four language generator packages carry 4,216 physical lines of exactly-duplicated code — 3,767 in duplicated function bodies and 449 in duplicated module-level constant tables. None of it is language-specific emission: it is AST/contract analysis, config-driven predicates, fail-loud AST lookups, and DSL vocabulary tables. Four independent copies of one fact drift at four independent rates, and because cross-language parity tests are prohibited by design, a divergence produces wrong generated code rather than a red suite.
+- The packages already know they are copying and cite the import boundary as the reason — a language package may depend only on `datrix-common` and `datrix-codegen-common`, never a sibling. That boundary is real; the conclusion drawn from it is not. `datrix-codegen-common` exists for exactly this, and all four language packages already declare it as a runtime dependency, so every hoist is a relocation with no new edge in the dependency graph.
+- The pattern has already shipped a defect. One language package's response-struct generator hand-rolls a service-body walk that omits CQRS, serverless, service-level enqueue, test, and entity-`validate` bodies; another package's twin of that file was repaired to consume the canonical enumerator and the first was not. The consequence is generated code that imports a response module the generator then declines to materialize.
+- It is a regression against a decision already taken. The shared enum module was created to centralise DSL string literals that had been scattered across language packages; two packages have since re-scattered the exact literals it holds, and one shared vocabulary has zero consumers while a package hardcodes its members.
+- The shared layer's own surfaces block the next language. The struct-slice builder is a closed union of exactly three shipped languages with an `isinstance` ladder over it, and the fourth language's slice lives outside the shared package *because it could not join that union* — invariant I2 ("add-a-language = one package") failing in practice.
+
+**Result:**
+
+- **D1 — Target-agnostic logic lives at the most target-agnostic layer that can own it, parameterized by value.** A helper whose body reads only `datrix-common` AST/config models and `datrix-codegen-common` primitives belongs in `datrix-codegen-common`. Where copies differ, the difference is passed in as an argument (a provider-language identifier, a casing callable) — never a `dict[language, policy]` and never an `if target == X` in the shared layer.
+
+- **D2 — A pure AST accessor belongs in `datrix-common`, not `datrix-codegen-common`.** A helper that only walks the AST and carries no codegen concept is placed alongside the other service accessors; `datrix-common` has zero Datrix dependencies, so nothing is inverted by that placement.
+
+- **D3 — Each DSL vocabulary has exactly one definition, in the shared enum module.** A language package may not redeclare a member set that module already declares, and a vocabulary duplicated across two or more packages with no canonical home gains one there. Cross-language contracts — the DSL exception-to-HTTP-status mapping and the alert metric-name sets — are covered: an HTTP status and a metric name must agree across targets, and a taxonomy guaranteed by independent copies is guaranteed by nothing.
+
+- **D4 — No type, field, or type alias in the shared codegen package carries a target name.** An AST scan found 76 such declarations across 12 files, of which 71 are genuine: the struct context models (21), the CQRS context models (34), the GraphQL context models (10), and six singles. The struct-slice closed union and its `isinstance` ladder become a Protocol plus an emit-slot key supplied by the language's hooks, with each language owning its own slice dataclass. The CQRS models are the systemic case — they carry paired per-language field sets written when only two generators existed, so the later two already write their own content into fields named for other languages; those pairs are re-modelled as single fields keyed by language id, since merely dropping the suffix would re-create the closed set under new names. **One** declaration becomes a reviewed exemption with a written reason rather than a rename: a genuine target name that the out-of-scope docker package consumes in production, which therefore needs a follow-up design. The four `sql`-substring identifiers considered while specifying this decision are **not** exemptions — the ratchet derives its vocabulary from the registered language set, `sql` is not a registered language, and so they never match; the ratchet's self-test proves each as a non-match rather than baselining it. A vocabulary rule and a hand-counted exemption list can disagree, and when they do the vocabulary rule governs: an exemption entry that can never be reached is a silent hole, not a review.
+
+- **D5 — The canonical service-body enumerator is the only enumeration of a service's DSL bodies.** No package hand-rolls a body walk. The accessor's own docstring already declares this and records that every hand-rolled copy has drifted, each omitting a different body kind.
+
+- **D6 — Scope fence.** The SQL and component codegen packages are out: neither shares a duplicated body with a language package and neither depends on `datrix-codegen-common` at runtime. No part of this decision adds that dependency.
+
+- **D7 — The thin delegating micro-generator classes are deliberately not consolidated.** Their bodies are a dependency tuple, a constructor that stores its arguments, and a `render` that forwards. The variation in constructor arity and forwarded keyword arguments means a shared factory would have to model that variation, plausibly costing more than the boilerplate it removes. This is an explicit exclusion, not an unexamined gap.
+
+- **D8 — Guards land before the migrations they police.** Two ratchets ship first with baselines pinned at current counts, so nothing new can be added while existing entries are removed; each migration decrements its baseline in the same change, reaching zero at the end. This follows the existing ratchet-plus-baseline precedent and the pinned-count exemption model.
+
+**Invariant table:**
+
+| # | Invariant | Enforcement mechanism |
+| --- | --- | --- |
+| 1 | Exactly one definition of each hoisted helper exists across the language packages | Duplicate-body scan reports zero exact-duplicate groups for the consolidated symbol set; the only surviving per-package definitions are pure pre-binding adapters — a docstring and a single `return` delegating to the shared builder — not duplicated bodies |
+| 2 | No language package redeclares a shared-enum member set | Shared-vocabulary ratchet passes at a zero baseline; each package's own suites exercise the imported enum |
+| 3 | No symbol in the shared codegen package carries a target name | Shared-layer target-name ratchet passes at a baseline holding exactly one reviewed exemption, 70 genuine declarations fixed (down from 76 matched, of which the four `sql`-substring identifiers are provably outside the ratchet's language-derived vocabulary); the closed-world drill's fixture language plugin supplies a struct slice and builds a struct context with no edit to the shared package |
+| 4 | No package hand-rolls a service-body walk | Zero private body-enumeration helpers survive in the language packages; a regression test proves a typed cross-service call inside a CQRS handler materializes its response module — written first and observed red against the shipped defect |
+| 5 | Every hoist is behavior-preserving | Each affected package's targeted suites pass unchanged; no generated-output diff on the hoisted paths |
+| 6 | The scope fence holds | The SQL and component packages' runtime dependencies still exclude `datrix-codegen-common` |
+
+**Scope boundaries:** Not a merge of language-specific emission — type maps, extension maps, per-language capability declarations, genDSL domain declarations, per-target realization declarations, and the language hook bodies all stay where they are. Not a consolidation of the delegating micro-generator classes (D7). Not a change to the SQL, component, docker, AWS, or Azure packages (D6). Not a removal of target-named declarations from the foundation or CLI packages: those are platform config-schema models, whose relocation into the platform packages is a Decision-22-shaped question of its own, and documented canonical-import API whose renaming is a breaking change to a published surface — so the new target-name ratchet is scoped to the shared codegen package. It also matches registered *language* names only, because one registered platform name is a common English word and including platforms returns hundreds of spurious hits; widening the ratchet requires solving that collision first. Not a cross-language parity or matrix test: each package tests its own surface, and the cross-cutting checks are repo-level scripts, never a test suite in the showcase repo. Not an endpoint-handler body-method parity change — two same-named constants encode genuinely different concepts (a cross-service call body versus request parameter binding), and the capability question that separates them belongs to the Cross-Target Parity Program.
+
+**Status:** Adopted. Both ratchets ship in the import-boundary checker with frozen decrease-only baselines and their own non-vacuity self-tests; the named helper clusters are hoisted; the shared codegen package's target-named surfaces are down to a single reviewed exemption; and the shipped body-walk defect is fixed with a regression test that was observed red first.
+
+Three things surfaced during implementation that the approved shape did not anticipate, and each is recorded above rather than quietly absorbed: the exemption count is one rather than five (a language-derived vocabulary cannot match `sql`); a fourth copy of the replay-plan resolvers existed in a package the duplication measurement had not attributed them to, and it carried a fail-loud guard the shared copies lacked, so consolidation was resolved as a union rather than a deletion; and language-named fields written with an abbreviation rather than the registered name are invisible to an identifier ratchet whose vocabulary is the registered set — those were found by review, not by the guard, and the packages that did not emit them had been filling them with silent-default placeholders.
+
+---
+
+### Decision 35: The azure-vm Provider — Azure-Hosted Containers with Provider-Emitted Infrastructure (Approved — Implementation In Progress)
+
+**Rationale:**
+- A container stack running on a cloud VM, backed by cloud-managed state and authenticated by a platform-assigned workload identity, has no truthful provider identity today. It is declared `local`, which means self-hosted infrastructure the generator neither provisions nor knows the shape of — and which is also the identity assumed when no deployment is declared at all. Calling a cloud-hosted deployment `local` forces every cloud resource out of band and leaves the generator unable to state anything true about the target.
+- Widening `local` is not available. `local` is the no-declaration default; it declares `owns_provider_platform_generator = False`, which is the fact the shared deployment plan reads to decide whether a provider-owned generator runs at all; and its capability declaration is shared verbatim with the container runtime generator. A `local` that sometimes provisions cloud infrastructure means nothing, and leaves no name for the equivalent on other clouds.
+- The framework already composes the two axes independently. The platform set for a run is the sum of the runtime axis (which platform contributes container scaffolding for this runtime) and the provider axis (which provider owns a generator). The pairing of a container runtime with a cloud provider is therefore a supported composition, not a special case — per-platform configs are already built per platform name, so the container runtime generator receives its own config even when the primary provider config belongs to a cloud provider.
+
+**Result:**
+
+- **D1 — A distinct provider identity, not a widened one.** The provider is registered under the platform entry-point group from the Azure platform package, declares the container runtime as its only supported runtime, and declares that it owns a provider platform generator. The container runtime generator is unchanged and continues to own all container artifacts.
+
+- **D2 — Its capability declaration is its own, derived from the self-hosted target's.** Values mirror the self-hosted container target — container-secret backend, password RDBMS connection identity, nginx gateway with no TLS termination, container serverless model, the file-backed config store set — and diverge only where the topology genuinely differs. It declares its own runtime spec rather than importing the container target's, so the two can diverge later without coupling the packages.
+
+- **D3 — Managed state is provisioned, not merely connected.** Under this provider the managed relational, object-storage and messaging flavors are supported AND provisioned by emitted infrastructure templates, rather than connect-only. Container flavors remain supported for what genuinely stays self-hosted on the VM.
+
+- **D4 — Connection values are resolved from provisioned infrastructure at deploy time.** The emitted infrastructure declares its endpoints as outputs; the deploy path resolves them into the container environment file. This supersedes the compose target's authored-configuration rule for this provider only.
+
+- **D5 — The declaration stays inside the existing coordinate union.** A repo-level parity gate unions every capability surface across all installed platforms and fails when any platform has no opinion on a coordinate a peer declares; the reviewed-holes file stands at zero. A new provider that introduces a novel coordinate breaks not only that gate but the per-package capability tests of every peer, which resolve their required set against the live registry. The new declaration is therefore constrained to coordinates the union already carries, or it adds the peer exclusions in the same change.
+
+**Invariant table:**
+
+| # | Invariant | Enforcement mechanism (planned) |
+| --- | --- | --- |
+| 1 | A cloud-hosted container deployment has a provider identity that truthfully states what it provisions | The provider is registered and resolvable; the no-declaration default is unchanged |
+| 2 | Pairing the container runtime with this provider selects both the container scaffolding generator and the provider's own generator | Asserted directly on the resolved platform set for that runtime/provider pair |
+| 3 | Every capability field is a declared fact with a written reason where excluded | The declaration's own construction rejects a set-shaped surface with undeclared, unexcluded coordinates |
+| 4 | Adding this provider leaves every peer platform's suite green | The repo-level parity gate and each peer package's capability test pass unchanged |
+| 5 | Emitted infrastructure authors no connection string or account key | A negative check over the emitted infrastructure templates |
+
+**Scope boundaries:** Confined to one provider on one cloud; the equivalent on other clouds is deliberately unbuilt but not designed out. The container runtime generator is unchanged. The per-profile platform configuration block gains one field for this provider rather than becoming an open plugin-keyed map — that larger refactor is explicitly out of scope. Does not change any other provider's cells, the language-side clients, or which flavors exist.
+
+**Status:** Approved — Implementation In Progress. The provider is not registered in the tree today: no plugin class, no capability declaration, no platform config model, and no infrastructure template for the compute resource. This entry records the approved shape ahead of implementation, the same status Decisions 28-31 and 34 carry.
 
 ---
 

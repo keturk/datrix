@@ -326,7 +326,37 @@ Adding a second storage block does not break the API:
 
 **Application:** Mechanically enforced today via an identifier-level lint ratchet over `datrix-common`, `datrix-codegen-common`, and `datrix-cli` source (invariant I1): `powershell -File "d:/datrix/datrix/scripts/dev/check-import-boundaries.ps1" -CheckTargetLiterals` exits 0 against an **empty** baseline (`datrix/scripts/config/target-literal-baseline.toml`) — the ratchet reached zero once the decision/rendering split completed. The closed target enums and central dispatch tables previously described in this document are deleted; see [Architecture Overview — Decision 15](architecture-overview.md#decision-15-multi-target-plugin-architecture--open-world-targets-derived-conformance-adopted) for the current-state contract.
 
+**The principle covers identifiers, not only policy tables.** A shared-layer type, dataclass field, type alias, or union member that *names* a target is the same defect in a quieter form: it commits the shared layer to the set of targets that existed when it was written. The failure mode is concrete — a closed union of per-language slice types forced the next language's equivalent to live outside the shared package entirely, because a fourth member cannot be added to a closed union without editing the shared layer, which is exactly what invariant I2 ("add-a-language = one package") forbids. Per-target variants belong to their target's package; the shared layer holds a Protocol and a key. I1 does not catch this shape — it matches a frozen list of named central tables — so a second ratchet covers it (`-CheckSharedTargetNames`); see [Architecture Overview — Decision 34](architecture-overview.md#decision-34-codegen-shared-layer-consolidation--target-agnostic-logic-leaves-the-language-packages-approved--implementation-in-progress).
+
 **Reference:** [Architecture Cheat Sheet — Multi-Target Plugin Architecture](architecture-cheat-sheet.md#multi-target-plugin-architecture) (invariant I1 check commands). See also [Principle 11: Construct-Mapped Platform Realization](#11-construct-mapped-platform-realization-stable) and [Architecture Overview — Decision 15](architecture-overview.md#decision-15-multi-target-plugin-architecture--open-world-targets-derived-conformance-adopted).
+
+---
+
+### 11. A Declared Knob Must Be Realized (Approved — Implementation In Progress)
+
+**Principle:** A configuration surface the system accepts is a promise the system keeps. Accepting a value and silently ignoring it is worse than either realizing it or rejecting it: the operator gets no signal that the setting did nothing, and whatever cost, risk, or behavior the setting was meant to bound stays unbounded.
+
+**Why:**
+- An accepted field that does nothing is indistinguishable from a working one — until an operator hits the exact case where its absence matters, by which point the mismatch between what config claims and what runs is already in production
+- A validator that requires a field paired with a generator that never reads it is the specific shape this takes, and it has shipped more than once
+- Without a per-field realization signal, nobody can tell "this target does not support that" from "nobody has checked" — the two look identical in a passing test suite
+
+**Application:**
+
+**What counts as realized.** A field is realized when perturbing its value changes the emitted artifact in a functional position — a branch taken, a value bound into runtime behavior, a resource provisioned differently. A change confined to a comment, docstring, or log line is text, not behavior: the value reached the output without reaching the running system, which reads as inert to the operator and is worse than inert to whoever debugs it later, because it looks handled.
+
+**Realize or declare unsupported — never silence.** Every consumed configuration field is either realization-proven by an executable check, or carries a reviewed exemption with a written reason and a pinned count. Where a target genuinely cannot realize a portable field, the target declares that unsupported with a reason, and the declaration itself is what fails loud at the boundary — the field never passes through as a silent no-op on that target.
+
+**The anti-pattern.** A config field that is validated at load time and never read by any generator is this principle's namesake failure. So is a field whose declared value appears only in a generated comment, docstring, or log line while the behavior the field names runs unchanged underneath it — the comment says the knob was heard; the running system never listened.
+
+**Portability cuts both ways.** The rule is stated for the target that cannot realize a field as much as for the one that can: a portable contract is only portable if the targets that decline it say so out loud, so a reader of the config can tell "this target does not do that" from "nobody has checked."
+
+**Enforcement (in progress).** Per-package conformance checks that perturb a declared field, regenerate, and diff the emitted artifact against the unperturbed baseline are what make realization provable rather than reviewed-by-eye. These checks do not yet exist in the tree, consistent with this principle's Implementation In Progress status.
+
+**Benefits:**
+- ✅ A setting that silently does nothing is caught before an operator relies on it
+- ✅ "Not supported on this target" and "not yet checked" stop being indistinguishable
+- ✅ Portable configuration surfaces stay honest as new targets are added
 
 ---
 

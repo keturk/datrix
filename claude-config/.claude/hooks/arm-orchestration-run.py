@@ -1,4 +1,4 @@
-"""UserPromptSubmit hook: arm the orchestration stop-gate when a run is launched.
+r"""UserPromptSubmit hook: arm the orchestration stop-gate when a run is launched.
 
 An unattended multi-phase run has exactly one acceptable end state: every task
 COMPLETED or provably blocked. The failure this hook exists to prevent is the
@@ -11,10 +11,32 @@ is not an exit. The agent read both and stopped anyway. So the harness enforces
 it instead: this hook records that a run is in flight, and gate-orchestration-stop.py
 refuses to let the turn end while the phase still has pending tasks.
 
-ARMING IS NOT LEFT TO THE MODEL. It fires off the user's own prompt, before the
-model has produced a token, so an orchestration run cannot start un-armed.
-DISARMING is likewise not left to the model — the Stop gate disarms itself only
-when phase-status.ps1 reports zero unresolved tasks, or when Jon says stop.
+ONE SKILL ARMS THE GATE, AND ONLY FROM JON'S OWN PROMPT
+------------------------------------------------------
+`/task-orchestrator` and nothing else. Arming used to ALSO happen from the agent's
+own task-file mutations (`observe-task-activity.py`, now deleted), on the theory that
+touching the ledger proves a run is executing. It does not: authoring a task file and
+implementing one are the same tool call, so the broader signal caught every planning
+run too.
+
+It caught one. A `/operationalize-design` session wrote its five phases of output —
+docs transferred, 5 task files authored, dependencies validated — and was then refused
+its Stop by a gate demanding those 5 tasks be COMPLETED. The agent read the refusal as
+authorization and started implementing a phase nobody had scheduled. The exemption
+meant to prevent exactly that (a `planning_run` flag keyed to the literal string
+`/operationalize-design`) could not fire: the prompt reaching this hook was the expanded
+skill body, whose only occurrence of the name is the path `…\skills\operationalize-design`
+— and even on a match, the flag was cleared by the next prompt, which for an interactive
+planning skill is always the user answering a decision gate.
+
+So the exemption is now structural rather than a name list: a planning skill CANNOT arm
+this gate, because nothing arms it except Jon invoking `/task-orchestrator`. The cost is
+accepted and known — a run resumed after a compaction, or continued with "keep going",
+is not armed until Jon names the skill again. Failing open there is strictly better than
+holding a planning run to work it was never asked to do.
+
+DISARMING is not left to the model — the Stop gate disarms itself only when
+phase-status.ps1 reports zero unresolved tasks, or when Jon says stop.
 
 Exit codes:
   0 — always (this hook never blocks a prompt; it only records state)
@@ -29,20 +51,21 @@ from typing import Final
 _REPO_ROOT: Final = "d:/datrix"
 _STATE_DIR: Final = os.path.join(_REPO_ROOT, ".claude", "hooks", ".state")
 
-# Skills that launch an unattended multi-task run. Each one's contract is
-# "finish every task"; each one has ended a turn early at least once.
-#
-# This list is now a CONVENIENCE, not the primary arming path. Naming a skill is one
-# instant at the top of a session, and these runs span days and compactions — a run
-# resumed with "keep going" was never armed by it. `observe-task-activity.py` arms the
-# gate from the agent's own task-file mutations instead, which no phrasing can miss.
-_RUN_SKILLS: Final = (
-    "/task-orchestrator",
-    "/execute-tasks-parallel",
-    "/execute-tasks",
-    "/codegen-fix-loop",
-    "/opus-work",
-    "/fable-work",
+# The ONE skill that arms the gate. Its contract is "finish every task", and it is the
+# only skill whose deliverable is tasks moving to COMPLETED. Every other skill — planning
+# (`/operationalize-design`, `/generate-tasks`), fix loops, `/opus-work` — either authors
+# tasks or does work the ledger cannot measure, and none of them may be held to a count
+# of resolved tasks.
+_RUN_SKILL: Final = "/task-orchestrator"
+
+# Two invocation paths reach this hook with different text, and both must arm:
+#   - typed in the CLI          -> the prompt is literally `/task-orchestrator …`
+#   - invoked via the Skill tool -> the prompt is the EXPANDED skill body, which opens
+#     `Base directory for this skill: d:\datrix\.claude\skills\task-orchestrator`
+# Matching only the slash form is what let the sibling exemption miss in the first place.
+_RUN_SKILL_RE: Final = re.compile(
+    r"(?:^|[\s\"'(`])/task-orchestrator\b" r"|[\\/]skills[\\/]task-orchestrator\b",
+    re.IGNORECASE,
 )
 
 # `PHASE: 36` / `PHASES: 34, 35, 36` / a full path ending in phase-36
@@ -164,9 +187,7 @@ def main() -> None:
         state["ask_blocks"] = 0
         _write(path, state)
 
-    lowered = prompt.lower()
-    skill = next((s for s in _RUN_SKILLS if s in lowered), "")
-    if not skill:
+    if not _RUN_SKILL_RE.search(prompt):
         sys.exit(0)
 
     phases = _parse_phases(prompt)
@@ -174,9 +195,8 @@ def main() -> None:
         path,
         {
             "status": "running",
-            "skill": skill,
+            "skill": _RUN_SKILL,
             "phases": phases,
-            "phases_observed": state.get("phases_observed", []),
             "session_id": session_id,
             "blocks": 0,
             "ask_blocks": 0,

@@ -185,6 +185,16 @@ file = "datrix-common/src/datrix_common/deployment/connection_surface.py"
 count = 4
 
 [[baseline]]
+# Both deferrals are permanent and cycle-mandated, not promotion candidates:
+# config/codegen_context.py imports this module at its own top, and both
+# plugin.runtime_spec_resolution and plugin.capability_resolution pull in
+# plugin.registry -> plugin.extension -> builtins.scalar_definitions -> types
+# -> types.registry -> plugin.extension (partially initialized). Verified by
+# import, and reproduced by promoting either one to module top.
+file = "datrix-common/src/datrix_common/deployment/runtime_bootstrap.py"
+count = 2
+
+[[baseline]]
 file = "datrix-common/src/datrix_common/deployment/secret_backend.py"
 count = 2
 
@@ -375,6 +385,18 @@ count = 4
 [[baseline]]
 file = "datrix-common/src/datrix_common/plugin/platform_config_contract.py"
 count = 3
+
+[[baseline]]
+# TYPE_CHECKING-only imports backing the optional build_bootstrap Protocol
+# member. Permanent, not promotion candidates: a runtime import of
+# deployment.runtime_bootstrap from here closes
+# plugin.platform_runtime_spec -> deployment.runtime_bootstrap ->
+# plugin.runtime_spec_resolution -> plugin.platform_runtime_spec, and the
+# config-model imports are deferred alongside it so this Protocol module keeps
+# no runtime edge into the config/deployment subtrees. Same shape and same
+# rationale as the plugin/protocol.py entry below.
+file = "datrix-common/src/datrix_common/plugin/platform_runtime_spec.py"
+count = 4
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/plugin/protocol.py"

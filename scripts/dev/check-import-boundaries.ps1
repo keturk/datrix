@@ -49,6 +49,23 @@
  function-level-import counts in datrix-common's src/ tree ONLY against the
  frozen baseline at scripts/config/function-level-import-baseline.toml.
 
+.PARAMETER CheckSharedVocabulary
+ Run the G1 shared-vocabulary ratchet check (Decision D3, Invariant I2) in
+ addition to the import-boundary check. Fails when a datrix-codegen-{lang}
+ module declares a module-level set/frozenset/dict whose normalized member
+ set duplicates a vocabulary already declared in
+ datrix_codegen_common.enums. Compares current per-file counts against the
+ frozen baseline at scripts/config/shared-vocabulary-baseline.toml.
+
+.PARAMETER CheckSharedTargetNames
+ Run the G2 shared-layer target-name ratchet check (Decision D4, Invariant
+ I3) in addition to the import-boundary check. Fails when a class,
+ function, dataclass field, type alias, or type reference declared in
+ datrix_codegen_common carries a registered LANGUAGE name (datrix.languages
+ only -- datrix.platforms is never consulted) as an identifier segment.
+ Compares current per-file counts against the frozen baseline at
+ scripts/config/shared-target-name-baseline.toml.
+
 .PARAMETER SelfTest
  Run only the self-test suite (rule-model, AST-scanner, and ratchet
  invariants, including a real mutation-based CLI non-vacuity proof) and
@@ -100,6 +117,22 @@
  Recompute and overwrite the frozen function-level-import baseline
 
 .EXAMPLE
+ .\check-import-boundaries.ps1 -CheckSharedVocabulary
+ Run the G1 shared-vocabulary ratchet check (Decision D3, Invariant I2) against the frozen baseline
+
+.EXAMPLE
+ .\check-import-boundaries.ps1 -CheckSharedVocabulary -UpdateBaseline
+ Recompute and overwrite the frozen shared-vocabulary baseline
+
+.EXAMPLE
+ .\check-import-boundaries.ps1 -CheckSharedTargetNames
+ Run the G2 shared-layer target-name ratchet check (Decision D4, Invariant I3) against the frozen baseline
+
+.EXAMPLE
+ .\check-import-boundaries.ps1 -CheckSharedTargetNames -UpdateBaseline
+ Recompute and overwrite the frozen shared-target-name baseline
+
+.EXAMPLE
  .\check-import-boundaries.ps1 -SelfTest
  Run only the self-test suite (rule model, scanners, ratchets, CLI mutation proof)
 #>
@@ -126,6 +159,12 @@ param(
 
     [Parameter()]
     [switch]$CheckFunctionLevelImports,
+
+    [Parameter()]
+    [switch]$CheckSharedVocabulary,
+
+    [Parameter()]
+    [switch]$CheckSharedTargetNames,
 
     [Parameter()]
     [switch]$SelfTest,
@@ -190,6 +229,8 @@ try {
     if ($UpdateBaseline) { $pythonArgs += "--update-baseline" }
     if ($CheckProviderConditionals) { $pythonArgs += "--check-provider-conditionals" }
     if ($CheckFunctionLevelImports) { $pythonArgs += "--check-function-level-imports" }
+    if ($CheckSharedVocabulary) { $pythonArgs += "--check-shared-vocabulary" }
+    if ($CheckSharedTargetNames) { $pythonArgs += "--check-shared-target-names" }
     if ($SelfTest) { $pythonArgs += "--self-test" }
 
     # Debug output if requested
