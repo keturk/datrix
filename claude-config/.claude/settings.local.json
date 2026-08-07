@@ -75,7 +75,8 @@
       "PowerShell(D:\\\\datrix\\\\datrix\\\\scripts\\\\test\\\\mypy.ps1 datrix-common -NoSave)",
       "PowerShell(& \"d:\\\\datrix\\\\datrix\\\\scripts\\\\test\\\\mypy.ps1\" datrix-cli)",
       "PowerShell(D:\\\\datrix\\\\datrix\\\\scripts\\\\test\\\\test.ps1 datrix-codegen-python 2>&1)",
-      "PowerShell(Get-CimInstance Win32_Process -Filter \"Name='python.exe'\")"
+      "PowerShell(Get-CimInstance Win32_Process -Filter \"Name='python.exe'\")",
+      "PowerShell(powershell -File \"d:/datrix/datrix/scripts/tasks/validate-dependencies.ps1\" -Phase 49)"
     ],
     "additionalDirectories": [
       "d:\\datrix\\$repo\\tests",
