@@ -305,7 +305,7 @@ Each example above pairs with a required `--language`/`-L` flag on the `datrix g
 | Python ECS Fargate | `component`, `python`, `sql` | `docker` (containers need Dockerfiles) | `aws` ECS/Fargate/managed infra |
 | Python App Runner | `component`, `python`, `sql` | `docker` (image-based PaaS pulls an ECR image) | `aws` App Runner + managed infra |
 
-Provider-native runtimes are produced by their provider generator plus, where the runtime is container-based, the shared `docker` runtime generator supplying Dockerfiles. Container artifacts for the `docker-compose` runtime always come from the `docker` runtime generator, whichever provider is selected: the platform set for a run is the sum of the runtime axis and the provider axis, so the two compose independently. Paired with `local`, no provider generator augments the Compose output, because `local` provisions nothing. Decision 35 approves a second pairing — `azure-vm`, cloud-hosted compute — where the provider emits its own infrastructure alongside unchanged Compose output; it is not implemented yet. For `runtime: azure-app-service` (code-based delivery), the Azure generator produces all infrastructure Bicep and there is no separate runtime generator — no containers are involved. For `runtime: azure-app-service-container`, the Azure generator produces the infrastructure Bicep and the `docker` runtime generator supplies the Dockerfile for the custom-container delivery mode. For `runtime: ecs-fargate`, the AWS generator produces the infrastructure and the `docker` runtime generator supplies per-service Dockerfiles. For `runtime: app-runner`, the AWS generator produces the infrastructure; App Runner's own generated stack pulls an ECR image, so it likewise requires the `docker` runtime generator to supply that image's Dockerfile — App Runner is image-based PaaS, not containerless.
+Provider-native runtimes are produced by their provider generator plus, where the runtime is container-based, the shared `docker` runtime generator supplying Dockerfiles. Container artifacts for the `docker-compose` runtime always come from the `docker` runtime generator, whichever provider is selected: the platform set for a run is the sum of the runtime axis and the provider axis, so the two compose independently. Paired with `local`, no provider generator augments the Compose output, because `local` provisions nothing. Decision 35 adds a second pairing — `azure-vm`, cloud-hosted compute — where the provider emits its own infrastructure alongside unchanged Compose output. For `runtime: azure-app-service` (code-based delivery), the Azure generator produces all infrastructure Bicep and there is no separate runtime generator — no containers are involved. For `runtime: azure-app-service-container`, the Azure generator produces the infrastructure Bicep and the `docker` runtime generator supplies the Dockerfile for the custom-container delivery mode. For `runtime: ecs-fargate`, the AWS generator produces the infrastructure and the `docker` runtime generator supplies per-service Dockerfiles. For `runtime: app-runner`, the AWS generator produces the infrastructure; App Runner's own generated stack pulls an ECR image, so it likewise requires the `docker` runtime generator to supply that image's Dockerfile — App Runner is image-based PaaS, not containerless.
 
 **Explicit config rule:** Defaults are an anti-pattern for deployment generation. Every deployment-relevant field must come from resolved config. Missing required fields must produce explicit errors naming the config path and expected field. Invalid combinations must produce validation errors rather than being corrected silently. No generator may override a user-provided config value.
 
@@ -313,7 +313,7 @@ Provider-native runtimes are produced by their provider generator plus, where th
 
 | Runtime | Valid providers |
 | --- | --- |
-| `docker-compose` | `local`; `azure-vm` (Decision 35 — approved, not yet implemented) |
+| `docker-compose` | `local`; `azure-vm` (Decision 35) |
 | `azure-app-service` | `azure` |
 | `azure-app-service-container` | `azure` |
 | `ecs-fargate` | `aws` |
@@ -1030,7 +1030,7 @@ Three things surfaced during implementation that the approved shape did not anti
 
 ---
 
-### Decision 35: The azure-vm Provider — Azure-Hosted Containers with Provider-Emitted Infrastructure (Approved — Implementation In Progress)
+### Decision 35: The azure-vm Provider — Azure-Hosted Containers with Provider-Emitted Infrastructure (Adopted)
 
 **Rationale:**
 - A container stack running on a cloud VM, backed by cloud-managed state and authenticated by a platform-assigned workload identity, has no truthful provider identity today. It is declared `local`, which means self-hosted infrastructure the generator neither provisions nor knows the shape of — and which is also the identity assumed when no deployment is declared at all. Calling a cloud-hosted deployment `local` forces every cloud resource out of band and leaves the generator unable to state anything true about the target.
@@ -1045,7 +1045,7 @@ Three things surfaced during implementation that the approved shape did not anti
 
 - **D3 — Managed state is provisioned, not merely connected.** Under this provider the managed relational, object-storage and messaging flavors are supported AND provisioned by emitted infrastructure templates, rather than connect-only. Container flavors remain supported for what genuinely stays self-hosted on the VM.
 
-- **D4 — Connection values are resolved from provisioned infrastructure at deploy time.** The emitted infrastructure declares its endpoints as outputs; the deploy path resolves them into the container environment file. This supersedes the compose target's authored-configuration rule for this provider only.
+- **D4 — Connection values are resolved from provisioned infrastructure at deploy time.** The emitted infrastructure declares its endpoints as outputs; the deploy path resolves them into each service's config store, not the container environment file — the generated runtime config client is file-backed and performs no environment reads, so a value written only to the environment file is consumed by nothing. The environment file remains the destination for a value a third-party container image's compose entry interpolates; everything the generated application itself reads goes to the config store. This supersedes the compose target's authored-configuration rule for this provider only.
 
 - **D5 — The declaration stays inside the existing coordinate union.** A repo-level parity gate unions every capability surface across all installed platforms and fails when any platform has no opinion on a coordinate a peer declares; the reviewed-holes file stands at zero. A new provider that introduces a novel coordinate breaks not only that gate but the per-package capability tests of every peer, which resolve their required set against the live registry. The new declaration is therefore constrained to coordinates the union already carries, or it adds the peer exclusions in the same change.
 
@@ -1061,7 +1061,48 @@ Three things surfaced during implementation that the approved shape did not anti
 
 **Scope boundaries:** Confined to one provider on one cloud; the equivalent on other clouds is deliberately unbuilt but not designed out. The container runtime generator is unchanged. The per-profile platform configuration block gains one field for this provider rather than becoming an open plugin-keyed map — that larger refactor is explicitly out of scope. Does not change any other provider's cells, the language-side clients, or which flavors exist.
 
-**Status:** Approved — Implementation In Progress. The provider is not registered in the tree today: no plugin class, no capability declaration, no platform config model, and no infrastructure template for the compute resource. This entry records the approved shape ahead of implementation, the same status Decisions 28-31 and 34 carry.
+**Status:** Adopted. The provider is registered in the tree: the plugin class, capability declaration, platform config model, and infrastructure template for the compute resource all ship.
+
+---
+
+### Decision 36: Zero-Inbound VM Deployment and the Deploy-Time Binding Invariant (Approved — Implementation In Progress)
+
+**Rationale:**
+- A provider that emits infrastructure must also own deploying it. When the runtime axis (containers) and the provider axis (cloud infrastructure) each emit their own artifacts and neither owns the deployment step, the generated tree's entrypoint assumes infrastructure that nothing in the tree ever creates.
+- Values that only become knowable at deploy time are a recurring defect class of their own: one artifact produces a value, another consumes a different value for the same fact, and nothing compares them. A resolved endpoint, a generated key, a derived port — each needs exactly one producer, a consumer that reads the same value the producer wrote, and a check that catches the case where either side is silent or where both sides disagree.
+
+**Result:**
+
+- **D1 — Two deploy scripts, two owners.** The runtime generator owns the on-machine container deploy script — build images, bring the stack up — and needs no cloud knowledge to do it. The provider generator owns an outer deployment CLI that creates the resource group, deploys the infrastructure, uploads the generated tree, and triggers the inner script. Neither generator overwrites the other's file.
+
+- **D2 — Deployment opens no inbound port.** Artifacts travel to blob storage; execution happens through the cloud's managed run-command channel using the VM's system-assigned identity; output streams back through append blobs. Shell access is break-glass, never the deploy path, and the generator authors no inbound SSH rule.
+
+- **D3 — Deploy-resolved values land where the consumer reads them.** For a file-backed config store that performs no environment reads, that is the config store, not an environment file — the same binding this decision's Decision 35 correction states for that provider.
+
+- **D4 — Every deploy-resolved key has exactly one producer.** A key produced by nothing is a hole; a key produced by two artifacts is a race between whichever wrote last.
+
+- **D5 — A deploy-resolved key carries no compile-time default.** A plausible-looking wrong value is worse than an absent one: the absent one fails loud at first read, and the plausible one runs quietly against the wrong target.
+
+- **D6 — No generated value equals the config key that holds it.** Emitting a key's own name as its value is a silent fallback wearing the shape of a real one; a generator that cannot resolve a value raises instead of writing a placeholder.
+
+- **D7 — Every network-security allow rule's port is a port some artifact actually publishes.** The rule set is derived from the real port bindings the generated tree publishes, never authored as a constant alongside them.
+
+- **D8 — A managed edge may terminate TLS in front of a self-hosted gateway without becoming the gateway.** Routing, CORS, and rate limiting stay with the self-hosted gateway; the platform's declared supported gateway types are unchanged by the presence of a TLS edge in front of one. Origin restriction pins the edge's own deploy-time public address, because the cloud's service tag for that managed service does not contain any one instance's egress address.
+
+**Invariant table:**
+
+| # | Invariant | Enforcement mechanism |
+| --- | --- | --- |
+| 1 | The runtime generator's deploy script and the provider generator's deploy script never collide | The two generators emit different file paths; each package's own tests assert its script's contents |
+| 2 | Deployment opens no inbound shell port | No inbound rule for the shell port is emitted; an acceptance check asserts the emitted rule set contains no wildcard/Internet source and no shell port |
+| 3 | A deploy-resolved value is written to the config store its consumer actually reads | A generation-time binding check running after every generator has produced its files and before anything is written to disk — the one point with complete cross-target content — fails generation on a mismatch |
+| 4 | Every deploy-resolved key has exactly one producer, no compile-time default, and no value equal to its own key name | The same binding check |
+| 5 | Every emitted allow rule's port is a real published binding | The rule set is derived from the published port bindings; the binding check compares them |
+| 6 | A managed TLS edge does not change the platform's declared gateway capability | The platform capability declaration's supported gateway types stay unchanged, and its written exclusion entry states what the managed edge does and does not realize |
+
+**Scope boundaries:** Confined to the deployment path this provider's infrastructure requires; does not change the runtime generator's container artifacts or any other provider's deployment mechanics. Does not introduce a new managed gateway type — the TLS edge fronts the existing self-hosted gateway rather than replacing it.
+
+**Status:** Approved — Implementation In Progress.
 
 ---
 

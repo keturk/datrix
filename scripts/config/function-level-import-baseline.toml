@@ -45,8 +45,20 @@ file = "datrix-common/src/datrix_common/config/dcfg/resolver.py"
 count = 1
 
 [[baseline]]
+# Permanent, not a promotion candidate: _validate_language_observability_realization's
+# deferred `from datrix_common.plugin.capability_resolution import
+# declaration_for_language, validate_language_provider_realization` cannot move to
+# module top. capability_resolution imports plugin.registry -> plugin.extension ->
+# builtins.scalar_definitions -> types (package __init__) -> types.parser ->
+# `from datrix_common.errors import UnknownTypeError`, which fails with
+# "ImportError: cannot import name 'UnknownTypeError' from partially initialized
+# module 'datrix_common.errors' (most likely due to a circular import)" because
+# datrix_common/__init__.py -> errors -> ... -> utils -> config.infrastructure.models
+# -> config/__init__.py -> deployment_plan is still mid-import when the promoted
+# import would run. Reproduced by promoting it to module top and executing
+# `import datrix_common.config.deployment_plan`.
 file = "datrix-common/src/datrix_common/config/deployment_plan.py"
-count = 7
+count = 8
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/config/deployment_validation.py"
