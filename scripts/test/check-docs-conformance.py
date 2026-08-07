@@ -48,6 +48,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 import sys
@@ -155,6 +156,7 @@ _INLINE_CODE_SPAN_RE = re.compile(r"`([^`]+)`")
 _WINDOWS_ABS_PREFIX_RE = re.compile(r"^[Dd]:[\\/]datrix[\\/]")
 _WINDOWS_ABS_STRIP_RE = re.compile(r"^[Dd]:/datrix/")
 _LINE_REF_SUFFIX_RE = re.compile(r":\d+(-\d+)?(,\d+(-\d+)?)*$")
+_PATH_SYMBOL_SUFFIX_RE = re.compile(r"::([A-Za-z_][A-Za-z0-9_]*)$")
 _MODULE_CANDIDATE_RE = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z_][a-zA-Z0-9_]*)+$")
 
 # A path-reference candidate containing any of these markers is rejected --
@@ -241,16 +243,19 @@ def extract_module_candidates(doc_text: str) -> list[tuple[int, str]]:
     return candidates
 
 
-def _tier2_resolve(package_name: str, suffix: str, monorepo_root: Path) -> bool:
-    """Tier-2 shorthand resolution: does exactly one file/dir under
-    ``<package_name>/src/`` or ``<package_name>/tests/`` have a
-    root-relative posix path ending with *suffix*?
+def _tier2_resolve_path(package_name: str, suffix: str, monorepo_root: Path) -> Path | None:
+    """Tier-2 shorthand resolution: return the one file/dir under
+    ``<package_name>/src/`` or ``<package_name>/tests/`` whose root-relative
+    posix path ends with *suffix*, or ``None`` if there is no such match or
+    more than one.
 
     Scoped to exactly ``src/`` and ``tests/`` (never the whole package
-    directory, which would also match ``docs/``, ``.tasks/``, etc.). Total
-    hit count is summed across BOTH roots; zero hits or 2+ hits (ambiguous)
-    both resolve to ``False`` -- an ambiguous match is never silently
-    guessed.
+    directory, which would also match ``docs/``, ``.tasks/``, etc.). Matches
+    are collected across BOTH roots; zero matches or 2+ matches (ambiguous)
+    both resolve to ``None`` -- an ambiguous match is never silently
+    guessed. Returning the matched ``Path`` (not just a bool) lets a caller
+    with a ``::Symbol`` suffix verify the symbol against the one real file
+    Tier 2 found, the same way Tier 1 already can.
 
     Args:
         package_name: Package directory name (e.g. ``datrix-codegen-common``).
@@ -259,11 +264,11 @@ def _tier2_resolve(package_name: str, suffix: str, monorepo_root: Path) -> bool:
         monorepo_root: Monorepo root directory.
 
     Returns:
-        True iff exactly one file/dir across both search roots ends with
-        *suffix*.
+        The unique matched path, or ``None`` if zero or multiple matches
+        were found across both search roots.
     """
     package_dir = monorepo_root / package_name
-    match_count = 0
+    matches: list[Path] = []
     for root_name in _TIER2_SEARCH_ROOTS:
         root_dir = package_dir / root_name
         if not root_dir.exists():
@@ -271,21 +276,80 @@ def _tier2_resolve(package_name: str, suffix: str, monorepo_root: Path) -> bool:
         for candidate_path in root_dir.rglob("*"):
             rel = candidate_path.relative_to(root_dir).as_posix()
             if rel.endswith(suffix):
-                match_count += 1
-    return match_count == 1
+                matches.append(candidate_path)
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def _module_level_symbol_exists(file_path: Path, symbol_name: str) -> bool:
+    """Return True iff *symbol_name* is declared as a module-level name in
+    the Python source at *file_path* -- an Assign/AnnAssign target, or a
+    (possibly async) top-level FunctionDef/ClassDef name. Only top-level
+    (module.body) statements are inspected, matching the same "module-level
+    only" scoping check-import-boundaries.py's shared-vocabulary scanner
+    already uses for a structurally identical reason (a name buried inside
+    a function body is not a citable module-level symbol).
+
+    Returns False (never raises) if *file_path* does not exist, is not
+    valid Python, or cannot be read -- this function only answers "is the
+    symbol here", it does not decide whether the base path itself resolved;
+    that remains resolve_path_candidate's job.
+
+    Args:
+        file_path: Path to the Python source file the ``::Symbol`` suffix
+            was appended to.
+        symbol_name: The bare identifier named after ``::`` in the span.
+
+    Returns:
+        True iff *symbol_name* is a module-level Assign/AnnAssign target
+        name, or a top-level (possibly async) function/class name.
+    """
+    if not file_path.is_file():
+        return False
+    try:
+        source_code = file_path.read_text(encoding="utf-8-sig")
+        tree = ast.parse(source_code, filename=str(file_path))
+    except (OSError, SyntaxError, ValueError):
+        return False
+
+    for stmt in tree.body:
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if stmt.name == symbol_name:
+                return True
+            continue
+        if isinstance(stmt, ast.Assign):
+            targets = stmt.targets
+        elif isinstance(stmt, ast.AnnAssign):
+            targets = [stmt.target]
+        else:
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name) and target.id == symbol_name:
+                return True
+
+    return False
 
 
 def resolve_path_candidate(span: str, monorepo_root: Path) -> bool:
     """Resolve a path-reference candidate (extraction step 3: Tier 1 + Tier 2).
 
     Normalizes backslashes to forward slashes, strips a ``D:/datrix/`` /
-    ``d:/datrix/`` prefix, and strips a trailing line-ref suffix
-    (``:148`` or ``:262,282``/``:262-291`` forms). Tier 1 checks the
-    normalized path exists verbatim under *monorepo_root* (a trailing-slash
-    candidate must resolve as a directory). Tier 2 (only attempted when
-    Tier 1 fails AND the segment immediately after the package name is not
-    already ``src`` or ``tests``) searches for a unique shorthand match under
-    the package's ``src/``/``tests/`` trees.
+    ``d:/datrix/`` prefix, then strips and separately verifies a trailing
+    ``::SYMBOL_NAME`` suffix (a citation of a module-level declared name,
+    e.g. ``plugin.py::_PYTHON_STUB_PATTERNS``) BEFORE stripping a trailing
+    line-ref suffix (``:148`` or ``:262,282``/``:262-291`` forms) -- the two
+    suffixes point at semantically different things (a declared name vs. a
+    line range) and are stripped and checked independently. Tier 1 checks
+    the normalized path exists verbatim under *monorepo_root* (a
+    trailing-slash candidate must resolve as a directory). Tier 2 (only
+    attempted when Tier 1 fails AND the segment immediately after the
+    package name is not already ``src`` or ``tests``) searches for a unique
+    shorthand match under the package's ``src/``/``tests/`` trees. When a
+    ``::SYMBOL_NAME`` suffix was present, whichever tier resolves the base
+    path must ALSO find *symbol_name* declared at module level in that file
+    (via ``_module_level_symbol_exists``) -- a resolved base path with a
+    nonexistent symbol still fails.
 
     Args:
         span: The raw backtick-span text (path-reference candidate).
@@ -293,10 +357,19 @@ def resolve_path_candidate(span: str, monorepo_root: Path) -> bool:
 
     Returns:
         True iff the candidate resolves to a real file/directory (Tier 1 or
-        an unambiguous Tier 2 match).
+        an unambiguous Tier 2 match), and, when a ``::SYMBOL_NAME`` suffix
+        was present, that symbol is genuinely declared at module level in
+        the resolved file.
     """
     normalized = span.replace("\\", "/")
     normalized = _WINDOWS_ABS_STRIP_RE.sub("", normalized)
+
+    symbol_match = _PATH_SYMBOL_SUFFIX_RE.search(normalized)
+    symbol_name: str | None = None
+    if symbol_match is not None:
+        symbol_name = symbol_match.group(1)
+        normalized = normalized[: symbol_match.start()]
+
     normalized = _LINE_REF_SUFFIX_RE.sub("", normalized)
 
     is_dir_hint = normalized.endswith("/")
@@ -304,7 +377,10 @@ def resolve_path_candidate(span: str, monorepo_root: Path) -> bool:
 
     full_path = monorepo_root / normalized_stripped
     tier1_resolved = full_path.exists() and (full_path.is_dir() if is_dir_hint else True)
+
     if tier1_resolved:
+        if symbol_name is not None:
+            return not is_dir_hint and _module_level_symbol_exists(full_path, symbol_name)
         return True
 
     segments = normalized_stripped.split("/")
@@ -320,7 +396,12 @@ def resolve_path_candidate(span: str, monorepo_root: Path) -> bool:
         return False
 
     suffix = "/".join(segments[1:])
-    return _tier2_resolve(package_name, suffix, monorepo_root)
+    tier2_resolved_path = _tier2_resolve_path(package_name, suffix, monorepo_root)
+    if tier2_resolved_path is None:
+        return False
+    if symbol_name is not None:
+        return _module_level_symbol_exists(tier2_resolved_path, symbol_name)
+    return True
 
 
 def resolve_module_candidate(span: str, monorepo_root: Path) -> bool:
@@ -706,6 +787,41 @@ def _check_trailing_symbol_name_is_tolerated() -> None:
         assert resolved is True, "a trailing symbol/attribute name must be tolerated"
 
 
+def _check_leading_underscore_path_symbol_resolves() -> None:
+    """A path-form `module.py::_CONSTANT` reference to a REAL module-level
+    leading-underscore constant must resolve -- the exact shape of the
+    three previously-false-positive doc references this task fixes."""
+    with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
+        root = Path(tmp)
+        target = root / "datrix-common" / "src" / "datrix_common" / "plugin.py"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            "_SOME_STUB_PATTERNS: tuple[int, ...] = (1, 2, 3)\n",
+            encoding="utf-8",
+        )
+        resolved = resolve_path_candidate(
+            "datrix-common/src/datrix_common/plugin.py::_SOME_STUB_PATTERNS", root
+        )
+        assert resolved is True, "a real module-level leading-underscore constant must resolve"
+
+
+def _check_path_symbol_suffix_naming_nonexistent_symbol_stays_unresolved() -> None:
+    """A path-form `module.py::Symbol` reference where the BASE FILE exists
+    but the symbol does not must still fail -- proves the fix performs real
+    symbol verification rather than merely stripping the `::Symbol` suffix
+    and checking file existence (the acceptance property's required
+    negative control)."""
+    with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
+        root = Path(tmp)
+        target = root / "datrix-common" / "src" / "datrix_common" / "plugin.py"
+        target.parent.mkdir(parents=True)
+        target.write_text("_REAL_CONSTANT = 1\n", encoding="utf-8")
+        resolved = resolve_path_candidate(
+            "datrix-common/src/datrix_common/plugin.py::NoSuchSymbol", root
+        )
+        assert resolved is False, "a nonexistent symbol on a real file must NOT resolve"
+
+
 def _check_package_init_module_resolves() -> None:
     with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
         root = Path(tmp)
@@ -822,6 +938,14 @@ _SELF_TEST_CHECKS: list[tuple[str, Callable[[], None]]] = [
         _check_tier2_is_skipped_when_next_segment_is_already_tests,
     ),
     ("ambiguous_tier2_match_stays_unresolved", _check_ambiguous_tier2_match_stays_unresolved),
+    (
+        "leading_underscore_path_symbol_resolves",
+        _check_leading_underscore_path_symbol_resolves,
+    ),
+    (
+        "path_symbol_suffix_naming_nonexistent_symbol_stays_unresolved",
+        _check_path_symbol_suffix_naming_nonexistent_symbol_stays_unresolved,
+    ),
     ("exact_module_match_resolves", _check_exact_module_match_resolves),
     ("trailing_symbol_name_is_tolerated", _check_trailing_symbol_name_is_tolerated),
     ("package_init_module_resolves", _check_package_init_module_resolves),

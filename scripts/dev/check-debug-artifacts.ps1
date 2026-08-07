@@ -12,10 +12,18 @@
  Designed to run as a quick pre-commit or post-fix check to catch "debug scatter"
  before it breaks builds or pollutes the codebase.
 
+ Python files are scanned string-literal-aware: a pattern matching inside a string
+ literal is data, not code, and is never reported (e.g. the print() calls in a
+ child-process checker script a test embeds as a triple-quoted source string).
+ TypeScript files stay line-based.
+
+ A self-test proving both directions (a real artifact is detected; the same artifact
+ inside a string literal is not) runs as step 1 of every invocation.
+
  Exit codes:
    0 = clean (no debug artifacts found)
    1 = debug artifacts detected (prints details)
-   2 = usage error
+   2 = usage error, or the self-test failed
 
 .PARAMETER ProjectDir
  One or more project directories to scan (positional). Can be names (e.g., datrix-common)
@@ -31,12 +39,19 @@
 .PARAMETER IncludeGenerated
  Also scan .generated/ directory (normally excluded to focus on source code).
 
+.PARAMETER SelfTest
+ Run only the scanner's own detection/false-positive self-test and exit.
+
 .PARAMETER Dbg
  Enable debug logging.
 
 .EXAMPLE
  .\check-debug-artifacts.ps1 datrix-codegen-python
  Scan one project for debug artifacts.
+
+.EXAMPLE
+ .\check-debug-artifacts.ps1 -SelfTest
+ Run only the self-test (no project argument needed).
 
 .EXAMPLE
  .\check-debug-artifacts.ps1 -All
@@ -60,6 +75,9 @@ param(
 
  [Parameter()]
  [switch]$IncludeGenerated,
+
+ [Parameter()]
+ [switch]$SelfTest,
 
  [Parameter()]
  [switch]$Dbg
@@ -101,12 +119,13 @@ trap {
  exit 130
 }
 
-# Require -All or ProjectDir before activating venv
-if (-not $All -and (-not $ProjectDir -or $ProjectDir.Count -eq 0)) {
+# Require -All or ProjectDir before activating venv (-SelfTest needs neither)
+if (-not $SelfTest -and -not $All -and (-not $ProjectDir -or $ProjectDir.Count -eq 0)) {
  Write-Host "Usage:" -ForegroundColor Yellow
  Write-Host "  .\check-debug-artifacts.ps1 -All" -ForegroundColor White
  Write-Host "  .\check-debug-artifacts.ps1 datrix-common [datrix-language ...]" -ForegroundColor White
  Write-Host "  .\check-debug-artifacts.ps1 D:\datrix\datrix-common" -ForegroundColor White
+ Write-Host "  .\check-debug-artifacts.ps1 -SelfTest" -ForegroundColor White
  Write-Host ""
  Write-Host "Use Get-Help .\check-debug-artifacts.ps1 -Full for detailed help." -ForegroundColor Yellow
  exit 2
@@ -128,9 +147,11 @@ try {
  # Get workspace root for resolving relative project names
  $datrixWorkspaceRoot = Get-DatrixWorkspaceRoot
 
- # Determine which directories to check
+ # Determine which directories to check (-SelfTest scans nothing)
  $pathsToCheck = @()
- if ($All) {
+ if ($SelfTest) {
+  # no paths — the self-test runs entirely in memory
+ } elseif ($All) {
   $directories = Get-DatrixDirectoryPaths
   foreach ($dirPath in $directories) {
    if (Test-Path $dirPath) {
@@ -151,6 +172,7 @@ try {
 
  # Build arguments for Python script
  $pythonArgs = @($pythonScript) + $pathsToCheck
+ if ($SelfTest) { $pythonArgs += "--self-test" }
  if ($Strict) { $pythonArgs += "--strict" }
  if ($IncludeGenerated) { $pythonArgs += "--include-generated" }
  if ($Dbg) { $pythonArgs += "--debug" }

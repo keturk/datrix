@@ -232,9 +232,10 @@ def main() -> int:
     parser.add_argument(
     "--min-lines",
     type=int,
-    default=DEFAULT_MIN_LINES,
+    default=None,
     metavar="N",
-    help=f"Minimum similar lines to report (default: {DEFAULT_MIN_LINES}).",
+    help=f"Minimum similar lines to report (default: {DEFAULT_MIN_LINES}; "
+         f"multi-root runs default to 30 unless explicitly overridden).",
     )
     parser.add_argument("--verbose", action="store_true", help="Verbose output.")
     parser.add_argument(
@@ -330,10 +331,16 @@ def main() -> int:
         print("Error: no project has src/ to scan.", file=sys.stderr)
         return 1
 
-    # Mono (multi-root) runs: default to 30 lines so cross-language (Python vs TS) pairs are not reported
-    min_lines = max(2, args.min_lines)
-    if len(project_roots) > 1 and args.min_lines == DEFAULT_MIN_LINES:
+    # Mono (multi-root) runs: default to 30 lines so cross-language (Python vs TS) pairs are not
+    # reported. Keyed on whether --min-lines was explicitly passed (args.min_lines is not None),
+    # never on comparing the passed value to DEFAULT_MIN_LINES -- an explicit "--min-lines 4" must
+    # report at 4, not silently jump to 30 just because 4 happens to equal the single-project default.
+    explicit_min_lines = args.min_lines is not None
+    min_lines = max(2, args.min_lines if explicit_min_lines else DEFAULT_MIN_LINES)
+    if len(project_roots) > 1 and not explicit_min_lines:
         min_lines = max(min_lines, 30)
+
+    print(f"Effective min-similarity-lines: {min_lines}", file=sys.stderr)
 
     cmd: list[str] = [
         sys.executable,

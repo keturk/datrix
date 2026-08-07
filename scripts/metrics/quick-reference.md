@@ -135,7 +135,7 @@ Pylint duplicate-code detection (R0801).
 | **Include tests** | `.\metrics\duplicate.ps1 datrix-common -Tests` | Also scan tests/ |
 | **Stop on fail** | `.\metrics\duplicate.ps1 -All -StopOnError` | Stop on first failure |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mono` (mutually exclusive with -All), `-MinLines` (default: 4), `-Tests`, `-StopOnError`, `-VerboseOutput`
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mono` (mutually exclusive with -All), `-MinLines` (default: 4 for a single project; multi-root/`-Mono` runs default to 30 unless `-MinLines` is explicitly passed), `-Tests`, `-StopOnError`, `-VerboseOutput`
 
 ---
 
