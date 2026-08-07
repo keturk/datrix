@@ -1,0 +1,1066 @@
+# G3 Cross-Package Vocabulary Ratchet Baseline (Decision D2.1-D2.4, Property 2)
+#
+# Frozen per-file counts of module-level set/frozenset/dict/tuple
+# declarations whose normalized member set is declared -- with a
+# bare string literal -- identically in two or more datrix-*
+# packages (every package discover_packages() finds, not only the
+# four language packages). Any INCREASE in a file's count fails
+# datrix/scripts/dev/check-import-boundaries.py
+# --check-cross-package-vocabulary. Decreases are always allowed
+# and should be captured by re-running with --update-baseline once
+# a later change deletes or hoists a redundant container.
+#
+# A handful of entries below are KNOWN-LEGITIMATE duplicates --
+# each carries a written reason directly above its [[baseline]]
+# entry (design decision D9) and must never be driven to zero; see
+# each comment for why. Every other entry drives to 0 as later
+# consolidation work removes the redundant copy.
+#
+# Format:
+#   [[baseline]]
+#   file = "path/relative/to/monorepo-root, forward slashes"
+#   count = <int>
+#
+# Note on the design's anticipated D9 keep-list: of the five groups the
+# design doc named as known-legitimate, only ONE (the per-platform
+# identity-provider-realization dicts, annotated below on the four
+# datrix-codegen-{aws,azure,docker}/plugin/capability.py and
+# datrix-codegen-component/identity_metadata_generator.py entries) is an
+# actual G3 hit under this scanner's exact contract (module-level
+# Assign/AnnAssign to a bare-literal set/frozenset/dict/tuple, declared
+# with >=1 bare string element, in >=2 distinct packages). The other four
+# are NOT present in this baseline because they are not G3 hits at all:
+#   - TRACING_PROVIDERS / *_REALIZED_TRACING_PROVIDERS: java's and
+#     dotnet's declarations are built ENTIRELY from qualified
+#     TracingProvider.MEMBER references (consumption, not a bare-literal
+#     declaration); only typescript's language_capability.py declares a
+#     bare literal, and a single package is not cross-package.
+#   - _SUPPORTED_INCREMENTAL_OPERATIONS: both java's and dotnet's
+#     declarations are built ENTIRELY from qualified ChangeKind.MEMBER
+#     references -- consumption, not declaration, same reasoning as above.
+#   - datrix-common/paths.py's docker_image/compose_service/
+#     kebab_resource/infra_module: these are @property method bodies
+#     (`return self._name.kebab`), never a module-level container literal
+#     -- not a candidate shape for this ratchet at all.
+#   - SharedMigrationTaskContext (datrix-codegen-aws): a `class ...
+#     (TypedDict)` definition with annotated-only fields (no value), never
+#     a module-level Assign/AnnAssign to a container literal -- not a
+#     candidate shape for this ratchet at all.
+
+[[baseline]]
+file = "datrix-cli/src/datrix_cli/commands/seed.py"
+count = 1
+
+[[baseline]]
+file = "datrix-cli/src/datrix_cli/commands/seed_capture.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-aws/src/datrix_codegen_aws/generators/aws_mapping/_gateway.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-aws/src/datrix_codegen_aws/generators/aws_mapping/_observability.py"
+count = 3
+
+[[baseline]]
+file = "datrix-codegen-aws/src/datrix_codegen_aws/generators/aws_mapping/_rdbms.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-aws/src/datrix_codegen_aws/generators/cloudwatch_alarms.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-aws/src/datrix_codegen_aws/generators/cloudwatch_dashboards.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-aws/src/datrix_codegen_aws/generators/resource_mapper.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-aws/src/datrix_codegen_aws/platform_runtime_spec.py"
+count = 1
+
+# D9 KEEP: this file's _AWS_IDENTITY_PROVIDER_REALIZATIONS is keyed by the
+# closed identity-provider vocabulary {cognito, entra-id,
+# entra-external-id, external, zitadel} -- the same key set as the
+# analogous per-platform realization dicts in datrix-codegen-azure's and
+# datrix-codegen-docker's plugin/capability.py, and datrix-codegen-
+# component's identity_metadata_generator.py. Decision 22 I3 requires
+# each platform to declare its own capability column and forbids a shared
+# table; every platform realizing (or explicitly refusing to realize) the
+# same identity-provider identities necessarily produces a dict keyed by
+# the same vocabulary. Never merge into one shared table -- doing so would
+# delete the per-platform ownership the design requires.
+[[baseline]]
+file = "datrix-codegen-aws/src/datrix_codegen_aws/plugin/capability.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-azure/src/datrix_codegen_azure/environment_label.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-azure/src/datrix_codegen_azure/generators/_managed_backend_wiring.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-azure/src/datrix_codegen_azure/generators/bicep_builder/_gateway_apim.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-azure/src/datrix_codegen_azure/generators/monitor_alerts.py"
+count = 3
+
+[[baseline]]
+file = "datrix-codegen-azure/src/datrix_codegen_azure/generators/payment_secrets.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-azure/src/datrix_codegen_azure/generators/pooling/_rdbms.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-azure/src/datrix_codegen_azure/generators/pooling_queue.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-azure/src/datrix_codegen_azure/generators/resource_mapping/_gateway_app_service.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-azure/src/datrix_codegen_azure/generators/resource_mapping/_pubsub.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-azure/src/datrix_codegen_azure/generators/search_type_mapper.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-azure/src/datrix_codegen_azure/platform_runtime_spec.py"
+count = 1
+
+# D9 KEEP: this file's _AZURE_IDENTITY_PROVIDER_REALIZATIONS is keyed by
+# the same closed identity-provider vocabulary as datrix-codegen-aws's and
+# datrix-codegen-docker's plugin/capability.py, and datrix-codegen-
+# component's identity_metadata_generator.py -- see the reason on the
+# datrix-codegen-aws entry above; identical rationale, Decision 22 I3.
+[[baseline]]
+file = "datrix-codegen-azure/src/datrix_codegen_azure/plugin/capability.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/cache_method_specs.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/graphql_ts_field.py"
+count = 4
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/integration_elasticsearch_index.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/jobs.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/nosql_connection.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/pubsub_render.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/cache/key_prefix.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/context_models/webhook_verification.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/enums.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/gendsl/tokenizer.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/orchestration/cqrs_python_sa_types.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/orchestration/queue_orchestrator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/orchestration/storage_orchestrator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/orchestration/test_generator_plans.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/pooling/db_extensions.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/rest_api_helpers.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/seed/target_writers/rdbms.py"
+count = 4
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/transpiler/skeleton/nosql_dispatch.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-component/src/datrix_codegen_component/gendsl/registrations.py"
+count = 1
+
+# D9 KEEP: this file's _EXTERNAL_PREREQUISITES is keyed by the same
+# closed identity-provider vocabulary as the per-platform realization
+# dicts in datrix-codegen-aws's, datrix-codegen-azure's, and
+# datrix-codegen-docker's plugin/capability.py -- see the reason on the
+# datrix-codegen-aws entry above. This dict carries the operator-facing
+# setup-prerequisite text for each identity provider (a documentation
+# concern), not a capability realization, but is keyed by the same
+# identity-provider set for the same reason: it is a genuinely different
+# fact (what a human must provision) that happens to share the vocabulary.
+[[baseline]]
+file = "datrix-codegen-component/src/datrix_codegen_component/identity_metadata_generator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-docker/src/datrix_codegen_docker/gendsl/registrations.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-docker/src/datrix_codegen_docker/generators/compose/_compose_pooled_pubsub.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-docker/src/datrix_codegen_docker/generators/compose/_serverless.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-docker/src/datrix_codegen_docker/generators/compose/_wiring_gateway.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-docker/src/datrix_codegen_docker/generators/compose/_wiring_rdbms.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-docker/src/datrix_codegen_docker/generators/config/gateway/_auth.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-docker/src/datrix_codegen_docker/generators/images/init_script_generator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-docker/src/datrix_codegen_docker/generators/infra/infrastructure.py"
+count = 3
+
+# D9 KEEP: this file's _LOCAL_IDENTITY_PROVIDER_REALIZATIONS is keyed by
+# the same closed identity-provider vocabulary as datrix-codegen-aws's and
+# datrix-codegen-azure's plugin/capability.py, and datrix-codegen-
+# component's identity_metadata_generator.py -- see the reason on the
+# datrix-codegen-aws entry above; identical rationale, Decision 22 I3.
+[[baseline]]
+file = "datrix-codegen-docker/src/datrix_codegen_docker/plugin/capability.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-docker/src/datrix_codegen_docker/plugin/search_realization.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/api/_endpoint_handler_params.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/api/_endpoint_handlers.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/api/_endpoint_multipart.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/api/response_struct_generator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/cross_cutting/integration_generator.py"
+count = 6
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/cross_cutting/logging_generator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/entity/_dataannotations_field_constraints.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/entity/_entity_fields.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/entity/_entity_test_computed.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/entity/_scalar_factory_values.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/entity/efcore_configuration_generator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/messaging/_dispatch_wiring.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/messaging/_pubsub_emit_helper.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/messaging/_pubsub_engines.py"
+count = 7
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/persistence/_fluentmigrator_ops.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/persistence/cache_connection_generator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/persistence/nosql_connection_generator.py"
+count = 7
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/persistence/search_generator.py"
+count = 4
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/persistence/search_index_initializer_generator.py"
+count = 4
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/queue/_queue_engines.py"
+count = 6
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/serverless/hooks.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/service/_project_dependencies.py"
+count = 3
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/service/dbcontext_generator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/service/project_generator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/testing/_event_spy_generator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/runtime_spec.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/transpiler/_entity_query_chain.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/transpiler/_entity_query_filters.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/transpiler/_geosql.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/transpiler/_nosql_query_dispatch.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/transpiler/call_targets.py"
+count = 3
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/transpiler/emit_tables.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/transpiler/operators.py"
+count = 4
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/transpiler/payment_calls.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/transpiler/visitor_statements.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-dotnet/src/datrix_codegen_dotnet/type_mappings.py"
+count = 3
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/algorithms/enqueue_handler.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/domain_validation.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/generators/api/_endpoint_handler_params.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/generators/api/_graphql_type_resolution.py"
+count = 4
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/generators/api/response_struct_generator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/generators/cross_cutting/_health_checks.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/generators/cross_cutting/_integration_map.py"
+count = 3
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/generators/entity/_entity_constants.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/generators/entity/_entity_lifecycle_flags.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/generators/entity/_entity_test_values.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/generators/entity/_validator_builder.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/generators/entity/test_factory_generator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/generators/messaging/_broker_dispatch.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/generators/messaging/_pubsub_emit_helper.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/generators/persistence/_cache_decorator_policy.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/generators/persistence/_migration_schema.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/generators/persistence/nosql_connection_generator.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/generators/persistence/rdbms_connection_generator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/generators/persistence/search_generator.py"
+count = 8
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/generators/persistence/storage_generator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/generators/queue/_queue_emit_helper.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/generators/serverless/_container_entrypoints.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/generators/serverless/hooks.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/hooks/cache_hooks.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/micro_generators/cache.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/migration.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/observability_support.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/runtime_requirements.py"
+count = 6
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/runtime_spec.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/transpiler/_cache_dispatch.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/transpiler/_dispatch_event_schema_extension.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/transpiler/_entity_query_where_chain.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/transpiler/_nosql_query_dispatch.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/transpiler/_payment_gateway_call_validation.py"
+count = 3
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/transpiler/core.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/transpiler/emit_tables.py"
+count = 3
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/transpiler/visitor_expressions.py"
+count = 6
+
+[[baseline]]
+file = "datrix-codegen-java/src/datrix_codegen_java/type_mappings.py"
+count = 4
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/algorithms/jobs_orchestration.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/algorithms/struct_context.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/domain_validation.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/_field_type_helpers.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/api/_endpoint_crud.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/api/_regex_helpers.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/api/_response_struct_context.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/api/gateway_generator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/cross_cutting/_health_checks.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/cross_cutting/_http_api_client_context.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/entity/_entity_constants.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/entity/_entity_test_create_fields.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/entity/_entity_test_inference.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/entity/_entity_test_values.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/entity/entity_test_validation.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/messaging/_pubsub_connection.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/messaging/_pubsub_emit_helper.py"
+count = 6
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/persistence/_cache_decorator_policy.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/persistence/cache_generator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/persistence/migration_generator.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/persistence/nosql_connection_generator.py"
+count = 4
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/persistence/rdbms_connection_generator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/persistence/storage_generator.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/queue/_queue_emit_helper.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/serverless/_container_entrypoints.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/service/_service_generator_ast.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/testing/test_spec_generator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/micro_generators/fingerprint_delegate.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/orchestration/pubsub_consumer.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/runtime_spec.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/_entity_query_chain.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/_entity_query_filters.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/_nosql_query_dispatch.py"
+count = 3
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/_transpiler_control_flow.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/_transpiler_variable_declaration.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/builtins.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/core.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/operators.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/special_calls.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/visitor_expressions.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/type_mappings.py"
+count = 4
+
+[[baseline]]
+file = "datrix-codegen-sql/src/datrix_codegen_sql/audit_table_sql.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-sql/src/datrix_codegen_sql/constraint_builder.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-sql/src/datrix_codegen_sql/dialects/mysql_reflector.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-sql/src/datrix_codegen_sql/dialects/reflector_registry.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-sql/src/datrix_codegen_sql/dialects/registry.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-sql/src/datrix_codegen_sql/generator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-sql/src/datrix_codegen_sql/type_mappings.py"
+count = 6
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/_helpers.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/api/_controller_template_context.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/api/_endpoint_decorators.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/api/_graphql_schema_types.py"
+count = 4
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/api/_response_struct_context.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/api/gateway_generator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/cross_cutting/_deployment_test_cases.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/cross_cutting/integration_generator.py"
+count = 3
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/cross_cutting/rate_limit_generator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/entity/_entity_lifecycle_flags.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/entity/_entity_test_values.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/entity/test_factory_generator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/messaging/_pubsub_ts_body_renderer.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/messaging/pubsub_npm.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/persistence/cache_generator.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/persistence/nosql_connection_generator.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/persistence/rdbms_connection_generator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/persistence/storage_generator.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/queue/queue_npm.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/serverless/_container_entrypoints.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/service/nest_service_jinja_context.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/testing/test_spec_generator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/micro_generators/fingerprint_delegate.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/runtime_requirements.py"
+count = 4
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/runtime_spec.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/transpiler/_entity_query_chain_ts.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/transpiler/_entity_query_filters_ts.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/transpiler/_nosql_query_dispatch_ts.py"
+count = 3
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/transpiler/_payment_gateway_call_validation.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/transpiler/builtins.py"
+count = 2
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/transpiler/operators.py"
+count = 3
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/transpiler/special_calls.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/transpiler/visitor_expressions.py"
+count = 1
+
+[[baseline]]
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/type_mappings.py"
+count = 4
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/datasource/cache_engine.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/datasource/nosql_engine.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/datasource/rdbms_engine.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/engine_defaults.py"
+count = 4
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/integrations/models.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/observability/models.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/platform/diagnostics.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/unified_loader.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/cross_service/builder.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/cross_service/named_call_type_annotator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/auth_contract.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/constants.py"
+count = 7
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/deployment/azure_naming.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/api_helpers.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/cache_connection_scope.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/conflict.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/entity_helpers.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/extension_validation.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/geo_feature_detection.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/health_check.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/generation/observability_helpers.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/infra/providers.py"
+count = 4
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/migration/canonicalize.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/migration/generator.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/migration/live_snapshot_export.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/seed/validator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/contract.py"
+count = 2
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/cross_service_call_sites.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/cross_service_endpoint_declarations.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/geo_validator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/pooling_pubsub.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/semantic/validators/scalar_validator.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/testing/determinism_fixtures.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/testing/infra_constants.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/transpiler/base.py"
+count = 4
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/types/constraints.py"
+count = 1
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/utils/duration.py"
+count = 1
+
+[[baseline]]
+file = "datrix-language/src/datrix_language/parser/seed_parser.py"
+count = 1
+
+[[baseline]]
+file = "datrix-language/src/datrix_language/transformers/alert_transformer.py"
+count = 3

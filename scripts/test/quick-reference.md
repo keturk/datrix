@@ -356,6 +356,17 @@ freshly generated tree is left under `.test-output/parity-current/<example_id>/`
 **Known non-generating examples** live in `scripts/config/parity-known-nongenerating.json` with a
 pinned `expected_count`, and are reported loudly on every run — never silently skipped.
 
+**A parked pair is never just skipped — check mode attempts generation for it.** The recorded
+reason for a parked, baseline-less `(example, language)` pair can go stale (the underlying defect
+gets fixed by unrelated work, and nothing announces it). Every check run generates each parked
+pair into its own scratch tree (never the bless cache, so a failed probe never pollutes the diff
+cache real blessed generations populate) and branches on the outcome: if generation now
+**succeeds**, the gate FAILS with `PARKED PAIR NOW GENERATES — remove its entry from
+parity-known-nongenerating.json, decrement expected_count, and bless with
+regen-parity-baselines.ps1`; if it still fails, the outcome stays `skip`, reported with the
+recorded reason plus the fresh error's first line (so a stale recorded reason is visible without
+becoming a hard failure).
+
 **Blessed-coverage ratchet.** Every check run also compares the live count of `.sha256` files under `scripts/config/parity-baselines/` against the pinned value in `scripts/config/parity-blessed-count.json`; a live count LOWER than the pinned value fails the gate (a baseline was deleted without a park entry). Growth never fails. `regen-parity-baselines.ps1` is the only writer of the pinned value.
 
 **Exit codes:** 0 = every example matches its baseline and the comparator is non-vacuous,
@@ -614,6 +625,29 @@ G3 final cross-language parity proof: EVERY registered `datrix.languages` plugin
 **Parameters:** `-Dbg`, `-SelfTest`
 
 **Exit codes:** 0 = every registered language's supported-domain set is identical, 1 = a divergence was found for at least one language, 2 = the non-vacuity self-test failed or fewer than 2 languages are registered.
+
+---
+
+### `test\parallel-implementation-drift-gate.ps1`
+
+Parallel-implementation drift REPORT (D10.1): a strictly weaker, more general instrument than the exact-duplicate scan `duplicate.ps1` runs (Decision 34 Invariant 1). That scan proves a completed hoist *stayed* hoisted, but its sensitivity to finding the *next* hoist candidate falls to zero the moment two copies diverge even slightly. This report instead AST-walks every registered `datrix.languages` package's `src/` tree for module-level and class-method function declarations, groups them by bare name, and reports every name declared in **>= 2 registered language packages and in ZERO other `datrix-*` package** (the "nowhere else" half of its own definition — a name also hoisted to `datrix-codegen-common` or appearing in any other package is excluded as already-consolidated). Each qualifying name is classified **identical** (every declaration's source text, decorators included, is byte-for-byte equal) or **drifted** (at least one differs) — a pure binary verdict, never a fuzzy similarity score. Target derivation and the "everywhere else" package set are BOTH pure runtime/filesystem discovery — never a hardcoded language or package list — so a fifth `datrix-codegen-<lang>` package (or any new `datrix-*` package) is picked up automatically with no edit here.
+
+**This is a REPORT with a decrease-only DRIFTED-count baseline, not a pass/fail gate on individual names.** A name-keyed check cannot distinguish an intentional per-language emission difference (e.g. a `_render_endpoint_handler` method that must legitimately differ per target language) from a genuine unreconciled divergence, and a gate that cannot make that distinction gets turned off. Classifying which drifted groups are legitimate vs. which need reconciling is a separate, human-reviewed pass over this report's output.
+
+**Built-in non-vacuity self-test, every invocation.** Before any real scan is trusted, the script builds synthetic two/three-language package trees under a temp directory and proves: an identical pair reports one "identical" group; a one-token mutation flips it to "drifted"; a third, never-hardcoded synthetic language is picked up with no code change; a name also present in a synthetic "other" package tree is excluded even though >= 2 language packages define it; and the CLI-facing minimum-target guard refuses a single-language map. Fails loud (exit 2) if fewer than 2 languages are registered — a parallel-implementation comparison over < 2 targets is vacuous.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the report** | `.\test\parallel-implementation-drift-gate.ps1` | Full scan over every registered language, checked against the baseline |
+| **Debug** | `.\test\parallel-implementation-drift-gate.ps1 -Dbg` | Debug logging (also lists every "identical" group) |
+| **Self-test only** | `.\test\parallel-implementation-drift-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real scan |
+| **Freeze/tighten baseline** | `.\test\parallel-implementation-drift-gate.ps1 -UpdateBaseline` | Write the live DRIFTED-group count as the new baseline |
+
+**Parameters:** `-Dbg`, `-SelfTest`, `-UpdateBaseline`
+
+**Baseline:** `scripts/config/parallel-implementation-drift-baseline.json` — a decrease-only ratchet on the DRIFTED-group count (a live count HIGHER than the recorded value fails; a decrease never fails). `-UpdateBaseline` is the only writer.
+
+**Exit codes:** 0 = the report ran and the drifted count is at or below the baseline (or a successful `-SelfTest`/`-UpdateBaseline`), 1 = the drifted count exceeds the baseline, 2 = the non-vacuity self-test failed, fewer than 2 languages are registered, or a discovery/parse error occurred.
 
 ---
 

@@ -72,7 +72,7 @@ Closes three closed-world defects (enum-based target identity, asymmetric langua
 | I3 | Add-a-platform = one package | Same drill, fixture platform plugin |
 | I4 | Drift is a red test in the drifting package | Kit self-consistency gate: declaration ↔ registration ↔ fixture output; mutation check fails that package's own suite (`test_mutation_check.py`) |
 | I5 | No `(target → policy)` / `(target × target)` tables in shared layers | Subsumed by I1 — enums are gone |
-| I6 | Language packages contain zero provider conditionals | `powershell -File "d:/datrix/datrix/scripts/dev/check-import-boundaries.ps1" -CheckProviderConditionals` — baseline empty (`datrix/scripts/config/provider-conditional-baseline.toml`). The same flag also runs a SEPARATE, hard-zero (no-baseline) check over the three SHARED packages (`datrix_common`/`datrix_codegen_common`/`datrix_cli`, D6.1) — any hit fails outright, with no grandfathering mechanism. |
+| I6 | Language packages contain zero provider conditionals | `powershell -File "d:/datrix/datrix/scripts/dev/check-import-boundaries.ps1" -CheckProviderConditionals` — baseline empty (`datrix/scripts/config/provider-conditional-baseline.toml`). The same flag also runs a SEPARATE, hard-zero (no-baseline) check over the three SHARED packages (`datrix_common`/`datrix_codegen_common`/`datrix_cli`) — any hit fails outright, with no grandfathering mechanism. The one former offender, `EndpointOrchestrator`'s `ProviderId("local")` + docker-compose runtime comparison used to decide whether to inject the `test_auth` identity provider, is gone: the selected platform's own `PlatformCapabilityDeclaration.injected_test_identity_providers` answers this now (docker/local declares `("test_auth",)`; cloud platforms declare `()`), so the shared orchestrator asks the platform instead of naming one. |
 | I7 | Import-boundary allowlist empty | `import-boundary-allowlist.toml` has zero entries |
 
 Full decision log and phase plan: [Architecture Overview — Decision 15](./architecture-overview.md#decision-15-multi-target-plugin-architecture--open-world-targets-derived-conformance-adopted) | [datrix-common API — LanguagePlugin](../../../datrix-common/docs/datrix-common-api.md#languageplugin)
@@ -94,9 +94,9 @@ Full decision log: [Architecture Overview — Decision 22](./architecture-overvi
 
 ## Cross-Target Parity Program
 
-Establishes systematic parity enforcement across every registered language and platform generator, closing catalogued language-target and platform-target capability drift. **Approved — implementation in progress: none of the gates, exemption files, or declaration extensions below exist in the tree yet.**
+Establishes systematic parity enforcement across every registered language and platform generator, closing catalogued language-target and platform-target capability drift. **Decision 28 landed and passing:** `block-realization-parity-gate.ps1` (D1) is green across all 4 registered platforms with zero unexempted holes; `standing-conformance-gate.ps1` (D10) is green across all 8 committed specs. **Decision 30 landed:** the platform axis (aws/azure/docker) has a uniform pre-generation validation floor, zero catalogued capability holes, and its dead surfaces deleted and pinned by standing specs. Decisions 29 and 31 remain approved, implementation in progress.
 
-| # | Invariant | Enforcement mechanism (planned) |
+| # | Invariant | Enforcement mechanism |
 |---|---|---|
 | 1 | Every language-target/platform-target discrepancy class is a red check in the drifting package or a red repo-level gate, never a fact someone must notice | New per-axis parity gates alongside the existing domain-parity gate |
 | 2 | Repo-level gates enumerate their target set from entry points at runtime, self-test their own non-vacuity every run, and refuse to pass with fewer than two targets | Each new gate copies the domain-parity gate's runtime-discovery + self-test shape |
@@ -106,7 +106,7 @@ Establishes systematic parity enforcement across every registered language and p
 | 6 | Config surfaces no target consumes are deleted, not deprecated | Dead-surface removal + standing conformance specs |
 | 7 | Per-target behavior is declared once rather than hand-written per target; a declared surface is the only emission path | Mini-DSL schema/plan-module extensions close imperative bypasses |
 
-Full decision log: [Architecture Overview — Decision 28](./architecture-overview.md#decision-28-cross-target-parity-enforcement--derived-gates-and-declared-capability-holes-approved--implementation-in-progress) · [Decision 29](./architecture-overview.md#decision-29-language-target-capability-parity-to-the-reference-surface-approved--implementation-in-progress) · [Decision 30](./architecture-overview.md#decision-30-platform-target-validation-floor-and-realization-parity-approved--implementation-in-progress) · [Decision 31](./architecture-overview.md#decision-31-mini-dsl-consolidation--declared-surfaces-replace-imperative-bypasses-approved--implementation-in-progress)
+Full decision log: [Architecture Overview — Decision 28](./architecture-overview.md#decision-28-cross-target-parity-enforcement--derived-gates-and-declared-capability-holes-adopted) · [Decision 29](./architecture-overview.md#decision-29-language-target-capability-parity-to-the-reference-surface-approved--implementation-in-progress) · [Decision 30](./architecture-overview.md#decision-30-platform-target-validation-floor-and-realization-parity-adopted) · [Decision 31](./architecture-overview.md#decision-31-mini-dsl-consolidation--declared-surfaces-replace-imperative-bypasses-approved--implementation-in-progress)
 
 ## Portable Telemetry Volume, Platform Diagnostics, and Realization Conformance
 
@@ -142,6 +142,27 @@ Both ratchets self-test their own non-vacuity as step 1 of every invocation, inc
 Deliberately excluded: the thin delegating micro-generator classes (constructor arity and forwarded-kwarg variation would make a shared factory cost more than the boilerplate it removes).
 
 Full decision log: [Architecture Overview — Decision 34](./architecture-overview.md#decision-34-codegen-shared-layer-consolidation--target-agnostic-logic-leaves-the-language-packages-adopted).
+
+## One Fact, One Home — Residual Duplication and Standard-Library Adoption
+
+Closes what the shared-layer consolidation above left behind: private copies of code that already has a shared home, a duplicate-detection scope gap, a parallel emission layer in one language package, and six hand-written topological sorts where the standard library has one. **Adopted** — all ten invariants hold today as executable gates.
+
+| # | Invariant | Enforcement mechanism |
+|---|---|---|
+| 1 | A member set declared in two or more packages is a baseline entry with a written reason, never silence | New cross-package duplicate-vocabulary ratchet (decrease-only baseline + plant/observe/revert self-test). The enum-scoped `-CheckSharedVocabulary` ratchet is untouched at its hard zero — it enforces something stronger on a narrower surface |
+| 2 | Code that has a shared home has exactly one definition | Per-symbol negative check that the private copy is gone, plus a positive test that the shared value drives behaviour — mandatory where the deleted copy had no test |
+| 3 | A topological order survives the move to `graphlib` | Order test authored against the current code and observed green BEFORE the swap, asserting full sequences; a cycle then names its members instead of being inferred from a length comparison |
+| 4 | A GraphQL reference cycle fails generation, never emits code that breaks at runtime | One shared sort; cycle fixture raises on every consuming target |
+| 5 | A generator module is never reachable only from tests | Package-owned reachability check, pinned baseline, landed before the deletions it polices |
+| 6 | Consolidation is behaviour-preserving unless declared otherwise | Duplicate-block count strictly drops per package (before/after) + byte-identical output; the one intended exception is re-blessed as a diff |
+| 7 | One implementation per fact in the foundation, no new third-party dependency | Negative grep + a test proving the union of previously-divergent accepted inputs resolves through one path |
+| 8 | A declared dependency is an imported dependency | Absent from the manifest; clean editable install succeeds; the test-only library moves to an extra named in that package's own `dev` list |
+| 9 | An adapter cannot widen an orchestrator-owned policy set | Orchestrator validates every registered adapter and fails loud on a widening; both per-adapter sets survive |
+| 10 | Parallel implementations are measured by a signal that survives divergence | Name-keyed report, runtime-derived target set, decrease-only count baseline, zero unclassified groups |
+
+**A duplicate a design REQUIRES is a reviewed baseline entry, not a merge** — per-platform capability declarations (Decision 22 I3), per-target realized-provider sets (Decision 32 invariant 7), and per-adapter expressible-operation sets are all near-identical *because* their governing decisions forbid a shared table. A container assembled entirely from a shared enum's members is consumption, not duplication, and is exempt from both vocabulary ratchets.
+
+Full decision log: [Architecture Overview — Decision 36](./architecture-overview.md#decision-36-one-fact-one-home--residual-duplication-and-standard-library-adoption-adopted).
 
 ## Transpiler pipeline (per file)
 

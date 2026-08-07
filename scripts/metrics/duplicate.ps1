@@ -17,7 +17,8 @@
  Run duplicate detection across the full monorepo (datrix + all datrix-* packages). Mutually exclusive with -All.
 
 .PARAMETER MinLines
- Minimum similar lines to report. Default: 4.
+ Minimum similar lines to report. Default: 4 for a single project, 30 for a
+ multi-root (-Mono) run, unless explicitly overridden.
 
 .PARAMETER Tests
  Also include tests/ in duplicate-code detection.
@@ -68,7 +69,7 @@ param(
 
  [switch]$All,
  [switch]$Mono,
- [int]$MinLines = 4,
+ [int]$MinLines,
  [switch]$Tests,
  [switch]$StopOnError,
  [switch]$VerboseOutput,
@@ -169,8 +170,10 @@ try {
  $projectArgs += "--project-root"
  $projectArgs += $projectRoot
  }
+ if ($PSBoundParameters.ContainsKey('MinLines')) {
  $projectArgs += "--min-lines"
  $projectArgs += $MinLines
+ }
  if ($Tests) { $projectArgs += "--tests" }
  if ($VerboseOutput) { $projectArgs += "--verbose" }
  if ($LlmRefactorPlan) {
@@ -195,9 +198,12 @@ try {
  $projectRoot = Join-Path $workspaceRoot $project
  $projectArgs = @(
  $duplicateScript,
- "--project-root", $projectRoot,
- "--min-lines", $MinLines
+ "--project-root", $projectRoot
  )
+ if ($PSBoundParameters.ContainsKey('MinLines')) {
+ $projectArgs += "--min-lines"
+ $projectArgs += $MinLines
+ }
  if ($Tests) { $projectArgs += "--tests" }
  if ($VerboseOutput) { $projectArgs += "--verbose" }
  if ($LlmRefactorPlan) {

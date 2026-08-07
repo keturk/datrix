@@ -66,6 +66,17 @@
  Compares current per-file counts against the frozen baseline at
  scripts/config/shared-target-name-baseline.toml.
 
+.PARAMETER CheckCrossPackageVocabulary
+ Run the G3 cross-package vocabulary ratchet check (Decision D2.1-D2.4) in
+ addition to the import-boundary check. Fails when a module-level
+ set/frozenset/dict/tuple literal's normalized member set is declared,
+ with a bare string literal, identically in two or more datrix-* packages
+ -- every package discover_packages() finds, not only the four language
+ packages the G1 ratchet scans -- independent of whether either copy also
+ duplicates a datrix_codegen_common.enums vocabulary. Compares current
+ per-file counts against the frozen baseline at
+ scripts/config/cross-package-vocabulary-baseline.toml.
+
 .PARAMETER SelfTest
  Run only the self-test suite (rule-model, AST-scanner, and ratchet
  invariants, including a real mutation-based CLI non-vacuity proof) and
@@ -133,6 +144,14 @@
  Recompute and overwrite the frozen shared-target-name baseline
 
 .EXAMPLE
+ .\check-import-boundaries.ps1 -CheckCrossPackageVocabulary
+ Run the G3 cross-package vocabulary ratchet check (Decision D2.1-D2.4) against the frozen baseline
+
+.EXAMPLE
+ .\check-import-boundaries.ps1 -CheckCrossPackageVocabulary -UpdateBaseline
+ Recompute and overwrite the frozen cross-package-vocabulary baseline
+
+.EXAMPLE
  .\check-import-boundaries.ps1 -SelfTest
  Run only the self-test suite (rule model, scanners, ratchets, CLI mutation proof)
 #>
@@ -165,6 +184,9 @@ param(
 
     [Parameter()]
     [switch]$CheckSharedTargetNames,
+
+    [Parameter()]
+    [switch]$CheckCrossPackageVocabulary,
 
     [Parameter()]
     [switch]$SelfTest,
@@ -231,6 +253,7 @@ try {
     if ($CheckFunctionLevelImports) { $pythonArgs += "--check-function-level-imports" }
     if ($CheckSharedVocabulary) { $pythonArgs += "--check-shared-vocabulary" }
     if ($CheckSharedTargetNames) { $pythonArgs += "--check-shared-target-names" }
+    if ($CheckCrossPackageVocabulary) { $pythonArgs += "--check-cross-package-vocabulary" }
     if ($SelfTest) { $pythonArgs += "--self-test" }
 
     # Debug output if requested

@@ -44,9 +44,28 @@ count = 1
 file = "datrix-common/src/datrix_common/config/dcfg/resolver.py"
 count = 1
 
+# REVIEWED INCREASE 7 -> 8. This file already carried FOUR deferred imports of
+# `datrix_common.plugin.capability_resolution`, each dodging the same package-init
+# cycle that pyproject.toml's own [tool.importlinter] comment block documents:
+# datrix_common/__init__ -> errors -> utils -> utils.job_helpers ->
+# config.infrastructure.models -> config/__init__'s eager DeploymentPlan export ->
+# plugin.capability_resolution -> plugin.registry -> plugin.extension ->
+# builtins.scalar_definitions -> types -> types.parser -> errors.UnknownTypeError,
+# while datrix_common.errors is still mid-init. Hoisting was attempted and fails
+# with `ImportError: cannot import name 'UnknownTypeError' from partially
+# initialized module 'datrix_common.errors'`.
+#
+# The language-observability realization validator added here is the FIFTH site of
+# that identical, already-reviewed pattern in this same file -- not a new class of
+# debt. Relocating this one validator while its four siblings stay would leave the
+# cycle intact and the file inconsistent. Removing the cycle for real means
+# restructuring datrix_common's root package-init order (breaking the
+# errors -> utils -> config eager chain, or making config/__init__'s DeploymentPlan
+# export lazy) -- an API-affecting change with no bearing on the invariants this
+# phase implements, so it is deliberately NOT bundled into it.
 [[baseline]]
 file = "datrix-common/src/datrix_common/config/deployment_plan.py"
-count = 7
+count = 8
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/config/deployment_validation.py"
