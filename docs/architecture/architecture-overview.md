@@ -1069,47 +1069,6 @@ Three things surfaced during implementation that the approved shape did not anti
 
 ---
 
-### Decision 36: Zero-Inbound VM Deployment and the Deploy-Time Binding Invariant (Approved — Implementation In Progress)
-
-**Rationale:**
-- A provider that emits infrastructure must also own deploying it. When the runtime axis (containers) and the provider axis (cloud infrastructure) each emit their own artifacts and neither owns the deployment step, the generated tree's entrypoint assumes infrastructure that nothing in the tree ever creates.
-- Values that only become knowable at deploy time are a recurring defect class of their own: one artifact produces a value, another consumes a different value for the same fact, and nothing compares them. A resolved endpoint, a generated key, a derived port — each needs exactly one producer, a consumer that reads the same value the producer wrote, and a check that catches the case where either side is silent or where both sides disagree.
-
-**Result:**
-
-- **D1 — Two deploy scripts, two owners.** The runtime generator owns the on-machine container deploy script — build images, bring the stack up — and needs no cloud knowledge to do it. The provider generator owns an outer deployment CLI that creates the resource group, deploys the infrastructure, uploads the generated tree, and triggers the inner script. Neither generator overwrites the other's file.
-
-- **D2 — Deployment opens no inbound port.** Artifacts travel to blob storage; execution happens through the cloud's managed run-command channel using the VM's system-assigned identity; output streams back through append blobs. Shell access is break-glass, never the deploy path, and the generator authors no inbound SSH rule.
-
-- **D3 — Deploy-resolved values land where the consumer reads them.** For a file-backed config store that performs no environment reads, that is the config store, not an environment file — the same binding this decision's Decision 35 correction states for that provider.
-
-- **D4 — Every deploy-resolved key has exactly one producer.** A key produced by nothing is a hole; a key produced by two artifacts is a race between whichever wrote last.
-
-- **D5 — A deploy-resolved key carries no compile-time default.** A plausible-looking wrong value is worse than an absent one: the absent one fails loud at first read, and the plausible one runs quietly against the wrong target.
-
-- **D6 — No generated value equals the config key that holds it.** Emitting a key's own name as its value is a silent fallback wearing the shape of a real one; a generator that cannot resolve a value raises instead of writing a placeholder.
-
-- **D7 — Every network-security allow rule's port is a port some artifact actually publishes.** The rule set is derived from the real port bindings the generated tree publishes, never authored as a constant alongside them.
-
-- **D8 — A managed edge may terminate TLS in front of a self-hosted gateway without becoming the gateway.** Routing, CORS, and rate limiting stay with the self-hosted gateway; the platform's declared supported gateway types are unchanged by the presence of a TLS edge in front of one. Origin restriction pins the edge's own deploy-time public address, because the cloud's service tag for that managed service does not contain any one instance's egress address.
-
-**Invariant table:**
-
-| # | Invariant | Enforcement mechanism |
-| --- | --- | --- |
-| 1 | The runtime generator's deploy script and the provider generator's deploy script never collide | The two generators emit different file paths; each package's own tests assert its script's contents |
-| 2 | Deployment opens no inbound shell port | No inbound rule for the shell port is emitted; an acceptance check asserts the emitted rule set contains no wildcard/Internet source and no shell port |
-| 3 | A deploy-resolved value is written to the config store its consumer actually reads | A generation-time binding check running after every generator has produced its files and before anything is written to disk — the one point with complete cross-target content — fails generation on a mismatch |
-| 4 | Every deploy-resolved key has exactly one producer, no compile-time default, and no value equal to its own key name | The same binding check |
-| 5 | Every emitted allow rule's port is a real published binding | The rule set is derived from the published port bindings; the binding check compares them |
-| 6 | A managed TLS edge does not change the platform's declared gateway capability | The platform capability declaration's supported gateway types stay unchanged, and its written exclusion entry states what the managed edge does and does not realize |
-
-**Scope boundaries:** Confined to the deployment path this provider's infrastructure requires; does not change the runtime generator's container artifacts or any other provider's deployment mechanics. Does not introduce a new managed gateway type — the TLS edge fronts the existing self-hosted gateway rather than replacing it.
-
-**Status:** Approved — Implementation In Progress.
-
----
-
 ### Decision 36: One Fact, One Home — Residual Duplication and Standard-Library Adoption (Adopted)
 
 **Rationale:**
@@ -1162,6 +1121,47 @@ Three things surfaced during implementation that the approved shape did not anti
 **Status:** Adopted. All ten invariants hold today as executable gates: the cross-package vocabulary ratchet ships and passes; every private copy of shared code is gone; `graphlib` drives topological ordering at every migrated site with order-equivalence tests proven against the prior implementation first; the two GraphQL sorts are one, and a reference cycle fails generation instead of emitting code that breaks at runtime; the residual generator layer is gone with its coverage migrated first and a reachability guard landed to catch the next instance; intra-package duplication dropped in every targeted package; the foundation layer's hygiene set landed with no new third-party dependency; the three dead dependencies are gone and the test-only library moved to an extra; the migration-adapter policy set is enforced by the orchestrator rather than asserted in a comment; and the parallel-implementation drift report is live with every classified group accounted for.
 
 Two things surfaced during implementation that the approved shape did not anticipate. First, the live drifted population the scanner reported was roughly five times the design-time estimate (626 groups, not the ~105 estimated), because the scanner correctly counts class methods as well as module-level functions — several of the design's own named review candidates are class methods. The broader population was adjudicated design-faithful rather than the scanner narrowed to match the estimate, and reviewing it at full scope found 25 real production bugs an exact-duplicate scan could never have surfaced — among them a batch-lookup optimization that silently never fired on one target (an unconditional `return None` stub with no call site), a missing type-unwrap producing a reachable runtime `TypeError` on nullable Decimal fields, and a cache-engine mapping gap that would have failed real generation outright. This is the direct empirical confirmation of this decision's own rationale: an exact-duplicate metric goes quiet exactly where the risk is highest. Second, one function-level-import ratchet baseline needed a reviewed increase of one, in a file that already carried four deferred imports dodging the same documented package-init cycle; the new site is a fifth instance of that same reviewed pattern, not a new class of debt, and the alternative — restructuring the foundation package's root import order — was judged out of this decision's scope.
+
+---
+
+### Decision 37: Zero-Inbound VM Deployment and the Deploy-Time Binding Invariant (Approved — Implementation In Progress)
+
+**Rationale:**
+- A provider that emits infrastructure must also own deploying it. When the runtime axis (containers) and the provider axis (cloud infrastructure) each emit their own artifacts and neither owns the deployment step, the generated tree's entrypoint assumes infrastructure that nothing in the tree ever creates.
+- Values that only become knowable at deploy time are a recurring defect class of their own: one artifact produces a value, another consumes a different value for the same fact, and nothing compares them. A resolved endpoint, a generated key, a derived port — each needs exactly one producer, a consumer that reads the same value the producer wrote, and a check that catches the case where either side is silent or where both sides disagree.
+
+**Result:**
+
+- **D1 — Two deploy scripts, two owners.** The runtime generator owns the on-machine container deploy script — build images, bring the stack up — and needs no cloud knowledge to do it. The provider generator owns an outer deployment CLI that creates the resource group, deploys the infrastructure, uploads the generated tree, and triggers the inner script. Neither generator overwrites the other's file.
+
+- **D2 — Deployment opens no inbound port.** Artifacts travel to blob storage; execution happens through the cloud's managed run-command channel using the VM's system-assigned identity; output streams back through append blobs. Shell access is break-glass, never the deploy path, and the generator authors no inbound SSH rule.
+
+- **D3 — Deploy-resolved values land where the consumer reads them.** For a file-backed config store that performs no environment reads, that is the config store, not an environment file — the same binding this decision's Decision 35 correction states for that provider.
+
+- **D4 — Every deploy-resolved key has exactly one producer.** A key produced by nothing is a hole; a key produced by two artifacts is a race between whichever wrote last.
+
+- **D5 — A deploy-resolved key carries no compile-time default.** A plausible-looking wrong value is worse than an absent one: the absent one fails loud at first read, and the plausible one runs quietly against the wrong target.
+
+- **D6 — No generated value equals the config key that holds it.** Emitting a key's own name as its value is a silent fallback wearing the shape of a real one; a generator that cannot resolve a value raises instead of writing a placeholder.
+
+- **D7 — Every network-security allow rule's port is a port some artifact actually publishes.** The rule set is derived from the real port bindings the generated tree publishes, never authored as a constant alongside them.
+
+- **D8 — A managed edge may terminate TLS in front of a self-hosted gateway without becoming the gateway.** Routing, CORS, and rate limiting stay with the self-hosted gateway; the platform's declared supported gateway types are unchanged by the presence of a TLS edge in front of one. Origin restriction pins the edge's own deploy-time public address, because the cloud's service tag for that managed service does not contain any one instance's egress address.
+
+**Invariant table:**
+
+| # | Invariant | Enforcement mechanism |
+| --- | --- | --- |
+| 1 | The runtime generator's deploy script and the provider generator's deploy script never collide | The two generators emit different file paths; each package's own tests assert its script's contents |
+| 2 | Deployment opens no inbound shell port | No inbound rule for the shell port is emitted; an acceptance check asserts the emitted rule set contains no wildcard/Internet source and no shell port |
+| 3 | A deploy-resolved value is written to the config store its consumer actually reads | A generation-time binding check running after every generator has produced its files and before anything is written to disk — the one point with complete cross-target content — fails generation on a mismatch |
+| 4 | Every deploy-resolved key has exactly one producer, no compile-time default, and no value equal to its own key name | The same binding check |
+| 5 | Every emitted allow rule's port is a real published binding | The rule set is derived from the published port bindings; the binding check compares them |
+| 6 | A managed TLS edge does not change the platform's declared gateway capability | The platform capability declaration's supported gateway types stay unchanged, and its written exclusion entry states what the managed edge does and does not realize |
+
+**Scope boundaries:** Confined to the deployment path this provider's infrastructure requires; does not change the runtime generator's container artifacts or any other provider's deployment mechanics. Does not introduce a new managed gateway type — the TLS edge fronts the existing self-hosted gateway rather than replacing it.
+
+**Status:** Approved — Implementation In Progress.
 
 ---
 
