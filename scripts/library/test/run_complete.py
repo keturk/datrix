@@ -1720,6 +1720,172 @@ def _produce_structured_output(
         return None
 
 
+#: Project-level Maven module holding the generated deploy suite. It is a
+#: sibling of the service modules and carries its own pom.xml, so the unit-test
+#: finder must exclude it by name -- deploy tests run in Step 4, not Step 3
+#: (the same boundary _find_dotnet_service_test_projects draws around
+#: tests/DeployTests).
+_JAVA_DEPLOY_TESTS_DIR = "deployment-tests"
+
+#: Environment override for the local Maven repository used when building
+#: generated projects.
+_JAVA_MAVEN_REPO_ENV = "DATRIX_MAVEN_REPO_LOCAL"
+
+#: Default local Maven repository shared by every generated-project build.
+#: Generation's Java compile-validation step already resolves each service's
+#: dependency tree into this cache, so pointing the test run at the same path
+#: reuses those downloads instead of re-resolving per service per run.
+_JAVA_DEFAULT_MAVEN_REPO = Path.home() / ".datrix-tool-cache" / "m2-repo"
+
+
+def _find_java_service_dirs(project: Path) -> list[Path]:
+    """Return each generated Java service module that carries unit tests.
+
+    A generated Java service is a Maven module at ``{project}/{service}/`` with
+    a ``pom.xml`` and JUnit sources under ``src/test/java`` -- the Java analogue
+    of a Python service's ``tests/unit_tests.py``, a TS service's package.json
+    test script, or a .NET service's ``tests/{X}.Tests`` project.
+    """
+    out: list[Path] = []
+    if not project.is_dir():
+        return out
+    for child in sorted(project.iterdir()):
+        if not child.is_dir() or child.name == _JAVA_DEPLOY_TESTS_DIR:
+            continue
+        if (child / "pom.xml").is_file() and (child / "src" / "test" / "java").is_dir():
+            out.append(child)
+    return out
+
+
+def _is_java_project(project: Path) -> bool:
+    """Check whether a generated project contains Java services with tests."""
+    return bool(_find_java_service_dirs(project))
+
+
+def _java_maven_wrapper(service_dir: Path) -> Path | None:
+    """Resolve the platform-correct Maven wrapper in *service_dir*, or None.
+
+    Generated services ship both ``mvnw`` (POSIX) and ``mvnw.cmd`` (Windows);
+    Windows cannot execute the extensionless POSIX script directly.
+    """
+    candidates = (
+        [service_dir / "mvnw.cmd", service_dir / "mvnw"]
+        if os.name == "nt"
+        else [service_dir / "mvnw"]
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _shared_maven_repo() -> Path:
+    """Return the local Maven repository path passed to every mvnw invocation."""
+    override = os.environ.get(_JAVA_MAVEN_REPO_ENV)
+    path = Path(override) if override else _JAVA_DEFAULT_MAVEN_REPO
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _merge_surefire_reports(reports_dir: Path, junit_path: Path) -> bool:
+    """Merge surefire's per-class ``TEST-*.xml`` into one JUnit XML file.
+
+    Surefire emits one ``<testsuite>`` document per test class; the structured
+    output writer consumes a single JUnit file per service, so the per-class
+    documents are wrapped in one ``<testsuites>`` root.
+
+    Returns:
+        True if at least one suite was written to *junit_path*, else False.
+    """
+    if not reports_dir.is_dir():
+        return False
+    merged = ET.Element("testsuites")
+    for xml_file in sorted(reports_dir.glob("TEST-*.xml")):
+        try:
+            root = ET.parse(str(xml_file)).getroot()  # noqa: S314
+        except ET.ParseError as exc:
+            print_warning(f"  Unparseable surefire report {xml_file.name}: {exc}")
+            continue
+        if root.tag == "testsuite":
+            merged.append(root)
+        elif root.tag == "testsuites":
+            merged.extend(root.findall("testsuite"))
+    if len(merged) == 0:
+        return False
+    junit_path.parent.mkdir(parents=True, exist_ok=True)
+    ET.ElementTree(merged).write(str(junit_path), encoding="utf-8", xml_declaration=True)
+    return True
+
+
+def _count_junit_testcases(junit_path: Path) -> dict[str, int]:
+    """Count passed/failed/errors/skipped testcases in a JUnit XML file.
+
+    Raises:
+        ET.ParseError: If *junit_path* is not parseable XML.
+    """
+    root = ET.parse(str(junit_path)).getroot()  # noqa: S314
+    counts = {"passed": 0, "failed": 0, "errors": 0, "skipped": 0}
+    for testcase in root.iter("testcase"):
+        if testcase.find("failure") is not None:
+            counts["failed"] += 1
+        elif testcase.find("error") is not None:
+            counts["errors"] += 1
+        elif testcase.find("skipped") is not None:
+            counts["skipped"] += 1
+        else:
+            counts["passed"] += 1
+    return counts
+
+
+def _run_java_service_tests(
+    svc_dir: Path,
+    svc_label: str,
+    svc_results: Path,
+    shared_repo: Path,
+    parallel: bool,
+) -> dict[str, int] | None:
+    """Run ``mvnw test`` for one generated Java service and record its results.
+
+    Writes ``service.log`` and the merged ``junit.xml`` into *svc_results*.
+
+    Returns:
+        Per-service counts, or None if the service produced no test report at
+        all (missing wrapper, or a build that failed before surefire ran).
+    """
+    mvnw = _java_maven_wrapper(svc_dir)
+    if mvnw is None:
+        print_error(
+            f" No mvnw/mvnw.cmd wrapper in {svc_dir} — the generated service cannot be built"
+        )
+        return None
+
+    # Surefire appends to its reports directory, so stale reports from an
+    # earlier run would be counted as this run's results.
+    reports_dir = svc_dir / "target" / "surefire-reports"
+    shutil.rmtree(reports_dir, ignore_errors=True)
+
+    cmd = [str(mvnw), "-B", f"-Dmaven.repo.local={shared_repo}", "test"]
+    _success, output = run_command(
+        cmd,
+        cwd=svc_dir,
+        description=f"Maven tests for {svc_label}" if not parallel else "",
+        capture_output=True,
+    )
+    (svc_results / "service.log").write_text(_strip_ansi(output or ""), encoding="utf-8")
+
+    junit_path = svc_results / "junit.xml"
+    if not _merge_surefire_reports(reports_dir, junit_path):
+        print_warning(
+            f"  No surefire reports produced for {svc_dir.name} — mvnw test did not run"
+        )
+        return None
+    try:
+        return _count_junit_testcases(junit_path)
+    except ET.ParseError as exc:
+        print_warning(f"  Merged JUnit XML unreadable for {svc_dir.name}: {exc}")
+        return None
+
+
 def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel: bool = False, test_type: str = "unit", verbose: bool = False) -> dict:
     """
     Helper function to run tests for a single project.
@@ -2015,6 +2181,76 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
             result_dict_ts["index_json_path"] = str(index_path)
         return result_dict_ts
 
+    # --- Java project: per-service Maven modules ({svc}/pom.xml + src/test/java) ---
+    java_service_dirs = _find_java_service_dirs(project)
+    if java_service_dirs:
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        results_dir = project / ".test_results" / f"{test_type}-tests-{timestamp}"
+        results_dir.mkdir(parents=True, exist_ok=True)
+        shared_repo = _shared_maven_repo()
+
+        all_success = True
+        total_passed = 0
+        total_failed = 0
+        total_errors = 0
+        total_skipped = 0
+        java_combined_output: list[str] = []
+
+        for svc_dir in java_service_dirs:
+            svc_results = results_dir / "services" / svc_dir.name
+            svc_results.mkdir(parents=True, exist_ok=True)
+            counts = _run_java_service_tests(
+                svc_dir,
+                f"{project_name}/{svc_dir.name}",
+                svc_results,
+                shared_repo,
+                parallel,
+            )
+            service_log = svc_results / "service.log"
+            if service_log.exists():
+                java_combined_output.append(service_log.read_text(encoding="utf-8"))
+            if counts is None:
+                # No report at all: the service was never judged, which is a
+                # failure of the run, not a service with zero tests.
+                all_success = False
+                total_errors += 1
+                continue
+            total_passed += counts["passed"]
+            total_failed += counts["failed"]
+            total_errors += counts["errors"]
+            total_skipped += counts["skipped"]
+            if counts["failed"] > 0 or counts["errors"] > 0:
+                all_success = False
+
+        _write_ts_unit_unit_tests_summary_log(
+            project,
+            results_dir,
+            total_passed=total_passed,
+            total_failed=total_failed,
+            total_errors=total_errors,
+            total_skipped=total_skipped,
+            all_success=all_success,
+        )
+        if not parallel:
+            print_info(f" Results saved to: {results_dir.relative_to(project)}")
+
+        index_path = _produce_structured_output(
+            project, generated_base, "java", "docker", results_dir, 0.0,
+        )
+
+        result_dict_java: dict[str, Any] = {
+            "name": str(project_name),
+            "success": all_success,
+            "passed": total_passed,
+            "failed": total_failed,
+            "errors": total_errors,
+            "skipped": total_skipped,
+            "output": "\n".join(java_combined_output) if parallel else None,
+        }
+        if index_path is not None:
+            result_dict_java["index_json_path"] = str(index_path)
+        return result_dict_java
+
     # --- No test runner found ---
     return {
         "name": str(project_name),
@@ -2057,6 +2293,14 @@ def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path
                     if project_dir.resolve() not in seen:
                         projects.append(project_dir)
                         seen.add(project_dir.resolve())
+            # Scan for Java projects (service Maven modules: {svc}/pom.xml + src/test/java)
+            for item in generated_base.rglob("pom.xml"):
+                # item: {project}/{service}/pom.xml
+                service_dir = item.parent
+                project_dir = service_dir.parent
+                if project_dir.resolve() not in seen and _is_java_project(project_dir):
+                    projects.append(project_dir)
+                    seen.add(project_dir.resolve())
 
         if not projects:
             print_warning("No generated projects found to test")
@@ -2105,10 +2349,13 @@ def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path
                     if test_info:
                         print_info(f" Tests: {', '.join(test_info)}")
 
-                    has_python_runner = (project / "tests" / "unit_tests.py").exists()
-                    has_ts_runner = _is_typescript_project(project)
-                    has_dotnet_runner = _is_dotnet_project(project)
-                    if not has_python_runner and not has_ts_runner and not has_dotnet_runner:
+                    has_runner = (
+                        (project / "tests" / "unit_tests.py").exists()
+                        or _is_typescript_project(project)
+                        or _is_dotnet_project(project)
+                        or _is_java_project(project)
+                    )
+                    if not has_runner:
                         print_warning(f" [SKIP] No test runner found for {project_name}")
 
                 except KeyboardInterrupt:
@@ -2284,6 +2531,7 @@ def step3_run_unit_tests(all_examples: bool, paths: dict[str, Path], output_path
             (project_path_abs / "tests" / "unit_tests.py").exists()
             or _is_typescript_project(project_path_abs)
             or _is_dotnet_project(project_path_abs)
+            or _is_java_project(project_path_abs)
         )
         if not has_runner:
             print_warning(f"No test runner found for {project_name}")
@@ -2352,6 +2600,22 @@ def step4_run_deployment_tests(all_examples: bool, paths: dict[str, Path], outpu
                     if has_compose and project_dir.resolve() not in seen:
                         projects.append(project_dir)
                         seen.add(project_dir.resolve())
+            # Scan for Java projects: a service module is {project}/{svc}/pom.xml
+            # carrying src/test/java. Their spec/integration-tagged tests are
+            # excluded from the unit phase by the generated pom, so the project
+            # MUST be discovered here or those tests would run nowhere at all.
+            for item in generated_base.rglob("pom.xml"):
+                project_dir = item.parent.parent
+                has_compose = (project_dir / "docker-compose.yml").exists() or (
+                    project_dir / "docker-compose.yaml"
+                ).exists()
+                if (
+                    has_compose
+                    and project_dir.resolve() not in seen
+                    and _is_java_project(project_dir)
+                ):
+                    projects.append(project_dir)
+                    seen.add(project_dir.resolve())
 
         if not projects:
             print_warning("No generated projects found to test")
@@ -2822,6 +3086,189 @@ def _finalize_dotnet_deploy(
     return result
 
 
+#: JUnit 5 tags marking a generated Java test that needs a reachable live
+#: component (database, broker, cache). The generated ``pom.xml`` excludes these
+#: from every plain ``mvnw test`` via ``datrix.surefire.excludedGroups``, so the
+#: unit phase stays hermetic and they run HERE, against the live compose stack --
+#: the same split python has (``unit_tests.py`` runs
+#: ``-m "not (spec or integration)"``; ``deploy_test.py`` runs the rest).
+_JAVA_LIVE_COMPONENT_GROUPS = "spec,integration"
+
+
+def _run_java_maven_test_phase(
+    module_dir: Path,
+    label: str,
+    extra_args: list[str],
+    junit_path: Path,
+) -> tuple[bool, str, dict[str, int] | None]:
+    """Run one ``mvnw test`` invocation and merge its surefire reports.
+
+    Returns:
+        ``(ok, output, counts)``. *counts* is ``None`` when the module produced
+        no surefire reports at all -- which is the normal, non-failing outcome
+        for a service that declares no live-component tests.
+    """
+    mvnw = _java_maven_wrapper(module_dir)
+    if mvnw is None:
+        return False, f"No mvnw/mvnw.cmd wrapper in {module_dir}", None
+    cmd = [
+        str(mvnw), "-B", f"-Dmaven.repo.local={_shared_maven_repo()}", "test", *extra_args,
+    ]
+    ok, output = run_command(cmd, cwd=module_dir, description=label, capture_output=True)
+    counts: dict[str, int] | None = None
+    if _merge_surefire_reports(module_dir / "target" / "surefire-reports", junit_path):
+        counts = _count_junit_testcases(junit_path)
+    return ok, output or "", counts
+
+
+def _run_java_deploy_tests(
+    project: Path,
+    project_name: str,
+    paths: dict[str, Path],
+    timestamp: str,
+    *,
+    verbose: bool = False,
+) -> dict:
+    """Run a generated Java project's deployment phase against a live stack.
+
+    Owns the compose lifecycle the generated Java tests do not manage
+    themselves (down -> build+up ``--wait`` for healthy -> ``DeploymentTest``
+    -> each service module's ``spec``/``integration``-tagged live-component
+    tests -> capture docker logs -> teardown), the same division of labour
+    ``_run_dotnet_deploy_tests`` already has here and python's
+    ``deploy_test.py`` has for its own target.
+
+    Without this branch the tagged tests would run NOWHERE: the generated pom
+    excludes them from the unit phase precisely because they need this stack.
+    """
+    del verbose  # surefire has no per-test verbosity flag this runner threads
+    empty_stats = {"passed": 0, "failed": 0, "errors": 0, "skipped": 0, "suiteFailures": 0}
+    deploy_test_dir = project / ".test_results" / f"deploy-test-{timestamp}"
+    deploy_test_dir.mkdir(parents=True, exist_ok=True)
+    (deploy_test_dir / "docker-logs").mkdir(parents=True, exist_ok=True)
+    _write_deploy_environment_json(deploy_test_dir, project, "run_complete.py (java deploy)")
+
+    compose_file = project / "docker-compose.yml"
+    if not compose_file.exists():
+        compose_file = project / "docker-compose.yaml"
+
+    output_sections: list[str] = []
+    stats = dict(empty_stats)
+    success = False
+
+    def _finalize(ok: bool) -> dict:
+        result = {"name": project_name, "success": ok, **stats}
+        combined = "\n\n".join(section for section in output_sections if section)
+        (deploy_test_dir / "deploy-test-output.log").write_text(
+            _strip_ansi(combined), encoding="utf-8",
+        )
+        save_test_summary_log(
+            step_num=5,
+            step_name=f"Deployment Tests for {project_name}",
+            paths=paths,
+            project_results=[result],
+            total_projects=1,
+            success_count=1 if ok else 0,
+            fail_count=0 if ok else 1,
+            total_passed_tests=stats["passed"],
+            total_failed_tests=stats["failed"],
+            total_error_tests=stats["errors"],
+            total_skipped_tests=stats["skipped"],
+            step5_output_dir=deploy_test_dir,
+        )
+        result["_index_path"] = _write_deploy_structured_output(
+            project, project_name, deploy_test_dir, paths, timestamp, "java",
+        )
+        return result
+
+    if not compose_file.exists():
+        print_error(f" No docker-compose file found for {project_name} — cannot run deploy tests")
+        stats["errors"] = 1
+        output_sections.append("No docker-compose.yml/.yaml found; java deploy tests skipped.")
+        return _finalize(False)
+
+    _ensure_deploy_env_file(project)
+    try:
+        print_info(" [compose] Tearing down previous containers...")
+        _down_ok, down_output = run_command(
+            ["docker", "compose", "-f", str(compose_file), "down", "-v", "--remove-orphans"],
+            cwd=project,
+            description="docker compose down (pre-clean)",
+            capture_output=True,
+        )
+        if down_output:
+            output_sections.append(down_output)
+
+        print_info(" [compose] Building images and starting services (waiting for healthy)...")
+        up_ok, up_output = run_command(
+            [
+                "docker", "compose", "-f", str(compose_file),
+                "up", "-d", "--build", "--wait", "--wait-timeout", "300",
+            ],
+            cwd=project,
+            description="docker compose up -d --build --wait",
+            capture_output=True,
+        )
+        if up_output:
+            output_sections.append(up_output)
+        if not up_ok:
+            print_error(f" [compose] Stack failed to reach healthy state for {project_name}")
+            stats["errors"] = 1
+            return _finalize(False)
+
+        phase_ok = True
+        ran_any = False
+
+        deploy_module = project / _JAVA_DEPLOY_TESTS_DIR
+        if (deploy_module / "pom.xml").is_file():
+            print_info(f" [java] Running DeploymentTest for {project_name}...")
+            ok, output, counts = _run_java_maven_test_phase(
+                deploy_module,
+                f"java deployment tests for {project_name}",
+                ["-Dtest=DeploymentTest"],
+                deploy_test_dir / "java-deployment.xml",
+            )
+            output_sections.append(output)
+            phase_ok = phase_ok and ok
+            if counts is not None:
+                ran_any = True
+                for key, value in counts.items():
+                    stats[key] += value
+
+        for svc_dir in _find_java_service_dirs(project):
+            print_info(f" [java] Running live-component tests for {svc_dir.name}...")
+            ok, output, counts = _run_java_maven_test_phase(
+                svc_dir,
+                f"java live-component tests for {project_name}/{svc_dir.name}",
+                [
+                    f"-Dgroups={_JAVA_LIVE_COMPONENT_GROUPS}",
+                    "-Ddatrix.surefire.excludedGroups=",
+                    "-DfailIfNoTests=false",
+                ],
+                deploy_test_dir / f"java-integration-{_sanitize_log_filename(svc_dir.name)}.xml",
+            )
+            output_sections.append(output)
+            phase_ok = phase_ok and ok
+            if counts is not None:
+                ran_any = True
+                for key, value in counts.items():
+                    stats[key] += value
+
+        if not ran_any and phase_ok:
+            # The stack reached healthy but no Java test module produced reports.
+            # Report it rather than passing silently on zero evidence.
+            print_warning(
+                f" [java] No surefire reports produced for {project_name} — "
+                "the healthy stack is the only verification"
+            )
+        success = phase_ok and stats["failed"] == 0 and stats["errors"] == 0
+    finally:
+        _save_docker_logs_for_project(project, deploy_test_dir)
+        _ensure_docker_cleanup(project)
+
+    return _finalize(success)
+
+
 def _run_single_project_deploy_tests(
     project: Path,
     project_name: str,
@@ -3188,9 +3635,18 @@ def _run_single_project_deploy_tests(
             project, project_name, dotnet_deploy_dir, paths, timestamp, verbose=verbose,
         )
 
+    # --- Java project: runner-managed compose lifecycle ---
+    # A generated Java project's DB-backed spec/api tests carry the
+    # spec/integration JUnit tags and are excluded from the unit phase by the
+    # generated pom, so this is the only phase that runs them.
+    if compose_present and _is_java_project(project):
+        return _run_java_deploy_tests(
+            project, project_name, paths, timestamp, verbose=verbose,
+        )
+
     print_warning(
-        f" [SKIP] No deploy_test.py, jest-deploy.config.ts, or tests/DeployTests "
-        f"found for {project_name}"
+        f" [SKIP] No deploy_test.py, jest-deploy.config.ts, tests/DeployTests, or "
+        f"Java service module found for {project_name}"
     )
     return {"name": project_name, "success": False, **empty_stats}
 

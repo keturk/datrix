@@ -14,6 +14,12 @@ each file's distinct behavioral classes as named ``_check_*`` functions:
   - test_status_tests_index.py -> test/status_tests.py (TestResult, _format_result_row,
     _read_index_json, find_latest_log_file, parse_pytest_summary, parse_timestamp_from_log_file)
 
+It additionally covers test/run_complete.py's Java generated-project handling (which no orphaned
+pytest file ever exercised): _find_java_service_dirs/_is_java_project service detection -- Maven
+modules with src/test/java, with the project-level deployment-tests module excluded because
+deploy tests run in Step 4 -- and _merge_surefire_reports/_count_junit_testcases, including the
+adversarial cases where a build never reached surefire and so must NOT read as a clean run.
+
 Repo-level validation script, not a pytest suite (per the datrix showcase boundary). Uses only
 ``assert`` + a small harness that catches ``AssertionError`` per check and prints [OK]/[FAIL] --
 no pytest, no mocks/fakes, real ``tempfile.TemporaryDirectory()`` fixtures for every filesystem
@@ -40,6 +46,12 @@ from test.compare_tests import (  # noqa: E402
     build_service_comparisons,
     find_runs,
     parse_unit_run,
+)
+from test.run_complete import (  # noqa: E402
+    _count_junit_testcases,
+    _find_java_service_dirs,
+    _is_java_project,
+    _merge_surefire_reports,
 )
 from test.status_tests import (  # noqa: E402
     TestResult,
@@ -446,6 +458,132 @@ def _check_format_result_row_shows_progress_in_tests_column_for_unknown() -> Non
 
 
 # ---------------------------------------------------------------------------
+# test/run_complete.py -- Java generated-project detection and surefire merging
+# ---------------------------------------------------------------------------
+
+_SUREFIRE_PASSING = (
+    '<?xml version="1.0" encoding="UTF-8"?>'
+    '<testsuite name="a.OrderTest" tests="2" failures="0" errors="0" skipped="0">'
+    '<testcase classname="a.OrderTest" name="creates"/>'
+    '<testcase classname="a.OrderTest" name="updates"/>'
+    "</testsuite>"
+)
+
+_SUREFIRE_MIXED = (
+    '<?xml version="1.0" encoding="UTF-8"?>'
+    '<testsuite name="a.ProductTest" tests="3" failures="1" errors="1" skipped="1">'
+    '<testcase classname="a.ProductTest" name="fails">'
+    '<failure type="AssertionError" message="expected 1">stack</failure>'
+    "</testcase>"
+    '<testcase classname="a.ProductTest" name="errors">'
+    '<error type="IllegalStateException" message="boom">stack</error>'
+    "</testcase>"
+    '<testcase classname="a.ProductTest" name="ignored"><skipped/></testcase>'
+    "</testsuite>"
+)
+
+
+def _make_java_service(project: Path, name: str, *, with_tests: bool = True) -> None:
+    """Create a minimal generated Java service module under *project*."""
+    service = project / name
+    (service / "src" / "main" / "java").mkdir(parents=True)
+    (service / "pom.xml").write_text("<project/>", encoding="utf-8")
+    if with_tests:
+        (service / "src" / "test" / "java").mkdir(parents=True)
+
+
+def _check_java_service_dirs_are_the_unit_test_targets() -> None:
+    with tempfile.TemporaryDirectory(prefix="tooling-gate-java-services-") as tmp:
+        project = Path(tmp) / "logistics"
+        _make_java_service(project, "logistics_fleet_service")
+        _make_java_service(project, "logistics_route_service")
+
+        assert [d.name for d in _find_java_service_dirs(project)] == [
+            "logistics_fleet_service",
+            "logistics_route_service",
+        ]
+        assert _is_java_project(project) is True
+
+
+def _check_java_deployment_tests_module_excluded() -> None:
+    with tempfile.TemporaryDirectory(prefix="tooling-gate-java-deploy-") as tmp:
+        project = Path(tmp) / "logistics"
+        _make_java_service(project, "logistics_fleet_service")
+        # The project-level deploy suite is also a Maven module with tests; it
+        # belongs to Step 4, so Step 3 must not pick it up as a service.
+        _make_java_service(project, "deployment-tests")
+
+        assert [d.name for d in _find_java_service_dirs(project)] == [
+            "logistics_fleet_service"
+        ]
+
+
+def _check_java_service_without_test_sources_is_not_a_target() -> None:
+    with tempfile.TemporaryDirectory(prefix="tooling-gate-java-notests-") as tmp:
+        project = Path(tmp) / "logistics"
+        _make_java_service(project, "logistics_fleet_service", with_tests=False)
+
+        assert _find_java_service_dirs(project) == []
+        assert _is_java_project(project) is False
+
+
+def _check_non_java_project_is_not_detected_as_java() -> None:
+    with tempfile.TemporaryDirectory(prefix="tooling-gate-java-none-") as tmp:
+        project = Path(tmp) / "ecommerce"
+        (project / "product_service").mkdir(parents=True)
+
+        assert _is_java_project(project) is False
+
+
+def _check_surefire_reports_merge_into_one_countable_junit() -> None:
+    with tempfile.TemporaryDirectory(prefix="tooling-gate-surefire-merge-") as tmp:
+        reports = Path(tmp) / "surefire-reports"
+        reports.mkdir()
+        (reports / "TEST-a.OrderTest.xml").write_text(_SUREFIRE_PASSING, encoding="utf-8")
+        (reports / "TEST-a.ProductTest.xml").write_text(_SUREFIRE_MIXED, encoding="utf-8")
+
+        junit = Path(tmp) / "services" / "fleet" / "junit.xml"
+        assert _merge_surefire_reports(reports, junit) is True
+        assert _count_junit_testcases(junit) == {
+            "passed": 2,
+            "failed": 1,
+            "errors": 1,
+            "skipped": 1,
+        }
+
+
+def _check_missing_surefire_dir_reports_no_results() -> None:
+    with tempfile.TemporaryDirectory(prefix="tooling-gate-surefire-missing-") as tmp:
+        junit = Path(tmp) / "junit.xml"
+
+        # A build that failed before surefire ran must not read as a clean run.
+        assert _merge_surefire_reports(Path(tmp) / "surefire-reports", junit) is False
+        assert not junit.exists()
+
+
+def _check_empty_surefire_dir_reports_no_results() -> None:
+    with tempfile.TemporaryDirectory(prefix="tooling-gate-surefire-empty-") as tmp:
+        reports = Path(tmp) / "surefire-reports"
+        reports.mkdir()
+        junit = Path(tmp) / "junit.xml"
+
+        assert _merge_surefire_reports(reports, junit) is False
+        assert not junit.exists()
+
+
+def _check_surefire_merge_ignores_non_result_files() -> None:
+    with tempfile.TemporaryDirectory(prefix="tooling-gate-surefire-noise-") as tmp:
+        reports = Path(tmp) / "surefire-reports"
+        reports.mkdir()
+        (reports / "a.OrderTest.txt").write_text("plain text summary", encoding="utf-8")
+        (reports / "TEST-a.OrderTest.xml").write_text(_SUREFIRE_PASSING, encoding="utf-8")
+
+        junit = Path(tmp) / "junit.xml"
+        assert _merge_surefire_reports(reports, junit) is True
+        assert _count_junit_testcases(junit)["passed"] == 2
+
+
+# ---------------------------------------------------------------------------
 # Harness
 # ---------------------------------------------------------------------------
 
@@ -468,6 +606,14 @@ _CHECKS: list[tuple[str, Callable[[], None]]] = [
     ("parse_pytest_summary_full_log_in_directory", _check_parse_pytest_summary_full_log_in_directory),
     ("parse_pytest_summary_extracts_progress_for_running_log", _check_parse_pytest_summary_extracts_progress_for_running_log),
     ("format_result_row_shows_progress_in_tests_column_for_unknown", _check_format_result_row_shows_progress_in_tests_column_for_unknown),
+    ("java_service_dirs_are_the_unit_test_targets", _check_java_service_dirs_are_the_unit_test_targets),
+    ("java_deployment_tests_module_excluded", _check_java_deployment_tests_module_excluded),
+    ("java_service_without_test_sources_is_not_a_target", _check_java_service_without_test_sources_is_not_a_target),
+    ("non_java_project_is_not_detected_as_java", _check_non_java_project_is_not_detected_as_java),
+    ("surefire_reports_merge_into_one_countable_junit", _check_surefire_reports_merge_into_one_countable_junit),
+    ("missing_surefire_dir_reports_no_results", _check_missing_surefire_dir_reports_no_results),
+    ("empty_surefire_dir_reports_no_results", _check_empty_surefire_dir_reports_no_results),
+    ("surefire_merge_ignores_non_result_files", _check_surefire_merge_ignores_non_result_files),
 ]
 
 

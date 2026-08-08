@@ -920,17 +920,23 @@ populations), and `TestResult`/`_format_result_row`/`_read_index_json`/`find_lat
 `parse_pytest_summary`/`parse_timestamp_from_log_file` (structured `index.json` parsing including
 the INCOMPLETE-falls-back-to-`full.log` signal, `index.json`-preferred-over-`full.log` discovery,
 directory-name timestamp parsing, and the in-progress xdist `[ NN%]` progress-percent extraction
-case). Repo-level validation **script**, not a pytest suite (per the datrix showcase boundary).
+case). It additionally covers `scripts/library/test/run_complete.py`'s Java generated-project
+handling — `_find_java_service_dirs`/`_is_java_project` service detection (Maven modules with
+`src/test/java`, with the project-level `deployment-tests` module excluded because deploy tests
+run in Step 4) and `_merge_surefire_reports`/`_count_junit_testcases`, including the adversarial
+cases where a build never reached surefire and so must NOT read as a clean run. Repo-level
+validation **script**, not a pytest suite (per the datrix showcase boundary).
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Run the gate** | `.\test\test-tooling-parsing-gate.ps1` | Run all 18 absorbed checks |
+| **Run the gate** | `.\test\test-tooling-parsing-gate.ps1` | Run all 26 absorbed checks |
 | **Harness self-test** | `.\test\test-tooling-parsing-gate.ps1 -HarnessSelfTest` | Prove the harness detects a forced failure (always reports [FAIL], exits 1) |
 | **Debug** | `.\test\test-tooling-parsing-gate.ps1 -Dbg` | Print the python invocation before running |
 
 **Parameters:** `-HarnessSelfTest`, `-Dbg`
 
-**Assertions:** 18 named checks covering `compare_tests.py` and `status_tests.py`. Several are
+**Assertions:** 26 named checks covering `compare_tests.py`, `status_tests.py`, and
+`run_complete.py`'s Java project detection / surefire report merging. Several are
 inherently adversarial (nested/archived run dirs excluded from discovery, corrupt JSON → `None`,
 INCOMPLETE result → `None`/fallback, missing `counts` → `None`), which already demonstrates
 discriminating power; `-HarnessSelfTest` additionally proves the pass/fail harness itself is not
