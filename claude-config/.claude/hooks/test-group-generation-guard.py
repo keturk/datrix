@@ -26,6 +26,34 @@ _EXAMPLE = '"d:/datrix/datrix/examples/03-domains/finance/system.dtrx"'
 
 #: (command, must_block, why)
 _CASES: tuple[tuple[str, bool, str], ...] = (
+    # ---- reading a script is not invoking it ----
+    #
+    # This hook decided "does the command invoke script X" by testing whether X's
+    # name appeared anywhere in the text, so `grep -n "Unit" .../test.ps1` was
+    # refused for lacking a quick-reference marker — blocking an agent from
+    # reading the source of the very script the hook guards. The quoted pipe in a
+    # grep pattern is load-bearing here: a non-quote-aware split cuts the segment
+    # at it and loses the leading `grep`.
+    (
+        'grep -nE "Unit|marker|-m " datrix/scripts/test/test.ps1',
+        False,
+        "grep over test.ps1 is a read, not a run",
+    ),
+    (
+        'Select-String -Path "d:/datrix/datrix/scripts/dev/generate.ps1" -Pattern "Domains"',
+        False,
+        "Select-String over generate.ps1",
+    ),
+    (
+        "cat datrix/scripts/dev/generate.ps1 | head -40",
+        False,
+        "cat piped to head",
+    ),
+    (
+        f'grep -n Domains datrix/scripts/dev/generate.ps1; {_GEN} -Domains -L python',
+        True,
+        "a read chained before a real group generation still blocks",
+    ),
     (f"{_GEN} -Domains -L typescript", True, "sweeps every domain example"),
     (f"{_GEN} -All -L python", True, "sweeps the whole corpus"),
     (f"{_GEN} -TestSet foundation -L java", True, "sweeps a named test set"),

@@ -692,6 +692,22 @@ When a deployment target is resolved, the generator either emits the correct pri
 
 Every deployment-relevant choice is explicit in the `.dcfg` profile. A missing required field (runtime, provider, SKU for cloud-managed blocks) is a generation error that names the missing config path, the expected field, and the valid options. Generators never invent deployment values.
 
+This extends to every **sizing, cost, and operational** setting — sku, tier, storage, instance class, node type, cpu, memory, replicas, capacity, broker count, desired count, VPC CIDR, retention, TTLs, deployment mode, engine versions. A silent default here ships infrastructure the author never chose and never priced, hidden behind a passing build.
+
+*Shape of the contract:*
+
+- Model fields for these settings are `X | None = None` — never `= "0.25"`. Field validators guard the `None` case (`if v is None: return v`).
+- Generator consumers call a `require_*` helper (`require_deployment_field` for datasource configs, `require_platform_field` for platform configs, `require_aws_value` on AWS) that raises `GenerationError` when the value is absent.
+
+*Two things that look like defaults and are not:*
+
+- **Validation bounds are not defaults.** `ge=` / `le=` limits and allowed-value sets constrain a value the author supplied; they do not supply one. Keep them.
+- **Test fixtures that supply explicit values are not defaults.** A fixture stands in for an author who filled in their `.dcfg`. The forbidden thing is a default in framework *source* that is read at generation time — not a complete fixture in a test.
+
+*Out of scope:* engine-intrinsic constants with no `.dcfg` knob at all (api version, collation, admin user) are not defaults in this sense — failing loud on them would require new DSL surface, which is a feature decision rather than a defaults question.
+
+*Known deviation:* `ServerlessDefaultsConfig` still carries model-level `timeout` and `memory` defaults. Converting them is a breaking change to existing `.dcfg` files and has not been made.
+
 **Infrastructure-flavor is per-block, not per-service:**
 
 A block's `platform` flavor (`FlavorId` — `container`, `flexible-server`, `elasticache`, `event-hubs`, ...) expresses how a single block is provisioned. It is a block-level infrastructure choice, not a service-level runtime selector, and it is an OPEN axis: the valid values are the `(block_type, flavor)` cells the installed platform plugins declare, not a closed enum. Service deployment shape still derives from which blocks are declared, not from a service-flavor enum.

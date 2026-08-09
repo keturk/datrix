@@ -1,0 +1,26 @@
+{
+  "name": "deploy-session",
+  "_comment": "Fires only in a session where a real deploy command actually ran. `tool_used` scoping means an ordinary coding turn never evaluates these items, so they cost nothing until the expensive surface is in play.",
+  "applies_to": { "tool_used": "(?i)deploy[\\w-]*\\.ps1|az\\s+deployment\\s+(group|sub|mg|tenant)\\s+create|kubectl\\s+apply|terraform\\s+apply|helm\\s+(install|upgrade)" },
+  "items": [
+    {
+      "id": "seam-census-exists",
+      "type": "glob_fresh",
+      "glob": ".tmp/predeploy/*.json",
+      "max_age_s": 7200,
+      "fix": "A deploy ran in this session with no fresh pre-deploy seam census under .tmp/predeploy/. Every deploy failure is first a static-analysis failure: name the seams, compute consumed - produced, and record it."
+    },
+    {
+      "id": "runtime-failure-needs-a-static-check",
+      "type": "reply_lacks",
+      "pattern": "(?i)\\b(deploy(ment)? (failed|error)|rollout failed|provisioning failed)\\b(?![^.]{0,200}\\b(added|landed|wrote|now validated|validator|guard|test)\\b)",
+      "fix": "A deploy failed and the reply does not say what check would have caught it before the run, or where that check now lives. Fixing only the instance guarantees the next member of the class also waits for a deploy - land the validator or test with the fix."
+    },
+    {
+      "id": "no-unevidenced-confidence",
+      "type": "reply_lacks",
+      "pattern": "(?i)\\b(should (work|be fine|succeed)|presumably works|i assume it)\\b",
+      "fix": "Replace the guess with evidence: what you ran, and what it actually printed."
+    }
+  ]
+}

@@ -44,6 +44,20 @@ are neither COMPLETED nor carrying a B1-B4 blocker proof in their `## How Solved
 The model cannot talk its way past this and cannot disarm it — the only ways out
 are (a) the tasks are actually done, (b) Jon says stop, or (c) the block cap.
 
+AND A SECOND CHECK THE LEDGER CANNOT MAKE
+-----------------------------------------
+Task-file status is blind to a whole class of failure. A turn that ends "I skipped
+the seam census — deploying now, it should work" moves no task file, so the disk
+check has no opinion, and the run continues one expensive deploy at a time. The
+dodge vocabulary in `_report_language.py` covers that: scope dodges ("out of
+scope", "someone else's") and OMISSIONS ("I didn't verify", "not tested", "should
+work"). The same check has policed subagents since `check-agent-report.py`
+shipped — running it here closes the asymmetry in which the only agent Jon talks
+to directly was the only one allowed to end a turn on an excuse.
+
+It runs before the ledger check and needs nothing from disk, so it also covers
+`TASKS:`-style invocations where no phase number is verifiable.
+
 FAILING OPEN, DELIBERATELY
 --------------------------
 If the status script is unavailable, errors, or times out, the gate ALLOWS the
@@ -62,6 +76,14 @@ import re
 import subprocess
 import sys
 from typing import Final
+
+from _report_language import (
+    DODGE_REMEDY,
+    carries_proof,
+    find_dodge,
+    last_assistant_text,
+    strip_quoted,
+)
 
 _REPO_ROOT: Final = "d:/datrix"
 _STATE_DIR: Final = os.path.join(_REPO_ROOT, ".claude", "hooks", ".state")
@@ -97,22 +119,9 @@ _SOLICIT_RE: Final = re.compile(
 # Quoting the banned phrase is not committing it. An agent writing up the rule
 # ("never end on 'shall I continue?'") or citing the skill text must not trip the
 # guard — a rule that punishes its own documentation teaches agents not to
-# document it. Fenced blocks, inline code, and double/curly-quoted spans are
-# stripped before matching, so only the agent's own unquoted speech counts.
-# (This gate caught its own author doing exactly this on the turn it shipped.)
-_QUOTED_SPAN_RE: Final = re.compile(
-    r"```.*?```"  # fenced code
-    r"|`[^`\n]*`"  # inline code
-    r"|\"[^\"\n]*\""  # straight double quotes
-    r"|“[^”\n]*”",  # curly double quotes
-    re.DOTALL,
-)
-
-
-def _strip_quoted(text: str) -> str:
-    """Blank out quoted and code spans so cited phrases are not read as speech."""
-    return _QUOTED_SPAN_RE.sub(" ", text)
-
+# document it. `strip_quoted` blanks fenced blocks, inline code, and quoted spans
+# before matching, so only the agent's own unquoted speech counts. (This gate
+# caught its own author doing exactly this on the turn it shipped.)
 
 _BLOCKER_CODE_RE: Final = re.compile(
     r"\bB[1-4]\b\s*[:\-\u2014]?\s*"
@@ -143,35 +152,6 @@ def _save_state(path: str, state: dict[str, object]) -> None:
             json.dump(state, handle, indent=2)
     except OSError:
         pass
-
-
-def _last_assistant_text(transcript_path: str) -> str:
-    """Concatenated text of the final assistant message, or '' if unreadable."""
-    try:
-        with open(transcript_path, encoding="utf-8") as handle:
-            lines = handle.readlines()
-    except OSError:
-        return ""
-
-    for line in reversed(lines):
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if entry.get("type") != "assistant":
-            continue
-        content = entry.get("message", {}).get("content", [])
-        if isinstance(content, str):
-            return content
-        parts = [
-            block.get("text", "")
-            for block in content
-            if isinstance(block, dict) and block.get("type") == "text"
-        ]
-        text = "\n".join(parts).strip()
-        if text:
-            return text
-    return ""
 
 
 def _phase_snapshot(phase: int) -> dict[str, object] | None:
@@ -287,7 +267,7 @@ def main() -> None:
     session_id = data.get("session_id") or ""
     path = _state_path(session_id)
     state = _load_state(path)
-    text = _last_assistant_text(data.get("transcript_path", ""))
+    text = last_assistant_text(data.get("transcript_path", ""))
 
     if state.get("status") != "running":
         # Not an armed `/task-orchestrator` run — this also covers Jon's stop and an
@@ -303,12 +283,30 @@ def main() -> None:
         _save_state(path, state)
         sys.exit(0)
 
+    # Dodge detection runs BEFORE the disk check and independently of it: it needs
+    # no phase numbers, no status script, and no ledger. This is the half of the
+    # gate that was missing. `phase-status.ps1` can only see whether a TASK FILE
+    # moved to COMPLETED — it is blind to a turn that ends "I skipped the seam
+    # census, deploying now" while every task file sits untouched, which is exactly
+    # the shape a manual deployment run produces. Subagents have been held to this
+    # since check-agent-report.py shipped; the main loop was not, and so the one
+    # agent Jon actually talks to was the only one permitted to make excuses.
+    if text and not carries_proof(text):
+        dodge = find_dodge(text)
+        if dodge:
+            _block(
+                state,
+                path,
+                f'STOP REJECTED — you are ending the turn on a dodge: "{dodge}".\n\n'
+                + DODGE_REMEDY,
+            )
+
     phases = _target_phases(state)[:_MAX_PHASES_CHECKED]
 
     if not phases:
         # No phase numbers to verify against (a TASKS: invocation). Fall back to
         # refusing the one move that caused the original failure.
-        if text and _SOLICIT_RE.search(_strip_quoted(text)):
+        if text and _SOLICIT_RE.search(strip_quoted(text)):
             _block(
                 state,
                 path,

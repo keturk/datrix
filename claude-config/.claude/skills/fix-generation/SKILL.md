@@ -1,6 +1,6 @@
 ---
 description: Diagnose and fix code-generation failures from a generate-results log — one failing example at a time, in one language, verified by regenerating only that example before moving to the next
-model: claude-opus-4-8
+model: opus
 ---
 
 # Fix Generation

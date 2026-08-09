@@ -30,6 +30,8 @@ import json
 import re
 import sys
 
+from _command_shape import executable_text
+
 # Map script subfolder to its category quick-reference file
 _CATEGORY_MAP = {
     "test": "test/quick-reference.md",
@@ -97,7 +99,14 @@ def main() -> None:
     command = tool_input.get("command", "")
     description = tool_input.get("description", "")
 
-    normalized = command.replace("\\", "/").lower()
+    # Every check below asks "does this command invoke script X", and answered it
+    # by testing whether X's name appeared ANYWHERE in the text. That confuses
+    # naming a script with running one: `grep -n "Unit" datrix/scripts/test/test.ps1`
+    # was refused for lacking a quick-reference marker, blocking an agent from
+    # reading the source of the very script this hook guards. Read-only segments
+    # are dropped first, so only text that could actually execute is analysed. A
+    # real invocation chained alongside a read still survives and still blocks.
+    normalized = executable_text(command).replace("\\", "/").lower()
 
     # ── Hard bans (cannot be overridden by VERIFIED_AGAINST_QUICK_REFERENCE) ──
 

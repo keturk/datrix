@@ -156,6 +156,11 @@ the closure smaller.
 
 ## Repo gates (cheap, broad nets — use them instead of over-sweeping)
 
+Static scans (`dev/semgrep.ps1`, `dev/libcst.ps1`, `dev/check-import-boundaries.ps1`,
+`dev/check-debug-artifacts.ps1`, `dev/check-docs.ps1`) sit BELOW every tier above in cost and ABOVE
+them in speed — run the ones whose surface you touched before reaching for a suite, never after.
+Execution contract §12.5 holds the surface→check table.
+
 - **`reference-example-parity-gate.ps1`** (~4 min): byte-level manifest of ALL
   examples × all registered languages through the real pipeline. Run it whenever a
   codegen package, codegen-common, language, common, or `datrix/examples` changed.
@@ -183,3 +188,20 @@ the closure smaller.
 - Different packages' suites may run concurrently (each writes its own
   `.test_results/`; orchestrator gates fire them in one message and read the verdict
   via `gate-verdict.ps1`). Never launch overlapping runs of the SAME package.
+- **A suite is not the first rung — it is the fifth** (execution contract §12.1). Reading the source,
+  parsing the emitted artifact, and running one targeted test each settle a question faster and
+  earlier than any suite, and a generation or a deploy settles it slowest of all. Pick the highest
+  rung that can actually falsify the claim; a tier here is what you run once that rung is a suite.
+  For a producer/consumer seam (emitted keys vs. consumed keys), the sound check is a **set
+  difference computed in code** — a validator or a test — not a sweep that happens to go green.
+- **A verification you run twice for the same information is spend, not rigour**
+  (execution contract §11). Green does not decay because you edited an unrelated file,
+  so re-running a passing suite as punctuation buys nothing. Verify when your change
+  could plausibly affect the target — and prefer the narrowest form that settles it:
+  `-Specific` over `-Keyword` over a whole suite, and a unit test over a regeneration
+  whenever the emitted artifact is not itself the deliverable.
+- **A long run belongs in the background, and the harness tells you when it lands.**
+  Launch it with `run_in_background`, end the turn, resume on the notification. Never
+  hold a turn open with an `until … sleep` poll loop waiting on your own run — see
+  execution contract §11.1 for why that is both wasted spend and a guard being routed
+  around.

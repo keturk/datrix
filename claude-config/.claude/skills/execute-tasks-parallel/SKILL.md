@@ -1,6 +1,6 @@
 ---
 description: Execute multiple tasks in parallel — evaluate all tasks for blockers, then delegate each to a separate agent
-model: claude-sonnet-4-6
+model: sonnet
 disable-model-invocation: true
 delegation-strategy:
   phases:
@@ -9,11 +9,11 @@ delegation-strategy:
       parallelizable: false
       description: "Read all task files, validate dependencies, identify blockers"
     - name: "spawn_agents"
-      model: "claude-sonnet-4-6"
+      model: "sonnet"
       parallelizable: false
       description: "Spawn one agent per task to implement code changes and run targeted tests"
     - name: "verify_and_gate"
-      model: "claude-sonnet-4-6"
+      model: "sonnet"
       parallelizable: false
       description: "Run full suite once per package, attribute failures, fix loop, final validation"
 ---
@@ -232,7 +232,7 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
 ### Model Selection (per task — cheapest model that can do it correctly)
 
 - `model: "haiku"` — documentation-only tasks, AND trivial mechanical code tasks with no design judgment (pure renames, moving a named constant, single-import/single-symbol edits, mechanical signature propagation)
-- `model: "claude-sonnet-4-6"` — all substantive code tasks (default when in doubt — doubt means Sonnet, not Haiku)
+- `model: "sonnet"` — all substantive code tasks (default when in doubt — doubt means Sonnet, not Haiku)
 - `model: "opus"` — only a genuinely hard/cross-cutting implementation (rare in a parallel batch)
 
 ### Output Format

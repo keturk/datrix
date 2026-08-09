@@ -1,0 +1,28 @@
+{
+  "name": "general",
+  "_comment": "Applies to every session. Deliberately tiny: each item catches a CLAIM made with no corresponding ACT in the same session, which is mechanically provable and near-impossible to false-positive. Costs zero tokens unless one fails. Do not add advice here - advice cannot be evaluated, so it belongs in a doc read on demand.",
+  "applies_to": { "always": true },
+  "items": [
+    {
+      "id": "tests-claimed-but-never-run",
+      "type": "command_ran",
+      "only_if_reply": "(?i)\\b(tests?|suite|pytest)\\b[^.\\n]{0,40}\\b(pass(ed|ing)?|green|clean|succeed(ed)?)\\b",
+      "pattern": "(?i)test(-single)?\\.ps1|pytest|run-tests|test-[\\w-]+\\.py",
+      "fix": "You reported tests passing but no test command ran in this session. Run the targeted tests and quote the real output, or delete the claim."
+    },
+    {
+      "id": "deploy-claimed-but-never-run",
+      "type": "command_ran",
+      "only_if_reply": "(?i)\\b(deployed|deployment (succeeded|completed)|rolled out|is live)\\b",
+      "pattern": "(?i)deploy[\\w-]*\\.ps1|az\\s+(deployment|webapp|functionapp|containerapp)|kubectl\\s+apply|terraform\\s+apply",
+      "fix": "You reported a deployment but no deploy command ran in this session. Say what actually happened."
+    },
+    {
+      "id": "generation-claimed-but-never-run",
+      "type": "command_ran",
+      "only_if_reply": "(?i)\\b(regenerated|generation (succeeded|passed|is clean))\\b",
+      "pattern": "(?i)generate\\.ps1|datrix(\\.exe)?\\s+generate",
+      "fix": "You reported regenerating a project but no generate command ran in this session."
+    }
+  ]
+}

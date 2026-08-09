@@ -24,6 +24,8 @@ Two resources are scarce and both are yours to protect: **Opus tokens** (never s
 - **Verify the shared set centrally, once, after the wave** — never by putting a "also regenerate/re-run these others" list into every agent's acceptance criteria. That duplicates one check by the number of agents.
 - **Read the token usage on every completion and react.** An agent returning no usable report after a large spend means you mis-sized it: shrink the next dispatch, never re-issue the same shape at the same size. Two such returns means your sizing model is wrong.
 - **Cap wave width to genuinely independent work.** Parallel agents buy wall-clock, which is rarely the binding constraint; seven where two would do costs 3.5× for a marginally earlier result.
+- **Your own tool calls are spend too** (execution-contract §11, which binds here). Do not re-read a file you just wrote, re-run a passing gate as punctuation, or regenerate a project to confirm something a targeted test settles in seconds. Ask the cheapest question that distinguishes the answers — then read what came back.
+- **Wait by notification, never by polling.** A backgrounded agent, gate, or suite notifies you when it lands: launch it, end the turn, resume on the notification. **Never** hold a turn open with an `until … sleep` loop — each poll is a call plus a result, and a long loop can exceed the tool timeout and get backgrounded itself. **"Same turn" below means "without asking Jon for permission to continue" — it does NOT mean "without yielding control between tool calls."** Resuming on a notification is not a hand-back and never was; conflating the two is what produces polling loops, and it costs budget for information the harness was about to hand you for free.
 
 Because you ARE Opus at extra-high effort, the old "escalate up to a more-capable agent" step collapses: you do the architectural analysis **in-context** (you already hold the failure context), then dispatch a subagent to implement your decision. See the reframed **Decision Escalation Protocol** below. Delegation is never abdication — you verify every returned result with a command you run (or delegate the run and read the result), and a subagent's self-report never substitutes for the design-acceptance evidence you paste into the gate.
 
@@ -426,7 +428,7 @@ A re-spawn (NEEDS_CONTEXT answered, or escalation recommendation ready) goes bac
 
 **Model tiering (per task):**
 - `"haiku"` — **documentation-only** tasks, **and** trivial mechanical code tasks where the change is unambiguous and self-contained: pure renames, moving/extracting a named constant, a single-import or single-symbol edit, mechanical signature propagation. Only when you are confident the task carries no design judgment.
-- `"claude-sonnet-4-6"` — all substantive code tasks (default for anything touching logic, new files, multi-file edits, or anything you are not certain is trivial). When in doubt, use Sonnet, not Haiku.
+- `"sonnet"` — all substantive code tasks (default for anything touching logic, new files, multi-file edits, or anything you are not certain is trivial). When in doubt, use Sonnet, not Haiku.
 - `"opus"` — the top **implementer** tier, spawned only for **hard/cross-cutting execution** (a subtle root cause, an implementation needing strong reasoning). Orchestration judgment (attribution, fix-scope, conformance, escalation analysis) is **never** delegated — it stays in YOUR context; you are the Opus orchestrator at extra-high effort, and only implementers are ever spawned to type.
 
 **Co-dispatch — one agent, several small tasks (the execution half of 1f).** A dispatch costs 100k–800k tokens, most of it spent *before the first edit*: reading the shared context, the task file, and the surrounding code. Two small tasks on the same surface pay that startup twice for one body of reading. Batch several tasks into **one** agent when ALL hold:
@@ -844,7 +846,7 @@ Reading the minimum code needed to decide correctly is a legitimate use of your 
 ```
 Agent tool parameters:
   subagent_type: "general-purpose"
-  model: "claude-sonnet-4-6"   # or "opus" for a hard change
+  model: "sonnet"   # or "opus" for a hard change
   run_in_background: true
   description: "Directed fix: {task_id}"
 ```

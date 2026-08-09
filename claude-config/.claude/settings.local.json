@@ -76,7 +76,11 @@
       "PowerShell(& \"d:\\\\datrix\\\\datrix\\\\scripts\\\\test\\\\mypy.ps1\" datrix-cli)",
       "PowerShell(D:\\\\datrix\\\\datrix\\\\scripts\\\\test\\\\test.ps1 datrix-codegen-python 2>&1)",
       "PowerShell(Get-CimInstance Win32_Process -Filter \"Name='python.exe'\")",
-      "PowerShell(powershell -File \"d:/datrix/datrix/scripts/tasks/validate-dependencies.ps1\" -Phase 49)"
+      "PowerShell(powershell -File \"d:/datrix/datrix/scripts/tasks/validate-dependencies.ps1\" -Phase 49)",
+      "PowerShell(D:\\\\datrix\\\\datrix\\\\scripts\\\\test\\\\test.ps1 datrix-common -Specific \"tests/unit/semantic/validators,tests/unit/testing\")",
+      "PowerShell(D:\\\\datrix\\\\datrix\\\\scripts\\\\test\\\\test.ps1 datrix-codegen-java -Specific \"tests/unit/testkit/test_kit_ci.py\")",
+      "PowerShell(D:\\\\datrix\\\\datrix\\\\scripts\\\\test\\\\test.ps1 datrix-codegen-python -Specific \"tests/unit/testkit/test_adapter_conformance_gates.py\")",
+      "PowerShell(D:\\\\datrix\\\\datrix\\\\scripts\\\\test\\\\test.ps1 datrix-language -Specific \"tests/unit/transformers/test_god_transformer_dissolution.py\")"
     ],
     "additionalDirectories": [
       "d:\\datrix\\$repo\\tests",

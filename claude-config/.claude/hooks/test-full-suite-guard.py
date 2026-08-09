@@ -194,6 +194,77 @@ _CASES: tuple[tuple[str, str, dict | None, bool, str], ...] = (
         False,
         "not a test invocation at all",
     ),
+    # ---- reading the runner is not running it ----
+    #
+    # This family shipped as a live over-block: `grep -nE "Unit|-m " .../test.ps1`
+    # names the script and a tier flag, and was refused as a whole-suite run --
+    # with a package list of `<unnamed>, <unnamed>`, the parse reporting that it
+    # had matched nothing. A guard that stops an agent reading the source of the
+    # thing it guards is worse than the sweep it prevents.
+    (
+        'grep -nE "Unit|marker|-m " datrix/scripts/test/test.ps1',
+        _AGENT,
+        None,
+        False,
+        "grep OVER test.ps1 is a read, not a run",
+    ),
+    (
+        'rg -n "\\-Unit" d:/datrix/datrix/scripts/test/test.ps1',
+        "",
+        None,
+        False,
+        "ripgrep over the runner",
+    ),
+    (
+        'Select-String -Path "d:/datrix/datrix/scripts/test/test.ps1" -Pattern "Unit"',
+        _AGENT,
+        None,
+        False,
+        "Select-String over the runner",
+    ),
+    (
+        'Get-Content d:/datrix/datrix/scripts/test/test.ps1 | Select-Object -First 40',
+        "",
+        None,
+        False,
+        "Get-Content over the runner",
+    ),
+    (
+        "cat datrix/scripts/test/test.ps1 | grep -n Unit",
+        _AGENT,
+        None,
+        False,
+        "cat piped to grep",
+    ),
+    (
+        "head -50 datrix/scripts/test/test.ps1",
+        "",
+        None,
+        False,
+        "head over the runner",
+    ),
+    # ...but a read in one segment must not launder a real run in another.
+    (
+        f"grep -n Unit datrix/scripts/test/test.ps1; {_TEST} datrix-common",
+        _AGENT,
+        None,
+        True,
+        "read chained BEFORE a real bare full-suite run still blocks",
+    ),
+    (
+        f"{_TEST} datrix-common; grep -n Unit datrix/scripts/test/test.ps1",
+        _AGENT,
+        None,
+        True,
+        "read chained AFTER a real bare full-suite run still blocks",
+    ),
+    (
+        f'{_TEST} datrix-common 2>&1 | Select-Object -Last 30',
+        _AGENT,
+        None,
+        True,
+        "piping a real run's output to a read tool still blocks",
+    ),
 )
 
 

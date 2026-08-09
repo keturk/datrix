@@ -1,5 +1,5 @@
 ---
-model: claude-sonnet-4-6
+model: sonnet
 ---
 
 # Evaluate Generated Code Skill (Quick Mode)

@@ -1,5 +1,5 @@
 ---
-model: claude-opus-4-8
+model: opus
 ---
 
 # Troubleshoot Generated Code Skill

@@ -57,6 +57,8 @@ import sys
 import time
 from typing import Final
 
+from _command_shape import is_read_only, segments
+
 _SCRATCH_DIR: Final = "d:/datrix/.tmp"
 _TICKET_PATH: Final = f"{_SCRATCH_DIR}/full-suite-ticket.json"
 _AUDIT_PATH: Final = f"{_SCRATCH_DIR}/full-suite-audit.jsonl"
@@ -81,16 +83,25 @@ _PACKAGE_RE: Final = re.compile(r"datrix(?:-[a-z0-9]+)*\Z")
 
 
 def _invocation_tails(command: str) -> list[str]:
-    """One argument tail per `test.ps1` occurrence in the command.
+    """One argument tail per `test.ps1` INVOCATION in the command.
 
-    Segmenting matters: `test.ps1 A; test.ps1 B -Specific x` must not let B's
-    narrowing flag vouch for A's bare full-suite run.
+    Segment-wise, so that `test.ps1 A; test.ps1 B -Specific x` cannot let B's
+    narrowing flag vouch for A's bare full-suite run — and so that occurrences
+    inside a read-only inspection are skipped. `grep -n "-Unit" .../test.ps1`
+    names the script and a tier flag but runs nothing; it was refused as a whole
+    suite, reporting `<unnamed>, <unnamed>` packages. A guard that stops an agent
+    reading the source of the thing it guards is pure over-block. The shared
+    helpers keep this identical to the same fix in validate-script-invocation.py.
     """
-    starts = [m.end() for m in _TEST_SCRIPT_RE.finditer(command)]
-    if not starts:
-        return []
-    bounds = [m.start() for m in _TEST_SCRIPT_RE.finditer(command)][1:] + [len(command)]
-    return [command[start:end] for start, end in zip(starts, bounds)]
+    tails: list[str] = []
+    for segment in segments(command):
+        matches = list(_TEST_SCRIPT_RE.finditer(segment))
+        if not matches or is_read_only(segment):
+            continue
+        starts = [m.end() for m in matches]
+        bounds = [m.start() for m in matches][1:] + [len(segment)]
+        tails.extend(segment[start:end] for start, end in zip(starts, bounds))
+    return tails
 
 
 def _is_targeted(tail: str) -> bool:

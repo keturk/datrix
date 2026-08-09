@@ -1,6 +1,6 @@
 ---
 description: Execute implementation tasks from task files — read, implement, verify, mark complete
-model: claude-sonnet-4-6
+model: sonnet
 disable-model-invocation: true
 delegation-strategy:
   phases:
@@ -9,16 +9,16 @@ delegation-strategy:
       parallelizable: false
       description: "Read task files, validate dependencies, identify quality gates"
     - name: "implement"
-      model: "claude-sonnet-4-6"
+      model: "sonnet"
       parallelizable: false
       description: "Apply code changes per task specification"
     - name: "verify"
-      model: "claude-sonnet-4-6"
+      model: "sonnet"
       parallelizable: true
       max_parallel: 5
       description: "Run targeted tests, fix all failures"
     - name: "quality_gate"
-      model: "claude-sonnet-4-6"
+      model: "sonnet"
       parallelizable: false
       description: "Run full suite directly (one per affected package) for final validation"
 ---
