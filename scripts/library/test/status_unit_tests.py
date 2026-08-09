@@ -23,6 +23,7 @@ if str(_status_script_dir) not in sys.path:
     sys.path.insert(0, str(_status_script_dir))
 from test_result_walk import (  # noqa: E402
     iter_dot_test_results_dirs,
+    resolve_language_root,
     resolve_unit_test_summary_log,
 )
 
@@ -306,16 +307,33 @@ def main():
         default=None,
         help="Root directory to search (default: current working directory)",
     )
+    parser.add_argument(
+        "--language",
+        type=str,
+        default=None,
+        help=(
+            "Report only on results for this language, i.e. the <root>/<language> "
+            "subtree (default: every language present under --root)"
+        ),
+    )
     parser.add_argument("--debug", action="store_true", help="Enable debug output")
     args = parser.parse_args()
 
     root_dir = args.root.resolve() if args.root else Path.cwd()
 
-    print(f"Searching for test results in: {root_dir}")
+    search_root = root_dir
+    if args.language:
+        try:
+            search_root = resolve_language_root(root_dir, args.language)
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+    print(f"Searching for test results in: {search_root}")
     print()
 
     # Find all test results
-    results = find_all_test_results(root_dir)
+    results = find_all_test_results(search_root)
 
     # Sort results by project path for consistent output
     results.sort(key=lambda x: x.project_path)

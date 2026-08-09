@@ -4,6 +4,8 @@
 [CmdletBinding()]
 param(
  [string]$Report,
+ [Alias("L")]
+ [string]$Language,
  [switch]$Dbg
 )
 
@@ -57,6 +59,11 @@ try {
  $pythonArgs = @($PythonScript, "--root", $defaultRoot, "--detail")
  if ($Report) {
  $pythonArgs += @("--report", $Report)
+ }
+ if (-not [string]::IsNullOrWhiteSpace($Language)) {
+ # Restrict the report to <.generated>\<language>. The Python script validates the
+ # name against the language directories actually present, never a hardcoded list.
+ $pythonArgs += @("--language", $Language)
  }
  if ($Dbg) {
  $pythonArgs += "--debug"

@@ -26,7 +26,10 @@ if library_dir.exists() and str(library_dir) not in sys.path:
 _status_script_dir = Path(__file__).resolve().parent
 if str(_status_script_dir) not in sys.path:
     sys.path.insert(0, str(_status_script_dir))
-from test_result_walk import iter_dot_test_results_dirs  # noqa: E402
+from test_result_walk import (  # noqa: E402
+    iter_dot_test_results_dirs,
+    resolve_language_root,
+)
 
 
 # ANSI color codes
@@ -657,7 +660,11 @@ def print_results(results: list[TestResult], *, detail: bool = False,
 # Markdown report generation
 # ---------------------------------------------------------------------------
 
-def generate_markdown_report(results: list[TestResult], root_dir: Path) -> str:
+def generate_markdown_report(
+    results: list[TestResult],
+    root_dir: Path,
+    language: str | None = None,
+) -> str:
     """Generate a Markdown report string from test results."""
     lines: list[str] = []
     w = lines.append
@@ -666,6 +673,9 @@ def generate_markdown_report(results: list[TestResult], root_dir: Path) -> str:
     w("")
     w(f"**Source:** `{root_dir}`")
     w("")
+    if language:
+        w(f"**Language filter:** `{language}`")
+        w("")
 
     # Compute grand totals from XML
     grand_spec = _CategoryTotals()
@@ -870,6 +880,15 @@ def main() -> None:
         default=None,
         help="Write a Markdown report to the given file path",
     )
+    parser.add_argument(
+        "--language",
+        type=str,
+        default=None,
+        help=(
+            "Report only on results for this language, i.e. the <root>/<language> "
+            "subtree (default: every language present under --root)"
+        ),
+    )
     parser.add_argument("--debug", action="store_true", help="Enable debug output")
     args = parser.parse_args()
 
@@ -877,11 +896,19 @@ def main() -> None:
     # When --report is requested, always parse XML detail
     want_detail = args.detail or args.report is not None
 
-    print(f"Searching for deployment test results in: {root_dir}")
+    search_root = root_dir
+    if args.language:
+        try:
+            search_root = resolve_language_root(root_dir, args.language)
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+    print(f"Searching for deployment test results in: {search_root}")
     print()
 
     # Find all test results
-    results = find_all_test_results(root_dir, detail=want_detail)
+    results = find_all_test_results(search_root, detail=want_detail)
 
     # Sort results by project path for consistent output
     results.sort(key=lambda x: x.project_path)
@@ -892,7 +919,7 @@ def main() -> None:
     # Write markdown report if requested
     if args.report is not None:
         report_path: Path = args.report.resolve()
-        report_content = generate_markdown_report(results, root_dir)
+        report_content = generate_markdown_report(results, root_dir, args.language)
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(report_content, encoding='utf-8')
         print()

@@ -177,9 +177,14 @@ Reports deployment test results from `.generated/` tree.
 | Mode | Command |
 |------|---------|
 | **Show status** | `.\test\status-deploy-tests.ps1` |
+| **One language only** | `.\test\status-deploy-tests.ps1 -L java` |
+| **Markdown report** | `.\test\status-deploy-tests.ps1 -Report <path>` |
 | **With debug** | `.\test\status-deploy-tests.ps1 -Dbg` |
 
-**Parameters:** `-Dbg`
+**Parameters:** `-Report <path>`, `-Language` / `-L <lang>`, `-Dbg`
+
+`-Language` restricts the report to `.generated\<language>` (any language directory
+present in the tree). Omit it to report on every language.
 
 ### `test\status-unit-tests.ps1`
 
@@ -188,9 +193,13 @@ Reports run test results from `.generated/` tree.
 | Mode | Command |
 |------|---------|
 | **Show status** | `.\test\status-unit-tests.ps1` |
+| **One language only** | `.\test\status-unit-tests.ps1 -L python` |
 | **With debug** | `.\test\status-unit-tests.ps1 -Dbg` |
 
-**Parameters:** `-Dbg`
+**Parameters:** `-Language` / `-L <lang>`, `-Dbg`
+
+`-Language` restricts the report to `.generated\<language>` (any language directory
+present in the tree). Omit it to report on every language.
 
 ---
 
