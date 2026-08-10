@@ -1362,13 +1362,21 @@ Traceback:
 </testsuites>
 """
 
+# Jest's CLI writes each spec file as a "testResults" entry keyed by "name",
+# with its assertions under "assertionResults" -- the shape below is copied from
+# a real `jest --json --outputFile` report. The writer once read "testFilePath"
+# with a nested "testResults" list (Jest's in-process object, never written to
+# disk), which found zero assertions in every real report and indexed every
+# TypeScript service as PASSED. These fixtures are the guard on that shape.
 _GTLW_JEST_PASSING: dict[str, object] = {
     "numTotalTests": 2,
+    "numPassedTests": 2,
     "testResults": [
         {
-            "testFilePath": "/app/tests/unit/user.service.spec.ts",
+            "name": "/app/tests/unit/user.service.spec.ts",
             "status": "passed",
-            "testResults": [
+            "message": "",
+            "assertionResults": [
                 {"title": "should create user", "status": "passed", "fullName": "UserService should create user"},
                 {"title": "should get user", "status": "passed", "fullName": "UserService should get user"},
             ],
@@ -1378,11 +1386,14 @@ _GTLW_JEST_PASSING: dict[str, object] = {
 
 _GTLW_JEST_FAILURES: dict[str, object] = {
     "numTotalTests": 3,
+    "numPassedTests": 1,
+    "numFailedTests": 2,
     "testResults": [
         {
-            "testFilePath": "/app/tests/unit/user.service.spec.ts",
+            "name": "/app/tests/unit/user.service.spec.ts",
             "status": "failed",
-            "testResults": [
+            "message": "  ● UserService › should validate email\n\n    TypeError: Cannot read property 'email' of undefined\n",
+            "assertionResults": [
                 {"title": "should create user", "status": "passed", "fullName": "UserService should create user"},
                 {
                     "title": "should validate email",
@@ -1403,15 +1414,36 @@ _GTLW_JEST_FAILURES: dict[str, object] = {
 
 _GTLW_JEST_SUITE_FAILURE: dict[str, object] = {
     "numTotalTests": 0,
+    "numRuntimeErrorTestSuites": 1,
     "testResults": [
         {
-            "testFilePath": "/app/tests/unit/user.service.spec.ts",
+            "name": "/app/tests/unit/user.service.spec.ts",
             "status": "failed",
-            "testExecError": {
-                "message": "Cannot find module 'express'",
-                "stack": "Error: Cannot find module 'express'",
-            },
-            "testResults": [],
+            "message": (
+                "  ● Test suite failed to run\n\n"
+                "    Cannot find module 'express' from 'tests/unit/user.service.spec.ts'\n"
+            ),
+            "assertionResults": [],
+        }
+    ],
+}
+
+#: A spec file Jest ran to completion with a mix of outcomes: skipped assertions
+#: must not be counted as passed, and a suite whose own status is "failed"
+#: because an assertion failed must NOT also be booked as a suite failure.
+_GTLW_JEST_MIXED: dict[str, object] = {
+    "numTotalTests": 3,
+    "testResults": [
+        {
+            "name": "/app/tests/unit/order.service.spec.ts",
+            "status": "failed",
+            "message": "  ● OrderService › should total\n\n    Error: boom\n",
+            "assertionResults": [
+                {"title": "should total", "status": "failed", "fullName": "OrderService should total",
+                 "failureMessages": ["Error: boom"]},
+                {"title": "should discount", "status": "pending", "fullName": "OrderService should discount"},
+                {"title": "should ship", "status": "passed", "fullName": "OrderService should ship"},
+            ],
         }
     ],
 }
@@ -1473,9 +1505,10 @@ def check_generated_test_log_junit_xml_parsing() -> None:
 
 
 def check_generated_test_log_jest_json_parsing() -> None:
-    """Jest JSON parsing: passing/failure counts, and a suite-execution error
-    (testExecError) is recorded as a SuiteFailure with the service-level
-    suite_failure_message populated."""
+    """Jest CLI --json parsing: passing/failure counts come off assertionResults,
+    a spec file that never ran is recorded as a SuiteFailure with the
+    service-level suite_failure_message populated, and a suite that failed
+    because an assertion failed is NOT double-booked as a suite failure."""
     with TemporaryDirectory(prefix="gtlw-jest-") as tmp:
         root = Path(tmp)
         log_path = root / "svc.log"
@@ -1500,6 +1533,28 @@ def check_generated_test_log_jest_json_parsing() -> None:
         index_fail = json.loads(writer_fail.write(duration_seconds=1.0).read_text(encoding="utf-8"))
         assert index_fail["result"] == "FAILED"
         assert index_fail["counts"]["failed"] == 2 and index_fail["counts"]["passed"] == 1
+        assert index_fail["counts"]["suite_failures"] == 0, (
+            "a suite marked failed by its own failing assertions is not a suite failure"
+        )
+        assert len(index_fail["failures"]) == 2
+        assert index_fail["failures"][0]["error_type"] == "TypeError"
+        assert index_fail["failures"][0]["test_name"] == "should validate email"
+
+        run_mixed = root / "run-mixed"
+        run_mixed.mkdir()
+        json_mixed = root / "mixed.json"
+        json_mixed.write_text(json.dumps(_GTLW_JEST_MIXED), encoding="utf-8")
+        writer_mixed = _make_generated_test_log_writer(run_mixed, language="typescript")
+        writer_mixed.add_service_jest_json("order_service", json_mixed, log_path)
+        index_mixed = json.loads(writer_mixed.write(duration_seconds=1.0).read_text(encoding="utf-8"))
+        assert index_mixed["result"] == "FAILED"
+        assert index_mixed["counts"] == {
+            "passed": 1,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 1,
+            "suite_failures": 0,
+        }, index_mixed["counts"]
 
         run_suite = root / "run-suite"
         run_suite.mkdir()
@@ -1512,7 +1567,9 @@ def check_generated_test_log_jest_json_parsing() -> None:
         assert index_suite["counts"]["suite_failures"] == 1
         assert index_suite["errors"][0]["error_type"] == "SuiteFailure"
         assert "Cannot find module" in index_suite["errors"][0]["error_message"]
-        assert index_suite["services"][0]["suite_failure_message"] == "Cannot find module 'express'"
+        assert index_suite["services"][0]["suite_failure_message"] == (
+            "Cannot find module 'express' from 'tests/unit/user.service.spec.ts'"
+        ), "the banner line is skipped in favour of the line naming the cause"
 
 
 def check_generated_test_log_error_clustering_and_services_affected() -> None:
@@ -2636,6 +2693,154 @@ def check_deploy_test_log_index_summary_schema() -> None:
         assert index_pass["failure_clusters"] == [] and index_pass["error_clusters"] == []
 
 
+def check_deploy_test_log_failures_json_envelope_is_read() -> None:
+    """``failures.json`` is an ENVELOPE, and only its ``failures`` entries decide
+    whether the test phase failed.
+
+    The generated runners write ``{"project", "generatedAt", "failures": [...],
+    "summary": {...}}`` on every run, passing ones included. A reader that tests
+    the envelope's own truthiness marks every run FAILED; one that expects a bare
+    list never sees an entry at all. Both directions are asserted here: a green
+    run with an empty ``failures`` list must come out PASSED, and a run with one
+    entry must be FAILED with that entry's own recorded classification carried
+    through.
+    """
+    with TemporaryDirectory(prefix="dtlw-envelope-") as tmp:
+        root = Path(tmp)
+
+        run_green = _new_deploy_run_dir(root, "green")
+        _populate_all_passing_dir(run_green)
+        (run_green / "failures.json").write_text(
+            json.dumps(
+                {
+                    "project": str(root),
+                    "generatedAt": "2026-08-09T17:37:19",
+                    "failures": [],
+                    "summary": {"total": 0, "logic": 0, "transient": 0},
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        writer_green = _make_deploy_writer(run_green, root, project_name="green")
+        index_green = json.loads(
+            writer_green.write(timestamp=_TIMESTAMP).read_text(encoding="utf-8")
+        )
+        assert index_green["result"] == "PASSED", index_green["result"]
+        assert index_green["failed_phase"] is None, index_green["failed_phase"]
+        assert (
+            index_green["phases"]["integration-tests"]["result"] == "PASSED"
+        ), index_green["phases"]
+
+        run_red = _new_deploy_run_dir(root, "red")
+        _populate_test_failure_dir(run_red)
+        (run_red / "failures.json").write_text(
+            json.dumps(
+                {
+                    "project": str(root),
+                    "generatedAt": "2026-08-09T17:37:19",
+                    "failures": [
+                        {
+                            "service": "integration-library_book_service-project",
+                            "testFilePath": "test_book_repository.TestBookRepo",
+                            "fullName": "test_book_repository.TestBookRepo::test_update",
+                            "message": "ConnectionResetError: Connection aborted.",
+                            "failureType": "transient",
+                        }
+                    ],
+                    "summary": {"total": 1, "logic": 0, "transient": 1},
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        writer_red = _make_deploy_writer(run_red, root, project_name="red")
+        index_red = json.loads(
+            writer_red.write(timestamp=_TIMESTAMP).read_text(encoding="utf-8")
+        )
+        assert index_red["result"] == "FAILED", index_red["result"]
+        assert index_red["failed_phase"] == "integration-tests", index_red["failed_phase"]
+        classified = {
+            f["test_id"]: f["failure_type"] for f in index_red["failures"]
+        }
+        assert (
+            classified.get("test_book_repository.TestBookRepo::test_update")
+            == "transient"
+        ), classified
+
+
+def check_deploy_test_log_service_counts_come_from_suite_totals() -> None:
+    """Per-service counts are the runner's own suite totals, not a tally of the
+    failure list: a partly-green run reports its real ``passed``, and a JUnit
+    ``<error>`` case lands in ``errors`` rather than being folded into ``failed``.
+
+    Adversarial by construction -- the failure list holds failing cases only, so
+    a writer that counted it would report ``passed: 0`` here and collapse the
+    error case into ``failed``. Both are asserted against the suite attributes.
+    """
+    with TemporaryDirectory(prefix="dtlw-counts-") as tmp:
+        root = Path(tmp)
+
+        # 19 tests, 2 of them failing -> 17 passed, and the writer must say so.
+        run_mixed = _new_deploy_run_dir(root, "mixed")
+        _populate_test_failure_dir(run_mixed)
+        writer_mixed = _make_deploy_writer(
+            run_mixed, root, project_name="01-foundation", example="01-foundation"
+        )
+        index_mixed = json.loads(
+            writer_mixed.write(timestamp=_TIMESTAMP).read_text(encoding="utf-8")
+        )
+        services_mixed = index_mixed["services"]
+        assert len(services_mixed) == 1, services_mixed
+        counts_mixed = services_mixed[0]["counts"]
+        assert counts_mixed["passed"] == 17, counts_mixed
+        assert counts_mixed["failed"] == 2, counts_mixed
+        assert counts_mixed["errors"] == 0, counts_mixed
+
+        # A suite carrying both a failure and a collection error must keep them
+        # in separate buckets; skipped is subtracted from passed.
+        run_errors = _new_deploy_run_dir(root, "with-errors")
+        (run_errors / "deploy-test-output.log").write_text(
+            "=== Docker Build ===\nSuccessfully built\n"
+            "=== Docker Up ===\nAll services healthy\n"
+            "=== Health Check ===\nAll services responding\n"
+            "=== DB Connectivity ===\nAll databases connected\n"
+            "=== Spec Tests ===\n3 passed\n"
+            "=== Integration Tests ===\n6 passed, 1 failed, 2 errors\n",
+            encoding="utf-8",
+        )
+        (run_errors / "pytest-integration-my_service-service.xml").write_text(
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            "<testsuites>"
+            '<testsuite name="integration" tests="10" failures="1" errors="2" skipped="1">\n'
+            '  <testcase classname="test_svc.TestSvc" name="test_bad" time="0.1">\n'
+            '    <failure type="AssertionError" message="assert 1 == 2">'
+            "tests/test_svc.py:9: AssertionError"
+            "</failure>\n"
+            "  </testcase>\n"
+            '  <testcase classname="test_svc.TestSvc" name="test_setup_blows_up" time="0.1">\n'
+            '    <error type="AttributeError" message="NoneType has no attribute x">'
+            "tests/test_svc.py:3: AttributeError"
+            "</error>\n"
+            "  </testcase>\n"
+            "</testsuite></testsuites>\n",
+            encoding="utf-8",
+        )
+        writer_errors = _make_deploy_writer(
+            run_errors, root, project_name="queue", example="02-features/03-infrastructure-blocks/queue"
+        )
+        index_errors = json.loads(
+            writer_errors.write(timestamp=_TIMESTAMP).read_text(encoding="utf-8")
+        )
+        counts_errors = index_errors["services"][0]["counts"]
+        assert counts_errors["passed"] == 6, counts_errors
+        assert counts_errors["failed"] == 1, counts_errors
+        assert counts_errors["errors"] == 2, counts_errors
+        assert counts_errors["skipped"] == 1, counts_errors
+        # Both the failure and the error case still appear in the detail list.
+        assert len(index_errors["failures"]) == 2, index_errors["failures"]
+
+
 def check_deploy_test_log_services_copy_and_corrupt_input_handling() -> None:
     """JUnit XML for a service is COPIED (not moved) into
     services/{name}/integration/; corrupt failures.json and corrupt JUnit XML
@@ -2865,6 +3070,8 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_deploy_test_log_transient_vs_logic_classification,
     check_deploy_test_log_clustering,
     check_deploy_test_log_index_summary_schema,
+    check_deploy_test_log_failures_json_envelope_is_read,
+    check_deploy_test_log_service_counts_come_from_suite_totals,
     check_deploy_test_log_services_copy_and_corrupt_input_handling,
     # shared.logging_utils (3 classes only -- see module docstring)
     check_logging_utils_write_content_appears_in_full_log,

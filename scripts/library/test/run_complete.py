@@ -45,13 +45,13 @@ if library_dir.exists() and str(library_dir) not in sys.path:
     sys.path.insert(0, str(library_dir))
 
 from shared.aggregate_test_writer import AggregateTestWriter  # noqa: E402
-from shared.registered_targets import registered_language_names  # noqa: E402
 from shared.deploy_test_aggregate_writer import DeployTestAggregateWriter  # noqa: E402
 from shared.deploy_test_log_writer import DeployTestLogWriter  # noqa: E402
 from shared.generated_test_log_writer import GeneratedTestLogWriter  # noqa: E402
 from shared.logging_utils import ColorCodes, colorize  # noqa: E402
 from shared.ollama_utils import OLLAMA_DEFAULT_URL  # noqa: E402
 from shared.ollama_utils import call_ollama as _call_ollama  # noqa: E402
+from shared.registered_targets import registered_language_names  # noqa: E402
 from shared.test_projects import (  # noqa: E402
     get_default_output_path,
     get_test_projects,
@@ -1626,6 +1626,186 @@ def _write_ts_unit_unit_tests_summary_log(
     summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+#: Layout every generated project follows under ``.generated``:
+#: ``{language}/{runtime}/{provider}/{category}/.../{example}``. The first three
+#: segments name the TARGET; every segment after them names the example, and that
+#: suffix is what maps back to ``datrix/examples/{example}/system.dtrx``.
+_GENERATED_TARGET_SEGMENTS = 3
+
+
+def _derive_generated_project_metadata(project: Path) -> tuple[str, str, str]:
+    """Return ``(project_name, example, dtrx_source)`` for a generated project.
+
+    The example is the LONGEST trailing run of *project*'s own path segments that
+    names a real ``datrix/examples/{example}/system.dtrx`` -- resolved against the
+    file that must exist, never counted off positionally from a caller-supplied
+    base. Two defects follow from the positional form and both are closed here:
+
+    * Single-project mode deliberately passes the project's own parent as
+      ``generated_base`` so ``relative_to`` yields just the leaf name for display.
+      Slicing the example off that collapsed path wrote
+      ``datrix/examples/serverless/system.dtrx`` -- which does not exist -- for a
+      project whose real source is
+      ``datrix/examples/02-features/02-service-architecture/serverless``. One
+      parameter cannot serve both the display name and the source lookup, so the
+      lookup no longer reads it.
+    * A fixed ``{language}/{runtime}/{provider}`` prefix count only holds under
+      ``.generated``. ``generate.ps1 -OutputBase`` is a documented, supported flow,
+      and a project generated elsewhere is not a tooling error -- it simply has a
+      different number of leading segments. Matching from the tail makes the prefix
+      length irrelevant.
+
+    Longest-first is what makes the match the most specific one: a nested example
+    is preferred over any shorter suffix that happens to also resolve.
+
+    Raises:
+        ValueError: If no trailing run of segments names a real ``system.dtrx``.
+            This stays loud rather than degrading to a guess: ``dtrx_source`` is
+            copied verbatim into the ``--- Codegen Hint ---`` block of every error
+            file, and a wrong pointer written silently is a wrong pointer that gets
+            believed.
+    """
+    datrix_root = get_paths()["datrix_root"]
+    examples_root = datrix_root / "datrix" / "examples"
+    parts = project.resolve().parts
+
+    for start in range(len(parts)):
+        candidate = "/".join(parts[start:])
+        if (examples_root / candidate / "system.dtrx").is_file():
+            example = candidate
+            # Re-attach the target segments that precede the example
+            # (``{language}/{runtime}/{provider}``) so the display name is the
+            # project's full identity under its output base, identical in
+            # single-project and batch mode.
+            name_start = max(0, start - _GENERATED_TARGET_SEGMENTS)
+            return "/".join(parts[name_start:]), example, f"datrix/examples/{example}/system.dtrx"
+
+    raise ValueError(
+        f"Cannot derive the example for generated project {project}: no trailing run "
+        f"of its path segments names an existing {examples_root}/{{example}}/system.dtrx. "
+        f"Expected the project to be generated at "
+        f"{{output-base}}/{{language}}/{{runtime}}/{{provider}}/{{example}}, where "
+        f"{{example}} is its source example's path under datrix/examples. Either the "
+        f"example was renamed or removed after this project was generated, or the "
+        f"project was written outside that layout — regenerate it from its current "
+        f"example path."
+    )
+
+
+def _snapshot_run_dirs(project: Path, test_type: str) -> set[Path]:
+    """Return the run directories that exist under *project* before a test run.
+
+    Args:
+        project: Generated project directory.
+        test_type: ``unit``, ``spec`` or ``integration``.
+
+    Returns:
+        Every ``.test_results/{test_type}-tests-*`` directory present right now.
+    """
+    base = project / ".test_results"
+    if not base.is_dir():
+        return set()
+    prefix = f"{test_type}-tests-"
+    return {d for d in base.iterdir() if d.is_dir() and d.name.startswith(prefix)}
+
+
+def _run_dir_created_by(project: Path, test_type: str, before: set[Path]) -> Path | None:
+    """Return the run directory a just-finished test run created, if any.
+
+    A generated project's own test runner (``tests/unit_tests.py``,
+    ``tests/unit-tests.js``) times-stamps and creates its own output directory,
+    so the caller learns which one it got only by diffing against *before*.
+    Taking "the newest directory" instead would hand the previous run's results
+    to the structured writer whenever this run died before creating its own --
+    stamping a stale verdict with a fresh timestamp.
+
+    Args:
+        project: Generated project directory.
+        test_type: ``unit``, ``spec`` or ``integration``.
+        before: Result of :func:`_snapshot_run_dirs` taken before the run.
+
+    Returns:
+        The newly created run directory, or None when the run created none.
+    """
+    created = _snapshot_run_dirs(project, test_type) - before
+    if not created:
+        return None
+    return max(created, key=lambda d: d.name)
+
+
+def _warn_on_verdict_mismatch(index_path: Path, runner_success: bool) -> None:
+    """Warn when ``index.json`` and the test runner disagree about a run.
+
+    The two verdicts are computed independently -- the runner from the exit codes
+    it saw, the index from the per-service reports found on disk afterwards -- so
+    a disagreement means a service the runner judged is missing from the index.
+    ``run-complete.ps1 -Rerun`` selects work from the index alone, so a falsely
+    green one silently drops a failing project out of the re-run set.
+
+    Args:
+        index_path: Path to the index.json just written.
+        runner_success: Whether the project's test runner reported success.
+    """
+    try:
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print_warning(f"  Structured output: cannot read {index_path}: {exc}")
+        return
+
+    if (index.get("result") == "PASSED") == runner_success:
+        return
+
+    print_warning(
+        f"  Structured output: {index_path} records "
+        f"{index.get('result')!r} but the test runner reported "
+        f"{'success' if runner_success else 'failure'} — a service's outcome is "
+        f"missing from the index; re-run selection reads the index and will "
+        f"believe it"
+    )
+
+
+def _produce_structured_output_for_run(
+    project: Path,
+    generated_base: Path,
+    language: str,
+    test_type: str,
+    before_run_dirs: set[Path],
+    runner_success: bool,
+) -> Path | None:
+    """Index the run directory a generated project's own test runner created.
+
+    Python (``tests/unit_tests.py``) and TypeScript (``tests/unit-tests.js``)
+    projects ship their own runner, which creates and time-stamps its own output
+    directory. This locates that directory, writes the structured index into it,
+    and checks the index against the runner's verdict.
+
+    Args:
+        project: Generated project directory.
+        generated_base: Base path used for the project's display name.
+        language: Generation language recorded in the index.
+        test_type: ``unit``, ``spec`` or ``integration``.
+        before_run_dirs: Result of :func:`_snapshot_run_dirs` taken before the run.
+        runner_success: Whether the project's test runner reported success.
+
+    Returns:
+        Path to the written index.json, or None when there was nothing to index.
+    """
+    run_dir = _run_dir_created_by(project, test_type, before_run_dirs)
+    if run_dir is None:
+        print_warning(
+            f"  Structured output: no {test_type}-tests-* directory was created "
+            f"for {project.name} — its test runner wrote no results to index"
+        )
+        return None
+
+    index_path = _produce_structured_output(
+        project, generated_base, language, "docker", run_dir, 0.0,
+    )
+    if index_path is not None:
+        _warn_on_verdict_mismatch(index_path, runner_success)
+    return index_path
+
+
 def _produce_structured_output(
     project: Path,
     generated_base: Path,
@@ -1638,26 +1818,17 @@ def _produce_structured_output(
 
     Scans the results directory for JUnit XML (Python) or Jest JSON
     (TypeScript) files and writes structured output via GeneratedTestLogWriter.
+    A service that produced neither is recorded as failed rather than skipped.
 
-    Returns the path to index.json on success, None if no structured data
-    sources were found.
+    Returns the path to index.json on success, None if no service produced any
+    result at all.
+
+    Raises:
+        ValueError: If *project*'s example and .dtrx source cannot be derived --
+            see :func:`_derive_generated_project_metadata`.
     """
-    try:
-        project_name = str(project.relative_to(generated_base))
-    except ValueError:
-        project_name = project.name
-
-    # Derive .dtrx source from the project path
-    # Pattern: .generated/{language}/{runtime}/{provider}/{category}/{example}
-    # -> datrix/examples/{category}/{example}/system.dtrx
-    parts = project_name.replace("\\", "/").split("/")
-    # Remove language/runtime/provider prefix (3 segments) if present
-    if len(parts) >= 4:
-        example_parts = parts[3:]  # skip language/runtime/provider
-    else:
-        example_parts = parts
-    example = "/".join(example_parts)
-    dtrx_source = f"datrix/examples/{example}/system.dtrx"
+    _ = generated_base
+    project_name, example, dtrx_source = _derive_generated_project_metadata(project)
 
     writer = GeneratedTestLogWriter(
         project_path=project_name,
@@ -1683,15 +1854,24 @@ def _produce_structured_output(
             if junit_xml.is_file():
                 try:
                     writer.add_service_junit_xml(svc_dir.name, junit_xml, service_log)
-                    found_structured_data = True
                 except Exception as exc:
                     print_warning(f"  Structured output: failed to parse JUnit XML for {svc_dir.name}: {exc}")
+                    writer.add_unreported_service(svc_dir.name, service_log)
+                found_structured_data = True
             elif jest_json.is_file():
                 try:
                     writer.add_service_jest_json(svc_dir.name, jest_json, service_log)
-                    found_structured_data = True
                 except Exception as exc:
                     print_warning(f"  Structured output: failed to parse Jest JSON for {svc_dir.name}: {exc}")
+                    writer.add_unreported_service(svc_dir.name, service_log)
+                found_structured_data = True
+            else:
+                print_warning(
+                    f"  Structured output: {svc_dir.name} produced no test report "
+                    f"— recording it as failed (the build did not reach the tests)"
+                )
+                writer.add_unreported_service(svc_dir.name, service_log)
+                found_structured_data = True
 
     # Also look for per-service log files at the top level (legacy layout)
     # and jest-results.json in service subdirs at top level
@@ -1699,15 +1879,28 @@ def _produce_structured_output(
         for item in sorted(results_dir.iterdir()):
             if item.is_dir() and item.name != "services":
                 jest_json = item / "jest-results.json"
+                # The sibling log is what makes this directory a SERVICE the runner
+                # attempted rather than an incidental directory: the TypeScript leg
+                # writes one per service before Jest ever runs. Without it there is
+                # nothing to distinguish a service whose Jest run died from a stray
+                # directory, and guessing either way is wrong.
+                log_path = results_dir / f"{item.name}-unit-tests.log"
+                if not log_path.exists():
+                    log_path = results_dir / f"{item.name}-tests.log"
                 if jest_json.is_file():
-                    log_path = results_dir / f"{item.name}-unit-tests.log"
-                    if not log_path.exists():
-                        log_path = results_dir / f"{item.name}-tests.log"
                     try:
                         writer.add_service_jest_json(item.name, jest_json, log_path)
-                        found_structured_data = True
                     except Exception as exc:
                         print_warning(f"  Structured output: failed to parse Jest JSON for {item.name}: {exc}")
+                        writer.add_unreported_service(item.name, log_path)
+                    found_structured_data = True
+                elif log_path.exists():
+                    print_warning(
+                        f"  Structured output: {item.name} produced no test report "
+                        f"— recording it as failed (the build did not reach the tests)"
+                    )
+                    writer.add_unreported_service(item.name, log_path)
+                    found_structured_data = True
 
     if not found_structured_data:
         return None
@@ -1912,6 +2105,7 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
         if verbose:
             cmd.append("--verbose")
         test_desc = f"{test_type.capitalize()} tests for {project_name}" if not parallel else ""
+        before_run_dirs = _snapshot_run_dirs(project, test_type)
         success, output = run_command(
             cmd,
             cwd=project,
@@ -1920,21 +2114,10 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
         )
         stats = parse_test_statistics(output) if output else empty_stats
 
-        # Produce structured output from JUnit XML (if available)
-        index_path: Path | None = None
-        test_results_base = project / ".test_results"
-        if test_results_base.is_dir():
-            # Find the latest unit-tests-* directory
-            candidates = sorted(
-                [d for d in test_results_base.iterdir() if d.is_dir() and d.name.startswith("unit-tests-")],
-                key=lambda d: d.name,
-                reverse=True,
-            )
-            if candidates:
-                latest_results_dir = candidates[0]
-                index_path = _produce_structured_output(
-                    project, generated_base, "python", "docker", latest_results_dir, 0.0,
-                )
+        # Produce structured output from the JUnit XML this run wrote
+        index_path = _produce_structured_output_for_run(
+            project, generated_base, "python", test_type, before_run_dirs, success,
+        )
 
         result_dict: dict[str, Any] = {
             "name": str(project_name),
@@ -2014,6 +2197,8 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
         index_path = _produce_structured_output(
             project, generated_base, "dotnet", "docker", results_dir, 0.0,
         )
+        if index_path is not None:
+            _warn_on_verdict_mismatch(index_path, all_success)
 
         result_dict_dotnet: dict[str, Any] = {
             "name": str(project_name),
@@ -2041,6 +2226,7 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
         if verbose:
             cmd.append("--verbose")
         test_desc = f"{test_type.capitalize()} tests for {project_name}" if not parallel else ""
+        before_run_dirs = _snapshot_run_dirs(project, test_type)
         success, output = run_command(
             cmd,
             cwd=project,
@@ -2048,7 +2234,15 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
             capture_output=True,
         )
         stats = parse_test_statistics(output) if output else empty_stats
-        return {
+
+        # Produce structured output from the Jest JSON this run wrote. Without it
+        # a TypeScript project never gets an index.json, and `-Rerun` -- which
+        # treats "no index" as "never tested" -- re-runs every example forever.
+        index_path = _produce_structured_output_for_run(
+            project, generated_base, "typescript", test_type, before_run_dirs, success,
+        )
+
+        result_dict_ts_runner: dict[str, Any] = {
             "name": str(project_name),
             "success": success,
             "passed": stats["passed"],
@@ -2057,6 +2251,9 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
             "skipped": stats["skipped"],
             "output": output if parallel else None,
         }
+        if index_path is not None:
+            result_dict_ts_runner["index_json_path"] = str(index_path)
+        return result_dict_ts_runner
 
     # --- TypeScript project fallback: per-service package.json with "test" script ---
     ts_service_dirs = _find_ts_service_dirs(project)
@@ -2167,6 +2364,8 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
         index_path = _produce_structured_output(
             project, generated_base, "typescript", "docker", results_dir, 0.0,
         )
+        if index_path is not None:
+            _warn_on_verdict_mismatch(index_path, all_success)
 
         result_dict_ts: dict[str, Any] = {
             "name": str(project_name),
@@ -2237,6 +2436,8 @@ def _run_single_project_unit_tests(project: Path, generated_base: Path, parallel
         index_path = _produce_structured_output(
             project, generated_base, "java", "docker", results_dir, 0.0,
         )
+        if index_path is not None:
+            _warn_on_verdict_mismatch(index_path, all_success)
 
         result_dict_java: dict[str, Any] = {
             "name": str(project_name),

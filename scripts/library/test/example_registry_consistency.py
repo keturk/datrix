@@ -1,4 +1,4 @@
-"""Example-universe consistency gate (D9).
+"""Example-universe consistency and layout gate (D9).
 
 The reference-example parity gate's example corpus and test-projects.json's
 test-set union are two independently-maintained registries of "the examples
@@ -12,18 +12,35 @@ sets, so an unregistered example is never built by ANY full-corpus run --
 exactly how two whole-example parked defects (config-store,
 replayable-ingestion) went unnoticed for a full generation cycle.
 
-Three violation classes, all fail-loud (never silently narrowed to "just
+The gate also enforces the examples tree's LAYOUT contract, because an
+example's identity is its directory: example_id, the parity baseline key and
+the test-projects.json path are all derived from the path a system.dtrx sits
+under. Two rules follow, and neither can be checked by parsing a .dtrx:
+  - No example may live inside another example. A nested example's files are
+    inside its host's directory, so the host's tree is no longer the host's
+    alone -- every whole-tree operation (parity manifest, corpus sweep,
+    "generate this example") silently absorbs the guest.
+  - No file may belong to two examples. Each example owns exactly the
+    .dtrx/.dcfg files under its own directory, and every such file under
+    datrix/examples/ belongs to exactly one example -- a config fragment
+    owned by none is a leftover of an example that no longer exists.
+
+Six violation classes, all fail-loud (never silently narrowed to "just
 missing" or "just extra"):
   - unregistered: on disk, in no test set, no exclusion entry.
   - stale_exclusions: an exclusion entry names an example no longer on disk
     (a park entry that outlived what it was protecting).
   - redundant_exclusions: an example is BOTH excluded and registered in a
     test set -- a contradictory, unreviewable state.
+  - nested_examples: an example directory inside another example directory.
+  - shared_files: a .dtrx/.dcfg claimed by more than one example.
+  - unowned_files: a .dtrx/.dcfg under datrix/examples/ inside no example.
 
-Built-in non-vacuity self-test, every invocation: proves the pure comparator
-(compute_registry_violations) detects each of the three violation classes on
-synthetic ids and reports a clean state as clean -- entirely without file
-I/O, before any real comparison against the live tree is trusted.
+Built-in non-vacuity self-test, every invocation: proves both pure
+comparators (compute_registry_violations, compute_layout_violations) detect
+each violation class on synthetic ids/paths and report a clean state as
+clean -- entirely without file I/O, before any real comparison against the
+live tree is trusted.
 
 Usage:
     python example_registry_consistency.py
@@ -55,10 +72,56 @@ EXIT_OK = 0
 EXIT_FAIL = 1
 EXIT_USAGE = 2
 
+#: Suffixes of the files an example OWNS -- its Datrix sources and its
+#: ConfigDSL. Prose (README.md) is deliberately excluded: examples/README.md
+#: describes the whole tree and belongs to no single example.
+EXAMPLE_FILE_SUFFIXES: tuple[str, ...] = (".dtrx", ".dcfg")
+
 _SELF_TEST_KNOWN = "self_test_known_example"
 _SELF_TEST_UNREGISTERED = "self_test_unregistered_example"
 _SELF_TEST_STALE = "self_test_stale_excluded_example"
 _SELF_TEST_REDUNDANT = "self_test_redundant_excluded_example"
+
+_SELF_TEST_HOST_DIR = "self_test_category/self_test_host_example"
+_SELF_TEST_NESTED_DIR = f"{_SELF_TEST_HOST_DIR}/self_test_nested_example"
+_SELF_TEST_HOST_FILE = f"{_SELF_TEST_HOST_DIR}/system.dtrx"
+_SELF_TEST_NESTED_FILE = f"{_SELF_TEST_NESTED_DIR}/system.dtrx"
+_SELF_TEST_ORPHAN_FILE = "self_test_category/self_test_leftover/config/system.dcfg"
+
+#: One fail-loud message per violation class, each carrying the fix. Every
+#: template takes exactly one argument: the offending id or path.
+_VIOLATION_MESSAGES: dict[str, str] = {
+    "unregistered": (
+        "UNREGISTERED EXAMPLE example=%s -- appears in no testSets entry of "
+        "test-projects.json and has no test-set-exclusions.json entry. Register it "
+        "into an existing test set, or add a reviewed exclusion."
+    ),
+    "stale_exclusions": (
+        "STALE EXCLUSION example=%s -- test-set-exclusions.json names an example "
+        "with no system.dtrx on disk. Remove the entry and decrement expected_count."
+    ),
+    "redundant_exclusions": (
+        "REDUNDANT EXCLUSION example=%s -- both excluded AND registered in >= 1 "
+        "test set. Remove the exclusion entry and decrement expected_count."
+    ),
+    "nested_examples": (
+        "NESTED EXAMPLE %s -- an example directory inside another example's "
+        "directory, so the host example's tree silently contains the guest's files. "
+        "Move the guest out to a sibling directory under a category, and update its "
+        "test-projects.json path plus any parity-baseline / park-file key derived "
+        "from its old example id."
+    ),
+    "shared_files": (
+        "SHARED EXAMPLE FILE %s -- one .dtrx/.dcfg claimed by more than one "
+        "example. An example owns its files outright: give each example its own "
+        "copy, or move the examples apart so exactly one directory contains it."
+    ),
+    "unowned_files": (
+        "UNOWNED EXAMPLE FILE %s -- a .dtrx/.dcfg under datrix/examples/ that sits "
+        "inside no example directory (no system.dtrx above it), so nothing on disk "
+        "can ever parse it. Delete the leftover, or add the system.dtrx that owns it."
+    ),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -84,6 +147,29 @@ def example_id_from_system_dtrx(system_dtrx: Path) -> str:
 def discover_disk_example_ids() -> set[str]:
     """Every example id with a real `system.dtrx` under `EXAMPLES_ROOT`."""
     return {example_id_from_system_dtrx(p) for p in EXAMPLES_ROOT.rglob("system.dtrx")}
+
+
+def discover_example_dirs() -> set[str]:
+    """Every example directory as a posix path relative to `EXAMPLES_ROOT`.
+
+    The layout comparator works on paths rather than dash-joined ids because
+    containment ("is this directory inside that one") is a path relation that
+    the id form cannot express unambiguously.
+    """
+    return {
+        p.parent.relative_to(EXAMPLES_ROOT).as_posix()
+        for p in EXAMPLES_ROOT.rglob("system.dtrx")
+    }
+
+
+def discover_example_files() -> set[str]:
+    """Every `.dtrx`/`.dcfg` under `EXAMPLES_ROOT`, as posix relative paths."""
+    return {
+        p.relative_to(EXAMPLES_ROOT).as_posix()
+        for suffix in EXAMPLE_FILE_SUFFIXES
+        for p in EXAMPLES_ROOT.rglob(f"*{suffix}")
+        if p.is_file()
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -234,12 +320,106 @@ def compute_registry_violations(
     }
 
 
-def run_self_test() -> list[str]:
-    """Prove `compute_registry_violations` detects each violation class and
-    reports a clean state as clean -- entirely with synthetic ids.
+def owning_examples(file_relpath: str, example_dirs: set[str]) -> list[str]:
+    """Every example directory that contains *file_relpath*.
+
+    Args:
+        file_relpath: A posix path relative to `EXAMPLES_ROOT`.
+        example_dirs: Posix example-directory paths relative to `EXAMPLES_ROOT`.
 
     Returns:
-        Problem descriptions; empty means the comparator is sound.
+        The containing example directories, sorted. Length 0 means the file
+        belongs to no example; length > 1 means examples share it.
+    """
+    return sorted(d for d in example_dirs if file_relpath.startswith(f"{d}/"))
+
+
+def compute_layout_violations(
+    example_dirs: set[str], file_relpaths: set[str]
+) -> dict[str, list[str]]:
+    """Pure comparison -- no file I/O -- so the self-test can exercise it
+    directly against synthetic paths.
+
+    Args:
+        example_dirs: Posix example-directory paths relative to `EXAMPLES_ROOT`.
+        file_relpaths: Posix `.dtrx`/`.dcfg` paths relative to `EXAMPLES_ROOT`.
+
+    Returns:
+        `{"nested_examples": [...], "shared_files": [...],
+        "unowned_files": [...]}`, each sorted; every list empty iff the tree
+        satisfies the layout contract.
+    """
+    nested = sorted(
+        f"{child} (inside {host})"
+        for child in example_dirs
+        for host in example_dirs
+        if child != host and child.startswith(f"{host}/")
+    )
+    shared: list[str] = []
+    unowned: list[str] = []
+    for file_relpath in sorted(file_relpaths):
+        owners = owning_examples(file_relpath, example_dirs)
+        if not owners:
+            unowned.append(file_relpath)
+        elif len(owners) > 1:
+            shared.append(f"{file_relpath} (claimed by {', '.join(owners)})")
+    return {"nested_examples": nested, "shared_files": shared, "unowned_files": unowned}
+
+
+def report_violations(violations: dict[str, list[str]]) -> bool:
+    """Log one fail-loud error per violation, each naming its own fix.
+
+    Args:
+        violations: `violation_class -> offending ids/paths`; every key must
+            have a `_VIOLATION_MESSAGES` template.
+
+    Returns:
+        True when there were no violations at all.
+    """
+    ok = True
+    for violation_class, offenders in sorted(violations.items()):
+        template = _VIOLATION_MESSAGES[violation_class]
+        for offender in offenders:
+            ok = False
+            logger.error(template, offender)
+    return ok
+
+
+def _run_layout_self_test() -> list[str]:
+    """Prove `compute_layout_violations` detects each layout violation class
+    and reports a clean tree as clean -- entirely with synthetic paths.
+
+    Returns:
+        Problem descriptions; empty means the layout comparator is sound.
+    """
+    problems: list[str] = []
+
+    clean = compute_layout_violations({_SELF_TEST_HOST_DIR}, {_SELF_TEST_HOST_FILE})
+    if any(clean.values()):
+        problems.append(f"self-test: clean layout reported violations: {clean}")
+
+    nested = compute_layout_violations(
+        {_SELF_TEST_HOST_DIR, _SELF_TEST_NESTED_DIR},
+        {_SELF_TEST_HOST_FILE, _SELF_TEST_NESTED_FILE},
+    )
+    if len(nested["nested_examples"]) != 1:
+        problems.append(f"self-test: nested example not detected: {nested}")
+    if len(nested["shared_files"]) != 1:
+        problems.append(f"self-test: file shared by two examples not detected: {nested}")
+
+    orphan = compute_layout_violations({_SELF_TEST_HOST_DIR}, {_SELF_TEST_ORPHAN_FILE})
+    if orphan["unowned_files"] != [_SELF_TEST_ORPHAN_FILE]:
+        problems.append(f"self-test: unowned example file not detected: {orphan}")
+
+    return problems
+
+
+def run_self_test() -> list[str]:
+    """Prove both pure comparators detect each violation class and report a
+    clean state as clean -- entirely with synthetic ids and paths.
+
+    Returns:
+        Problem descriptions; empty means both comparators are sound.
     """
     problems: list[str] = []
 
@@ -284,6 +464,7 @@ def run_self_test() -> list[str]:
     if redundant["redundant_exclusions"] != [_SELF_TEST_REDUNDANT]:
         problems.append(f"self-test: redundant exclusion not detected: {redundant}")
 
+    problems.extend(_run_layout_self_test())
     return problems
 
 
@@ -296,8 +477,8 @@ def check_example_registry_consistency() -> int:
     """Run the gate against the real tree.
 
     Returns:
-        Exit code (0 = fully consistent, 1 = at least one violation,
-        2 = zero examples discovered on disk -- a vacuous check).
+        Exit code (0 = registry and layout both consistent, 1 = at least one
+        violation, 2 = zero examples discovered on disk -- a vacuous check).
     """
     disk_ids = discover_disk_example_ids()
     if not disk_ids:
@@ -310,39 +491,22 @@ def check_example_registry_consistency() -> int:
 
     registered_ids = registered_example_ids()
     exclusions, expected_count = load_exclusions()
-    violations = compute_registry_violations(disk_ids, registered_ids, exclusions)
+    example_dirs = discover_example_dirs()
+    example_files = discover_example_files()
 
-    ok = True
-    for example_id in violations["unregistered"]:
-        ok = False
-        logger.error(
-            "UNREGISTERED EXAMPLE example=%s -- appears in no testSets entry of "
-            "%s and has no test-set-exclusions.json entry. Register it into an "
-            "existing test set, or add a reviewed exclusion.",
-            example_id, TEST_PROJECTS_PATH.name,
-        )
-    for example_id in violations["stale_exclusions"]:
-        ok = False
-        logger.error(
-            "STALE EXCLUSION example=%s -- test-set-exclusions.json names an "
-            "example with no system.dtrx on disk. Remove the entry and "
-            "decrement expected_count.",
-            example_id,
-        )
-    for example_id in violations["redundant_exclusions"]:
-        ok = False
-        logger.error(
-            "REDUNDANT EXCLUSION example=%s -- both excluded AND registered in "
-            ">= 1 test set. Remove the exclusion entry and decrement "
-            "expected_count.",
-            example_id,
-        )
+    registry_ok = report_violations(
+        compute_registry_violations(disk_ids, registered_ids, exclusions)
+    )
+    layout_ok = report_violations(
+        compute_layout_violations(example_dirs, example_files)
+    )
 
-    if ok:
+    if registry_ok and layout_ok:
         logger.info(
             "EXAMPLE-REGISTRY GATE PASSED: %d example(s) on disk, %d registered, "
-            "%d reviewed exclusion(s).",
-            len(disk_ids), len(registered_ids), expected_count,
+            "%d reviewed exclusion(s), %d owned .dtrx/.dcfg file(s), no nested or "
+            "shared examples.",
+            len(disk_ids), len(registered_ids), expected_count, len(example_files),
         )
         return EXIT_OK
     return EXIT_FAIL
@@ -352,9 +516,10 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     """Parse CLI arguments."""
     parser = argparse.ArgumentParser(
         description=(
-            "Example-universe consistency gate (D9): every system.dtrx under "
-            "datrix/examples/ must appear in >= 1 test-projects.json test set, "
-            "or carry a reviewed test-set-exclusions.json entry."
+            "Example-universe consistency and layout gate (D9): every system.dtrx "
+            "under datrix/examples/ must appear in >= 1 test-projects.json test "
+            "set, or carry a reviewed test-set-exclusions.json entry; and no "
+            "example may sit inside another or share a .dtrx/.dcfg with one."
         ),
     )
     parser.add_argument("--debug", action="store_true", help="Enable DEBUG logging")

@@ -1,10 +1,6 @@
 
 // Order service: REST + in-process jobs + serverless event handlers, schedules, and queue workers.
 service examples.OrderService('config/order-service.dcfg') : version('1.0.0'), description('Serverless demo — orders') {
-    discovery {
-        examples.OrderService { loadBalance: roundRobin, healthyOnly: true }
-    }
-
     rdbms db {
         entity Order {
             UUID id : primaryKey = uuid();

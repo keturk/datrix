@@ -11,6 +11,7 @@ import logging
 import re
 import shutil
 import xml.etree.ElementTree as ET
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -26,6 +27,39 @@ from .structured_log_writer import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+#: Count buckets every per-service totals mapping carries.
+_COUNT_KEYS: tuple[str, ...] = ("passed", "failed", "errors", "skipped")
+
+# Keys of one entry in a generated runner's failures.json. Both the python and
+# typescript deploy-test runners write these names; only python classifies, so
+# _FJ_TYPE_KEY may be absent.
+_FJ_TEST_ID_KEY = "fullName"
+_FJ_TEST_FILE_KEY = "testFilePath"
+_FJ_MESSAGE_KEY = "message"
+_FJ_TYPE_KEY = "failureType"
+
+
+def _zero_counts() -> dict[str, int]:
+    """Return a fresh, all-zero per-service counts mapping."""
+    return dict.fromkeys(_COUNT_KEYS, 0)
+
+
+def _int_attr(element: ET.Element, name: str) -> int:
+    """Read *name* off *element* as a non-negative int (0 when absent/unparsable)."""
+    raw = element.get(name)
+    if raw is None:
+        return 0
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        logger.warning(
+            "deploy_test_log_writer_junit_attr_not_an_int attr=%s value=%r",
+            name,
+            raw,
+        )
+        return 0
 
 
 # --- Deploy test phases (ordered) ---
@@ -172,14 +206,7 @@ class ServiceStatus:
     db_connectivity_passed: bool
     spec_result: str  # "PASSED", "FAILED", "SKIPPED"
     integration_result: str  # "PASSED", "FAILED", "SKIPPED"
-    counts: dict[str, int] = field(
-        default_factory=lambda: {
-            "passed": 0,
-            "failed": 0,
-            "errors": 0,
-            "skipped": 0,
-        }
-    )
+    counts: dict[str, int] = field(default_factory=_zero_counts)
 
 
 @dataclass(frozen=True)
@@ -421,26 +448,13 @@ class DeployTestLogWriter:
             else:
                 phases["integration-tests"] = PhaseResult(result="SKIPPED")
 
-            # If failures.json has entries, mark the relevant test phase as FAILED
-            if has_failures_json:
-                try:
-                    failures_data = json.loads(
-                        (self._run_dir / "failures.json").read_text(
-                            encoding="utf-8"
-                        )
-                    )
-                    if failures_data:
-                        # Tests failed — mark integration as FAILED (most common)
-                        phases["integration-tests"] = PhaseResult(
-                            result="FAILED"
-                        )
-                except (json.JSONDecodeError, OSError) as exc:
-                    logger.warning(
-                        "deploy_test_log_writer_failures_json_error "
-                        "project=%s error=%s",
-                        self._project_name,
-                        exc,
-                    )
+            # Recorded failures mark the relevant test phase as FAILED. The file
+            # is present on every run, passing ones included, so its ENTRIES are
+            # the signal -- never its existence and never the truthiness of the
+            # envelope wrapping them.
+            if has_failures_json and self._parse_failures_json():
+                # Tests failed — mark integration as FAILED (most common)
+                phases["integration-tests"] = PhaseResult(result="FAILED")
 
             return phases
 
@@ -560,10 +574,16 @@ class DeployTestLogWriter:
     # --- Test result merging ---
 
     def _parse_failures_json(self) -> list[dict[str, object]]:
-        """Parse failures.json if it exists.
+        """Return the failure entries recorded in ``failures.json``.
+
+        The generated deploy-test runner writes an ENVELOPE --
+        ``{"project", "generatedAt", "failures": [...], "summary": {...}}`` -- so
+        the list lives under ``failures``. Reading the envelope as if it were the
+        list itself yields nothing on a failing run and, worse, reads as truthy on
+        a passing one (an empty ``failures`` list inside a non-empty envelope).
 
         Returns:
-            List of failure dicts from failures.json.
+            List of failure dicts, empty when the run recorded none.
         """
         path = self._run_dir / "failures.json"
         if not path.exists():
@@ -571,9 +591,6 @@ class DeployTestLogWriter:
 
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(data, list):
-                return data
-            return []
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning(
                 "deploy_test_log_writer_parse_failures_json_error "
@@ -583,13 +600,27 @@ class DeployTestLogWriter:
             )
             return []
 
-    def _parse_junit_xml(self) -> list[dict[str, object]]:
-        """Parse JUnit XML files for test results.
+        if isinstance(data, dict):
+            entries = data.get("failures", [])
+        else:
+            entries = data
+        if not isinstance(entries, list):
+            logger.warning(
+                "deploy_test_log_writer_failures_json_not_a_list "
+                "project=%s type=%s",
+                self._project_name,
+                type(entries).__name__,
+            )
+            return []
+        return [entry for entry in entries if isinstance(entry, dict)]
 
-        Returns:
-            List of test result dicts from JUnit XML.
+    def _iter_junit_suites(self) -> Iterator[tuple[ET.Element, str, str]]:
+        """Yield ``(suite_element, service_name, phase)`` for every JUnit suite.
+
+        Both the failure detail and the run's totals are read from these suites,
+        so file discovery, service-name derivation and phase derivation live here
+        once rather than being repeated per consumer and drifting.
         """
-        results: list[dict[str, object]] = []
         xml_files = sorted(self._run_dir.glob("pytest-*.xml"))
         xml_files.extend(sorted(self._run_dir.glob("dotnet-*.xml")))
 
@@ -634,52 +665,76 @@ class DeployTestLogWriter:
                 suites = [root]
 
             for suite in suites:
-                for testcase in suite.findall("testcase"):
-                    failure_el = testcase.find("failure")
-                    error_el = testcase.find("error")
+                yield suite, service_name, phase
 
-                    if failure_el is None and error_el is None:
-                        continue
+    def _parse_junit_suite_counts(self) -> dict[str, dict[str, int]]:
+        """Per-service run totals, read from each ``<testsuite>``'s own attributes.
 
-                    el = failure_el if failure_el is not None else error_el
-                    assert el is not None  # guaranteed by above check
+        The failure detail below enumerates only the cases that failed, so it can
+        never say how many passed. The runner already recorded that on the suite
+        element (``tests``/``failures``/``errors``/``skipped``); ``passed`` is what
+        those leave over. Deriving the counts here is what keeps a partially green
+        run from being reported as ``passed: 0``.
+        """
+        counts: dict[str, dict[str, int]] = {}
+        for suite, service_name, _phase in self._iter_junit_suites():
+            totals = counts.setdefault(service_name, _zero_counts())
+            tests = _int_attr(suite, "tests")
+            failed = _int_attr(suite, "failures")
+            errors = _int_attr(suite, "errors")
+            skipped = _int_attr(suite, "skipped")
+            totals["failed"] += failed
+            totals["errors"] += errors
+            totals["skipped"] += skipped
+            totals["passed"] += max(0, tests - failed - errors - skipped)
+        return counts
 
-                    classname = testcase.get("classname", "")
-                    name = testcase.get("name", "")
-                    test_id = f"{classname}::{name}" if classname else name
-                    error_type = el.get("type", "")
-                    error_message = _ANSI_ESCAPE.sub(
-                        "", el.get("message", "")
-                    )
-                    traceback_text = _ANSI_ESCAPE.sub("", el.text or "")
+    def _parse_junit_xml(self) -> list[dict[str, object]]:
+        """Parse JUnit XML files for test results.
 
-                    # Derive file from classname
-                    file_path = self._classname_to_filepath(classname)
+        Returns:
+            List of test result dicts from JUnit XML.
+        """
+        results: list[dict[str, object]] = []
 
-                    results.append(
-                        {
-                            "test_id": test_id,
-                            "test_file": file_path,
-                            "service": service_name,
-                            "phase": phase,
-                            "error_type": error_type,
-                            "error_message": error_message,
-                            "traceback_text": traceback_text,
-                            "line": self._extract_line_number(
-                                traceback_text
-                            ),
-                        }
-                    )
+        for suite, service_name, phase in self._iter_junit_suites():
+            for testcase in suite.findall("testcase"):
+                failure_el = testcase.find("failure")
+                error_el = testcase.find("error")
+
+                if failure_el is None and error_el is None:
+                    continue
+
+                el = failure_el if failure_el is not None else error_el
+                assert el is not None  # guaranteed by above check
+
+                classname = testcase.get("classname", "")
+                name = testcase.get("name", "")
+                test_id = f"{classname}::{name}" if classname else name
+                error_type = el.get("type", "")
+                error_message = _ANSI_ESCAPE.sub("", el.get("message", ""))
+                traceback_text = _ANSI_ESCAPE.sub("", el.text or "")
+
+                # Derive file from classname
+                file_path = self._classname_to_filepath(classname)
+
+                results.append(
+                    {
+                        "test_id": test_id,
+                        "test_file": file_path,
+                        "service": service_name,
+                        "phase": phase,
+                        "error_type": error_type,
+                        "error_message": error_message,
+                        "traceback_text": traceback_text,
+                        "line": self._extract_line_number(traceback_text),
+                    }
+                )
 
         return results
 
-    def _parse_jest_json(self) -> list[dict[str, object]]:
-        """Parse Jest JSON result files for test results.
-
-        Returns:
-            List of test result dicts from Jest JSON.
-        """
-        results: list[dict[str, object]] = []
+    def _iter_jest_reports(self) -> Iterator[tuple[dict, str, str]]:
+        """Yield ``(report, service_name, phase)`` for every Jest result file."""
         jest_files = sorted(self._run_dir.glob("jest-*.json"))
         # Also check subdirectories
         jest_files.extend(sorted(self._run_dir.glob("*/jest-*.json")))
@@ -711,6 +766,32 @@ class DeployTestLogWriter:
             if jest_path.parent != self._run_dir:
                 service_name = jest_path.parent.name
 
+            yield data, service_name, phase
+
+    def _parse_jest_counts(self) -> dict[str, dict[str, int]]:
+        """Per-service run totals from each Jest report's own summary fields.
+
+        Jest reports no ``errors`` bucket -- a suite that fails to load is counted
+        among its failed tests -- so that bucket stays at zero here rather than
+        being invented from the failure list.
+        """
+        counts: dict[str, dict[str, int]] = {}
+        for data, service_name, _phase in self._iter_jest_reports():
+            totals = counts.setdefault(service_name, _zero_counts())
+            totals["passed"] += max(0, int(data.get("numPassedTests", 0)))
+            totals["failed"] += max(0, int(data.get("numFailedTests", 0)))
+            totals["skipped"] += max(0, int(data.get("numPendingTests", 0)))
+        return counts
+
+    def _parse_jest_json(self) -> list[dict[str, object]]:
+        """Parse Jest JSON result files for test results.
+
+        Returns:
+            List of test result dicts from Jest JSON.
+        """
+        results: list[dict[str, object]] = []
+
+        for data, service_name, phase in self._iter_jest_reports():
             test_results = data.get("testResults", [])
             for test_suite in test_results:
                 for test_result in test_suite.get("assertionResults", []):
@@ -766,9 +847,18 @@ class DeployTestLogWriter:
         # Combine results, preferring JUnit/Jest detail over failures.json
         all_test_results = junit_results + jest_results
 
+        # Counts come from the runners' own per-suite totals, never from the
+        # length of the failure list -- that list holds failing cases only, so
+        # counting it would report every run as "0 passed" and fold JUnit's
+        # error cases into `failed`.
+        services_map: dict[str, dict[str, int]] = self._parse_junit_suite_counts()
+        for service_name, jest_counts in self._parse_jest_counts().items():
+            totals = services_map.setdefault(service_name, _zero_counts())
+            for key in _COUNT_KEYS:
+                totals[key] += jest_counts[key]
+
         # Build failures list
         failures: list[DeployFailure] = []
-        services_map: dict[str, dict[str, object]] = {}
 
         for idx, result in enumerate(all_test_results, start=1):
             service = str(result["service"])
@@ -779,13 +869,18 @@ class DeployTestLogWriter:
             # Classify transient vs logic
             failure_type = self._classify_failure(error_message)
 
-            # Also check failures.json classification
+            # Prefer the runner's own classification when it recorded one. Both
+            # the python and typescript runners key an entry by _FJ_TEST_ID_KEY;
+            # only python carries _FJ_TYPE_KEY, so an absent type just leaves the
+            # locally derived classification in place.
             for fj in failures_json_data:
-                fj_test = str(fj.get("test", ""))
+                fj_test = str(fj.get(_FJ_TEST_ID_KEY, ""))
+                if not fj_test:
+                    continue
                 if str(result["test_id"]) in fj_test or fj_test in str(
                     result["test_id"]
                 ):
-                    fj_type = str(fj.get("type", ""))
+                    fj_type = str(fj.get(_FJ_TYPE_KEY, ""))
                     if fj_type in ("transient", "logic"):
                         failure_type = fj_type
                     break
@@ -818,25 +913,16 @@ class DeployTestLogWriter:
                 codegen_hint=codegen_hint if failure_type == "logic" else None,
             )
             failures.append(failure)
-
-            # Track service counts
-            if service not in services_map:
-                services_map[service] = {
-                    "passed": 0,
-                    "failed": 0,
-                    "errors": 0,
-                    "skipped": 0,
-                }
-            services_map[service]["failed"] = (
-                int(services_map[service]["failed"]) + 1
-            )
+            # Counts are not derived here: the runner's own suite totals already
+            # account for this case (see services_map above).
+            services_map.setdefault(service, _zero_counts())
 
         # If no JUnit/Jest results but failures.json has data, use that
         if not all_test_results and failures_json_data:
             for idx, fj_entry in enumerate(failures_json_data, start=1):
-                test_id = str(fj_entry.get("test", ""))
-                error_msg = str(fj_entry.get("error", ""))
-                fj_type = str(fj_entry.get("type", ""))
+                test_id = str(fj_entry.get(_FJ_TEST_ID_KEY, ""))
+                error_msg = str(fj_entry.get(_FJ_MESSAGE_KEY, ""))
+                fj_type = str(fj_entry.get(_FJ_TYPE_KEY, ""))
                 failure_type = fj_type if fj_type in (
                     "transient", "logic"
                 ) else self._classify_failure(error_msg)
@@ -856,7 +942,10 @@ class DeployTestLogWriter:
                     service=service,
                     phase="integration-tests",
                     test_id=test_id,
-                    test_file=test_id.split("::")[0] if "::" in test_id else test_id,
+                    test_file=str(
+                        fj_entry.get(_FJ_TEST_FILE_KEY)
+                        or (test_id.split("::")[0] if "::" in test_id else test_id)
+                    ),
                     line=0,
                     error_type=error_type,
                     error_message=error_msg,
@@ -873,16 +962,11 @@ class DeployTestLogWriter:
                 )
                 failures.append(failure)
 
-                if service not in services_map:
-                    services_map[service] = {
-                        "passed": 0,
-                        "failed": 0,
-                        "errors": 0,
-                        "skipped": 0,
-                    }
-                services_map[service]["failed"] = (
-                    int(services_map[service]["failed"]) + 1
-                )
+                # This branch runs only when no runner report exists at all, so
+                # there is no suite total to read: the failure list is the sole
+                # signal and `passed` is genuinely unknown (stays 0).
+                totals = services_map.setdefault(service, _zero_counts())
+                totals["failed"] += 1
 
         # Build ServiceStatus objects
         services: list[ServiceStatus] = []

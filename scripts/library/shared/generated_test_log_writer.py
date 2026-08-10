@@ -45,6 +45,10 @@ _IMPORT_CHAIN_FRAME = re.compile(
 )
 _FRAME_LINE = re.compile(r"^\s*(.+?):(\d+):\s+in\s+(.+)$", re.MULTILINE)
 
+#: Banner Jest puts at the head of a suite-level ``message`` when the spec file
+#: never ran (import error, tsc failure, a throw at module scope).
+_JEST_SUITE_FAILED_BANNER = "Test suite failed to run"
+
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -93,6 +97,17 @@ class ErrorCluster:
     error_ids: list[int]
     representative_error_id: int
     codegen_hint: dict[str, str] | None
+
+
+@dataclass(frozen=True)
+class _JestSuiteResult:
+    """Outcome parsed from one Jest ``testResults`` entry (one spec file)."""
+
+    passed: int
+    skipped: int
+    failures: list[TestFailure]
+    errors: list[TestError]
+    suite_failure_message: str | None
 
 
 @dataclass
@@ -293,6 +308,14 @@ class GeneratedTestLogWriter:
     ) -> None:
         """Add results from a TypeScript service's Jest JSON output.
 
+        Reads the report Jest's CLI writes for ``--json --outputFile``: every
+        ``testResults`` entry names its spec file in ``name`` and carries its
+        assertions in ``assertionResults``. (``testFilePath`` holding a nested
+        ``testResults`` list is the shape of Jest's in-process AggregatedResult
+        object, which the CLI never writes to disk. Reading that shape found no
+        assertions in any real report, so every TypeScript service was indexed as
+        zero tests and ``PASSED`` no matter what Jest had actually reported.)
+
         Args:
             service_name: Name of the service.
             json_path: Path to the Jest JSON results file.
@@ -316,8 +339,6 @@ class GeneratedTestLogWriter:
         data = json.loads(json_path.read_text(encoding="utf-8"))
 
         passed = 0
-        failed = 0
-        errors = 0
         skipped = 0
         suite_failures = 0
         failures_list: list[TestFailure] = []
@@ -325,60 +346,21 @@ class GeneratedTestLogWriter:
         suite_failure_msg: str | None = None
 
         for test_suite in data.get("testResults", []):
-            test_file = test_suite.get("testFilePath", "")
-
-            # Check for suite execution error (prevents tests from running)
-            exec_error = test_suite.get("testExecError")
-            if exec_error is not None:
+            suite = self._parse_jest_suite(service_name, test_suite)
+            passed += suite.passed
+            skipped += suite.skipped
+            failures_list.extend(suite.failures)
+            errors_list.extend(suite.errors)
+            if suite.suite_failure_message is not None:
                 suite_failures += 1
-                msg = exec_error.get("message", "")
-                stack = exec_error.get("stack", "")
                 if suite_failure_msg is None:
-                    suite_failure_msg = msg
-                te = TestError(
-                    id=self._next_error_id,
-                    service=service_name,
-                    test_id=test_file,
-                    error_type="SuiteFailure",
-                    error_message=msg,
-                    import_chain=[],
-                    traceback=stack,
-                    generated_file=_extract_generated_file_from_path(test_file),
-                )
-                errors_list.append(te)
-                self._next_error_id += 1
-                continue
+                    suite_failure_msg = suite.suite_failure_message
 
-            for test_result in test_suite.get("testResults", []):
-                status = test_result.get("status", "")
-                title = test_result.get("title", "")
-                full_name = test_result.get("fullName", title)
-                test_id = f"{test_file}::{full_name}"
-
-                if status == "passed":
-                    passed += 1
-                elif status == "pending":
-                    skipped += 1
-                elif status == "failed":
-                    failed += 1
-                    failure_messages = test_result.get("failureMessages", [])
-                    msg = "\n".join(failure_messages)
-                    err_type = _extract_error_type_from_jest(msg)
-                    gen_file = _extract_generated_file_from_path(test_file)
-                    tf = TestFailure(
-                        id=self._next_failure_id,
-                        service=service_name,
-                        test_id=test_id,
-                        test_name=title,
-                        error_type=err_type,
-                        error_message=msg.split("\n", 1)[0] if msg else "",
-                        traceback=msg,
-                        generated_file=gen_file,
-                    )
-                    failures_list.append(tf)
-                    self._next_failure_id += 1
-
-        result = "FAILED" if (failed > 0 or errors > 0 or suite_failures > 0) else "PASSED"
+        # Jest has no per-test "error" outcome the way pytest does -- a spec file
+        # that could not run is a suite failure, counted in its own tally.
+        errors = 0
+        failed = len(failures_list)
+        result = "FAILED" if (failed > 0 or suite_failures > 0) else "PASSED"
         svc = _ServiceData(
             name=service_name,
             result=result,
@@ -402,6 +384,88 @@ class GeneratedTestLogWriter:
         _copy_file(json_path, svc_dir / "jest-results.json")
         if log_path.exists():
             _copy_file(log_path, svc_dir / "service.log")
+
+    def _parse_jest_suite(
+        self, service_name: str, test_suite: dict[str, Any]
+    ) -> _JestSuiteResult:
+        """Parse one spec file's entry from a Jest CLI ``--json`` report.
+
+        Args:
+            service_name: Name of the service the spec file belongs to.
+            test_suite: One element of the report's ``testResults`` list.
+
+        Returns:
+            The file's assertion tallies, plus a suite-failure message when Jest
+            marked the file failed without any failing assertion.
+        """
+        test_file = _extract_generated_file_from_path(test_suite.get("name", "")) or ""
+        passed = 0
+        skipped = 0
+        failures: list[TestFailure] = []
+
+        for test_result in test_suite.get("assertionResults", []):
+            status = test_result.get("status", "")
+            if status == "passed":
+                passed += 1
+            elif status in ("pending", "skipped", "todo", "disabled"):
+                skipped += 1
+            elif status == "failed":
+                failures.append(
+                    self._make_jest_failure(service_name, test_file, test_result)
+                )
+
+        if test_suite.get("status") != "failed" or failures:
+            return _JestSuiteResult(passed, skipped, failures, [], None)
+
+        # Jest marked the file failed yet no assertion failed: the file never ran.
+        # The reason lives only in the suite-level "message" ("Test suite failed
+        # to run" followed by the import/compile error).
+        message = _ANSI_ESCAPE.sub("", test_suite.get("message", "") or "")
+        summary = _first_jest_message_line(message)
+        error = TestError(
+            id=self._next_error_id,
+            service=service_name,
+            test_id=test_file,
+            error_type="SuiteFailure",
+            error_message=summary,
+            import_chain=[],
+            traceback=message,
+            generated_file=_extract_generated_file_from_path(test_file),
+        )
+        self._next_error_id += 1
+        return _JestSuiteResult(passed, skipped, failures, [error], summary)
+
+    def _make_jest_failure(
+        self, service_name: str, test_file: str, test_result: dict[str, Any]
+    ) -> TestFailure:
+        """Build a :class:`TestFailure` from one failed Jest assertion.
+
+        Args:
+            service_name: Name of the service the assertion belongs to.
+            test_file: Spec file the assertion lives in.
+            test_result: One element of a suite's ``assertionResults`` list.
+
+        Returns:
+            The failure, with its id consumed from this writer's counter.
+        """
+        title = test_result.get("title", "")
+        full_name = test_result.get("fullName", title)
+        message = _ANSI_ESCAPE.sub(
+            "", "\n".join(test_result.get("failureMessages", []))
+        )
+        summary = _first_jest_message_line(message)
+        failure = TestFailure(
+            id=self._next_failure_id,
+            service=service_name,
+            test_id=f"{test_file}::{full_name}",
+            test_name=title,
+            error_type=_extract_error_type_from_jest(summary),
+            error_message=summary,
+            traceback=message,
+            generated_file=_extract_generated_file_from_path(test_file),
+        )
+        self._next_failure_id += 1
+        return failure
 
     def add_service_log_only(
         self,
@@ -454,6 +518,31 @@ class GeneratedTestLogWriter:
         svc_dir.mkdir(parents=True, exist_ok=True)
         if log_path.exists():
             _copy_file(log_path, svc_dir / "service.log")
+
+    def add_unreported_service(self, service_name: str, log_path: Path) -> None:
+        """Record a service that ran but produced no parseable test report.
+
+        A service directory the runner created, holding a log but no ``junit.xml`` /
+        ``jest-results.json`` (or holding one that will not parse), means the build
+        died before the test framework wrote anything -- Maven ``testCompile``,
+        ``dotnet build``, ``tsc``. That service was never judged.
+
+        Skipping such a service made :meth:`write` compute both the totals and the
+        overall verdict over the SURVIVING services only, so a run in which a whole
+        service failed to compile was written as ``"result": "PASSED"`` while
+        ``unit-tests-summary.log`` from that same run said ``Total Errors: 1`` /
+        ``Tests FAILED!``. The structured index is the artifact every troubleshooting
+        skill reads first, so it is the one that must never be falsely green.
+
+        The single place the "no report means failed" rule is spelled -- every caller
+        that walks a results directory routes here rather than re-deciding, so the
+        rule cannot drift between the run path and the standalone post-processor.
+
+        Args:
+            service_name: Name of the service that produced no report.
+            log_path: Path to whatever raw log the runner did write.
+        """
+        self.add_service_log_only(service_name, log_path, passed=0, failed=0, errors=1)
 
     def write(self, duration_seconds: float) -> Path:
         """Write all structured output files.
@@ -1010,6 +1099,27 @@ def _extract_generated_file_from_path(test_file_path: str) -> str | None:
     return test_file_path.replace("\\", "/")
 
 
+def _first_jest_message_line(text: str) -> str:
+    """Return the first line of a Jest message that names the actual problem.
+
+    Jest prefixes both assertion messages and suite-failure messages with a
+    bulleted banner line and blank padding, so the raw first line is never the
+    error. Skips the padding and the ``Test suite failed to run`` banner.
+
+    Args:
+        text: An ANSI-stripped Jest ``message`` or joined ``failureMessages``.
+
+    Returns:
+        The first informative line, or the stripped text when there is none.
+    """
+    for raw_line in text.splitlines():
+        line = raw_line.strip().lstrip("●").strip()
+        if not line or line == _JEST_SUITE_FAILED_BANNER:
+            continue
+        return line
+    return text.strip()
+
+
 def _extract_error_type_from_jest(message: str) -> str:
     """Extract error type from a Jest failure message.
 
@@ -1053,9 +1163,11 @@ def _make_detail_filename(
     # Build body parts
     parts: list[str] = [item.service, item.error_type]
 
-    # Add a short identifier from the test ID
+    # Add a short identifier from the test ID. A test id can carry an absolute
+    # spec-file path, so strip BOTH separators: leaving a Windows path in pushed
+    # the detail file past MAX_PATH, which surfaces as a bare ENOENT on write.
     test_short = item.test_id.rsplit("::", 1)[-1] if "::" in item.test_id else item.test_id
-    test_short = test_short.rsplit("/", 1)[-1] if "/" in test_short else test_short
+    test_short = re.split(r"[/\\]", test_short)[-1]
     parts.append(test_short)
 
     body = "-".join(parts)

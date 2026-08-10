@@ -24,7 +24,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
 
     // Service-level helper function
     fn daysSinceDue(DateTime dueDate) -> Int {
-        return DateTime.now().diffInDays(dueDate);
+        return dueDate.diffInDays(DateTime.now());
     }
 
     rdbms bookDb {

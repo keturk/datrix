@@ -201,6 +201,28 @@ example-name/
     └── service-2.dcfg
 ```
 
+### Layout Contract
+
+An example's **identity is its directory** — the path a `system.dtrx` sits under
+determines its example id, its parity-baseline key, and the path registered in
+`scripts/config/test-projects.json`. Three rules follow:
+
+- **An example directory is a leaf.** No example may live inside another example.
+  A nested example's files are inside its host's directory, so every whole-tree
+  operation on the host (parity manifest, corpus sweep, "generate this example")
+  silently absorbs the guest. New examples go in a sibling directory under a
+  category, never under an existing example.
+- **Examples share no files.** Each example owns the `.dtrx`/`.dcfg` files under
+  its own directory outright. Reuse is by copy, never by reaching into another
+  example — `include` and config paths are always relative and stay inside the
+  example.
+- **Every `.dtrx`/`.dcfg` has an owner.** A config fragment with no `system.dtrx`
+  above it is a leftover of an example that no longer exists; nothing on disk can
+  parse it.
+
+`scripts/test/example-registry-gate.ps1` enforces all three, alongside the rule
+that every example is registered in at least one `test-projects.json` test set.
+
 ### Entry Point Pattern
 
 The `system.dtrx` file is the **entry point** for each project:
@@ -251,7 +273,10 @@ These examples serve as:
 
 ## Extending the examples
 
-When adding or changing examples in this repository:
+When adding or changing examples in this repository, first satisfy the
+[Layout Contract](#layout-contract) — the example gets its own directory under a
+category, never inside another example and never sharing files with one. Then:
+
 1. Follow the existing structure and patterns
 2. Create a `system.dtrx` entry point file with:
    - `include` statements for all service files

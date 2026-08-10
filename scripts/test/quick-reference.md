@@ -216,10 +216,21 @@ Builds `failure-data.json` inside a run directory: every error/failure cluster w
 | **Run directory** | `.\test\collect-failure-data.ps1 "D:\datrix\datrix-common\.test_results\test-results-YYYYMMDD-HHMMSS"` | Parse an explicit run dir (or its `index.json` path) |
 | **Latest run of a package** | `.\test\collect-failure-data.ps1 -Project datrix-codegen-aws` | Auto-locate the newest `test-results-*` run |
 | **Longer tracebacks** | `.\test\collect-failure-data.ps1 -Project datrix-common -MaxLogLines 120` | Embed more tail lines per representative (default 60) |
+| **Self-test only** | `.\test\collect-failure-data.ps1 -SelfTest` | Parse one fixture index per supported writer schema; skip the real run analysis |
 
-**Parameters:** positional run-dir/`index.json` path OR `-Project <name>` (exactly one), `-MaxLogLines <n>`, `-Dbg`
+**Parameters:** positional run-dir/`index.json` path OR `-Project <name>` (exactly one), `-MaxLogLines <n>`, `-SelfTest`, `-Dbg`
 
-**Output:** `{run-dir}\failure-data.json`. **Exit codes:** 0 = analysis completed (even all-green), 2 = usage / input not found / unrecognized schema.
+**Schema-shape self-test.** The three writers do not spell their cluster keys identically —
+`structured_log_writer` and `deploy_test_log_writer` use `failure_ids`/`representative_failure_id`
+inside `failure_clusters`, while `generated_test_log_writer` builds both of its cluster lists from
+one `ErrorCluster` shape and therefore spells them `error_ids`/`representative_error_id` there too.
+Test ids differ the same way: a pytest id carries a lowercase dotted module prefix that maps to a
+source path, an xUnit id (`Namespace.Class::Method`) carries none, so the representative's `file` is
+null and the locator is its `generated_file`. `-SelfTest` parses one minimal fixture index per shape
+plus a deliberate unknown-spelling case that MUST be rejected (non-vacuity), so a writer that changes
+its spelling fails here rather than at an agent's first read of a real run.
+
+**Output:** `{run-dir}\failure-data.json`. **Exit codes:** 0 = analysis completed (even all-green), 2 = usage / input not found / unrecognized schema / a failing `-SelfTest` case.
 
 ### `test\extract-warnings.ps1`
 
@@ -726,11 +737,13 @@ Regression gate: `cmd_bless`'s single-process multi-language generation must pro
 
 ### `test\example-registry-gate.ps1`
 
-Example-universe consistency gate (D9): every `system.dtrx` under `datrix/examples/` must appear in >= 1 named test set of `scripts/config/test-projects.json`, or carry a reviewed entry in `scripts/config/test-set-exclusions.json`. An unregistered example is never built by `generate.ps1 -All`/`run-complete.ps1 -All`, which select their corpus FROM `test-projects.json`'s test sets -- this is exactly how the `config-store` and `replayable-ingestion` whole-example parked defects (tracked in `parity-known-nongenerating.json`) went unnoticed for a full generation cycle before this gate landed.
+Example-universe consistency **and layout** gate (D9): every `system.dtrx` under `datrix/examples/` must appear in >= 1 named test set of `scripts/config/test-projects.json`, or carry a reviewed entry in `scripts/config/test-set-exclusions.json`. An unregistered example is never built by `generate.ps1 -All`/`run-complete.ps1 -All`, which select their corpus FROM `test-projects.json`'s test sets -- this is exactly how the `config-store` and `replayable-ingestion` whole-example parked defects (tracked in `parity-known-nongenerating.json`) went unnoticed for a full generation cycle before this gate landed.
+
+The gate also enforces the examples tree's layout contract, since an example's identity IS its directory (`example_id`, its parity-baseline key and its `test-projects.json` path are all derived from the path its `system.dtrx` sits under): no example may live inside another example, and no `.dtrx`/`.dcfg` may belong to two examples or to none.
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Run gate** | `.\test\example-registry-gate.ps1` | Compare disk examples against test-projects.json + test-set-exclusions.json |
+| **Run gate** | `.\test\example-registry-gate.ps1` | Compare disk examples against test-projects.json + test-set-exclusions.json, and check the examples tree's layout |
 | **Debug** | `.\test\example-registry-gate.ps1 -Dbg` | Debug logging |
 | **Self-test only** | `.\test\example-registry-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real comparison |
 
@@ -740,9 +753,11 @@ Example-universe consistency gate (D9): every `system.dtrx` under `datrix/exampl
 - Every `system.dtrx` under `datrix/examples/` has an id reachable from >= 1 `testSets` entry, or a `test-set-exclusions.json` entry.
 - An exclusion naming an example with no `system.dtrx` on disk is a stale-exclusion violation.
 - An example both excluded AND registered in some test set is a redundant-exclusion violation.
-- Non-vacuity self-test (every invocation, no file I/O): synthetic ids prove the pure comparator detects each of the three violation classes and reports a clean state as clean.
+- An example directory inside another example directory is a nested-example violation -- the host's whole-tree operations would silently absorb the guest.
+- A `.dtrx`/`.dcfg` contained in more than one example directory is a shared-file violation; one contained in no example directory is an unowned-file violation (a leftover nothing can parse).
+- Non-vacuity self-test (every invocation, no file I/O): synthetic ids and paths prove both pure comparators detect each of the six violation classes and report a clean state as clean.
 
-**Exit codes:** 0 = fully consistent (or a successful `-SelfTest`), 1 = at least one violation, 2 = the self-test failed, zero examples exist on disk, or a config file is missing/malformed/miscounted.
+**Exit codes:** 0 = registry and layout both consistent (or a successful `-SelfTest`), 1 = at least one violation, 2 = the self-test failed, zero examples exist on disk, or a config file is missing/malformed/miscounted.
 
 ---
 
@@ -977,7 +992,12 @@ deploy-test phase detection from both human-readable (`=== Docker Build ===`) an
 (`docker_build_started`/`docker_build_failed exit_code=1`) log markers — including the regression
 where a Docker-unavailable-with-no-markers or fully empty deploy dir must resolve to FAILED at
 docker-build with every phase SKIPPED, never silently PASSED — transient-vs-logic failure
-classification, and `TeeLogger`/`cleanup_old_logs` log-content and directory-cleanup behavior.
+classification, `failures.json` read as the ENVELOPE the generated runners write (its `failures`
+entries decide the phase result — a green run whose envelope carries an empty list must not read as
+FAILED), per-service counts derived from each runner's own suite totals rather than from a tally of
+the failure list (a partly-green run reports its real `passed`, and a JUnit `<error>` case lands in
+`errors` instead of being folded into `failed`), and `TeeLogger`/`cleanup_old_logs` log-content and
+directory-cleanup behavior.
 `test_runner.py` and `logging_utils.py` are used READ-ONLY (imported and called, never edited);
 the directory-creation/uniqueness classes of `test_logging_utils_dirs.py`
 (`TestTeeLoggerDirectoryCreation`, `TestRunDirProperty`, `TestContextManager`) are deliberately
@@ -988,13 +1008,13 @@ suite (per the datrix showcase boundary).
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Run the gate** | `.\test\shared-library-gate.ps1` | Run all 48 absorbed checks |
+| **Run the gate** | `.\test\shared-library-gate.ps1` | Run all 50 absorbed checks |
 | **Harness self-test** | `.\test\shared-library-gate.ps1 -HarnessSelfTest` | Prove the harness detects a forced failure (always reports [FAIL], exits 1) |
 | **Debug** | `.\test\shared-library-gate.ps1 -Dbg` | Print the python invocation before running |
 
 **Parameters:** `-HarnessSelfTest`, `-Dbg`
 
-**Assertions:** 48 named checks covering `structured_log_writer.py`, `test_runner.py`,
+**Assertions:** 50 named checks covering `structured_log_writer.py`, `test_runner.py`,
 `codegen_hint_mapper.py`, `deploy_test_aggregate_writer.py`, `generated_test_log_writer.py`,
 `aggregate_test_writer.py`, `deploy_test_log_writer.py`, and `logging_utils.py`'s log-content and
 cleanup functions. Several are inherently adversarial (corrupt/truncated/empty JUnit XML →

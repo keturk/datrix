@@ -47,8 +47,11 @@ from test.compare_tests import (  # noqa: E402
     find_runs,
     parse_unit_run,
 )
+from shared.venv import get_datrix_root  # noqa: E402
+from test.post_process_test_results import post_process_results  # noqa: E402
 from test.run_complete import (  # noqa: E402
     _count_junit_testcases,
+    _derive_generated_project_metadata,
     _find_java_service_dirs,
     _is_java_project,
     _merge_surefire_reports,
@@ -584,6 +587,196 @@ def _check_surefire_merge_ignores_non_result_files() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Structured-output seam: every service the runner attempted gets a verdict
+# ---------------------------------------------------------------------------
+
+_GATE_JUNIT_PASSING = """<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+  <testsuite name="svc" tests="2" failures="0" errors="0" skipped="0">
+    <testcase classname="a.OrderTest" name="test_one" time="0.01"/>
+    <testcase classname="a.OrderTest" name="test_two" time="0.01"/>
+  </testsuite>
+</testsuites>
+"""
+
+
+def _write_service_run_dir(run_dir: Path, *, reporting: list[str], silent: list[str]) -> None:
+    """Build a results dir where *reporting* services wrote a junit.xml and *silent* did not.
+
+    ``silent`` reproduces the real shape exactly: the runner creates
+    ``services/{name}/`` and writes ``service.log`` BEFORE running the build, so a
+    build that dies at ``testCompile`` leaves the directory and the log behind with
+    no test report beside them.
+    """
+    for name in reporting:
+        svc = run_dir / "services" / name
+        svc.mkdir(parents=True, exist_ok=True)
+        (svc / "junit.xml").write_text(_GATE_JUNIT_PASSING, encoding="utf-8")
+        (svc / "service.log").write_text("BUILD SUCCESS\n", encoding="utf-8")
+    for name in silent:
+        svc = run_dir / "services" / name
+        svc.mkdir(parents=True, exist_ok=True)
+        (svc / "service.log").write_text(
+            "[ERROR] COMPILATION ERROR :\n[ERROR] cannot find symbol\n[INFO] BUILD FAILURE\n",
+            encoding="utf-8",
+        )
+
+
+def _post_process_index(run_dir: Path) -> dict[str, object]:
+    """Run the standalone post-processor over *run_dir* and return its index.json."""
+    exit_code = post_process_results(
+        run_dir,
+        project_name="gate/project",
+        source_dtrx="datrix/examples/gate/system.dtrx",
+        language="java",
+        platform="docker",
+    )
+    assert exit_code == 0, f"post_process_results returned {exit_code}, expected 0"
+    index_path = run_dir / "index.json"
+    assert index_path.is_file(), f"no index.json written to {run_dir}"
+    return json.loads(index_path.read_text(encoding="utf-8"))
+
+
+def _check_service_without_test_report_is_recorded_as_failed() -> None:
+    """A service that produced no test report must FAIL the run, never vanish.
+
+    The defect this pins: a Java service whose ``testCompile`` failed wrote a
+    ``service.log`` and no ``junit.xml``, the walk skipped it with no ``else``
+    branch, and the verdict was then computed over the SURVIVING services only --
+    ``"result": "PASSED"`` for a run whose own ``unit-tests-summary.log`` said
+    ``Total Errors: 1`` / ``Tests FAILED!``.
+    """
+    with tempfile.TemporaryDirectory(prefix="tooling-gate-unreported-svc-") as tmp:
+        run_dir = Path(tmp) / "unit-tests-20260101-000000"
+        run_dir.mkdir(parents=True)
+        _write_service_run_dir(
+            run_dir, reporting=["ingestion_service"], silent=["order_service"]
+        )
+        index = _post_process_index(run_dir)
+
+        names = [s["name"] for s in index["services"]]  # type: ignore[index]
+        assert "order_service" in names, (
+            f"the service that produced no report was dropped from index.json: {names}"
+        )
+        assert index["result"] == "FAILED", (
+            f"index reported {index['result']!r} for a run in which a service never "
+            f"produced a test report"
+        )
+        assert index["counts"]["errors"] >= 1, index["counts"]  # type: ignore[index]
+
+
+def _check_all_services_reporting_still_passes() -> None:
+    """Non-vacuity for the check above: the same walk must still report PASSED.
+
+    Without this, a walk hardcoded to emit FAILED would satisfy the previous check
+    while destroying every green run.
+    """
+    with tempfile.TemporaryDirectory(prefix="tooling-gate-all-reported-") as tmp:
+        run_dir = Path(tmp) / "unit-tests-20260101-000000"
+        run_dir.mkdir(parents=True)
+        _write_service_run_dir(
+            run_dir, reporting=["ingestion_service", "order_service"], silent=[]
+        )
+        index = _post_process_index(run_dir)
+
+        assert index["result"] == "PASSED", index["result"]
+        assert index["counts"]["errors"] == 0, index["counts"]  # type: ignore[index]
+        assert len(index["services"]) == 2, index["services"]  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# Structured-output metadata: the .dtrx pointer must resolve
+# ---------------------------------------------------------------------------
+
+
+def _any_real_example_relpath() -> str:
+    """Return a real example path under ``datrix/examples`` carrying a system.dtrx.
+
+    Discovered rather than hardcoded: this gate must not start failing because one
+    named example was renamed, and a check built on a non-existent example would
+    prove nothing about a derivation whose whole job is resolving to a real file.
+    """
+    examples_root = get_datrix_root() / "datrix" / "examples"
+    for dtrx in sorted(examples_root.rglob("system.dtrx")):
+        return dtrx.parent.relative_to(examples_root).as_posix()
+    raise AssertionError(f"no system.dtrx found under {examples_root}")
+
+
+def _check_dtrx_source_resolves_to_a_real_file() -> None:
+    """The derived ``dtrx_source`` must name a file that exists.
+
+    The defect this pins: the example was derived positionally from a
+    caller-supplied base, and single-project mode passes the project's own parent
+    as that base so the relative path collapses to the leaf name. A nested example
+    then produced ``datrix/examples/serverless/system.dtrx`` -- which does not
+    exist -- instead of
+    ``datrix/examples/02-features/02-service-architecture/serverless/system.dtrx``.
+    """
+    datrix_root = get_datrix_root()
+    example = _any_real_example_relpath()
+    project = datrix_root / ".generated" / "java" / "docker-compose" / "local" / example
+
+    project_name, derived_example, dtrx_source = _derive_generated_project_metadata(project)
+
+    assert derived_example == example, f"{derived_example!r} != {example!r}"
+    assert (datrix_root / dtrx_source).is_file(), (
+        f"derived dtrx_source {dtrx_source!r} does not resolve to a real file"
+    )
+    assert project_name.startswith("java/docker-compose/local/"), project_name
+
+
+def _check_collapsed_project_path_is_rejected() -> None:
+    """A project path that cannot name an example must raise, never guess.
+
+    This is the single-project-mode trap in its pure form: given only the leaf
+    directory there is no category to build an example path from, and the old
+    ``else`` branch silently emitted ``datrix/examples/{leaf}/system.dtrx`` anyway.
+    """
+    collapsed = get_datrix_root() / ".generated" / "serverless"
+    try:
+        _derive_generated_project_metadata(collapsed)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(
+            "a project path with too few segments to name an example was accepted; "
+            "it must raise rather than emit a guessed .dtrx pointer"
+        )
+
+
+def _check_project_matching_no_example_is_rejected() -> None:
+    """A project path naming no real example must raise, never guess a pointer."""
+    with tempfile.TemporaryDirectory(prefix="tooling-gate-no-example-") as tmp:
+        try:
+            _derive_generated_project_metadata(Path(tmp) / "some-project")
+        except ValueError:
+            return
+    raise AssertionError(
+        "a project path matching no example under datrix/examples was accepted; "
+        "it must raise rather than emit a guessed .dtrx pointer"
+    )
+
+
+def _check_example_resolves_under_a_custom_output_base() -> None:
+    """The example must resolve outside ``.generated`` too.
+
+    ``generate.ps1 -OutputBase`` is a documented flow. Counting a fixed
+    ``{language}/{runtime}/{provider}`` prefix off the path only works under
+    ``.generated``; matching from the tail against a real ``system.dtrx`` makes the
+    number of leading segments irrelevant, which is what keeps a custom output base
+    from turning into either a wrong pointer or a crashed run.
+    """
+    datrix_root = get_datrix_root()
+    example = _any_real_example_relpath()
+    project = datrix_root / ".generated2" / "java" / "docker-compose" / "local" / example
+
+    _project_name, derived_example, dtrx_source = _derive_generated_project_metadata(project)
+
+    assert derived_example == example, f"{derived_example!r} != {example!r}"
+    assert (datrix_root / dtrx_source).is_file(), dtrx_source
+
+
+# ---------------------------------------------------------------------------
 # Harness
 # ---------------------------------------------------------------------------
 
@@ -614,6 +807,12 @@ _CHECKS: list[tuple[str, Callable[[], None]]] = [
     ("missing_surefire_dir_reports_no_results", _check_missing_surefire_dir_reports_no_results),
     ("empty_surefire_dir_reports_no_results", _check_empty_surefire_dir_reports_no_results),
     ("surefire_merge_ignores_non_result_files", _check_surefire_merge_ignores_non_result_files),
+    ("service_without_test_report_is_recorded_as_failed", _check_service_without_test_report_is_recorded_as_failed),
+    ("all_services_reporting_still_passes", _check_all_services_reporting_still_passes),
+    ("dtrx_source_resolves_to_a_real_file", _check_dtrx_source_resolves_to_a_real_file),
+    ("collapsed_project_path_is_rejected", _check_collapsed_project_path_is_rejected),
+    ("project_matching_no_example_is_rejected", _check_project_matching_no_example_is_rejected),
+    ("example_resolves_under_a_custom_output_base", _check_example_resolves_under_a_custom_output_base),
 ]
 
 

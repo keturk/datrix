@@ -19,11 +19,18 @@
 .PARAMETER MaxLogLines
  How many tail lines of each representative log to embed (default 60).
 
+.PARAMETER SelfTest
+ Parse one fixture index per supported writer schema (package, generated-project
+ unit, deploy-test) and exit; skips the real run-directory analysis.
+
 .PARAMETER Dbg
  Enable debug logging.
 
 .EXAMPLE
  .\collect-failure-data.ps1 -Project datrix-codegen-azure
+
+.EXAMPLE
+ .\collect-failure-data.ps1 -SelfTest
 
 .EXAMPLE
  .\collect-failure-data.ps1 D:\datrix\datrix-codegen-aws\.test_results\test-results-20260712-235813
@@ -37,6 +44,8 @@ param(
  [string]$Project,
 
  [int]$MaxLogLines = 60,
+
+ [switch]$SelfTest,
 
  [switch]$Dbg
 )
@@ -77,9 +86,13 @@ try {
  }
 
  $pythonArgs = @($PythonScript)
- if ($Path) { $pythonArgs += $Path }
- if ($Project) { $pythonArgs += @("--project", $Project) }
- $pythonArgs += @("--max-log-lines", "$MaxLogLines")
+ if ($SelfTest) {
+  $pythonArgs += "--self-test"
+ } else {
+  if ($Path) { $pythonArgs += $Path }
+  if ($Project) { $pythonArgs += @("--project", $Project) }
+  $pythonArgs += @("--max-log-lines", "$MaxLogLines")
+ }
  if ($Dbg) { $pythonArgs += "--debug" }
 
  & $PythonExe @pythonArgs

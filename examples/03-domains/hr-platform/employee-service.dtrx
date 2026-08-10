@@ -94,7 +94,7 @@ service hr.EmployeeService('config/employee-service.dcfg') : version('1.0.0'), d
             // Computed fields
             String fullName := #"{firstName} {lastName}";
             Boolean isActive := status == EmployeeStatus.Active;
-            Int yearsOfService := Math.floor(DateTime.now().diffInDays(hireDate) / 365);
+            Int yearsOfService := Math.floor(hireDate.diffInDays(DateTime.now()) / 365);
 
             hasMany EmergencyContact as emergencyContacts : cascade(delete);
 

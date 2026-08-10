@@ -45,7 +45,7 @@
       {"name": "identity",             "path": "examples/02-features/01-core-data-modeling/identity/system.dtrx",                        "description": "Identity provider stack (customer/workforce/platformMachine) exercising every auth() mode plus a webhook verify() surface"},
       {"name": "config-store",         "path": "examples/02-features/03-infrastructure-blocks/config-store/system.dtrx",                  "description": "External config-store block (consul engine, container platform) for a catalog service"},
       {"name": "queue",                "path": "examples/02-features/03-infrastructure-blocks/queue/system.dtrx",                         "description": "Point-to-point queue block (rabbitmq fifo) between a book service and a notification service"},
-      {"name": "replayable-ingestion", "path": "examples/02-features/02-service-architecture/pubsub/replayable-ingestion/system.dtrx",    "description": "Replayable event ingestion pattern for a supplier feed system over pubsub"},
+      {"name": "replayable-ingestion", "path": "examples/02-features/02-service-architecture/replayable-ingestion/system.dtrx",           "description": "Replayable event ingestion pattern for a supplier feed system over pubsub"},
       {"name": "shared-block",         "path": "examples/02-features/02-service-architecture/shared-block/system.dtrx",                   "description": "Infrastructure blocks (events/reference-db/data-exchange/session-store) shared across six services"}
     ],
     "domains": [

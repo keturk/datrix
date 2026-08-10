@@ -60,10 +60,24 @@ _EXIT_USAGE = 2
 # pytest warnings-summary section header (same shape extract_warnings.py parses)
 _WARNINGS_HEADER = re.compile(r"^=+\s+warnings summary(?:\s+\(final\))?\s+=+\s*$")
 
-# (kind, clusters key, member-ids key, representative-id key) - errors first per contract
-_CLUSTER_KINDS: tuple[tuple[str, str, str, str], ...] = (
-    ("error", "error_clusters", "error_ids", "representative_error_id"),
-    ("failure", "failure_clusters", "failure_ids", "representative_failure_id"),
+# (kind, clusters key, accepted (member-ids key, representative-id key) pairs) -
+# errors first per contract. A failure cluster's member-id keys are spelled
+# differently across the schemas: structured_log_writer and deploy_test_log_writer
+# use failure_ids/representative_failure_id, while generated_test_log_writer builds
+# BOTH its cluster lists from one ErrorCluster shape and therefore spells them
+# error_ids/representative_error_id in failure_clusters too. Both spellings are
+# accepted explicitly, the same way _extract_counts accepts counts['error'] and
+# counts['errors'] - an index carrying neither still fails loud.
+_CLUSTER_KINDS: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
+    ("error", "error_clusters", (("error_ids", "representative_error_id"),)),
+    (
+        "failure",
+        "failure_clusters",
+        (
+            ("failure_ids", "representative_failure_id"),
+            ("error_ids", "representative_error_id"),
+        ),
+    ),
 )
 
 
@@ -221,12 +235,20 @@ def _entries_by_id(entries: list[object], key: str, where: str) -> dict[int, dic
     return result
 
 
-def _test_id_to_node_path(test_id: str) -> str:
+def _test_id_to_node_path(test_id: str) -> str | None:
     """Convert an index test_id to a pytest node path (dots -> '/', keep '::').
 
     ``tests.unit.test_foo.TestBar::test_baz`` becomes
     ``tests/unit/test_foo.py::TestBar::test_baz``. Path-style first components
     (generated-project/Jest test ids) are kept as-is.
+
+    Returns None when the id carries no lowercase dotted module prefix to map -
+    a test id from a target language whose test framework does not name tests by
+    source path (xUnit's ``Namespace.Class::Method``, where every segment is
+    capitalized). Datrix generates for many languages, so a non-Python id shape
+    is an expected input here, not a malformed one; the caller falls back to the
+    entry's own ``file``/``generated_file`` and emits no ``test_command`` (which
+    is a pytest invocation, meaningful only for package runs anyway).
     """
     parts = test_id.split("::")
     first = parts[0]
@@ -242,11 +264,7 @@ def _test_id_to_node_path(test_id: str) -> str:
             break
         module_parts.append(part)
     if not module_parts:
-        raise UsageError(
-            f"Cannot derive a module path from test_id '{test_id}': expected a dotted "
-            f"module prefix (e.g. tests.unit.test_x.TestY::test_z). "
-            f"Check the failures/errors entries of the index.json."
-        )
+        return None
     module_path = "/".join(module_parts) + ".py"
     return "::".join([module_path, *class_parts, *rest])
 
@@ -284,7 +302,9 @@ def _representative_payload(
     """Build the representative sub-object; returns (payload, node_path).
 
     node_path is None for entries without a test_id (deploy-test
-    infrastructure errors, which are keyed by phase/container instead).
+    infrastructure errors, which are keyed by phase/container instead) and for
+    test ids whose shape carries no source-path prefix (see
+    `_test_id_to_node_path`).
     """
     payload: dict[str, object] = {}
     node_path: str | None = None
@@ -293,10 +313,15 @@ def _representative_payload(
         node_path = _test_id_to_node_path(test_id)
         payload["test_id"] = test_id
         # Package schema carries an explicit 'file'; the generated-project
-        # schemas do not, so derive it from the node path there.
-        payload["file"] = (
-            str(entry["file"]) if "file" in entry else node_path.split("::", 1)[0]
-        )
+        # schemas do not, so derive it from the node path there - and leave it
+        # null when the id shape yields no path (the entry's own
+        # generated_file, copied below, is the locator in that case).
+        if "file" in entry:
+            payload["file"] = str(entry["file"])
+        elif node_path is not None:
+            payload["file"] = node_path.split("::", 1)[0]
+        else:
+            payload["file"] = None
     payload["error_type"] = _require_str(entry, "error_type", where)
     payload["error_message"] = _require_str(entry, "error_message", where)
     for optional_key in _OPTIONAL_ENTRY_FIELDS:
@@ -391,6 +416,38 @@ def _cluster_payload(
     return payload
 
 
+def _resolve_member_keys(
+    cluster: dict[str, object],
+    kind: str,
+    accepted_keys: tuple[tuple[str, str], ...],
+    where: str,
+) -> tuple[str, str]:
+    """Pick the (member-ids, representative-id) key pair this cluster actually uses.
+
+    Args:
+        cluster: One cluster object read from the index.
+        kind: "error" or "failure" - used only in the error message.
+        accepted_keys: Candidate (ids_key, rep_key) pairs, most-specific first.
+        where: Index path, for the error message.
+
+    Returns:
+        The first candidate pair whose ids_key is present on *cluster*.
+
+    Raises:
+        UsageError: The cluster carries none of the accepted spellings.
+    """
+    for ids_key, rep_key in accepted_keys:
+        if ids_key in cluster:
+            return ids_key, rep_key
+    spellings = ", ".join(f"'{ids_key}'" for ids_key, _ in accepted_keys)
+    raise UsageError(
+        f"A {kind} cluster in {where} carries none of the accepted member-id keys "
+        f"({spellings}). Expected one of the structured index.json schemas "
+        f"(schema_version 1) produced by the test runner; re-run the test suite "
+        f"to regenerate the run directory."
+    )
+
+
 def _build_clusters(ctx: _RunContext, index: dict[str, object]) -> list[dict[str, object]]:
     """Build output objects for every error cluster, then every failure cluster."""
     where = str(ctx.run_dir / _INDEX_JSON_NAME)
@@ -399,9 +456,10 @@ def _build_clusters(ctx: _RunContext, index: dict[str, object]) -> list[dict[str
         "error": _entries_by_id(_require_list(index, "errors", where), "errors", where),
     }
     clusters: list[dict[str, object]] = []
-    for kind, clusters_key, ids_key, rep_key in _CLUSTER_KINDS:
+    for kind, clusters_key, accepted_keys in _CLUSTER_KINDS:
         for item in _require_list(index, clusters_key, where):
             cluster = _as_dict(item, f"'{clusters_key}' entry", where)
+            ids_key, rep_key = _resolve_member_keys(cluster, kind, accepted_keys, where)
             clusters.append(
                 _cluster_payload(ctx, cluster, kind, ids_key, rep_key, by_kind[kind])
             )
@@ -479,6 +537,192 @@ def _warnings_section_present(run_dir: Path) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------------
+# Self-test: schema-shape coverage
+#
+# The collector's whole job is reading indexes written by THREE different
+# writers, and each writer's key spellings are a fact this module restates. A
+# spelling this module does not accept makes it reject a run directory it
+# documents support for - which is how a generated-project unit run once failed
+# here with "Missing required key 'failure_ids'". These fixtures pin one
+# minimal index per writer shape so that class of drift fails here, in a
+# one-second check, instead of at an agent's first read of a real run.
+# ---------------------------------------------------------------------------
+
+#: (name, index dict, expected cluster count, expected representative "file")
+#: One entry per writer shape the module claims to support.
+_SELF_TEST_INDEXES: tuple[tuple[str, dict[str, object], int, str | None], ...] = (
+    (
+        "package (structured_log_writer): failure_ids + dotted python test id",
+        {
+            "project": "datrix-common",
+            "result": "FAILED",
+            "counts": {"passed": 1, "failed": 1, "error": 0, "skipped": 0},
+            "failures": [
+                {
+                    "id": 1,
+                    "test_id": "tests.unit.test_foo.TestBar::test_baz",
+                    "error_type": "AssertionError",
+                    "error_message": "assert 1 == 2",
+                    "log_file": "failures/001.txt",
+                }
+            ],
+            "errors": [],
+            "failure_clusters": [
+                {
+                    "cluster_id": 1,
+                    "pattern": "assert * == *",
+                    "count": 1,
+                    "failure_ids": [1],
+                    "representative_failure_id": 1,
+                }
+            ],
+            "error_clusters": [],
+        },
+        1,
+        "tests/unit/test_foo.py",
+    ),
+    (
+        "generated-project unit (generated_test_log_writer): error_ids in "
+        "failure_clusters + all-capitalized xUnit test id",
+        {
+            "project": "dotnet\\local\\example",
+            "result": "FAILED",
+            "counts": {"passed": 1, "failed": 1, "errors": 0, "skipped": 0},
+            "failures": [
+                {
+                    "id": 1,
+                    "service": "svc",
+                    "test_id": "Svc.Tests.ThingTests::Does_Thing",
+                    "error_type": "Failed",
+                    "error_message": "System.InvalidOperationException : boom",
+                    "generated_file": "src/Svc/Thing.cs",
+                    "log_file": "failures/001.txt",
+                }
+            ],
+            "errors": [],
+            "failure_clusters": [
+                {
+                    "cluster_id": 1,
+                    "pattern": "Failed: System.InvalidOperationException : *",
+                    "count": 1,
+                    "services_affected": ["svc"],
+                    "error_ids": [1],
+                    "representative_error_id": 1,
+                    "codegen_hint": None,
+                }
+            ],
+            "error_clusters": [],
+        },
+        1,
+        None,
+    ),
+    (
+        "deploy-test (deploy_test_log_writer): failed_phase + phase-keyed infra "
+        "error with no test_id and log_file: null",
+        {
+            "project": "python\\local\\example",
+            "result": "FAILED",
+            "failed_phase": "docker-up",
+            "services": [{"name": "svc", "counts": {"passed": 0, "failed": 0}}],
+            "failures": [],
+            "errors": [
+                {
+                    "id": 1,
+                    "phase": "docker-up",
+                    "error_type": "ContainerStartError",
+                    "error_message": "container exited",
+                    "log_file": None,
+                }
+            ],
+            "failure_clusters": [],
+            "error_clusters": [
+                {
+                    "cluster_id": 1,
+                    "pattern": "container exited",
+                    "count": 1,
+                    "phase": "docker-up",
+                    "error_ids": [1],
+                    "representative_error_id": 1,
+                }
+            ],
+        },
+        1,
+        None,
+    ),
+)
+
+
+def _run_self_test() -> int:
+    """Parse one minimal index per supported writer shape; report OK/FAIL per case.
+
+    Returns:
+        `_EXIT_OK` when every shape parses and yields the expected clusters,
+        `_EXIT_USAGE` when any shape fails (including the deliberate
+        unknown-spelling case, which MUST be rejected).
+    """
+    import tempfile
+
+    failures = 0
+    for name, index, expected_clusters, expected_file in _SELF_TEST_INDEXES:
+        with tempfile.TemporaryDirectory() as raw_dir:
+            run_dir = Path(raw_dir)
+            (run_dir / "failures").mkdir()
+            (run_dir / "failures" / "001.txt").write_text("detail\n", encoding="utf-8")
+            ctx = _RunContext(
+                run_dir=run_dir,
+                workspace=run_dir,
+                project=str(index["project"]),
+                max_log_lines=_DEFAULT_MAX_LOG_LINES,
+            )
+            try:
+                clusters = _build_clusters(ctx, index)
+            except UsageError as exc:
+                print(f"[FAIL] {name}: raised UsageError: {exc}")
+                failures += 1
+                continue
+        if len(clusters) != expected_clusters:
+            print(f"[FAIL] {name}: got {len(clusters)} clusters, want {expected_clusters}")
+            failures += 1
+            continue
+        actual_file = clusters[0]["representative"].get("file")  # type: ignore[union-attr]
+        if actual_file != expected_file:
+            print(f"[FAIL] {name}: representative file {actual_file!r}, want {expected_file!r}")
+            failures += 1
+            continue
+        print(f"[OK] {name}")
+
+    # Non-vacuity: a cluster spelling NO writer produces must still be rejected,
+    # or the acceptance above would prove nothing about the guard's existence.
+    unknown = {
+        "project": "p",
+        "failures": [],
+        "errors": [],
+        "error_clusters": [],
+        "failure_clusters": [
+            {"cluster_id": 1, "pattern": "x", "count": 1, "member_ids": [1]}
+        ],
+    }
+    with tempfile.TemporaryDirectory() as raw_dir:
+        ctx = _RunContext(
+            run_dir=Path(raw_dir), workspace=Path(raw_dir), project="p",
+            max_log_lines=_DEFAULT_MAX_LOG_LINES,
+        )
+        try:
+            _build_clusters(ctx, unknown)
+        except UsageError:
+            print("[OK] unknown member-id spelling is rejected (non-vacuity)")
+        else:
+            print("[FAIL] unknown member-id spelling was ACCEPTED - the guard is vacuous")
+            failures += 1
+
+    if failures:
+        print(f"SELF-TEST FAILED: {failures} case(s)")
+        return _EXIT_USAGE
+    print(f"SELF-TEST PASSED: {len(_SELF_TEST_INDEXES) + 1} case(s)")
+    return _EXIT_OK
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Collect per-cluster failure data from a structured test-results run."
@@ -487,6 +731,11 @@ def _parse_args() -> argparse.Namespace:
         "path",
         nargs="?",
         help="Run directory or index.json path (alternative to --project)",
+    )
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help="Parse one fixture index per supported writer schema and exit",
     )
     parser.add_argument(
         "--project",
@@ -511,6 +760,8 @@ def _configure_logging(debug: bool) -> None:
 
 
 def _run(args: argparse.Namespace) -> int:
+    if args.self_test:
+        return _run_self_test()
     if bool(args.path) == bool(args.project):
         raise UsageError(
             "Provide exactly one input: either a positional PATH (run directory or "

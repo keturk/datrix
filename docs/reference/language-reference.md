@@ -427,6 +427,8 @@ discovery {
 
 Service discovery and resilience (circuit breaker, retry, bulkhead) are configured per service. Generators produce the appropriate client-side implementation.
 
+A `discovery` entry names a **peer** service: generators turn it into a typed client addressed by that peer's URL, which the selected platform supplies. A service must not name **itself** (`SVC005`) — it is always reachable in-process, and no platform supplies a URL for a service to reach itself. Consuming your own queue or pubsub topic needs no entry either; only a *cross-service* `enqueue` does. Two distinct services may discover each other.
+
 ---
 
 ## Built-in Objects

@@ -117,16 +117,24 @@ def post_process_results(
         )
         return 1
 
-    # Count JUnit XML files
-    junit_files = list(services_dir.glob("*/junit.xml"))
-    if not junit_files:
+    # A services directory with no service subdirectories at all is the only case
+    # with nothing to report on. "Service dirs exist but none produced a junit.xml"
+    # is NOT that case -- it is a run in which every service failed before its tests
+    # ran, and bailing here wrote no index.json at all, so the project silently
+    # dropped out of the aggregate instead of appearing as failed.
+    service_dirs = [d for d in sorted(services_dir.iterdir()) if d.is_dir()]
+    if not service_dirs:
         print(
-            f"Warning: No JUnit XML files found in {services_dir}", file=sys.stderr
+            f"Error: No service directories found in {services_dir}", file=sys.stderr
         )
         print("Test results may not have been saved properly.", file=sys.stderr)
         return 1
 
-    print(f"Found {len(junit_files)} service test results in {results_dir}")
+    junit_files = list(services_dir.glob("*/junit.xml"))
+    print(
+        f"Found {len(service_dirs)} service(s) in {results_dir} "
+        f"({len(junit_files)} with a JUnit XML report)"
+    )
 
     # Auto-detect metadata if not provided
     metadata = detect_metadata(results_dir)
@@ -153,10 +161,7 @@ def post_process_results(
 
         # Add all service results
         found_services = 0
-        for service_dir in sorted(services_dir.iterdir()):
-            if not service_dir.is_dir():
-                continue
-
+        for service_dir in service_dirs:
             junit_xml = service_dir / "junit.xml"
             service_log = service_dir / "service.log"
 
@@ -171,12 +176,21 @@ def post_process_results(
                     writer.add_service_junit_xml(
                         service_dir.name, junit_xml, service_log
                     )
-                    found_services += 1
                 except Exception as exc:
                     print(
                         f"Warning: Failed to parse JUnit XML for {service_dir.name}: {exc}",
                         file=sys.stderr,
                     )
+                    writer.add_unreported_service(service_dir.name, service_log)
+                found_services += 1
+            else:
+                print(
+                    f"Warning: {service_dir.name} produced no JUnit XML — recording it "
+                    f"as failed (the build did not reach the tests)",
+                    file=sys.stderr,
+                )
+                writer.add_unreported_service(service_dir.name, service_log)
+                found_services += 1
 
         if found_services == 0:
             print(

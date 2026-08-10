@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Example-universe consistency gate (D9).
+ Example-universe consistency and layout gate (D9).
 
 .DESCRIPTION
  Every system.dtrx under datrix/examples/ must appear in >= 1 named test set
@@ -12,9 +12,13 @@
  config-store and replayable-ingestion whole-example parked defects went
  unnoticed for a full generation cycle.
 
+ Also enforces the examples tree's layout contract, since an example's
+ identity IS its directory: no example may live inside another example, and
+ no .dtrx/.dcfg may belong to two examples or to none.
+
  Runs a built-in non-vacuity self-test on every invocation (a pure
- comparator proof against synthetic ids, no file I/O). Fails loud (exit 2)
- if zero examples exist on disk.
+ comparator proof against synthetic ids and paths, no file I/O). Fails loud
+ (exit 2) if zero examples exist on disk.
 
  Repo-level validation script (per the datrix showcase boundary -- no
  pytest suite lives in datrix).
