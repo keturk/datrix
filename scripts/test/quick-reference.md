@@ -867,6 +867,35 @@ target failed to resolve or import.
 
 ---
 
+### `test\toolchain-free-suites-gate.ps1`
+
+**The repo's proof that no framework test suite compiles or executes generated output.** A `datrix-*/tests/` suite exists to prove that DATRIX FUNCTIONALITY works -- that the generator emits the right thing. Whether the emitted output then compiles and runs in its target language belongs to the generated tier: the generated project's own unit tests, and the deploy tests.
+
+**Why it is a gate and not a convention:** a framework suite that shells out to a language toolchain has to install one, so its result stops depending only on the code under test. That was real, not theoretical -- a cold Maven Central jar fetch with no timeout wedged one package's suite at 99% for an hour with no error text, and the same suite runs in under a minute with the compile legs gone.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\test\toolchain-free-suites-gate.ps1` | Scan every `datrix-*` package suite |
+| **One suite** | `.\test\toolchain-free-suites-gate.ps1 -Suites D:/datrix/datrix-codegen-java/tests` | Scan one or more comma-separated `tests/` directories |
+| **Self-test** | `.\test\toolchain-free-suites-gate.ps1 -SelfTest` | Prove the detector is non-vacuous, skip the real scan |
+
+**Parameters:** `-Suites <path[,path...]>`, `-SelfTest`
+
+**Fails on:**
+- A toolchain subprocess: `javac`, `java`, `mvn`/`mvnw`, `gradle`, `dotnet`, `tsc`/`tsx`, `npm`/`npx`, `node`, `docker`, `az`, `aws`, `gcloud`, `kubectl`, `terraform`, `bicep` -- whether named as a literal or resolved through a helper.
+- In-process execution of generated source: `exec(compile(...))`, `runpy.run_path`/`run_module`, `importlib`'s `spec_from_file_location`/`exec_module`.
+
+**Never fails on:**
+- Linters over generated TEXT (`ruff`, `black`, `isort`, `mypy`) -- reading is not executing.
+- Subprocess runs of datrix itself (`sys.executable -m datrix_cli`, the import-boundary probes) -- that is framework functionality, not generated output.
+- Loading a sibling `test_*.py` for a shared harness -- that is this suite's own code.
+
+**Assertions:** the non-vacuity self-test runs before every real scan (a planted `javac` call and a planted `exec(compile(...))` must both be caught; an allowed `ruff` call and an allowed `sys.executable -m datrix_cli` must both pass), so a green result can never mean the detector was broken.
+
+**Exit codes:** 0 = no suite compiles or executes generated output, 1 = at least one violation, or the self-test failed.
+
+---
+
 ### `test\standing-conformance-gate.ps1`
 
 Standing conformance-spec corpus gate (D10): runs every committed `conformance_gate.py` spec under `scripts/config/conformance-specs/` (top-level `*.json` files only -- fixture subdirectories such as `_fixtures/` are never swept). Each spec's own self-test runs first, exactly as `conformance_gate.py`'s single-spec CLI already guarantees on every invocation.
