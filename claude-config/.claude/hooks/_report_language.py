@@ -94,6 +94,52 @@ _OMISSION: Final = (
 
 _DODGE_RE: Final = re.compile(rf"\b(?:{_SCOPE_DODGE}|{_OMISSION})\b", re.IGNORECASE)
 
+# "I ran out of room." A third family, and the one the contract singles out as
+# the MOST seductive: it sounds like engineering prudence, and it is
+# unfalsifiable from Jon's side because he cannot see the context meter -- and
+# neither can the model, which is what makes it a fabricated resource claim
+# rather than a judgment call. Context is COMPACTED; the session continues. An
+# agent that stops here has chosen to spend its last tokens on a handover
+# document instead of on the fix, and the handover is the one artifact that does
+# NOT survive compaction.
+_EXHAUSTION: Final = (
+    r"(?:running |runn?ing )?low on context"
+    r"|out of (?:runway|context|room)"
+    r"|(?:near|approaching|close to) (?:the )?(?:end of )?(?:my )?context"
+    r"|context (?:window|budget|limit)s? (?:is|are|getting)? ?(?:tight|full|exhausted|nearly)"
+    r"|remaining context"
+    r"|context (?:is|was) (?:tight|nearly (?:full|gone))"
+    r"|limited context"
+    r"|to keep (?:this |the )?(?:repo |tree )?(?:in a )?(?:clean|consistent) state"
+)
+
+# The section headings a handover wears. The contract names these verbatim:
+# "If your draft reply contains a 'remaining', 'still to fix', or 'next up'
+# section, you are not finished." Matched as HEADINGS (line-leading, optionally
+# bolded/bulleted) rather than anywhere in prose, so "the remaining tests pass"
+# is not a hit.
+_HANDOVER_SECTION: Final = (
+    r"^[\s>*\-#]*\**(?:"
+    r"where it stops"
+    r"|remaining(?: work| after| items| steps)?"
+    r"|still (?:to fix|outstanding|open|left)"
+    r"|next up"
+    r"|what(?:'|’)?s (?:left|remaining|next)"
+    r"|left to do"
+    r"|to be (?:done|finished|completed)"
+    r"|picking up (?:from )?here"
+    r"|hand(?:ing)? ?over"
+    r"|follow-?ups?"
+    # Up to a short run of trailing words before the colon, so "Remaining after
+    # that:" and "Still to fix (customer side):" are caught. Bounded and
+    # colon-terminated on the SAME line, which is what keeps "the remaining 12
+    # warnings are pre-existing" -- a report of success, no colon -- out.
+    r")[^:\n]{0,40}:"
+)
+
+_EXHAUSTION_RE: Final = re.compile(rf"(?:{_EXHAUSTION})", re.IGNORECASE)
+_HANDOVER_RE: Final = re.compile(_HANDOVER_SECTION, re.IGNORECASE | re.MULTILINE)
+
 # Only the scope family, for callers that want the original narrower check.
 _SCOPE_DODGE_RE: Final = re.compile(rf"\b(?:{_SCOPE_DODGE})\b", re.IGNORECASE)
 
@@ -146,6 +192,75 @@ def find_dodge(text: str, pattern: re.Pattern[str] | None = None) -> str:
         if _NEGATION_RE.search(window):
             continue
         return match.group(0)
+    return ""
+
+
+def find_exhaustion(text: str) -> str:
+    """First unquoted, un-negated context-exhaustion claim, or ''."""
+    return find_dodge(text, _EXHAUSTION_RE)
+
+
+def find_handover_section(text: str) -> str:
+    """First 'remaining'/'next up'-style SECTION HEADING, or ''.
+
+    Headings only. The contract's own wording is about a *section* of the
+    reply, and matching the bare words anywhere in prose would fire on
+    "the remaining 12 tests pass" -- a report of success.
+    """
+    stripped = strip_quoted(text)
+    match = _HANDOVER_RE.search(stripped)
+    return match.group(0).strip() if match else ""
+
+
+_PAUSE_REQUEST_RE: Final = re.compile(
+    r"\b(?:"
+    r"stop|pause|hold (?:on|off)|wait|don'?t continue|do not continue"
+    r"|what'?s (?:left|remaining|the status)|status(?: update)?|where are (?:we|you)"
+    r"|summar(?:y|ise|ize)|recap|explain|why did you"
+    r"|plan\b|options?\b|which (?:one|do you)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def user_asked_to_pause_or_report(text: str) -> bool:
+    """True when Jon's own last turn asked for a stop, a status, or an answer.
+
+    The single most important suppressor here. "Exactly two things end a turn:
+    the task is FINISHED, or Jon tells you to stop" -- so when Jon HAS said
+    stop, or asked a question, ending the turn is correct and a gate that
+    refused it would be training evasive phrasing into every future status
+    report. This is scope, not leniency.
+    """
+    return bool(_PAUSE_REQUEST_RE.search(text))
+
+
+def last_user_text(transcript_path: str) -> str:
+    """Concatenated text of the final user message in a transcript."""
+    try:
+        with open(transcript_path, encoding="utf-8") as handle:
+            lines = handle.readlines()
+    except OSError:
+        return ""
+
+    for line in reversed(lines):
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if entry.get("type") != "user":
+            continue
+        content = entry.get("message", {}).get("content", [])
+        if isinstance(content, str):
+            return content
+        parts = [
+            block.get("text", "")
+            for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        ]
+        text = "\n".join(parts).strip()
+        if text:
+            return text
     return ""
 
 

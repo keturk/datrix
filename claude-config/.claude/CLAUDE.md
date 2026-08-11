@@ -97,6 +97,7 @@ doing the wrong thing.
 |---|---|---|
 | `Stop` | `gate-orchestration-stop.py` | ending an armed `/task-orchestrator` run with tasks unresolved, on an offer to pause, or on a dodge/omission |
 | `Stop` | `checklist.py` | ending a turn with a mechanical checklist item unsatisfied (`.claude/checklists/*.json`) |
+| `Stop` | `gate-stop-exhaustion.py` | ending ANY turn on a context-exhaustion claim or a "remaining / still to fix / next up" handover section (inert when Jon asked you to stop or asked a question) |
 | `SubagentStop` | `check-agent-report.py` | a subagent report ending on a dodge without a B1–B4 proof or filed task |
 | `PreToolUse(Bash\|PowerShell)` | `guard-predeploy-analysis.py` | a deploy with no fresh seam census in `.tmp/predeploy/` (dry-run/`--what-if` forms are always allowed) |
 | `PreToolUse(Bash\|PowerShell)` | `guard-full-suite-runs.py` | whole-suite `test.ps1` runs (unconditional for subagents) |
