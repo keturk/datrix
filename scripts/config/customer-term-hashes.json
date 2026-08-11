@@ -1,0 +1,10 @@
+{
+  "algorithm": "sha256",
+  "min_token_length": 5,
+  "terms": [
+    {
+      "hash": "e58abac000354484c7c3c0a7bfac198623f4fef05de72b8eeb8cb64370e3f107",
+      "hint": "customer project"
+    }
+  ]
+}

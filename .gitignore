@@ -235,6 +235,17 @@ __marimo__/
 claude-config/.claude/hooks/.state/
 claude-config/.claude/scheduled_tasks.lock
 
+# Claude Code's per-machine permission grants. `settings.json` is the shared,
+# reviewed project configuration; `settings.local.json` is the file Claude Code
+# WRITES BY ITSELF whenever a permission prompt is answered "don't ask again",
+# so its contents are whatever commands happened to run on one machine --
+# absolute paths outside the workspace, session-scoped temp directories, and
+# (this is why it is ignored, not merely untidy) grants naming CUSTOMER cloud
+# resources and customer checkout paths, which must never enter a framework
+# repo. It was tracked by stray `git add .` and carried exactly that. Nothing in
+# it is meaningful in another clone.
+claude-config/.claude/settings.local.json
+
 # Temp / scratch / test-output directories must never be created inside a
 # package repo at all -- they belong outside the repo tree. This is a backstop
 # for the rule, not a licence: a stray `.test-output/` was committed here once.

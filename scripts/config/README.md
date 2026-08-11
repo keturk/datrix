@@ -9,6 +9,7 @@ Shared configuration files used by scripts.
 | File / Directory | Description |
 |------------------|-------------|
 | `test-projects.json` | Project definitions for testing and code generation |
+| `customer-term-hashes.json` | Hashed denylist of customer/project terms banned from every framework repo |
 | `semgrep-rules/` | Individual YAML rule files for the Semgrep anti-pattern scanner |
 | `ast-grep-rules/` | Individual YAML rule files for the ast-grep structural scanner |
 
@@ -54,6 +55,46 @@ Used by:
 - `dev/generate.ps1` with `-All`, `-Domains`, etc. flags
 - `test/run-complete.ps1` for batch testing
 - Python scripts via `library/shared/test_projects.py`
+
+## customer-term-hashes.json
+
+The denylist behind `test/customer-domain-isolation-gate.ps1` and the pre-commit check in
+`git/commit-and-push.ps1`. Customer/project domain language — a customer name, their service
+names, their cloud resource names, paths into their checkout — must never appear in a
+framework repo (`datrix`, `datrix-cli`, `datrix-codegen-*`, `datrix-common`,
+`datrix-extensions`, `datrix-language`).
+
+**It stores digests, never terms.** A plaintext denylist naming the customer would itself be
+the violation it polices — the banned term would sit, in the clear, in the very repo it is
+banned from. Only the SHA-256 of each lowercased term is committed, so the check travels with
+the checkout and enforces on every machine while the term exists in none of them.
+
+### Structure
+
+```json
+{
+ "algorithm": "sha256",
+ "min_token_length": 5,
+ "terms": [
+ { "hash": "<sha256 of the lowercased term>", "hint": "customer project" }
+ ]
+}
+```
+
+`hint` is a non-identifying note for a human reading the file; it must never narrow down the
+term. `min_token_length` bounds which tokens are hashed during a scan — below ~5 characters a
+term collides with ordinary words.
+
+### Registering a term
+
+Never hand-edit a hash. Use the gate, which hashes the term and discards the plaintext:
+
+```powershell
+.\test\customer-domain-isolation-gate.ps1 -AddTerm acmecorp -Hint "customer project"
+```
+
+An empty `terms` list is legitimate (a checkout with no customer projects); both callers
+report `NOT ENFORCED` rather than a silent pass. A missing or malformed file is an error.
 
 ## semgrep-rules/
 

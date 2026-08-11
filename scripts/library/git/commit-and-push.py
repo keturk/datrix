@@ -29,6 +29,18 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from dev.customer_domain_isolation import (  # noqa: E402
+    CorpusError,
+    Violation,
+    corpus_path,
+    load_term_corpus,
+    pending_files,
+    scan_paths,
+    self_test,
+)
+
 TEXT_SNIPPET_EXTENSIONS = {
     ".cfg",
     ".dcfg",
@@ -876,6 +888,61 @@ def commit_and_push_repo(repo_path: Path, message: str) -> str:
     return "pushed"
 
 
+def enforce_customer_domain_isolation(dirty_repos: list[DirtyRepo], datrix_root: Path) -> None:
+    """Refuse the whole run if any pending change carries a registered customer term.
+
+    This is the seam where content actually enters a framework repo: every
+    commit in every Datrix repo goes through the ``git add -A`` below. Customer
+    and project domain language must never reach one of these repos, and prose
+    alone did not stop it -- customer cloud-resource names and paths into a
+    customer checkout were committed to a settings file through Claude Code
+    permission entries that nobody re-read.
+
+    Checked BEFORE a message is generated or anything is staged, and across ALL
+    dirty repos at once: a violation in the last repo must not leave the first
+    four already pushed. See ``dev/customer_domain_isolation.py`` for why the
+    term corpus holds digests rather than terms, and why reported excerpts are
+    redacted.
+    """
+    failures = self_test()
+    if failures:
+        raise ScriptError(
+            "Customer-domain isolation scanner failed its own self-test, so its verdict "
+            "cannot be trusted and no commit is safe to make: " + "; ".join(failures)
+        )
+
+    try:
+        corpus = load_term_corpus(corpus_path(datrix_root))
+    except CorpusError as exc:
+        raise ScriptError(f"Customer-domain isolation check could not run: {exc}") from exc
+
+    if corpus.is_empty:
+        print(
+            "Customer-domain isolation NOT ENFORCED: zero terms registered in "
+            f"{corpus_path(datrix_root)}."
+        )
+        return
+
+    violations: list[Violation] = []
+    for dr in dirty_repos:
+        try:
+            violations.extend(scan_paths(dr.path, pending_files(dr.path), corpus))
+        except CorpusError as exc:
+            raise ScriptError(f"Customer-domain isolation check failed in {dr.name}: {exc}") from exc
+
+    if not violations:
+        print(f"Customer-domain isolation: clean across {len(dirty_repos)} dirty repo(s).")
+        return
+
+    detail = "\n".join(f"  {violation.render()}" for violation in violations)
+    raise ScriptError(
+        f"Customer-domain isolation FAILED: {len(violations)} pending occurrence(s) of a "
+        f"registered customer term. Nothing was committed or pushed. Customer domain "
+        f"language must not enter a framework repo -- remove it at the source, then re-run. "
+        f"(The matched token is redacted; open the file:line to see it.)\n" + detail
+    )
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -902,6 +969,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Generate and print commit messages but do not commit or push.",
     )
+    parser.add_argument(
+        "--skip-customer-domain-check",
+        action="store_true",
+        help=(
+            "Skip the customer-domain isolation check. Only for a confirmed false positive: "
+            "the check is what keeps customer names out of the framework repos."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -915,6 +990,14 @@ def main(argv: list[str]) -> int:
     if not dirty_repos:
         print("No uncommitted changes in any Datrix repo. Nothing to commit.")
         return 0
+
+    if args.skip_customer_domain_check:
+        print(
+            "WARNING: --skip-customer-domain-check was passed. Customer domain language "
+            "is NOT being checked for; anything a pending change carries will be pushed."
+        )
+    else:
+        enforce_customer_domain_isolation(dirty_repos, workspace_root / "datrix")
 
     if not args.dry_run:
         set_git_identity()

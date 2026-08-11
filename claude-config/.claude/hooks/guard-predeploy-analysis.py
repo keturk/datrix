@@ -27,7 +27,7 @@ dated, auditable, and reviewable after the fact; a skipped analysis is no longer
 invisible.
 
     {
-      "targets": ["curvaero-staging", "deploy-staging.ps1"],   // or ["*"]
+      "targets": ["storefront-staging", "deploy-staging.ps1"],   // or ["*"]
       "analyzed_at_epoch": 1770000000,
       "seams": [
         {"name": "compose env interpolation",

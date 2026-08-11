@@ -42,6 +42,16 @@ Maximum prompt characters of tracked diff context to include per repo.
 .PARAMETER DryRun
 Generate and print commit messages but do not commit or push.
 
+.PARAMETER SkipCustomerDomainCheck
+Skip the customer-domain isolation check that runs before anything is staged.
+
+Before any message is generated, every dirty repo's pending changes are scanned
+against the hashed customer-term corpus (scripts/config/customer-term-hashes.json);
+one hit aborts the whole run with nothing committed, so a violation in the last
+repo cannot leave the first four already pushed. Customer/project domain language
+must never enter a framework repo, and prose alone did not stop it. Pass this only
+for a confirmed false positive -- it prints a warning and commits regardless.
+
 .EXAMPLE
 .\commit-and-push.ps1
 Auto-detect backend, generate messages, commit and push every dirty repo.
@@ -81,7 +91,9 @@ param(
     [Parameter(Mandatory = $false)]
     [int]$MaxDiffCharsPerRepo = 45000,
 
-    [switch]$DryRun
+    [switch]$DryRun,
+
+    [switch]$SkipCustomerDomainCheck
 )
 
 $ErrorActionPreference = 'Stop'
@@ -113,6 +125,10 @@ $pyArgs = @(
 
 if ($DryRun) {
     $pyArgs += '--dry-run'
+}
+
+if ($SkipCustomerDomainCheck) {
+    $pyArgs += '--skip-customer-domain-check'
 }
 
 & $pythonExe @pyArgs
