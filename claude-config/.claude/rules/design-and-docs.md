@@ -60,3 +60,18 @@ business domain may leak into framework code, docs, tests, or examples.
 
 For framework docs/tests/examples, use the neutral e-commerce domain (Product, Order,
 Customer, Warehouse, Variant, LineItem) or a fictional domain.
+
+**This is enforced, not advisory.** `datrix/scripts/test/customer-domain-isolation-gate.ps1`
+scans every publishable file (tracked + untracked-but-not-ignored) of every framework repo
+against a hashed term corpus, and `git/commit-and-push.ps1` runs the same scan over pending
+changes before it stages anything — one hit aborts the whole commit run. Register a new
+customer term with the gate's `-AddTerm` (it stores only a SHA-256 digest, so the term never
+enters the repo it is banned from).
+
+Two leak paths are worth knowing because they bypass anything you personally remember to
+check. First, **Claude Code writes permission grants by itself**: answering a prompt with
+"don't ask again" appends the literal command — customer resource names, customer checkout
+paths and all — to `.claude/settings.local.json` (now gitignored) or `settings.json` (shared
+and reviewed; keep customer-specific grants out of it). Second, **`commit-and-push` runs
+`git add -A`**, so anything sitting in a repo directory gets committed whether or not anyone
+looked at it.
