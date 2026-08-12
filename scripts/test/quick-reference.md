@@ -656,16 +656,21 @@ Parallel-implementation drift REPORT (D10.1): a strictly weaker, more general in
 
 **Built-in non-vacuity self-test, every invocation.** Before any real scan is trusted, the script builds synthetic two/three-language package trees under a temp directory and proves: an identical pair reports one "identical" group; a one-token mutation flips it to "drifted"; a third, never-hardcoded synthetic language is picked up with no code change; a name also present in a synthetic "other" package tree is excluded even though >= 2 language packages define it; and the CLI-facing minimum-target guard refuses a single-language map. Fails loud (exit 2) if fewer than 2 languages are registered — a parallel-implementation comparison over < 2 targets is vacuous.
 
+**Two axes, one scanner, two independent baselines.** `-Axis languages` (the default) compares the registered `datrix.languages` packages; `-Axis platforms` compares the registered `datrix.platforms` packages. The axes never share a ratchet. **The comparison unit is the PACKAGE, not the registered name** — five platform names resolve to three packages today (`azure`/`azure-vm` both live in `datrix_codegen_azure`, `docker`/`local` both in `datrix_codegen_docker`), and folding them is what stops the scan comparing a package's src tree against itself and reporting every function in it as a parallel implementation of itself. Names sharing a package are folded into one entry labelled with both (e.g. `azure+azure-vm`); on the 1:1 language axis the fold is a no-op. "Everywhere else" is axis-relative: on the platform axis the language packages are part of the exclusion set and vice versa.
+
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Run the report** | `.\test\parallel-implementation-drift-gate.ps1` | Full scan over every registered language, checked against the baseline |
+| **Run the report** | `.\test\parallel-implementation-drift-gate.ps1` | Full scan over every registered language, checked against the language baseline |
+| **Platform axis** | `.\test\parallel-implementation-drift-gate.ps1 -Axis platforms` | Same scan over every registered platform package, checked against the platform baseline |
 | **Debug** | `.\test\parallel-implementation-drift-gate.ps1 -Dbg` | Debug logging (also lists every "identical" group) |
 | **Self-test only** | `.\test\parallel-implementation-drift-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real scan |
-| **Freeze/tighten baseline** | `.\test\parallel-implementation-drift-gate.ps1 -UpdateBaseline` | Write the live DRIFTED-group count as the new baseline |
+| **Freeze/tighten baseline** | `.\test\parallel-implementation-drift-gate.ps1 -UpdateBaseline` | Write the live DRIFTED-group count as that axis's new baseline |
 
-**Parameters:** `-Dbg`, `-SelfTest`, `-UpdateBaseline`
+**Parameters:** `-Axis <languages\|platforms>` (default: languages), `-Dbg`, `-SelfTest`, `-UpdateBaseline`
 
-**Baseline:** `scripts/config/parallel-implementation-drift-baseline.json` — a decrease-only ratchet on the DRIFTED-group count (a live count HIGHER than the recorded value fails; a decrease never fails). `-UpdateBaseline` is the only writer.
+**Baselines:** `scripts/config/parallel-implementation-drift-baseline.json` (languages) and `scripts/config/platform-implementation-drift-baseline.json` (platforms) — each a decrease-only ratchet on that axis's DRIFTED-group count (a live count HIGHER than the recorded value fails; a decrease never fails). `-UpdateBaseline` is the only writer, and writes only the axis it was invoked with.
+
+**Self-test additions for the two-axis form:** beyond the five original assertions, every run also proves that two names sharing one package fold into a single labelled entry, that an axis whose every name shares one package is refused as vacuous even with two registered names, and that the entry-point module root this scanner resolves packages by equals the resolved plugin class's module root for every registered language — the substitution that lets the platform axis avoid constructing a plugin that needs generation context is therefore re-proven on every run rather than assumed once.
 
 **Exit codes:** 0 = the report ran and the drifted count is at or below the baseline (or a successful `-SelfTest`/`-UpdateBaseline`), 1 = the drifted count exceeds the baseline, 2 = the non-vacuity self-test failed, fewer than 2 languages are registered, or a discovery/parse error occurred.
 

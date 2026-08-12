@@ -47,6 +47,10 @@
 [CmdletBinding()]
 param(
     [Parameter()]
+    [ValidateSet("languages", "platforms")]
+    [string]$Axis = "languages",
+
+    [Parameter()]
     [switch]$Dbg,
 
     [Parameter()]
@@ -85,12 +89,12 @@ Ensure-DatrixVenv
 try {
     Ensure-DatrixPackagesInstalled
 
-    $pythonArgs = @($runnerScript)
+    $pythonArgs = @($runnerScript, "--axis", $Axis)
     if ($Dbg) { $pythonArgs += "--debug" }
     if ($SelfTest) { $pythonArgs += "--self-test" }
     if ($UpdateBaseline) { $pythonArgs += "--update-baseline" }
 
-    Write-Host "Running parallel-implementation drift report (D10.1)" -ForegroundColor Cyan
+    Write-Host "Running parallel-implementation drift report (D10.1) on the $Axis axis" -ForegroundColor Cyan
     python @pythonArgs
     $exitCode = $LASTEXITCODE
 

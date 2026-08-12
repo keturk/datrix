@@ -1,0 +1,15 @@
+{
+  "_comment": [
+    "Decrease-only ratchet: the count of DRIFTED parallel-implementation",
+    "groups reported by parallel-implementation-drift-gate.ps1 -Axis platforms (a",
+    "function name defined identically-in-shape but divergent-in-source",
+    "across two or more registered datrix.platforms PACKAGES, and nowhere",
+    "else in the monorepo). Registered names sharing one package are",
+    "folded into a single comparison entry, so this counts packages, not",
+    "names. A run whose LIVE drifted count is HIGHER than this value",
+    "fails -- new drift appeared with nothing reconciling it.",
+    "parallel-implementation-drift-gate.ps1 -Axis platforms -UpdateBaseline is",
+    "the only writer; do not hand-guess the number."
+  ],
+  "drifted_count": 24
+}

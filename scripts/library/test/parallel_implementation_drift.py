@@ -1,13 +1,33 @@
 #!/usr/bin/env python3
-"""Parallel-implementation drift report for Datrix language codegen packages.
+"""Parallel-implementation drift report for Datrix codegen packages.
 
 Reports every function (module-level def or class method) defined under two
-or more registered `datrix.languages` packages' src/ trees, and NOWHERE else
+or more registered target packages' src/ trees, and NOWHERE else
 in the monorepo -- a candidate that was never hoisted to datrix-codegen-common
 (or was hoisted and one copy left behind). Classifies each such name as
 IDENTICAL (every definition's source text is byte-for-byte equal) or DRIFTED
 (at least one definition differs), and records a decrease-only baseline of
 the DRIFTED count.
+
+**Two axes, one scanner.** `--axis languages` (the default, and the only
+behaviour this script had originally) compares the registered
+`datrix.languages` packages; `--axis platforms` compares the registered
+`datrix.platforms` packages. Each axis carries its OWN baseline file; nothing
+is shared between them but the scan itself. Writing a second copy of this
+scanner to measure the platform axis would be self-refuting -- a duplicated
+implementation inside the instrument that exists to find duplicated
+implementations.
+
+**The platform axis is MANY-TO-ONE, and that is why the comparison unit is the
+PACKAGE, not the registered name.** Five platform names resolve to three
+packages today (`azure` and `azure-vm` both live in `datrix_codegen_azure`;
+`docker` and `local` both live in `datrix_codegen_docker`), whereas every
+language name maps to its own package. Keying the scan by registered name
+would compare `azure` against `azure-vm` -- the same src tree against itself --
+and report every function in it as a parallel implementation of itself. Names
+sharing a package are therefore folded into ONE entry labelled with the joined
+names (e.g. `azure+azure-vm`). For the 1:1 language axis this folding is a
+no-op, so the language report is unchanged.
 
 This is deliberately a REPORT with a count baseline, not a pass/fail gate on
 individual names: a name-keyed check cannot distinguish an intentional
@@ -17,18 +37,21 @@ unreconciled divergence, and a gate that cannot make that distinction gets
 turned off. Classification of drifted groups is a separate, deliberate,
 human-reviewed pass over this report's output.
 
-The target set (which packages count as "a language package") is derived
-from shared.registered_targets.registered_language_names() at runtime --
-never a hardcoded four -- so installing a fifth datrix-codegen-<lang> package
-extends this report's coverage automatically. The "everywhere else" side is
-likewise pure filesystem discovery over every `datrix-*` package directory
-with a `src/` tree (mirrors dev/check-import-boundaries.py's own
-`discover_packages`) -- never a hardcoded package list.
+The target set is derived from shared.registered_targets at runtime --
+never a hardcoded list -- so installing a fifth datrix-codegen-<lang> package
+(or a fourth platform package) extends this report's coverage automatically.
+The "everywhere else" side is likewise pure filesystem discovery over every
+`datrix-*` package directory with a `src/` tree (mirrors
+dev/check-import-boundaries.py's own `discover_packages`) -- never a hardcoded
+package list. Note that "everywhere else" is axis-relative: on the platform
+axis the language packages are part of the exclusion set and vice versa, so a
+name shared between a language and a platform package is reported by neither.
 
 Usage:
-    python parallel_implementation_drift.py                # full report
-    python parallel_implementation_drift.py --self-test     # non-vacuity only
-    python parallel_implementation_drift.py --update-baseline
+    python parallel_implementation_drift.py                        # languages
+    python parallel_implementation_drift.py --axis platforms
+    python parallel_implementation_drift.py --self-test            # non-vacuity only
+    python parallel_implementation_drift.py --axis platforms --update-baseline
 """
 
 from __future__ import annotations
@@ -40,6 +63,7 @@ import logging
 import shutil
 import sys
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Literal
@@ -50,9 +74,16 @@ _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
-from shared.registered_targets import registered_language_names  # noqa: E402
-
 from datrix_common.errors.plugin import PluginError  # noqa: E402
+from datrix_common.plugin.registry import (  # noqa: E402
+    LANGUAGES_GROUP,
+    PLATFORM_GROUP,
+    entry_points,
+)
+from shared.registered_targets import (  # noqa: E402
+    registered_language_names,
+    registered_platform_names,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,11 +93,32 @@ logger = logging.getLogger(__name__)
 _HERE = Path(__file__).resolve()
 DATRIX_DIR: Path = _HERE.parents[3]
 WORKSPACE_ROOT: Path = _HERE.parents[4]
-DRIFT_BASELINE_PATH: Path = (
-    DATRIX_DIR / "scripts" / "config" / "parallel-implementation-drift-baseline.json"
-)
+DRIFT_BASELINE_PATH: Path = DATRIX_DIR / "scripts" / "config" / "parallel-implementation-drift-baseline.json"
+PLATFORM_DRIFT_BASELINE_PATH: Path = DATRIX_DIR / "scripts" / "config" / "platform-implementation-drift-baseline.json"
 
-_MIN_LANGUAGES_FOR_COMPARISON: Final[int] = 2
+#: The two comparison axes. Each carries its own registered-name resolver, its
+#: own entry-point group (for on-disk package resolution), and its OWN baseline
+#: file -- the axes never share a ratchet.
+AXIS_LANGUAGES: Final[str] = "languages"
+AXIS_PLATFORMS: Final[str] = "platforms"
+_AXIS_NAME_RESOLVERS: Final[dict[str, Callable[[], frozenset[str]]]] = {
+    AXIS_LANGUAGES: registered_language_names,
+    AXIS_PLATFORMS: registered_platform_names,
+}
+_AXIS_ENTRY_POINT_GROUPS: Final[dict[str, str]] = {
+    AXIS_LANGUAGES: LANGUAGES_GROUP,
+    AXIS_PLATFORMS: PLATFORM_GROUP,
+}
+_AXIS_BASELINE_PATHS: Final[dict[str, Path]] = {
+    AXIS_LANGUAGES: DRIFT_BASELINE_PATH,
+    AXIS_PLATFORMS: PLATFORM_DRIFT_BASELINE_PATH,
+}
+
+#: Separator joining the registered names that share ONE package into a single
+#: comparison entry (see the module docstring's many-to-one paragraph).
+_SHARED_PACKAGE_LABEL_SEPARATOR: Final[str] = "+"
+
+_MIN_TARGETS_FOR_COMPARISON: Final[int] = 2
 
 #: Directory-name prefix identifying a Datrix package at the workspace root
 #: (e.g. "datrix-common", "datrix-codegen-python"). The `datrix` showcase
@@ -143,62 +195,114 @@ def _discover_all_package_locations(monorepo_root: Path) -> dict[str, Path]:
         src_dir = candidate / _SRC_SUBDIR_NAME
         if not src_dir.is_dir():
             continue
-        package_dirs = sorted(
-            d for d in src_dir.iterdir() if d.is_dir() and d.name.startswith("datrix")
-        )
+        package_dirs = sorted(d for d in src_dir.iterdir() if d.is_dir() and d.name.startswith("datrix"))
         if not package_dirs:
             continue
         locations[package_dirs[0].name] = package_dirs[0]
     return locations
 
 
-def discover_language_package_src_dirs(
-    languages: frozenset[str], monorepo_root: Path
-) -> dict[str, Path]:
-    """Resolve each registered language name to its package's `src/<import_name>`
-    directory, via each language's own `LanguagePlugin` class module root (the
-    same technique `type_mapping_completeness.import_language_mappings` uses)
-    matched against the filesystem package map -- never a hardcoded
-    `datrix-codegen-{language}` string-format assumption.
+def fold_names_by_src_dir(names_by_src_dir: dict[Path, list[str]]) -> dict[str, Path]:
+    """Fold registered names sharing ONE package into a single labelled entry.
+
+    Pure and dependency-injected so the self-test can exercise the many-to-one
+    case directly, without a live registry that happens to contain one.
 
     Args:
-        languages: Registered `datrix.languages` names to resolve.
+        names_by_src_dir: `{src_dir: [registered names backed by it]}`.
+
+    Returns:
+        `{joined label: src_dir}`, one entry per distinct package.
+    """
+    return {_SHARED_PACKAGE_LABEL_SEPARATOR.join(sorted(names)): src_dir for src_dir, names in names_by_src_dir.items()}
+
+
+def _entry_point_module_roots(axis: str) -> dict[str, str]:
+    """Map each registered target name on *axis* to its entry point's module root.
+
+    Read from the entry point's DECLARED module rather than by importing and
+    instantiating the plugin: a platform plugin needs generation context to
+    construct, and this report only needs to know which package the code lives
+    in. For the language axis this is provably the same answer the plugin-class
+    route gives -- asserted every run by the self-test's
+    `_language_entry_point_roots_match_plugin_roots` check, so the two can
+    never silently diverge.
+
+    Args:
+        axis: `AXIS_LANGUAGES` or `AXIS_PLATFORMS`.
+
+    Returns:
+        `{registered name: top-level module name}`.
+    """
+    group = _AXIS_ENTRY_POINT_GROUPS[axis]
+    return {ep.name: ep.module.split(".")[0] for ep in entry_points(group=group)}
+
+
+def discover_target_package_src_dirs(axis: str, target_names: frozenset[str], monorepo_root: Path) -> dict[str, Path]:
+    """Resolve the registered target names on *axis* to their packages'
+    `src/<import_name>` directories, matched against the filesystem package map
+    -- never a hardcoded `datrix-codegen-{name}` string-format assumption.
+
+    **Names sharing one package are folded into a single entry** whose label
+    joins them (e.g. `azure+azure-vm`), because the comparison unit is the
+    package: two registered names backed by the same src tree are not parallel
+    implementations of each other. On the 1:1 language axis every group has
+    exactly one member, so each label is just the language name and the report
+    is unchanged.
+
+    Args:
+        axis: `AXIS_LANGUAGES` or `AXIS_PLATFORMS`.
+        target_names: Registered names on that axis to resolve.
         monorepo_root: The workspace root containing every `datrix-*` checkout.
 
     Returns:
-        `{language_name: absolute src package directory}`, one entry per
-        successfully resolved language.
+        `{label: absolute src package directory}`, one entry per distinct
+        package.
 
     Raises:
-        ValueError: If a registered language's plugin resolves to an import
-            root with no matching on-disk package -- a real configuration
-            error, never silently skipped (shrinking the target set quietly
-            would hide the exact drift this report exists to surface).
+        ValueError: If a registered name resolves to an import root with no
+            matching on-disk package, or has no entry point at all -- a real
+            configuration error, never silently skipped (shrinking the target
+            set quietly would hide the exact drift this report exists to
+            surface).
     """
-    from datrix_common.generation.discovery import get_language_plugin
-
     all_locations = _discover_all_package_locations(monorepo_root)
-    result: dict[str, Path] = {}
-    for language in sorted(languages):
-        plugin = get_language_plugin(language)
-        import_name = type(plugin).__module__.split(".")[0]
+    module_roots = _entry_point_module_roots(axis)
+
+    names_by_src_dir: dict[Path, list[str]] = {}
+    for name in sorted(target_names):
+        import_name = module_roots.get(name)
+        if import_name is None:
+            raise ValueError(
+                f"Registered {axis} target {name!r} has no entry point in group "
+                f"{_AXIS_ENTRY_POINT_GROUPS[axis]!r}. Registered entry points: "
+                f"{sorted(module_roots)}."
+            )
         src_dir = all_locations.get(import_name)
         if src_dir is None:
             raise ValueError(
-                f"Could not resolve an on-disk src/ directory for language "
-                f"{language!r} (its registered LanguagePlugin class lives in "
-                f"module root {import_name!r}). Expected a 'datrix-*' "
-                f"directory under {monorepo_root} whose src/ tree contains a "
-                f"{import_name!r} package directory. Discovered package "
-                f"roots: {sorted(all_locations)}."
+                f"Could not resolve an on-disk src/ directory for {axis} target "
+                f"{name!r} (its registered plugin lives in module root "
+                f"{import_name!r}). Expected a 'datrix-*' directory under "
+                f"{monorepo_root} whose src/ tree contains a {import_name!r} "
+                f"package directory. Discovered package roots: "
+                f"{sorted(all_locations)}."
             )
-        result[language] = src_dir
-    return result
+        names_by_src_dir.setdefault(src_dir, []).append(name)
+
+    folded = fold_names_by_src_dir(names_by_src_dir)
+    if len(folded) < len(target_names):
+        logger.info(
+            "axis=%s folded %d registered name(s) into %d distinct package(s): %s",
+            axis,
+            len(target_names),
+            len(folded),
+            sorted(folded),
+        )
+    return folded
 
 
-def discover_all_other_package_src_dirs(
-    monorepo_root: Path, exclude_dirs: frozenset[Path]
-) -> list[Path]:
+def discover_all_other_package_src_dirs(monorepo_root: Path, exclude_dirs: frozenset[Path]) -> list[Path]:
     """Every OTHER datrix-* package's src/ tree -- literally every discovered
     package directory not already covered by
     `discover_language_package_src_dirs` (datrix-common, datrix-codegen-common,
@@ -216,9 +320,7 @@ def discover_all_other_package_src_dirs(
         Sorted list of every other discovered package's src directory.
     """
     all_locations = _discover_all_package_locations(monorepo_root)
-    return sorted(
-        src_dir for src_dir in all_locations.values() if src_dir not in exclude_dirs
-    )
+    return sorted(src_dir for src_dir in all_locations.values() if src_dir not in exclude_dirs)
 
 
 # ---------------------------------------------------------------------------
@@ -226,9 +328,7 @@ def discover_all_other_package_src_dirs(
 # ---------------------------------------------------------------------------
 
 
-def _collect_defs(
-    body: list[ast.stmt], enclosing_class: str | None
-) -> list[tuple[_FunctionDefNode, str | None]]:
+def _collect_defs(body: list[ast.stmt], enclosing_class: str | None) -> list[tuple[_FunctionDefNode, str | None]]:
     """Recursively collect every module-level or class-method function def
     reachable through non-function statement containers (If/While/For/With/
     Try), pairing each with its nearest enclosing class name (None if none).
@@ -330,9 +430,7 @@ def collect_function_declarations(src_dir: Path, package: str) -> list[FunctionD
             ) from exc
         source_lines = source.splitlines(keepends=True)
         for node, enclosing_class in _collect_defs(tree.body, None):
-            qualified_name = (
-                f"{enclosing_class}.{node.name}" if enclosing_class else node.name
-            )
+            qualified_name = f"{enclosing_class}.{node.name}" if enclosing_class else node.name
             source_text = _decorated_source_segment(source_lines, node).rstrip("\n")
             declarations.append(
                 FunctionDeclaration(
@@ -352,11 +450,11 @@ def collect_function_declarations(src_dir: Path, package: str) -> list[FunctionD
 
 
 def find_parallel_implementations(
-    language_src_dirs: dict[str, Path],
+    target_src_dirs: dict[str, Path],
     other_package_src_dirs: list[Path],
 ) -> list[ParallelImplementationGroup]:
     """Core scan: find every bare function/method name defined in >= 2 of
-    `language_src_dirs` and in ZERO of `other_package_src_dirs`.
+    `target_src_dirs` and in ZERO of `other_package_src_dirs`.
 
     Dependency-injected, no entry-point/registry calls inside this function
     -- the CLI boundary in `main()` is the only place that resolves the live
@@ -364,8 +462,9 @@ def find_parallel_implementations(
     a synthetic package map.
 
     Args:
-        language_src_dirs: `{language_name: src_dir}` for every language
-            package to compare.
+        target_src_dirs: `{label: src_dir}` for every package to compare, one
+            entry per DISTINCT package (registered names sharing a package are
+            already folded by `discover_target_package_src_dirs`).
         other_package_src_dirs: Every OTHER package's src dir -- a name
             appearing here excludes that name from the report entirely.
 
@@ -375,7 +474,7 @@ def find_parallel_implementations(
         `source_text` is equal across the whole group, else "drifted".
     """
     by_bare_name: dict[str, list[FunctionDeclaration]] = {}
-    for package, src_dir in language_src_dirs.items():
+    for package, src_dir in target_src_dirs.items():
         for decl in collect_function_declarations(src_dir, package):
             bare_name = decl.qualified_name.rsplit(".", 1)[-1]
             by_bare_name.setdefault(bare_name, []).append(decl)
@@ -389,40 +488,43 @@ def find_parallel_implementations(
     groups: list[ParallelImplementationGroup] = []
     for bare_name, declarations in by_bare_name.items():
         distinct_packages = {d.package for d in declarations}
-        if len(distinct_packages) < _MIN_LANGUAGES_FOR_COMPARISON:
+        if len(distinct_packages) < _MIN_TARGETS_FOR_COMPARISON:
             continue
         if bare_name in other_bare_names:
             continue
         source_texts = {d.source_text for d in declarations}
-        verdict: Literal["identical", "drifted"] = (
-            "identical" if len(source_texts) == 1 else "drifted"
-        )
-        groups.append(
-            ParallelImplementationGroup(
-                name=bare_name, declarations=tuple(declarations), verdict=verdict
-            )
-        )
+        verdict: Literal["identical", "drifted"] = "identical" if len(source_texts) == 1 else "drifted"
+        groups.append(ParallelImplementationGroup(name=bare_name, declarations=tuple(declarations), verdict=verdict))
     return sorted(groups, key=lambda group: group.name)
 
 
-def _require_min_languages(languages: frozenset[str]) -> None:
-    """Raise if fewer than `_MIN_LANGUAGES_FOR_COMPARISON` languages are
-    given -- the CLI-facing guard against a vacuous parallel-implementation
+def _require_min_targets(axis: str, comparable_labels: frozenset[str]) -> None:
+    """Raise if fewer than `_MIN_TARGETS_FOR_COMPARISON` COMPARABLE targets
+    remain -- the CLI-facing guard against a vacuous parallel-implementation
     comparison. Exercised directly by the self-test (never through a live
     entry-point scan) and by `main()` against the real registered set.
 
+    Counts DISTINCT PACKAGES, not registered names: on the platform axis five
+    names fold into three packages, and a hypothetical axis whose every name
+    shared one package would be vacuous no matter how many names it had.
+
     Args:
-        languages: The candidate target set to validate.
+        axis: The axis being validated, named in the error.
+        comparable_labels: The folded package labels to validate.
 
     Raises:
-        ValueError: If `len(languages) < _MIN_LANGUAGES_FOR_COMPARISON`,
-            naming how many ARE registered.
+        ValueError: If fewer than `_MIN_TARGETS_FOR_COMPARISON` remain,
+            naming how many ARE comparable.
     """
-    if len(languages) < _MIN_LANGUAGES_FOR_COMPARISON:
+    if len(comparable_labels) < _MIN_TARGETS_FOR_COMPARISON:
         raise ValueError(
             f"Parallel-implementation drift comparison requires at least "
-            f"{_MIN_LANGUAGES_FOR_COMPARISON} registered 'datrix.languages' "
-            f"targets; got {len(languages)} ({sorted(languages)})."
+            f"{_MIN_TARGETS_FOR_COMPARISON} distinct registered "
+            f"'datrix.{axis}' packages; got {len(comparable_labels)} "
+            f"({sorted(comparable_labels)}). Registered names that share one "
+            f"package are folded into a single comparison entry, so a name "
+            f"count above this floor does not imply a comparable package count "
+            f"above it."
         )
 
 
@@ -452,13 +554,12 @@ def load_drift_baseline(path: Path = DRIFT_BASELINE_PATH) -> int:
     count = data.get("drifted_count")
     if not isinstance(count, int) or isinstance(count, bool) or count < 0:
         raise ValueError(
-            f"Malformed {path}: expected an object with a non-negative "
-            f"integer 'drifted_count' field, got {data!r}."
+            f"Malformed {path}: expected an object with a non-negative integer 'drifted_count' field, got {data!r}."
         )
     return count
 
 
-def write_drift_baseline(count: int, path: Path = DRIFT_BASELINE_PATH) -> None:
+def write_drift_baseline(count: int, path: Path = DRIFT_BASELINE_PATH, axis: str = AXIS_LANGUAGES) -> None:
     """Write `count` to the baseline JSON. Called ONLY by `--update-baseline`,
     a deliberate, manual re-freeze (mirrors `write_blessed_count`'s role for
     `regen-parity-baselines.ps1` -- the check side of the ratchet is
@@ -469,18 +570,22 @@ def write_drift_baseline(count: int, path: Path = DRIFT_BASELINE_PATH) -> None:
         count: The freshly computed drifted-group count.
         path: The baseline file to write. Defaults to the real committed
             file; tests pass a synthetic temp path.
+        axis: The axis this baseline belongs to, named in the file's comment
+            so the two baselines can never be mistaken for each other.
     """
+    axis_flag = "" if axis == AXIS_LANGUAGES else f" -Axis {axis}"
     payload = {
         "_comment": [
             "Decrease-only ratchet: the count of DRIFTED parallel-implementation",
-            "groups reported by parallel-implementation-drift-gate.ps1 (a function",
-            "name defined identically-in-shape but divergent-in-source across two",
-            "or more registered language codegen packages, and nowhere else in the",
-            "monorepo). A run whose LIVE drifted count is HIGHER than this value",
+            f"groups reported by parallel-implementation-drift-gate.ps1{axis_flag} (a",
+            "function name defined identically-in-shape but divergent-in-source",
+            f"across two or more registered datrix.{axis} PACKAGES, and nowhere",
+            "else in the monorepo). Registered names sharing one package are",
+            "folded into a single comparison entry, so this counts packages, not",
+            "names. A run whose LIVE drifted count is HIGHER than this value",
             "fails -- new drift appeared with nothing reconciling it.",
-            "parallel-implementation-drift-gate.ps1 -UpdateBaseline is the only",
-            "writer; run it once the real scanner is landed to seed the initial",
-            "count from the live tree (do not hand-guess the number).",
+            f"parallel-implementation-drift-gate.ps1{axis_flag} -UpdateBaseline is",
+            "the only writer; do not hand-guess the number.",
         ],
         "drifted_count": count,
     }
@@ -543,24 +648,17 @@ def run_non_vacuity_self_test() -> bool:
         for directory in (lang_a_src, lang_b_src, other_src):
             directory.mkdir(parents=True, exist_ok=True)
 
-        shared_body = (
-            f"def {_SELF_TEST_SHARED_HELPER_NAME}(value: str) -> str:\n"
-            f"    return value.strip()\n"
-        )
+        shared_body = f"def {_SELF_TEST_SHARED_HELPER_NAME}(value: str) -> str:\n    return value.strip()\n"
         (lang_a_src / "module.py").write_text(shared_body, encoding="utf-8")
         (lang_b_src / "module.py").write_text(shared_body, encoding="utf-8")
-        (other_src / "module.py").write_text(
-            "def unrelated() -> None:\n    pass\n", encoding="utf-8"
-        )
+        (other_src / "module.py").write_text("def unrelated() -> None:\n    pass\n", encoding="utf-8")
 
         groups = find_parallel_implementations(
             {_SELF_TEST_LANGUAGE_A: lang_a_src, _SELF_TEST_LANGUAGE_B: lang_b_src},
             [other_src],
         )
         matching = [g for g in groups if g.name == _SELF_TEST_SHARED_HELPER_NAME]
-        ok &= _assert(
-            len(matching) == 1, "identical synthetic pair reports exactly one group"
-        )
+        ok &= _assert(len(matching) == 1, "identical synthetic pair reports exactly one group")
         ok &= _assert(
             bool(matching) and matching[0].verdict == "identical",
             "identical pair verdict is 'identical'",
@@ -602,25 +700,81 @@ def run_non_vacuity_self_test() -> bool:
         )
         ok &= _assert(
             not any(g.name == _SELF_TEST_SHARED_HELPER_NAME for g in groups_excluded),
-            "a name also present in an 'other' package is excluded even though "
-            ">=2 language packages define it",
+            "a name also present in an 'other' package is excluded even though >=2 language packages define it",
         )
 
         # >=2-registered-targets refusal: the CLI-facing guard, exercised
         # directly against a synthetic single-language map (never through a
         # live entry-point scan).
         try:
-            _require_min_languages(frozenset({_SELF_TEST_LANGUAGE_A}))
+            _require_min_targets(AXIS_LANGUAGES, frozenset({_SELF_TEST_LANGUAGE_A}))
             guard_refused = False
         except ValueError:
             guard_refused = True
         ok &= _assert(
             guard_refused,
-            "single-target guard refuses a one-language map (never a silent pass)",
+            "single-target guard refuses a one-target map (never a silent pass)",
+        )
+
+        # Many-to-one folding: two registered names backed by ONE package must
+        # collapse to a single comparison entry, or the scan would compare that
+        # package's src tree against itself and report every function in it.
+        shared_dir = tmp_root / "shared_pkg"
+        folded = fold_names_by_src_dir({shared_dir: ["beta", "alpha"], lang_a_src: [_SELF_TEST_LANGUAGE_A]})
+        ok &= _assert(
+            len(folded) == 2 and "alpha+beta" in folded,
+            "two names sharing one package fold into one entry, labelled with both",
+        )
+        try:
+            _require_min_targets(AXIS_PLATFORMS, frozenset(fold_names_by_src_dir({shared_dir: ["beta", "alpha"]})))
+            fold_guard_refused = False
+        except ValueError:
+            fold_guard_refused = True
+        ok &= _assert(
+            fold_guard_refused,
+            "an axis whose every name shares ONE package is refused as vacuous, even though it has 2 registered names",
         )
     finally:
         shutil.rmtree(tmp_root, ignore_errors=True)
+
+    ok &= _assert(
+        _language_entry_point_roots_match_plugin_roots(),
+        "entry-point module root equals the resolved plugin class's module root "
+        "for every registered language (the two package-resolution routes agree)",
+    )
     return ok
+
+
+def _language_entry_point_roots_match_plugin_roots() -> bool:
+    """Prove the entry-point route this scanner uses agrees with the
+    plugin-class route it replaced, for every registered language.
+
+    `discover_target_package_src_dirs` reads the entry point's declared module
+    instead of importing and instantiating the plugin, because a platform
+    plugin needs generation context to construct. That substitution is only
+    safe while the two routes give the same package for every target, so it is
+    re-proven on every run rather than assumed once. Languages are the only
+    axis that can be checked this way -- they are the axis whose plugins are
+    constructible without generation context.
+
+    Returns:
+        True iff every registered language's entry-point module root equals
+        its resolved `LanguagePlugin` class's module root.
+    """
+    from datrix_common.generation.discovery import get_language_plugin
+
+    module_roots = _entry_point_module_roots(AXIS_LANGUAGES)
+    for name in sorted(registered_language_names()):
+        plugin_root = type(get_language_plugin(name)).__module__.split(".")[0]
+        if module_roots.get(name) != plugin_root:
+            logger.error(
+                "package-resolution routes disagree for language %r: entry point says %r, plugin class says %r",
+                name,
+                module_roots.get(name),
+                plugin_root,
+            )
+            return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -628,15 +782,12 @@ def run_non_vacuity_self_test() -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _log_report(groups: list[ParallelImplementationGroup], language_count: int) -> None:
+def _log_report(groups: list[ParallelImplementationGroup], target_count: int, axis: str) -> None:
     """Log the per-name verdict lines plus the summary line."""
     drifted = [g for g in groups if g.verdict == "drifted"]
     identical = [g for g in groups if g.verdict == "identical"]
     for group in drifted:
-        locations = ", ".join(
-            f"{decl.package}:{decl.file_path}:{decl.line_number}"
-            for decl in group.declarations
-        )
+        locations = ", ".join(f"{decl.package}:{decl.file_path}:{decl.line_number}" for decl in group.declarations)
         logger.info("DRIFTED name=%s locations=[%s]", group.name, locations)
     for group in identical:
         logger.debug(
@@ -645,10 +796,15 @@ def _log_report(groups: list[ParallelImplementationGroup], language_count: int) 
             sorted({d.package for d in group.declarations}),
         )
     logger.info(
-        "PARALLEL-IMPLEMENTATION DRIFT REPORT: %d name(s) found in >=2 of %d "
-        "registered language package(s) and nowhere else -- %d identical, "
+        "PARALLEL-IMPLEMENTATION DRIFT REPORT (axis=%s): %d name(s) found in >=2 "
+        "of %d registered %s package(s) and nowhere else -- %d identical, "
         "%d drifted.",
-        len(groups), language_count, len(identical), len(drifted),
+        axis,
+        len(groups),
+        target_count,
+        axis,
+        len(identical),
+        len(drifted),
     )
 
 
@@ -667,6 +823,15 @@ def main() -> int:
             "defined in >= 2 registered 'datrix.languages' packages and nowhere "
             "else in the monorepo, with a per-name identical/drifted verdict "
             "and a decrease-only drifted-count baseline."
+        ),
+    )
+    parser.add_argument(
+        "--axis",
+        choices=(AXIS_LANGUAGES, AXIS_PLATFORMS),
+        default=AXIS_LANGUAGES,
+        help=(
+            "Which registered target set to compare. Each axis has its own "
+            "baseline file; the axes never share a ratchet."
         ),
     )
     parser.add_argument("--debug", action="store_true", help="Enable DEBUG logging")
@@ -688,47 +853,49 @@ def main() -> int:
     )
 
     if not run_non_vacuity_self_test():
-        logger.error(
-            "NON-VACUITY SELF-TEST FAILED -- aborting before any real scan is trusted."
-        )
+        logger.error("NON-VACUITY SELF-TEST FAILED -- aborting before any real scan is trusted.")
         return EXIT_USAGE
     logger.info("non-vacuity self-test: PASS")
 
     if args.self_test:
         return EXIT_OK
 
-    languages = registered_language_names()
+    axis: str = args.axis
+    baseline_path = _AXIS_BASELINE_PATHS[axis]
+    target_names = _AXIS_NAME_RESOLVERS[axis]()
     try:
-        _require_min_languages(languages)
-        language_src_dirs = discover_language_package_src_dirs(languages, WORKSPACE_ROOT)
-        other_src_dirs = discover_all_other_package_src_dirs(
-            WORKSPACE_ROOT, frozenset(language_src_dirs.values())
-        )
-        groups = find_parallel_implementations(language_src_dirs, other_src_dirs)
+        target_src_dirs = discover_target_package_src_dirs(axis, target_names, WORKSPACE_ROOT)
+        _require_min_targets(axis, frozenset(target_src_dirs))
+        other_src_dirs = discover_all_other_package_src_dirs(WORKSPACE_ROOT, frozenset(target_src_dirs.values()))
+        groups = find_parallel_implementations(target_src_dirs, other_src_dirs)
     except (ValueError, ImportError, SyntaxError, PluginError) as exc:
         logger.error("PARALLEL-IMPLEMENTATION DRIFT REPORT CANNOT RUN: %s", exc)
         return EXIT_USAGE
 
-    _log_report(groups, len(languages))
+    _log_report(groups, len(target_src_dirs), axis)
     drifted_count = sum(1 for g in groups if g.verdict == "drifted")
 
     if args.update_baseline:
-        write_drift_baseline(drifted_count)
+        write_drift_baseline(drifted_count, baseline_path, axis)
         logger.info(
-            "Baseline updated: drifted_count=%d written to %s",
-            drifted_count, DRIFT_BASELINE_PATH,
+            "Baseline updated: axis=%s drifted_count=%d written to %s",
+            axis,
+            drifted_count,
+            baseline_path,
         )
         return EXIT_OK
 
-    baseline_count = load_drift_baseline()
+    baseline_count = load_drift_baseline(baseline_path)
     failure = check_drift_ratchet(drifted_count, baseline_count)
     if failure:
         logger.error(failure)
         return EXIT_FAIL
 
     logger.info(
-        "Drift ratchet holds: %d drifted group(s) <= baseline %d.",
-        drifted_count, baseline_count,
+        "Drift ratchet holds (axis=%s): %d drifted group(s) <= baseline %d.",
+        axis,
+        drifted_count,
+        baseline_count,
     )
     return EXIT_OK
 

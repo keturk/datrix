@@ -17,6 +17,7 @@ Rules (in scripts/config/semgrep-rules/):
     string-concat-codegen   : f"class {name}:" code generation
     todo-comment            : # TODO comments
     magic-number-status     : bare 200/404/500 comparisons
+    redundant-case-conversion : to_*_case(str(x)) and other re-derived case variants
 
 Usage:
     python scripts/library/dev/semgrep_scanner.py --all

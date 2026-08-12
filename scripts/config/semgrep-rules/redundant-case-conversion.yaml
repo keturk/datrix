@@ -1,0 +1,43 @@
+rules:
+  - id: datrix.redundant-case-conversion-str
+    patterns:
+      - pattern: $CASE(str($X))
+      - metavariable-regex:
+          metavariable: $CASE
+          regex: ^to_(snake|camel|pascal|kebab|screaming_snake)_case$
+    message: >
+      Redundant case conversion. str() on a PolyString returns a plain str,
+      discarding the case variants the name already carries, and the case
+      function then recomputes the word split. Read the variant off the name
+      instead: node.name.snake / .camel / .pascal / .kebab / .screaming_snake.
+    languages: [python]
+    severity: WARNING
+
+  - id: datrix.redundant-case-conversion-nested
+    patterns:
+      - pattern: $OUTER($INNER($X))
+      - metavariable-regex:
+          metavariable: $OUTER
+          regex: ^to_(snake|camel|pascal|kebab|screaming_snake)_case$
+      - metavariable-regex:
+          metavariable: $INNER
+          regex: ^to_(snake|camel|pascal|kebab|screaming_snake)_case$
+    message: >
+      Nested case conversion. Both functions split the same words, so the
+      inner call only costs a second split -- the outer form alone is
+      equivalent. Prefer a single PolyString variant: PolyString(x).camel.
+    languages: [python]
+    severity: WARNING
+
+  - id: datrix.redundant-case-conversion-simple-name
+    patterns:
+      - pattern: $CASE(extract_simple_name($X))
+      - metavariable-regex:
+          metavariable: $CASE
+          regex: ^to_(snake|camel|pascal|kebab|screaming_snake)_case$
+    message: >
+      Redundant simple-name extraction. PolyString exposes the last segment of
+      a dotted name as a PolyString: use name.simple.pascal (etc.) instead of
+      wrapping extract_simple_name() in a case function.
+    languages: [python]
+    severity: WARNING

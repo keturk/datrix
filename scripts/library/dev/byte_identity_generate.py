@@ -496,6 +496,30 @@ def run_worker(output_root: Path, examples: list[str], language: str) -> int:
     return 0
 
 
+def _failure_detail(combined: str, output_root: Path) -> str:
+    """Return the console detail for a failed worker, and persist its full output.
+
+    A blind tail is not a diagnosis. The worker names its failure on a single
+    ``WORKER-FAIL <example>: <error>`` line, and under ``--debug`` the pipeline
+    emits hundreds of INFO lines AFTER it -- so the one line that says what went
+    wrong is exactly the line a tail drops. Surface every marker line first,
+    then the tail for context, and write the whole stream to a file so nothing
+    is only ever seen truncated.
+    """
+    log_path = output_root.with_suffix(output_root.suffix + ".worker.log")
+    try:
+        log_path.write_text(combined, encoding="utf-8")
+        written = f"Full worker output: {log_path}"
+    except OSError as exc:
+        written = f"(could not write full worker output to {log_path}: {exc})"
+
+    lines = combined.splitlines()
+    markers = [line for line in lines if line.startswith(WORKER_FAIL_PREFIX)]
+    tail = lines[-MAX_FAILURE_OUTPUT_LINES:]
+    parts = markers + ["", "Output tail:", *tail, "", written]
+    return "\n".join(parts)
+
+
 def run_side(
     side: str,
     output_root: Path,
@@ -512,7 +536,9 @@ def run_side(
 
     Args:
         side: ``BEFORE`` or ``AFTER`` (for failure reporting).
-        output_root: Side root; cleared before generating.
+        output_root: Side root; cleared before generating. The worker's full
+            output is written beside it as ``<output_root>.worker.log`` so a
+            failure is diagnosable past whatever the console shows.
         examples: Example dir relpaths.
         pythonpath: The source overlay for the worker, or ``None``.
         language: The registered ``datrix.languages`` target both sides
@@ -544,8 +570,7 @@ def run_side(
     completed = subprocess.run(command, capture_output=True, text=True, check=False, env=env)
     if completed.returncode != 0:
         combined = (completed.stdout + "\n" + completed.stderr).strip()
-        tail = "\n".join(combined.splitlines()[-MAX_FAILURE_OUTPUT_LINES:])
-        raise GenerationError(side, tail)
+        raise GenerationError(side, _failure_detail(combined, output_root))
 
 
 def compare_examples(
@@ -893,7 +918,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return EXIT_USAGE
     except GenerationError as exc:
-        print(f"GENERATION FAILED on the {exc.side} side. Worker output tail:")
+        print(f"GENERATION FAILED on the {exc.side} side.")
         print(exc.detail)
         return EXIT_USAGE
 

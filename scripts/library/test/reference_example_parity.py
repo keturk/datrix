@@ -915,6 +915,14 @@ def _remove_tree(target: Path) -> None:
 #: shorter than ``CACHE_ROOT/ex_id/language`` was, not longer.
 _PRIVATE_GEN_ROOT: Path = WORKSPACE_ROOT / ".test-output" / ".gen"
 
+#: Bounded retry for the publish rename on Windows only (see
+#: :func:`_publish_generated_tree`). Sized for a child process's handles to be
+#: released after it exits -- observed with the ``pnpm install`` the TypeScript
+#: language hook runs inside the staging tree -- not for a contended resource.
+#: Total wait is under two seconds; a genuine lock outlives it and still raises.
+_PUBLISH_RENAME_ATTEMPTS: int = 6
+_PUBLISH_RENAME_BACKOFF_SECONDS: float = 0.1
+
 
 def _private_scratch_dir(output_dir: Path) -> Path:
     """Return a scratch directory only THIS process will ever generate into.
@@ -987,10 +995,30 @@ def _publish_generated_tree(private_dir: Path, output_dir: Path) -> None:
     """
     _remove_tree(output_dir)
     output_dir.parent.mkdir(parents=True, exist_ok=True)
-    if sys.platform == "win32":
-        os.rename(rf"\\?\{private_dir.resolve()}", rf"\\?\{output_dir.resolve()}")
-    else:
+    if sys.platform != "win32":
         private_dir.rename(output_dir)
+        return
+
+    src = rf"\\?\{private_dir.resolve()}"
+    dst = rf"\\?\{output_dir.resolve()}"
+    # Windows refuses to rename a directory while ANY handle inside it is still
+    # open, and a child process's handles are released asynchronously after it
+    # exits. TypeScript generation is the case that reaches this: its language
+    # hook runs `pnpm install` INSIDE the staging tree, so publish can land
+    # microseconds after pnpm's own processes exit and fail with
+    # `[WinError 5] Access is denied` on a tree that generated perfectly.
+    #
+    # Retry only that condition, and only briefly. A losing publish race is a
+    # DIFFERENT error (the destination exists) and must stay loud and immediate,
+    # so it is never retried and never absorbed here.
+    for attempt in range(_PUBLISH_RENAME_ATTEMPTS):
+        try:
+            os.rename(src, dst)
+            return
+        except PermissionError:
+            if attempt == _PUBLISH_RENAME_ATTEMPTS - 1:
+                raise
+            time.sleep(_PUBLISH_RENAME_BACKOFF_SECONDS * (attempt + 1))
 
 
 def generate_example(system_dtrx: Path, output_dir: Path, language: str) -> None:
