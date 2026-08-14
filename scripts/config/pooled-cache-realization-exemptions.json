@@ -1,0 +1,16 @@
+{
+  "_comment": [
+    "Typed exemptions for datrix/scripts/test/pooled-cache-realization-gate.ps1.",
+    "Each entry names a registered datrix.languages / datrix.platforms target",
+    "(entry-point name, unfolded -- a platform name backed by a shared package",
+    "such as 'local' with 'docker', or 'azure-vm' with 'azure', still gets its",
+    "own entry, since the gate checks every registered name independently)",
+    "whose own source does not yet realize a pooled cache member's declared",
+    "slice_index in its emitted output. pinned_count is the reviewed count of",
+    "len(exemptions); a realization change removes its own entry and",
+    "decrements this field in the SAME change -- the field never silently",
+    "drifts from the live count (the gate fails loud if it does)."
+  ],
+  "pinned_count": 0,
+  "exemptions": []
+}

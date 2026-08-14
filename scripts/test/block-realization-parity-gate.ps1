@@ -6,15 +6,16 @@
 .DESCRIPTION
  Proves every installed `datrix.platforms` plugin's declared
  PlatformCapabilityDeclaration is complete relative to the union of
- capability coordinates every installed platform declares, across seven
+ capability coordinates every installed platform declares, across eight
  surfaces: block-realization (block_type, flavor) cells, supported secret
  backends, native observability providers (per category), supported
  deployment runtimes, identity (provider_type, feature) cells, every
- remaining optional scalar/mapping capability field, and
- unrealizable_surfaces. A coordinate present on one platform and entirely
- undeclared (never an explicit supported=False/reason or truthy value) on
- another fails the gate, unless a reviewed entry exists in
- `datrix/scripts/config/platform-capability-holes.json`.
+ remaining optional scalar/mapping capability field, unrealizable_surfaces,
+ and deployable_constructs (which DeployableConstruct values a platform
+ counts as making a service deployable). A coordinate present on one
+ platform and entirely undeclared (never an explicit supported=False/reason
+ or truthy value) on another fails the gate, unless a reviewed entry exists
+ in `datrix/scripts/config/platform-capability-holes.json`.
 
  Derives its target platform set from
  `importlib.metadata.entry_points(group="datrix.platforms")` at runtime --

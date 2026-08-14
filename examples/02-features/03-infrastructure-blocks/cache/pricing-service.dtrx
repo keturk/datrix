@@ -1,0 +1,24 @@
+
+// Second member of the shared "shared-lookup-cache" pool group -- a distinct
+// service and a distinctly-aliased cache block so the two pool members are
+// observably different (distinct child_name, distinct slice) in generated
+// output.
+service library.PricingService('config/pricing-service.dcfg') : version('1.0.0'), description('pricing lookup service') {
+
+    discovery { }
+
+    cache pricingCache {
+        alert hitRatio(ratio) over(5m) < 70% @severity(warning);
+        hash PriceQuoteCache {
+            UUID productId : primaryKey;
+            Decimal(10, 2) price;
+        }
+    }
+
+    rest_api PricingServiceAPI : basePath("/api/v1") {
+        @path('/pricing/health')
+        get pricingHealth() : auth(public), idempotent -> Boolean {
+            return true;
+        }
+    }
+}

@@ -10,12 +10,12 @@ ACROSS platforms: a ``(block_type, flavor)`` cell one platform realizes and
 another has never even considered was invisible to every existing check.
 
 This gate computes the UNION of every capability coordinate any installed
-platform declares, across SEVEN surfaces, and fails loud if another
+platform declares, across EIGHT surfaces, and fails loud if another
 installed platform has made no decision at all about that coordinate --
 unless the gap is a reviewed, typed entry in
 ``datrix/scripts/config/platform-capability-holes.json``.
 
-THE SEVEN SURFACES:
+THE EIGHT SURFACES:
 
 1. ``block_realizations`` -- ``(block_type, flavor)`` cells.
 2. ``supported_secret_backends`` -- a per-platform value set.
@@ -31,6 +31,8 @@ THE SEVEN SURFACES:
    ``PlatformCapabilityDeclaration`` cannot silently slip past every
    surface unchecked.
 7. ``unrealizable_surfaces`` -- ``{surface_name: reason}``.
+8. ``deployable_constructs`` -- the DeployableConstruct values (by
+   ``.value``) a platform counts as making a service deployable at all.
 
 Target set is NEVER hardcoded: platforms are enumerated from the installed
 ``datrix.platforms`` entry points at run time
@@ -61,8 +63,10 @@ from datrix_common.deployment.cache_connection_identity import CacheConnectionId
 from datrix_common.deployment.rdbms_connection_identity import RdbmsConnectionIdentity  # noqa: E402
 from datrix_common.deployment.secret_backend import SecretBackend  # noqa: E402
 from datrix_common.deployment.signing_backend import SigningBackend  # noqa: E402
-from datrix_common.plugin.capability import (  # noqa: E402
+from datrix_common.plugin.capability import (
+    # noqa: E402
     BlockRealization,
+    DeployableConstruct,
     PlatformCapabilityDeclaration,
 )
 from datrix_common.plugin.capability_resolution import declaration_for_provider  # noqa: E402
@@ -92,6 +96,7 @@ _SURFACE_OWNED_OPTIONAL_FIELDS: Final[frozenset[str]] = frozenset({
     "identity_provider_realizations",   # surface 5
     "identity_feature_realizations",    # surface 5
     "unrealizable_surfaces",            # surface 7
+    "deployable_constructs",            # surface 8
 })
 
 #: Surface-6 optional fields compared by PER-VALUE union membership (the
@@ -123,6 +128,11 @@ _PRESENCE_SHAPED_SCALAR_FIELDS: Final[tuple[str, ...]] = (
     "realizes_inprocess_async_hosting",
     "native_identity_provider",
     "gateway_terminates_tls",
+    "rdbms_login_principal_is_per_service",
+    "published_host_ports",
+    "edge_origin_host_port",
+    "edge_path_routed_origins",
+    "cache_pooled_slice_delivery",
 )
 
 #: Fields that carry an explanatory RATIONALE for another field's already-
@@ -369,6 +379,23 @@ def _unrealizable_surface_gaps(
     )
 
 
+def _deployable_constructs_gaps(
+    per_platform: dict[str, PlatformCapabilityDeclaration],
+) -> list[SurfaceViolation]:
+    """Surface 8: DeployableConstruct values (by ``.value``) a platform
+    counts as making a service deployable. Docker's declared set includes
+    ``infrastructure_blocks`` (an rdbms/cache/etc.-only service realizes as
+    a real datastore container there); AWS/Azure both decline that member
+    with a reviewed ``declared_set_exclusions["deployable_constructs"]``
+    entry -- neither realizes standalone-infrastructure compute."""
+    return _value_set_gaps(
+        per_platform,
+        "deployable_constructs",
+        lambda d: {c.value for c in d.deployable_constructs},
+        exclusion_surface="deployable_constructs",
+    )
+
+
 def _scalar_set_shaped_gaps(
     per_platform: dict[str, PlatformCapabilityDeclaration],
 ) -> list[SurfaceViolation]:
@@ -455,7 +482,7 @@ def _scalar_presence_shaped_gaps(
 def all_surface_violations(
     per_platform: dict[str, PlatformCapabilityDeclaration],
 ) -> list[SurfaceViolation]:
-    """Run all seven surfaces' comparisons and return every violation.
+    """Run all eight surfaces' comparisons and return every violation.
 
     Raises:
         ValueError: If *per_platform* has fewer than
@@ -476,6 +503,7 @@ def all_surface_violations(
     violations.extend(_scalar_set_shaped_gaps(per_platform))
     violations.extend(_scalar_presence_shaped_gaps(per_platform))
     violations.extend(_unrealizable_surface_gaps(per_platform))
+    violations.extend(_deployable_constructs_gaps(per_platform))
     return violations
 
 
@@ -555,6 +583,7 @@ def _synthetic_declaration(
             supported=True, structural_pattern=f"*/infra/rdbms/{extra_flavor}/*.py"
         )
     return PlatformCapabilityDeclaration(
+        deployable_constructs=frozenset({DeployableConstruct.REST_API}),
         platform_label=platform_label,
         default_secret_backend=SecretBackend.FILE,
         crypto_signing_backend=SigningBackend.LOCAL_KEY,

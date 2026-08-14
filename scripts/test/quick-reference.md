@@ -676,6 +676,108 @@ Parallel-implementation drift REPORT (D10.1): a strictly weaker, more general in
 
 ---
 
+### `test\dependency-declaration-ratchet-gate.ps1`
+
+Dependency-declaration-only-path ratchet (W4 / declarations-are-the-only-emission-path enforcement): a per-language CENSUS of every dependency-**SET** decision site in a registered language package that decides dependency package NAMES outside that package's own `generation/dependency_tables.py` table -- the completeness proof for the declared-table migration: a language's migration is done when this scan reports ZERO out-of-table sites for that package, never when a hand-written list is exhausted. Target derivation is pure runtime discovery via the installed `datrix.languages` entry points -- never a hardcoded language list -- so a fifth `datrix-codegen-<lang>` package is covered automatically with no edit here. A registered language with no `defaults.yaml` at all declares an empty dependency-catalog universe, which is a legitimate zero-site result, not an error.
+
+**The counted unit is a decision SITE, not a bare catalog-name-shaped literal anywhere in the tree.** An earlier version of this scanner flagged any string literal equal to a registered catalog package name, anywhere under `src/` and `templates/`; that over-matched by roughly two orders of magnitude (a cache-ENGINE identifier constant, an import-deduplication helper's module-name constants, and a code template's own `import <pkg>` statement all happen to share a spelling with a real package name without ever deciding a manifest's dependency set) and could never structurally reach zero for a migrated language. Two structural detection passes, neither a text regex over raw source:
+- **Python source.** AST-walks every `.py` file under the language's `src/` tree for string-literal `ast.Constant` nodes whose value is a member of that language's registered `DependencyCatalog` package universe (read from the language's own `defaults.yaml`) -- but ONLY when the literal sits inside (a) a `get_dependencies`/`get_npm_dependencies`/`get_nuget_dependencies`/`_collect_*_deps`-shaped function at any nesting depth, or (b) a module-TOP-LEVEL (never class- or function-nested) assignment shaped the same way (e.g. `ENGINE_PACKAGE_NAMES`, `EMAIL_COORDINATES`). Both shapes are recognized by a documented whole-snake_case-token naming vocabulary (`_DEPENDENCY_DECISION_NAME_TOKENS` in the runner module: `dependency`/`dependencies`/`deps`/`package`/`packages`/`coordinate`/`coordinates`), matched as whole tokens, never a substring search or a hardcoded function-name allowlist.
+- **Jinja templates.** Parses every `.j2` file under the language's `templates/` tree into its Jinja AST and walks `nodes.Const` literal nodes inside `{{ }}`/`{% %}` expressions (e.g. a `v['pkg']` version-lookup in a manifest template) for the same catalog-membership match -- the structural analogue of the Python pass's `ast.Constant`. Raw `TemplateData` (a template's literal rendered-output text between tags) is deliberately NOT scanned by containment: it degrades to a text search over a template's entire output, including plain generated code and even doc comments, which is not a dependency-set decision.
+
+This is a naming-shape heuristic, not an exhaustive semantic analysis: under-reporting a genuine decision site named entirely outside the token vocabulary is a known, accepted, documented limitation (extend the vocabulary in the runner module if one is found), preferred over a hardcoded per-function allowlist that would drift silently out of sync with the code it polices.
+
+**This is a REPORT with a decrease-only out-of-table-count baseline, not a check that identifies WHICH package a site decides to require** -- only WHETHER a site decides one at all, outside the one place it is allowed to. A single conceptual site (e.g. the same literal appearing as both a dict key and a sibling function argument on one line) collapses to one `(file, line, literal)` entry, never double-counted.
+
+**A small, reviewed, coordinate-pinned exemption list** (`_KNOWN_NON_JINJA_TEMPLATES` in the runner module) skips the Jinja parse attempt for `.j2`-suffixed files that are not actually Jinja source -- at authoring time this is exactly one file, a dormant static-Python legacy template kept intentionally unrendered by an unrelated, already-settled hardening decision. Every OTHER `.j2` file that fails to parse still fails the scan loud (a genuine template syntax error is a scan error, never a silently skipped file); a template that parses but references an undefined Jinja global is unaffected (`Environment().parse()` only needs syntactic validity, not a rendering context).
+
+**Built-in non-vacuity self-test, every invocation.** Before any real scan is trusted, the script builds a synthetic two-language package tree under a temp directory and proves: it finds exactly the two planted out-of-table sites; a non-qualifying decoy referencing the same planted literal (mirroring the real `resolve_*_engine`/`SUPPORTED_*_ENGINES` false-positive shape) adds no second site -- the narrowing itself; moving one planted literal into a synthetic `generation/dependency_tables.py` drops the combined count by exactly one; a synthetic Jinja template's planted literal is detected by the template pass independently of the Python-source pass; the LIVE scan (real tree, not synthetic) finds a described, currently-real out-of-table instance AND no longer reports three described, currently-real sites the earlier, over-broad matcher wrongly counted; and the minimum-language guard refuses a single-language set with exit code 2, never a silent pass. Fails loud (exit 2) if fewer than two languages are registered -- a per-language census over fewer than two languages is vacuous.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the report** | `.\test\dependency-declaration-ratchet-gate.ps1` | Full scan over every registered language, checked against the ratchet baseline |
+| **Debug** | `.\test\dependency-declaration-ratchet-gate.ps1 -Dbg` | Debug logging (also lists every out-of-table site found) |
+| **Self-test only** | `.\test\dependency-declaration-ratchet-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real scan |
+| **Freeze/tighten baseline** | `.\test\dependency-declaration-ratchet-gate.ps1 -UpdateBaseline` | Write the live out-of-table count as the new baseline |
+
+**Parameters:** `-Dbg`, `-SelfTest`, `-UpdateBaseline`
+
+**Baseline:** `scripts/config/dependency-declaration-ratchet-baseline.json` -- a decrease-only ratchet on the out-of-table site count, summed across every registered language (a live count HIGHER than the recorded value fails; a decrease never fails). `-UpdateBaseline` is the only writer; do not hand-guess the number.
+
+**Exit codes:** 0 = the report ran and the out-of-table count is at or below the baseline (or a successful `-SelfTest`/`-UpdateBaseline`), 1 = the out-of-table count exceeds the baseline, 2 = the non-vacuity self-test failed, fewer than 2 languages are registered, or a discovery/parse error occurred.
+
+---
+
+### `test\collapsibility-classification-gate.ps1`
+
+Collapsibility-classification enforcement gate (W1): asserts that every name the parallel-implementation drift scanner (`parallel-implementation-drift-gate.ps1`) reports DRIFTED, on either axis, carries a schema-valid `collapsibility` field in that axis's classification file. Two strictness levels: entry count == live drifted count and every entry carries `status` are HARD checks; every entry carrying a closed-vocabulary `collapsibility.mechanism`, and every `mechanism: "none"` entry carrying a `collapsibility.reason` distinct from its legitimacy `reason`, is a decrease-only ratchet on the unclassified-collapsibility count.
+
+**A classification file's absence is a HARD FAILURE, not a skip, for any axis declared in `EXPECTED_CLASSIFIED_AXES`** (`collapsibility_classification.py` -- currently both `languages` and `platforms`). This is declared, not inferred: an axis outside that set with no classification file yet is still skipped (logged, never failed), but an axis inside it whose file is absent -- including one that existed and was deleted -- fails loud with a four-part message. This is what stops the enforcement from being silenced simply by removing its own input file; adding a new axis's classification file must add it to `EXPECTED_CLASSIFIED_AXES` in the same change.
+
+**Built-in plant/observe/revert non-vacuity self-test, every invocation.** Before any real check is trusted, the script plants a short classification file (missing an entry, missing a status), a classification entry missing `collapsibility` entirely, and a `mechanism: "none"` entry whose reason duplicates its legitimacy reason -- proves each is flagged with the exact expected count delta -- then reverts each and proves the count clears. It also proves the expected-axes branch both ways, against a synthetic expected-axes set disjoint from the real one: an axis NOT in the (synthetic) expected set with a missing file is skipped, and an axis IN it with a missing file is a hard `missing_expected_classification_file` violation.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the gate** | `.\test\collapsibility-classification-gate.ps1` | Check the language-axis classification file |
+| **Platform axis** | `.\test\collapsibility-classification-gate.ps1 -Axis platforms` | Check the platform-axis classification file |
+| **Debug** | `.\test\collapsibility-classification-gate.ps1 -Dbg` | Debug logging |
+| **Self-test only** | `.\test\collapsibility-classification-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real check |
+| **Freeze/tighten baseline** | `.\test\collapsibility-classification-gate.ps1 -UpdateBaseline` | Write the live unclassified-collapsibility count as that axis's new baseline |
+
+**Parameters:** `-Axis <languages\|platforms>` (default: languages), `-Dbg`, `-SelfTest`, `-UpdateBaseline`
+
+**Baselines:** `scripts/config/collapsibility-unclassified-baseline.json` (languages) and `scripts/config/platform-collapsibility-unclassified-baseline.json` (platforms) -- each a decrease-only ratchet on that axis's unclassified-collapsibility count, distinct from `parallel-implementation-drift-baseline.json`'s `drifted_count` ratchet. `-UpdateBaseline` is the only writer, and writes only the invoked axis.
+
+**Exit codes:** 0 = the gate ran and all hard checks + the ratchet hold (or a successful `-SelfTest`/`-UpdateBaseline`), 1 = a hard violation or a ratchet regression, 2 = the non-vacuity self-test failed or a discovery/parse error occurred.
+
+**By-mechanism worklist query.** The gate above only asserts every drifted name carries a schema-valid `collapsibility` field; it does not itself answer "how much target-dependent code is left, and what would remove it." That question is answered by grouping either classification file's entries by `collapsibility.mechanism` -- a query, not a fresh investigation, because the mechanism is already recorded on every entry:
+
+```
+D:\datrix\.venv\Scripts\python.exe -c "
+import json, collections, pathlib
+for label, fname in (('languages', 'parallel-implementation-drift-classification.json'), ('platforms', 'platform-implementation-drift-classification.json')):
+    p = pathlib.Path('d:/datrix/datrix/scripts/config') / fname
+    cls = json.loads(p.read_text(encoding='utf-8'))['classifications']
+    by_mech = collections.defaultdict(list)
+    for name, entry in cls.items():
+        mech = entry.get('collapsibility', {}).get('mechanism', '<unset>')
+        by_mech[mech].append(name)
+    print(f'--- {label} ---')
+    for mech, names in sorted(by_mech.items(), key=lambda kv: -len(kv[1])):
+        print(f'{mech}: {len(names)}')
+"
+```
+
+Swap in only one axis's path (drop the `for` loop) to work a single axis. Never commit the printed worklist anywhere -- it is meant to be run ad hoc against whichever classification file is current, not baked into a static file that goes stale the moment either file's `collapsibility.mechanism` values change.
+
+---
+
+### `test\classification-reason-symbol-existence-gate.ps1`
+
+Classification-reason symbol-existence gate: asserts that every code symbol and `file.py:NN` citation appearing in any `reason` or `collapsibility.reason` in either drift-classification file resolves to something that exists, on that axis. `collapsibility-classification-gate.ps1` only checks that the `collapsibility` FIELD is schema-valid -- it never reads what the prose actually SAYS. A classification entry can be schema-valid and still cite a function, class, constant, or attribute that was since deleted, renamed, or never existed the way the prose claims; the schema-validity gate cannot see that, because the schema stays valid regardless of what the prose contains. This gate is the accuracy layer for that gap.
+
+**Candidate extraction is a naming-shape heuristic over backtick-quoted spans** (`` `([A-Za-z_][A-Za-z0-9_.]*(?::\d+)?)` `` in the runner module), never a full-text scan: an exotic reference phrased outside a backtick-quoted, identifier- or `file.py:NN`-shaped span is under-reported, never flagged -- an accepted, documented trade-off, preferred over a hardcoded per-entry allowlist of "known dead but fine" symbols that would drift silently out of sync with the file it polices. A small closed vocabulary of schema/prose words (`_SCHEMA_PROSE_VOCABULARY`: `status`, `reason`, `mechanism`, `collapsibility`, `intentional`, `tracked`, `none`, `classifications`) is excluded from candidates even though it matches the identifier shape. A backtick span that does not open with an identifier character (e.g. `` `.maven_coordinates` ``) never matches the extraction regex at all -- it is simply never produced as a candidate, not filtered out afterward. This module also never parses negation: a citation inside a sentence asserting the symbol's ABSENCE ("X no longer defines `Y`") is extracted and, if dead, reported exactly the same as any other citation -- erring toward flagging is the safe failure direction for a check that exists to catch prose describing dead code.
+
+**Resolution searches three surfaces, all scoped to the axis's own target package `src/` trees (never the whole monorepo):** real Python identifiers declared or used anywhere in those trees (an AST walk); string-literal content parsed from those same `.py` files (`ast.Constant` string values, word-boundary matched, never a bare substring); and raw text of every `.j2` Jinja template under those trees (also word-boundary matched). The latter two surfaces exist because many citations name a construct in the GENERATED target language or a third-party API a language's generator emits (a C# `using` statement, EF Core's `FirstOrDefaultAsync`, SQLAlchemy's `_sa_instance_state`) -- Datrix's own Python source never declares those as one of its own functions/classes/attributes; they exist only inside the f-string/template fragments that build the emitted code. Word-boundary matching (never `in`) is what keeps this sound: a substring check would false-resolve a dead name that merely appears as part of a longer identifier (e.g. `_CACHE_CLIENT_PACKAGE` inside an unrelated `_MY_CACHE_CLIENT_PACKAGE_V2`).
+
+**A DOTTED candidate (`ClassName.attribute`) is resolved more strictly when its base segment names a real class found in the tree**: the attribute must be one that class ITSELF defines (a class-body field) or assigns (an `<something>.attribute = ...` anywhere in the class's own body) -- never merely "some attribute somewhere in the codebase". This is what catches the real defect class this gate exists for: a reason once cited `RemoteConfigBackendSpec.maven_coordinates` even though `RemoteConfigBackendSpec`'s own docstring states Maven coordinates are NOT part of its spec -- the class existing must not launder a nonexistent attribute cited on it. A dotted candidate whose base does NOT name a recognized class (e.g. `this.field`, a generated TypeScript/C# receiver reference, not a Datrix class) falls back to the same broad per-segment resolution a bare identifier gets.
+
+**Built-in plant/observe/revert non-vacuity self-test, every invocation.** Before any real check is trusted, the script proves: extraction excludes schema vocabulary, never produces a dot-prefixed span as a candidate, and still extracts a citation from inside a negation sentence; a planted dead symbol does not resolve against a synthetic package tree while a genuinely present one does; a synthetic class with one declared attribute and one deliberately undeclared attribute resolves the former and rejects the latter (the `RemoteConfigBackendSpec` shape); `file.py:NN` resolution behaves for an in-range line, an out-of-range line, and a nonexistent file; and a known-present REAL symbol (`scan_axis`, this module's own function) resolves against this module's own directory while a value that is never written as one literal string anywhere in that directory does not -- proving the scan finds a real, currently-live symbol via the exact resolver the real gate uses, not only a synthetic fixture.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the gate** | `.\test\classification-reason-symbol-existence-gate.ps1` | Check the language-axis classification file |
+| **Platform axis** | `.\test\classification-reason-symbol-existence-gate.ps1 -Axis platforms` | Check the platform-axis classification file |
+| **Debug** | `.\test\classification-reason-symbol-existence-gate.ps1 -Dbg` | Debug logging |
+| **Self-test only** | `.\test\classification-reason-symbol-existence-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real check |
+
+**Parameters:** `-Axis <languages\|platforms>` (default: languages), `-Dbg`, `-SelfTest`
+
+**Assertions:** every backtick-quoted, identifier- or `file.py:NN`-shaped candidate extracted from every classification entry's `reason` and `collapsibility.reason`, on the invoked axis, resolves against that axis's own registered package `src/` trees.
+
+**Exit codes:** 0 = clean (or a successful `-SelfTest`), 1 = at least one dead-symbol reference found, 2 = the non-vacuity self-test failed or a discovery/parse error occurred.
+
+---
+
 ### `test\observability-axis-parity-gate.ps1`
 
 Cross-target observability-AXIS parity gate: proves every registered language agrees with the platform axis about which observability categories a language may realize. Exists because two generation-breaking defects shipped with every per-package conformance suite green — a language declaring it realized providers in a category only the PLATFORM provisions (so the same config generated on one language and failed generation on another), and the language-axis validator policing a platform-only category (so a provider the resolved platform natively realizes and actually provisions was rejected for every project on that language). Both are **cross-target** consistency defects, which per-package conformance cannot detect by construction: each package validates its own declaration in isolation, so all of them stay internally green while disagreeing about the same portable field. Target sets come from the installed `datrix.languages` / `datrix.platforms` entry points at runtime — never a hardcoded language or provider literal — so a new package is covered with no edit here. Repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
@@ -796,6 +898,56 @@ declaration pair (must report zero gaps) and a synthetic pair with one planted m
 
 **Exit codes:** 0 = every union coordinate is declared or exempted, 1 = at least one unexempted
 gap was found, 2 = the non-vacuity self-test failed or fewer than 2 platforms are registered.
+
+---
+
+### `test\pooled-cache-realization-gate.ps1`
+
+Pooled-cache member-slice realization gate: for every registered `datrix.languages` /
+`datrix.platforms` target, asserts that a pooled cache member's declared slice
+(`PooledMember.slice_index`, `datrix_codegen_common.pooling.contract`) actually reaches that
+target's own emitted-output-facing source — not merely that the shared pooling pre-pass computed
+it. **Detection is STATIC**: the gate AST-parses each target package's own `src/` tree (never a
+substring/regex scan, never `generate.ps1`) for a function that both reads a `.slice_index`
+attribute AND is call-reachable from elsewhere in that same tree — declared AND consumed, not dead
+code. A target that does not yet realize the slice must carry a typed exemption (axis + target +
+reason) in `datrix/scripts/config/pooled-cache-realization-exemptions.json`, whose `pinned_count`
+must equal the file's live entry count on every change — a target quietly losing its realization
+(a regression) fails the gate the same way a target that never had one does; a target that starts
+realizing while its exemption is still present (a stale exemption) also fails.
+
+Derives its target sets from
+`importlib.metadata.entry_points(group="datrix.languages" | "datrix.platforms")` at runtime —
+never a hardcoded `python`/`typescript`/`java`/`dotnet` or `aws`/`azure`/`docker` literal — so a
+future `datrix-codegen-<x>` package is covered automatically with no edit here. Every registered
+entry-point name is checked independently (a platform name backed by a shared package, e.g.
+`local` with `docker` or `azure-vm` with `azure`, still gets its own exemption entry).
+
+**Built-in non-vacuity self-test, every invocation.** Proves, against synthetic source trees it
+has never seen, that a declared-and-reachable `.slice_index` consumer classifies realized and a
+declared-but-dead (never called) one classifies NOT realized — the exact regression shape a
+realization task could introduce. Also exercises the gate's own vacuity guard for real (via a
+`target_names` override, the same code path a live run takes) against a synthetic single-target
+axis. Fails loud (exit 2) if fewer than 2 targets are registered on an axis being checked.
+
+| Mode | Command | Description |
+|------|---------|--------------|
+| **Run gate (both axes)** | `.\test\pooled-cache-realization-gate.ps1` | Check every registered language AND platform target |
+| **Single axis** | `.\test\pooled-cache-realization-gate.ps1 -Axis platforms` | Check only the platforms axis (or `-Axis languages`) |
+| **Debug** | `.\test\pooled-cache-realization-gate.ps1 -Dbg` | Debug logging (also lists each target's declared-and-reachable consumer sites) |
+| **Self-test only** | `.\test\pooled-cache-realization-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real check |
+
+**Parameters:** `-Axis <languages\|platforms>` (default: both axes), `-Dbg`, `-SelfTest`
+
+**Exemptions:** `scripts/config/pooled-cache-realization-exemptions.json` — one entry per
+currently-unrealized target (`{axis, target, reason}`), with a hand-reviewed `pinned_count` that
+must equal `len(exemptions)`. There is no `-UpdateBaseline`: a realization change removes its own
+entry and decrements `pinned_count` in the same change, never a generic freeze command.
+
+**Exit codes:** 0 = every registered target realizes the slice or carries a reviewed exemption
+(and no exemption is stale), 1 = at least one unexempted gap or stale exemption was found, or the
+exemption file's live count does not match `pinned_count`, 2 = the non-vacuity self-test failed or
+fewer than 2 targets are registered on an axis being checked.
 
 ---
 

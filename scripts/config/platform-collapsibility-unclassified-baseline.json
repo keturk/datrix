@@ -1,0 +1,13 @@
+{
+  "_comment": [
+    "Decrease-only ratchet: the count of classification entries on the",
+    "datrix.platforms axis that are NOT yet fully collapsibility-classified",
+    "(missing collapsibility.mechanism, an invalid mechanism, or a",
+    "mechanism:'none' entry with no reason / a reason duplicating its",
+    "legitimacy reason). A live count HIGHER than this value fails --",
+    "new unclassified entries appeared with nothing reconciling them.",
+    "collapsibility-classification-gate.ps1 -UpdateBaseline is the only",
+    "writer; do not hand-guess the number."
+  ],
+  "unclassified_count": 0
+}

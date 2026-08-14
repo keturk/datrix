@@ -1,0 +1,134 @@
+{
+  "_comment": [
+    "Per-name classification of every DRIFTED group reported by",
+    "parallel-implementation-drift-gate.ps1 -Axis platforms. Every drifted",
+    "platform-axis name MUST appear here exactly once, classified as either",
+    "\"intentional\" (a legitimate per-platform emission difference; `reason`",
+    "names the platform-specific fact that justifies it) or \"tracked\" (a",
+    "genuine unreconciled divergence; `reason` states the defect and names",
+    "the platform whose behaviour is the reference). Every entry",
+    "additionally carries a `collapsibility` object: `mechanism` (one of the",
+    "closed vocabulary in collapsibility_classification.py's",
+    "COLLAPSIBILITY_MECHANISMS) and, when mechanism is \"none\", a `reason`",
+    "distinct from the legitimacy `reason` above -- the two answer different",
+    "questions (\"is this divergence legitimate?\" vs \"is this collapsible, and",
+    "by what mechanism?\"). Zero unclassified entries is the bar -- this file's",
+    "entry count MUST equal the live report's drifted_count exactly.",
+    "Regenerate the name list from a fresh gate run before editing; never",
+    "hand-maintain drift."
+  ],
+  "classifications": {
+    "_build_social_providers": {
+      "status": "intentional",
+      "reason": "AWS builds Cognito-specific social identity-provider contexts for six federation types (google/facebook/amazon/apple/saml/oidc, each mapped to its own CDK UserPoolIdentityProvider* construct); Docker builds Zitadel-specific social-IdP entries for an eleven-type registry (adds github/azure/twitter/linkedin/gitlab/bitbucket) rendered as OR2 Docker secret-refs rather than CDK constructs -- two different identity backend products with different supported-provider catalogs and different secret-rendering mechanisms.",
+      "collapsibility": {
+        "mechanism": "none",
+        "reason": "No shared mechanism removes this: the two platforms' social-IdP catalogs are not even the same SET of provider types, so there is no single body to hoist without dropping providers one backend supports and the other does not."
+      }
+    },
+    "_foreign_only_reason": {
+      "status": "intentional",
+      "reason": "azure-vm's and docker/local's formatters build the identical 'this coordinate is native to a different platform' sentence, differing only in the embedded platform-identity phrase ('azure-vm' vs 'the docker/local self-hosted target') -- azure-vm's own module comment states it shares the identical underlying facts with local, so every one of its declared surface values matches local's exactly.",
+      "collapsibility": {
+        "mechanism": "shared-predicate-hoist"
+      }
+    },
+    "_framework_secret_def": {
+      "status": "intentional",
+      "reason": "Both build the identical datrix-owned LogicalSecretDef from the same shared FRAMEWORK_JWT_KEY_PURPOSE/FRAMEWORK_JWT_KEY_AUTHORITY constants; azure's copy differs only by a cast() to satisfy a Literal type the shared constant is not typed as -- azure's own docstring states it mirrors datrix_codegen_aws's version so the Azure and AWS runtime-requirements manifests classify the same handle identically.",
+      "collapsibility": {
+        "mechanism": "shared-predicate-hoist"
+      }
+    },
+    "_generic_operator_secret_effect": {
+      "status": "intentional",
+      "reason": "Both build the identical fallback sentence for an unset secret with no declared purpose, from the same logical_name parameter -- aws formats via %r, azure via an equivalent f-string single-quote literal, producing the same text for any ordinary secret name.",
+      "collapsibility": {
+        "mechanism": "shared-predicate-hoist"
+      }
+    },
+    "_resolve_identity_provider_configs": {
+      "status": "intentional",
+      "reason": "AWS's package coincidentally declares this name twice for two different purposes: context.py's version only reads the pre-resolved value out of a genDSL extra_scope kwargs dict (a different function entirely), while AWSGenerator._resolve_identity_provider_configs in aws_generator.py already delegates to the shared datrix_common.identity.plan_artifact.resolve_provider_configs. Docker's docker_generator.py version independently duplicates that exact shared loader loop instead of calling it.",
+      "collapsibility": {
+        "mechanism": "shared-predicate-hoist"
+      }
+    },
+    "_resolved_flavor": {
+      "status": "intentional",
+      "reason": "Both read config.platform.value off a duck-typed protocol and raise an identically-shaped GenerationError naming block_kind/block.name/service.name; azure-vm's own docstring calls it a mirror of datrix_codegen_docker's identical structural protocol -- but azure-vm's block_kind parameter is typed str (used only for error text) while docker's is typed the ManagedBlockKind enum, so the two signatures are not literally identical yet.",
+      "collapsibility": {
+        "mechanism": "signature-alignment"
+      }
+    },
+    "_supported": {
+      "status": "intentional",
+      "reason": "Byte-identical bodies on azure-vm and docker/local (BlockRealization(supported=True, structural_pattern=_MANAGED_SERVICE_STRUCTURAL_PATTERN)), including the identical '*docker-compose.yml' pattern constant -- azure-vm's own module comment states this cell is reused verbatim from datrix-codegen-docker's local declaration because azure-vm self-hosts containers exactly like docker/local.",
+      "collapsibility": {
+        "mechanism": "shared-predicate-hoist"
+      }
+    },
+    "_validate_service": {
+      "status": "intentional",
+      "reason": "Each platform's orchestration sequence genuinely differs in which checks run and how many: aws runs four (empty, flavor, hosting-mode, websocket-ingress); azure runs two (empty, flavor); docker runs two but conditionally, gated by an extra validate_flavors keyword aws/azure don't have. This is a per-platform check-dispatch difference, not one algorithm with cosmetic differences.",
+      "collapsibility": {
+        "mechanism": "none",
+        "reason": "No shared mechanism collapses a function whose whole job is choosing a different SUBSET and COUNT of checks per platform (2 vs 2-conditional vs 4) -- there is no single shared body left once the per-platform checks it dispatches to are excluded."
+      }
+    },
+    "_widen_channel_table": {
+      "status": "intentional",
+      "reason": "Both re-key a per-channel realization table at the union NotificationProvider type via the identical dict comprehension; azure-vm's own docstring states it mirrors datrix_codegen_docker.plugin.capability's own helper -- a fully generic Mapping-rekeying utility with no platform-specific logic.",
+      "collapsibility": {
+        "mechanism": "shared-predicate-hoist"
+      }
+    },
+    "build_zero_env_provisioning_context": {
+      "status": "intentional",
+      "reason": "The one piece confirmed identical (per-handle secret-placeholder cardinality) is already hoisted to datrix_codegen_common.platform.zero_env.build_zero_env_secret_placeholders, which aws's copy calls. The residual bodies remain substantially different beyond that: aws returns a CDK/CloudFormation-token-based context (secrets + connections_profile + region) from a caller-supplied DerivedConnectionSurface, while azure returns a much richer Bicep/ARM-based context (connections App Configuration key-values, deploy-time ARM expressions, Key Vault stubs, managed-backend static-value overrides, RBAC role GUIDs) derived internally via its own derive_connection_surface call -- different signatures, different return shapes, different deploy-time token mechanisms.",
+      "collapsibility": {
+        "mechanism": "none",
+        "reason": "zero_env.py's own docstring already records that this residual piece is deliberately NOT hoisted -- the config-store seed-value emission mechanism (CDK Fn::ToJsonString vs Bicep deploymentScript heredoc) stays entirely provider-owned, since forcing it into a shared function would homogenize a genuine mechanism difference."
+      }
+    },
+    "external_docs": {
+      "status": "intentional",
+      "reason": "Both wrap the identical shared append_external_infrastructure_markdown(generator, application, files, application.hash()) call -- the entire body is already the same shared function. The only difference is each platform's own genDSL entry-point wrapper: aws takes an AWSGenerator directly, azure takes an AzureRuntimeState wrapper and additionally gates on azure_runtime.mark_once('external_docs') for its own domain-execution idempotency convention.",
+      "collapsibility": {
+        "mechanism": "signature-alignment"
+      }
+    },
+    "identity": {
+      "status": "intentional",
+      "reason": "Each platform's identity() genDSL domain entry point provisions a categorically different managed identity product: AWS Cognito User Pool via CDK construct stack plus CloudFormation template; Azure Entra ID app registration plus managed identity via Bicep. This is each platform's own IdP realization, not a shared algorithm with cosmetic differences.",
+      "collapsibility": {
+        "mechanism": "none",
+        "reason": "No shared mechanism exists between provisioning a Cognito User Pool stack and an Entra ID app registration -- they are different products with different resource models; only the domain ENTRY POINT name is shared, not the realization."
+      }
+    },
+    "platform_infrastructure": {
+      "status": "intentional",
+      "reason": "A property accessor returning each platform's own PlatformInfrastructure singleton dataclass (AzurePlatformInfrastructure() vs DockerPlatformInfrastructure()) -- the two singletons expose the platform's own VNet/IAM/managed-service provisioning seam, which is by definition platform-specific data, not shared logic.",
+      "collapsibility": {
+        "mechanism": "none",
+        "reason": "The accessor body is trivial (construct-and-return); what would need collapsing is the two singleton classes' own content, which is exactly the platform-specific infrastructure contract this property exists to expose -- there is no shared body to hoist without inventing a new cross-platform infrastructure abstraction, out of this axis's scope."
+      }
+    },
+    "provision_queue": {
+      "status": "intentional",
+      "reason": "Each platform dispatches to its OWN closed RealizationDSL table for its OWN managed queue product (AWS's _AWS_QUEUE_REALIZATION_TABLE realizing SQS; Docker's _LOCAL_QUEUE_REALIZATION_TABLE realizing container/external flavors; Azure's own table realizing Service Bus) -- each is defense-in-depth for a real IaC emitter that is itself entirely platform-specific.",
+      "collapsibility": {
+        "mechanism": "none",
+        "reason": "The declared RealizationDSL tables are already each platform's OWN declaration surface, which is the pattern this whole design values; what remains per-platform is the queue PRODUCT itself (SQS vs Service Bus vs compose container), which has no shared mechanism to collapse into."
+      }
+    },
+    "provision_serverless": {
+      "status": "intentional",
+      "reason": "Mirrors provision_queue's shape exactly (each platform's own defense-in-depth dispatch method against its own closed table) but for the serverless block -- aws's real IaC is a materially different ServerlessStackContext/build_serverless_stack shape (a full CDK stack spec, not a resource-summary tuple), unaffected by this method.",
+      "collapsibility": {
+        "mechanism": "none",
+        "reason": "Same reasoning as provision_queue applied to the serverless block: the dispatch shape is already declaration-driven per platform; what remains is each platform's own serverless compute product (Lambda vs Azure Functions vs compose worker), which is the point of the per-platform declaration, not a gap to close."
+      }
+    }
+  }
+}

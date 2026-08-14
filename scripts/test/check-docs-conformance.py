@@ -222,7 +222,7 @@ def extract_module_candidates(doc_text: str) -> list[tuple[int, str]]:
     whitespace, it matches a dotted lowercase identifier chain
     (``^[a-z][a-z0-9_]*(\\.[a-z_][a-zA-Z0-9_]*)+$``) whose first segment is
     one of the 12 known Python import names. A trailing segment that starts
-    with an uppercase letter (a class name, e.g. ``...SeedGeneratorHooks``)
+    with an uppercase letter (a class name, e.g. ``...DefaultCacheHooks``)
     fails this regex and is deliberately excluded -- this v1 only resolves
     module/function/attribute paths, not class-qualified symbol chains.
 
@@ -652,7 +652,7 @@ def _check_generic_dotted_identifier_without_known_import_name_is_excluded() -> 
 
 
 def _check_trailing_class_name_segment_is_excluded_from_extraction() -> None:
-    doc_text = "See `datrix_codegen_common.orchestration.hooks.seed_hooks.SeedGeneratorHooks`."
+    doc_text = "See `datrix_codegen_common.orchestration.hooks.cache_hooks.DefaultCacheHooks`."
     candidates = extract_module_candidates(doc_text)
     assert candidates == [], f"trailing PascalCase class name must break the regex, got {candidates}"
 

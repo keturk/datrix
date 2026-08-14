@@ -1,6 +1,8 @@
 include 'book-service.dtrx';
 include 'member-service.dtrx';
 include 'loan-service.dtrx';
+include 'catalog-service.dtrx';
+include 'pricing-service.dtrx';
 
 system library.System('config/system.dcfg') : version('1.0.0') {
 }

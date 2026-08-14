@@ -1,0 +1,15 @@
+{
+  "_comment": [
+    "Decrease-only ratchet: the count of dependency PACKAGE-NAME literal",
+    "decision sites found outside each registered language's own",
+    "generation/dependency_tables.py table (Python AST string constants",
+    "plus Jinja template literal segments matching that language's",
+    "registered DependencyCatalog package universe), summed across every",
+    "registered datrix.languages package. A run whose LIVE count is",
+    "HIGHER than this value fails -- a new out-of-table decision site",
+    "appeared with nothing reconciling it.",
+    "dependency-declaration-ratchet-gate.ps1 -UpdateBaseline is the only",
+    "writer; do not hand-guess the number."
+  ],
+  "out_of_table_count": 0
+}

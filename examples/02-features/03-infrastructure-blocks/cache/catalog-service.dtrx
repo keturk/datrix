@@ -1,0 +1,23 @@
+
+// First member of the shared "shared-lookup-cache" pool group -- a fast catalog
+// entry lookup cache, distinct from BookService's own standalone redis block.
+service library.CatalogService('config/catalog-service.dcfg') : version('1.0.0'), description('catalog lookup service') {
+
+    discovery { }
+
+    cache catalogCache {
+        alert hitRatio(ratio) over(5m) < 70% @severity(warning);
+        hash CatalogEntryCache {
+            UUID entryId : primaryKey;
+            String title;
+            Boolean inStock;
+        }
+    }
+
+    rest_api CatalogServiceAPI : basePath("/api/v1") {
+        @path('/catalog/health')
+        get catalogHealth() : auth(public), idempotent -> Boolean {
+            return true;
+        }
+    }
+}

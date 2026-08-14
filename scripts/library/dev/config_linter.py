@@ -200,6 +200,84 @@ def _render_named_block(node: ast.NamedBlockDecl, indent: int) -> str:
     return "\n".join([header, *body, footer])
 
 
+#: Maps a config-store key's canonical ``ConfigValueType.value`` (e.g.
+#: ``"Integer"``) back to its ConfigDSL source token (e.g. ``"Int"``) -- the
+#: parser's own ``_CONFIG_TYPE_TOKENS`` inverted. Only ``Integer``/``Int``
+#: actually differ; the rest are identity.
+_CONFIG_KEY_TYPE_SOURCE_TOKENS: dict[str, str] = {
+    "String": "String",
+    "Integer": "Int",
+    "Float": "Float",
+    "Boolean": "Boolean",
+}
+
+
+def _render_config_key_default(key: ast.ConfigKeyNode) -> str:
+    if key.value_type.value == "String":
+        return _escape_string(str(key.default))
+    if key.value_type.value == "Boolean":
+        return "true" if key.default else "false"
+    # Integer / Float: the parser already coerced the literal to int/float.
+    return str(key.default)
+
+
+def _render_config_key(key: ast.ConfigKeyNode, indent: int) -> str:
+    prefix = "  " * indent
+    type_token = _CONFIG_KEY_TYPE_SOURCE_TOKENS[key.value_type.value]
+
+    attrs: list[str] = []
+    if key.description is not None:
+        attrs.append(f"description({_escape_string(key.description)})")
+    if key.constraint_min is not None:
+        attrs.append(f"min({key.constraint_min})")
+    if key.constraint_max is not None:
+        attrs.append(f"max({key.constraint_max})")
+    if key.constraint_pattern is not None:
+        attrs.append(f"pattern({_escape_string(key.constraint_pattern)})")
+    if key.allowed_values is not None:
+        values = ", ".join(_escape_string(v) for v in key.allowed_values)
+        attrs.append(f"allowedValues({values})")
+    if key.ttl_seconds is not None:
+        attrs.append(f"ttlSeconds({key.ttl_seconds})")
+    if key.secret_ref is not None:
+        attrs.append(f"secretRef({_escape_string(key.secret_ref)})")
+
+    line = f"{prefix}{type_token} {key.name}"
+    if attrs:
+        line += " : " + ", ".join(attrs)
+    if key.has_default:
+        line += f" = {_render_config_key_default(key)}"
+    return line + ";"
+
+
+def _render_config_keys_block(node: ast.ConfigKeysBlockNode, indent: int) -> str:
+    header = f"{'  ' * indent}keys {{"
+    body = [_render_config_key(key, indent + 1) for key in node.keys]
+    footer = f"{'  ' * indent}}}"
+    return "\n".join([header, *body, footer])
+
+
+def _render_group_entry(entry: ast.GroupEntry, indent: int) -> str:
+    header = f"{'  ' * indent}{entry.name} {{"
+    body = [_render_field_assignment(field, indent + 1) for field in entry.fields]
+    footer = f"{'  ' * indent}}}"
+    return "\n".join([header, *body, footer])
+
+
+def _render_server_groups(node: ast.ServerGroupsDecl, indent: int) -> str:
+    header = f"{'  ' * indent}serverGroups {{"
+    body = [_render_group_entry(entry, indent + 1) for entry in node.entries]
+    footer = f"{'  ' * indent}}}"
+    return "\n".join([header, *body, footer])
+
+
+def _render_namespace_groups(node: ast.NamespaceGroupsDecl, indent: int) -> str:
+    header = f"{'  ' * indent}namespaceGroups {{"
+    body = [_render_group_entry(entry, indent + 1) for entry in node.entries]
+    footer = f"{'  ' * indent}}}"
+    return "\n".join([header, *body, footer])
+
+
 def _render_replace(node: ast.ReplaceDecl, indent: int) -> str:
     from datrix_common.config.dcfg import ast_nodes as ast
 
@@ -251,6 +329,12 @@ def _render_body(
             rendered.append(_render_named_block(item, indent))
         elif isinstance(item, ast.ReplaceDecl):
             rendered.append(_render_replace(item, indent))
+        elif isinstance(item, ast.ServerGroupsDecl):
+            rendered.append(_render_server_groups(item, indent))
+        elif isinstance(item, ast.NamespaceGroupsDecl):
+            rendered.append(_render_namespace_groups(item, indent))
+        elif isinstance(item, ast.ConfigKeysBlockNode):
+            rendered.append(_render_config_keys_block(item, indent))
         else:
             raise TypeError(f"Unsupported body node type: {type(item).__name__}")
     return rendered
@@ -486,6 +570,30 @@ _SELF_TEST_SOURCE_NO_COMMENTS = """config service test.Foo {
         }
       }
     }
+    serverGroups {
+      core-pool {
+        sku = "GP_Standard_D2s_v3";
+        tier = "GeneralPurpose";
+        storageGb = 32;
+      }
+    }
+    namespaceGroups {
+      core-events {
+        sku = "Standard";
+        capacity = 10;
+      }
+    }
+    configStore {
+      profiles {
+        settings {
+          kind = "freeform";
+          keys {
+            Boolean debugMode : description("Enable debug mode.") = false;
+            Int maxRetries : min(1), max(10), ttlSeconds(60) = 3;
+          }
+        }
+      }
+    }
   }
 
   profile production as "prod" extends base {
@@ -542,6 +650,22 @@ def run_self_test() -> bool:
     ok &= _self_test_check(
         "the inheriting-base replace body survives formatting",
         'serverGroup = "core";' in formatted,
+    )
+    ok &= _self_test_check(
+        "a top-level 'serverGroups { name { ... } }' block survives formatting",
+        "serverGroups {" in formatted and 'sku = "GP_Standard_D2s_v3";' in formatted,
+    )
+    ok &= _self_test_check(
+        "a top-level 'namespaceGroups { name { ... } }' block survives formatting",
+        "namespaceGroups {" in formatted and "capacity = 10;" in formatted,
+    )
+    ok &= _self_test_check(
+        "a nested 'keys { ... }' config-store block survives formatting, "
+        "including a Boolean key's description/default and an Int key's "
+        "min/max/ttlSeconds attributes",
+        "keys {" in formatted
+        and 'Boolean debugMode : description("Enable debug mode.") = false;' in formatted
+        and "Int maxRetries : min(1), max(10), ttlSeconds(60) = 3;" in formatted,
     )
 
     once, _issues1, _error1 = format_dcfg(_SELF_TEST_SOURCE_NO_COMMENTS, Path("t.dcfg"))

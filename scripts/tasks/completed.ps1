@@ -6,7 +6,10 @@
 
 [CmdletBinding()]
 param(
- [string]$BaseDir = (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))),
+ # $PSScriptRoot is empty while a [CmdletBinding()] script's param defaults are
+ # evaluated under Windows PowerShell 5.1, so the unguarded three-parent walk
+ # throws before the script body runs. Same guard latest-phase.ps1 already uses.
+ [string]$BaseDir = $(if ($PSScriptRoot) { Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) } else { "D:\datrix" }),
  [string]$Filter = "",
  [switch]$Dbg
 )

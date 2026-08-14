@@ -94,7 +94,7 @@ Full decision log: [Architecture Overview — Decision 22](./architecture-overvi
 
 ## Cross-Target Parity Program
 
-Establishes systematic parity enforcement across every registered language and platform generator, closing catalogued language-target and platform-target capability drift. **Decision 28 landed and passing:** `block-realization-parity-gate.ps1` (D1) is green across all 4 registered platforms with zero unexempted holes; `standing-conformance-gate.ps1` (D10) is green across all 8 committed specs. **Decision 30 landed:** the platform axis (aws/azure/docker) has a uniform pre-generation validation floor, zero catalogued capability holes, and its dead surfaces deleted and pinned by standing specs. Decisions 29 and 31 remain approved, implementation in progress.
+Establishes systematic parity enforcement across every registered language and platform generator, closing catalogued language-target and platform-target capability drift. **Decision 28 landed and passing:** `block-realization-parity-gate.ps1` (D1) is green across all 5 registered platforms with zero unexempted holes; `standing-conformance-gate.ps1` (D10) is green across all 8 committed specs. **Decision 30 landed:** the platform axis (aws/azure/docker) has a uniform pre-generation validation floor, zero catalogued capability holes, and its dead surfaces deleted and pinned by standing specs. **Decision 31 landed:** declared mini-DSL surfaces (EmitDSL typed predicate columns, shared test-generator plans, the closed seed pipeline, the emission-path gate, and queue/serverless block dispatch) replace the imperative bypasses that used to cause per-target drift, each held by a documented zero or a documented non-zero floor. Decision 29 remains approved, implementation in progress.
 
 | # | Invariant | Enforcement mechanism |
 |---|---|---|
@@ -106,7 +106,7 @@ Establishes systematic parity enforcement across every registered language and p
 | 6 | Config surfaces no target consumes are deleted, not deprecated | Dead-surface removal + standing conformance specs |
 | 7 | Per-target behavior is declared once rather than hand-written per target; a declared surface is the only emission path | Mini-DSL schema/plan-module extensions close imperative bypasses |
 
-Full decision log: [Architecture Overview — Decision 28](./architecture-overview.md#decision-28-cross-target-parity-enforcement--derived-gates-and-declared-capability-holes-adopted) · [Decision 29](./architecture-overview.md#decision-29-language-target-capability-parity-to-the-reference-surface-approved--implementation-in-progress) · [Decision 30](./architecture-overview.md#decision-30-platform-target-validation-floor-and-realization-parity-adopted) · [Decision 31](./architecture-overview.md#decision-31-mini-dsl-consolidation--declared-surfaces-replace-imperative-bypasses-approved--implementation-in-progress)
+Full decision log: [Architecture Overview — Decision 28](./architecture-overview.md#decision-28-cross-target-parity-enforcement--derived-gates-and-declared-capability-holes-adopted) · [Decision 29](./architecture-overview.md#decision-29-language-target-capability-parity-to-the-reference-surface-approved--implementation-in-progress) · [Decision 30](./architecture-overview.md#decision-30-platform-target-validation-floor-and-realization-parity-adopted) · [Decision 31](./architecture-overview.md#decision-31-mini-dsl-consolidation--declared-surfaces-replace-imperative-bypasses-adopted)
 
 ## Portable Telemetry Volume, Platform Diagnostics, and Realization Conformance
 
@@ -158,11 +158,30 @@ Closes what the shared-layer consolidation above left behind: private copies of 
 | 7 | One implementation per fact in the foundation, no new third-party dependency | Negative grep + a test proving the union of previously-divergent accepted inputs resolves through one path |
 | 8 | A declared dependency is an imported dependency | Absent from the manifest; clean editable install succeeds; the test-only library moves to an extra named in that package's own `dev` list |
 | 9 | An adapter cannot widen an orchestrator-owned policy set | Orchestrator validates every registered adapter and fails loud on a widening; both per-adapter sets survive |
-| 10 | Parallel implementations are measured by a signal that survives divergence | Name-keyed report, runtime-derived target set, decrease-only count baseline, zero unclassified groups |
+| 10 | Parallel implementations are measured by a signal that survives divergence | `parallel-implementation-drift-gate.ps1 -Axis languages\|platforms` — one scanner, two runtime-derived target sets; platform axis compares packages, not registered names (name-sharing packages fold into one labelled entry, a no-op on the 1:1 language axis); each axis excludes the other axis's packages; two decrease-only count baselines, never shared (`datrix/scripts/config/parallel-implementation-drift-baseline.json`, `datrix/scripts/config/platform-implementation-drift-baseline.json`); zero unclassified groups |
 
 **A duplicate a design REQUIRES is a reviewed baseline entry, not a merge** — per-platform capability declarations (Decision 22 I3), per-target realized-provider sets (Decision 32 invariant 7), and per-adapter expressible-operation sets are all near-identical *because* their governing decisions forbid a shared table. A container assembled entirely from a shared enum's members is consumption, not duplication, and is exempt from both vocabulary ratchets.
 
 Full decision log: [Architecture Overview — Decision 36](./architecture-overview.md#decision-36-one-fact-one-home--residual-duplication-and-standard-library-adoption-adopted).
+
+## Lowering the Declarative Floor on Both Axes
+
+Decision 36 measures parallel implementations; this decision asks what would *remove* them, and shrinks the code that must be written once per language and once per platform toward its irreducible core. **Adopted:** all nine invariants hold today as executable gates.
+
+| # | Invariant | Check |
+|---|---|---|
+| 1 | Every drifted group on **both** axes records not just whether the divergence is legitimate but whether it is **collapsible, and by what mechanism** | A `collapsibility.mechanism` field on every entry (or `none` plus a reason distinct from the legitimacy reason), so "what would remove this" is a query, not an investigation: `powershell -File "d:/datrix/datrix/scripts/test/collapsibility-classification-gate.ps1" -Axis languages\|platforms`, each axis holding its own unclassified-count ratchet |
+| 2 | Classification completeness is checked, not commented | Each axis's entry count must equal that axis's live drifted count, verified alongside the drift gate — the requirement previously lived only as prose inside the classification file |
+| 3 | A family already served by an existing declaration never gets a new surface | The casing family routes through the already-declared `LanguageProfile.naming` casers (`identifier_caser`, `type_name_caser`, `constant_caser`); a casing table would be a second home for a declaration that exists. The one new surface earned under F1 is the per-language dependency table — versions stay in the dependency catalog, so a row never carries one |
+| 4 | Pure predicates over the sealed model live once in the shared layer, not once per platform | `datrix-codegen-common/src/datrix_codegen_common/generation/service_predicates.py`; where a predicate genuinely differs per platform, the difference becomes a **declared per-platform set read by one shared predicate** — never a per-platform copy of the algorithm |
+| 5 | A hoist that does not move the ratchet did not remove a parallel implementation | Both drift baselines are decrease-only counts, and the decrease is pinned in the **same change** as the hoist that produced it |
+| 6 | These are refactors, so their whole claim is that nothing changed | Behaviour preservation proven by **byte-identical generated output**, not a green suite alone; a deliberate behavioural change is re-blessed as a diff, never landed silently |
+| 7 | A shared raise site is parameterized by the caller's own exception class, never forced onto a new declared-exception-type hook | `algorithms.declared_table_lookup`, `algorithms.entity_query_chain.transpile_where_comparison`, `transpiler.skeleton.nosql_dispatch.nosql_sort_direction`, `generation.raise_site_guards.reject_unrealizable_gateway_fields` all take the exception class as a parameter — python's own `ValueError` on the entity-query path is load-bearing, caught by its own chain-step fallback |
+| 8 | No classification entry claims `status: intentional` while its own reason describes a capability or emission gap | The classification gate hard-rejects `mechanism: capability-gap-defect` + `status: intentional`; the five entries this was ever true for are fixed against a named reference target, not just reclassified to `tracked` |
+
+**A mechanism label is a hypothesis about code, not a fact about it.** Roughly half the names once labelled collapsible-by-casing carried divergences beyond casing — an absent branch, a different return arity, a missing parameter — and reclassifying those to their real mechanism, before any hoist touched them, is what kept the eventual casing pass from silently dropping behaviour. Read the implementations before collapsing on a label. One name remains labelled collapsible-by-casing but unreached: `NamingProfile.structural_rule` is still populated as identity by every language, so a structural-rather-than-case-based convention (a leading-underscore private-field prefix, a directory's kebab-case convention) has no home in the profile as it stands, and inventing one needs a decision family to justify it, not a hoist.
+
+Full decision log: [Architecture Overview — Decision 38](./architecture-overview.md#decision-38-lowering-the-declarative-floor-on-both-axes--collapsibility-classification-and-declared-dependency-tables-adopted).
 
 ## Transpiler pipeline (per file)
 

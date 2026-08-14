@@ -11,5 +11,5 @@
     "parallel-implementation-drift-gate.ps1 -Axis platforms -UpdateBaseline is",
     "the only writer; do not hand-guess the number."
   ],
-  "drifted_count": 24
+  "drifted_count": 15
 }

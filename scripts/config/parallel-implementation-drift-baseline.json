@@ -1,14 +1,15 @@
 {
   "_comment": [
     "Decrease-only ratchet: the count of DRIFTED parallel-implementation",
-    "groups reported by parallel-implementation-drift-gate.ps1 (a function",
-    "name defined identically-in-shape but divergent-in-source across two",
-    "or more registered language codegen packages, and nowhere else in the",
-    "monorepo). A run whose LIVE drifted count is HIGHER than this value",
+    "groups reported by parallel-implementation-drift-gate.ps1 (a",
+    "function name defined identically-in-shape but divergent-in-source",
+    "across two or more registered datrix.languages PACKAGES, and nowhere",
+    "else in the monorepo). Registered names sharing one package are",
+    "folded into a single comparison entry, so this counts packages, not",
+    "names. A run whose LIVE drifted count is HIGHER than this value",
     "fails -- new drift appeared with nothing reconciling it.",
-    "parallel-implementation-drift-gate.ps1 -UpdateBaseline is the only",
-    "writer; run it once the real scanner is landed to seed the initial",
-    "count from the live tree (do not hand-guess the number)."
+    "parallel-implementation-drift-gate.ps1 -UpdateBaseline is",
+    "the only writer; do not hand-guess the number."
   ],
-  "drifted_count": 626
+  "drifted_count": 596
 }
