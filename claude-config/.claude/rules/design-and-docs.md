@@ -10,7 +10,8 @@ architecture before implementing. **Design docs are scope boundaries** — do no
 unspecified features.
 
 - Operationalize before coding: `/operationalize-design`.
-- Absorb after completion: `/absorb-design`.
+- Absorb after completion: `/absorb-design` — **Jon types this one**; you cannot invoke it.
+  Do not attempt it and do not report the refusal as a blocker.
 - **Never modify a design doc during implementation.**
 
 **One exception, and it is exactly one line.** At the very end of a `/task-orchestrator`
@@ -33,6 +34,24 @@ A design doc must not contain "verify during implementation", "TBD", or assumpti
 presented as fact. Look it up now (web docs, source reads), cite the source, and bake the
 verified value in. If something genuinely cannot be determined, that is a blocking open
 question to STOP on — not a task to hand to the implementer.
+
+## Security posture is settled at design time
+
+Every design that touches auth, secrets, transport, input at a trust boundary, injection
+surfaces, permissions/exposure, error and log content, crypto, or **the defaults the
+generator emits on those surfaces** states its posture explicitly. An unstated posture is a
+blocking open question, exactly like an unresolved alternative.
+
+**A design may not specify a less secure option where a more secure one is available.**
+A difference in security posture settles a design choice rather than creating one
+(execution-contract §13) — so "Option A is simpler but unauthenticated" is not a design
+alternative to weigh, it is a defect in the draft.
+
+**And an insecure design does not become an implementer's problem.** If you are implementing
+from a doc that specifies the weaker option, execution-contract §13.7 governs: say it to Jon
+in one line — the weaker option, the exposure, the secure alternative — keep working
+everything that does not depend on the answer, and never silently implement the weaker
+option *or* silently substitute the stronger one. Do not edit the design doc to fix it.
 
 ## Never reference a design doc or task file in a committed artifact
 

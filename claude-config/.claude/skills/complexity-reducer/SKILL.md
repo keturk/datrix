@@ -84,6 +84,7 @@ The refactored code MUST:
 - Preserve docstrings and type hints
 - Follow PEP 8 formatting
 - Pass all tests
+- **Preserve every security control, exactly.** A guard, validation, authorization check, escaping step, or fail-closed branch is never "redundant nesting" to flatten away, and an early return must never turn a denial into a pass-through. If a branch you are about to collapse decides whether something is permitted, it stays — and the simplified form must still **deny** when its input is missing or unknown. Reducing complexity is never a licence to reduce security (`_shared/execution-contract.md` §13).
 
 ## Validation
 

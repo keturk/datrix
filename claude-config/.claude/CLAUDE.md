@@ -14,9 +14,10 @@ when the work calls for it. Read the doc — do not act from memory of it.
 | create a directory, add a test, write into `D:\datrix\datrix` | `.claude/rules/repo-boundaries.md` |
 | dispatch a subagent or plan how much to spend | execution-contract §10–§11 |
 | deploy, or debug a deploy/runtime failure | execution-contract §12 |
+| touch auth, secrets, TLS, input handling, permissions, crypto, or an emitted default | execution-contract §13 |
+| feel pressure to ship a smaller change than the defect deserves | execution-contract §14 |
 | call any repo script | `datrix/scripts/quick-reference.md` |
-| implement significant new logic | query `d:/datrix/.logic-map/markers.db` (`/logic-map`) |
-| submit | `/codegen-review` |
+| implement significant new logic | query `d:/datrix/.logic-map/markers.db` |
 
 **Architecture:** `datrix/docs/architecture/architecture-cheat-sheet.md`,
 `design-principles-cheat-sheet.md`, then `architecture-overview.md` (index).
@@ -75,6 +76,13 @@ tidy summary are a *byproduct* of progress, not the deliverable.
 failure as "out of scope" — an unverified claim is not a result. Report what you ran and
 what it printed.
 
+**Pressure never buys a lesser fix.** The size of a fix is set by the defect — never by
+what is left of your context, budget, turn, or patience. "A quick fix for now", "the
+minimal change to get it green", "a temporary shim until the real thing lands", "I'll
+harden it later" are all banned, and remain banned when you say them honestly. **There is
+no later**: the code you land survives, the note explaining it was provisional does not.
+If the correct fix is large, do it and report the expansion. Full text: execution-contract §14.
+
 **The only interruption is Jon.** A decision genuinely reserved to him (a true B2, or
 something he said to check with him on) → ask in one line, and meanwhile keep working
 everything that does not depend on the answer. Left running unattended, the correct end
@@ -97,14 +105,14 @@ doing the wrong thing.
 |---|---|---|
 | `Stop` | `gate-orchestration-stop.py` | ending an armed `/task-orchestrator` run with tasks unresolved, on an offer to pause, or on a dodge/omission |
 | `Stop` | `checklist.py` | ending a turn with a mechanical checklist item unsatisfied (`.claude/checklists/*.json`) |
-| `Stop` | `gate-stop-exhaustion.py` | ending ANY turn on a context-exhaustion claim or a "remaining / still to fix / next up" handover section (inert when Jon asked you to stop or asked a question) |
-| `SubagentStop` | `check-agent-report.py` | a subagent report ending on a dodge without a B1–B4 proof or filed task |
+| `Stop` | `gate-stop-exhaustion.py` | ending ANY turn on a context-exhaustion claim, a "remaining / still to fix / next up" handover section, a reported security downgrade (§13), or a reported expedient fix (§14) — inert when Jon asked you to stop or asked a question |
+| `SubagentStop` | `check-agent-report.py` | a subagent report ending on a dodge without a B1–B4 proof or filed task, or reporting a security downgrade / expedient fix (neither is lifted by a proof; §13's one exception is B3) |
 | `PreToolUse(Bash\|PowerShell)` | `guard-predeploy-analysis.py` | a deploy with no fresh seam census in `.tmp/predeploy/` (dry-run/`--what-if` forms are always allowed) |
 | `PreToolUse(Bash\|PowerShell)` | `guard-full-suite-runs.py` | whole-suite `test.ps1` runs (unconditional for subagents) |
 | `PreToolUse(Bash\|PowerShell)` | `validate-script-invocation.py` | `generate.ps1` with `-All`/`-Domains`/`-TestSet` (no override) |
 | `PreToolUse(Bash\|PowerShell)` | `guard-forbidden-commands.py` | git reverts and other prohibited commands |
 | `PreToolUse(Write\|Edit)` | `guard-repo-temp-dirs.py`, `guard-temp-file-policy.py` | temp/scratch dirs and files inside package repos |
-| `PreToolUse(Write\|Edit)` | `gate-mandatory-reads.py` | any edit after a compaction until the gated docs are re-read |
+| `PreToolUse(Write\|Edit)` | `gate-mandatory-reads.py` | any edit until the gated docs are read in this session (and re-read after a compaction) |
 | `PreToolUse(AskUserQuestion)` | `gate-decision-escalation.py` | handing a decision back to Jon mid-run instead of escalating |
 
 **Adding a check?** Put it in a hook or a test, not in this file. A rule written here is paid
@@ -112,8 +120,10 @@ for on every turn and competes with everything else in context; a rule in a hook
 only when it fires. If it cannot be evaluated mechanically, it belongs in a read-when-needed
 doc — see `.claude/hooks/checklist.py` for the config-driven form.
 
-**Post-compaction:** every file you read is gone; only this file and `MEMORY.md` come back.
-Re-read before acting — `gate-mandatory-reads.py` blocks edits until you do.
+**Mandatory reads:** the architecture cheat sheet and the agent rules are NOT injected —
+only this file and `MEMORY.md` are. Read them before your first edit; `gate-mandatory-reads.py`
+blocks Write/Edit until you do. Post-compaction every file you read is gone, and the same gate
+re-arms: re-read before acting.
 
 ## Core Principles
 
@@ -150,9 +160,18 @@ Re-read before acting — `gate-mandatory-reads.py` blocks edits until you do.
   not limited to Docker/AWS/Azure. Place fixes at the most language/platform-agnostic layer
   that can own them; specifics live only in the owning codegen package. Never hardcode the
   assumption that currently-shipped targets are the only targets.
+- **Security outranks everything except correctness.** **Never propose or implement a less
+  secure option when a more secure one is available** — convenience, brevity, fewer moving
+  parts, and finishing sooner do not outrank it, and a difference in security posture
+  settles a design choice rather than creating a B2. Fail closed: a control that cannot
+  evaluate its input denies. Never disable, loosen, or exempt a security control to turn a
+  red check green. This binds what the generator *emits* as hard as what you write — an
+  insecure default in a template ships once per generated project, forever.
+  Surfaces, the fail-closed rule, and the one B3 exception: execution-contract §13.
 - **No workarounds.** Trace to the root cause and fix it there. No band-aids, no "good enough
   for now", no conditional guards hiding a broken path. This is not a binary between
-  "workaround" and "stop" — the third option, do the real work, is the default.
+  "workaround" and "stop" — the third option, do the real work, is the default. Being short
+  on context, budget, or time is not a fourth option (§14).
 - **No git reverts.** Never `git checkout`/`restore`/`reset`/`stash`/`revert` to discard
   changes — you do not know how many prior tasks touched these files. Undo your own edits manually.
 - No GitHub Actions. No backward compat (delete old code). Don't act on the open editor file
@@ -228,18 +247,33 @@ default type mappings (`get(t, "Any")`). No `except: pass`. No raw string concat
 `T | None` error returns. No deep inheritance. No platform-specific DSLs. No implicit/magic
 logic. No mechanical grep-and-replace. No unverified answers. No SQLite in generated code.
 
+**Security anti-patterns (framework code AND every emitted artifact):** No hardcoded or
+logged secrets. No disabled/skipped TLS or certificate verification. No auth check that is
+optional, bypassable, or applied after the effect. No permission, CORS, IAM, or network rule
+widened past what is needed (`*`, `0.0.0.0/0`, public bind, public bucket). No string-built
+SQL, shell commands, paths, or markup from external input. No home-rolled crypto and no
+non-CSPRNG randomness for anything security-bearing. No fail-open guard. No credentials, PII,
+or internal detail in errors or logs.
+
 **Pretend code (stubs, `pass`, `NotImplementedError`, always-true validators) is the worst
 outcome — never submit it. An unproven BLOCKED is the second worst.**
 
 ## Skills
 
-`/opus-work` (orchestrator/decision-maker delegating to subagents), `/fable-work`, `/imports`,
-`/logic-map`, `/fix`, `/fix-issue`, `/fix-bug-report`, `/codegen-review`, `/fix-tests`,
-`/scope`, `/checkpoint-debug`, `/codegen-fix-loop`, `/operationalize-design`,
-`/execute-tasks`, `/execute-tasks-parallel`, `/task-orchestrator`, `/absorb-design`,
-`/verify-implementation`, `/commit-and-push`, `/evaluate-generated`,
-`/evaluate-generated-service`, `/fix-cli`, `/fix-common`, `/fix-extensions`, `/fix-language`,
+**You can invoke these:** `/fix-issue`, `/fix-bug-report`, `/fix-tests`, `/checkpoint-debug`,
+`/codegen-fix-loop`, `/operationalize-design`, `/task-orchestrator`, `/commit-and-push`,
+`/evaluate-generated`, `/evaluate-generated-service`, `/fix-cli`, `/fix-common`,
+`/fix-extensions`, `/fix-language`,
 `/fix-codegen-{aws,azure,common,component,docker,dotnet,java,python,sql,typescript}`.
+
+**Jon types these — you cannot:** `/opus-work`, `/fable-work`, `/delegate`, `/imports`,
+`/logic-map`, `/fix`, `/scope`, `/codegen-review`, `/execute-tasks`,
+`/execute-tasks-parallel`, `/absorb-design`, `/verify-implementation`. They are
+`disable-model-invocation`: the Skill tool returns a hard error and forbids reproducing the
+workflow another way. **Do not attempt one, and never file the refusal as BLOCKED** — a
+skill reserved for Jon is not B1–B4, it is not a blocker, and reporting it as one turns a
+finished task into a false alarm. Finish everything that is yours, then say in one line that
+the remaining step needs Jon to type it.
 
 **Security review:** `/security-review` (built-in — pending git diff), `/design-security-review`
 (a design doc), `/source-security-review` (all source under a folder). Read-only; treat the

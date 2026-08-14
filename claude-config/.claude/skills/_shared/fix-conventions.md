@@ -21,6 +21,12 @@ Read `d:\datrix\{package-name}\.project-structure.md`. Regenerate if missing: `p
 
 > **Governed by `.claude/skills/_shared/execution-contract.md`.** Default outcome: *the problem is fixed*. Stopping is licensed only by a proven B1–B4 blocker with the four-part proof.
 
+## Two rules that bind every fix in this family
+
+**Secure by default (§13).** Never propose or implement a less secure option when a more secure one is available — in framework code and, with more force, in anything the generator emits. Security controls fail **closed**. And when a test, build, or deploy fails *against* a security control, the control is the requirement and the thing failing it is the defect: **never disable, loosen, or exempt a control to turn a check green.** A difference in security posture settles a design choice; it is never a B2.
+
+**The fix is sized by the defect, not by the budget (§14).** No "quick fix for now", no "minimal change to get it green", no "temporary shim", no "I'll harden it later" — and none of them become acceptable because you said them honestly or because context was short. There is no later: the code survives, the note explaining it was provisional does not. Before writing the change, ask *if this were the only change ever made here, would it be right?*
+
 ## Runaway Fix Detection — a re-diagnosis trigger, not an exit
 
 These are signals that your **model of the root cause is probably wrong**:

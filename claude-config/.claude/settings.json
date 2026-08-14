@@ -97,11 +97,10 @@
     ],
     "SessionStart": [
       {
-        "matcher": "compact",
         "hooks": [
           {
             "type": "command",
-            "command": "python \"d:/datrix/.claude/hooks/post-compact-context.py\""
+            "command": "python \"d:/datrix/.claude/hooks/session-context.py\""
           }
         ]
       }

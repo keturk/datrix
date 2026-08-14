@@ -137,7 +137,12 @@ Identify the source module under test (mapping convention + invoking skill's tab
 
 ### Step 6: Apply Fix
 
-Read the file before editing. Smallest possible edit — no debug logging, no unrelated changes. Follow CLAUDE.md code standards.
+Read the file before editing. The **smallest correct** edit — no debug logging, no unrelated changes. Follow CLAUDE.md code standards.
+
+**"Smallest correct" is one phrase, not two options.** Two rules bind every fix here (`_shared/execution-contract.md` §13–§14):
+
+- **Never choose a less secure option when a more secure one is available**, and never disable, loosen, or exempt a security control to turn a red test green. If a test fails *against* a control, the control is the requirement and the thing failing it is the defect. Controls fail **closed**: a guard that cannot evaluate its input denies. This binds emitted templates as hard as generator source — an insecure default ships once per generated project, forever.
+- **The size of a fix is set by the defect, not by your budget.** No "quick fix for now", no "minimal change to get it green", no "harden it later" — and none of those become acceptable because you said them honestly or because context was short. There is no later. If the correct fix is bigger than the cluster suggested, make it and report the expansion.
 
 ### Step 7: Verify
 
@@ -180,4 +185,6 @@ If the root cause is in a different project, do NOT fix it directly. Report the 
 - **NO reading every file in failures/** — cluster representatives only, and only when the embedded `traceback_tail` is insufficient
 - **NO running the full suite after each fix** — verify individual tests first; one regression check at the end (Step 9)
 - **NO cross-package fixes** — hand off via the other project's fix skill
+- **NO security downgrade to reach green** — no disabled/loosened auth, TLS, CORS, permission, or validation check; no hardcoded or logged secret; no fail-open guard; no widened permission. The control is the requirement (§13)
+- **NO expedient fix** — nothing whose justification is "for now", "temporary", "minimal to get it green", or "to save context". Fix what the defect deserves (§14)
 - Plus the CLAUDE.md invariants: no workarounds, no debug scatter, no git restore/checkout/reset/stash/revert (undo edits manually)

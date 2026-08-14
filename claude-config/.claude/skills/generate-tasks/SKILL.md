@@ -98,6 +98,7 @@ Before generating any tasks, review the design document for ambiguities, gaps, a
 - **Missing examples or edge cases:** Complex logic described without examples of expected input/output
 - **Vague requirements:** Qualitative language like "fast", "simple", "clean" without concrete criteria
 - **Cross-cutting concerns not addressed:** Error handling, logging, configuration, testing strategy left undefined when the design introduces new patterns
+- **Security posture left implicit or specified weaker than available:** the design touches auth, secrets, transport, input at a trust boundary, injection surfaces, permissions/exposure, error/log content, or crypto — including the defaults it makes the generator emit — and either leaves the posture undefined, or specifies a weaker option where a stronger one is plainly available. Both are **open questions**, never implementation details: per execution-contract §13, a difference in security posture settles a design choice, and per §13.7 that settling is Jon's call at design time. Where the posture *is* defined, every task on those surfaces carries a **security acceptance property** — negative (the insecure state is absent across the whole surface) and positive (the secure path is exercised).
 
 **Output format when ambiguities are found:**
 

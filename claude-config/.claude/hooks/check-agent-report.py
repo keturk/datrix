@@ -1,11 +1,18 @@
 """SubagentStop hook: refuse to let a subagent finish on a dodge.
 
-Enforces .claude/skills/_shared/execution-contract.md §7 (banned report vocabulary).
+Enforces .claude/skills/_shared/execution-contract.md §7 (banned report vocabulary),
+§13 (security is a ranked requirement) and §14 (pressure never buys a lesser fix).
 
 An agent that ends its turn by declaring the problem out of scope, pre-existing,
 someone else's, "to be tracked separately" — or by confessing it skipped a check
 and ending the turn anyway — WITHOUT either a four-part blocker proof or a filed
 task file has not done its job. This hook blocks the stop and sends it back to work.
+
+Two further families are checked, and a proof does NOT lift them: reporting that a
+security control was disabled/loosened or a less secure option taken (§13), and
+reporting a fix sized to the remaining budget rather than to the defect (§14).
+Those describe shipping the wrong work rather than reassigning it, and both leave
+a green suite behind — no other check in the harness can see either one.
 
 The vocabulary, the false-positive suppressors, and the remedy text live in
 `_report_language.py`, shared with the main-loop gate (`gate-orchestration-stop.py`)
@@ -27,10 +34,20 @@ import sys
 
 from _report_language import (
     DODGE_REMEDY,
+    EXPEDIENT_REMEDY,
+    SECURITY_REMEDY,
+    carries_forbade_exception,
     carries_proof,
     find_dodge,
+    find_expedient,
+    find_security_downgrade,
     last_assistant_text,
 )
+
+
+def _reject(headline: str, remedy: str) -> None:
+    sys.stderr.write(f"{headline}\n\n{remedy}")
+    sys.exit(2)
 
 
 def main() -> None:
@@ -47,6 +64,24 @@ def main() -> None:
     if not text:
         sys.exit(0)
 
+    # §13 and §14 run BEFORE the proof suppressor, and are not lifted by it. A
+    # blocker proof answers "whose work is this" — it has nothing to say about a
+    # control you weakened or a fix you sized to your budget, and a report can
+    # carry a legitimate B1 for one item while shipping a downgrade on another.
+    downgrade = find_security_downgrade(text)
+    if downgrade and not carries_forbade_exception(text):
+        _reject(
+            f'REPORT REJECTED — you are reporting a security downgrade: "{downgrade}".',
+            SECURITY_REMEDY,
+        )
+
+    expedient = find_expedient(text)
+    if expedient:
+        _reject(
+            f'REPORT REJECTED — you are reporting an expedient fix: "{expedient}".',
+            EXPEDIENT_REMEDY,
+        )
+
     # A report carrying a real blocker proof / filed task / expansion request is fine.
     if carries_proof(text):
         sys.exit(0)
@@ -55,11 +90,10 @@ def main() -> None:
     if not dodge:
         sys.exit(0)
 
-    sys.stderr.write(
-        f'REPORT REJECTED — you are ending your turn on a dodge: "{dodge}".\n\n'
-        + DODGE_REMEDY
+    _reject(
+        f'REPORT REJECTED — you are ending your turn on a dodge: "{dodge}".',
+        DODGE_REMEDY,
     )
-    sys.exit(2)
 
 
 if __name__ == "__main__":

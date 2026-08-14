@@ -2,7 +2,7 @@
 
 > **Governed by `.claude/skills/_shared/execution-contract.md`.**
 
-A task is eligible for COMPLETED only when **ALL FIVE** hold. A green suite satisfies only #1 — necessary, never sufficient.
+A task is eligible for COMPLETED only when **ALL SIX** hold. A green suite satisfies only #1 — necessary, never sufficient.
 
 1. **Tests green for the task's package** — the gate that governs the current run (targeted per-task and at wave gates; the full suite runs at the quality-gate phase / phase boundary, never per-task). GREEN means `result == "PASSED"` AND `counts.failed == 0` AND `counts.error == 0` in the canonical `index.json` — errors count as red, never read `failed` alone. Verified agent run artifacts (the reported run folder's `index.json`/JUnit, per the executor's acceptance rules) count as the run's result — re-execute only what artifacts cannot prove.
 2. **Not BLOCKED (terminal rule).** Agent status is IMPLEMENTED — never BLOCKED / FAILED / NEEDS_CONTEXT / EXPANSION_REQUIRED. A *validly* BLOCKED task can NEVER become COMPLETED, regardless of suite color. (An **invalidly** BLOCKED task — one missing the execution-contract §3 four-part proof — is not a completed task *or* a failed one: **reject it and re-dispatch**. See the orchestrator's BLOCKED-validity gate.)
@@ -18,15 +18,17 @@ A task is eligible for COMPLETED only when **ALL FIVE** hold. A green suite sati
 4. **Design-acceptance property proven — evidence-first, executed once at the governing conformance gate.** The task's `**Design acceptance property:**` check (negative: old/forbidden state gone on the affected surface; positive: new path exercised) must be executed and its command + output present in How-Solved. At task-completion time, **verify the agent's pasted evidence** (the commands are real, the outputs consistent with the tree and artifacts you read) and **re-execute the check yourself only when the evidence is missing, unparseable, or contradicted** — never accept a bare claim. The **authoritative execution** happens exactly once per phase at the governing conformance gate (the orchestrator's phase-boundary Step A2; the package quality gate's design-conformance scan in non-orchestrated runs), across the invariant's FULL surface set — that execution is never skipped on the strength of earlier evidence. For "X replaces Y": prove Y is gone everywhere on the surface. Unprovable (or missing on a non-trivial impl/migration task) → NOT complete.
 5. **Every discovered defect is dispositioned.** Each entry in the agent's `discovered_defects` is either `FIXED` (with a `file:line`) or `FILED` (with a task file path that **exists on disk** — verify it). A defect mentioned only in prose is **not** dispositioned → NOT complete. Nothing an agent found may evaporate into a footnote.
 
-**If all 5 hold:** mark complete via the script (never edit the heading directly):
+6. **No security downgrade and no expedient fix.** If the change disabled, loosened, bypassed, or exempted a security control, chose a less secure option where a more secure one was available, or emitted a less-secure default (execution-contract §13) → NOT complete, and a green suite is irrelevant: the suite cannot see it. Likewise if How-Solved describes the change as a `quick fix` / `for now` / `temporary` / `stopgap` / `minimal change to get it green` / `harden it later`, or scopes it to remaining context or budget rather than to the defect (§14) → NOT complete. Neither is excusable by a blocker proof; both are re-dispatches.
+
+**If all 6 hold:** mark complete via the script (never edit the heading directly):
 ```bash
 powershell -File "d:/datrix/datrix/scripts/tasks/complete.ps1" "{task_path}"
 ```
 Then add `## How Solved` with mandatory proof-of-work: files created/modified (with line counts), the test run-folder path + its `index.json` counts + failing node IDs if any (NOT a raw console dump — the saved run folder is the verifiable evidence), the design-acceptance check command + output, and key design decisions. A task without this evidence is NOT properly completed.
 
-**If any of 2–5 fail:** do NOT run `complete.ps1`. NEVER mark complete because "the suite is green."
+**If any of 2–6 fail:** do NOT run `complete.ps1`. NEVER mark complete because "the suite is green."
 
-But note what "not complete" means: **it is a signal to go finish the work, not a status to file.** Conditions 3, 4, and 5 all describe *unfinished work*, not obstacles — a dodge phrase in How-Solved, an unproven acceptance property, or an undispositioned defect are things you resolve by **doing them**. Re-dispatch the task (or fix it yourself) and close the gap.
+But note what "not complete" means: **it is a signal to go finish the work, not a status to file.** Conditions 3, 4, 5, and 6 all describe *unfinished work*, not obstacles — a dodge phrase in How-Solved, an unproven acceptance property, an undispositioned defect, a weakened control, or a change sized to the budget instead of the defect are things you resolve by **doing them**. Re-dispatch the task (or fix it yourself) and close the gap.
 
 Mark BLOCKED/FAILED **only** when a real, executed fix attempt has genuinely failed against a proven B1–B4 blocker carrying the four-part proof (execution-contract §3) — then spawn it as a tracked follow-up task, never a footnote. An unproven BLOCKED is not an honest outcome; it is a non-answer, and it gets re-dispatched.
 

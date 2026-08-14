@@ -17,7 +17,7 @@ nothing else on earth is a blocker.
 | Code | Blocker | Test |
 |---|---|---|
 | **B1** | **MISSING_ACCESS** | The fix requires a credential, secret, network endpoint, license, or external resource you do not have and cannot obtain from the repo. |
-| **B2** | **UNDECIDABLE** | Two or more designs are *genuinely* defensible, the choice is expensive to reverse, and no rule in the design docs or codebase settles it. You must state every option and your recommendation. |
+| **B2** | **UNDECIDABLE** | Two or more designs are *genuinely* defensible, the choice is expensive to reverse, and no rule in the design docs or codebase settles it. You must state every option and your recommendation. **A difference in security posture settles it — §13. A difference between an expedient and a durable fix settles it — §14. Neither is a tie.** |
 | **B3** | **USER_FORBADE** | The only correct fix requires an action the user explicitly prohibited (in CLAUDE.md or in this request). |
 | **B4** | **FENCED_SURFACE** | The root cause lives on a surface the user explicitly excluded **in this request**. A task file's file list is *not* a fence — see §4. |
 
@@ -170,8 +170,23 @@ would require broader changes · someone else's · not my file · deferred
 partial · workaround · dual path · not yet wired · remains unchanged · TODO
 ```
 
-A `SubagentStop` hook greps for these. A hit without an accompanying proof or task ID marks the
-report **invalid** and the task **not complete** — regardless of test-suite color.
+Two further families are banned outright — they do not describe *whose* work it is, they describe
+shipping the wrong work. A proof or a task ID does **not** excuse either one:
+
+```
+EXPEDIENT (§14):  quick fix · temporary fix · interim fix · stopgap · band-aid
+                  minimal change to get it green · for now · good enough for now
+                  harden it later · revisit this later · proper fix can come later
+                  to save context/tokens/budget · smallest thing that unblocks
+
+DOWNGRADE (§13):  disabled the auth check · relaxed the validation · loosened CORS
+                  turned off TLS verification · bypassed authorization
+                  hardcoded the credential · less secure but simpler · insecure default
+```
+
+A `SubagentStop` hook greps for these, and the always-on `Stop` gate greps the main loop for the
+same two families. A hit without an accompanying proof or task ID marks the report **invalid** and
+the task **not complete** — regardless of test-suite color.
 
 This is not a vocabulary game: **do not evade the grep by rephrasing.** Rephrasing a dodge to slip
 past the check is a worse offense than the dodge, because it is deliberate. The rule is the
@@ -199,6 +214,10 @@ A task is done when **all** hold:
 - The design-acceptance property is proven — negative (old state gone on the whole surface) and
   positive (new path exercised).
 - Nothing you discovered along the way was left as prose.
+- **No security control was weakened, disabled, bypassed, or left at a less-secure default to get
+  there, and no less-secure option was chosen where a more secure one was available (§13).**
+- **The change is the fix the defect deserves, not the one that fit the remaining context, budget,
+  or patience (§14).**
 
 Green tests are **necessary and never sufficient.**
 
@@ -534,3 +553,176 @@ Two traps make this feel unnecessary at exactly the moment it is not:
   it across unexamined is how an assumption enters without ever feeling like a guess. Re-derive it,
   or confirm the neighbour's code agrees — especially when a sibling file's own documentation says
   it does the opposite.
+
+---
+
+## 13. Security is a ranked requirement, not a trade-off axis
+
+**When two implementations differ in security posture, you build the more secure one.** Not
+"consider it", not "recommend it and offer the convenient alternative", not "note the risk and ship
+the easy path". Build it. **Never propose or implement a less secure option when a more secure one
+is available.**
+
+This is a *ranking*, not a preference to balance. Convenience, brevity, familiarity, fewer moving
+parts, and finishing sooner do not outrank it. If the secure option costs more code, more
+configuration, an extra dependency, or an extra hour, **that cost is the price of the correct
+option** — it is not evidence that the other option was reasonable.
+
+### 13.1 It is never a B2, and never Jon's problem to notice
+
+A difference in security posture **settles** a design choice; it does not create a tie. Two options
+that differ only in that one is safer are not "two genuinely defensible designs" — that is one
+defensible design and one defect (§1, B2). Do not escalate it, do not present it as a menu, and do
+not implement the weaker one because it was easier to explain.
+
+The **one** case where a less-secure option is on the table is **B3 USER_FORBADE**: Jon's explicit
+constraint rules the secure option out. Then, and only then, you say so in one line, **name the
+exposure the constraint creates**, and implement **the most secure option compatible with the
+constraint**. You never present the weaker option as your recommendation, and you never implement
+one silently.
+
+### 13.2 What the generator emits counts double
+
+Datrix writes production code and production infrastructure for someone else's system. **An
+insecure default in a generator is not one defect — it is one defect per project generated from
+then on, in codebases nobody on this team will ever read.** A default emitted by a template is a
+security policy applied to every future user of that template.
+
+So the rule applies with equal force to both surfaces:
+
+- **The framework code you write** — parsers, resolvers, validators, CLI, scripts.
+- **Every artifact the generator emits** — service code, SQL, Dockerfiles and compose files, IaC
+  templates, gateway config, CI/ops scripts, generated defaults, and sample/example projects.
+  Examples are copied; an example that authenticates weakly teaches weak authentication.
+
+### 13.3 The surfaces this covers
+
+You do not get to decide a task is "not a security task". Relevance is set by the surface you
+touched, not by whether the word appeared in the request:
+
+- **Authentication and authorization** — per-request enforcement, object-level/tenant isolation, no
+  ambient authority, no "trust the caller", no client-supplied identity.
+- **Secrets and credentials** — never hardcoded, never logged, never defaulted to a literal, never
+  committed; sourced from the platform's secret mechanism.
+- **Transport and storage** — TLS on by default and verified; encryption at rest where the platform
+  offers it; no plaintext channel because it was simpler to wire.
+- **Input handling at trust boundaries** — validate and normalize where untrusted data crosses in,
+  not three layers later "where it's convenient".
+- **Injection surfaces** — parameterized queries, argument vectors instead of shell strings, safe
+  template/path/deserialization handling. Never compose a query, command, path, or markup by string
+  concatenation from external input.
+- **Exposure and permissions** — no public bind, no `0.0.0.0/0`, no wildcard IAM, no public bucket,
+  no permissive CORS, no debug endpoint, and no default-open port because closing it needed a
+  config field.
+- **Error and log content** — no credentials, tokens, PII, or internal detail in responses or logs.
+- **Cryptography** — standard primitives, current parameters, a CSPRNG for anything
+  security-bearing. Never home-rolled.
+- **Dependencies and base images** — pinned, current, from the expected registry.
+
+### 13.4 Fail closed
+
+A security control whose input is missing, unparseable, or unknown **denies**. A guard that permits
+when it cannot evaluate its condition is the banned silent fallback (CLAUDE.md § Anti-patterns)
+applied to the one place it is most expensive: it converts an unknown into an approval, and it is
+invisible in every green test suite. An unrecognized identity provider, an absent claim, an
+unresolved policy, a missing key — each raises with a message naming what was missing and what to
+supply. Never `except: pass` around a check, and never `if not configured: allow`.
+
+### 13.5 Never weaken a control to make something pass
+
+If a test, build, generation run, or deploy fails **against** a security control, the control is the
+requirement and the thing failing it is the defect. Disabling it, loosening it, adding an exemption,
+or widening a permission so the red turns green is a workaround (CLAUDE.md § No Workarounds) *and* a
+silent change to the product's threat model. It is banned even when it is the only thing standing
+between you and a green suite, and especially then.
+
+An existing insecure pattern is not a licence either. "The neighbouring module does it this way" is
+evidence about the neighbour, not permission (§12.7). Found it → §5: fix it, or file it.
+
+### 13.6 A security assumption is a fact you confirm by reading
+
+"That input is validated upstream", "that endpoint is internal-only", "that secret never reaches the
+client" are claims, and §2A governs them: open the file and confirm. The seam discipline of §12.2 is
+the tool — name the producer and the consumer of every trust boundary, compute what crosses it, and
+land the comparison as a validator. A trust boundary nobody compares is the same defect class as an
+unsupplied compose variable, with a worse blast radius.
+
+When a change touches any surface in §13.3, the mandatory second question of §12.3 has a security
+form: **what check would have caught this insecure state before the run, and where does it live?**
+Land it with the fix.
+
+### 13.7 When the design itself specifies the weaker option
+
+A design doc is a scope boundary (`.claude/rules/design-and-docs.md`) and you never edit one during
+implementation. But a security downgrade is not a scope question — it changes the product's threat
+model, which is a decision reserved to Jon. So:
+
+1. **Say it in one line, before you implement that part.** Name the weaker option the design
+   specifies, the exposure it creates, and the secure alternative. That is the whole message.
+2. **Keep working everything that does not depend on the answer** (§6, §8A). This is an escalation
+   to keep going, not a stop.
+3. **Never silently implement the weaker option, and never silently substitute the stronger one.**
+   Silently downgrading is §13; silently overriding the design is a scope violation. One line to
+   Jon settles both.
+
+The same applies to a task file, an issue report, or a bug report that asks for the weaker option.
+An instruction to build something less secure than the available alternative is worth one sentence
+of confirmation, every time.
+
+---
+
+## 14. Pressure never buys a lesser fix
+
+**The size of a fix is set by the defect, never by what is left of your context, your budget, your
+turn, or your patience.** There is no discount rate. A change that would be wrong on turn one does
+not become right on turn forty.
+
+Every one of these is banned, whatever the pressure that produced it:
+
+- "A quick fix for now, the proper one later."
+- "The minimal change that gets the suite green."
+- "A temporary shim until the real thing lands."
+- "The smallest thing that unblocks the deploy."
+- "I'll harden it later / revisit this later / leave the deeper fix for a follow-up."
+- "I kept the change small to save context/tokens/time."
+
+### 14.1 There is no later
+
+There is no follow-up fairy and **there is no other agent** (§2). A fix labelled temporary is a
+permanent fix with a note attached — and the note is the part that evaporates. What survives a
+compaction, a session end, and a handover is the code you landed; the sentence explaining that it
+was only provisional does not. This is §5's "mentioning it in prose is not an outcome" applied to
+your own change instead of to someone else's defect.
+
+Shipping the lesser fix and **describing it accurately** is not a mitigation. Honesty about a
+shortcut is not a substitute for not taking it.
+
+### 14.2 This is the §11.0 rule applied to the change itself
+
+§11.0 says economy means reading **narrowly**, never reading **less**. §14 is the same asymmetry on
+the writing side: economise on tool calls, prose, re-reads, and sweeps — **never on the correctness
+or completeness of the change**. A bounded saving now against an unbounded cost later is not
+economy, and it feels like discipline the entire time it is happening.
+
+### 14.3 Context pressure specifically
+
+§8A and the `Stop` gate cover *stopping* under context pressure. This covers *degrading* under it —
+the same unmeasurable claim wearing different clothes, and the more dangerous of the two because it
+leaves something behind that looks finished. You cannot measure your remaining context and neither
+can Jon. If it is genuinely short, spend it on the **correct** change: write the smallest **correct**
+change (not the smallest change), run its check, keep going. Never spend it on a cheaper change plus
+an explanation of why it was cheaper.
+
+### 14.4 When the correct fix is genuinely large
+
+Then it is genuinely large, and §4 already answers: **expand and continue**, and report the
+expansion. A task that has not started and truly spans 3+ unrelated subsystems can be proposed for a
+pre-flight split — that is a planning call made with a clean slate, never a licence to ship the
+small version of a job you already began.
+
+### 14.5 The test to run before you write the change
+
+> *If this were the only change ever made here, would it be right?*
+
+If the answer needs a "for now", a "until", or a "then later", it is not the fix. Go find the one
+that does not.

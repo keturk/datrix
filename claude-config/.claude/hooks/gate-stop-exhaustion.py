@@ -1,4 +1,5 @@
-"""Stop hook: a turn may not end on "I ran out of context" or on a handover.
+"""Stop hook: a turn may not end on "I ran out of context", on a handover, on a
+security downgrade, or on an expedient fix.
 
 THE FAILURE THIS EXISTS TO PREVENT
 ----------------------------------
@@ -28,6 +29,22 @@ model quoted the first rule back to Jon one turn later. Prose in context
 competes with everything else in context and can lose; a blocked Stop cannot be
 forgotten past. Per CLAUDE.md's own instruction -- "Adding a check? Put it in a
 hook or a test, not in this file" -- this is where the rule belongs.
+
+TWO MORE FAMILIES, FOR THE SAME REASON
+--------------------------------------
+Execution-contract §13 (security is a ranked requirement: never propose or
+implement a less secure option when a more secure one exists; never weaken a
+control to turn a check green) and §14 (the size of a fix is set by the defect,
+never by remaining context/budget/patience) have exactly the same enforcement
+problem as the two above: they are prose, prose competes with everything else in
+context, and both failures leave a GREEN SUITE behind. A weakened control and a
+"quick fix for now" are invisible to every test in the repo -- the suite proves
+the code does what it was written to do and has no opinion on whether that was
+the right thing to write.
+
+Unlike the dodge families, a blocker proof does NOT lift these: a proof answers
+"whose work is this", which is not the question. The one exception is §13.1's
+single open door, B3 USER_FORBADE.
 
 WHY A SEPARATE HOOK FROM gate-orchestration-stop.py
 ---------------------------------------------------
@@ -75,9 +92,14 @@ from typing import Final
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from _report_language import (  # noqa: E402
+    EXPEDIENT_REMEDY,
+    SECURITY_REMEDY,
+    carries_forbade_exception,
     carries_proof,
+    find_expedient,
     find_exhaustion,
     find_handover_section,
+    find_security_downgrade,
     last_assistant_text,
     last_user_text,
     user_asked_to_pause_or_report,
@@ -160,14 +182,23 @@ def main() -> None:
         _clear(state)
         sys.exit(0)
 
+    # §13 / §14 run BEFORE the proof suppressor and are not lifted by it. A
+    # blocker proof answers "whose work is this"; it says nothing about a control
+    # that was weakened or a fix that was sized to the budget. The one door §13.1
+    # leaves open is B3 USER_FORBADE, and that one IS checked.
+    downgrade = find_security_downgrade(text)
+    if downgrade and carries_forbade_exception(text):
+        downgrade = ""
+    expedient = find_expedient(text)
+
     # Suppressor 4: a proven blocker or a filed task is a legitimate exit.
-    if carries_proof(text):
+    if carries_proof(text) and not downgrade and not expedient:
         _clear(state)
         sys.exit(0)
 
     exhaustion = find_exhaustion(text)
     handover = find_handover_section(text)
-    if not exhaustion and not handover:
+    if not exhaustion and not handover and not downgrade and not expedient:
         _clear(state)
         sys.exit(0)
 
@@ -179,7 +210,13 @@ def main() -> None:
         sys.exit(0)
     _record_block(state, blocks + 1)
 
-    if exhaustion:
+    if downgrade:
+        headline = f"STOP REJECTED - the turn reports a security downgrade: {downgrade!r}"
+        remedy = SECURITY_REMEDY
+    elif expedient:
+        headline = f"STOP REJECTED - the turn reports an expedient fix: {expedient!r}"
+        remedy = EXPEDIENT_REMEDY
+    elif exhaustion:
         headline = f"STOP REJECTED - the turn ends on a context-exhaustion claim: {exhaustion!r}"
         remedy = _EXHAUSTION_REMEDY
     else:

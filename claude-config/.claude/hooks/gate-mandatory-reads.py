@@ -1,18 +1,20 @@
 """PreToolUse(Write|Edit|NotebookEdit) hook: no edits until the mandatory docs
-have been re-read SINCE THE LAST COMPACTION.
+have been read IN THIS SESSION (or, after a compaction, re-read since it).
 
-Compaction discards every file the agent has read. An instruction to "re-read the
-docs afterwards" competes with whatever task was in flight, and loses. So the
-harness enforces it: a blocked tool call cannot be forgotten past.
+Two ways to arrive here, one rule. A fresh session never read the docs at all; a
+compacted one had them discarded. Either way an instruction to "read the docs
+first" competes with whatever task is in flight and loses, so the harness enforces
+it instead: a blocked tool call cannot be forgotten past.
 
 TWO INDEPENDENT SIGNALS, BECAUSE EACH ONE HAS A HOLE
 ----------------------------------------------------
 `PreToolUse` and `PostToolUse` are DOCUMENTED to fire for tool calls inside
-subagents, so this gate runs there too. Detecting *that a compaction happened*
-is the hard part, and neither available signal is sufficient alone:
+subagents, so this gate runs there too. Knowing *what the agent has read* is the
+hard part, and neither available signal is sufficient alone:
 
-  A. STATE FILE — written by post-compact-context.py on SessionStart(compact),
-     ticked off by track-mandatory-reads.py on each Read.
+  A. STATE FILE — written by session-context.py on SessionStart (every source:
+     startup, resume, clear, compact), ticked off by track-mandatory-reads.py on
+     each Read.
      Hole: SessionStart firing inside a SUBAGENT that auto-compacts mid-task is
      NOT documented. Subagents are exactly where a silent compaction does the
      most damage, because nobody is watching.
@@ -23,19 +25,22 @@ is the hard part, and neither available signal is sufficient alone:
      with `isCompactSummary: true`; Reads after it are the post-compaction reads.
      Hole: the transcript JSONL schema is internal and Anthropic warns it can
      change between releases. A field rename would make this signal go quiet.
+     It is also silent for a session that never compacted — signal A alone covers
+     the fresh-session case.
 
-So the gate ORs them. A compaction seen by EITHER signal arms the gate, and a doc
-counts as re-read if EITHER signal saw the Read. If the transcript schema changes,
-the main session stays enforced by the state file; if SessionStart never fires in a
-subagent, the transcript still catches it. Neither failure can wedge the session:
-an unrecognized transcript means "not compacted", which fails OPEN, not closed.
+So the gate ORs them. Either signal arms it, and a doc counts as read if EITHER
+signal saw the Read. If the transcript schema changes, sessions stay enforced by
+the state file; if SessionStart never fires in a subagent, the transcript still
+catches a compaction there. Neither failure can wedge the session: an
+unrecognized transcript and a missing state file both mean "not armed", which
+fails OPEN, not closed.
 
 The rule, in one line:
 
-    if a compaction occurred, and a mandatory doc has not been Read
-    at some point AFTER it, then editing is blocked.
+    if a mandatory doc has not been Read in this session — or, after a
+    compaction, not re-read since it — then editing is blocked.
 
-Sessions that never compacted see nothing — no marker, no state file, no cost.
+Arming costs nothing until the first edit, so question-only sessions pay nothing.
 
 Writes to the sanctioned scratch dirs are exempt: an agent may legitimately need
 to investigate after a compaction, and those paths cannot reach product code.
@@ -53,9 +58,10 @@ from typing import Final
 _REPO_ROOT: Final = "d:/datrix"
 _STATE_DIR: Final = os.path.join(_REPO_ROOT, ".claude", "hooks", ".state")
 
-# Must be re-read after any compaction, before any edit. Keep this list SHORT —
-# every entry is a tax on every post-compaction turn. Small, high-authority docs
-# are injected verbatim by post-compact-context.py instead of being gated here.
+# Must be read before any edit, and re-read after any compaction. Keep this list
+# SHORT — every entry is a tax on the first edit of every session. Small,
+# high-authority docs are injected verbatim by session-context.py after a
+# compaction instead of being gated here.
 _REQUIRED_DOCS: Final = (
     ("datrix/docs/architecture/architecture-cheat-sheet.md", "Architecture cheat sheet"),
     (
@@ -150,7 +156,7 @@ def _paths_read_after(entries: list[dict[str, object]], start: int) -> set[str]:
     return read_paths
 
 
-def _block(outstanding: list[tuple[str, str]], is_subagent: bool) -> None:
+def _block(outstanding: list[tuple[str, str]], is_subagent: bool, compacted: bool) -> None:
     listing = "\n".join(f"  {i}. {p}\n     {label}" for i, (p, label) in enumerate(outstanding, 1))
 
     # A compacted SUBAGENT may never have received the SessionStart injection, so
@@ -163,18 +169,31 @@ def _block(outstanding: list[tuple[str, str]], is_subagent: bool) -> None:
         "problem is FIXED. Compaction is not a blocker (it is not B1-B4), it is not a "
         "reason to return partial work, and 'context was lost' is not a valid report. "
         "Re-read, re-orient, finish the job.\n"
-        if is_subagent
+        if is_subagent and compacted
         else ""
     )
 
+    if compacted:
+        headline = (
+            "BLOCKED: this context was compacted and you have not re-read the mandatory "
+            "documents since.\n\n"
+            "Compaction discarded every file you had read. You are about to edit code "
+            "against a summary of the rules rather than the rules themselves — that is "
+            "how architecture and agent-rule violations get in. Do not trust any "
+            "recollection you have of these files' contents.\n"
+        )
+    else:
+        headline = (
+            "BLOCKED: you have not read the mandatory documents in this session.\n\n"
+            "CLAUDE.md was injected into your context automatically; these were not, "
+            "and nothing else in the session will ask you for them. You are about to "
+            "edit code against rules you have not seen — that is how architecture and "
+            "agent-rule violations get in. Having read these in an EARLIER session "
+            "does not count: they change, and you do not have them now.\n"
+        )
+
     sys.stderr.write(
-        "BLOCKED: this context was compacted and you have not re-read the mandatory "
-        "documents since.\n\n"
-        "Compaction discarded every file you had read. You are about to edit code "
-        "against a summary of the rules rather than the rules themselves — that is "
-        "how architecture and agent-rule violations get in. Do not trust any "
-        "recollection you have of these files' contents.\n"
-        f"{subagent_note}\n"
+        f"{headline}{subagent_note}\n"
         "Read these with the Read tool, then retry the edit:\n\n"
         f"{listing}\n\n"
         "The block clears automatically once each file above has been read. It "
@@ -185,19 +204,29 @@ def _block(outstanding: list[tuple[str, str]], is_subagent: bool) -> None:
     sys.exit(2)
 
 
-def _state_signal(session_id: str) -> tuple[bool, set[str]]:
-    """Signal A — the SessionStart(compact) state file. (armed, docs already read)"""
+def _state_signal(session_id: str) -> tuple[bool, set[str], str]:
+    """Signal A — the SessionStart state file. (armed, docs already read, source)
+
+    `source` is the SessionStart source that armed it — `compact`, `startup`,
+    `resume` or `clear`. It changes the wording of the block and decides whether
+    the transcript-drift check is meaningful, never whether the gate fires.
+    """
     if not session_id:
-        return False, set()
-    state_path = os.path.join(_STATE_DIR, f"post-compact-{session_id}.json")
-    if not os.path.isfile(state_path):
-        return False, set()
+        return False, set(), ""
+    path = os.path.join(_STATE_DIR, f"mandatory-reads-{session_id}.json")
+    if not os.path.isfile(path):
+        return False, set(), ""
     try:
-        with open(state_path, encoding="utf-8") as handle:
+        with open(path, encoding="utf-8") as handle:
             state = json.load(handle)
     except (OSError, json.JSONDecodeError):
-        return False, set()
-    return True, {_normalize(p) for p in state.get("read", []) if isinstance(p, str)}
+        return False, set(), ""
+    source = state.get("source")
+    return (
+        True,
+        {_normalize(p) for p in state.get("read", []) if isinstance(p, str)},
+        source if isinstance(source, str) else "",
+    )
 
 
 def _transcript_signal(transcript_path: str) -> tuple[bool, set[str]]:
@@ -210,7 +239,7 @@ def _transcript_signal(transcript_path: str) -> tuple[bool, set[str]]:
 
 
 def _record_schema_drift(session_id: str) -> None:
-    """Signal A fired but signal B saw nothing — the transcript marker has drifted.
+    """A COMPACT-armed signal A fired but signal B saw nothing — the marker drifted.
 
     This is the ONLY place the drift check can honestly run. It cannot run at
     SessionStart(compact): the harness appends the compaction record to the
@@ -219,9 +248,15 @@ def _record_schema_drift(session_id: str) -> None:
     single compaction. A guard that cries wolf every time is a guard nobody reads.
 
     Here, both signals are observable at once and the transcript is long since
-    flushed, so `state_armed and not tx_armed` means exactly one thing: SessionStart
-    proved a compaction happened, and the transcript scan failed to see it. That is
-    real drift, and signal B is dark for SUBAGENTS (which have no state file).
+    flushed, so a `compact`-sourced state file with no transcript marker means
+    exactly one thing: SessionStart proved a compaction happened, and the
+    transcript scan failed to see it. That is real drift, and signal B is dark for
+    SUBAGENTS (which have no state file).
+
+    The `compact` qualifier is load-bearing. The state file is now armed on every
+    SessionStart, and a `startup`-armed session has no compaction for signal B to
+    find — checking there would report drift on every fresh session and retrain the
+    reader to ignore the one alarm that will ever be true.
     """
     if not session_id:
         return
@@ -266,14 +301,14 @@ def main() -> None:
     if not required:
         sys.exit(0)
 
-    state_armed, state_reads = _state_signal(data.get("session_id", ""))
+    state_armed, state_reads, state_source = _state_signal(data.get("session_id", ""))
     tx_armed, tx_reads = _transcript_signal(data.get("transcript_path", ""))
 
-    if state_armed and not tx_armed:
+    if state_armed and state_source == "compact" and not tx_armed:
         _record_schema_drift(data.get("session_id", ""))
 
     if not (state_armed or tx_armed):
-        sys.exit(0)  # no compaction seen by either signal — nothing was lost
+        sys.exit(0)  # neither signal armed — fail open, never wedge the session
 
     seen = state_reads | tx_reads
     outstanding = [
@@ -283,7 +318,11 @@ def main() -> None:
     ]
 
     if outstanding:
-        _block(outstanding, is_subagent=bool(data.get("agent_id")))
+        _block(
+            outstanding,
+            is_subagent=bool(data.get("agent_id")),
+            compacted=tx_armed or state_source == "compact",
+        )
 
     sys.exit(0)
 

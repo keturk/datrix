@@ -1,23 +1,41 @@
-"""SessionStart(compact) hook: rebuild the mandatory context after a compaction.
+"""SessionStart hook: arm the mandatory-read gate, and rebuild context after a compaction.
 
-Compaction summarizes the message history. Everything an agent READ is gone —
-only the system prompt, CLAUDE.md, and MEMORY.md are re-injected from disk.
-An instruction that says "re-read the docs after compacting" therefore competes
-with whatever task the agent was mid-way through, and loses exactly when context
-is most crowded. So we stop asking, and let the harness do it.
+Two entry conditions, one owner. Both end in the same place — no Write/Edit until
+the governing documents have actually been read — because the hole they close is
+the same hole:
 
-Two mechanisms, both fired from here:
+  COMPACT  — the summary discards everything the agent read. An instruction to
+             "re-read the docs afterwards" competes with the task in flight and
+             loses exactly when context is most crowded.
+  STARTUP  — a fresh session never read them in the first place. CLAUDE.md is
+  RESUME     re-injected from disk by the harness; the larger architecture and
+  CLEAR      agent-rule docs are NOT, and nothing asked for them. A session that
+             never compacts could therefore edit framework source all day having
+             read neither. That is not hypothetical: session 0d87c146 made 66
+             edits across datrix-codegen-azure source, templates and tests, with
+             zero compactions and zero reads of either gated doc.
 
-  1. INJECT — the small, highest-authority docs are emitted verbatim into the
-     fresh context window. Nothing to remember, nothing to obey.
+Two mechanisms, fired from here:
 
-  2. ARM THE GATE — the large docs cannot be inlined affordably, so instead we
-     write a state file listing them. `gate-mandatory-reads.py` (PreToolUse on
-     Write/Edit) then BLOCKS all edits until `track-mandatory-reads.py`
-     (PostToolUse on Read) has seen every one of them read in this
-     post-compaction window. The agent cannot proceed by forgetting.
+  1. INJECT — after a COMPACTION only, the small highest-authority docs are
+     emitted verbatim into the fresh window. Nothing to remember, nothing to obey.
+     A fresh session does not pay this: it still has CLAUDE.md, and inlining 40KB
+     into every question-only session is a tax with no defect behind it.
 
-The gate is inert in sessions that never compacted: no state file, no cost.
+  2. ARM THE GATE — the large docs cannot be inlined affordably, so instead a
+     state file lists them. `gate-mandatory-reads.py` (PreToolUse on Write/Edit)
+     BLOCKS every edit until `track-mandatory-reads.py` (PostToolUse on Read) has
+     seen each one read. The agent cannot proceed by forgetting.
+
+Arming is free. It costs nothing in a session that never edits, and two reads in
+one that does — the gate fires on the first edit, not on session start.
+
+WHEN THE READ LEDGER RESETS
+  compact / clear — context is gone, so prior reads no longer count: reset.
+  startup         — nothing read yet: arm fresh.
+  resume          — the prior context comes back with it, so its reads still
+                    stand. Never overwrite an existing ledger, or a resumed
+                    session pays for the same two docs twice.
 
 Output contract: for SessionStart, ONLY `hookSpecificOutput.additionalContext`
 reaches the model. Plain stdout goes to the debug log.
@@ -32,6 +50,9 @@ from typing import Final
 
 _REPO_ROOT: Final = "d:/datrix"
 _STATE_DIR: Final = os.path.join(_REPO_ROOT, ".claude", "hooks", ".state")
+
+# Sources whose context is genuinely gone, so the read ledger must start empty.
+_RESETTING_SOURCES: Final = ("compact", "clear")
 
 # Emitted verbatim into the post-compaction window. Small, and the highest
 # authority in the repo — worth their tokens on every compaction.
@@ -168,6 +189,9 @@ def _ledger_section() -> str:
     agent that resumes believing it is near the end writes a summary; one that resumes
     reading "45 of 61 pending" dispatches the next wave. So the number is restored
     alongside the rules, straight off the task files, owing nothing to the summary.
+
+    Compaction only. A fresh session has no run in flight, and opening one by
+    announcing another run's backlog invents pressure that belongs to nobody.
     """
     counts = {p: v for p, v in _pending_by_phase().items() if v[0]}
     if not counts:
@@ -189,34 +213,47 @@ def _ledger_section() -> str:
     )
 
 
-def _arm_gate(session_id: str, gated: list[tuple[str, str]]) -> None:
-    """Write the state file that `gate-mandatory-reads.py` enforces."""
+def state_path(session_id: str) -> str:
+    return os.path.join(_STATE_DIR, f"mandatory-reads-{session_id}.json")
+
+
+def _arm_gate(session_id: str, source: str, gated: list[tuple[str, str]]) -> None:
+    """Write the state file that `gate-mandatory-reads.py` enforces.
+
+    A `resume`/`startup` never clobbers an existing ledger: the reads it records
+    are still valid, and rewriting them would charge a resumed session twice for
+    docs already in its context.
+    """
     if not session_id or not gated:
+        return
+    path = state_path(session_id)
+    if source not in _RESETTING_SOURCES and os.path.isfile(path):
         return
     os.makedirs(_STATE_DIR, exist_ok=True)
     state = {
+        "source": source,
         "required": [{"path": p, "label": label} for p, label in gated],
         "read": [],
     }
-    state_path = os.path.join(_STATE_DIR, f"post-compact-{session_id}.json")
-    with open(state_path, "w", encoding="utf-8") as handle:
+    with open(path, "w", encoding="utf-8") as handle:
         json.dump(state, handle, indent=2)
 
 
-def _schema_canary(_transcript_path: str) -> str:
+def _schema_canary() -> str:
     """Report transcript-marker drift — as detected by the gate, never by this hook.
 
     This hook CANNOT detect drift itself, and must not try. The harness appends the
     compaction record (`compact_boundary` / `isCompactSummary`) to the transcript
     *after* SessionStart(compact) returns, so scanning the live transcript here reads
-    a file that does not yet contain the marker being looked for. The previous version
+    a file that does not yet contain the marker being looked for. An earlier version
     did exactly that and reported "THE GUARD HAS GONE DARK" on every compaction while
     the guard was in fact healthy — a false alarm every time, which trains the reader
     to ignore the one alarm that will ever be true.
 
     The honest check lives in gate-mandatory-reads.py, where signal A (state file) and
     signal B (transcript) are observable together and the transcript is long flushed:
-    A-armed but B-blind is real drift. It drops the flag file this function reports.
+    A-armed-by-a-compaction but B-blind is real drift. It drops the flag file this
+    function reports.
     """
     flag_path = os.path.join(_STATE_DIR, "schema-drift.json")
     if not os.path.isfile(flag_path):
@@ -236,28 +273,27 @@ def _schema_canary(_transcript_path: str) -> str:
     )
 
 
-def _build_context(gated: list[tuple[str, str]], now: float, transcript_path: str) -> str:
+def _gated_listing(gated: list[tuple[str, str]]) -> str:
+    return "\n".join(f"  {i}. {p}\n     {label}" for i, (p, label) in enumerate(gated, 1))
+
+
+def _compaction_context(gated: list[tuple[str, str]], now: float) -> str:
     parts: list[str] = [
         "THE CONTEXT WAS JUST COMPACTED. Everything you had read is gone from "
         "your context — do not act on any recollection of a file's contents. "
         "The governing documents are restored below."
     ]
 
-    canary = _schema_canary(transcript_path)
-    if canary:
-        parts.append(canary)
-
-    inline = _inline_section()
-    if inline:
-        parts.append(inline)
+    for section in (_schema_canary(), _inline_section()):
+        if section:
+            parts.append(section)
 
     if gated:
-        listing = "\n".join(f"  {i}. {p}\n     {label}" for i, (p, label) in enumerate(gated, 1))
         parts.append(
             "===== MANDATORY READS — ENFORCED =====\n\n"
             "These are too large to inline. Read each of them with the Read tool "
             "NOW, before you resume work:\n\n"
-            f"{listing}\n\n"
+            f"{_gated_listing(gated)}\n\n"
             "This is not advisory. Write, Edit, and NotebookEdit are BLOCKED by a "
             "PreToolUse hook until every file above has been read in this "
             "post-compaction window. Reading them first costs you one step; "
@@ -280,28 +316,54 @@ def _build_context(gated: list[tuple[str, str]], now: float, transcript_path: st
     return "\n\n".join(parts)
 
 
+def _fresh_session_context(gated: list[tuple[str, str]]) -> str:
+    """Short by design. The gate does the work; this only says where it is."""
+    if not gated:
+        return ""
+    parts = [
+        "===== MANDATORY READS — ENFORCED =====\n\n"
+        "Read these with the Read tool before your first Write/Edit in this session:\n\n"
+        f"{_gated_listing(gated)}\n\n"
+        "This is not advisory. Write, Edit, and NotebookEdit are BLOCKED by a "
+        "PreToolUse hook until every file above has been read.\n\n"
+        "CLAUDE.md is injected into your context automatically; these two are not, "
+        "and nothing else will ask you for them. Until this gate existed, a session "
+        "that never compacted could edit framework source from end to end having read "
+        "neither — which is exactly what happened, 66 edits deep, in "
+        "datrix-codegen-azure.\n\n"
+        "Answering a question costs nothing here: the block fires on the first edit, "
+        "not now."
+    ]
+    canary = _schema_canary()
+    if canary:
+        parts.insert(0, canary)
+    return "\n\n".join(parts)
+
+
 def main() -> None:
     try:
         data = json.loads(sys.stdin.read())
     except json.JSONDecodeError:
         sys.exit(0)
 
-    # Belt and braces: settings.json already scopes this hook to `compact`.
-    if data.get("source") not in ("compact", None):
-        sys.exit(0)
-
-    now = time.time()
+    source = data.get("source") or "startup"
     gated = _existing_gated_docs()
-    _arm_gate(data.get("session_id", ""), gated)
+    _arm_gate(data.get("session_id", ""), source, gated)
+
+    context = (
+        _compaction_context(gated, time.time())
+        if source == "compact"
+        else _fresh_session_context(gated)
+    )
+    if not context:
+        sys.exit(0)
 
     print(
         json.dumps(
             {
                 "hookSpecificOutput": {
                     "hookEventName": "SessionStart",
-                    "additionalContext": _build_context(
-                        gated, now, data.get("transcript_path", "")
-                    ),
+                    "additionalContext": context,
                 }
             }
         )

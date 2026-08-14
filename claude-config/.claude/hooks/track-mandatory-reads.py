@@ -1,12 +1,12 @@
-"""PostToolUse(Read) hook: record that a mandatory post-compaction doc was read.
+"""PostToolUse(Read) hook: record that a mandatory doc was read.
 
-Half of the gate armed by `post-compact-context.py`. It observes Read calls and
-ticks off the required docs as they are actually read — the other half
+Half of the gate armed by `session-context.py`. It observes Read calls and ticks
+off the required docs as they are actually read — the other half
 (`gate-mandatory-reads.py`) refuses to let any edit through until the list is
 clear.
 
-Inert outside a post-compaction window: if there is no state file for this
-session, this hook does nothing.
+Inert without a ledger: if there is no state file for this session, this hook
+does nothing.
 
 Always exits 0 — it observes, it never blocks.
 """
@@ -37,9 +37,9 @@ def main() -> None:
     if not session_id:
         sys.exit(0)
 
-    state_path = os.path.join(_STATE_DIR, f"post-compact-{session_id}.json")
+    state_path = os.path.join(_STATE_DIR, f"mandatory-reads-{session_id}.json")
     if not os.path.isfile(state_path):
-        sys.exit(0)  # no compaction in this session — gate is not armed
+        sys.exit(0)  # no ledger for this session — gate is not armed
 
     read_path = _normalize(data.get("tool_input", {}).get("file_path", ""))
     if not read_path:
