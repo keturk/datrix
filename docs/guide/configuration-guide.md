@@ -572,8 +572,10 @@ config system ecommerce.System {
     defaultTimeout = 30000;              # Default request timeout (ms)
     secrets { provider = env; }
     gateway {
-      port = 80;
-      rateLimit { default { requests = 100; window = 1m; key = ip; } }
+      # burst is optional: omitted, it derives from requests (one tenth of it).
+      # Declare it when the instantaneous fan-out does not follow from the
+      # sustained rate -- e.g. a UI that issues several reads per interaction.
+      rateLimit { default { requests = 100; window = 1m; key = ip; burst = 20; } }
       cors {
         origins = ["http://localhost:3000"];
         methods = [GET, POST, PUT, DELETE, PATCH];
