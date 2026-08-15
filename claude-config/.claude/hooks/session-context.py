@@ -250,26 +250,31 @@ def _schema_canary() -> str:
     the guard was in fact healthy — a false alarm every time, which trains the reader
     to ignore the one alarm that will ever be true.
 
-    The honest check lives in gate-mandatory-reads.py, where signal A (state file) and
-    signal B (transcript) are observable together and the transcript is long flushed:
-    A-armed-by-a-compaction but B-blind is real drift. It drops the flag file this
-    function reports.
+    The honest check lives in gate-mandatory-reads.py, where the transcript is long
+    flushed and the two markers can be compared against EACH OTHER: this repo's own
+    `SessionStart:compact` record proves the transcript compacted, so if the harness's
+    own fields are missing from it, they were renamed. Nothing is inferred from the
+    state file's `source`, which is sticky for the whole session and says nothing
+    about the transcript. That function drops — and retracts — the flag reported here.
     """
     flag_path = os.path.join(_STATE_DIR, "schema-drift.json")
     if not os.path.isfile(flag_path):
         return ""
 
     return (
-        "===== WARNING: THE SUBAGENT COMPACTION GUARD HAS GONE DARK =====\n\n"
-        "gate-mandatory-reads.py recorded transcript-marker drift: a compaction was "
-        "confirmed by the state file, but the transcript scan could not see it.\n\n"
-        "Consequence: signal B is dark for SUBAGENTS (the main session is still "
-        "enforced by the state file). A subagent that compacts mid-task will silently "
-        "edit code without re-reading the mandatory docs.\n\n"
+        "===== WARNING: THE HARNESS COMPACTION MARKERS HAVE BEEN RENAMED =====\n\n"
+        "gate-mandatory-reads.py compared its two transcript markers: a compaction "
+        "provably happened (this repo's own `SessionStart:compact` record is in the "
+        "transcript), but neither `isCompactSummary` nor `compact_boundary` appears "
+        "anywhere in it.\n\n"
+        "Consequence: the main session is still covered — the gate reads the "
+        "self-owned record too. A SUBAGENT is not: SessionStart does not fire inside "
+        "one, so its only signal is the renamed pair, and a subagent that compacts "
+        "mid-task will silently edit code without re-reading the mandatory docs.\n\n"
         "This is a defect to fix now, not later: find the new marker field in the "
-        "transcript JSONL, update `_is_compaction_entry` in "
-        ".claude/hooks/gate-mandatory-reads.py, and delete "
-        f"{flag_path}. Tell Jon."
+        "transcript JSONL and update `_upstream_compaction_marker` in "
+        ".claude/hooks/gate-mandatory-reads.py. The flag at "
+        f"{flag_path} retracts itself once the markers are readable again."
     )
 
 

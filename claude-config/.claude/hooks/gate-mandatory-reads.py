@@ -22,9 +22,12 @@ hard part, and neither available signal is sufficient alone:
   B. TRANSCRIPT — every agent, main or sub, gets `transcript_path` in its hook
      input pointing at its OWN transcript (the same assumption check-agent-report.py
      already relies on in production). A compaction leaves a `type: user` entry
-     with `isCompactSummary: true`; Reads after it are the post-compaction reads.
+     with `isCompactSummary: true` and a `type: system` entry with
+     `subtype: compact_boundary`; Reads after them are the post-compaction reads.
      Hole: the transcript JSONL schema is internal and Anthropic warns it can
-     change between releases. A field rename would make this signal go quiet.
+     change between releases. A rename of BOTH fields would make this signal go
+     quiet — so a third marker this repo owns is read alongside them (see
+     `_self_owned_compaction_marker`), which no upstream rename can take away.
      It is also silent for a session that never compacted — signal A alone covers
      the fresh-session case.
 
@@ -78,6 +81,12 @@ _EXEMPT_PREFIXES: Final = (
 )
 _EXEMPT_SEGMENTS: Final = ("/scratchpad/", "/appdata/local/temp/")
 
+# The harness records every hook invocation as a `type: attachment` entry naming
+# the event it fired for. This exact name is written when — and only when —
+# SessionStart fired with source=compact, so its presence in a transcript is proof
+# that THIS transcript compacted, owed to nothing Anthropic can rename.
+_COMPACT_SESSION_START_HOOK: Final = "SessionStart:compact"
+
 
 def _normalize(path: str) -> str:
     return path.replace("\\", "/").lower()
@@ -112,14 +121,44 @@ def _entries(transcript_path: str) -> list[dict[str, object]]:
     return entries
 
 
-def _is_compaction_entry(entry: dict[str, object]) -> bool:
-    """True for either marker the harness writes when it compacts a context.
+def _upstream_compaction_marker(entry: dict[str, object]) -> bool:
+    """True for either marker the HARNESS writes when it compacts a context.
 
     Two independent field names are accepted, because a compaction writes BOTH a
     `system`/`compact_boundary` entry and a `user`/`isCompactSummary` entry. Reading
-    either one keeps signal B alive if a release renames the other.
+    either one keeps signal B alive if a release renames the other. These are the
+    fields the drift check watches, because these are the fields that can drift.
     """
     return bool(entry.get("isCompactSummary")) or entry.get("subtype") == "compact_boundary"
+
+
+def _self_owned_compaction_marker(entry: dict[str, object]) -> bool:
+    """True for the compaction record THIS REPO owns, immune to an upstream rename.
+
+    The harness logs each hook invocation as an attachment carrying the hook's name;
+    `SessionStart:compact` is written only when SessionStart fired with source=compact.
+    Two properties make it the right ground truth:
+
+      * it survives a rename of `isCompactSummary`/`compact_boundary`, so signal B
+        degrades rather than going dark, and
+      * it is STRUCTURAL — an attachment field, not a text sentinel — so an agent
+        that merely READS this hook's source cannot forge one into its transcript.
+
+    It does not replace the upstream markers: SessionStart is not documented to fire
+    inside a subagent, so a compacting subagent may have only the upstream pair. That
+    is exactly why a rename of the pair must still be reported (`_check_marker_drift`).
+    """
+    if entry.get("type") != "attachment":
+        return False
+    attachment = entry.get("attachment")
+    if not isinstance(attachment, dict):
+        return False
+    return attachment.get("hookName") == _COMPACT_SESSION_START_HOOK
+
+
+def _is_compaction_entry(entry: dict[str, object]) -> bool:
+    """True for any evidence that the context was compacted at this point."""
+    return _upstream_compaction_marker(entry) or _self_owned_compaction_marker(entry)
 
 
 def _last_compaction_index(entries: list[dict[str, object]]) -> int:
@@ -229,40 +268,69 @@ def _state_signal(session_id: str) -> tuple[bool, set[str], str]:
     )
 
 
-def _transcript_signal(transcript_path: str) -> tuple[bool, set[str]]:
-    """Signal B — the caller's own transcript. (compacted, paths Read since)"""
+def _transcript_signal(transcript_path: str) -> tuple[bool, set[str], bool, bool]:
+    """Signal B — the caller's own transcript.
+
+    Returns (compacted, paths Read since, upstream marker seen, self-owned marker
+    seen). The last two are what `_check_marker_drift` compares; they are computed
+    over the WHOLE transcript, not just since the last compaction, because the
+    question they answer is "does this schema still exist at all".
+    """
     entries = _entries(transcript_path)
+    upstream_seen = any(_upstream_compaction_marker(e) for e in entries)
+    self_seen = any(_self_owned_compaction_marker(e) for e in entries)
     compacted_at = _last_compaction_index(entries)
     if compacted_at < 0:
-        return False, set()
-    return True, _paths_read_after(entries, compacted_at)
+        return False, set(), upstream_seen, self_seen
+    return True, _paths_read_after(entries, compacted_at), upstream_seen, self_seen
 
 
-def _record_schema_drift(session_id: str) -> None:
-    """A COMPACT-armed signal A fired but signal B saw nothing — the marker drifted.
+def _check_marker_drift(upstream_seen: bool, self_seen: bool, session_id: str) -> None:
+    """Compare the two transcript markers AGAINST EACH OTHER, and flag a rename.
 
-    This is the ONLY place the drift check can honestly run. It cannot run at
-    SessionStart(compact): the harness appends the compaction record to the
-    transcript *after* that hook returns, so a canary there reads a transcript that
-    does not yet contain the marker it is looking for and reports drift on every
-    single compaction. A guard that cries wolf every time is a guard nobody reads.
+    The comparison must be non-circular, and the obvious formulation is not. An
+    earlier version inferred drift from the state file: `source == "compact"` and no
+    marker found. That is unsound — `source` is written once at SessionStart and is
+    sticky for the rest of the session, so it says nothing about the transcript being
+    scanned, and the check re-ran on EVERY edit thereafter. It duly fired three times
+    in one session whose transcript had never compacted, then went quiet when that
+    session did compact and the markers turned up exactly where they should be. An
+    alarm that fires when nothing is wrong is worse than no alarm: the flag file is
+    sticky, so every later session opened with a warning about a healthy guard.
 
-    Here, both signals are observable at once and the transcript is long since
-    flushed, so a `compact`-sourced state file with no transcript marker means
-    exactly one thing: SessionStart proved a compaction happened, and the
-    transcript scan failed to see it. That is real drift, and signal B is dark for
-    SUBAGENTS (which have no state file).
+    The sound test compares two independent transcript-side facts:
 
-    The `compact` qualifier is load-bearing. The state file is now armed on every
-    SessionStart, and a `startup`-armed session has no compaction for signal B to
-    find — checking there would report drift on every fresh session and retrain the
-    reader to ignore the one alarm that will ever be true.
+      SELF-OWNED marker present  — proof that THIS transcript compacted (§
+                                   `_self_owned_compaction_marker`; ours, unrenameable)
+      UPSTREAM marker absent     — the harness's own fields are no longer being written
+
+    Both together mean a rename, and nothing else does. Either alone is normal: a
+    transcript with neither simply never compacted, and a transcript with both is
+    healthy. When the upstream fields ARE present the flag is cleared, so a fixed or
+    misfired alarm stops nagging without anyone deleting a file by hand.
+
+    Note what this does NOT weaken: with `_is_compaction_entry` now reading the
+    self-owned marker too, an upstream rename no longer blinds the main session at
+    all. It stays reportable because SessionStart is not documented to fire inside a
+    SUBAGENT, so a compacting subagent can still see only the upstream pair — the
+    case nobody is watching, and the reason to fix a rename promptly.
     """
-    if not session_id:
+    flag_path = os.path.join(_STATE_DIR, "schema-drift.json")
+
+    if upstream_seen or not self_seen:
+        if upstream_seen and os.path.isfile(flag_path):
+            try:
+                os.remove(flag_path)  # healthy again — retract the alarm
+            except OSError:
+                pass
         return
+
+    if not session_id or os.path.isfile(flag_path):
+        return  # already reported; do not re-announce on every edit
+
     try:
         os.makedirs(_STATE_DIR, exist_ok=True)
-        with open(os.path.join(_STATE_DIR, "schema-drift.json"), "w", encoding="utf-8") as handle:
+        with open(flag_path, "w", encoding="utf-8") as handle:
             json.dump({"session_id": session_id, "signal": "transcript"}, handle, indent=2)
     except OSError:
         return
@@ -271,13 +339,15 @@ def _record_schema_drift(session_id: str) -> None:
         json.dumps(
             {
                 "systemMessage": (
-                    "HOOK SCHEMA DRIFT: a compaction was confirmed by the SessionStart "
-                    "state file, but no compaction marker was found in the transcript. "
-                    "gate-mandatory-reads.py signal B is now DARK for subagents — a "
-                    "subagent that compacts mid-task can edit code without re-reading the "
-                    "mandatory docs. Find the new marker field in the transcript JSONL and "
-                    "update _is_compaction_entry() in .claude/hooks/gate-mandatory-reads.py. "
-                    "Tell Jon."
+                    "HOOK SCHEMA DRIFT: this transcript compacted (its SessionStart:compact "
+                    "record proves it), but neither harness compaction marker "
+                    "(isCompactSummary / compact_boundary) appears anywhere in it — the "
+                    "transcript JSONL schema has changed. gate-mandatory-reads.py still "
+                    "covers the main session via its own SessionStart:compact record, but a "
+                    "SUBAGENT that compacts mid-task has only the renamed markers and can "
+                    "now edit code without re-reading the mandatory docs. Find the new field "
+                    "in the transcript JSONL and update _upstream_compaction_marker() in "
+                    ".claude/hooks/gate-mandatory-reads.py. Tell Jon."
                 )
             }
         )
@@ -302,10 +372,11 @@ def main() -> None:
         sys.exit(0)
 
     state_armed, state_reads, state_source = _state_signal(data.get("session_id", ""))
-    tx_armed, tx_reads = _transcript_signal(data.get("transcript_path", ""))
+    tx_armed, tx_reads, tx_upstream, tx_self = _transcript_signal(
+        data.get("transcript_path", "")
+    )
 
-    if state_armed and state_source == "compact" and not tx_armed:
-        _record_schema_drift(data.get("session_id", ""))
+    _check_marker_drift(tx_upstream, tx_self, data.get("session_id", ""))
 
     if not (state_armed or tx_armed):
         sys.exit(0)  # neither signal armed — fail open, never wedge the session

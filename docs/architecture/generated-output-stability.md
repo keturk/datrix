@@ -188,6 +188,63 @@ skip reaches:
   remaining fifteen current entries are this form, each a real, language-specific generation
   defect (dotnet/java-only), never a blanket "language X can't build example Y."
 
+## Two output-neutrality instruments, not one
+
+The parity gate above answers one question: **has output drifted from what a committed baseline
+blessed?** It is standing drift detection — it sweeps every registered `datrix.languages` target
+at runtime, enforces its own non-vacuity every run, and turns red the moment a change alters any
+byte of any file compared to the stored baseline. Everything above describes that instrument.
+
+It does not answer a different, earlier question: **does the change I am currently holding alter
+output at all, before it lands and before any baseline is blessed?** That is
+`datrix/scripts/dev/byte-identity-generate.ps1`. It generates one example twice — a "before" code
+state (a read-only `git archive` snapshot of named packages at a given ref, via `-BeforeRef` +
+`-Packages`, or a caller-supplied tree via `-BeforeTree`) against the current working tree — into
+two fixed, equal-length output roots, then byte-diffs the two trees. `-Language` is validated at
+runtime against the registered language set, exactly like the gate's own sweep, never a hardcoded
+list.
+
+**When to reach for which:** the parity gate asks "has output drifted from what we blessed?";
+byte identity asks "does the change I am holding alter output at all?" A refactor whose whole
+claim is behaviour preservation wants byte identity *before* it commits and the parity gate
+*afterwards* — the gate can only compare against a baseline that already exists, and re-blessing
+before proving neutrality would bless the very drift the gate exists to catch.
+
+A change that touches a **shared** package (`datrix-common`, `datrix-codegen-common`, or any
+contract every generator consumes) must be checked across **every registered language it
+reaches**, not just the languages the author happens to be working in. A shared helper consumed
+by a language package the author never ran is exactly how an "output-neutral" refactor ships a
+diff — the same cross-surface blind spot the parity gate's own language sweep exists to close.
+
+`datrix/scripts/dev/compare-generated.ps1` is **not** a byte-identity tool: it compares
+`.generated` against `.generated_saved` at feature level — presence of known content patterns,
+not a byte-level diff. Reaching for it to back a byte-identity claim proves nothing; use
+`byte-identity-generate.ps1` for that.
+
+## Stating acceptance for a performance or structure refactor
+
+A refactor whose purpose is removing redundant work — recomputing a value once instead of once
+per iteration, hoisting an invariant out of a loop — states its acceptance property as
+**correctness-plus-structure, not a timing number.** There is no benchmark harness anywhere under
+`datrix/scripts/`, no profile establishing that generation is slow, and no designated "large
+project" fixture. A numeric bar with no harness, no baseline, and no fixture to run it against is
+an unprovable acceptance property, and building one to gate a handful of localized cleanups costs
+more than the cleanups themselves.
+
+The provable form has two halves:
+
+- **(a) Generated output is byte-identical** — proven by the two instruments above: byte identity
+  before the change lands, the parity gate on every run afterward.
+- **(b) The work is done once rather than N times** — proven by object-identity tests (a snapshot
+  built once per service is the *same* object across that service's per-entity passes, and a
+  different service yields a different object) together with deleting the per-iteration rebuild
+  path those tests would otherwise still exercise. Both halves matter: the positive test proves
+  reuse happens, the deletion proves it is the *only* path left.
+
+"Computed once" is a property directly observable in tests. It needs no production counters and
+no debug log lines — instrumenting an invariant already proven in tests is dead weight, not
+evidence.
+
 ## Running it
 
 ```powershell

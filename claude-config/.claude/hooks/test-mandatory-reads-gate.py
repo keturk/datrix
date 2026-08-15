@@ -76,12 +76,46 @@ def cleanup():
             os.remove(path)
 
 
-def transcript_with_compaction():
-    """A minimal transcript carrying a compaction marker and no Reads after it."""
+def transcript(*entries):
+    """Write the given entries as a throwaway transcript JSONL and return its path."""
     handle = tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False, encoding="utf-8")
-    handle.write(json.dumps({"type": "user", "isCompactSummary": True}) + "\n")
+    for entry in entries:
+        handle.write(json.dumps(entry) + "\n")
     handle.close()
     return handle.name
+
+
+# The harness's own compaction markers — the pair that can be renamed out from under us.
+UPSTREAM_SUMMARY = {"type": "user", "isCompactSummary": True}
+UPSTREAM_BOUNDARY = {"type": "system", "subtype": "compact_boundary"}
+
+# This repo's own record of the same event: the harness logs each hook invocation as
+# an attachment naming the hook, and `SessionStart:compact` is written only when a
+# compaction fired. Structural, so reading the hook's source cannot forge one.
+SELF_OWNED = {
+    "type": "attachment",
+    "attachment": {"type": "hook_success", "hookName": "SessionStart:compact"},
+}
+PLAIN_SESSION_START = {
+    "type": "attachment",
+    "attachment": {"type": "hook_success", "hookName": "SessionStart:startup"},
+}
+# An agent READING these hooks: the marker names appear as tool-result text only.
+MENTIONS_MARKERS = {
+    "type": "user",
+    "message": {
+        "role": "user",
+        "content": [
+            {"type": "tool_result", "content": 'isCompactSummary compact_boundary '
+                                               '"SessionStart:compact" compaction'},
+        ],
+    },
+}
+
+
+def transcript_with_compaction():
+    """A minimal transcript carrying a compaction marker and no Reads after it."""
+    return transcript(UPSTREAM_SUMMARY)
 
 
 # A pre-existing drift flag would make the canary assertions meaningless, and
@@ -160,17 +194,55 @@ try:
     check("transcript-only block says compacted", "was compacted" in err, True)
     os.remove(tx)
 
-    print("== schema-drift canary fires for compact, stays silent for startup ==")
+    print("== the self-owned marker arms the gate on its own ==")
+    cleanup()
+    tx_self = transcript(SELF_OWNED)
+    code, err = edit(SOURCE, transcript=tx_self)
+    check("SessionStart:compact record alone -> BLOCK", code, BLOCK)
+    check("self-owned block says compacted", "was compacted" in err, True)
+
+    print("== schema-drift fires ONLY on a proven rename ==")
+    # The drift test compares the two markers against each other. Inferring drift
+    # from the state file's `source` instead was unsound — `source` is written once
+    # at SessionStart and is sticky for the whole session, so it says nothing about
+    # the transcript being scanned. That version fired three times in one session
+    # that had never compacted, and the flag is sticky, so every later session
+    # opened with a warning about a perfectly healthy guard.
     cleanup()
     start("startup")
     edit(SOURCE)
     check("startup-armed + no transcript -> NO false drift alarm",
           os.path.isfile(DRIFT_FILE), False)
+
     cleanup()
     start("compact")
-    edit(SOURCE)
-    check("compact-armed + no transcript marker -> drift alarm",
+    edit(SOURCE, transcript=transcript(PLAIN_SESSION_START))
+    check("compact-armed but transcript never compacted -> NO false drift alarm",
+          os.path.isfile(DRIFT_FILE), False)
+
+    cleanup()
+    edit(SOURCE, transcript=transcript(MENTIONS_MARKERS))
+    check("reading the hooks does not forge a compaction", os.path.isfile(DRIFT_FILE), False)
+    check("reading the hooks does not arm the gate",
+          edit(SOURCE, transcript=transcript(MENTIONS_MARKERS))[0], ALLOW)
+
+    cleanup()
+    edit(SOURCE, transcript=transcript(SELF_OWNED, UPSTREAM_BOUNDARY, UPSTREAM_SUMMARY))
+    check("both markers present -> healthy, no alarm", os.path.isfile(DRIFT_FILE), False)
+
+    cleanup()
+    edit(SOURCE, transcript=tx_self)
+    check("compacted but upstream markers absent -> drift alarm",
           os.path.isfile(DRIFT_FILE), True)
+    _, out, _ = run("gate-mandatory-reads.py", {
+        "tool_name": "Edit", "session_id": SESSION,
+        "transcript_path": tx_self, "tool_input": {"file_path": SOURCE},
+    })
+    check("drift is announced once, not on every edit", "HOOK SCHEMA DRIFT" in out, False)
+
+    edit(SOURCE, transcript=transcript(SELF_OWNED, UPSTREAM_SUMMARY))
+    check("a healthy transcript retracts a stale alarm", os.path.isfile(DRIFT_FILE), False)
+    os.remove(tx_self)
 
 finally:
     cleanup()
