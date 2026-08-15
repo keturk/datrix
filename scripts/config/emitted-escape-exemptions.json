@@ -1,0 +1,26 @@
+{
+  "_comment": [
+    "Reviewed exemptions for emitted-escape-integrity-gate.ps1.",
+    "An entry belongs here only when a Python-emitting template ('*.py.j2') is",
+    "CORRECT to carry a doubled backslash before n/t/r -- for example a template",
+    "emitting Python that in turn writes a shell script needing a literal escape.",
+    "Each entry pins the file AND the exact matched line, so it cannot widen into",
+    "a whole-file allowance as the template changes around it. An entry whose line",
+    "no longer exists fails the gate rather than lingering.",
+    "expected_count must equal the number of entries: remediation removes the entry",
+    "and decrements the count in the same change."
+  ],
+  "expected_count": 2,
+  "exemptions": [
+    {
+      "file": "datrix-codegen-python/src/datrix_codegen_python/templates/service/_json_helpers.py.j2",
+      "snippet": "several metadata/units lines before the header. ``csv|delimiter=\\\\t`` selects a",
+      "reason": "Documentation of a user-authored format hint, not a string the program builds. The emitted _parse_csv_spec decodes the hint with value.encode().decode('unicode_escape'), so the caller writes the two literal characters backslash-t; the docstring must therefore render them literally, which a non-raw docstring does only when doubled. A single backslash here would put a real tab character in the docstring and misdocument the API."
+    },
+    {
+      "file": "datrix-codegen-python/src/datrix_codegen_python/templates/service/_json_helpers.py.j2",
+      "snippet": "single-character delimiter other than comma (e.g. ``\\\\t`` for TSV).",
+      "reason": "Same format-hint documentation on _parse_csv, the function that consumes the decoded delimiter. See the _json_parse_tabular entry above."
+    }
+  ]
+}

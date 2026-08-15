@@ -584,7 +584,13 @@ config system ecommerce.System {
     observability {
       metrics { provider = prometheus; endpoint = "/metrics"; }
       tracing { provider = jaeger; samplingRate = 0.1; }
-      logging { level = info; format = json; }
+      logging {
+        level = info; format = json;
+        categories {                 # per-category emit severity (see below)
+          request = "info"; probe = "debug"; persistence = "debug";
+          messaging = "debug"; storage = "debug";
+        }
+      }
     }
   }
 
@@ -630,6 +636,49 @@ Target language is **not** a `.dcfg` field — it is a required generation param
 | `registry` | String | — | Docker registry URL |
 | `secrets` | Object | — | Secrets management config |
 | `encryption` | Object | — | Data encryption config |
+
+### Log Categories — `observability.logging.categories`
+
+`logging.level` is a single floor over the whole process, so it cannot separate
+a record an operator reads by default from one whose emission rate is set by how
+much data is moving. `categories` assigns a severity per **class of
+generator-emitted record**, classified by what bounds that record's rate:
+
+| Category | Records it covers | Rate bounded by | Default |
+|---|---|---|---|
+| `request` | one per completed inbound application request | request volume | `info` |
+| `probe` | successful health / readiness / liveness / metrics-scrape requests, and healthy component health-check results | a fixed probe interval | `debug` |
+| `persistence` | one per entity row created / updated / deleted | rows written | `debug` |
+| `messaging` | one per message consumed, published, or dispatched (subscriptions, producers, queue handlers, CQRS commands / queries / projections) | message throughput | `debug` |
+| `storage` | one per object-storage operation (upload, download, delete, copy, list, metadata write) | objects moved | `debug` |
+
+**The rule the defaults follow**, and the one to apply to any category added
+later: a record whose rate is bounded by **item count** — rows, messages,
+requests, probes — is `debug`; a record bounded by a **lifecycle event** —
+startup, shutdown, connect, job start/finish, config change, batch summary — is
+`info`. Records outside these five categories are governed by `level` alone. Client
+construction and connection records stay at `info` even for a categorized
+subsystem -- they fire once per process, not once per item.
+
+**Interaction with `level`.** A category severity below `level` means those
+records are never emitted — that is how a profile silences a class outright
+without lowering `level` and losing genuine operational output. A category
+cannot raise a record above what `level` admits.
+
+**Inheritance.** `categories` is a nested block, so it deep-merges down the
+`extends` chain: a profile overriding one category inherits the other three.
+An unrecognized category name or an invalid severity is a loud validation error
+naming the valid set, never a silently ignored key.
+
+**Per-target realization.** A category binds to the records a target actually
+emits; a target that emits no record of a class simply does not realize that
+category, which its own realization-conformance baseline records. How a target
+spells a severity in an emit call is DECLARED on its language plugin
+(`LanguageCapabilityDeclaration.log_severity_methods`) — SLF4J spells warning
+`warn` and has no critical, NestJS spells info `log`,
+`Microsoft.Extensions.Logging` spells every level `Log<Level>` — and read by one
+shared resolver, never branched on in a shared layer. A severity a target's
+table omits is a loud generation error, never a nearest-match.
 
 ### Language Selection
 

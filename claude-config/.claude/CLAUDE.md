@@ -111,8 +111,10 @@ doing the wrong thing.
 | `PreToolUse(Bash\|PowerShell)` | `guard-full-suite-runs.py` | whole-suite `test.ps1` runs (unconditional for subagents) |
 | `PreToolUse(Bash\|PowerShell)` | `validate-script-invocation.py` | `generate.ps1` with `-All`/`-Domains`/`-TestSet` (no override) |
 | `PreToolUse(Bash\|PowerShell)` | `guard-forbidden-commands.py` | git reverts and other prohibited commands |
-| `PreToolUse(Write\|Edit)` | `guard-repo-temp-dirs.py`, `guard-temp-file-policy.py` | temp/scratch dirs and files inside package repos |
-| `PreToolUse(Write\|Edit)` | `gate-mandatory-reads.py` | any edit until the gated docs are read in this session (and re-read after a compaction) |
+| `PreToolUse(Bash\|PowerShell)` | `guard-shell-file-writes.py` | authoring file content from a shell — heredocs, `>`/`>>` into a file, `Set-Content`/`Out-File`, and `python -c`/`python - <<` bodies that write files |
+| `PreToolUse(Bash\|PowerShell)` | `guard-repo-temp-dirs.py` | opening a temp/scratch dir inside a package repo from a shell — the `mkdir`, the redirect, and the `-Output*` argument |
+| `PreToolUse(Write\|Edit\|NotebookEdit)` | `guard-repo-temp-dirs.py`, `guard-temp-file-policy.py` | temp/scratch dirs and files inside package repos |
+| `PreToolUse(Write\|Edit\|NotebookEdit)` | `gate-mandatory-reads.py` | any edit until the gated docs are read in this session (and re-read after a compaction) |
 | `PreToolUse(AskUserQuestion)` | `gate-decision-escalation.py` | handing a decision back to Jon mid-run instead of escalating |
 
 **Adding a check?** Put it in a hook or a test, not in this file. A rule written here is paid
@@ -168,6 +170,13 @@ re-arms: re-read before acting.
   red check green. This binds what the generator *emits* as hard as what you write — an
   insecure default in a template ships once per generated project, forever.
   Surfaces, the fail-closed rule, and the one B3 exception: execution-contract §13.
+- **File content is authored with Write/Edit — never through a shell.** No heredoc, no
+  `>`/`>>` into a file, no `Set-Content`/`Out-File`, no `python -c`/`python - <<` that writes
+  files. **A bulk change is N `Edit` calls, and that IS the correct shape** — it is never
+  worth a script. Write/Edit are auto-accepted (a shell write interrupts Jon), each surfaces a
+  reviewable diff, and `Write` refuses to clobber a file you have not read; a heredoc has none
+  of that and breaks on an apostrophe in the content. Redirecting *transient* output into
+  `.tmp`/`.test-output`/`.scripts`/the scratchpad is fine — that is measurement, not authoring.
 - **No workarounds.** Trace to the root cause and fix it there. No band-aids, no "good enough
   for now", no conditional guards hiding a broken path. This is not a binary between
   "workaround" and "stop" — the third option, do the real work, is the default. Being short
