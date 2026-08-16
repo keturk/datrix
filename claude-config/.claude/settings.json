@@ -24,7 +24,8 @@
       "PowerShell(az monitor log-analytics workspace list-deleted-workspaces --query \"[].{name:name,rg:resourceGroup,id:customerId}\" -o json 2>$null)",
       "PowerShell(az monitor diagnostic-settings list --resource $ns --query \"[].{name:name,ws:workspaceId}\" -o json 2>$null)",
       "PowerShell(D:\\\\datrix\\\\datrix\\\\scripts\\\\test\\\\test.ps1 datrix-codegen-common -Specific \"tests/unit/testkit/test_plan_ownership.py\")",
-      "Bash(cd \"D:/datrix\" && echo \"=== 13-06 banned-construct context ===\" && grep -n -B2 -A2 -E \"unittest\\\\.mock|MagicMock|SimpleNamespace\" \"datrix-codegen-common/.tasks/phase-13/task-13-06-money-guard-uses-seam-accessor.md\" | head -40; echo; echo \"=== 13-10 Tests section ===\" && sed -n '/^## Tests/,/^## /p' \"datrix-codegen-common/.tasks/phase-13/task-13-10-transpile-data-single-materialization.md\" | head -40; echo; echo \"=== 13-13 header block ===\" && sed -n '1,30p' \"datrix-codegen-common/.tasks/phase-13/task-13-13-quality-gate-datrix-codegen-common.md\")"
+      "Bash(cd \"D:/datrix\" && echo \"=== 13-06 banned-construct context ===\" && grep -n -B2 -A2 -E \"unittest\\\\.mock|MagicMock|SimpleNamespace\" \"datrix-codegen-common/.tasks/phase-13/task-13-06-money-guard-uses-seam-accessor.md\" | head -40; echo; echo \"=== 13-10 Tests section ===\" && sed -n '/^## Tests/,/^## /p' \"datrix-codegen-common/.tasks/phase-13/task-13-10-transpile-data-single-materialization.md\" | head -40; echo; echo \"=== 13-13 header block ===\" && sed -n '1,30p' \"datrix-codegen-common/.tasks/phase-13/task-13-13-quality-gate-datrix-codegen-common.md\")",
+      "WebFetch(domain:zitadel.com)"
     ],
     "additionalDirectories": [
       "C:\\Users\\KErca\\.claude",
