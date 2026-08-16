@@ -1011,7 +1011,7 @@ production:
 | Field | Type | Options |
 |-------|------|---------|
 | `engine` | String | `postgres`, `mysql`, `mariadb` |
-| `platform` | String | `container`, `rds`, `aurora`, `flexible-server` |
+| `platform` | String | `container`, `rds`, `aurora`, `aurora-serverless`, `flexible-server` |
 | `database` | String | Database name |
 
 **Optional fields (container platform):**
@@ -1035,6 +1035,70 @@ production:
 | `postgres` | `psycopg2`, `pg8000` | `asyncpg` |
 | `mysql` | `pymysql`, `mysqlclient` | `aiomysql` |
 | `mariadb` | `pymysql`, `mysqlclient` | `aiomysql` |
+
+**Aurora capacity/reader fields:**
+
+`platform: aurora` and `platform: aurora-serverless` are two distinct RDS-family flavors:
+`aurora` is a provisioned cluster with a fixed instance class, `aurora-serverless` is an
+Aurora Serverless v2 cluster that auto-scales across a capacity range. Each flavor accepts a
+different, non-overlapping set of sizing fields — a field accepted but silently ignored on
+the wrong flavor is treated as a defect, so the wrong combination is rejected at generation
+time rather than accepted and dropped.
+
+| Field | ConfigDSL key | Type | Legal on | Required |
+|-------|---------------|------|----------|----------|
+| `min_capacity` | `minCapacity` | Float | `aurora-serverless` only | Yes, on `aurora-serverless` |
+| `max_capacity` | `maxCapacity` | Float | `aurora-serverless` only | Yes, on `aurora-serverless` |
+| `reader_instances` | `readerInstances` | Integer (>= 0) | `aurora` and `aurora-serverless` | Yes, on both Aurora flavors |
+| `instance_class` | `instanceClass` | String | `rds` and `aurora`; rejected on `aurora-serverless` | Yes, on `rds` and `aurora` |
+
+Rules enforced at generation time:
+
+- `minCapacity`/`maxCapacity` are legal only when `platform: aurora-serverless`; setting
+  either on any other platform is rejected — remove the field or switch the block to
+  `aurora-serverless`.
+- When both are set, `minCapacity` must be greater than `0`, and `minCapacity` must be
+  `<= maxCapacity` — the scaling floor cannot exceed the scaling ceiling.
+- `readerInstances` is legal only on `platform: aurora` or `platform: aurora-serverless`,
+  and is required on both — there is no default. `readerInstances = 0` is a legal value that
+  explicitly declares a writer-only cluster; omitting the field entirely is a configuration
+  error, not an implicit `0`. The maximum is `15` (Aurora's ceiling of one primary writer
+  plus up to 15 Aurora Replicas).
+- `instanceClass` is required on `platform: rds` and `platform: aurora` (a fixed instance
+  class), and is rejected on `platform: aurora-serverless`, which auto-scales capacity and
+  has no fixed instance class.
+- An `aurora`/`aurora-serverless` block that also carries `serverGroup` is rejected — pooled
+  server groups are realized as one shared RDS instance and cannot host an Aurora cluster.
+  Remove `serverGroup` from the block, or use `platform: rds` for pooled membership.
+- An `aurora`/`aurora-serverless` block that also has `connectionPooler.enabled` is
+  rejected — RDS Proxy wiring for Aurora clusters is not realized. Disable
+  `connectionPooler` on the block, or use `platform: rds`.
+
+Every one of these is a generation-time error with an actionable message naming the field,
+the offending value, and the fix — never a silent downgrade to a plain RDS instance or a
+dropped field.
+
+**Aurora Serverless v2 example:**
+
+```dtrx
+service orderService {
+  flavor = "ecs-fargate";
+  replicas = 2;
+  replace rdbms orderDb {
+    id = "0d9f6c1e-4b2a-4c8e-9f3d-2a7b8c5d1e0f";
+    engine = "postgres";
+    flavor = "aurora-serverless";
+    host = "postgres.internal";
+    port = 5432;
+    database = "orders";
+    minCapacity = 0.5;
+    maxCapacity = 16;
+    readerInstances = 1;
+    ssl = true;
+    asyncDriver = "postgresql+asyncpg";
+  }
+}
+```
 
 ### Cache Configuration
 
