@@ -1132,7 +1132,7 @@ Two things surfaced during implementation that the approved shape did not antici
 
 ---
 
-### Decision 37: Zero-Inbound VM Deployment and the Deploy-Time Binding Invariant (Approved — Implementation In Progress)
+### Decision 37: Zero-Inbound VM Deployment and the Deploy-Time Binding Invariant (Adopted)
 
 **Rationale:**
 - A provider that emits infrastructure must also own deploying it. When the runtime axis (containers) and the provider axis (cloud infrastructure) each emit their own artifacts and neither owns the deployment step, the generated tree's entrypoint assumes infrastructure that nothing in the tree ever creates.
@@ -1169,7 +1169,7 @@ Two things surfaced during implementation that the approved shape did not antici
 
 **Scope boundaries:** Confined to the deployment path this provider's infrastructure requires; does not change the runtime generator's container artifacts or any other provider's deployment mechanics. Does not introduce a new managed gateway type — the TLS edge fronts the existing self-hosted gateway rather than replacing it.
 
-**Status:** Approved — Implementation In Progress.
+**Status:** Adopted. The generation-time binding check runs after every generator has produced its files and before anything is written to disk; the outer deployment CLI, the managed-Run-Command bootstrap, the deploy-time config-store seeder, and the APIM-derived NSG rules all ship. Verified end to end against a live deployment: a first deploy from an empty subscription, idempotency on a second run, the security posture (no wildcard/Internet NSG source, no inbound port 22), the config seams (every deploy-resolved key matches its deployment output byte for byte), runtime health across all migration jobs, a managed-identity data-plane round trip, and frontend cutover with sign-in all passed, with a recorded steady-state cost.
 
 ---
 
