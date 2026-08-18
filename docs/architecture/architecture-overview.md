@@ -1219,6 +1219,43 @@ One name remains labelled collapsible-by-casing but unreached, by design rather 
 
 ---
 
+### Decision 39: DSL Comment Preservation and Two-Channel Generated Documentation (Approved — Implementation In Progress)
+
+**Rationale:**
+- The DSL has always accepted `//` and `/* */` comments and authors use them densely, but **every one is discarded at parse time.** Comments are tree-sitter `extras`, so they surface as siblings anywhere in the CST, and the transformer registry registers them as explicit SKIP entries. Nothing about a comment reaches the AST; `Node` carries `parent` and `location` and no documentation surface at all. Consequently no generated artifact and no API documentation surface has ever carried a word the author wrote.
+- The scale is not marginal. One 58-file production corpus carries **10,347 comment tokens** forming 3,891 contiguous runs: 1,808 immediately precede a construct, 1,541 trail one on the same line — the large majority of those on entity fields, which is the form that maps most directly onto a JSON-Schema field description — and 542 are detached from any construct. Zero of the 3,891 use a doc-marker form today.
+- Exactly one language target emits any operation text, and it is **synthesized** from route metadata rather than authored, so even where documentation appears the generator is describing itself. The others emit route handlers with no summary, description, or docstring.
+- Publishing every author comment into a public API document would be an information-exposure default. A leading comment in the DSL is written for the next engineer reading the DSL and routinely carries internal engineering history — why a default was changed, which downstream view a filter was hiding. That is not API-consumer text, and a generator that emits other people's public documents must not export it by default.
+
+**Result:**
+
+- **D1 — Comments become attached AST data, captured with no grammar change.** `line_comment` / `block_comment` already carry exact text and byte ranges. Whether a comment is a *doc* comment is a pure function of its text, so it is classified in a capture pass rather than in the lexer: no `token(prec(…))` disambiguation, no parser regeneration, and the whole change stays inside Python covered by the existing suites. Both marker forms are already legal and already meaningless — the seed parser skips everything after `//` with no special case — so adopting them reserves nothing and changes the meaning of no existing file.
+- **D2 — Two channels, and publication is opt-in.** Every attached comment becomes a **source comment** in the emitted artifact, in that language's comment syntax. Only a **doc-marked** comment (`///`, `/** … */`) becomes **published documentation** — OpenAPI `summary`/`description`, JSON-Schema field `description`, GraphQL type/field descriptions, generated README. This is fail-closed by construction: an unmarked note cannot reach a public document. A language whose natural doc form is itself published — a Python docstring, which the web framework surfaces as the operation description — must therefore emit unmarked notes as ordinary comments, never as a docstring; inverting that would silently publish everything and defeat the split.
+- **D3 — Attachment happens once, per file, at the single transform seam.** The comment index is built from that file's own CST and applied to that file's own `Application` before any include merge, at the one per-file transform point every parse path routes through. Attachment keys on the position each node already records, outermost claimant first. This removes any dependency on matching source paths across a merged multi-file application.
+- **D4 — The target-agnostic half lives in the foundation, not in the codegen shared layer.** Normalization and the summary/description split are pure functions over the model, and the component generator — which must consume them for generated package docs — deliberately does not depend on `datrix-codegen-common` (Decision 34's scope fence). They therefore live in `datrix-common`. `datrix-codegen-common` owns only the emission half: the per-language doc/note block emitters on `LanguageProfile`, and the single template-context shape every language generator injects.
+- **D5 — Doc text is untrusted-shaped input to a code emitter.** Author text lands inside generated string literals and generated comment blocks, where a comment terminator, a triple quote, a lone backslash, or a line separator can terminate the construct it sits in and change the meaning of the emitted file. String-literal destinations route through each language's existing string-literal emitter; comment destinations route through a per-language sanitizer that neutralizes that language's comment terminator. Hostile text is planted in a test, not guarded by convention.
+- **D6 — A documented construct documents on every target, or the target declares the surface unsupported with a reason.** A repo-level parity gate enumerates language targets from the entry-point group at runtime, refuses to pass with fewer than two, self-tests its own non-vacuity, and asserts the author's text reaches each target's declared published and source surfaces. A genuine hole is a typed exemption entry with coordinates, a written reason, and a pinned count — never silence.
+- **D7 — A documentation edit must invalidate the incremental cache.** Service serialization covers entities, subscriptions and uses-directives but not endpoints, so a doc-only edit would not move the service hash and incremental generation would skip the service — the author would edit a comment and see no change. A service-level documentation digest closes this without touching entity or field serialization, so migration diffing is unaffected.
+- **D8 — Unattached comments are counted, never silently dropped.** The index knows how many runs it produced and the attachment pass knows how many it consumed; the difference is reported per file and asserted zero over a fixture that documents every documentable construct. A run that attaches but reaches no artifact is a coverage hole held by a decrease-only baseline.
+
+**Invariant table:**
+
+| # | Invariant | Enforcement mechanism |
+| --- | --- | --- |
+| 1 | A comment attached to a construct is never silently lost between parse and emission | Produced-runs minus consumed-runs asserted zero over a fixture documenting every documentable construct; attached-but-unemitted runs held by a decrease-only baseline |
+| 2 | An unmarked comment never reaches a published documentation surface | Channel is decided once at capture; published surfaces read only the doc-marked channel, and a test asserts an unmarked comment is absent from the emitted API document while present as a source comment |
+| 3 | Documentation capture requires no grammar change and no parser regeneration | Classification is a function of comment text; the grammar's comment rules are untouched |
+| 4 | The summary/description split has exactly one definition | It lives in `datrix-common`, reachable by every generator including the ones fenced out of `datrix-codegen-common`; no package computes its own |
+| 5 | Author text cannot break or escape the construct it is emitted into | Per-language sanitizer plus a planted-hostile-text test covering comment terminators, triple quotes, backslashes, CR, and line/paragraph separators on every target |
+| 6 | A capability realized on one language target is realized on the others or declared unsupported with a reason | Runtime-derived, self-testing documentation-realization parity gate with typed, counted exemptions |
+| 7 | A documentation-only edit regenerates the service that contains it | Service-level documentation digest participates in the incremental hash; entity and field serialization are untouched, so migration diffing is unaffected |
+
+**Scope boundaries:** Database-level column and table comments are deliberately excluded from the initial work — they are DDL, so they require a canonical ledger operation, a change to the diffed schema state, and a persisted-snapshot format bump with a prior-version read path; they are scheduled as their own later decision rather than carried as scope risk here. Detached comments (separated by a blank line from any construct) attach to nothing: attaching them anyway would make a blank line meaningless and would pull section-divider comments into API descriptions. Marking existing corpus comments for publication is per-comment editorial judgement belonging to the product author, not generator work.
+
+**Status:** Approved — implementation in progress.
+
+---
+
 ## Installation
 
 ```bash

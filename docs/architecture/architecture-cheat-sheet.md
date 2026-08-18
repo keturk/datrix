@@ -183,6 +183,31 @@ Decision 36 measures parallel implementations; this decision asks what would *re
 
 Full decision log: [Architecture Overview — Decision 38](./architecture-overview.md#decision-38-lowering-the-declarative-floor-on-both-axes--collapsibility-classification-and-declared-dependency-tables-adopted).
 
+## DSL Comment Preservation and Two-Channel Documentation
+
+Comments in `.dtrx` are tree-sitter `extras` and were dropped at parse time — the transformer
+registry registers them as explicit SKIP entries, `Node` has no documentation surface, and no
+generated artifact or API document has ever carried author-written text. **Approved —
+implementation in progress.**
+
+| # | Invariant | Enforcement mechanism (planned) |
+|---|---|---|
+| 1 | An attached comment is never silently lost between parse and emission | Produced-runs minus consumed-runs asserted zero over a fixture documenting every documentable construct; attached-but-unemitted runs held by a decrease-only baseline |
+| 2 | An unmarked comment never reaches a published documentation surface | Two channels decided once at capture: every comment becomes a **source comment**; only `///` / `/** … */` becomes **published documentation** (OpenAPI summary/description, schema field description, GraphQL descriptions, generated README). Fail-closed — publication is opt-in |
+| 3 | Capture requires no grammar change | Doc-vs-note is a function of the comment's text, not a lexer token; both marker forms are already legal and already meaningless today |
+| 4 | The summary/description split has one definition | It lives in `datrix-common`, reachable by every generator including those fenced out of `datrix-codegen-common` (Decision 34); emission-only surfaces stay in `datrix-codegen-common` |
+| 5 | Author text cannot break the construct it is emitted into | Per-language sanitizer + planted-hostile-text test (comment terminators, triple quotes, backslash, CR, line/paragraph separators) |
+| 6 | A documented construct documents on every language target, or the target declares the surface unsupported with a reason | Runtime-derived, self-testing documentation-realization parity gate with typed, counted exemptions |
+| 7 | A documentation-only edit regenerates its service | Service-level documentation digest in the incremental hash; entity/field serialization untouched, so migration diffing is unaffected |
+
+**Python's docstring is a published surface** — the web framework surfaces it as the operation
+description — so an unmarked note is emitted as an ordinary comment, never as a docstring.
+
+Database-level column/table comments are out of the initial scope (DDL → ledger operation +
+snapshot-format bump) and are scheduled as their own later decision.
+
+Full decision log: [Architecture Overview — Decision 39](./architecture-overview.md#decision-39-dsl-comment-preservation-and-two-channel-generated-documentation-approved--implementation-in-progress).
+
 ## Transpiler pipeline (per file)
 
 ```
@@ -261,6 +286,7 @@ High-level constructs the parser and transformers understand today. Full detail:
 | Catalog types | Module- or service-level **`scalar Name : BaseType { constraints… }`** for constrained aliases on existing types |
 | Errors | Module- or service-level **`exceptions { … }`** with `Name : status(N), message("…");` and optional structured fields |
 | REST (unchanged) | Endpoint decorators such as **`@retry`**, **`@rateLimit`**, **`@cache`** remain **`@`-prefixed**; that is separate from field modifiers |
+| Comments | `//` line and `/* … */` block comments anywhere (grammar `extras`). **`///`** and **`/** … */`** are *doc comments* — the opt-in published-documentation channel; plain `//` / `/* */` stay source-only. See DSL Comment Preservation above |
 
 ## Technology
 
