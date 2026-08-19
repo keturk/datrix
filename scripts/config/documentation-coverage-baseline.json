@@ -1,0 +1,19 @@
+{
+  "_comment": [
+    "Decrease-only ratchet (Decision 39 invariant 1): per registered",
+    "datrix.languages target, how many of the documentation-realization",
+    "fixture's ATTACHED comment runs reach NO generated artifact.",
+    "A run whose count is HIGHER than the pinned value fails the gate --",
+    "a target quietly stopped emitting documentation it used to emit.",
+    "Attachment itself is policed separately, and at zero, by",
+    "datrix-language's own produced-minus-consumed census.",
+    "documentation-realization-parity-gate.ps1 -UpdateCoverageBaseline is",
+    "the only writer; do not hand-guess the numbers."
+  ],
+  "holes": {
+    "dotnet": 0,
+    "java": 0,
+    "python": 0,
+    "typescript": 0
+  }
+}

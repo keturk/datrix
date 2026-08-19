@@ -30,6 +30,61 @@ Multiple files can contribute to the same service — the compiler merges them a
 
 ---
 
+## Comments
+
+Two comment forms, each with a plain and a doc-marked variant:
+
+| Form | Plain (source-only) | Doc-marked (may publish) |
+|------|---------------------|---------------------------|
+| Line | `// text` | `/// text` |
+| Block | `/* text */` | `/** text */` |
+
+**Every comment survives into the generated code.** A comment attaches to the construct
+beside it and reaches the generated artifact as an ordinary comment in the target language's
+own syntax — `#` in Python, `//` in TypeScript/Java/C#, `--` in SQL.
+
+**Only a doc-marked comment is published.** `///` and `/** */` additionally reach the
+documentation your API consumers see: the OpenAPI `summary`/`description`, a schema field's
+and component's `description`, GraphQL type/field descriptions, the generated README, and —
+for an `entity` or one of its fields — the **database comment** (`COMMENT ON TABLE` /
+`COMMENT ON COLUMN`). Publication is opt-in on purpose: a `.dtrx` comment is written for the
+next engineer reading the DSL, not for whoever reads `/docs`, so nothing is exported unless
+you marked it.
+
+```dtrx
+/// A purchasable product listed in the storefront catalog.
+entity Product {
+    UUID id : primaryKey, server = uuid();
+    /// The product's shopper-facing display name.
+    String(200) title;
+    // Internal: legacy SKU from the old catalog, not for API consumers.
+    String(50) legacySku;
+}
+```
+
+`Product` and `title` are documented publicly — their text reaches the OpenAPI document and
+the database catalog. `legacySku`'s note reaches the generated source only.
+
+**Attachment.** A comment (or a contiguous run of comments with no blank line between them)
+attaches to whichever construct it sits beside: a run immediately **above** a construct
+documents it, and a run starting on the same line a construct **ends** on documents that
+construct. A run separated from every construct by a blank line is **detached** — it attaches
+to nothing and is not emitted, which is what makes section dividers (`// ── Ingestion ──`)
+safe to write.
+
+**Mixed markers are an error.** A single contiguous run must be entirely doc-marked or
+entirely plain; a half-marked block raises at parse time naming the file and line.
+
+Doc-marked comments also carry structured tags (`@param`, `@returns`, `@deprecated`,
+`@example`). Full detail, including tag syntax and the per-target landing sites:
+[datrix-syntax-reference.md](../../../datrix-language/docs/reference/datrix-syntax-reference.md#comments).
+
+**Editing a doc-marked comment on an entity or field plans a migration revision** — that text
+lives in the database catalog, so changing it is a schema change. Editing any other comment,
+in either channel, never does.
+
+---
+
 ## Services
 
 A service is the unit of deployment. Everything inside a service block belongs to that service.

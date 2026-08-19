@@ -1000,11 +1000,13 @@ published surface and the source text reaches its source surface and never the p
 **Asserts over generated artifacts, not a running/building service.** This sandbox has zero NuGet
 connectivity (dotnet) and an incompatible default JDK release (java `mvnw compile`), so generation
 runs with `ValidationLevel.FAST` — `fix_imports` + `format_files` run, but `validate_files` (where
-those two toolchains would otherwise be invoked) is skipped. Each language package's own integration
-suite already proves a real end-to-end document for this feature (python: a real FastAPI router's
-`.openapi()`; typescript: a real `tsc` + `SwaggerModule.createDocument()` run; dotnet: a
-compiler-emitted XML doc file) — this gate is the repo-level cross-target census, not a repeat of
-that per-package live proof.
+those two toolchains would otherwise be invoked) is skipped. **Two** language packages prove a real
+end-to-end document in their own suites: python against a real FastAPI router's `.openapi()`, and
+typescript against a real `tsc` + `SwaggerModule.createDocument()` run over an npm-installed
+dependency set. java and dotnet do **not** — their suites assert over the generated artifacts
+(springdoc reads the emitted annotations at request time, and no `.xml` doc file can be compiled
+here), the same rung of the ladder this gate stands on. So this gate is the repo-level cross-target
+census, and for java/dotnet the artifact assertion is the strongest proof this environment supports.
 
 Derives its target set from `importlib.metadata.entry_points(group="datrix.languages")` at
 runtime — never a hardcoded python/typescript/java/dotnet literal.
@@ -1022,8 +1024,18 @@ snippet it has never seen and never leaks a source comment into the published se
 | **Run gate** | `.\test\documentation-realization-parity-gate.ps1` | Check every registered language target |
 | **Debug** | `.\test\documentation-realization-parity-gate.ps1 -Dbg` | Debug logging (also logs each target's discovered published-string set and the fixture's `files_written` count) |
 | **Self-test only** | `.\test\documentation-realization-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skips fixture generation entirely |
+| **Re-pin coverage** | `.\test\documentation-realization-parity-gate.ps1 -UpdateCoverageBaseline` | Re-freeze the decrease-only coverage-hole baseline to this run's measured counts (the only writer; refuses to write when any target failed generation) |
 
-**Parameters:** `-Dbg`, `-SelfTest`
+**Parameters:** `-Dbg`, `-SelfTest`, `-UpdateCoverageBaseline`
+
+**Coverage census (Decision 39 invariant 1):** the same run re-parses the fixture with the shipped
+capture pipeline, collects every comment run ATTACHED to a node, and counts how many reach no
+generated artifact at all on each target. Comparison is marker- and whitespace-normalized (a
+formatter rewrapping a comment across lines is not lost documentation) and paragraph-by-paragraph
+(the summary/description split puts one run's paragraphs in two different fields). Counts are held
+by `scripts/config/documentation-coverage-baseline.json`; a target whose hole count rises above its
+pinned value fails the gate. Attachment itself is policed separately, and at zero, by
+`datrix-language`'s own produced-minus-consumed census.
 
 **Exemptions:** `scripts/config/documentation-realization-exemptions.json` — one entry per
 currently-unrealized `(target, construct_kind, surface)` cell (`{target, construct_kind, surface,
@@ -1033,14 +1045,16 @@ change removes its own entry and decrements `pinned_count` in the same change; a
 entry to remove.
 
 **Output:** `D:\datrix\.tmp\documentation-realization-parity-gate-report.json` (per-target census:
-checked/populated/exempted/unexempted holes, plus generation failures if any) on every run, pass or
+checked/populated/exempted/unexempted holes, the coverage block with each target's attached/reached/
+hole counts and the anchors of any holes, plus generation failures if any) on every run, pass or
 fail. The fixture project and its per-target generated output tree live under
 `D:\datrix\.tmp\documentation-realization-parity-gate\` (fixture/, generated/&lt;target&gt;/).
 
 **Exit codes:** 0 = every registered target's every `(construct_kind, surface)` cell is populated or
-carries a reviewed, non-stale exemption, 1 = at least one unexempted hole, a stale exemption, a
-generation failure, or an exemption-file count mismatch, 2 = the non-vacuity self-test failed or
-fewer than 2 languages are registered.
+carries a reviewed, non-stale exemption AND no target's coverage holes exceed its pinned baseline,
+1 = at least one unexempted hole, a stale exemption, a coverage regression, a generation failure, or
+an exemption-file count mismatch, 2 = the non-vacuity self-test failed or fewer than 2 languages are
+registered.
 
 ---
 

@@ -19,12 +19,15 @@
 
  This gate asserts over GENERATED ARTIFACTS, not a running service: this
  sandbox has zero NuGet connectivity, so a generated .NET project can never
- be restored/built/started here. Each language package's own integration
- suite already proves a real end-to-end document (python: a real FastAPI
- router's `.openapi()`; typescript: a real `tsc` + `SwaggerModule
- .createDocument()` run; dotnet: a compiler-emitted XML doc file) -- this
- gate is the repo-level cross-target census, not a repeat of that per-
- package live proof.
+ be restored/built/started here. TWO language packages prove a real
+ end-to-end document in their own suites -- python against a real FastAPI
+ router's `.openapi()`, typescript against a real `tsc` + `SwaggerModule
+ .createDocument()` run over an npm-installed dependency set. java and dotnet
+ do NOT: their suites assert over the generated artifacts (springdoc reads
+ the emitted annotations at request time, and no .xml doc file can be
+ compiled here), which is the same rung of the ladder this gate stands on.
+ So this gate is the repo-level cross-target census, and for java/dotnet the
+ artifact assertion is the strongest proof this environment supports.
 
  A target that does not yet realize a (construct_kind, surface) cell must
  carry a typed, reviewed exemption in
@@ -33,6 +36,17 @@
  fails the gate naming the target, construct kind and surface; a STALE
  exemption (the artifact now carries the text) also fails, naming the entry
  to remove.
+
+ Runs a SECOND comparison over the same generated fixture: the coverage
+ census (Decision 39 invariant 1). It re-parses the fixture with the shipped
+ capture pipeline, collects every comment run ATTACHED to a node, and counts
+ how many reach no generated artifact at all on each target. Those counts are
+ held by a decrease-only baseline in
+ `datrix/scripts/config/documentation-coverage-baseline.json`; a target whose
+ hole count rises above its pinned value fails the gate. (Attachment itself
+ is policed separately, and at zero, by datrix-language's own
+ produced-minus-consumed census -- this is the other half: attached, then
+ dropped on the way to an artifact.)
 
  Derives its target set from
  `importlib.metadata.entry_points(group="datrix.languages")` at runtime --
@@ -58,6 +72,12 @@
  Run only the non-vacuity self-test and skip the real comparison (skips
  fixture generation entirely).
 
+.PARAMETER UpdateCoverageBaseline
+ Re-pin the decrease-only coverage-hole baseline to this run's measured
+ per-target counts. The only writer of
+ `datrix/scripts/config/documentation-coverage-baseline.json`; refuses to
+ write when any target failed generation.
+
 .EXAMPLE
  .\documentation-realization-parity-gate.ps1
  Run the gate for every registered language target.
@@ -77,7 +97,10 @@ param(
     [switch]$Dbg,
 
     [Parameter()]
-    [switch]$SelfTest
+    [switch]$SelfTest,
+
+    [Parameter()]
+    [switch]$UpdateCoverageBaseline
 )
 
 $ErrorActionPreference = "Stop"
@@ -112,6 +135,7 @@ try {
     $pythonArgs = @($runnerScript)
     if ($Dbg) { $pythonArgs += "--debug" }
     if ($SelfTest) { $pythonArgs += "--self-test" }
+    if ($UpdateCoverageBaseline) { $pythonArgs += "--update-coverage-baseline" }
 
     Write-Host "Running documentation-realization parity gate (all registered languages, Decision 39 I2/I6)" -ForegroundColor Cyan
     python @pythonArgs

@@ -65,11 +65,16 @@ structurally (never a line-oriented regex over the whole file):
   attributes a struct field's doc to the right record component -- never a
   regex over the XML shape.
 
-Each language's own package already proved a real end-to-end document for
-this feature (python: a real FastAPI router's ``.openapi()``; typescript: a
-real ``tsc`` + ``SwaggerModule.createDocument()`` run; dotnet: a
-compiler-emitted XML doc file) -- this gate's job is the repo-level
-cross-target census, not a repeat of that per-package live proof.
+Two targets' own packages prove a real end-to-end document for this feature:
+python asserts against a real FastAPI router's ``.openapi()``, and typescript
+against a real ``tsc`` + ``SwaggerModule.createDocument()`` run over an
+npm-installed dependency set. java and dotnet do NOT: their suites assert over
+the generated artifacts (springdoc reads the emitted annotations at request
+time, and there is no NuGet connectivity here to compile a ``.xml`` doc file),
+which is the same rung of the ladder this gate stands on. So this gate is the
+repo-level cross-target census, and for java/dotnet the artifact assertion is
+the strongest proof currently available in this environment -- stated plainly
+rather than implied to be a live-document check.
 
 Repo-level validation **script** (per the datrix showcase boundary -- no
 pytest suite lives in datrix), following the runtime-discovery +
@@ -88,7 +93,7 @@ import shutil
 import sys
 import tokenize
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 from pathlib import Path
 from typing import Final
 
@@ -114,6 +119,12 @@ WORKSPACE_ROOT: Final[Path] = _HERE.parents[4]
 
 EXEMPTIONS_PATH: Final[Path] = (
     DATRIX_DIR / "scripts" / "config" / "documentation-realization-exemptions.json"
+)
+#: Decrease-only ratchet for the coverage census (Decision 39 invariant 1's
+#: second half): per target, how many of the fixture's ATTACHED comment runs
+#: reach no generated artifact at all.
+COVERAGE_BASELINE_PATH: Final[Path] = (
+    DATRIX_DIR / "scripts" / "config" / "documentation-coverage-baseline.json"
 )
 #: Scratch root for the fixture project and its per-target generated output.
 #: Never inside a package repo (repo-boundaries.md) -- cleared/rewritten on
@@ -989,7 +1000,9 @@ def _doc_block_published_texts(spans: list[_Span]) -> set[str]:
 #: through the opening ``(`` so `_bracketed_call_strings` can start counting
 #: bracket depth at 1 immediately after the match.
 _ANNOTATION_ANCHORS: Final[dict[str, tuple[str, ...]]] = {
-    "typescript": (r"@ApiOperation\s*\(", r"@ApiProperty(?:Optional)?\s*\("),
+    "typescript": (
+        r"@ApiOperation\s*\(", r"@ApiProperty(?:Optional)?\s*\(", r"@ApiSchema\s*\(",
+    ),
     "java": (r"@Operation\s*\(", r"@Schema\s*\("),
 }
 
@@ -1103,6 +1116,221 @@ def check_all_surfaces(target: str, index: ArtifactTextIndex) -> list[SurfaceChe
         ))
 
     return checks
+
+
+# ---------------------------------------------------------------------------
+# Coverage census -- attached runs vs. runs that reach an artifact
+# ---------------------------------------------------------------------------
+#
+# The surface checks above ask "did THIS construct kind's text land on THIS
+# declared surface". Decision 39's invariant 1 asks a second, wider question:
+# of every comment run the parser ATTACHED to a node, how many reach no
+# generated artifact at all? Produced-minus-consumed is asserted zero inside
+# datrix-language (capture never loses a run); this is the other half --
+# attached-but-unemitted -- and it is per target, because emission is.
+#
+# Deliberately a whole-tree text comparison rather than a channel-aware one:
+# the question is coverage ("did this reach ANY artifact"), not placement
+# ("did it reach the RIGHT surface", which the cells above already police).
+# A run counts as emitted when every non-blank line of its normalized body
+# appears somewhere in that target's output, which is what makes a multi-line
+# run still match after each physical line picked up its own comment prefix.
+
+
+@dataclass(frozen=True)
+class AttachedRun:
+    """One comment run the parser attached to a node in the fixture."""
+
+    #: ``<NodeClass>@<line>`` -- identifies the run in gate output without
+    #: depending on dict ordering.
+    anchor: str
+    text: str
+    published: bool
+
+
+def collect_attached_runs(fixture_root: Path) -> tuple[AttachedRun, ...]:
+    """Every ``DocComment`` the real parser attaches over the fixture's own files.
+
+    Runs the shipped capture pipeline exactly as
+    ``TreeSitterParser._transform_tree`` does -- transform with
+    ``inject_builtins=False`` (a builtin node's location points at
+    ``builtins.dtrx``, so excluding builtins keeps the census scoped to the
+    fixture's own comments) then attach against a freshly built index --
+    and walks the resulting model with ``Node.walk()``.
+
+    Floating runs attach to nothing by design (Decision 39, detached
+    comments) and are therefore absent here: the invariant is about runs
+    that WERE attached and then reached no artifact.
+    """
+    from datrix_language.parser.tree_sitter_datrix.parser import TreeSitterParser
+    from datrix_language.transformers import ASTTransformer
+    from datrix_language.transformers.cst_utils import TransformContext
+    from datrix_language.transformers.doc_comments import (
+        attach_documentation,
+        build_comment_index,
+    )
+
+    parser = TreeSitterParser()
+    runs: list[AttachedRun] = []
+    for dtrx_file in sorted(fixture_root.rglob("*.dtrx")):
+        source = dtrx_file.read_text(encoding="utf-8")
+        tree = parser.parse_tree(source)
+        transformer = ASTTransformer(
+            TransformContext(source=source.encode("utf-8"), file_path=str(dtrx_file))
+        )
+        # require_system=False: the fixture's service file is included BY
+        # system.dtrx rather than declaring its own system block, and comment
+        # attachment is per-file and needs no system at all.
+        app = transformer.transform(tree, require_system=False, inject_builtins=False)
+        index = build_comment_index(tree.root_node, source, str(dtrx_file))
+        attach_documentation(app, index)
+        for node in app.walk():
+            if node.doc is None:
+                continue
+            line = node.location.line if node.location is not None else 0
+            runs.append(
+                AttachedRun(
+                    anchor=f"{type(node).__name__}@{dtrx_file.name}:{line}",
+                    text=node.doc.text,
+                    published=node.doc.published,
+                )
+            )
+    return tuple(runs)
+
+
+#: Leading comment punctuation stripped from each physical line before the
+#: coverage comparison, longest first so ``///`` is not consumed as ``//``.
+#: Stripping happens ONLY at a line's start, after its indent -- never
+#: mid-line, where the same characters are operators.
+_COMMENT_LINE_OPENERS: Final[tuple[str, ...]] = (
+    "/**", "///", "//", "/*", "*/", "*", "--", "#",
+)
+_WHITESPACE_RUN: Final[re.Pattern[str]] = re.compile(r"\s+")
+
+
+def _strip_comment_opener(line: str) -> str:
+    """Remove one leading comment opener from an already-lstripped *line*."""
+    for opener in _COMMENT_LINE_OPENERS:
+        if line.startswith(opener):
+            return line[len(opener):]
+    return line
+
+
+def normalize_for_coverage(text: str) -> str:
+    """Collapse *text* to marker-free, single-spaced form for containment.
+
+    Every target reflows author prose on the way out: each physical line
+    picks up that language's comment marker, and a formatter
+    (google-java-format, ruff, CSharpier) rewraps the result at its own
+    column limit. A raw substring search therefore reports a genuinely
+    emitted run as missing the moment a formatter breaks it across lines --
+    which is exactly what java's own output does. Stripping one leading
+    comment opener per line and collapsing all whitespace makes the
+    comparison invariant to both.
+    """
+    stripped = (_strip_comment_opener(line.strip()) for line in text.split("\n"))
+    return _WHITESPACE_RUN.sub(" ", " ".join(stripped)).strip()
+
+
+def generated_output_blob(out_dir: Path) -> str:
+    """Every text-decodable byte one target generated, normalized for coverage.
+
+    Binary artifacts are skipped rather than guessed at; a comment run has
+    no way to be "in" one.
+    """
+    chunks: list[str] = []
+    for path in sorted(out_dir.rglob("*")):
+        if not path.is_file():
+            continue
+        try:
+            chunks.append(normalize_for_coverage(path.read_text(encoding="utf-8")))
+        except (UnicodeDecodeError, OSError):
+            continue
+    return " ".join(chunks)
+
+
+def coverage_fragments(text: str) -> tuple[str, ...]:
+    """*text* split into the largest chunks a target can be asked to emit whole.
+
+    The one split every published surface performs is
+    ``summary_and_description`` (datrix-common): the first paragraph's first
+    line becomes an OpenAPI operation's ``summary`` and the remainder its
+    ``description`` -- two separate fields, often in two separate call
+    keywords. Asking for the whole body as one contiguous string would
+    therefore report every multi-paragraph run as unemitted on every target.
+    Paragraphs (blank-line-separated blocks) are the granularity that split
+    preserves, so they are the unit compared.
+    """
+    paragraphs = [normalize_for_coverage(p) for p in re.split(r"\n[ \t]*\n", text)]
+    return tuple(p for p in paragraphs if p)
+
+
+def run_reaches_output(run: AttachedRun, blob: str) -> bool:
+    """Whether every paragraph of *run*'s body appears in the normalized *blob*."""
+    fragments = coverage_fragments(run.text)
+    return bool(fragments) and all(fragment in blob for fragment in fragments)
+
+
+def coverage_holes(
+    runs: tuple[AttachedRun, ...], blob: str
+) -> tuple[AttachedRun, ...]:
+    """The attached runs that reach no artifact in this target's output."""
+    return tuple(run for run in runs if not run_reaches_output(run, blob))
+
+
+def load_coverage_baseline() -> dict[str, int]:
+    """Read the decrease-only per-target coverage-hole baseline.
+
+    Returns:
+        ``{target: max_allowed_holes}``; an empty mapping when the file does
+        not exist yet (first-ever run, before ``--update-coverage-baseline``
+        freezes it), which pins every target at zero.
+
+    Raises:
+        ValueError: The file exists but is not an object whose ``holes`` map
+            carries non-negative integers.
+    """
+    if not COVERAGE_BASELINE_PATH.exists():
+        return {}
+    data = json.loads(COVERAGE_BASELINE_PATH.read_text(encoding="utf-8"))
+    holes = data.get("holes")
+    if not isinstance(holes, dict):
+        raise ValueError(
+            f"Malformed {COVERAGE_BASELINE_PATH}: expected an object with a "
+            f"'holes' mapping of target -> non-negative integer, got {data!r}."
+        )
+    parsed: dict[str, int] = {}
+    for target, count in holes.items():
+        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+            raise ValueError(
+                f"Malformed {COVERAGE_BASELINE_PATH}: holes[{target!r}] must be a "
+                f"non-negative integer, got {count!r}."
+            )
+        parsed[str(target)] = count
+    return parsed
+
+
+def write_coverage_baseline(holes: dict[str, int]) -> None:
+    """The only writer of ``COVERAGE_BASELINE_PATH`` -- invoked solely via
+    ``--update-coverage-baseline``, a deliberate, manual re-freeze."""
+    payload = {
+        "_comment": [
+            "Decrease-only ratchet (Decision 39 invariant 1): per registered",
+            "datrix.languages target, how many of the documentation-realization",
+            "fixture's ATTACHED comment runs reach NO generated artifact.",
+            "A run whose count is HIGHER than the pinned value fails the gate --",
+            "a target quietly stopped emitting documentation it used to emit.",
+            "Attachment itself is policed separately, and at zero, by",
+            "datrix-language's own produced-minus-consumed census.",
+            "documentation-realization-parity-gate.ps1 -UpdateCoverageBaseline is",
+            "the only writer; do not hand-guess the numbers.",
+        ],
+        "holes": dict(sorted(holes.items())),
+    }
+    COVERAGE_BASELINE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    COVERAGE_BASELINE_PATH.write_text(
+        json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1324,6 +1552,82 @@ def run_self_test() -> list[str]:
     if any("SELF_TEST_CS_SOURCE_NOTE" in t for t in cs_published):
         problems.append("self-test: dotnet extractor leaked a // source comment into the XML doc published set")
 
+    problems.extend(_coverage_census_self_test())
+
+    return problems
+
+
+def _coverage_census_self_test() -> list[str]:
+    """Prove the coverage census can return BOTH answers.
+
+    A ratchet that can only ever report zero holes is not evidence. This
+    plants one run whose text IS in the blob (single-line and multi-line,
+    the latter with each physical line carrying its own comment prefix, the
+    shape real output has) and one whose text is not, and requires the
+    census to separate them.
+    """
+    problems: list[str] = []
+    blob = normalize_for_coverage(
+        "class Product:\n"
+        "    # SELF_TEST_COVERAGE_PRESENT\n"
+        "    ...\n"
+        "  // SELF_TEST_COVERAGE_REFLOWED_ONE\n"
+        "  // SELF_TEST_COVERAGE_REFLOWED_TWO\n"
+        "@router.get('/x', summary='SELF_TEST_COVERAGE_SUMMARY',\n"
+        "            description='SELF_TEST_COVERAGE_DESCRIPTION')\n"
+    )
+    present = AttachedRun("SelfTest@x:1", "SELF_TEST_COVERAGE_PRESENT", True)
+    multiline = AttachedRun(
+        "SelfTest@x:2",
+        "SELF_TEST_COVERAGE_REFLOWED_ONE SELF_TEST_COVERAGE_REFLOWED_TWO",
+        True,
+    )
+    absent = AttachedRun("SelfTest@x:3", "SELF_TEST_COVERAGE_ABSENT", False)
+    split_across_fields = AttachedRun(
+        "SelfTest@x:4",
+        "SELF_TEST_COVERAGE_SUMMARY\n\nSELF_TEST_COVERAGE_DESCRIPTION",
+        True,
+    )
+    half_emitted = AttachedRun(
+        "SelfTest@x:5",
+        "SELF_TEST_COVERAGE_SUMMARY\n\nSELF_TEST_COVERAGE_ABSENT_SECOND_PARAGRAPH",
+        True,
+    )
+
+    holes = coverage_holes(
+        (present, multiline, absent, split_across_fields, half_emitted), blob
+    )
+    hole_anchors = {h.anchor for h in holes}
+    if present.anchor in hole_anchors:
+        problems.append(
+            "self-test: coverage census reported a run whose text IS in the "
+            "generated blob as a hole -- it would under-report coverage."
+        )
+    if multiline.anchor in hole_anchors:
+        problems.append(
+            "self-test: coverage census reported a run the blob carries "
+            "REFLOWED across two marker-prefixed lines as a hole -- marker "
+            "stripping plus whitespace collapse is what keeps a formatter's "
+            "line breaks from reading as lost documentation."
+        )
+    if absent.anchor not in hole_anchors:
+        problems.append(
+            "self-test: coverage census did NOT report a run whose text is "
+            "absent from the generated blob -- the ratchet can only return "
+            "zero and is therefore not evidence."
+        )
+    if split_across_fields.anchor in hole_anchors:
+        problems.append(
+            "self-test: coverage census reported a run whose two paragraphs "
+            "the blob carries in SEPARATE fields (summary=/description=, the "
+            "one split every published surface performs) as a hole."
+        )
+    if half_emitted.anchor not in hole_anchors:
+        problems.append(
+            "self-test: coverage census did NOT report a run whose SECOND "
+            "paragraph is absent -- paragraph matching must require every "
+            "paragraph, not merely one."
+        )
     return problems
 
 
@@ -1340,17 +1644,26 @@ class GateReport:
     exempted: list[dict[str, str]]
     generation_failures: dict[str, str]
     result: str
+    #: Per target: attached runs, how many reached an artifact, and the ones
+    #: that did not (Decision 39 invariant 1's decrease-only ratchet).
+    coverage: dict[str, dict[str, object]] = dataclass_field(default_factory=dict)
 
 
-def run_gate(*, debug: bool = False) -> tuple[int, GateReport]:
+def run_gate(*, debug: bool = False, update_coverage_baseline: bool = False) -> tuple[int, GateReport]:
     """Full gate run. Returns ``(exit_code, report)``.
+
+    Runs two comparisons over the same generated fixture: the per-cell
+    realization check (every (construct_kind, surface) cell populated or
+    exempted) and the coverage census (attached runs that reach no artifact,
+    against the decrease-only baseline).
 
     Exit codes:
         0: every registered target's every (construct_kind, surface) cell is
-           populated or carries a reviewed exemption.
+           populated or carries a reviewed exemption, and no target's
+           coverage holes exceed its pinned baseline.
         1: at least one unexempted hole, a stale exemption (exempted but now
-           populated), a generation failure, or an exemption-file count
-           mismatch.
+           populated), a coverage regression past the baseline, a generation
+           failure, or an exemption-file count mismatch.
         2: fewer than ``_MIN_TARGETS`` targets are registered.
     """
     targets = sorted(registered_language_names())
@@ -1370,17 +1683,30 @@ def run_gate(*, debug: bool = False) -> tuple[int, GateReport]:
         logger.error("EXEMPTION FILE INVALID: %s", exc)
         return EXIT_FAIL, GateReport(targets, {}, [], [], {}, "EXEMPTION_FILE_INVALID")
 
+    try:
+        coverage_baseline = load_coverage_baseline()
+    except ValueError as exc:
+        logger.error("COVERAGE BASELINE INVALID: %s", exc)
+        return EXIT_FAIL, GateReport(targets, {}, [], [], {}, "COVERAGE_BASELINE_INVALID")
+
     fixture_root = SCRATCH_ROOT / "fixture"
     system_dtrx = write_fixture(fixture_root)
 
+    attached_runs = collect_attached_runs(fixture_root)
+    logger.info("COVERAGE CENSUS: %d attached comment run(s) in the fixture.", len(attached_runs))
+
     generation_failures: dict[str, str] = {}
     per_target_checks: dict[str, list[SurfaceCheck]] = {}
+    per_target_holes: dict[str, tuple[AttachedRun, ...]] = {}
     for target in targets:
         out_dir = SCRATCH_ROOT / "generated" / target
         try:
             files = generate_for_target(system_dtrx, out_dir, target)
             index = build_index(target, files)
             per_target_checks[target] = check_all_surfaces(target, index)
+            per_target_holes[target] = coverage_holes(
+                attached_runs, generated_output_blob(out_dir)
+            )
             if debug:
                 logger.debug(
                     "target=%s files_written=%d published_strings=%s",
@@ -1447,9 +1773,56 @@ def run_gate(*, debug: bool = False) -> tuple[int, GateReport]:
                 key[0], key[1], key[2], EXEMPTIONS_PATH,
             )
 
+    coverage: dict[str, dict[str, object]] = {}
+    coverage_regressions: list[str] = []
+    for target in sorted(per_target_holes):
+        holes = per_target_holes[target]
+        pinned = coverage_baseline.get(target, 0)
+        coverage[target] = {
+            "attached_runs": len(attached_runs),
+            "reached_artifact": len(attached_runs) - len(holes),
+            "holes": len(holes),
+            "pinned_holes": pinned,
+            "hole_anchors": [h.anchor for h in holes],
+        }
+        for hole in holes:
+            logger.warning(
+                "COVERAGE HOLE target=%s anchor=%s channel=%s text=%r",
+                target, hole.anchor,
+                "published" if hole.published else "source",
+                hole.text,
+            )
+        logger.info(
+            "COVERAGE target=%s attached=%d reached=%d holes=%d pinned=%d",
+            target, len(attached_runs), len(attached_runs) - len(holes), len(holes), pinned,
+        )
+        if len(holes) > pinned:
+            coverage_regressions.append(target)
+            logger.error(
+                "COVERAGE REGRESSION target=%s: %d attached run(s) reach no "
+                "artifact, above the pinned baseline of %d in %s. Either emit "
+                "the documentation again, or re-pin with "
+                "documentation-realization-parity-gate.ps1 -UpdateCoverageBaseline "
+                "once the increase is understood and intended.",
+                target, len(holes), pinned, COVERAGE_BASELINE_PATH,
+            )
+
+    if update_coverage_baseline:
+        if generation_failures:
+            logger.error(
+                "Refusing to re-pin the coverage baseline: %d target(s) failed "
+                "generation (%s), so their hole counts are not measurements.",
+                len(generation_failures), sorted(generation_failures),
+            )
+            return EXIT_FAIL, GateReport(
+                targets, census, [], [], generation_failures, "COVERAGE_BASELINE_NOT_WRITTEN",
+            )
+        write_coverage_baseline({t: len(h) for t, h in per_target_holes.items()})
+        logger.info("Coverage baseline re-pinned: %s", COVERAGE_BASELINE_PATH)
+
     result = "PASS"
     exit_code = EXIT_OK
-    if generation_failures or unexempted or stale:
+    if generation_failures or unexempted or stale or coverage_regressions:
         result = "FAIL"
         exit_code = EXIT_FAIL
 
@@ -1467,13 +1840,15 @@ def run_gate(*, debug: bool = False) -> tuple[int, GateReport]:
         ],
         generation_failures=generation_failures,
         result=result,
+        coverage=coverage,
     )
     _write_report(report, pinned_count)
 
     if exit_code == EXIT_OK:
         logger.info(
             "DOCUMENTATION-REALIZATION PARITY HOLDS: %d target(s) (%s), zero "
-            "unexempted holes, %d reviewed exemption(s) (pinned_count=%d).",
+            "unexempted holes, %d reviewed exemption(s) (pinned_count=%d); "
+            "coverage census within baseline on every target.",
             len(targets), targets, len(exempted_hits), pinned_count,
         )
     return exit_code, report
@@ -1489,6 +1864,7 @@ def _write_report(report: GateReport, pinned_count: int) -> None:
         "exempted": report.exempted,
         "generation_failures": report.generation_failures,
         "pinned_exemption_count": pinned_count,
+        "coverage": report.coverage,
     }
     REPORT_PATH.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     logger.info("Report written: %s", REPORT_PATH)
@@ -1520,6 +1896,14 @@ def main() -> int:
         action="store_true",
         help="Run only the non-vacuity self-test and skip the real comparison",
     )
+    parser.add_argument(
+        "--update-coverage-baseline",
+        action="store_true",
+        help=(
+            "Re-pin the decrease-only coverage-hole baseline to this run's "
+            "measured per-target counts (the only writer of the baseline file)"
+        ),
+    )
     args = parser.parse_args()
 
     configure_logging(debug=args.debug)
@@ -1539,7 +1923,9 @@ def main() -> int:
     if args.self_test:
         return EXIT_OK
 
-    exit_code, _report = run_gate(debug=args.debug)
+    exit_code, _report = run_gate(
+        debug=args.debug, update_coverage_baseline=args.update_coverage_baseline
+    )
     return exit_code
 
 
