@@ -1219,7 +1219,7 @@ One name remains labelled collapsible-by-casing but unreached, by design rather 
 
 ---
 
-### Decision 39: DSL Comment Preservation and Two-Channel Generated Documentation (Approved — Implementation In Progress)
+### Decision 39: DSL Comment Preservation and Two-Channel Generated Documentation (Adopted)
 
 **Rationale:**
 - The DSL has always accepted `//` and `/* */` comments and authors use them densely, but **every one is discarded at parse time.** Comments are tree-sitter `extras`, so they surface as siblings anywhere in the CST, and the transformer registry registers them as explicit SKIP entries. Nothing about a comment reaches the AST; `Node` carries `parent` and `location` and no documentation surface at all. Consequently no generated artifact and no API documentation surface has ever carried a word the author wrote.
@@ -1252,7 +1252,10 @@ One name remains labelled collapsible-by-casing but unreached, by design rather 
 
 **Scope boundaries:** Database-level column and table comments are deliberately excluded from the initial work — they are DDL, so they require a canonical ledger operation, a change to the diffed schema state, and a persisted-snapshot format bump with a prior-version read path; they are scheduled as their own later decision rather than carried as scope risk here. Detached comments (separated by a blank line from any construct) attach to nothing: attaching them anyway would make a blank line meaningless and would pull section-divider comments into API descriptions. Marking existing corpus comments for publication is per-comment editorial judgement belonging to the product author, not generator work.
 
-**Status:** Approved — implementation in progress.
+**Status:** Adopted — all seven invariants hold today as executable checks. The
+documentation-realization parity gate reports parity across every registered language
+target with zero unexempted holes and three reviewed, counted exemptions (entity-level
+published documentation, which no target defines a landing site for).
 
 ---
 

@@ -187,10 +187,10 @@ Full decision log: [Architecture Overview — Decision 38](./architecture-overvi
 
 Comments in `.dtrx` are tree-sitter `extras` and were dropped at parse time — the transformer
 registry registers them as explicit SKIP entries, `Node` has no documentation surface, and no
-generated artifact or API document has ever carried author-written text. **Approved —
-implementation in progress.**
+generated artifact or API document has ever carried author-written text. **Adopted:** all
+seven invariants hold today as executable checks.
 
-| # | Invariant | Enforcement mechanism (planned) |
+| # | Invariant | Enforcement mechanism |
 |---|---|---|
 | 1 | An attached comment is never silently lost between parse and emission | Produced-runs minus consumed-runs asserted zero over a fixture documenting every documentable construct; attached-but-unemitted runs held by a decrease-only baseline |
 | 2 | An unmarked comment never reaches a published documentation surface | Two channels decided once at capture: every comment becomes a **source comment**; only `///` / `/** … */` becomes **published documentation** (OpenAPI summary/description, schema field description, GraphQL descriptions, generated README). Fail-closed — publication is opt-in |
@@ -206,7 +206,7 @@ description — so an unmarked note is emitted as an ordinary comment, never as 
 Database-level column/table comments are out of the initial scope (DDL → ledger operation +
 snapshot-format bump) and are scheduled as their own later decision.
 
-Full decision log: [Architecture Overview — Decision 39](./architecture-overview.md#decision-39-dsl-comment-preservation-and-two-channel-generated-documentation-approved--implementation-in-progress).
+Full decision log: [Architecture Overview — Decision 39](./architecture-overview.md#decision-39-dsl-comment-preservation-and-two-channel-generated-documentation-adopted).
 
 ## Transpiler pipeline (per file)
 

@@ -603,7 +603,7 @@ function Invoke-FullTreeGenerationGate {
     # generation pipeline it now generates cleanly (the reference-example parity
     # gate blesses a baseline for it), and it is not in the parity allowlist
     # (scripts/config/parity-known-nongenerating.json). The tolerance below is kept
-    # only so a re-run of this phase-12 gate on an older tree still reports
+    # only so a re-run of this gate on an older tree still reports
     # distinctly rather than crying regression; a shared-block failure on the
     # current tree is a real defect worth investigating.
     $failedProjectsMatch = [regex]::Match($logText, "Failed projects:\s*\r?\n((?:\s*-\s*.+\r?\n?)+)")

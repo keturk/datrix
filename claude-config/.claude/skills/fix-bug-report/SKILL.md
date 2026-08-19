@@ -16,35 +16,48 @@ Bug reports are written by another agent that operates directly on a deployed pr
 ## How to Invoke
 
 ```
-/fix-bug-report D:\<product-repo>\.bug-report\2026-05-29-some-bug.md
-/fix-bug-report D:\<product-repo>\.bug-report\bug-1.md D:\<product-repo>\.bug-report\bug-2.md
-/fix-bug-report D:\<product-repo>\.bug-report\*.md
+/fix-bug-report D:\<Product>\.bug-report\2026-05-29-some-bug.md
+/fix-bug-report D:\<Product>\<product>-platform\.bug-report\bug-1.md D:\<Product>\<product>-platform\.bug-report\bug-2.md
+/fix-bug-report D:\<Product>\<product>-platform\.bug-report\*.md
 ```
 
 The argument is one or more absolute paths to bug report markdown files (or a glob pattern).
 
-## Project Layout (Option A — standalone product repos)
+## Project Layout — two product shapes, one derivation
 
-Each customer/product is a **single, self-contained product repository** that consumes the Datrix toolchain internally. There is **no `datrix-projects` container** and no symlink/junction bridging — that model was retired. Derive every concrete path from the bug-report argument; never hardcode a customer name or a `datrix-projects\...` path.
+A customer/product consumes the Datrix toolchain from outside it. There is **no `datrix-projects` container** and no symlink/junction bridging — that model was retired. Derive every concrete path from the bug-report argument; never hardcode a customer name or a `datrix-projects\...` path.
 
-| Role | Location | Notes |
+**Products come in two shapes, and a product may move from the first to the second.** Decide which one you are in before deriving anything — the derivation differs, and using the wrong one lands you on a directory that does not exist or, worse, on the ops repo instead of the DSL.
+
+- **Shape 1 — single product repo.** One self-contained git repo holds the DSL, the generated trees, the wrapper scripts and `.bug-report\`.
+- **Shape 2 — sibling repos under a workspace.** An **unversioned workspace directory** holds several sibling git repos — the same shape Datrix itself uses under `$env:DATRIX_HOME`. The DSL, the generated output, and the scripts/docs/bug-reports each live in their **own repo**, so the "product root" is a directory that is *not* a repo, and the repo holding `.bug-report\` is *not* the DSL repo.
+
+| Role | Shape 1 — single repo | Shape 2 — sibling repos |
 |---|---|---|
-| **Datrix toolchain** | `$env:DATRIX_HOME` (default `D:\datrix`) | Framework + `datrix-codegen-*` generator packages. Generator-level fixes go here. |
-| **Product repo root** | the ancestor of the bug-report file (parent of `.bug-report\`) | e.g. `D:\g\<Product>` — a standalone git repo. |
-| **Bug reports (input)** | `<product-repo>\.bug-report\` | The files you are given. Gitignored, local-only. |
-| **App definition (DSL)** | `<product-repo>\<name>-backend\` | `.dtrx` / `.dcfg` — source of truth. App-definition fixes go here. |
-| **Generated code (output)** | `<product-repo>\generated\<profile>\` | One tree **per deployment profile**. Auto-generated; **never edit** — overwritten on regeneration. |
-| **Generation wrapper** | `<product-repo>\scripts\<profile>\generate.ps1` | One per profile; writes that profile's tree. Local-only — deploys nothing. |
+| **Datrix toolchain** | `$env:DATRIX_HOME` (default `D:\datrix`) | same |
+| **Product root** | the directory holding `.bug-report\` — a git repo | the **workspace** directory holding the sibling repos — **not** a git repo |
+| **Bug reports (input)** | `<product-root>\.bug-report\` | `<workspace>\<name>-platform\.bug-report\` — in the ops/platform repo. Gitignored, local-only, in both shapes. |
+| **App definition (DSL)** | `<product-root>\<name>-backend\` | `<workspace>\<name>-backend\` — **its own repo**. `.dtrx` / `.dcfg` source of truth; app-definition fixes go here. |
+| **Generated code (output)** | `<product-root>\generated\<profile>\` | `<workspace>\<name>-generated\<profile>\` — **its own repo, with no `generated\` wrapper level**. Auto-generated; **never edit**. |
+| **Generation wrapper** | `<product-root>\scripts\<profile>\generate.ps1` | `<workspace>\<name>-platform\scripts\<profile>\generate.ps1` — same repo as `.bug-report\`. Local-only; deploys nothing. |
+| **Migration ledger** | `<dsl-root>\.datrix\rdbms-migrations\` | same — it follows the **DSL root**, so under Shape 2 it is tracked inside the `*-backend` repo, never in the generated repo |
 
-To resolve the **app-definition directory**: take the product repo root (parent of the `.bug-report\` directory holding the report) and locate the `*-backend` DSL directory inside it. If the layout is ambiguous, read the report's "Files Modified" paths and the repo's top-level structure rather than guessing.
+**Derive it, in this order, and stop on the first that resolves:**
+
+1. `<report-repo>` = the directory holding the `.bug-report\` directory the report sits in.
+2. **Shape 1** if `<report-repo>` itself contains a `*-backend` directory holding the DSL (`system.dtrx` / `.dtrx` files). Product root = `<report-repo>`.
+3. **Shape 2** if the *parent* of `<report-repo>` contains a `*-backend` **sibling** holding the DSL. Workspace = that parent; DSL root = the `*-backend` sibling; generated root = the `*-generated` sibling; scripts root = `<report-repo>\scripts\`.
+4. **Neither resolves → stop and say what you looked for and where.** A plausible-but-wrong product root is how a fix lands in the ops repo and the DSL is never touched. Read the report's "Files Modified" paths and the actual directory listing; do not guess.
+
+**A report's paths are the *deployed* server's paths, not necessarily yours.** The remote tree keeps the `generated/<profile>/` layout even for products that no longer have a `generated\` directory locally, so a report saying `generated/devd/services/...` maps to `<workspace>\<name>-generated\devd\services\...` under Shape 2. Map it; do not assume the string is a local path.
 
 ---
 
 ## Deployment Profiles — Every Fix Has a Profile Scope
 
-**A product declares several deployment profiles (environments), and the bug reports you are given come from more than one of them.** Enumerate the product's actual profile set by listing `<product-repo>\generated\` and `<product-repo>\scripts\` — never assume a set, a count, or which profiles a given product runs.
+**A product declares several deployment profiles (environments), and the bug reports you are given come from more than one of them.** Enumerate the product's actual profile set from the **scripts root**: a profile is a subdirectory holding a `generate.ps1`. Cross-check against the generated root (`<product-root>\generated\` under Shape 1, the `*-generated` repo under Shape 2) — but the two sets are **not** required to match: the generated root holds a tree only for profiles that have actually been generated on this machine, so a profile with a wrapper and no tree is normal and is **not** evidence the profile does not exist. Never assume a set, a count, or which profiles a given product runs.
 
-**Identify each report's profile before triaging it.** Reports name it in the filename segment and/or a `Platform:` / `Environment:` field; failing that, the `generated/<profile>/...` paths under "Files Modified" name it. A report carrying its own generated-tree sweep already names the other profile trees it found the pattern in — read that as evidence and confirm it; do not accept it on faith and do not skip doing your own.
+**Identify each report's profile before triaging it.** Reports name it in the filename segment and/or a `Platform:` / `Environment:` field; failing that, the `generated/<profile>/...` paths under "Files Modified" name it (that is the deployed server's layout — map it to the local tree per "Project Layout"). A report carrying its own generated-tree sweep already names the other profile trees it found the pattern in — read that as evidence and confirm it; do not accept it on faith and do not skip doing your own.
 
 **Before editing anything, write down two sets:**
 
@@ -78,14 +91,21 @@ It cuts both ways, and both directions are your work:
 Static first (CLAUDE.md's ladder): compute the reach set from the `extends` graph and the emitter, then regenerate **only the profiles in that set**, each with its own wrapper. Regeneration is local and deploys nothing.
 
 ```
-powershell -File "<product-repo>/scripts/<profile>/generate.ps1"
+powershell -File "<scripts-root>/<profile>/generate.ps1"
 ```
 
-Then census the result in the product repo:
+Then census the result. **Census every repo the run can write**, which is shape-dependent — a census that covers one repo of a split product silently misses the other:
 
 ```
-git -C <product-repo> status --porcelain generated/
-git -C <product-repo> diff --stat -- generated/
+# Shape 1 — one repo holds everything
+git -C <product-root> status --porcelain generated/
+git -C <product-root> diff --stat -- generated/
+
+# Shape 2 — the generated tree and the DSL are separate repos
+git -C <generated-root> status --porcelain
+git -C <generated-root> diff --stat -- <profile>/
+git -C <dsl-root>       status --porcelain .datrix/    # ledger revisions appended by the run
+git -C <dsl-root>       diff --stat
 ```
 
 - Every profile tree appearing in that diff must be one you intended to change. **An unexpected profile tree in the diff IS the "you broke another profile" signal** — caught statically, before anything is deployed.
@@ -189,7 +209,8 @@ Report layout varies between products (a product may use a richer template with 
    TRIAGE COMPLETE
 
    Bug reports analyzed: {N}
-   Profiles in this product: {profile-1, profile-2, …}   (from generated/ and scripts/)
+   Product shape: {single repo | sibling repos}   (derived per "Project Layout")
+   Profiles in this product: {profile-1, profile-2, …}   (wrappers in the scripts root; trees present in the generated root: {…})
 
    Category A (App Definition Fix): {count}
      - {bug-filename}: {title} — reported on: {profile}
@@ -232,7 +253,7 @@ Process fixes in the planned order from Phase 1 (app definition fixes first).
 #### For App Definition Fixes (Category A — do these first):
 
 1. **Read the bug report's Summary and What Was Changed sections** to understand what's wrong
-2. **Read the relevant `.dtrx` or `.dcfg` files** in the product's app definition directory (`<product-repo>\<name>-backend\`)
+2. **Read the relevant `.dtrx` or `.dcfg` files** in the product's app definition directory (`<dsl-root>`, derived per "Project Layout")
 3. **Read the profile structure of the exact file you are about to edit** — its `base { }` block and every `profile … extends …` clause in it. The inheritance direction in a neighbouring `.dcfg` tells you nothing about this one. From that, decide where the edit belongs:
    - **In `base`** — only when the corrected value is right for every profile inheriting it. List those profiles and confirm none of them overrides the key with something the fix must also change.
    - **In one profile block** — when the value is environment-specific. Then check every *other* exhibiting profile: each needs its own edit, and a profile extending the one you edited inherits it whether you meant that or not.
@@ -285,7 +306,7 @@ Regenerate each profile in the union of the reach sets with its own wrapper, the
 The gate passes only when all three hold:
 
 1. Every exhibiting profile's artifact shows the defect gone.
-2. `git diff --stat -- generated/` names no profile tree you did not intend to change.
+2. The generated-tree census (every repo the run can write — see "Verification is per profile, on the artifact") names no profile tree you did not intend to change.
 3. Every reached-but-not-exhibiting profile's artifact is unchanged, or changed exactly as intended and stated.
 
 A profile that fails any of the three is unfinished work, not a footnote — go fix it. Partial-profile completion is the same dodge as "out of scope".
@@ -322,7 +343,7 @@ For each bug report that was fixed:
 
    | Profile | Regenerated | Artifact checked | Result |
    |---------|-------------|------------------|--------|
-   | `{profile}` | yes/no — {why not} | `generated/{profile}/{path}` | defect gone / unchanged as intended / feature absent |
+   | `{profile}` | yes/no — {why not} | `{generated-root}/{profile}/{path}` | defect gone / unchanged as intended / feature absent |
 
    ```
 
@@ -366,15 +387,16 @@ App definition fixes:
 Per-profile verification:
 - {profile}: regenerated {yes/no} — {artifact}: {defect gone | unchanged | changed as intended}
 
-Generated-tree census:
-  git diff --stat -- generated/   →  {profile trees touched}
+Generated-tree census (one line per repo the run can write):
+  git -C {repo} diff --stat …   →  {profile trees touched}
+  Ledger delta in {dsl-root}\.datrix\: none | {revisions appended}
   Unintended profile trees in the diff: none | {list — and what you did about it}
 
 Fixed bug reports (absolute paths):
-- {product-repo}\.bug-report\{bug-filename}: {title} — Resolved
+- {bug-report-dir}\{bug-filename}: {title} — Resolved
 
 Unresolved bug reports (absolute paths):
-- {product-repo}\.bug-report\{bug-filename}: {title} — {reason}
+- {bug-report-dir}\{bug-filename}: {title} — {reason}
 
 Repositories with changes:
 - {repo-or-package-name}: {files changed}
@@ -390,7 +412,8 @@ See `d:\datrix\.claude\skills\_shared\fix-conventions.md` (also applies per-bug:
 
 ## Anti-Patterns
 
-- **NO fixing generated code directly** — fix generators/templates or app definitions; generated code under `<product-repo>\generated\` is overwritten on regeneration
+- **NO fixing generated code directly** — fix generators/templates or app definitions; everything under the generated root is overwritten on regeneration, whether that root is `<product-root>\generated\` or a `*-generated` repo of its own
+- **NO deriving the product root by assuming a shape** — the repo holding `.bug-report\` is the product root in Shape 1 and the *ops* repo in Shape 2, where the DSL is a sibling. Run the "Project Layout" derivation and stop if neither branch resolves
 - **NO hardcoding customer names or `datrix-projects\...` paths** — that container was retired; derive product paths from the bug-report argument and `$DATRIX_HOME`
 - **NO editing without a stated profile scope** — the `Exhibiting` and `Reached` sets are written down before the edit, not reconstructed after it
 - **NO editing a `base` block to cure one profile's symptom** without listing every profile that inherits the key and confirming each one wants the new value

@@ -976,6 +976,74 @@ fewer than 2 targets are registered on an axis being checked.
 
 ---
 
+### `test\documentation-realization-parity-gate.ps1`
+
+Documentation-realization parity gate (Decision 39 I2/I6). For every registered `datrix.languages`
+target, generates one small fixture project — via the real
+`datrix_cli.pipeline.generation.GenerationPipeline` (the exact code path `datrix generate`/
+`generate.ps1` runs, `ValidationLevel.FAST` so post-generation `dotnet build`/`mvnw compile` are
+skipped — see below), never a hand-built test context — whose DSL documents an endpoint, an entity,
+a field, an enum value, a struct field and a function, each with a published (`///`) comment and an
+adjacent source-channel (`//`) comment. Asserts, by parsing the generated artifacts **structurally**
+(Python's real `ast` + `tokenize` — a call-keyword `summary`/`description` string constant, or a
+class/function/async-function docstring via `ast.get_docstring`, the landing site for a construct
+with no decorator surface; a hand-rolled bracket/string-literal-aware lexer for TypeScript/Java that
+either finds a decorator anchor outside any string/comment span and bracket-depth-tracks to its
+matching close, or reads a `/** ... */` JSDoc/Javadoc doc-comment block — the no-decorator-surface
+landing site, distinguished structurally from a plain `/* ... */` block comment by its `/**` opener,
+exactly as `///` is distinguished from `//`; real XML parsing — `xml.etree.ElementTree` — of C#'s
+grouped `///` doc-comment blocks, pulling `<summary>`/`<remarks>`/`<param>` element text — `<param>`'s
+`name` attribute attributes a struct field's doc to the right record component — never a
+line-oriented regex over a whole file), that the published text reaches that target's declared
+published surface and the source text reaches its source surface and never the published one.
+
+**Asserts over generated artifacts, not a running/building service.** This sandbox has zero NuGet
+connectivity (dotnet) and an incompatible default JDK release (java `mvnw compile`), so generation
+runs with `ValidationLevel.FAST` — `fix_imports` + `format_files` run, but `validate_files` (where
+those two toolchains would otherwise be invoked) is skipped. Each language package's own integration
+suite already proves a real end-to-end document for this feature (python: a real FastAPI router's
+`.openapi()`; typescript: a real `tsc` + `SwaggerModule.createDocument()` run; dotnet: a
+compiler-emitted XML doc file) — this gate is the repo-level cross-target census, not a repeat of
+that per-package live proof.
+
+Derives its target set from `importlib.metadata.entry_points(group="datrix.languages")` at
+runtime — never a hardcoded python/typescript/java/dotnet literal.
+
+**Built-in non-vacuity self-test, every invocation.** Confirms every marker text is actually present
+in the fixture DSL itself, then proves each structural extractor (Python ast/tokenize including
+docstring detection, the C-family decorator-anchor lexer, the C-family `/** ... */` doc-block reader
+— including a negative proof that a plain `/* ... */` block comment is never mistaken for one — the
+dotnet XML-doc parser including `<param>`) finds a known-present published/source text in a synthetic
+snippet it has never seen and never leaks a source comment into the published set. Fails loud
+(exit 2) if fewer than 2 languages are registered.
+
+| Mode | Command | Description |
+|------|---------|--------------|
+| **Run gate** | `.\test\documentation-realization-parity-gate.ps1` | Check every registered language target |
+| **Debug** | `.\test\documentation-realization-parity-gate.ps1 -Dbg` | Debug logging (also logs each target's discovered published-string set and the fixture's `files_written` count) |
+| **Self-test only** | `.\test\documentation-realization-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skips fixture generation entirely |
+
+**Parameters:** `-Dbg`, `-SelfTest`
+
+**Exemptions:** `scripts/config/documentation-realization-exemptions.json` — one entry per
+currently-unrealized `(target, construct_kind, surface)` cell (`{target, construct_kind, surface,
+reason}`), with a hand-reviewed `pinned_count` that must equal `len(exemptions)`. A realization
+change removes its own entry and decrements `pinned_count` in the same change; a STALE exemption
+(the artifact now carries the text but the entry is still present) also fails the gate, naming the
+entry to remove.
+
+**Output:** `D:\datrix\.tmp\documentation-realization-parity-gate-report.json` (per-target census:
+checked/populated/exempted/unexempted holes, plus generation failures if any) on every run, pass or
+fail. The fixture project and its per-target generated output tree live under
+`D:\datrix\.tmp\documentation-realization-parity-gate\` (fixture/, generated/&lt;target&gt;/).
+
+**Exit codes:** 0 = every registered target's every `(construct_kind, surface)` cell is populated or
+carries a reviewed, non-stale exemption, 1 = at least one unexempted hole, a stale exemption, a
+generation failure, or an exemption-file count mismatch, 2 = the non-vacuity self-test failed or
+fewer than 2 languages are registered.
+
+---
+
 ### `test\builtin-claims-parity-gate.ps1`
 
 Cross-language builtin-claims parity gate (D2). Two independent surfaces: (1) every registered

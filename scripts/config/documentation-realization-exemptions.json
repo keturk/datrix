@@ -1,0 +1,35 @@
+{
+  "_comment": [
+    "Typed exemptions for datrix/scripts/test/documentation-realization-parity-gate.ps1.",
+    "Each entry names a registered datrix.languages target, a documented",
+    "construct kind (endpoint, entity, field, enum_value, struct_field,",
+    "function), and a surface (published, source) whose emitted artifact does",
+    "not yet carry the author's DSL comment text -- with a written reason.",
+    "pinned_count is the reviewed count of len(exemptions); a realization",
+    "change removes its own entry and decrements this field in the SAME",
+    "change -- the field never silently drifts from the live count (the gate",
+    "fails loud if it does, and fails loud the other way too if an exempted",
+    "cell starts passing without its entry being removed -- a stale exemption)."
+  ],
+  "pinned_count": 3,
+  "exemptions": [
+    {
+      "target": "python",
+      "construct_kind": "entity",
+      "surface": "published",
+      "reason": "No target defines a published landing site for entity-level documentation (architecture-overview.md Decision 39's per-target table specifies published surfaces only for endpoint summary/description and field description). A published entity comment is deliberately dropped rather than promoted onto an invented surface no other target realizes; the entity's own SOURCE-channel comment still reaches a plain comment above its schema classes. Verified against generated output: the fixture's `schemas/catalog_db/product.py` and `models/catalog_db/product.py` carry only synthesized docstrings (`\"\"\"Product schemas.\"\"\"`, `\"\"\"Product ORM model.\"\"\"`); the authored entity comment text is absent."
+    },
+    {
+      "target": "java",
+      "construct_kind": "entity",
+      "surface": "published",
+      "reason": "No target defines a published landing site for entity-level documentation (see the python entry's identical reason). java's JPA @Entity model and DTO records carry only a synthesized Javadoc header; an authored published entity comment is not promoted onto @Schema (a field-only annotation) or any other invented surface. Verified against generated output: the fixture's `model/catalog_db/Product.java` and `dto/catalog_db/ProductCreateRequest.java` class-level Javadoc reads only \"Product JPA entity.\"/\"Product create-request DTO.\" plus the boilerplate auto-generated notice; the authored entity comment text is absent even though this gate now reads `/** ... */` doc blocks structurally."
+    },
+    {
+      "target": "dotnet",
+      "construct_kind": "entity",
+      "surface": "published",
+      "reason": "No target defines a published landing site for entity-level documentation (see the python entry's identical reason). dotnet's POCO model and DTO records carry only a boilerplate `//` header; a published entity comment is not promoted onto an invented `/// <summary>` class-level surface no other target realizes. Verified against generated output: the fixture's `Models/CatalogDb/Product.cs` and `Dtos/CatalogDb/Product.cs` carry only a `//` boilerplate header comment, never a class-level `/// <summary>`; the authored entity comment text is absent."
+    }
+  ]
+}

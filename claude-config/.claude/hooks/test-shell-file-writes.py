@@ -72,7 +72,7 @@ check("redirect into workspace scratch",
 check("redirect into the session scratchpad",
       "python census.py > /c/Users/x/Temp/claude/d--datrix/abc/scratchpad/out.txt", 0)
 check("running a test suite", 'powershell -File "d:/datrix/datrix/scripts/test/test.ps1" datrix-common', 0)
-check("running a generator", 'powershell -File "d:/g/storefront/scripts/dev/generate.ps1"', 0)
+check("running a generator", 'powershell -File "d:/Storefront/storefront-platform/scripts/dev/generate.ps1"', 0)
 check("git operations", "git -C datrix-common status --porcelain", 0)
 check("mkdir", "New-Item -ItemType Directory -Force d:/datrix/.tmp", 0, tool="PowerShell")
 check("inline python that only READS and prints",
