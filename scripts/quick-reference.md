@@ -100,6 +100,16 @@ Project names are **discovered from disk** — any `datrix-*` directory in the w
 
 Commands assume you are in `datrix/` (showcase root). From workspace root (parent of `datrix`), prefix paths with `.\datrix\` (e.g. `.\datrix\scripts\test\test.ps1`).
 
+**This applies to the source arguments too, not just the script path.** An `examples/...` argument
+is resolved against the current working directory, so from the workspace root it must be given as
+`datrix/examples/...`. Passing the documented `examples/...` form from the workspace root fails
+with `Source file or directory not found`:
+
+```powershell
+# from workspace root D:\datrix
+powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" "datrix/examples/03-domains/ecommerce/system.dtrx" -L python
+```
+
 ## Common Options
 
 Most scripts support:

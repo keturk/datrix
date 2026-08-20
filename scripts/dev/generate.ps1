@@ -526,22 +526,31 @@ $("=" * 80)
 
  # Verify datrix command works (console script entry point)
  # This catches cases where module imports work but entry point is broken
- if (-not (Test-DatrixCommand)) {
+ $cliDetail = ""
+ if (-not (Test-DatrixCommand -Detail ([ref]$cliDetail))) {
+ # Always surface WHY before doing anything about it. A reinstall that runs on top of a
+ # suppressed error turns a one-line diagnosis into an investigation, and the reinstall
+ # cannot fix most causes (a blocked or missing native library, a broken import) anyway.
+ Write-TeeHost "datrix command verification failed:" -ForegroundColor Red -LogFilePath $logFilePath
+ Write-TeeHost $cliDetail -ForegroundColor Red -LogFilePath $logFilePath
  if (Test-DatrixOfflineMode) {
- Write-TeeHost "datrix command verification failed; offline mode cannot reinstall." -ForegroundColor Red -LogFilePath $logFilePath
- Write-Error "datrix CLI is not working. Unset DATRIX_OFFLINE and reinstall while online."
+ Write-TeeHost "Offline mode cannot reinstall." -ForegroundColor Red -LogFilePath $logFilePath
+ Write-Error "datrix CLI is not working. Unset DATRIX_OFFLINE and reinstall while online.`n$cliDetail"
  exit 1
  }
  # Only attempt reinstall if explicitly needed - use locking to prevent concurrent installs
- Write-TeeHost "datrix command verification failed, attempting reinstall of datrix-cli..." -ForegroundColor Yellow -LogFilePath $logFilePath
+ Write-TeeHost "Attempting reinstall of datrix-cli..." -ForegroundColor Yellow -LogFilePath $logFilePath
  $reinstalled = Install-DatrixPackage -PackageName "datrix-cli" -NoDev
  if (-not $reinstalled) {
- Write-Error "Failed to reinstall datrix-cli"
+ Write-Error "Failed to reinstall datrix-cli`n$cliDetail"
  exit 1
  }
  # Verify again after reinstall
- if (-not (Test-DatrixCommand)) {
- Write-Error "datrix command still not working after reinstall"
+ $cliDetailAfter = ""
+ if (-not (Test-DatrixCommand -Detail ([ref]$cliDetailAfter))) {
+ Write-TeeHost "datrix command still not working after reinstall:" -ForegroundColor Red -LogFilePath $logFilePath
+ Write-TeeHost $cliDetailAfter -ForegroundColor Red -LogFilePath $logFilePath
+ Write-Error "datrix command still not working after reinstall`n$cliDetailAfter"
  exit 1
  }
  Write-TeeHost "datrix command verified successfully" -ForegroundColor Green -LogFilePath $logFilePath

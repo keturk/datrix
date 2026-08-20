@@ -5,11 +5,11 @@ service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0
     discovery { }
     enum ShipmentStatus {
         Pending,
-        PickedUp,
-        InTransit,
-        OutForDelivery,
-        Delivered,
-        Failed,
+        PickedUp       : keywords('PU'),
+        InTransit      : keywords('IT'),
+        OutForDelivery : keywords('OD'),
+        Delivered      : keywords('DL'),
+        Failed         : keywords('DE'),
         Returned
     }
 
@@ -452,12 +452,7 @@ service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0
 
         // Map external carrier event codes to internal status enum
         fn mapFedExStatus(String eventType) -> ShipmentStatus {
-            if (eventType == "PU") return ShipmentStatus.PickedUp;
-            if (eventType == "IT") return ShipmentStatus.InTransit;
-            if (eventType == "OD") return ShipmentStatus.OutForDelivery;
-            if (eventType == "DL") return ShipmentStatus.Delivered;
-            if (eventType == "DE") return ShipmentStatus.Failed;
-            return ShipmentStatus.InTransit;
+            return ShipmentStatus.equalsKeyword(eventType, ShipmentStatus.InTransit);
         }
 
     }

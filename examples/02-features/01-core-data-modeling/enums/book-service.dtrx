@@ -3,6 +3,7 @@
 // - Simple enums (auto-assigned values)
 // - Enums with explicit serialization values via 'value()'
 // - Enum fields on entities with defaults
+// - Free-text classification via keywords() / containsKeyword()
 
 // Define a service in the 'library' namespace with version and description
 service library.BookService('config/book-service.dcfg') : version('1.0.0'), description('Book management service') {
@@ -34,6 +35,19 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         Fair     : value('fair'),
         Poor     : value('poor'),
         Damaged  : value('damaged')
+    }
+
+    // 'keywords()' declares free-text substring vocabulary for a value;
+    // 'containsKeyword' classifies by the first declared value whose keyword
+    // is a substring of the input (declaration order), with a fallback for no match
+    enum ProductCategory {
+        Electronics : keywords('PHONE', 'LAPTOP', 'TABLET', 'CAMERA'),
+        Apparel     : keywords('SHIRT', 'DRESS', 'SHOE'),
+        Grocery     : keywords('FOOD', 'SNACK', 'BEVERAGE'),
+        Other
+    }
+    fn classifyProduct(String label) -> ProductCategory {
+        return ProductCategory.containsKeyword(label.toUpperCase(), ProductCategory.Other);
     }
 
     // 'scalar' declares a constrained wrapper type around a base type

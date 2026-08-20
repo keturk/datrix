@@ -1267,6 +1267,29 @@ coverage census reports zero attached-but-unemitted runs on every target.
 
 ---
 
+### Decision 40: Enum Keyword Classification and Generated Classifiers (Adopted)
+
+Mapping an external string to an enum is written today as a linear `if`-ladder inside a function, so the keyword vocabulary — which is data *about* the enum — lives divorced from the type, duplicated per call site and re-typed as control flow. Neither `switch` nor `match` fixes this: both key on value equality against a single subject, so neither expresses substring classification, and neither lets the vocabulary live on the enum. This decision moves the vocabulary onto the enum value and generates the scan.
+
+**Adopted** — the model field, validator family, profile sub-profile, generated classifiers, and conformance gate below are all landed and passing.
+
+A new enum-value attribute `keywords('K1', 'K2', …)` sits alongside the existing `value('…')`. The grammar already admits it — `enum_value_attrs` is a generic modifier list — so there is no grammar change. Every enum that declares keywords gains two generated static classifiers, `E.equalsKeyword(s[, fallback])` (exact match) and `E.containsKeyword(s[, fallback])` (the first value in declaration order whose keyword is a substring of `s`). They are generated members of the enum type rather than `BUILTIN_REGISTRY` entries, because that registry is keyed by fixed category names (`String`, `Validator`, `Array`) and a user enum is not a category. Omitting the fallback selects fail-loud behaviour; the fallback is a call-site argument rather than an enum-level default marker, because the surveyed no-match value varies by call site and a single marker would bake one policy into the type.
+
+Two facts shape the realization. First, the classifier is emitted by a template into the enum's own file, so it never passes through the transpiler's `throw` lowering — and the DSL's `ValidationError` has no single realization across targets (python raises a generated `ValidationError`, typescript a NestJS `BadRequestException`, java a scope-dependent `ResponseStatusException`/`IllegalStateException` with no class of that name generated at all, dotnet a `ValidationException`). The exception a generated classifier raises is therefore a **required per-language declaration** on `LanguageProfile`, following the precedent of the required `docs: DocProfile` sub-profile, and a generation-time validator fails closed when a language declares none or declares one its own generator does not emit. Second, the thrown message is a constant naming only the enum type: the generated exception handler serializes the message into the RFC 7807 `detail` field of the HTTP response, so echoing the received value or enumerating the declared keywords would reflect untrusted input back to the caller and publish that field's complete accepted-input set.
+
+| # | Invariant | Enforcement mechanism |
+|---|---|---|
+| 1 | Declared keyword metadata survives parse → model → render losslessly | Round-trip test over a `keywords('a','b')` enum in datrix-language and datrix-common; the renderer re-emits the attribute after `value('…')` |
+| 2 | Enum-value attributes are a closed set and fail loud | New `ENUM*` code family: `ENUM001`/`ENUM002`/`ENUM004`/`ENUM005` at the declaration site, `ENUM003`/`ENUM006` at the call site. An unrecognized attribute is rejected rather than silently dropped, which is what happens today |
+| 3 | Every enum-emitting target realizes both classifiers identically, or declares the surface unsupported with a reason | Runtime-derived conformance gate under `datrix/scripts/test/` that enumerates its targets from the `datrix.languages` entry-point group, self-tests its own non-vacuity every run, and refuses to pass with fewer than two targets |
+| 4 | A no-match error discloses neither the received value nor the declared vocabulary | Negative assertion per target: the generated message contains no interpolation and no keyword literal |
+| 5 | The exception a classifier raises is declared per language and provably emitted | Required `LanguageProfile` sub-profile plus a fail-closed generation validator; each language's error-class emission predicate counts a keyword-bearing enum as a reference |
+| 6 | Author-supplied literals cannot break out of emitted source | One string escaper per language applied to `value()` and `keywords()` alike — java and dotnet have one today, python and typescript do not — with `ENUM005` rejecting empty and control-character keywords before emission |
+| 7 | Keywords never reach the storage or DDL layer | SQL and Docker output byte-identical for a keyword-bearing enum versus the same enum without keywords |
+| 8 | A classifier call routes ahead of enum-member access on every language | Per-language routing at each property-access seam, with a unit test per target proving the member-access path no longer claims `EnumName.equalsKeyword` |
+
+---
+
 ## Installation
 
 ```bash

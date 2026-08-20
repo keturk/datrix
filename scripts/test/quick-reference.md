@@ -1091,6 +1091,44 @@ fewer than 2 languages are registered.
 
 ---
 
+### `test\enum-classifier-conformance-gate.ps1`
+
+Cross-target enum-classifier conformance gate (D11, G10). Proves every registered
+`datrix.languages` plugin that emits enum types realizes `equalsKeyword`/`containsKeyword`
+identically for a fixture keyword-bearing enum: a hit returns the correct member, a miss without
+fallback raises the language's declared unrecognized-value exception (`LanguageProfile.errors`)
+with a message naming only the enum type (no input/keyword disclosure), and a miss with fallback
+returns the fallback. These classifiers are deliberately NOT `BUILTIN_REGISTRY` entries (the
+registry is keyed by fixed category names and a user enum is never one of those categories), so
+this gate is the coverage the closed registry would otherwise provide.
+
+Derives its target language set from `importlib.metadata.entry_points(group="datrix.languages")`
+at runtime, then narrows to enum-emitting languages from each plugin's own registered `"enum"`
+sub-generator domain — never a hardcoded `python`/`typescript`/`dotnet`/`java` literal.
+
+**Built-in non-vacuity self-test, every invocation.** Feeds the comparator a synthetic
+fully-conformant pair (must report zero violations) and a synthetic partially-broken pair (must
+report exactly the broken language). Fails loud (exit 2) if fewer than 2 enum-emitting languages
+are registered.
+
+A known, reviewed gap is a typed, counted entry in
+`datrix/scripts/config/enum-classifier-conformance-exemptions.json` (`{language, reason}`, pinned
+`pinned_count`) — never silence.
+
+| Mode | Command | Description |
+|------|---------|--------------|
+| **Run gate** | `.\test\enum-classifier-conformance-gate.ps1` | Compare every registered enum-emitting language's classifier conformance |
+| **Debug** | `.\test\enum-classifier-conformance-gate.ps1 -Dbg` | Debug logging |
+| **Self-test only** | `.\test\enum-classifier-conformance-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real comparison |
+
+**Parameters:** `-Dbg`, `-SelfTest`
+
+**Exit codes:** 0 = every enum-emitting registered language is fully conformant or has a valid
+exemption, 1 = an unexempted conformance gap was found, 2 = the non-vacuity self-test failed or
+fewer than 2 enum-emitting languages are registered.
+
+---
+
 ### `test\gendsl-corpus-resolution-gate.ps1`
 
 GenDSL D1/I1 corpus proof: eager builder/call-expression reference resolution runs at

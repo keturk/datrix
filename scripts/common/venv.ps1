@@ -1355,22 +1355,51 @@ function Test-DatrixCommand {
  .SYNOPSIS
  Test if the datrix command works by running 'datrix --version'.
  This verifies the console script entry point is properly installed.
+ .PARAMETER Detail
+ [ref] receiving the reason the check failed: the combined stdout/stderr of
+ 'datrix --version' plus its exit code, or the missing-executable path. Empty
+ string when the check succeeds. A failing CLI reports why it failed -- the
+ caller must never have to re-run the command to find out.
  .RETURNS
  $true if datrix command works, $false otherwise.
  #>
+ param(
+ [ref]$Detail
+ )
+
  $venvPath = Get-DatrixVenvPath
  $datrixExe = Join-Path $venvPath "Scripts\datrix.exe"
 
+ if ($Detail) { $Detail.Value = "" }
+
  if (-not (Test-Path $datrixExe)) {
+ if ($Detail) { $Detail.Value = "datrix.exe not found at $datrixExe" }
  return $false
  }
 
+ # "Continue", not "SilentlyContinue": 2>&1 turns each native stderr line into an
+ # ErrorRecord, and SilentlyContinue drops those before they reach the pipeline --
+ # which is what made this failure unreportable. Continue still refuses to terminate
+ # if the caller set "Stop", so the guard the old value provided is intact.
  $oldErrorActionPreference = $ErrorActionPreference
- $ErrorActionPreference = "SilentlyContinue"
+ $ErrorActionPreference = "Continue"
  try {
- $null = & $datrixExe --version 2>&1
- return $LASTEXITCODE -eq 0
+ $rawOutput = & $datrixExe --version 2>&1
+ $exitCode = $LASTEXITCODE
+ # 2>&1 wraps each native stderr line in an ErrorRecord. Out-String would render those
+ # with PowerShell's own "datrix.exe : ..." / "At <script>:<line> char:<col>" decoration
+ # wrapped around every line, burying the child process's actual message. ToString() on
+ # the record is the raw line the process wrote.
+ $output = (@($rawOutput) | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine
+ if ($exitCode -eq 0) {
+ return $true
+ }
+ if ($Detail) {
+ $Detail.Value = "'$datrixExe --version' exited $exitCode`n$($output.TrimEnd())"
+ }
+ return $false
  } catch {
+ if ($Detail) { $Detail.Value = "'$datrixExe --version' could not be run: $_" }
  return $false
  } finally {
  $ErrorActionPreference = $oldErrorActionPreference
@@ -1439,8 +1468,9 @@ function Ensure-DatrixPackagesInstalled {
 
  $ErrorActionPreference = $oldErrorActionPreference
 
- if (-not (Test-DatrixCommand)) {
- Write-Error "DATRIX_OFFLINE: 'datrix --version' failed. Fix the CLI while online (e.g. pip install -e datrix-cli)."
+ $cliDetail = ""
+ if (-not (Test-DatrixCommand -Detail ([ref]$cliDetail))) {
+ Write-Error "DATRIX_OFFLINE: 'datrix --version' failed. Fix the CLI while online (e.g. pip install -e datrix-cli).`n$cliDetail"
  return $false
  }
 
