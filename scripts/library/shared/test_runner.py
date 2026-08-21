@@ -592,7 +592,11 @@ class TestRunner:
    index_json_path: Path | None = None
    if run_dir and save_log:
     try:
-     from shared.structured_log_writer import StructuredLogWriter
+     from shared.structured_log_writer import (
+      PHASE_STATUS_FAILED,
+      PHASE_STATUS_PASSED,
+      StructuredLogWriter,
+     )
 
      xml_paths: list[Path] = []
      if self.has_xdist and not coverage:
@@ -609,10 +613,20 @@ class TestRunner:
       run_dir=run_dir,
      )
      from datetime import datetime
+     # index.json's "phases" is a map of dicts, and status_tests.py reads
+     # each phase's "status" (1 = passed, 2 = failed) to colour the report's
+     # Parallel/Serial/Tests columns. Handing it the bare return codes made
+     # every non-dict read as status 0, so a failed phase still rendered OK
+     # -- the failure showed only in the row's overall symbol and counts.
      writer.write(
       xml_paths=xml_paths,
       timestamp=datetime.now(),
-      phase_results=phase_results,
+      phase_results={
+       name: {
+        "status": PHASE_STATUS_PASSED if rc == 0 else PHASE_STATUS_FAILED,
+       }
+       for name, rc in phase_results.items()
+      },
      )
      index_json_path = run_dir / 'index.json'
      logger.write(f"Structured test results: {index_json_path}")

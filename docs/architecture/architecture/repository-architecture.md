@@ -186,6 +186,19 @@ Optional package of **domain extension** entry points registered under the `datr
 #### 15. datrix
 Public repository with documentation, examples, and scripts.
 
+### Client artifact outside this registry: `datrix-vscode`
+
+One further repository, `datrix-vscode`, exists and is deliberately **not** one of the
+fifteen above: it is the thin VS Code client for the Datrix language server, hosts no
+framework tests and no framework code, and its packaging CI proves the published `.vsix`
+bundles none of the framework packages. Its **source repository is private; the extension
+it publishes to the marketplace is public** — a `.vsix` is a readable archive regardless of
+the source repo's visibility, so publishing the extension does not require publishing the
+repository. It sits inside the `datrix-*` name glob deliberately, which places it under the
+customer-domain isolation gate with no registration step, but that is a backstop, not
+substitute governance for a repo the rest of this document's tooling assumptions do not
+cover. See [Architecture Overview — Decision 41](../architecture-overview.md#decision-41-datrix-language-server--editor-intelligence-over-lsp-adopted).
+
 ---
 
 ## Plugin Architecture

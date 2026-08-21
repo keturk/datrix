@@ -32,8 +32,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
+import subprocess
 import sys
 import tempfile
+import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from pathlib import Path
 
@@ -47,6 +50,9 @@ from test.compare_tests import (  # noqa: E402
     find_runs,
     parse_unit_run,
 )
+from shared.node_test_runner import _format_summary, merge_junit_xml  # noqa: E402
+from shared.package_suites import testable_package_names  # noqa: E402
+from shared.structured_log_writer import StructuredLogWriter  # noqa: E402
 from shared.venv import get_datrix_root  # noqa: E402
 from test.post_process_test_results import post_process_results  # noqa: E402
 from test.run_complete import (  # noqa: E402
@@ -275,6 +281,103 @@ def _check_read_index_json_passed_result() -> None:
         assert result is not None
         assert result.status == "PASSED"
         assert result.total_passed == 100
+
+
+def _check_failed_phase_renders_as_failed() -> None:
+    """A failed phase must reach the report's phase column as a failure.
+
+    ``phases`` is a map of DICTS carrying ``status`` (1 = passed, 2 = failed).
+    The pytest runner used to hand the writer bare return codes instead, so every
+    phase parsed as status 0 and rendered OK even on a red run -- the failure was
+    visible only in the row's overall symbol and its Failed count.
+    """
+    with tempfile.TemporaryDirectory(prefix="tooling-gate-index-phase-") as tmp:
+        run_dir = _make_run_dir(Path(tmp))
+        _write_full_log(run_dir)
+        index_path = _write_index(
+            run_dir,
+            {
+                "schema_version": 1,
+                "result": "FAILED",
+                "counts": {"passed": 10, "failed": 2, "errors": 0, "skipped": 0},
+                "phases": {
+                    "Parallel": {"status": 1, "items": 8},
+                    "Serial": {"status": 2, "items": 4},
+                },
+            },
+        )
+
+        result = _read_index_json(index_path)
+
+        assert result is not None
+        assert result.phases["Parallel"].status == "PASSED", result.phases["Parallel"]
+        assert result.phases["Serial"].status == "FAILED", result.phases["Serial"]
+        assert result.phases["Serial"].failed == 2, result.phases["Serial"]
+
+        row = _format_result_row(result, name_width=20, use_colors=False)
+        assert "2F" in row, f"failed phase must show its failure count in the row: {row!r}"
+
+
+def _check_legacy_returncode_phase_shape_is_read_correctly() -> None:
+    """Runs recorded before the dict encoding carry the phase's RETURN CODE.
+
+    A `.test_results` tree holds runs from both encodings, so the older one is
+    read rather than discarded -- and reading it is what applies the fix to those
+    runs too: a non-zero code is a FAILED phase, where the previous reader turned
+    every int into PASSED.
+    """
+    with tempfile.TemporaryDirectory(prefix="tooling-gate-index-legacyphase-") as tmp:
+        run_dir = _make_run_dir(Path(tmp))
+        _write_full_log(run_dir)
+        index_path = _write_index(
+            run_dir,
+            {
+                "schema_version": 1,
+                "result": "FAILED",
+                "counts": {"passed": 10, "failed": 2, "errors": 0, "skipped": 0},
+                "phases": {"Parallel": 0, "Serial": 1},
+            },
+        )
+
+        result = _read_index_json(index_path)
+
+        assert result is not None
+        assert result.phases["Parallel"].status == "PASSED", result.phases["Parallel"]
+        assert result.phases["Serial"].status == "FAILED", result.phases["Serial"]
+        row = _format_result_row(result, name_width=20, use_colors=False)
+        assert "2F" in row, f"legacy non-zero return code must render as a failure: {row!r}"
+
+
+def _check_uninterpretable_phase_shape_is_not_reported_as_passed() -> None:
+    """Adversarial: a phase in neither encoding must not read as green.
+
+    Defaulting an unreadable phase to PASSED is what let a producer writing the
+    wrong shape render every phase column OK on red runs. Such a phase is now
+    omitted -- the column shows "-" ("no information"), which is what the
+    artifact actually establishes.
+    """
+    with tempfile.TemporaryDirectory(prefix="tooling-gate-index-badphase-") as tmp:
+        run_dir = _make_run_dir(Path(tmp))
+        _write_full_log(run_dir)
+        index_path = _write_index(
+            run_dir,
+            {
+                "schema_version": 1,
+                "result": "FAILED",
+                "counts": {"passed": 10, "failed": 2, "errors": 0, "skipped": 0},
+                "phases": {"Parallel": "green", "Serial": {"items": 4}},
+            },
+        )
+
+        result = _read_index_json(index_path)
+
+        assert result is not None
+        assert result.phases == {}, (
+            f"a phases map the reader cannot interpret must yield NO phase entries, "
+            f"never entries defaulted to PASSED; got {result.phases}"
+        )
+        row = _format_result_row(result, name_width=20, use_colors=False)
+        assert "OK" not in row, f"an uninterpretable phase must not render OK: {row!r}"
 
 
 def _check_read_index_json_incomplete_returns_none() -> None:
@@ -777,6 +880,226 @@ def _check_example_resolves_under_a_custom_output_base() -> None:
 
 
 # ---------------------------------------------------------------------------
+# shared/structured_log_writer.py -- stack-frame parsing across both producers
+# ---------------------------------------------------------------------------
+
+_PYTEST_TRACEBACK = """\
+tests/unit/test_widget.py:41: in test_builds_a_widget
+    result = build_widget(spec)
+src/datrix_common/widgets/builder.py:117: in build_widget
+    raise ValueError("no such kind")
+E   ValueError: no such kind
+"""
+
+_V8_URL_STACK = """\
+[Error [ERR_TEST_FAILURE]: helper exploded] {
+  cause: TypeError [Error]: helper exploded
+      at boom (file:///C:/work/pkg/helper.mjs:2:9)
+      at TestContext.<anonymous> (file:///C:/work/pkg/b.test.mjs:10:3)
+      at Test.runInAsyncScope (node:async_hooks:211:14)
+      at Test.run (node:internal/test_runner/test:931:25)
+}
+"""
+
+_V8_PLAIN_PATH_STACK = """\
+AssertionError [ERR_ASSERTION]: Expected values to be strictly equal
+    at Object.resolveThing (D:\\work\\pkg\\src\\resolution.ts:28:52)
+    at TestContext.<anonymous> (D:\\work\\pkg\\src\\test\\resolution.test.ts:9:10)
+    at async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+"""
+
+_V8_ENGINE_ONLY_STACK = """\
+[Error [ERR_TEST_FAILURE]: test timed out] {
+    at Test.run (node:internal/test_runner/test:931:25)
+    at listOnTimeout (node:internal/timers:594:17)
+    at [eval]:1:63
+}
+"""
+
+
+def _writer() -> StructuredLogWriter:
+    return StructuredLogWriter(project_name="probe", run_dir=Path("."))
+
+
+def _check_pytest_traceback_still_resolves_to_the_project_frame() -> None:
+    """The Python path must be byte-for-byte what it was before Node support.
+
+    A pytest traceback lists the OUTERMOST frame first, a V8 stack the innermost.
+    Normalizing the two orders is the change most able to silently invert which
+    frame a Python failure is attributed to, so it is pinned here.
+    """
+    location = _writer()._extract_source_location(_PYTEST_TRACEBACK)
+    assert str(location) == "src/datrix_common/widgets/builder.py:117", location
+
+
+def _check_v8_url_stack_resolves_to_the_project_frame() -> None:
+    location = _writer()._extract_source_location(_V8_URL_STACK)
+    assert str(location) == "C:/work/pkg/helper.mjs:2", location
+
+
+def _check_v8_plain_path_stack_resolves_to_the_project_frame() -> None:
+    location = _writer()._extract_source_location(_V8_PLAIN_PATH_STACK)
+    assert str(location) == "D:/work/pkg/src/resolution.ts:28", location
+
+
+def _check_v8_engine_only_stack_resolves_to_unknown() -> None:
+    """Adversarial: a stack with no source file must yield unknown:0.
+
+    Without the file-extension filter, ``node:internal/test_runner/test:931:25``
+    parses as a perfectly well-formed frame, and every timed-out Node test would
+    be clustered under an engine path no author can open.
+    """
+    location = _writer()._extract_source_location(_V8_ENGINE_ONLY_STACK)
+    assert str(location) == "unknown:0", location
+
+
+def _check_pytest_classname_still_becomes_a_python_path() -> None:
+    element = ET.fromstring(
+        '<testcase classname="tests.unit.test_widget.TestWidget" name="test_ok" time="0.1"/>'
+    )
+    result = _writer()._parse_testcase_element(element, None)
+    assert result.file == "tests/unit/test_widget.py", result.file
+
+
+def _check_declared_file_attribute_wins_over_classname() -> None:
+    element = ET.fromstring(
+        '<testcase classname="src/test/a.test.ts" file="src/test/a.test.ts" '
+        'name="does a thing" time="0.1"/>'
+    )
+    result = _writer()._parse_testcase_element(element, None)
+    assert result.file == "src/test/a.test.ts", result.file
+
+
+# ---------------------------------------------------------------------------
+# shared/node_test_runner.py -- merging Node's junit output
+# ---------------------------------------------------------------------------
+
+_NODE_JUNIT_XML = """\
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+\t<testcase name="passing one" time="0.000420" classname="test"/>
+\t<testcase name="failing one" time="0.000471" classname="test" failure="boom">
+\t\t<failure type="testCodeFailure" message="boom">stack text</failure>
+\t</testcase>
+\t<testcase name="skipped one" time="0.000065" classname="test">
+\t\t<skipped type="skipped" message="true"/>
+\t</testcase>
+\t<!-- tests 3 -->
+</testsuites>
+"""
+
+
+def _check_node_junit_merge_counts_and_attributes_every_case() -> None:
+    """Node emits cases directly under <testsuites> with classname="test".
+
+    StructuredLogWriter reads <testsuite> elements, so unmerged Node output
+    parses to ZERO results -- a suite that ran would report as an empty run.
+    """
+    with tempfile.TemporaryDirectory(prefix="tooling-gate-nodemerge-") as tmp:
+        root = Path(tmp)
+        raw = root / "junit-node-001.xml"
+        raw.write_text(_NODE_JUNIT_XML, encoding="utf-8")
+        merged = root / "junit-node.xml"
+
+        counts = merge_junit_xml([("src/test/a.test.ts", raw)], merged, 1.25)
+
+        assert counts == {"passed": 1, "failed": 1, "error": 0, "skipped": 1}, counts
+
+        tree = ET.parse(merged)
+        suites = list(tree.getroot().iter("testsuite"))
+        assert len(suites) == 1, f"expected exactly one <testsuite>, got {len(suites)}"
+        assert suites[0].get("time") == "1.250000", suites[0].get("time")
+        cases = list(suites[0].iter("testcase"))
+        assert len(cases) == 3, len(cases)
+        for case in cases:
+            assert case.get("classname") == "src/test/a.test.ts", case.get("classname")
+            assert case.get("file") == "src/test/a.test.ts", case.get("file")
+            assert case.get("failure") is None, "redundant failure attribute not stripped"
+
+
+def _check_node_summary_line_matches_the_shape_test_ps1_parses() -> None:
+    """test.ps1 scans the runner's stdout for a pytest-shaped summary line.
+
+    It requires outcome counts AND an ``in <n>.<n>s`` timing on one line, and it
+    reads the last two matching lines as two phases. A line that fails to match
+    would report the run as zero tests in the repo-wide summary.
+    """
+    line = _format_summary({"passed": 33, "failed": 0, "error": 0, "skipped": 1}, 6.512)
+    assert line == "33 passed, 1 skipped in 6.51s", line
+    assert re.search(r"\bin\s+\d+\.\d+s\b", line), line
+    assert re.search(r"\d+\s+(passed|failed|error|skipped)", line), line
+
+    failing = _format_summary({"passed": 1, "failed": 2, "error": 3, "skipped": 0}, 0.5)
+    assert failing == "2 failed, 3 error, 1 passed in 0.50s", failing
+
+
+# ---------------------------------------------------------------------------
+# Testable-package discovery -- one fact, two implementations
+# ---------------------------------------------------------------------------
+
+
+def _check_powershell_and_python_agree_on_testable_packages() -> None:
+    """The PowerShell and Python discoveries must return the same set.
+
+    ``test.ps1 -All`` asks PowerShell which packages are testable;
+    ``status-tests.ps1`` asks Python. Neither can call the other (the PowerShell
+    answer is needed before the venv is activated), so the same predicate is
+    written twice -- and two independent implementations of one fact drift unless
+    something compares them. This is that comparison.
+    """
+    workspace = get_datrix_root()
+    expected = testable_package_names(workspace)
+    assert expected, f"no testable packages discovered under {workspace}"
+
+    module_path = _LIBRARY_DIR.parent / "common" / "DatrixScriptCommon.psm1"
+    command = (
+        f"Import-Module '{module_path}' -Force; "
+        f"Get-DatrixTestablePackageNames -WorkspaceRoot '{workspace}' | ForEach-Object {{ $_ }}"
+    )
+    completed = subprocess.run(  # noqa: S603 -- fixed argv, internally built command
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    assert completed.returncode == 0, (
+        f"Get-DatrixTestablePackageNames exited {completed.returncode}: "
+        f"{completed.stderr.strip()}"
+    )
+    actual = sorted(line.strip() for line in completed.stdout.splitlines() if line.strip())
+
+    assert actual == expected, (
+        f"PowerShell and Python disagree on which packages are testable.\n"
+        f"  only PowerShell: {sorted(set(actual) - set(expected))}\n"
+        f"  only Python:     {sorted(set(expected) - set(actual))}"
+    )
+
+
+def _check_node_suite_marker_is_load_bearing() -> None:
+    """Adversarial: the Node marker must be what admits a Node package.
+
+    Proves the check above is not passing merely because both implementations
+    ignore Node packages: a synthetic package.json-only tree is discovered, and
+    the same tree without the `test` script is not.
+    """
+    with tempfile.TemporaryDirectory(prefix="tooling-gate-nodemarker-") as tmp:
+        root = Path(tmp)
+        (root / "datrix-with-suite").mkdir()
+        (root / "datrix-with-suite" / "package.json").write_text(
+            json.dumps({"name": "datrix-with-suite", "scripts": {"test": "node --test"}}),
+            encoding="utf-8",
+        )
+        (root / "datrix-without-suite").mkdir()
+        (root / "datrix-without-suite" / "package.json").write_text(
+            json.dumps({"name": "datrix-without-suite", "scripts": {"build": "tsc"}}),
+            encoding="utf-8",
+        )
+        assert testable_package_names(root) == ["datrix-with-suite"], testable_package_names(root)
+
+
+# ---------------------------------------------------------------------------
 # Harness
 # ---------------------------------------------------------------------------
 
@@ -786,6 +1109,9 @@ _CHECKS: list[tuple[str, Callable[[], None]]] = [
     ("deploy_runs_are_discovered_and_compared_separately", _check_deploy_runs_are_discovered_and_compared_separately),
     ("read_index_json_valid_counts", _check_read_index_json_valid_counts),
     ("read_index_json_passed_result", _check_read_index_json_passed_result),
+    ("failed_phase_renders_as_failed", _check_failed_phase_renders_as_failed),
+    ("legacy_returncode_phase_shape_is_read_correctly", _check_legacy_returncode_phase_shape_is_read_correctly),
+    ("uninterpretable_phase_shape_is_not_reported_as_passed", _check_uninterpretable_phase_shape_is_not_reported_as_passed),
     ("read_index_json_incomplete_returns_none", _check_read_index_json_incomplete_returns_none),
     ("read_index_json_no_counts_returns_none", _check_read_index_json_no_counts_returns_none),
     ("read_index_json_corrupt_returns_none", _check_read_index_json_corrupt_returns_none),
@@ -813,6 +1139,16 @@ _CHECKS: list[tuple[str, Callable[[], None]]] = [
     ("collapsed_project_path_is_rejected", _check_collapsed_project_path_is_rejected),
     ("project_matching_no_example_is_rejected", _check_project_matching_no_example_is_rejected),
     ("example_resolves_under_a_custom_output_base", _check_example_resolves_under_a_custom_output_base),
+    ("pytest_traceback_still_resolves_to_the_project_frame", _check_pytest_traceback_still_resolves_to_the_project_frame),
+    ("v8_url_stack_resolves_to_the_project_frame", _check_v8_url_stack_resolves_to_the_project_frame),
+    ("v8_plain_path_stack_resolves_to_the_project_frame", _check_v8_plain_path_stack_resolves_to_the_project_frame),
+    ("v8_engine_only_stack_resolves_to_unknown", _check_v8_engine_only_stack_resolves_to_unknown),
+    ("pytest_classname_still_becomes_a_python_path", _check_pytest_classname_still_becomes_a_python_path),
+    ("declared_file_attribute_wins_over_classname", _check_declared_file_attribute_wins_over_classname),
+    ("node_junit_merge_counts_and_attributes_every_case", _check_node_junit_merge_counts_and_attributes_every_case),
+    ("node_summary_line_matches_the_shape_test_ps1_parses", _check_node_summary_line_matches_the_shape_test_ps1_parses),
+    ("powershell_and_python_agree_on_testable_packages", _check_powershell_and_python_agree_on_testable_packages),
+    ("node_suite_marker_is_load_bearing", _check_node_suite_marker_is_load_bearing),
 ]
 
 

@@ -7,7 +7,7 @@
 
  Project list semantics (see datrix/scripts/README.md):
  - Get-DatrixPackageNamesGlob: metrics -All; filesystem directories under the workspace matching datrix-*.
- - Get-DatrixTestablePackageNames: test runner; workspace datrix-* dirs with a tests/ folder (excludes retired and the test-free datrix showcase repo); matches status_tests.py discovery.
+ - Get-DatrixTestablePackageNames: test runner; workspace datrix-* dirs carrying a suite -- a tests/ folder (pytest) or a package.json with a "test" script (Node) -- excluding retired names and the test-free datrix showcase repo; matches shared/package_suites.py discovery.
  - Get-DatrixMonoProjectNames: full-monorepo scans (e.g. duplicate -Mono); canonical repo names in order where the directory exists.
 #>
 
@@ -116,14 +116,60 @@ function Get-DatrixPackageNamesGlobWithPyProject {
  return $projects | Sort-Object
 }
 
+function Test-DatrixNodeSuite {
+ <#
+ .SYNOPSIS
+ True when a package directory declares a Node test suite (a package.json with a "test" script).
+
+ .DESCRIPTION
+ A manifest that cannot be read or parsed is treated as declaring NO suite: guessing
+ "testable" would put a package into test.ps1 -All that no runner can execute.
+
+ .PARAMETER PackagePath
+ Full path to the package directory.
+ #>
+ [CmdletBinding()]
+ param(
+  [Parameter(Mandatory = $true)]
+  [string]$PackagePath
+ )
+
+ $manifestPath = Join-Path $PackagePath "package.json"
+ if (-not (Test-Path $manifestPath -PathType Leaf)) {
+  return $false
+ }
+ try {
+  $manifest = Get-Content -Path $manifestPath -Raw -Encoding utf8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+ } catch {
+  Write-Verbose "Could not parse ${manifestPath}: $_"
+  return $false
+ }
+ if ($null -eq $manifest -or $null -eq $manifest.scripts) {
+  return $false
+ }
+ return ($manifest.scripts.PSObject.Properties.Name -contains "test")
+}
+
 function Get-DatrixTestablePackageNames {
  <#
  .SYNOPSIS
- Lists datrix package directory names under the workspace that contain a tests/ directory (test.ps1 -All behavior).
+ Lists datrix package directory names under the workspace that carry a test suite (test.ps1 -All behavior).
 
  .DESCRIPTION
  Discovers packages by scanning the workspace root (same idea as status_tests.py get_datrix_projects), not only
  the hardcoded Get-DatrixDirectories list, so packages like datrix-codegen-common are included.
+
+ A package carries a suite when it has EITHER marker below. Datrix is a multi-language
+ toolchain and its own tooling has to be one too: datrix-vscode is a TypeScript package
+ whose suite runs under Node, and it writes the same .test_results artifacts a pytest
+ package does, so every downstream consumer works unchanged.
+
+   tests/ directory                    -> pytest suite
+   package.json with a "test" script   -> Node suite
+
+ This predicate is the PowerShell half of one fact; the Python half is
+ scripts/library/shared/package_suites.py, and test-tooling-parsing-gate.ps1 compares the
+ two sets on every run so they cannot drift apart silently.
 
  Matches "datrix-*" toolchain packages only. The "datrix" showcase repo is NOT a testable
  package — it holds docs, examples, and scripts and hosts no test suite by design — so it is
@@ -151,7 +197,10 @@ function Get-DatrixTestablePackageNames {
    Where-Object {
     $_.Name -like "datrix-*" -and
     $retired -notcontains $_.Name -and
-    (Test-Path (Join-Path $_.FullName "tests"))
+    (
+     (Test-Path (Join-Path $_.FullName "tests")) -or
+     (Test-DatrixNodeSuite -PackagePath $_.FullName)
+    )
    } |
    ForEach-Object { $projects += $_.Name }
  }
@@ -285,6 +334,7 @@ Export-ModuleMember -Function @(
  "ConvertTo-DatrixProjectName",
  "Get-DatrixPackageNamesGlob",
  "Get-DatrixPackageNamesGlobWithPyProject",
+ "Test-DatrixNodeSuite",
  "Get-DatrixTestablePackageNames",
  "Get-DatrixMonoProjectNames",
  "Get-DatrixInstalledPlatforms",

@@ -315,8 +315,10 @@ def _resolve_projects(args: argparse.Namespace, workspace: Path) -> list[str]:
             raise UsageError("Use either --projects or --all, not both.")
         if not testable:
             raise UsageError(
-                f"No testable datrix-* packages (with a tests/ directory) found "
-                f"under {workspace}. Expected the Datrix monorepo layout."
+                f"No testable datrix-* packages found under {workspace} (a "
+                f"package is testable when it carries a tests/ directory or a "
+                f"package.json declaring a test script). Expected the Datrix "
+                f"monorepo layout."
             )
         return testable
     if not args.projects:

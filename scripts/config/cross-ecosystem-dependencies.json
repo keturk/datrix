@@ -1,0 +1,26 @@
+{
+  "$comment": [
+    "Dependency edges that no import scan can find, because the two ends are in different",
+    "language ecosystems. affected_set.py derives the reverse-dependency closure from Python",
+    "imports and pyproject declarations; an edge expressed as a subprocess contract, a CLI",
+    "invocation, or a build-time code generator is invisible to it, so it is declared here.",
+    "",
+    "Each entry is read as a SOURCE edge, the same tier as a Python package's",
+    "[project.dependencies]: the consumer's shipped output is derived from the target, not",
+    "merely exercised by its suite. Changing the target therefore re-tests the consumer.",
+    "",
+    "This map lives in the monorepo rather than in the consuming package because a consumer",
+    "may be independently publishable. datrix-vscode packages itself into a .vsix, and",
+    "verify-package-contents.mjs fails that build when any archived file names a framework",
+    "package -- so the one place this fact must NOT be written is the consumer's own shipped",
+    "manifest. Everything about a package that is safe to ship (which files hold its tests,",
+    "which script builds them) stays in its package.json under a `datrix` key.",
+    "",
+    "Adding a package here is a deliberate act: a name that resolves to no package on disk is",
+    "an error, never an empty result, because a silently-dropped edge is a package that",
+    "quietly stops being re-tested."
+  ],
+  "dependencies": {
+    "datrix-vscode": ["datrix-language"]
+  }
+}

@@ -13,11 +13,18 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 logger = logging.getLogger(__name__)
 
 _SCHEMA_VERSION = 1
 _MAX_FILENAME_BODY_LENGTH = 120
+
+# index.json's ``phases`` map carries one dict per phase, whose ``status`` uses
+# this encoding. Part of the artifact's schema, so it lives with the writer that
+# defines the artifact rather than with any one producer.
+PHASE_STATUS_PASSED = 1
+PHASE_STATUS_FAILED = 2
 
 # Pattern to match ANSI escape codes (actual ESC byte and pytest's text encoding)
 _ANSI_ESCAPE = re.compile(
@@ -36,6 +43,33 @@ _STANDALONE_NUMBER = re.compile(r"\b\d+\b")
 # Patterns for parsing traceback frames
 # Matches lines like: "path/to/file.py:123: in function_name"
 _TRACEBACK_FRAME = re.compile(r"^(.+?):(\d+):\s+in\s+(.+)$", re.MULTILINE)
+
+# Matches a V8 stack frame, as produced by a Node suite. Four shapes occur --
+# with or without a function name, and with the location as a plain path (what
+# --enable-source-maps rewrites to) or as a file:// URL (what an unmapped frame
+# keeps):
+#   "    at TestContext.<anonymous> (D:\p\src\a.test.ts:9:10)"
+#   "    at boom (file:///C:/p/helper.mjs:2:9)"
+#   "    at D:\p\src\a.test.ts:9:10"
+# The location may contain colons (a Windows drive letter, a URL scheme), so the
+# frame is matched loosely here and filtered by file extension in the caller.
+# That filter is what keeps engine-internal frames ("at node:internal/
+# test_runner/test:931:25") and eval frames ("at [eval]:1:63") out.
+_V8_STACK_FRAME = re.compile(
+    r"^\s*at\s+(?:[^\n(]*\(([^\n()]+):(\d+):\d+\)|(\S+):(\d+):\d+)\s*$",
+    re.MULTILINE,
+)
+
+# A stack-frame location is a real source file only when it ends in one of the
+# JS/TS source suffixes.
+_SOURCE_FILE_SUFFIX = re.compile(r"\.[cm]?[jt]sx?$", re.IGNORECASE)
+
+# Leading slash of a file:// URL path that is really a Windows drive letter.
+_URL_DRIVE_PREFIX = re.compile(r"^/([A-Za-z]:)")
+
+# Filename infixes that mark a test file in the JS/TS ecosystem, where tests sit
+# beside the code they cover instead of under a tests/ directory.
+_JS_TEST_INFIXES = (".test.", ".spec.")
 
 # Paths that indicate stdlib or third-party code
 _EXCLUDED_PATH_PATTERNS = (
@@ -435,8 +469,15 @@ class StructuredLogWriter:
         # Build test ID: classname::name
         test_id = f"{classname}::{name}" if classname else name
 
-        # Convert classname dots to path: tests.test_foo.TestBar -> tests/test_foo.py
-        file_path = self._classname_to_filepath(classname)
+        # JUnit's optional `file` attribute, when the producer set it, is the
+        # owning file stated rather than inferred. pytest does not write it, so
+        # its classname is still converted: tests.test_foo.TestBar ->
+        # tests/test_foo.py.
+        declared_file = testcase.get("file")
+        if declared_file:
+            file_path = declared_file.replace("\\", "/")
+        else:
+            file_path = self._classname_to_filepath(classname)
 
         # Determine outcome
         failure_el = testcase.find("failure")
@@ -501,6 +542,10 @@ class StructuredLogWriter:
         The classname attribute typically contains the module path, e.g.
         ``tests.test_foo.TestBar``. This converts dots to ``/`` for all
         module-level parts and appends ``.py``.
+
+        Only reached when a ``<testcase>`` carries no ``file`` attribute, which
+        is pytest's shape; a producer that knows the owning file states it there
+        instead of leaving it to be inferred from a naming convention.
 
         Args:
             classname: The JUnit classname attribute value.
@@ -574,22 +619,17 @@ class StructuredLogWriter:
         if not traceback_text:
             return SourceLocation("unknown", 0)
 
-        frames = _TRACEBACK_FRAME.findall(traceback_text)
+        frames = self._innermost_first_frames(traceback_text)
         if not frames:
             return SourceLocation("unknown", 0)
 
-        # Walk bottom-up to find the best frame
+        # Walk from the innermost frame outwards to find the best frame
         project_frame: SourceLocation | None = None
         test_frame: SourceLocation | None = None
         non_stdlib_frame: SourceLocation | None = None
 
-        for file_path, line_str, _func in reversed(frames):
+        for file_path, line_num in frames:
             file_path_normalized = file_path.replace("\\", "/")
-
-            try:
-                line_num = int(line_str)
-            except ValueError:
-                continue
 
             # Skip stdlib/site-packages
             if self._is_excluded_path(file_path_normalized):
@@ -621,6 +661,64 @@ class StructuredLogWriter:
 
         return SourceLocation("unknown", 0)
 
+    def _innermost_first_frames(
+        self, traceback_text: str
+    ) -> list[tuple[str, int]]:
+        """Parse stack frames into ``(file, line)`` pairs, innermost first.
+
+        Two producers write into these logs and their stacks read in opposite
+        directions: a pytest traceback lists the outermost frame first, while a
+        V8 stack (a Node suite) lists the innermost first. Normalizing the order
+        here is what lets one caller apply one fallback chain to both.
+
+        A pytest traceback wins when a text somehow carries both forms, which
+        keeps the Python path byte-for-byte as it was.
+
+        Args:
+            traceback_text: Raw traceback or stack text from JUnit XML.
+
+        Returns:
+            ``(file, line)`` pairs ordered innermost frame first; empty when the
+            text holds no recognizable frame.
+        """
+        pytest_frames = _TRACEBACK_FRAME.findall(traceback_text)
+        if pytest_frames:
+            return [
+                (file_path, int(line_str))
+                for file_path, line_str, _func in reversed(pytest_frames)
+            ]
+
+        v8_frames: list[tuple[str, int]] = []
+        for paren_path, paren_line, bare_path, bare_line in _V8_STACK_FRAME.findall(
+            traceback_text
+        ):
+            raw_path = paren_path or bare_path
+            line_str = paren_line or bare_line
+            location = self._normalize_frame_location(raw_path)
+            if location is None:
+                continue
+            v8_frames.append((location, int(line_str)))
+        return v8_frames
+
+    def _normalize_frame_location(self, raw_path: str) -> str | None:
+        """Turn a V8 frame location into a filesystem path, or reject it.
+
+        Args:
+            raw_path: The location text captured from a stack frame -- a plain
+                path, or a ``file://`` URL.
+
+        Returns:
+            A filesystem path, or ``None`` when the location does not name a
+            source file (an engine-internal or eval frame).
+        """
+        path = raw_path.strip()
+        if path.startswith("file://"):
+            path = unquote(urlparse(path).path)
+            path = _URL_DRIVE_PREFIX.sub(r"\1", path)
+        if not _SOURCE_FILE_SUFFIX.search(path):
+            return None
+        return path
+
     def _is_excluded_path(self, path: str) -> bool:
         """Check if a path belongs to stdlib or third-party packages.
 
@@ -644,7 +742,11 @@ class StructuredLogWriter:
         Returns:
             True if the path appears to be a test file or conftest.
         """
-        return "tests/" in path or "test_" in path or "conftest" in path
+        if "tests/" in path or "test_" in path or "conftest" in path:
+            return True
+        # JS/TS suites name the file rather than the directory: a Node package's
+        # tests sit beside the code they cover as `<name>.test.ts`.
+        return any(infix in path for infix in _JS_TEST_INFIXES)
 
     def _normalize_error_message(
         self, error_type: str, error_message: str

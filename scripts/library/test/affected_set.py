@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 """Reverse-dependency closure derivation for Datrix packages.
 
-Discovers every datrix-* package carrying a pyproject.toml under the
-monorepo root (never a hardcoded package list) and classifies every import
-edge by WHERE the importing file lives and, for src/ imports, WHERE in the
-file the import statement sits:
+Discovers every datrix-* package carrying a package manifest under the
+monorepo root -- a pyproject.toml (Python) or a package.json (Node), never a
+hardcoded package list -- and classifies every import edge by WHERE the
+importing file lives and, for src/ imports, WHERE in the file the import
+statement sits:
 
 - SOURCE edge -- an import statement at MODULE SCOPE (the top level of a
   file under the package's src/, including inside a module-scope
   `if TYPE_CHECKING:` block), or a target declared in
-  `[project.dependencies]`. The package's runtime behavior depends on the
+  `[project.dependencies]`, or an edge declared in the monorepo's
+  `scripts/config/cross-ecosystem-dependencies.json` (used where the two ends
+  are in different language ecosystems, so no import scan can see the edge --
+  a subprocess contract, a CLI invocation, a build-time code generator). The
+  package's runtime behavior depends on the
   target unconditionally, so source edges propagate transitively: if A's
   src imports B, and C's src imports A, a change to B affects C too.
 - DEFERRED edge -- an import statement under the package's src/ that is
@@ -77,6 +82,10 @@ logger = logging.getLogger(__name__)
 
 _PACKAGE_PREFIX = "datrix-"
 _PYPROJECT_NAME = "pyproject.toml"
+_NODE_MANIFEST_NAME = "package.json"
+_SHOWCASE_DIRNAME = "datrix"
+_CROSS_ECOSYSTEM_RELPATH = ("scripts", "config", "cross-ecosystem-dependencies.json")
+_DEPENDENCIES_KEY = "dependencies"
 _CONFTEST_NAME = "conftest.py"
 _SRC_DIRNAME = "src"
 _TESTS_DIRNAME = "tests"
@@ -95,7 +104,14 @@ class UsageError(Exception):
 
 
 def discover_packages(root: Path) -> dict[str, Path]:
-    """Discover datrix-* packages carrying a pyproject.toml under root.
+    """Discover datrix-* packages carrying a package manifest under root.
+
+    A Python package is recognized by its ``pyproject.toml`` and a Node package
+    by its ``package.json``. Both belong in the graph: the closure decides what
+    must be re-tested when something changes, and a cross-language consumer is
+    exactly the kind that no import scan can find on its own. datrix-vscode
+    consumes datrix-language's keyword manifest through a documented subprocess
+    contract, and a schema bump there has already broken its suite.
 
     Args:
         root: The Datrix monorepo root (contains one directory per package).
@@ -105,16 +121,21 @@ def discover_packages(root: Path) -> dict[str, Path]:
         path. Never a hardcoded list; recomputed from disk every call.
 
     Raises:
-        UsageError: if no datrix-* packages with a pyproject.toml are found
-            under root (an empty or wrong root).
+        UsageError: if no datrix-* package with a Python manifest is found
+            under root (an empty or wrong root). The floor is deliberately the
+            Python set: a root holding only Node packages is not the monorepo.
     """
     packages: dict[str, Path] = {}
+    python_packages = 0
     for entry in sorted(root.iterdir()):
         if not entry.is_dir() or not entry.name.startswith(_PACKAGE_PREFIX):
             continue
         if (entry / _PYPROJECT_NAME).is_file():
             packages[entry.name] = entry
-    if not packages:
+            python_packages += 1
+        elif (entry / _NODE_MANIFEST_NAME).is_file():
+            packages[entry.name] = entry
+    if python_packages == 0:
         raise UsageError(
             f"No {_PACKAGE_PREFIX}* packages with a {_PYPROJECT_NAME} found under "
             f"{root}. Expected the Datrix monorepo layout with each package at "
@@ -122,6 +143,128 @@ def discover_packages(root: Path) -> dict[str, Path]:
             f"correct monorepo root."
         )
     return packages
+
+
+def _is_python_package(package_dir: Path) -> bool:
+    """True when the package declares itself through a ``pyproject.toml``."""
+    return (package_dir / _PYPROJECT_NAME).is_file()
+
+
+def cross_ecosystem_config_path(root: Path) -> Path:
+    """Path to the monorepo's cross-ecosystem dependency map."""
+    return root.joinpath(_SHOWCASE_DIRNAME, *_CROSS_ECOSYSTEM_RELPATH)
+
+
+def load_cross_ecosystem_deps(root: Path, packages: dict[str, Path]) -> dict[str, set[str]]:
+    """Dependency edges declared in the monorepo because no scan can find them.
+
+    An edge whose two ends are in different language ecosystems is invisible to
+    an import scan: datrix-vscode consumes datrix-language through a documented
+    subprocess contract, not an import. Those edges are declared in
+    ``datrix/scripts/config/cross-ecosystem-dependencies.json`` and read as
+    SOURCE edges, the same tier as a Python package's ``[project.dependencies]``.
+
+    The map lives in the monorepo rather than in each consuming package because
+    a consumer may be independently publishable and must not name a framework
+    package in anything it ships. Facts that ARE safe to ship (which files hold
+    a package's tests, which script builds them) stay in its own manifest.
+
+    Args:
+        root: The Datrix monorepo root.
+        packages: All discovered packages, used to validate every name.
+
+    Returns:
+        Mapping of consumer package name -> its declared dependency names.
+        Empty when *root* is not a monorepo checkout (no showcase directory),
+        which is the state a synthetic tree is in.
+
+    Raises:
+        UsageError: if the monorepo carries a showcase directory but no config,
+            if the config cannot be read or parsed, or if it names a package
+            that does not exist. A name matching nothing would drop the edge
+            silently, and a silently-dropped edge is a package that quietly
+            stops being re-tested.
+    """
+    if not (root / _SHOWCASE_DIRNAME).is_dir():
+        return {}
+
+    config_path = cross_ecosystem_config_path(root)
+    if not config_path.is_file():
+        raise UsageError(
+            f"Missing {config_path}. The monorepo declares its cross-ecosystem "
+            f"dependency edges there, and treating an absent file as 'no edges' "
+            f"would silently shrink every closure it contributes to. Expected a "
+            f'JSON object such as {{"{_DEPENDENCIES_KEY}": '
+            f'{{"datrix-vscode": ["datrix-language"]}}}}.'
+        )
+    try:
+        raw_text = config_path.read_text(encoding="utf-8-sig")
+    except OSError as exc:
+        raise UsageError(f"Cannot read {config_path}: {exc}.") from exc
+    try:
+        data = json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        raise UsageError(
+            f"Cannot parse {config_path} as JSON: {exc}. Fix the file's syntax "
+            f"before re-running."
+        ) from exc
+    if not isinstance(data, dict):
+        raise UsageError(
+            f"{config_path} does not contain a JSON object (got "
+            f"{type(data).__name__})."
+        )
+
+    declared = data.get(_DEPENDENCIES_KEY, {})
+    if not isinstance(declared, dict):
+        raise UsageError(
+            f"{config_path} declares '{_DEPENDENCIES_KEY}' as {declared!r}. "
+            f'Expected an object mapping a package name to a list of package '
+            f'names, e.g. {{"datrix-vscode": ["datrix-language"]}}.'
+        )
+
+    edges: dict[str, set[str]] = {}
+    unknown: list[str] = []
+    for consumer, targets in declared.items():
+        if not isinstance(targets, list) or not all(isinstance(n, str) for n in targets):
+            raise UsageError(
+                f"{config_path} maps '{consumer}' to {targets!r}. Expected a "
+                f'list of package-name strings, e.g. ["datrix-language"].'
+            )
+        if consumer not in packages:
+            unknown.append(consumer)
+        unknown.extend(name for name in targets if name not in packages)
+        edges[consumer] = {name for name in targets if name != consumer}
+
+    if unknown:
+        raise UsageError(
+            f"{config_path} names packages that do not exist: "
+            f"{sorted(set(unknown))}. Known packages: {sorted(packages)}. A "
+            f"name that matches nothing would drop the edge silently, so this "
+            f"is an error rather than an empty result. Fix the name(s)."
+        )
+    return edges
+
+
+def _declared_manifest_deps_split(
+    package_dir: Path, packages: dict[str, Path]
+) -> tuple[set[str], set[str]]:
+    """Declared ``(source_deps, test_deps)`` for a package of either ecosystem.
+
+    A Node package declares no dependencies in its own manifest -- those edges
+    come from the monorepo's cross-ecosystem map (see
+    :func:`load_cross_ecosystem_deps`), which is merged into the graph by the
+    caller rather than read per package.
+
+    Args:
+        package_dir: Absolute path to one discovered package directory.
+        packages: All discovered packages, used to filter to known names.
+
+    Returns:
+        The declaring package's declared SOURCE and TEST dependency sets.
+    """
+    if _is_python_package(package_dir):
+        return _declared_pyproject_deps_split(package_dir, packages)
+    return set(), set()
 
 
 def discover_import_name(package_dir: Path) -> str | None:
@@ -381,6 +524,7 @@ def build_source_test_and_deferred_graphs(
     import_names: dict[str, str | None],
     *,
     include_root_conftest: bool = True,
+    cross_ecosystem: dict[str, set[str]] | None = None,
 ) -> tuple[dict[str, set[str]], dict[str, set[str]], dict[str, set[str]]]:
     """Three forward dependency graphs: SOURCE edges (propagate
     transitively), TEST edges, and DEFERRED edges (both terminal -- only the
@@ -393,6 +537,9 @@ def build_source_test_and_deferred_graphs(
             included in the TEST-edge scan. Defaults to True (production
             behavior); set False ONLY to prove the conftest edge is
             load-bearing (see the self-test).
+        cross_ecosystem: Declared consumer -> targets edges from the monorepo's
+            cross-ecosystem map, merged into the SOURCE tier. These are the
+            edges no import scan can find; see load_cross_ecosystem_deps.
 
     Returns:
         (source_graph, test_graph, deferred_graph): each maps package name
@@ -403,6 +550,7 @@ def build_source_test_and_deferred_graphs(
         from that package's TEST set.
     """
     import_to_package = {v: k for k, v in import_names.items() if v is not None}
+    declared_cross = cross_ecosystem or {}
     source_graph: dict[str, set[str]] = {}
     test_graph: dict[str, set[str]] = {}
     deferred_graph: dict[str, set[str]] = {}
@@ -416,8 +564,8 @@ def build_source_test_and_deferred_graphs(
             _iter_test_files(pkg_dir, include_root_conftest=include_root_conftest),
             import_to_package,
         )
-        declared_source, declared_test = _declared_pyproject_deps_split(pkg_dir, packages)
-        source_deps = module_scope_deps | declared_source
+        declared_source, declared_test = _declared_manifest_deps_split(pkg_dir, packages)
+        source_deps = module_scope_deps | declared_source | declared_cross.get(pkg_name, set())
         deferred_deps = function_scope_deps - source_deps
         test_deps |= declared_test
         test_deps -= source_deps
@@ -428,13 +576,22 @@ def build_source_test_and_deferred_graphs(
     return source_graph, test_graph, deferred_graph
 
 
-def build_declared_source_only_graph(packages: dict[str, Path]) -> dict[str, set[str]]:
-    """Forward SOURCE graph derived purely from declared
-    `[project.dependencies]` (no import scan, no optional-dependencies) --
-    the non-vacuity floor for check_closure_not_smaller_than_declared.
+def build_declared_source_only_graph(
+    packages: dict[str, Path],
+    cross_ecosystem: dict[str, set[str]] | None = None,
+) -> dict[str, set[str]]:
+    """Forward SOURCE graph derived purely from declared dependencies --
+    `[project.dependencies]` plus the monorepo's cross-ecosystem map (no import
+    scan, no optional-dependencies) -- the non-vacuity floor for
+    check_closure_not_smaller_than_declared.
     """
+    declared_cross = cross_ecosystem or {}
     return {
-        name: _declared_pyproject_deps_split(pkg_dir, packages)[0] for name, pkg_dir in packages.items()
+        name: (
+            _declared_manifest_deps_split(pkg_dir, packages)[0]
+            | declared_cross.get(name, set())
+        )
+        for name, pkg_dir in packages.items()
     }
 
 
@@ -690,6 +847,141 @@ def _make_pkg(
         conftest_text = "".join(f"import {mod}\n" for mod in conftest_imports)
         (pkg_dir / "conftest.py").write_text(conftest_text, encoding="utf-8")
     return pkg_dir
+
+
+def _make_node_pkg(root: Path, name: str) -> Path:
+    """Build one synthetic Node package: a package.json with a `test` script and
+    a `datrix` block, and nothing else. No pyproject.toml, no src/ Python, no
+    tests/ -- exactly the shape an import scan cannot see anything in."""
+    pkg_dir = root / name
+    pkg_dir.mkdir(parents=True)
+    manifest: dict[str, object] = {
+        "name": name,
+        "datrix": {"testFiles": "out/test/*.test.js", "build": "compile"},
+        "scripts": {
+            "compile": "tsc -p .",
+            "test": "node --test \"out/test/*.test.js\"",
+        },
+    }
+    (pkg_dir / _NODE_MANIFEST_NAME).write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8"
+    )
+    return pkg_dir
+
+
+def _write_cross_ecosystem_config(root: Path, dependencies: dict[str, list[str]]) -> None:
+    """Write the monorepo's cross-ecosystem dependency map into a synthetic tree.
+
+    Creating the showcase directory is what makes the tree read as a monorepo
+    checkout, which is exactly the condition under which the config is required.
+    """
+    config_path = cross_ecosystem_config_path(root)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        json.dumps({_DEPENDENCIES_KEY: dependencies}, indent=2), encoding="utf-8"
+    )
+
+
+def _closures_for(root: Path) -> dict[str, set[str]]:
+    """Derive closures over a synthetic tree (self-test helper)."""
+    packages = discover_packages(root)
+    import_names = {name: discover_import_name(d) for name, d in packages.items()}
+    cross_ecosystem = load_cross_ecosystem_deps(root, packages)
+    source_graph, test_graph, deferred_graph = build_source_test_and_deferred_graphs(
+        packages, import_names, include_root_conftest=True, cross_ecosystem=cross_ecosystem
+    )
+    return compute_affected_closures(source_graph, test_graph, deferred_graph)
+
+
+def _check_cross_ecosystem_edge_puts_consumer_in_closure() -> None:
+    with tempfile.TemporaryDirectory(prefix="affected-set-selftest-") as tmp:
+        root = Path(tmp)
+        _make_pkg(root, "datrix-language")
+        _make_node_pkg(root, "datrix-client")
+        _write_cross_ecosystem_config(root, {"datrix-client": ["datrix-language"]})
+        closures = _closures_for(root)
+        assert "datrix-client" in closures["datrix-language"], (
+            f"a package declared in the cross-ecosystem map must appear in its "
+            f"target's closure; got {closures['datrix-language']}"
+        )
+
+
+def _check_undeclared_node_package_has_no_edge() -> None:
+    """Adversarial: the SAME tree with an empty map must NOT produce the edge.
+
+    Without this, the check above would pass just as well against a reader that
+    put every Node package into every closure."""
+    with tempfile.TemporaryDirectory(prefix="affected-set-selftest-") as tmp:
+        root = Path(tmp)
+        _make_pkg(root, "datrix-language")
+        _make_node_pkg(root, "datrix-client")
+        _write_cross_ecosystem_config(root, {})
+        closures = _closures_for(root)
+        assert closures["datrix-language"] == {"datrix-language"}, (
+            f"an undeclared Node package must not enter any other package's "
+            f"closure; got {closures['datrix-language']}"
+        )
+        assert closures["datrix-client"] == {"datrix-client"}, (
+            f"a package with no consumers has a self-only closure; got "
+            f"{closures['datrix-client']}"
+        )
+
+
+def _check_cross_ecosystem_unknown_package_raises_usage_error() -> None:
+    with tempfile.TemporaryDirectory(prefix="affected-set-selftest-") as tmp:
+        root = Path(tmp)
+        _make_pkg(root, "datrix-language")
+        _make_node_pkg(root, "datrix-client")
+        _write_cross_ecosystem_config(root, {"datrix-client": ["datrix-langauge"]})
+        try:
+            _closures_for(root)
+        except UsageError as exc:
+            assert "datrix-langauge" in str(exc), exc
+        else:
+            raise AssertionError(
+                "a cross-ecosystem entry naming no existing package must raise "
+                "UsageError; a typo that silently produced no edge would stop the "
+                "consumer being re-tested"
+            )
+
+
+def _check_missing_cross_ecosystem_config_raises_usage_error() -> None:
+    """A monorepo checkout with no map is an error, never 'no edges'.
+
+    Treating the absent file as an empty map would silently shrink every closure
+    it contributes to -- the failure mode is a package that stops being tested,
+    reported as a clean run.
+    """
+    with tempfile.TemporaryDirectory(prefix="affected-set-selftest-") as tmp:
+        root = Path(tmp)
+        _make_pkg(root, "datrix-language")
+        (root / _SHOWCASE_DIRNAME).mkdir()
+        try:
+            _closures_for(root)
+        except UsageError as exc:
+            assert "cross-ecosystem-dependencies.json" in str(exc), exc
+        else:
+            raise AssertionError(
+                "a monorepo checkout missing the cross-ecosystem map must raise "
+                "UsageError rather than deriving closures without those edges"
+            )
+
+
+def _check_repo_cross_ecosystem_config_is_readable() -> None:
+    """The REAL map must parse and name only packages that exist.
+
+    Every other check here runs against a synthetic tree, so none of them would
+    notice the committed file being renamed, malformed, or left naming a package
+    that has since been removed.
+    """
+    root = get_datrix_root()
+    packages = discover_packages(root)
+    edges = load_cross_ecosystem_deps(root, packages)
+    assert edges, (
+        f"{cross_ecosystem_config_path(root)} declares no edges. Expected at "
+        f"least one; an empty map means this scanner's cross-ecosystem support "
+        f"is exercising nothing in the real repo."
+    )
 
 
 def _check_discover_packages_finds_synthetic_tree() -> None:
@@ -1026,6 +1318,26 @@ _SELF_TEST_CHECKS: list[tuple[str, Callable[[], None]]] = [
         _check_module_scope_type_checking_import_is_source,
     ),
     ("unparseable_src_file_raises_usage_error", _check_unparseable_src_file_raises_usage_error),
+    (
+        "cross_ecosystem_edge_puts_consumer_in_closure",
+        _check_cross_ecosystem_edge_puts_consumer_in_closure,
+    ),
+    (
+        "undeclared_node_package_has_no_edge",
+        _check_undeclared_node_package_has_no_edge,
+    ),
+    (
+        "cross_ecosystem_unknown_package_raises_usage_error",
+        _check_cross_ecosystem_unknown_package_raises_usage_error,
+    ),
+    (
+        "missing_cross_ecosystem_config_raises_usage_error",
+        _check_missing_cross_ecosystem_config_raises_usage_error,
+    ),
+    (
+        "repo_cross_ecosystem_config_is_readable",
+        _check_repo_cross_ecosystem_config_is_readable,
+    ),
 ]
 
 
@@ -1067,12 +1379,13 @@ def _run(args: argparse.Namespace) -> int:
     workspace = get_datrix_root()
     packages = discover_packages(workspace)
     import_names = {name: discover_import_name(d) for name, d in packages.items()}
+    cross_ecosystem = load_cross_ecosystem_deps(workspace, packages)
     source_graph, test_graph, deferred_graph = build_source_test_and_deferred_graphs(
-        packages, import_names, include_root_conftest=True
+        packages, import_names, include_root_conftest=True, cross_ecosystem=cross_ecosystem
     )
     closures = compute_affected_closures(source_graph, test_graph, deferred_graph)
 
-    declared_source_only_graph = build_declared_source_only_graph(packages)
+    declared_source_only_graph = build_declared_source_only_graph(packages, cross_ecosystem)
     violations = check_closure_not_smaller_than_declared(declared_source_only_graph, closures)
     if violations:
         print(

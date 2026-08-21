@@ -41,9 +41,15 @@ Different scripts use different ways to decide which packages to include:
 | Use case | Helper (see `common/DatrixScriptCommon.psm1`) | Meaning |
 |----------|-----------------------------------------------|---------|
 | Metrics `-All` (Ruff, complexity, …) | `Get-DatrixPackageNamesGlob` | Every directory under the workspace named `datrix-*` |
-| `test.ps1 -All` | `Get-DatrixTestablePackageNames` | Canonical repos from `DatrixPaths` that exist and have a `tests/` folder |
+| `test.ps1 -All` | `Get-DatrixTestablePackageNames` | `datrix-*` directories carrying a test suite: a `tests/` folder (pytest) or a `package.json` with a `test` script (Node) |
 | `duplicate.ps1 -Mono` | `Get-DatrixMonoProjectNames` | Ordered canonical package names (`Get-DatrixDirectories`) where the path exists |
 | `dependency.ps1` help text | `Get-DatrixPackageNamesGlobWithPyProject` | `datrix-*` directories that contain `pyproject.toml` |
+
+`Get-DatrixTestablePackageNames` is the PowerShell half of one fact; the Python half is
+`library/shared/package_suites.py`, which `status-tests.ps1`, `test_project.py` and
+`gate-verdict.ps1` use. Neither can call the other — the PowerShell answer is needed before
+the venv is activated — so `test/test-tooling-parsing-gate.ps1` compares the two sets on every
+run rather than leaving them to drift.
 
 ## Bash Shell Invocation
 

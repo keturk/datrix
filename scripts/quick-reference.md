@@ -76,7 +76,7 @@ For `generate.ps1` and `run-complete.ps1` batch mode:
 
 ## Project Names
 
-Project names are **discovered from disk** — any `datrix-*` directory in the workspace is a valid `-Projects` value (`Get-DatrixDirectories`; the venv/test scripts further narrow to those carrying a `pyproject.toml`). A new `datrix-codegen-<lang>` package becomes a valid project name as soon as its directory exists, with no edit here. The list below is therefore **illustrative, not closed**:
+Project names are **discovered from disk** — any `datrix-*` directory in the workspace is a valid `-Projects` value (`Get-DatrixDirectories`). The venv scripts narrow to packages carrying a `pyproject.toml`; the test scripts narrow to packages carrying a *suite*, which is a `tests/` folder (pytest) or a `package.json` declaring a `test` script (Node). A new `datrix-codegen-<lang>` package becomes a valid project name as soon as its directory exists, with no edit here. The list below is therefore **illustrative, not closed**:
 
 - `datrix` (showcase repo — docs, examples, scripts)
 - `datrix-cli`
@@ -93,6 +93,7 @@ Project names are **discovered from disk** — any `datrix-*` directory in the w
 - `datrix-codegen-aws`
 - `datrix-codegen-azure`
 - `datrix-extensions`
+- `datrix-vscode` (VS Code client — TypeScript; its suite runs under Node, not pytest)
 
 ---
 

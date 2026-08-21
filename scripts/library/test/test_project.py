@@ -35,8 +35,16 @@ if library_dir.exists() and str(library_dir) not in sys.path:
  sys.path.insert(0, str(library_dir))
 
 # Import shared modules
+from shared.node_test_runner import run_node_suite  # noqa: E402
+from shared.package_suites import SuiteKind, detect_suite_kind  # noqa: E402
 from shared.test_runner import TestConfig, TestRunner  # noqa: E402
 from shared.venv import get_datrix_root, get_venv_python, is_venv_active  # noqa: E402
+
+# Marker filters that SELECT a marked subset of tests. A suite with no marker
+# concept (a Node suite) has no such subset, and pytest's own convention is that
+# a marker matching nothing is not a failure -- TestRunner maps pytest's exit
+# code 5 to 0 for exactly this case.
+_SUBSET_MARKER_FLAGS: tuple[str, ...] = ("unit", "integration", "e2e", "slow")
 
 # Package name (as in pyproject) -> import name for dev deps we can import-check
 _DEV_PACKAGE_TO_IMPORT: dict[str, str] = {
@@ -526,6 +534,54 @@ def get_latest_test_result_status(project_root: Path) -> str | None:
     return None
 
 
+def run_node_project(args: argparse.Namespace, project_root: Path) -> int:
+ """Run a Node package's suite, reporting any option the runner cannot honor.
+
+ A Node suite has no pytest markers and no coverage plumbing, so some flags
+ that ``test.ps1`` passes to every package have no counterpart here. Each is
+ stated on stdout rather than dropped: an option that silently does nothing is
+ the same defect as a silent fallback, and it is what makes a caller believe a
+ narrowed run happened when the whole suite ran.
+
+ Args:
+  args: Parsed command-line arguments.
+  project_root: Root directory of the Node package.
+
+ Returns:
+  Process exit code from the Node suite, or 0 when a marker filter selects a
+  subset this package cannot have (pytest's own no-collection convention).
+ """
+ selecting_markers = [flag for flag in _SUBSET_MARKER_FLAGS if getattr(args, flag)]
+ if selecting_markers:
+  print(
+   f"[SKIP] {args.project_name}: --{selecting_markers[0]} selects tests carrying "
+   f"that marker, and a Node suite declares no test markers, so this package "
+   f"contributes no tests to the selection. Nothing was run."
+  )
+  return 0
+
+ if args.fast:
+  print(
+   f"{args.project_name}: --fast excludes slow-marked tests; a Node suite marks "
+   f"none, so the whole suite runs."
+  )
+
+ if args.coverage:
+  print(
+   f"{args.project_name}: --coverage collects no data for a Node suite; the "
+   f"suite runs without coverage instrumentation."
+  )
+
+ return run_node_suite(
+  project_root,
+  args.project_name,
+  verbose=args.verbose,
+  save_log=not args.no_save,
+  specific=args.specific,
+  name_pattern=args.keyword,
+ )
+
+
 def main() -> int:
  parser = argparse.ArgumentParser(
  description="Run tests for a Datrix project (excluding benchmark tests)",
@@ -621,6 +677,14 @@ Note: This script should be called from test.ps1, which handles virtual environm
   else:
    print(f"[RERUN] {args.project_name}: latest test run reported failures — running tests.")
 
+ # Dispatch on the kind of suite this package actually carries. Everything
+ # below this point -- the venv, the editable installs, the pytest dev-dep
+ # checks -- is specific to a Python package, and a Node package needs none
+ # of it.
+ suite_kind = detect_suite_kind(project_root)
+ if suite_kind is SuiteKind.NODE:
+  return run_node_project(args, project_root)
+
  # Get Python executable (use common venv at D:\\datrix\\.venv where all projects are installed in editable mode)
  python_exe = get_venv_python()
  if python_exe.exists():
@@ -647,23 +711,16 @@ Note: This script should be called from test.ps1, which handles virtual environm
     print("Packages ensured by caller (test.ps1); skipping per-project dev install. Proceeding with tests.")
   else:
    print("Detected missing dev dependencies. Installing automatically...")
-   if not args.skip_install:
-    auto_install = not args.no_auto_install
-    if install_dev_dependencies(python_exe, project_root, auto_install=auto_install):
-     print("Dev dependencies installed successfully.")
-    else:
-     if not auto_install:
-      print("\nTo install dev dependencies manually, run:", file=sys.stderr)
-      print(f" cd {project_root}", file=sys.stderr)
-      print(" pip install -e .[dev]", file=sys.stderr)
-      return 1
-     else:
-      print("ERROR: Failed to install dev dependencies", file=sys.stderr)
-      return 1
+   auto_install = not args.no_auto_install
+   if install_dev_dependencies(python_exe, project_root, auto_install=auto_install):
+    print("Dev dependencies installed successfully.")
    else:
-    print("\nTo install dev dependencies, run:", file=sys.stderr)
-    print(f" cd {project_root}", file=sys.stderr)
-    print(" pip install -e .[dev]", file=sys.stderr)
+    if not auto_install:
+     print("\nTo install dev dependencies manually, run:", file=sys.stderr)
+     print(f" cd {project_root}", file=sys.stderr)
+     print(" pip install -e .[dev]", file=sys.stderr)
+    else:
+     print("ERROR: Failed to install dev dependencies", file=sys.stderr)
     return 1
 
  # Check for required dependencies
@@ -679,8 +736,9 @@ Note: This script should be called from test.ps1, which handles virtual environm
    for module_name, package_name in missing_deps:
     print(f" - {module_name} (install: {package_name})", file=sys.stderr)
 
-  # Try to install dependencies if not skipped
-  if not args.skip_install:
+   # Installing here while test.ps1 has already ensured every package would
+   # run a second, concurrent pip against the shared venv. This branch is the
+   # one that has NOT been ensured, so it is the only one that may install.
    auto_install = not args.no_auto_install # Default to True unless --no-auto-install is specified
    install_success = install_dependencies(missing_deps, project_root, python_exe, current_python_exe=sys.executable, auto_install=auto_install)
 
@@ -691,20 +749,14 @@ Note: This script should be called from test.ps1, which handles virtual environm
     print("Dependencies installation completed. Proceeding with tests...")
    else:
     # Installation was cancelled or failed
-    if not auto_install:
-     print("\nTo install all test dependencies manually, run from the project root:", file=sys.stderr)
-     print(f" cd {project_root}", file=sys.stderr)
-     print(" pip install -e .[dev]", file=sys.stderr)
-     return 1
-    else:
-     # Skip install was requested, just show instructions
-     print("\nTo install all test dependencies, run from the project root:", file=sys.stderr)
-     print(f" cd {project_root}", file=sys.stderr)
-     print(" pip install -e .[dev]", file=sys.stderr)
+    print("\nTo install all test dependencies manually, run from the project root:", file=sys.stderr)
+    print(f" cd {project_root}", file=sys.stderr)
+    print(" pip install -e .[dev]", file=sys.stderr)
+    if auto_install:
      print("\nOr install individually:", file=sys.stderr)
      for _, package_name in missing_deps:
       print(f" pip install \"{package_name}\"", file=sys.stderr)
-     return 1
+    return 1
 
  # Ensure shared modules are available (should be via sys.path from top of file)
  try:

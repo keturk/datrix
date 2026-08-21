@@ -43,7 +43,14 @@ _LIBRARY_DIR = Path(__file__).resolve().parent.parent
 if _LIBRARY_DIR.exists() and str(_LIBRARY_DIR) not in sys.path:
     sys.path.insert(0, str(_LIBRARY_DIR))
 
+from shared.package_suites import (  # noqa: E402
+    NODE_MANIFEST_NAME,
+    NODE_TEST_SCRIPT_KEY,
+    SuiteKind,
+    detect_suite_kind,
+)
 from shared.venv import get_datrix_root  # noqa: E402
+
 from test.status_tests import parse_timestamp_from_log_file  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -269,10 +276,37 @@ def _test_id_to_node_path(test_id: str) -> str | None:
     return "::".join([module_path, *class_parts, *rest])
 
 
-def _build_test_command(ctx: _RunContext, node_path: str) -> str:
-    """Build the ready-to-run single-test invocation for a representative test."""
-    script = (ctx.workspace / "datrix" / "scripts" / "test" / "test-single.ps1").as_posix()
-    return f'powershell -File "{script}" "{node_path}" -Project {ctx.project}'
+def _build_test_command(ctx: _RunContext, node_path: str) -> str | None:
+    """Build the ready-to-run re-run invocation for a representative test.
+
+    Datrix packages do not share one test runner, so neither can this command.
+    A pytest package is re-run by node ID through ``test-single.ps1``. A Node
+    package (``datrix-vscode``) has no single-test runner at all — its suite is
+    re-run by FILE through ``test.ps1 -Specific``, which accepts the source-side
+    ``.ts`` name for the compiled file. Emitting the pytest form for a Node
+    package would hand the reader a command that cannot run, so the suite the
+    package actually carries decides the shape.
+
+    Args:
+        ctx: Resolved run context; ``workspace / project`` is the package root.
+        node_path: The representative's test path (``file`` or
+            ``file::selector...``).
+
+    Returns:
+        The invocation, or ``None`` when the package carries no recognizable
+        test suite - there is no truthful command to emit for one.
+    """
+    scripts_dir = ctx.workspace / "datrix" / "scripts" / "test"
+    suite_kind = detect_suite_kind(ctx.workspace / ctx.project)
+    if suite_kind is SuiteKind.PYTEST:
+        script = (scripts_dir / "test-single.ps1").as_posix()
+        return f'powershell -File "{script}" "{node_path}" -Project {ctx.project}'
+    if suite_kind is SuiteKind.NODE:
+        script = (scripts_dir / "test.ps1").as_posix()
+        test_file = node_path.split("::", 1)[0]
+        return f'powershell -File "{script}" {ctx.project} -Specific "{test_file}"'
+    logger.debug("no_suite_kind_for_project project=%s; test_command omitted", ctx.project)
+    return None
 
 
 def _read_log_tail(log_path: Path, max_lines: int) -> str:
@@ -408,11 +442,13 @@ def _cluster_payload(
     for optional_key in ("phase", "failure_type", "services_affected"):
         if optional_key in cluster and cluster[optional_key] is not None:
             payload[optional_key] = cluster[optional_key]
-    # test-single.ps1 runs PACKAGE tests only: emit a test_command solely for
-    # runs whose project is a real package directory in the workspace.
+    # The re-run command targets PACKAGE tests only: emit a test_command solely
+    # for runs whose project is a real package directory in the workspace.
     # Generated-project runs (unit or deploy) are re-run via run-complete.ps1.
     if node_path is not None and (ctx.workspace / ctx.project).is_dir():
-        payload["test_command"] = _build_test_command(ctx, node_path)
+        test_command = _build_test_command(ctx, node_path)
+        if test_command is not None:
+            payload["test_command"] = test_command
     return payload
 
 
@@ -653,8 +689,129 @@ _SELF_TEST_INDEXES: tuple[tuple[str, dict[str, object], int, str | None], ...] =
 )
 
 
+#: (case name, package-marker files to create, representative node path,
+#: substrings the command must contain, substrings it must NOT contain).
+#: An empty marker tuple means a package directory carrying no suite at all,
+#: for which no command may be emitted.
+_SELF_TEST_COMMAND_CASES: tuple[
+    tuple[str, tuple[str, ...], str, tuple[str, ...], tuple[str, ...]], ...
+] = (
+    (
+        "pytest package: node ID re-run via test-single.ps1",
+        ("tests/",),
+        "tests/unit/test_foo.py::TestBar::test_baz",
+        (
+            "test-single.ps1",
+            '"tests/unit/test_foo.py::TestBar::test_baz"',
+            "-Project ",
+        ),
+        ("-Specific",),
+    ),
+    (
+        "node package: file re-run via test.ps1 -Specific",
+        (NODE_MANIFEST_NAME,),
+        "src/test/serverResolution.test.ts::D:/pkg/out/test/serverResolution.test.js",
+        ('-Specific "src/test/serverResolution.test.ts"',),
+        ("test-single.ps1", ".js"),
+    ),
+)
+
+
+def _write_suite_markers(package_dir: Path, markers: tuple[str, ...]) -> None:
+    """Create the on-disk markers that make a fixture package's suite detectable.
+
+    Args:
+        package_dir: Fixture package root to create.
+        markers: Marker names - a trailing ``/`` means a directory, and the Node
+            manifest name means a manifest declaring a test script. The manifest
+            is spelled from ``package_suites``' own constants so the fixture
+            cannot drift from what detection actually looks for.
+
+    Raises:
+        ValueError: If a marker is neither of those - a fixture nobody can
+            interpret would silently prove nothing.
+    """
+    package_dir.mkdir(parents=True, exist_ok=True)
+    for marker in markers:
+        if marker.endswith("/"):
+            (package_dir / marker.rstrip("/")).mkdir(parents=True, exist_ok=True)
+        elif marker == NODE_MANIFEST_NAME:
+            (package_dir / marker).write_text(
+                json.dumps({"scripts": {NODE_TEST_SCRIPT_KEY: "node --test"}}),
+                encoding="utf-8",
+            )
+        else:
+            raise ValueError(
+                f"Unrecognized suite marker {marker!r}. Expected a directory "
+                f"name ending in '/' or {NODE_MANIFEST_NAME!r}."
+            )
+
+
+def _run_command_shape_self_test() -> int:
+    """Check the emitted re-run command matches the suite the package carries.
+
+    A package's runner is a fact about its tree, and this module restates it.
+    Handing a Node package a pytest ``test-single.ps1`` invocation produces a
+    command that cannot run, which is worse than emitting none - so both shapes
+    are pinned here, each asserted to EXCLUDE the other's marker.
+
+    Returns:
+        Number of failing cases; 0 when every shape is correct.
+    """
+    import tempfile
+
+    failures = 0
+    for name, markers, node_path, expected, forbidden in _SELF_TEST_COMMAND_CASES:
+        with tempfile.TemporaryDirectory() as raw_dir:
+            workspace = Path(raw_dir)
+            project = "datrix-fixture"
+            _write_suite_markers(workspace / project, markers)
+            ctx = _RunContext(
+                run_dir=workspace,
+                workspace=workspace,
+                project=project,
+                max_log_lines=_DEFAULT_MAX_LOG_LINES,
+            )
+            command = _build_test_command(ctx, node_path)
+        if command is None:
+            print(f"[FAIL] {name}: no command emitted")
+            failures += 1
+            continue
+        missing = [part for part in expected if part not in command]
+        present = [part for part in forbidden if part in command]
+        if missing or present:
+            print(
+                f"[FAIL] {name}: command {command!r} missing {missing} / "
+                f"carries forbidden {present}"
+            )
+            failures += 1
+            continue
+        print(f"[OK] {name}")
+
+    # Non-vacuity: a package directory carrying NO suite must yield no command,
+    # or the two acceptances above would prove nothing about the detection.
+    with tempfile.TemporaryDirectory() as raw_dir:
+        workspace = Path(raw_dir)
+        _write_suite_markers(workspace / "datrix-fixture", ())
+        ctx = _RunContext(
+            run_dir=workspace,
+            workspace=workspace,
+            project="datrix-fixture",
+            max_log_lines=_DEFAULT_MAX_LOG_LINES,
+        )
+        if _build_test_command(ctx, "tests/test_foo.py") is None:
+            print("[OK] a package with no test suite yields no command (non-vacuity)")
+        else:
+            print("[FAIL] a package with no test suite still produced a command")
+            failures += 1
+    return failures
+
+
 def _run_self_test() -> int:
     """Parse one minimal index per supported writer shape; report OK/FAIL per case.
+
+    Also runs the re-run-command shape cases, which pin the invocation emitted
+    for each kind of test suite a package can carry.
 
     Returns:
         `_EXIT_OK` when every shape parses and yields the expected clusters,
@@ -716,10 +873,13 @@ def _run_self_test() -> int:
             print("[FAIL] unknown member-id spelling was ACCEPTED - the guard is vacuous")
             failures += 1
 
+    failures += _run_command_shape_self_test()
+
     if failures:
         print(f"SELF-TEST FAILED: {failures} case(s)")
         return _EXIT_USAGE
-    print(f"SELF-TEST PASSED: {len(_SELF_TEST_INDEXES) + 1} case(s)")
+    total_cases = len(_SELF_TEST_INDEXES) + len(_SELF_TEST_COMMAND_CASES) + 2
+    print(f"SELF-TEST PASSED: {total_cases} case(s)")
     return _EXIT_OK
 
 

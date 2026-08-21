@@ -23,18 +23,47 @@ if library_dir.exists() and str(library_dir) not in sys.path:
   sys.path.insert(0, str(library_dir))
 
 
-def _load_get_datrix_root():
- """Load get_datrix_root from shared/venv.py without importing shared.__init__."""
- venv_module_path = library_dir / "shared" / "venv.py"
- spec = importlib.util.spec_from_file_location("_status_tests_shared_venv", venv_module_path)
+def _load_shared_module(module_name: str):
+ """Load one module from shared/ without importing shared.__init__.
+
+ ``shared/__init__.py`` pulls in the whole helper surface, including modules
+ that import ``datrix_common``. This report only needs two small, dependency-free
+ helpers, and loading them directly keeps it runnable even when the toolchain
+ packages themselves are not importable.
+
+ Args:
+  module_name: Module file stem under ``scripts/library/shared/``.
+
+ Returns:
+  The loaded module object.
+
+ Raises:
+  ImportError: If the module file cannot be turned into a loadable spec.
+ """
+ module_path = library_dir / "shared" / f"{module_name}.py"
+ qualified_name = f"_status_tests_shared_{module_name}"
+ spec = importlib.util.spec_from_file_location(qualified_name, module_path)
  if spec is None or spec.loader is None:
-  raise ImportError(f"Could not load module spec from {venv_module_path}")
+  raise ImportError(f"Could not load module spec from {module_path}")
  module = importlib.util.module_from_spec(spec)
+ # Registered BEFORE execution: @dataclass resolves a class's own module through
+ # sys.modules while the class body is being processed, so a module executed
+ # outside sys.modules fails with an AttributeError on None the moment it
+ # declares a dataclass.
+ sys.modules[qualified_name] = module
  spec.loader.exec_module(module)
- return module.get_datrix_root
+ return module
 
 
-get_datrix_root = _load_get_datrix_root()
+get_datrix_root = _load_shared_module("venv").get_datrix_root
+_package_suites = _load_shared_module("package_suites")
+_structured_log = _load_shared_module("structured_log_writer")
+
+#: index.json's per-phase status encoding, owned by the writer that defines the
+#: artifact. Read here rather than re-declared, so producer and reader cannot
+#: disagree about what a 1 or a 2 means.
+PHASE_STATUS_PASSED = _structured_log.PHASE_STATUS_PASSED
+PHASE_STATUS_FAILED = _structured_log.PHASE_STATUS_FAILED
 
 
 # ANSI color codes
@@ -87,28 +116,59 @@ class TestResult:
 
 
 # Retired packages (merged into datrix-common); excluded from status report.
-RETIRED_PROJECTS = frozenset({"datrix-core", "datrix-codegen"})
+RETIRED_PROJECTS = _package_suites.RETIRED_PACKAGE_NAMES
 
 
 def get_datrix_projects(datrix_root: Path) -> list[str]:
  """
- Get list of active datrix projects that have tests directory.
- Excludes retired projects (datrix-core, datrix-codegen) merged into datrix-common.
- 
+ Get list of active datrix projects that carry a test suite.
+
+ Delegates to shared.package_suites so this report, ``test.ps1 -All`` and
+ ``test_project.py`` all answer "is this package testable?" the same way. A
+ package whose suite runs under a non-pytest runner (a Node package such as the
+ VS Code client) is included: it writes the same ``.test_results`` artifacts
+ this report reads, so nothing here needs to know which runner produced them.
+
  Args:
  datrix_root: Root directory containing datrix projects
- 
+
  Returns:
  List of project names (sorted; excludes retired)
  """
- projects = []
- for item in datrix_root.iterdir():
-  if item.is_dir() and item.name.startswith("datrix-"):
-   if item.name in RETIRED_PROJECTS:
-    continue
-   if (item / "tests").exists():
-    projects.append(item.name)
- return sorted(projects)
+ return _package_suites.testable_package_names(datrix_root)
+
+
+def _phase_status_from_index(phase_info: object) -> str | None:
+ """Interpret one index.json ``phases`` entry.
+
+ Two encodings occur on disk. The current one is a dict carrying an explicit
+ ``status`` (1 = passed, 2 = failed). Runs recorded before that carry the bare
+ pytest RETURN CODE for the phase, where 0 means passed -- readable, and worth
+ reading, because a `.test_results` tree holds runs from both.
+
+ What is NOT tolerated is guessing: an entry in neither encoding returns None
+ and is left out of the report, so its column renders "-" rather than "OK".
+ Defaulting an uninterpretable phase to passed is what made every phase column
+ green on red runs.
+
+ Args:
+  phase_info: One value from the index's ``phases`` map.
+
+ Returns:
+  "PASSED", "FAILED", or None when the entry cannot be interpreted.
+ """
+ if isinstance(phase_info, dict):
+  status_value = phase_info.get("status")
+  if status_value == PHASE_STATUS_PASSED:
+   return "PASSED"
+  if status_value == PHASE_STATUS_FAILED:
+   return "FAILED"
+  return None
+ # bool is an int subclass, and a boolean here would be a third encoding
+ # nobody wrote -- reject it rather than read True as "return code 1".
+ if isinstance(phase_info, int) and not isinstance(phase_info, bool):
+  return "PASSED" if phase_info == 0 else "FAILED"
+ return None
 
 
 def _no_log_result(project_dir: Path) -> TestResult:
@@ -216,31 +276,28 @@ def _read_index_json(index_path: Path) -> TestResult | None:
    failed_phases = []
    for phase_name, phase_info in phases_data.items():
     phase_key = phase_name.capitalize()
-    if isinstance(phase_info, dict):
-     phase_status_val = phase_info.get("status")
-     if phase_status_val == 2:  # FAILED
-      failed_phases.append(phase_key)
+    if _phase_status_from_index(phase_info) == "FAILED":
+     failed_phases.append(phase_key)
 
    # Build phase results
    for phase_name, phase_info in phases_data.items():
     phase_key = phase_name.capitalize()
-    phase_items = int(phase_info.get("items", 0)) if isinstance(phase_info, dict) else 0
-    if phase_items > 0 or phase_key in ("Parallel", "Serial", "Tests"):
-     phase_status_val = phase_info.get("status", 0) if isinstance(phase_info, dict) else 0
-     phase_status = "PASSED" if phase_status_val == 1 else "FAILED" if phase_status_val == 2 else "PASSED"
+    phase_status = _phase_status_from_index(phase_info)
+    if phase_status is None:
+     continue
 
-     # Assign overall failure/error counts to the first failed phase for display
-     if phase_status == "FAILED" and failed_phases and phase_key == failed_phases[0]:
-      phases[phase_key] = PhaseResult(
-       status=phase_status,
-       failed=total_failed,
-       errors=total_errors,
-       passed=0,  # Don't have per-phase passed count
-       skipped=0,
-       warnings=0
-      )
-     else:
-      phases[phase_key] = PhaseResult(status=phase_status)
+    # Assign overall failure/error counts to the first failed phase for display
+    if phase_status == "FAILED" and failed_phases and phase_key == failed_phases[0]:
+     phases[phase_key] = PhaseResult(
+      status=phase_status,
+      failed=total_failed,
+      errors=total_errors,
+      passed=0,  # Don't have per-phase passed count
+      skipped=0,
+      warnings=0
+     )
+    else:
+     phases[phase_key] = PhaseResult(status=phase_status)
 
   # Use index.json path for log_file reference (smaller, structured summary)
   log_file_str = str(index_path)

@@ -58,7 +58,8 @@ PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 # anchor-churning docs rename for no gain in pointer safety.
 
 SCAN_EXTENSIONS = (
-    ".py", ".ps1", ".json", ".md", ".j2", ".ts", ".cs", ".java",
+    ".py", ".ps1", ".json", ".md", ".j2", ".ts", ".mts", ".cts",
+    ".js", ".mjs", ".cjs", ".cs", ".java",
     ".toml", ".yaml", ".yml", ".dtrx",
 )
 
@@ -68,8 +69,12 @@ SKIP_DIRS = frozenset({".git", "__pycache__", "node_modules", ".venv", ".tasks",
 
 WORKSPACE_ROOT = "D:/datrix"
 
-#: Committed subtrees of an installable ``datrix-*`` package.
-PACKAGE_SUBTREES = ("src", "tests", "docs")
+#: Committed subtrees of a ``datrix-*`` package. ``scripts`` is here because a
+#: package's build tooling is committed like any other source: datrix-vscode
+#: keeps its grammar generation and packaging checks under ``scripts/``, and a
+#: subtree no gate scans is a subtree where a dangling design/task reference
+#: survives review.
+PACKAGE_SUBTREES = ("src", "tests", "docs", "scripts")
 
 #: Committed subtrees of the ``datrix`` showcase repo, which has no ``src``.
 SHOWCASE_SUBTREES = ("scripts", "docs", "examples")

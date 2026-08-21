@@ -34,6 +34,34 @@ Runs tests for one or more Datrix projects.
 
 **Log output:** Unless `-NoSave` is used, `test.ps1` creates one timestamped log folder for each project it runs under that project's `.test_results` directory. AI agents do not need to capture full console output; read the final console lines to find the saved log folder, then inspect the files in that folder.
 
+### Node suites (`datrix-vscode`)
+
+A package is testable when it carries a `tests/` folder (pytest) **or** a `package.json`
+declaring a `test` script (Node). `test.ps1` dispatches on which it has, and both write the
+same `.test_results/test-results-<stamp>/` artifacts — `full.log`, JUnit XML, `index.json` —
+so `status-tests.ps1`, `-Rerun`, `gate-verdict.ps1` and `affected-gate.ps1` work on either
+without knowing the difference. Which files hold a package's tests and which npm script
+builds them are declared in a `datrix` block in its own `package.json`.
+
+A Node package's dependency on a framework package is **not** declared there. That edge is
+invisible to the Python import scan (it is a subprocess contract, not an import), and it
+cannot live in a manifest that ships inside a distributable artifact — datrix-vscode's
+`verify-package-contents.mjs` fails the build when any archived file names a framework
+package. It is declared in the monorepo instead:
+`datrix/scripts/config/cross-ecosystem-dependencies.json`, read by `affected-set.ps1` as a
+SOURCE edge. A name there that resolves to no package on disk is an error, never an empty
+result.
+
+Options that have no counterpart in a Node suite are reported, never silently dropped:
+
+| Option | On a Node suite |
+|--------|-----------------|
+| `-Specific "serverResolution.test.ts"` | Selects test files. The source-side `.ts` name is accepted for the compiled `.js` file; naming a file that does not exist is an error, not a smaller run |
+| `-Keyword <expr>` | Passed to Node's `--test-name-pattern`, which is a **regex** where pytest's `-k` is a boolean name expression. An expression that matches nothing selects zero tests and is reported as a non-pass |
+| `-Fast` | Excludes slow-marked tests; a Node suite marks none, so the whole suite runs (stated on stdout) |
+| `-Unit` / `-Integration` / `-E2E` / `-Slow` | Select a marked subset a Node suite has none of. The package is skipped with a message, exit 0 — the same convention as pytest collecting nothing for a marker |
+| `-Coverage` | Collects no data; the suite runs uninstrumented (stated on stdout) |
+
 ---
 
 ## `test\run-complete.ps1`
@@ -209,14 +237,14 @@ These parse structured test-results run directories so AI agents read compact JS
 
 ### `test\collect-failure-data.ps1`
 
-Builds `failure-data.json` inside a run directory: every error/failure cluster with its representative's traceback tail embedded, `codegen_hint`/`generated_file` when present, and (package runs only) a ready-to-run `test_command`. Supports all three index schemas: package (`structured_log_writer`), generated-project unit (`generated_test_log_writer`), and deploy-test (`deploy_test_log_writer` — deploy adds `failed_phase`; infra errors are keyed `phase#id` and may have `traceback_tail: null`).
+Builds `failure-data.json` inside a run directory: every error/failure cluster with its representative's traceback tail embedded, `codegen_hint`/`generated_file` when present, and (package runs only) a ready-to-run `test_command`. That command's shape follows the suite the package actually carries — a pytest package gets a `test-single.ps1` node-ID re-run, a Node package (`datrix-vscode`, which has no single-test runner) gets `test.ps1 <pkg> -Specific "<source .ts file>"`, and a package carrying no recognizable suite gets no `test_command` key at all rather than an invocation that cannot run. Supports all three index schemas: package (`structured_log_writer`), generated-project unit (`generated_test_log_writer`), and deploy-test (`deploy_test_log_writer` — deploy adds `failed_phase`; infra errors are keyed `phase#id` and may have `traceback_tail: null`).
 
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Run directory** | `.\test\collect-failure-data.ps1 "D:\datrix\datrix-common\.test_results\test-results-YYYYMMDD-HHMMSS"` | Parse an explicit run dir (or its `index.json` path) |
 | **Latest run of a package** | `.\test\collect-failure-data.ps1 -Project datrix-codegen-aws` | Auto-locate the newest `test-results-*` run |
 | **Longer tracebacks** | `.\test\collect-failure-data.ps1 -Project datrix-common -MaxLogLines 120` | Embed more tail lines per representative (default 60) |
-| **Self-test only** | `.\test\collect-failure-data.ps1 -SelfTest` | Parse one fixture index per supported writer schema; skip the real run analysis |
+| **Self-test only** | `.\test\collect-failure-data.ps1 -SelfTest` | Parse one fixture index per supported writer schema and check the re-run command emitted for each suite kind; skip the real run analysis |
 
 **Parameters:** positional run-dir/`index.json` path OR `-Project <name>` (exactly one), `-MaxLogLines <n>`, `-SelfTest`, `-Dbg`
 
@@ -229,6 +257,12 @@ source path, an xUnit id (`Namespace.Class::Method`) carries none, so the repres
 null and the locator is its `generated_file`. `-SelfTest` parses one minimal fixture index per shape
 plus a deliberate unknown-spelling case that MUST be rejected (non-vacuity), so a writer that changes
 its spelling fails here rather than at an agent's first read of a real run.
+
+**Re-run-command shape self-test.** The same run also pins the `test_command` emitted for each suite
+kind against a fixture package tree — pytest markers must yield the `test-single.ps1` form and Node
+markers the `test.ps1 -Specific` form, each asserted to carry none of the other's markers, plus a
+suite-less package that must yield no command at all. Handing a Node package the pytest invocation
+is worse than emitting nothing: it reads as ready-to-run and cannot run.
 
 **Output:** `{run-dir}\failure-data.json`. **Exit codes:** 0 = analysis completed (even all-green), 2 = usage / input not found / unrecognized schema / a failing `-SelfTest` case.
 

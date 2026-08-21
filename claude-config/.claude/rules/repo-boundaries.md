@@ -3,7 +3,7 @@
 Read this before creating a directory, adding a test outside the package you are fixing, or
 writing anything into `D:\datrix\datrix`.
 
-## The 15 package repos
+## The 16 package repos
 
 Each of these is its own **git repository**. Anything dropped inside one gets committed and
 pushed unless a human notices:
@@ -12,7 +12,19 @@ pushed unless a human notices:
 `datrix-codegen-common`, `datrix-codegen-component`, `datrix-codegen-docker`,
 `datrix-codegen-dotnet`, `datrix-codegen-java`, `datrix-codegen-python`,
 `datrix-codegen-sql`, `datrix-codegen-typescript`, `datrix-common`, `datrix-extensions`,
-`datrix-language`
+`datrix-language`, `datrix-vscode`
+
+**`datrix-vscode` is not a Python package.** It is the TypeScript VS Code client: no
+`pyproject.toml`, so it is absent from the venv install set and from every Python scan, but
+it IS a testable package (its suite runs under Node via `test.ps1`, and it appears in
+`status-tests.ps1`) and it IS a publishable git repo the isolation and reference gates scan.
+It also **packages itself into a `.vsix`**, so a file dropped inside it can reach an
+installed extension, not just a commit — `.vscodeignore` governs that, and
+`verify-package-contents.mjs` fails the build on anything in the archive naming a framework
+package or carrying an internal path. That is why a fact naming a framework package is never
+written into a publishable package: the cross-ecosystem dependency edges live in
+`datrix/scripts/config/cross-ecosystem-dependencies.json`, and only publish-safe facts (which
+files hold the tests, which script builds them) go in the package's own manifest.
 
 ## Temporary files
 

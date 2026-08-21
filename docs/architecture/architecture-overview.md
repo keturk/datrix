@@ -1290,6 +1290,33 @@ Two facts shape the realization. First, the classifier is emitted by a template 
 
 ---
 
+### Decision 41: Datrix Language Server — Editor Intelligence over LSP (Adopted)
+
+Every diagnostic a Datrix author sees today is CLI-only: they leave the editor and run a validation command to learn about a syntax or semantic error, and there is no completion, hover, go-to-definition, or outline anywhere. The foundations already exist — tolerant parsing, located diagnostics with suggestions, a symbol table, resolved typed references, a type-name registry — but nothing serves them to an editor. This decision adds a Language Server Protocol server built entirely on the shipped parser and semantic layer, which never invokes generation, generator discovery, platform discovery, or a formatter.
+
+**Adopted** — the server, launcher command, keyword manifest, and editor client are shipped and verified against a real multi-file project fixture. `datrix lsp` starts the server over stdio behind the optional `datrix-language[lsp]` extra; every `textDocument/*` request the design specifies — completion, hover, definition (including cross-language config-path navigation), references, and document symbols — is registered and advertised, not merely implemented as an unreachable service class. The VS Code client publishes from `datrix-vscode`, a private source repository whose packaging CI proves the published `.vsix` bundles no framework file.
+
+The server core lives in `datrix-language`, which already owns parsing and must work without generator discovery; `datrix-cli` gains one launcher command that imports the server lazily so users without the optional protocol dependency pay no import cost; the editor client is a separate repository that is not one of the framework packages and never bundles framework code. `datrix-common` takes exactly one change — a keyword set promoted from private to public — and no AST, model, or parser structure is touched.
+
+**The two authored languages get deliberately unequal support, and the asymmetry is a property of their parsers rather than an oversight.** The `.dtrx` path has a tolerant parser and a fully located AST, so it gets the whole feature set. The `.dcfg` (ConfigDSL) path has a fail-fast parser (`datrix-common/src/datrix_common/config/dcfg/parser.py`) and an AST whose nodes carry no source location at all, so nothing inside a `.dcfg` file is position-addressable: it gets one syntax diagnostic per file, cross-file navigation inbound from the `.dtrx` declaration that references it, and highlighting. Closing that gap requires giving the ConfigDSL AST locations — a foundation change with its own migration and consumers beyond the editor, deferred to its own decision.
+
+Three shipped facts shape the whole realization. Semantic analysis mutates the application in place and then seals it unconditionally, so an application can never be re-analyzed: every re-analysis is a fresh parse producing a fresh sealed snapshot. That is treated as an asset rather than an obstacle — a sealed tree is deeply immutable by enforcement, so any number of concurrent read-only editor requests share one snapshot without locks. Incremental parsing does not exist, so every accepted change is a full re-parse plus a full analysis; the cost is managed by debounce, a worker boundary, and discarding results for superseded document versions rather than by claiming an incrementality the parser does not have.
+
+| # | Invariant | Enforcement mechanism |
+|---|---|---|
+| 1 | The editor path never runs generation, platform/generator discovery, or a formatter | Negative import assertion on the launcher command path, run in a fresh subprocess so the check cannot pass or fail on test ordering |
+| 2 | An application is analyzed at most once; no analysis result is cached across text versions | Snapshot construction test proving a fresh application per analysis; index construction runs against a sealed tree, so any write raises rather than corrupting shared state |
+| 3 | Semantic analysis runs only on a structurally complete parse | Errored parses publish parse diagnostics and build indexes over the unsealed salvage tree, guarding every reference access on its resolved flag |
+| 4 | A diagnostic is published against the file it belongs to, never the file that happened to be analyzed | Diagnostics bucketed by their own source path and published per URI; a URI whose diagnostics are fixed receives an empty list rather than silence |
+| 5 | Keyword vocabulary has exactly one home | A generated keyword manifest derived from the grammar and the public ConfigDSL keyword set feeds both the completion provider and the editor client's syntax grammars; a hand-written keyword literal in a provider module, or a hand-edited generated grammar, is a build failure |
+| 6 | The server has no network surface and executes no workspace-supplied code | Standard input/output transport only, no listening socket; the one import path that loads plugins resolves installed entry points, so a source file can name an extension but cannot introduce one |
+| 7 | Untrusted input is bounded and the server refuses rather than hangs | Named document-size and nesting-depth ceilings enforced in the server layer, each derived from measured corpus maxima; an exceeded bound is a diagnostic and the server stays responsive to other documents |
+| 8 | Cross-file navigation cannot escape the workspace | A resolved config path outside the workspace root yields no location and no existence probe, proven by a traversal fixture whose target genuinely exists |
+| 9 | Neither logs nor diagnostics carry document content | Config keys can name secret references, so diagnostic text is the parser's own message plus a location and never an echo of the buffer; logs never reach standard output, which is the protocol transport |
+| 10 | The launched executable is never workspace-configurable | The client resolves its server from the user's environment only; no workspace- or folder-scoped setting can influence which binary starts, asserted against the client's contributed configuration |
+
+---
+
 ## Installation
 
 ```bash

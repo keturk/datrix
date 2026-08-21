@@ -46,7 +46,8 @@ Imported by metrics wrappers, `test.ps1`, and several dev scripts. Provides:
 - `ConvertTo-DatrixProjectName` — path or bare package name to directory name
 - `Get-DatrixPackageNamesGlob` — metrics `-All` (`datrix-*` on disk)
 - `Get-DatrixPackageNamesGlobWithPyProject` — like above, requires `pyproject.toml` (dependency help text)
-- `Get-DatrixTestablePackageNames` — canonical repos with a `tests/` folder (`test.ps1 -All`)
+- `Test-DatrixNodeSuite` — does this package directory declare a Node test suite?
+- `Get-DatrixTestablePackageNames` — packages carrying a suite: a `tests/` folder (pytest) or a `package.json` with a `test` script (Node) — `test.ps1 -All`
 - `Get-DatrixMonoProjectNames` — ordered canonical monorepo packages that exist (e.g. `duplicate.ps1 -Mono`)
 
 ## venv.ps1
