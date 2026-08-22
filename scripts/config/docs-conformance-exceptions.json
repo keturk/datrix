@@ -30,6 +30,11 @@
       "span": "datrix_codegen_python.parity.declarations",
       "doc": "datrix-codegen-common/docs/architecture.md",
       "reason": "migration-history reference: the doc's own text states this hand-authored per-package declaration list 'and its siblings are deleted', replaced by parity/derived_declarations.py's derive_domain_declarations()"
+    },
+    {
+      "span": "datrix_codegen_common.escaping",
+      "doc": "datrix/docs/architecture/architecture-overview.md and datrix-codegen-common/docs/architecture.md",
+      "reason": "negative/prohibition claim, not an existence assertion: this module was never created (a second SQL-literal encoder would have duplicated the canonical datrix_common.utils.sql_text.sql_string_literal); each mention states plainly that no such module exists"
     }
   ]
 }

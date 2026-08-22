@@ -1032,7 +1032,7 @@ platforms {
 | 3 | No symbol in the shared codegen package carries a target name | Shared-layer target-name ratchet passes at a baseline holding exactly one reviewed exemption, 70 genuine declarations fixed (down from 76 matched, of which the four `sql`-substring identifiers are provably outside the ratchet's language-derived vocabulary); the closed-world drill's fixture language plugin supplies a struct slice and builds a struct context with no edit to the shared package |
 | 4 | No package hand-rolls a service-body walk | Zero private body-enumeration helpers survive in the language packages; a regression test proves a typed cross-service call inside a CQRS handler materializes its response module — written first and observed red against the shipped defect |
 | 5 | Every hoist is behavior-preserving | Each affected package's targeted suites pass unchanged; no generated-output diff on the hoisted paths |
-| 6 | The scope fence holds | The SQL and component packages' runtime dependencies still exclude `datrix-codegen-common` |
+| 6 | The scope fence holds for `datrix-codegen-component` | `datrix-codegen-component`'s runtime dependencies still exclude `datrix-codegen-common`. `datrix-codegen-sql`'s fence was retired by Decision 42, which now takes a real runtime dependency |
 
 **Scope boundaries:** Not a merge of language-specific emission — type maps, extension maps, per-language capability declarations, genDSL domain declarations, per-target realization declarations, and the language hook bodies all stay where they are. Not a consolidation of the delegating micro-generator classes (D7). Not a change to the SQL, component, docker, AWS, or Azure packages (D6). Not a removal of target-named declarations from the foundation or CLI packages: those are platform config-schema models, whose relocation into the platform packages is a Decision-22-shaped question of its own, and documented canonical-import API whose renaming is a breaking change to a published surface — so the new target-name ratchet is scoped to the shared codegen package. It also matches registered *language* names only, because one registered platform name is a common English word and including platforms returns hundreds of spurious hits; widening the ratchet requires solving that collision first. Not a cross-language parity or matrix test: each package tests its own surface, and the cross-cutting checks are repo-level scripts, never a test suite in the showcase repo. Not an endpoint-handler body-method parity change — two same-named constants encode genuinely different concepts (a cross-service call body versus request parameter binding), and the capability question that separates them belongs to the Cross-Target Parity Program.
 
@@ -1099,7 +1099,7 @@ Three things surfaced during implementation that the approved shape did not anti
 
 - **D5 — A parallel emission layer is removed, coverage first.** The declared surface is the only emission path for the concern it owns; a residual imperative path emitting the same artifacts is a bypass to be closed. Because most of the behaviour proven against the dead classes has no equivalent assertion against the live micro-generators, **coverage migrates before deletion, in the same change** — deleting a module and its tests together silently deletes whatever those tests were the only proof of. The structural guard is a package-owned check that no generator module is reachable only from tests, landed with a pinned baseline ahead of the deletions it polices so the next instance cannot appear silently.
 
-- **D6 — Intra-package consolidation needs no boundary decision and is ranked by duplicated lines per unit of coordination.** It reaches surfaces nothing else will: the SQL package is fenced out of Decision 34 and gains no shared-codegen dependency, so package-local extraction is the only lever that will ever apply to its two dialect reflectors. Where two packages independently grew the same internal duplication between the same pair of concerns, that is evidence the missing abstraction belongs in the shared layer rather than being fixed locally three times — and only decisions and structure move there, never template bodies.
+- **D6 — Intra-package consolidation needs no boundary decision and is ranked by duplicated lines per unit of coordination.** It reaches surfaces nothing else will: the SQL package was fenced out of Decision 34 at the time this decision shipped and gained no shared-codegen dependency then, so package-local extraction was the only lever available to its two dialect reflectors at that point -- that fence was later retired for `datrix-codegen-sql` by Decision 42, while `datrix-codegen-component` remains fenced. Where two packages independently grew the same internal duplication between the same pair of concerns, that is evidence the missing abstraction belongs in the shared layer rather than being fixed locally three times — and only decisions and structure move there, never template bodies.
 
 - **D7 — One implementation per fact in the foundation layer, and no new third-party dependency to get there.** A dependency added to the zero-dependency foundation is paid for by every package and every generated-toolchain install, so the bar is correspondingly high: deep-merge, duration parsing, and semantic-version validation are consolidated in place rather than delegated to a library. Duration is the sharpest case — the accepted unit set is currently two different facts, so whether a configuration value may say `"1d"` is answered differently depending on which code path reads it. Version validation adopts the official published grammar as a named, sourced constant rather than a hand-written approximation that accepts a trailing prerelease separator as valid. The C-style string escaper is deliberately **not** replaced by a JSON serializer: it escapes the two Unicode line separators that are statement terminators in one target language, making it more correct than the library, and a marker in the source already records that intent.
 
@@ -1124,7 +1124,7 @@ Three things surfaced during implementation that the approved shape did not anti
 | 9 | An adapter cannot widen an orchestrator-owned policy set | `MigrationOrchestrator` validates every registered adapter against the declared policy and fails loud on a widening; both per-adapter sets survive independently |
 | 10 | Parallel implementations across language packages, and separately across platform packages, are measured by a signal that survives divergence | Name-keyed report (`parallel_implementation_drift.py --axis languages\|platforms`, gate wrapper `parallel-implementation-drift-gate.ps1 -Axis`) with a runtime-derived, package-folded target set per axis, two separate decrease-only count baselines (never a shared ratchet), and zero unclassified groups |
 
-**Scope boundaries:** No item adds an edge to the dependency graph, and Decision 34's scope fence holds — the SQL and component packages gained no shared-codegen runtime dependency; their consolidation stayed package-local. No new third-party dependency was taken anywhere, and specifically not in the foundation layer: the merge, version, duration, email-validation, retry, quantity-parsing, and case-conversion libraries were each considered against a named site and each rejected. The two hand-written DSL parsers were not replaced — their error messages carry the source-location data the fail-fast contract depends on. The cron dialect translators, which translate between vendor dialects rather than validating a single one, were not touched, nor was the fixed-size batching primitive that landed in a Python release above the declared floor. No cross-language parity or matrix test was added: each package tests its own surface, and the two repo-level items here are scripts, never a test suite in the showcase repo. The C-style string escaper was deliberately left unreplaced.
+**Scope boundaries:** No item adds an edge to the dependency graph, and Decision 34's scope fence held at the time this decision shipped — the SQL and component packages gained no shared-codegen runtime dependency then; their consolidation stayed package-local. The SQL package's fence was later retired by Decision 42; `datrix-codegen-component` remains fenced. No new third-party dependency was taken anywhere, and specifically not in the foundation layer: the merge, version, duration, email-validation, retry, quantity-parsing, and case-conversion libraries were each considered against a named site and each rejected. The two hand-written DSL parsers were not replaced — their error messages carry the source-location data the fail-fast contract depends on. The cron dialect translators, which translate between vendor dialects rather than validating a single one, were not touched, nor was the fixed-size batching primitive that landed in a Python release above the declared floor. No cross-language parity or matrix test was added: each package tests its own surface, and the two repo-level items here are scripts, never a test suite in the showcase repo. The C-style string escaper was deliberately left unreplaced.
 
 **Status:** Adopted. All ten invariants hold today as executable gates: the cross-package vocabulary ratchet ships and passes; every private copy of shared code is gone; `graphlib` drives topological ordering at every migrated site with order-equivalence tests proven against the prior implementation first; the two GraphQL sorts are one, and a reference cycle fails generation instead of emitting code that breaks at runtime; the residual generator layer is gone with its coverage migrated first and a reachability guard landed to catch the next instance; intra-package duplication dropped in every targeted package; the foundation layer's hygiene set landed with no new third-party dependency; the three dead dependencies are gone and the test-only library moved to an extra; the migration-adapter policy set is enforced by the orchestrator rather than asserted in a comment; and the parallel-implementation drift report is live with every classified group accounted for.
 
@@ -1246,7 +1246,7 @@ One name remains labelled collapsible-by-casing but unreached, by design rather 
 | 1 | A comment attached to a construct is never silently lost between parse and emission | Produced-runs minus consumed-runs asserted zero over a fixture documenting every documentable construct (datrix-language); attached-but-unemitted runs measured per target by the documentation-realization gate's coverage census and held at `datrix/scripts/config/documentation-coverage-baseline.json`, a decrease-only ratchet whose non-vacuity self-test proves it can report both a hole and a non-hole |
 | 2 | An unmarked comment never reaches a published documentation surface | Channel is decided once at capture; published surfaces read only the doc-marked channel, and a test asserts an unmarked comment is absent from the emitted API document while present as a source comment |
 | 3 | Documentation capture requires no grammar change and no parser regeneration | Classification is a function of comment text; the grammar's comment rules are untouched |
-| 4 | The summary/description split has exactly one definition | It lives in `datrix-common`, reachable by every generator including the ones fenced out of `datrix-codegen-common`; no package computes its own |
+| 4 | The summary/description split has exactly one definition | It lives in `datrix-common`, reachable by every generator including the one still fenced out of `datrix-codegen-common` (`datrix-codegen-component`, per Decision 42); no package computes its own |
 | 5 | Author text cannot break or escape the construct it is emitted into | Per-language sanitizer plus a planted-hostile-text test covering comment terminators, triple quotes, backslashes, CR, and line/paragraph separators on every target |
 | 6 | A capability realized on one language target is realized on the others or declared unsupported with a reason | Runtime-derived, self-testing documentation-realization parity gate with typed, counted exemptions |
 | 7 | A documentation-only edit regenerates the service that contains it | Service-level documentation digest participates in the incremental hash; it is a sibling key the schema differ never reads, so no documentation edit plans a migration on its account |
@@ -1314,6 +1314,123 @@ Three shipped facts shape the whole realization. Semantic analysis mutates the a
 | 8 | Cross-file navigation cannot escape the workspace | A resolved config path outside the workspace root yields no location and no existence probe, proven by a traversal fixture whose target genuinely exists |
 | 9 | Neither logs nor diagnostics carry document content | Config keys can name secret references, so diagnostic text is the parser's own message plus a location and never an echo of the buffer; logs never reach standard output, which is the protocol transport |
 | 10 | The launched executable is never workspace-configurable | The client resolves its server from the user's environment only; no workspace- or folder-scoped setting can influence which binary starts, asserted against the client's contributed configuration |
+
+---
+
+### Decision 42: genDSL Engine Hardening — Output-Path Containment, Sanitized Path Attributes, One Escaping Home, and the Interpolation Rule (Adopted)
+
+**Rationale:**
+- `datrix-codegen-common` is the shared engine every language/platform generator consumes, so a
+  flaw at this boundary is replicated everywhere downstream. A source security review of the
+  package found genDSL's file emitter building output paths from unsanitized DSL-derived scope
+  values, seed SQL escaping that only doubled quotes (defeated by a trailing backslash under
+  MySQL), and a DSL `#{...}` interpolation rule that — once written — was violated by a copy
+  into a second generator package citing the first violation as precedent.
+- Two of the three findings are shadow paths bypassing already-correct machinery, not missing
+  machinery: the disk-write sink already enforced output containment, and the DSL grammar already
+  parsed interpolation into validated expression AST nodes (`FStringNode`/`InterpolationNode`)
+  with a correct transpile path (`visit_fstring`). The fixes promote existing-correct patterns to
+  documented, reusable contracts and close the two remaining shadow/hand-rolled paths.
+
+**Result:**
+
+- **D1 — Output-path containment is validated at construction, on both genDSL render sinks, by
+  one shared guard.** `_render_file` and `_render_collected_file` in
+  `datrix_codegen_common.gendsl.executor` both call a wrapper in
+  `datrix_codegen_common.gendsl.paths` immediately after path-template resolution and before a
+  `GeneratedFile` is constructed. The wrapper delegates its containment math to the canonical
+  `datrix_common.fileops.path_containment.resolve_contained_path` — no second containment
+  implementation exists anywhere in the tree. Because no output root exists in the genDSL engine
+  (both sinks emit a relative `GeneratedFile.path`), the wrapper validates against a synthetic
+  containment root — catching NUL-byte, UNC, drive-letter, absolute, and `..`-escape paths, all
+  of which are root-independent — and returns the original relative path unchanged; the
+  real-root containment check remains at write time in `datrix-common`'s file writer. A malformed
+  path is rejected at the point of construction, naming the offending path template.
+- **D2 — Path attributes resolve through sanitizing case forms; raw names are display-only.**
+  `_resolve_path_attribute`'s raw `getattr` fast-path and its `original` case form no longer
+  return separator-bearing raw names for path attributes; a value containing a path separator or
+  `..` is rejected. The plugin-contributed `{entity.table}` branch — a discovered gendsl target's
+  `path_attribute_resolver` return value — receives the identical treatment, because it is
+  DSL-derived data from the engine's point of view. The `Service` → `ServicePaths` branch is
+  unchanged: every value it produces already comes from `ServicePaths` and is safe by
+  construction.
+- **D3 — Generic cross-target literal escaping has one home, and it already existed; no second
+  home was created.** The canonical SQL-literal encoder is
+  `datrix_common.utils.sql_text.sql_string_literal(value, *, escape_backslashes: bool = False) -> str`
+  in `datrix-common` — carrying an `@canonical(sql/string-literal)` marker and already consumed
+  by four packages before this design landed. It returns the literal INCLUDING its surrounding
+  quotes. No `datrix_codegen_common.escaping` module is created: a second encoder would have been
+  a duplicate canonical differing only in whether the return value carries its own quotes, and
+  the dialect mode-switch this design needs (`escapes_backslashes_in_literals()`) was already on
+  the `SQLDialect` Protocol. SQL literal quoting is `SQLDialect.quote_literal` on
+  `datrix-codegen-sql`'s dialect Protocol — `DialectBase.quote_literal` is pure delegation to
+  `sql_string_literal`, passing `escape_backslashes=self.escapes_backslashes_in_literals()`, with
+  a PostgreSQL-correct default (`False`, matching `standard_conforming_strings` on) and a MySQL
+  override (`True`). Ad-hoc `.replace(...)` literal escaping at call sites is prohibited; the seed
+  writer and every downstream literal-emitting site route through the dialect method or the
+  canonical `datrix-common` encoder instead of hand-escaping. Shell-argument quoting
+  (`quote_shell_arg`) is deferred until a first real consumer exists; its future home, when
+  built, is a sibling module under `datrix_common/utils/`, never `datrix_codegen_common.escaping`.
+- **D4 — A dialect that cannot encode a literal fails closed.** A dialect missing `quote_literal`
+  raises a `GenerationError` naming the dialect class and the missing method. There is no
+  fallback to quote-doubling — that would silently reinstate the MySQL backslash-break-out
+  vulnerability the design closes.
+- **D5 — DSL `#{}` interpolation flows only through the validated expression visitor, and the
+  rule now has a mechanical enforcer.** The binding rule — `#{}`/template interpolation MUST
+  flow through `FStringNode`/`InterpolationNode` → `transpile_expression`, never through regex
+  extraction and string-pasting of raw DSL text into generated code — was violated *after* it was
+  first written: a second generator package copied an existing regex shadow path, citing the
+  first package's function as precedent. Prose could not stop that copy, so the rule is now backed
+  by a runtime-derived, self-testing conformance test in `datrix-codegen-common` that enumerates
+  every registered generator package from the `datrix.languages` entry-point group at runtime
+  (never a hardcoded list), fails on a regex literal matching `#\{` or an interpolation-parsing
+  regex in any transpiler module, proves its own non-vacuity every run (a planted violation must
+  make it fail; a clean sample must pass), and refuses to pass with fewer than two discovered
+  targets. Known, pre-existing violations are pinned in a reviewed exemption baseline with a file,
+  line, and written reason each, pointing at the designs that own their removal — they are not
+  silently ignored, and an exemption baseline whose count does not equal the live violation count
+  is itself a failure.
+- **D6 — The Decision 34 SQL scope fence is retired; the component fence stands.**
+  `datrix-codegen-sql` now takes a real runtime dependency on `datrix-codegen-common` — its
+  `src/` already imported `datrix_codegen_common` in three production modules before this
+  declaration made the dependency honest. The runtime dependency is on the shared engine, not on
+  an escaping module: the generic SQL-literal encoder these dialects use lives in
+  `datrix_common.utils.sql_text` per D3 above, reached through `datrix-common`, which
+  `datrix-codegen-sql` already depended on. `datrix-codegen-component`'s fence is unaffected by
+  this decision and remains in place.
+
+**Invariant table:**
+
+| # | Invariant | Enforcement mechanism |
+| --- | --- | --- |
+| 1 | Every genDSL output path is validated at construction, on both render sinks, by one shared guard delegating to the single canonical containment helper | `datrix_codegen_common.gendsl.paths` wrapper called from both `_render_file` and `_render_collected_file`; negative test rejects a `..`/absolute/drive/UNC path through both render paths, naming the offending template; `resolve_contained_path` has exactly one definition, in `datrix-common` |
+| 2 | Path attributes resolve through sanitizing case forms; raw/`original` names and plugin-contributed path attributes are all display-only for path purposes | Negative test: a model whose `.name` contains a separator or `..`, referenced through the raw fast-path, `original`, or the plugin `{entity.table}` branch, is rejected; positive test: `{entity.snake}`/`{service.kebab}`/`{service.package}`/`{rdbms_block.snake}` resolve unchanged |
+| 3 | Generic cross-target literal escaping has one home (`datrix_common.utils.sql_text.sql_string_literal`, pre-existing); no second home was created in `datrix_codegen_common.escaping`; dialect-specific encoding lives behind the owning package's Protocol method; no ad-hoc `.replace(...)` escaping at call sites | `replace("'", "''")` appears zero times in `datrix-codegen-common/src`, `datrix-codegen-sql/src`, `datrix-codegen-python/src`, and `datrix-codegen-java/src`; no `datrix_codegen_common/escaping/` module exists; every concrete `SQLDialect` implements `quote_literal` |
+| 4 | A dialect that cannot encode a literal fails closed | A dialect lacking `quote_literal` raises `GenerationError` naming the dialect class and the missing method, rather than falling back to quote-doubling |
+| 5 | DSL `#{}` interpolation flows only through the validated expression visitor (`FStringNode`/`InterpolationNode` → `transpile_expression`), never regex extraction plus string-pasting | Runtime-derived, self-testing conformance test in `datrix-codegen-common` enumerating registered generator packages from the `datrix.languages` entry-point group; non-vacuity proven every run (plant/detect, clean/pass); refuses to pass with fewer than two discovered targets; known violations are a reviewed, counted exemption baseline pointing at the designs that own their removal, never silent |
+| 6 | The Decision 34 scope fence retires for `datrix-codegen-sql`, which now takes a real `datrix-codegen-common` runtime dependency; `datrix-codegen-component` remains fenced | `datrix-codegen-sql`'s `pyproject.toml` declares `datrix-codegen-common` in `[project] dependencies`; a clean editable install and import of `datrix_codegen_sql.generator` succeeds; `datrix-codegen-component`'s runtime dependencies still exclude `datrix-codegen-common` |
+
+**Scope boundaries:** Does not touch the unread bulk of the engine (`algorithms/*`,
+`context_models/*`, most `orchestration/*`, `dashboards/`, `pooling/`) — pure AST-to-context
+mapping, out of scope. Does not change the two `jinja2.Environment` constructions — confirmed
+correct (`autoescape=False` for code, `StrictUndefined`, static module-level templates). Does not
+remove the interpolation-rule violations that already exist in `datrix-codegen-python` and
+`datrix-codegen-dotnet` — those are owned by their own hardening designs and are pinned as
+reviewed exemptions in the rule-(c) enforcer's baseline, not silently ignored. Does not widen the
+Decision 34 scope fence for `datrix-codegen-component`, which remains fenced. Namespace
+allow-listing before `importlib.import_module` in `gendsl/target_registry.py` and
+`datrix-common`'s `migration.state_store.RdbmsMigrationStateStore` adopting the shared
+containment helper for its `block_dir`/`_legacy_block_dir` joins (the persisted-state path;
+`datrix-codegen-common`'s `orchestration/migration_state.py` stateless branch already routed
+through the same helper before this design) are optional-hardening / uniformity items from the
+source design's lower-confidence observations, landed alongside the above for defense in depth.
+
+**Status:** Adopted. Both genDSL render sinks validate output paths through the shared
+containment guard; path-attribute resolution treats raw and plugin-contributed names as
+display-only; the generic SQL-literal escaper and the `SQLDialect.quote_literal` Protocol method
+ship with a fail-closed dialect contract; the rule-(c) conformance test enumerates every
+registered generator package and enforces the interpolation invariant with a reviewed, counted
+exemption baseline; the Decision 34 SQL scope fence is retired.
 
 ---
 

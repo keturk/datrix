@@ -137,7 +137,7 @@ Moves target-agnostic logic out of the language generator packages and into the 
 | 3 | No type, field, or type alias in `datrix-codegen-common` carries a registered **language** name | `powershell -File "d:/datrix/datrix/scripts/dev/check-import-boundaries.ps1" -CheckSharedTargetNames` — baseline holds exactly **one** reviewed exemption, the scope-fenced `PYTHON_BASE_IMAGE_DIR` that `datrix-codegen-docker` consumes directly (`datrix/scripts/config/shared-target-name-baseline.toml`), down from 76 matched declarations. Complements I1, which matches a frozen name list rather than the identifier shape. Scoped to languages (not platforms — `local` collides with the English word) and to `datrix-codegen-common` (not `datrix-common`/`datrix-cli`, which hold platform config schemas and canonical-import API). `sql`/`nosql`-substring identifiers are **not** hits — `sql` is not a registered `datrix.languages` entry — and the ratchet's own self-test proves each as a non-match rather than baselining it |
 | 4 | No package hand-rolls a service-body walk — `Service.iter_callable_bodies()` is the only enumeration | Zero private body-enumeration helpers survive; a `datrix-codegen-python` regression test proves a typed cross-service call inside a CQRS handler materializes its response module (observed red before the fix) |
 | 5 | Every hoist is behavior-preserving | Each affected package's targeted suites pass unchanged |
-| 6 | The scope fence holds — `datrix-codegen-sql` and `-component` stay out | Both packages' runtime dependencies still exclude `datrix-codegen-common` |
+| 6 | The scope fence holds for `datrix-codegen-component` | `datrix-codegen-component`'s runtime dependencies still exclude `datrix-codegen-common`. `datrix-codegen-sql`'s fence was retired by Decision 42 |
 
 Both ratchets self-test their own non-vacuity as step 1 of every invocation, including a CLI mutation proof that plants a violation, sees the exact count delta, and sees the revert clear it.
 
@@ -197,7 +197,7 @@ eight invariants hold today as executable checks.
 | 1 | An attached comment is never silently lost between parse and emission | Produced-runs minus consumed-runs asserted zero over a fixture documenting every documentable construct; attached-but-unemitted runs measured per target by the documentation-realization gate's coverage census, held at a decrease-only baseline (`datrix/scripts/config/documentation-coverage-baseline.json`) |
 | 2 | An unmarked comment never reaches a published documentation surface | Two channels decided once at capture: every comment becomes a **source comment**; only `///` / `/** … */` becomes **published documentation** (OpenAPI summary/description, schema field description, GraphQL descriptions, generated README). Fail-closed — publication is opt-in |
 | 3 | Capture requires no grammar change | Doc-vs-note is a function of the comment's text, not a lexer token; both marker forms are already legal and already meaningless today |
-| 4 | The summary/description split has one definition | It lives in `datrix-common`, reachable by every generator including those fenced out of `datrix-codegen-common` (Decision 34); emission-only surfaces stay in `datrix-codegen-common` |
+| 4 | The summary/description split has one definition | It lives in `datrix-common`, reachable by every generator including the one still fenced out of `datrix-codegen-common` (`datrix-codegen-component`, Decision 34/42); emission-only surfaces stay in `datrix-codegen-common` |
 | 5 | Author text cannot break the construct it is emitted into | Per-language sanitizer + planted-hostile-text test (comment terminators, triple quotes, backslash, CR, line/paragraph separators) |
 | 6 | A documented construct documents on every language target, or the target declares the surface unsupported with a reason | Runtime-derived, self-testing documentation-realization parity gate with typed, counted exemptions |
 | 7 | A documentation-only edit regenerates its service | Service-level documentation digest in the incremental hash; the schema differ never reads that key, so no documentation edit plans a migration on its account |
@@ -272,6 +272,25 @@ private `_KEYWORDS` reserved-identifier subset) plus `CONFIGDSL_COMMENT_SYNTAX` 
 touched.
 
 Full decision log: [Architecture Overview — Decision 41](./architecture-overview.md#decision-41-datrix-language-server--editor-intelligence-over-lsp-adopted).
+
+## genDSL Engine Hardening (Output-Path Containment, Escaping Home, Interpolation Rule)
+
+Closes three DSL-author-driven injection surfaces in `datrix-codegen-common`'s shared engine:
+genDSL output-path traversal, single-quote-only seed SQL escaping (MySQL backslash break-out),
+and a `#{...}` interpolation regex-shadow path that was copied into a second generator package
+after the rule forbidding it was written. **Adopted** — all six invariants hold today as
+executable gates.
+
+| # | Invariant | Enforcement mechanism |
+|---|---|---|
+| 1 | Every genDSL output path is validated at construction, on both render sinks, by one shared guard delegating to the single canonical containment helper | Shared wrapper called from both `_render_file` and `_render_collected_file`; negative test rejects `..`/absolute/drive/UNC through both paths |
+| 2 | Path attributes resolve through sanitizing case forms; raw/`original`/plugin-contributed names are display-only | Negative test on the raw fast-path, `original`, and the plugin `{entity.table}` branch; positive test on case-normalizing forms |
+| 3 | Generic cross-target literal escaping has one home; dialect-specific encoding lives behind the owning package's Protocol method | `replace("'", "''")` is zero across the affected packages' `src`; every concrete `SQLDialect` implements `quote_literal` |
+| 4 | A dialect that cannot encode a literal fails closed | Missing `quote_literal` raises `GenerationError` naming the dialect and method, never falls back to quote-doubling |
+| 5 | DSL `#{}` interpolation flows only through the validated expression visitor | Runtime-derived, self-testing conformance test over every registered generator package, with a reviewed, counted exemption baseline for known pre-existing violations |
+| 6 | The Decision 34 scope fence retires for `datrix-codegen-sql`; `datrix-codegen-component` remains fenced | `datrix-codegen-sql` declares a real `datrix-codegen-common` runtime dependency; `datrix-codegen-component` still excludes it |
+
+Full decision log: [Architecture Overview — Decision 42](./architecture-overview.md#decision-42-gendsl-engine-hardening--output-path-containment-sanitized-path-attributes-one-escaping-home-and-the-interpolation-rule-adopted).
 
 ## Transpiler pipeline (per file)
 

@@ -131,7 +131,6 @@ EXCLUDED_ERROR_SITES: list[tuple[str, str]] = [
     ("datrix_common/generation/pipeline.py", "_run_stage"),
     ("datrix_common/infra/registry.py", "_build_container_key_impl"),
     # ── re-raise-wrapper — raise … from e, wrapping with context ─────────────────
-    ("datrix_common/fileops/writer.py", "write"),
     ("datrix_common/generation/formatter.py", "_format_json_file"),
     # ── framework-boundary — Pydantic validators, framework-enforced constraints ─
     ("datrix_common/config/datasource/models.py", "_validate_external_platform_fields"),

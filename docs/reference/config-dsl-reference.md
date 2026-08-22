@@ -61,6 +61,13 @@ import "config/templates/resilience.dcfg";
 - Imported templates are visible in the importing file
 - Package-level imports (e.g., `import datrix.config.azure.postgres;`) are deferred to a future version
 
+**Import path policy (enforced before any filesystem access):**
+- The import path must be relative — an absolute path, a Windows drive letter, or a UNC path is rejected
+- The import path must end in `.dcfg` — any other suffix is rejected
+- The import path must not contain a NUL byte
+- The resolved path must land inside the project root once `..` segments are collapsed and symlinks are followed — an import that escapes the project root is rejected
+- All of the above are validated **before** the target is probed for existence or opened, so neither an exists-vs-missing distinction nor the target's content can be used to read a file outside the project
+
 ---
 
 ## Templates

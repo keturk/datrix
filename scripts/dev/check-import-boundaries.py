@@ -176,16 +176,22 @@ class BoundaryRule:
 
 
 # The closed set of language-agnostic datrix_codegen_common subtrees that
-# platform generators (docker, aws, azure) are permitted to import.
-# Adding a seventh subtree requires a doc + rule edit and review.
+# platform generators (docker, aws, azure) are permitted to import. Every entry
+# carries a written reason directly above it, and the set is frozen a second
+# time in this script's own self-test, so adding one is a reviewed act rather
+# than an edit that quietly widens the boundary.
 #
-# Covers all 14 distinct datrix_codegen_common modules that platforms import today:
-#   gendsl.*       — GenDSL compiler/executor/registry/scope
-#   dashboards.*   — shared Grafana dashboard builder (builder, models)
-#   algorithms.serverless            — serverless block plan algorithm
-#   context_models.serverless        — serverless plan/render context models
-#   context_models.replayable_ingestion — frozen, language-agnostic ingestion plan
-#   enums           — shared enums (e.g. DatabaseEngine)
+# Matching is exact-or-child, never raw prefix: an entry naming a MODULE admits
+# that module and its children and nothing else beside it. That precision is
+# what lets a mixed package expose only its neutral half -- see
+# ``algorithms.cqrs_projection_receivers``, which is allowed while its sibling
+# ``algorithms.cqrs`` stays denied.
+#
+# The bar for an entry is that the fact is target-neutral AND genuinely crosses
+# the axis: a platform provisions the resource an emitted consumer binds, so a
+# single definition is the only thing that keeps the two from drifting. When a
+# module holds such a fact next to a language-shaped one, the fix is to split
+# the module -- never to admit the whole thing.
 #
 # Platforms remain FORBIDDEN from: transpiler.*, language-shaped context_models.*
 # (entity/schema/service/endpoint/cache/pubsub/cqrs/jobs/project), and
@@ -237,6 +243,29 @@ PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
         # messaging-runtime emit helpers, so the name a subscriber binds at
         # runtime and the name Azure provisions can never drift out of sync.
         "datrix_codegen_common.algorithms.servicebus_naming",
+        # The peek-lock duration written into the provisioned Service Bus
+        # entity, and the renewal budget the emitted consumer uses. THE SAME
+        # FACT crosses both axes -- azure provisions ``lockDuration``, the
+        # language emitters renew against it -- so it is a shared constant by
+        # construction, exactly like ``servicebus_naming`` above (it exists
+        # because the two provisioning code paths had already drifted to PT30S
+        # vs PT1M for the one fact). Azure imports only the duration constant.
+        "datrix_codegen_common.algorithms.servicebus_lock_renewal",
+        # The (physical topic, receiver base) pairs a service's CQRS
+        # projections bind. Provisioning and consumer emission MUST derive
+        # their receiver set from one function or the consumer binds entities
+        # nothing created -- the defect this module's own canonical marker
+        # records. Split out of ``algorithms.cqrs`` for this rule rather than
+        # admitted through it: that module also builds ``CqrsContext``, a
+        # language-shaped surface, and carving out the whole module to reach
+        # the neutral half would have handed every platform the other half.
+        "datrix_codegen_common.algorithms.cqrs_projection_receivers",
+        # Shared raise-site bodies for the W5 guards. The rate-limit guard here
+        # exists BECAUSE aws, azure and docker each wrote their own copy of it;
+        # the per-platform declaration is the field rows each passes in, not the
+        # guard. Every caller raises the same ``GenerationError``, so no
+        # per-target exception type crosses this edge either.
+        "datrix_codegen_common.generation.raise_site_guards",
     ]
 )
 
@@ -3419,6 +3448,9 @@ def _self_test_allowed_denied_subtrees() -> bool:
             "datrix_codegen_common.testkit",
             "datrix_codegen_common.platform.container_image_supply",
             "datrix_codegen_common.algorithms.servicebus_naming",
+            "datrix_codegen_common.algorithms.servicebus_lock_renewal",
+            "datrix_codegen_common.algorithms.cqrs_projection_receivers",
+            "datrix_codegen_common.generation.raise_site_guards",
         ]
     )
     ok &= _check(
@@ -3439,6 +3471,9 @@ def _self_test_allowed_denied_subtrees() -> bool:
         "datrix_codegen_common.enums",
         "datrix_codegen_common.enums.DatabaseEngine",
         "datrix_codegen_common.platform.runtime",
+        "datrix_codegen_common.algorithms.servicebus_lock_renewal",
+        "datrix_codegen_common.algorithms.cqrs_projection_receivers",
+        "datrix_codegen_common.generation.raise_site_guards",
     )
     for imported in allowed_cases:
         ok &= _check(
@@ -3459,6 +3494,14 @@ def _self_test_allowed_denied_subtrees() -> bool:
         "datrix_codegen_python",
         "datrix_codegen_python.generators.api",
         "datrix_codegen_typescript",
+        # The language-shaped half of the CQRS split. Its neutral sibling
+        # ``algorithms.cqrs_projection_receivers`` is in allowed_cases above:
+        # this pair is what proves the split bought something, rather than the
+        # carve-out having quietly admitted the context-model surface too.
+        "datrix_codegen_common.algorithms.cqrs",
+        # Subtree matching is exact-or-child, so allowing
+        # ``generation.raise_site_guards`` must NOT admit its siblings.
+        "datrix_codegen_common.generation.service_predicates",
     )
     for imported in denied_cases:
         ok &= _check(
