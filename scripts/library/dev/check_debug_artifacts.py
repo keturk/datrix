@@ -81,6 +81,13 @@ class PatternDef:
 
 # ── Pattern definitions ─────────────────────────────────────────────────────
 
+#: The temp-marker word, bounded. Bare ``TEMP`` matched every identifier and
+#: section header that merely STARTS with those four letters -- ``TEMPORAL``,
+#: ``TEMPLATE``, ``temperature`` -- and a gate that cries wolf on ordinary
+#: vocabulary is a gate people learn to ignore. ``TEMPORARY`` is a real marker
+#: and stays matched; nothing longer is.
+_TEMP_MARKER = r"TEMP(?:ORARY)?\b"
+
 _PYTHON_PATTERNS: list[PatternDef] = [
     PatternDef(re.compile(r"^\s*print\("), "print()", "HIGH"),
     PatternDef(re.compile(r"^\s*breakpoint\(\)"), "breakpoint()", "CRITICAL"),
@@ -88,9 +95,9 @@ _PYTHON_PATTERNS: list[PatternDef] = [
     PatternDef(re.compile(r"^\s*pdb\.set_trace\(\)"), "pdb.set_trace()", "CRITICAL"),
     PatternDef(re.compile(r"^\s*import\s+ipdb"), "import ipdb", "CRITICAL"),
     PatternDef(re.compile(r"logger\.(warning|error)\(.*DEBUG", re.IGNORECASE), "debug-labeled logger", "HIGH"),
-    PatternDef(re.compile(r"logger\.(warning|error)\(.*TEMP", re.IGNORECASE), "temp-labeled logger", "HIGH"),
+    PatternDef(re.compile(r"logger\.(warning|error)\(.*" + _TEMP_MARKER, re.IGNORECASE), "temp-labeled logger", "HIGH"),
     PatternDef(re.compile(r"#\s*DEBUG"), "# DEBUG comment", "MEDIUM"),
-    PatternDef(re.compile(r"#\s*TEMP"), "# TEMP comment", "MEDIUM"),
+    PatternDef(re.compile(r"#\s*" + _TEMP_MARKER), "# TEMP comment", "MEDIUM"),
     PatternDef(re.compile(r"#\s*HACK"), "# HACK comment", "MEDIUM"),
     PatternDef(re.compile(r"#\s*XXX"), "# XXX comment", "MEDIUM"),
 ]
@@ -103,7 +110,7 @@ _TYPESCRIPT_PATTERNS: list[PatternDef] = [
     PatternDef(re.compile(r"^\s*console\.(log|warn|error|debug)\("), "console.log()", "HIGH"),
     PatternDef(re.compile(r"^\s*debugger\b"), "debugger statement", "CRITICAL"),
     PatternDef(re.compile(r"//\s*DEBUG"), "// DEBUG comment", "MEDIUM"),
-    PatternDef(re.compile(r"//\s*TEMP"), "// TEMP comment", "MEDIUM"),
+    PatternDef(re.compile(r"//\s*" + _TEMP_MARKER), "// TEMP comment", "MEDIUM"),
     PatternDef(re.compile(r"//\s*HACK"), "// HACK comment", "MEDIUM"),
     PatternDef(re.compile(r"//\s*XXX"), "// XXX comment", "MEDIUM"),
 ]
@@ -311,6 +318,9 @@ def scan_project(
 #: Line 1 is a real artifact; the `print(`/`breakpoint()` inside the string are
 #: not code. `_SELF_TEST_REAL_ARTIFACT_LINES` names the lines that must be
 #: reported, so the fixture and its expectation cannot drift apart silently.
+#: Lines 8-10 pin the temp-marker word boundary: ``# TEMP`` and ``# TEMPORARY``
+#: are markers, ``# TEMPORAL`` is ordinary vocabulary that merely starts with
+#: the same four letters and must not be reported.
 _SELF_TEST_SOURCE = '''print("a real leftover debug print")
 checker_source = """
 print("child reports its result over stdout")
@@ -318,9 +328,12 @@ breakpoint()
 """
 value = f"{compute(print)} and {'print(' } literals"
 print(f"a second real one")
+# TEMP: put this back before landing
+# TEMPORARY: same, spelled out
+# TEMPORAL group -- a section header, not a marker
 '''
 
-_SELF_TEST_REAL_ARTIFACT_LINES: frozenset[int] = frozenset({1, 7})
+_SELF_TEST_REAL_ARTIFACT_LINES: frozenset[int] = frozenset({1, 7, 8, 9})
 
 
 def run_self_test() -> bool:

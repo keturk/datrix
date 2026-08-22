@@ -406,6 +406,36 @@ Key rules:
 - Declaration-driven gateway realizations (NGINX, Azure APIM, AWS API Gateway), emitted when the system declares `gateway { }`; all consume the same shared route enumeration (`datrix_common.generation.gateway_routes`), so the public surface — including relationship-derived nested sub-collection routes — and per-route JWT enforcement can never diverge between them. **Gateway-minted routes no backend serves are a declared family registry** (`GATEWAY_SYNTHESIZED_ROUTE_FAMILIES` → `gateway_synthesized_routes`, covering the health-probe and OpenAPI discovery/spec families): every realization consumes the registry rather than naming builders, so registering a family reaches every target at once. Minting one inside a single platform's private route table is what shipped health routes, and later the whole OpenAPI surface, on nginx alone. Per-service routing derived from auth contracts; upstreams, health aliases, CORS, rate limit zones
 - ArcGIS FeatureServer paged ingestion (`arcgisFeatureLayer` integration kind): metadata-aware pagination, deterministic checksums, watermark optimization, archive/refresh modes
 
+## Declared Work Lifecycle
+
+An entity whose rows record a **unit of work** declares a `work { }` block —
+which field carries the state, which enum members mean in-progress and
+interrupted, **who performs the work**, and what may recover a stranded row.
+`work { }` is an entity *and* trait member, so a shared contract is declared once
+and mixed in; an entity's own block overrides an inherited one.
+
+Before it, one generator inferred all of this from **enum member spelling**: an
+entity was treated as run-tracking if some enum declared members literally named
+`Running` and `Failed`, and a destructive startup `UPDATE` was emitted on that
+basis, with `completed_at`, `RETURNING id` and a substring match on `error`
+hardcoded alongside. That is the closed-world anti-pattern applied to somebody
+else's vocabulary, and it destroyed live production records: it fired on a
+cross-service queue table whose `Running` meant *another service is doing the
+work*, failed the row of an ingestion still executing, and released the lane it
+held.
+
+| # | Invariant | Enforcement |
+|---|---|---|
+| 1 | No generator branches on a user enum's member values | `powershell -File "d:/datrix/datrix/scripts/test/check-enum-value-literals.ps1"` — AST scan over every `datrix-codegen-*` / `datrix-common` / `datrix-language` `src/` tree, **hard zero, no exemption file**, self-testing by planting each detected shape every run |
+| 2 | A destructive statement is emitted only where it was declared | An entity with no `work { }` block emits no recovery, whatever its enum spells |
+| 3 | The emitter names only columns the model proves exist | Every column comes from the resolved contract; `WRK002`/`WRK006`/`WRK007` reject a contract naming anything else |
+| 4 | Work performed elsewhere is never recovered locally | `WRK008` rejects `owner: external` with `onOrphan: failAtStartup` |
+| 5 | "In flight" is a set, not one state | `inFlight` takes a list, so states differing only in whether the far side reported in cannot be treated differently |
+| 6 | A stored enum value has one home per language | `persisted_enum_member_literal` is shared by the enum generator and the recovery emitter, so the value matched can never drift from the value written |
+| 7 | The contract is language-neutral | It lives in `datrix-common` (`datrix_model/work.py`); python realizes `onOrphan: failAtStartup` today, and any other target either realizes it or declares it unsupported with a reason |
+
+Full syntax, keys and diagnostics: [datrix-syntax-reference.md — Work Contracts](../../../datrix-language/docs/reference/datrix-syntax-reference.md#work-contracts-work-).
+
 ## DSL grammar snapshot (`.dtrx`)
 
 High-level constructs the parser and transformers understand today. Full detail: [language-reference.md](../reference/language-reference.md) and [datrix-syntax-reference.md](../../../datrix-language/docs/reference/datrix-syntax-reference.md).
@@ -416,6 +446,7 @@ High-level constructs the parser and transformers understand today. Full detail:
 | Declarations | `entity`, `abstract entity`, `trait`, `enum`, `struct`, `const`, `fn` |
 | Field features | Types, optional (`?`), sized (`String(200)`), collections (`Array<T>`, `Map<K,V>`, `Set<T>`), modifiers (`: unique, indexed, immutable, server, …`), defaults (`= expr`). **Server-managed fields** use the **`server`** modifier (e.g. `UUID id : primaryKey, server = uuid();`) — there is **no** `@` prefix on field types. |
 | Catalog types | Module- or service-level **`scalar Name : BaseType { constraints… }`** for constrained aliases on existing types |
+| Work contracts | Entity- or trait-level **`work { state; inFlight; interrupted; owner; onOrphan; … }`** declaring that rows record a unit of work. See Declared Work Lifecycle below |
 | Errors | Module- or service-level **`exceptions { … }`** with `Name : status(N), message("…");` and optional structured fields |
 | REST (unchanged) | Endpoint decorators such as **`@retry`**, **`@rateLimit`**, **`@cache`** remain **`@`-prefixed**; that is separate from field modifiers |
 | Comments | `//` line and `/* … */` block comments anywhere (grammar `extras`). **`///`** and **`/** … */`** are *doc comments* — the opt-in published-documentation channel; plain `//` / `/* */` stay source-only. See DSL Comment Preservation above |

@@ -15,6 +15,19 @@ service library.AnalysisService('config/analysis-service.dcfg') : version('1.0.0
             DateTime startedAt;
             DateTime? completedAt;
             Int recordsAnalyzed = 0;
+
+            // This row records work performed by THIS service, so a restart here
+            // proves nothing is analyzing any more and a Running row is stale.
+            // Pending is deliberately not in flight: nothing has started it, and
+            // failing it would destroy a run that never ran.
+            work {
+                state:       status;
+                inFlight:    AnalysisStatus.Running;
+                interrupted: AnalysisStatus.Failed;
+                completedAt: completedAt;
+                owner:       self;
+                onOrphan:    failAtStartup;
+            }
         }
 
     }

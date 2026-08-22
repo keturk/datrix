@@ -532,6 +532,28 @@ Declaration-driven service ingress migration conformance gate. Repo-level, indep
 
 ---
 
+### `test\check-enum-value-literals.ps1`
+
+**Hard-zero gate: no generator may branch on a user enum's member values.** AST-scans every `datrix-codegen-*`, `datrix-common` and `datrix-language` `src/` tree for two shapes: a member looked up by literal name (`.get_value("X")` / `.require_value("X")`), and a string literal tested against a collection of member names (`"X" in value_names`). A `.dtrx` enum's members are the declaring project's vocabulary — a generator reading one by literal turns somebody else's spelling into policy, so renaming a member silently changes behaviour and naming an unrelated enum the same way silently triggers it. Declared contracts (see `work { }`) reference the model instead. This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
+
+**There is no exemption file, on purpose.** A legitimate need to branch on a member value is a design defect, not an entry to record. The baseline is zero and only zero passes.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\test\check-enum-value-literals.ps1` | Scan every package, fail on any violation |
+| **Self-test only** | `.\test\check-enum-value-literals.ps1 -SelfTest` | Prove the scanner detects both shapes; skip the real scan |
+| **Show files** | `.\test\check-enum-value-literals.ps1 -ShowFiles` | Print each file as it is scanned |
+| **Custom base dir** | `.\test\check-enum-value-literals.ps1 -BaseDir D:\datrix` | Specify monorepo root explicitly |
+| **Debug** | `.\test\check-enum-value-literals.ps1 -Dbg` | Debug logging |
+
+**Parameters:** `-BaseDir`, `-SelfTest`, `-ShowFiles`, `-Dbg`
+
+**Self-test runs automatically, every invocation.** It plants one instance of each detected shape and requires both to be found, then requires clean source to report none — so a scanner that can only return zero fails here rather than being believed. A run that discovers no package source also fails rather than passing vacuously.
+
+**Exit codes:** 0 = clean (or a successful `-SelfTest`), 1 = a violation was found, 2 = usage error, no packages discovered, or the self-test failed.
+
+---
+
 ### `test\check-generated-file-ratchet.ps1`
 
 GenDSL 2 Invariant I5 ratchet: AST-counts direct `GeneratedFile(...)` constructor calls per `datrix-*` package's `src/` tree and fails if any package's count exceeds its frozen baseline at `scripts/config/generated-file-ratchet.json`. Every emitted file should eventually be declared in genDSL rather than hand-constructed; this ratchet freezes the current count per package and only ever allows it to shrink as later migrations convert hand-coded construction into genDSL declarations. This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix), following the same AST-scan-and-ratchet shape as `dev\check-import-boundaries.ps1`'s I1/I6 ratchets.

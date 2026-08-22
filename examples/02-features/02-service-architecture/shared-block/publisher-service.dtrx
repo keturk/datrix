@@ -28,6 +28,21 @@ service library.DataIngestionService('config/data-ingestion-service.dcfg') : ver
             Int recordsProcessed = 0;
             String? errorMessage;
 
+            // This row records work performed by THIS service, so a restart here
+            // proves nothing is ingesting any more and a Running row is stale.
+            // Without this block no recovery is emitted at all: the generator
+            // never infers that a table records work, because a state enum that
+            // happens to spell Running says nothing about who does the work.
+            work {
+                state:       status;
+                inFlight:    IngestionStatus.Running;
+                interrupted: IngestionStatus.Failed;
+                completedAt: completedAt;
+                error:       errorMessage;
+                owner:       self;
+                onOrphan:    failAtStartup;
+            }
+
             afterCreate {
                 Log.info("Ingestion run started", { runId: id, source: source });
             }
