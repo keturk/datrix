@@ -256,17 +256,20 @@ its own migration and consumers beyond the editor.
 | 2 | An application is analyzed at most once; no analysis result is cached across text versions | Snapshot construction test proving a fresh application per analysis; index construction runs against a sealed tree, so any write raises rather than corrupting shared state |
 | 3 | Semantic analysis runs only on a structurally complete parse | Errored parses publish parse diagnostics and build indexes over the unsealed salvage tree, guarding every reference access on its resolved flag |
 | 4 | A diagnostic is published against the file it belongs to, never the file that happened to be analyzed | Diagnostics bucketed by their own source path and published per URI; a URI whose diagnostics are fixed receives an empty list rather than silence |
-| 5 | Keyword vocabulary has exactly one home | A generated keyword manifest derived from the grammar and the public `CONFIGDSL_KEYWORDS` constant feeds both the completion provider and the editor client's syntax grammars; a hand-written keyword literal in a provider module, or a hand-edited generated grammar, is a build failure |
+| 5 | Each language's vocabulary and lexical syntax have exactly one home | A generated keyword manifest feeds both the completion provider and the editor client's syntax grammars. Keywords come from the grammar and the public `CONFIGDSL_KEYWORDS` constant; comment and string delimiters come from the constants each parser declares beside itself (`DTRX_COMMENT_SYNTAX`/`DTRX_STRING_SYNTAX` beside `grammar.js`, `CONFIGDSL_COMMENT_SYNTAX`/`CONFIGDSL_STRING_SYNTAX` beside the ConfigDSL parser), each held against its parser's real behaviour by that package's tests. The `.dtrx` doc-comment markers are part of that one home (`DTRX_DOCUMENTATION_MARKERS`): the Decision 39 classifier consumes them, so the channel the generator publishes on and the channel the editor colours are one fact. `.dcfg` declares none, and its manifest entry says so rather than omitting it — an editor must not paint a `.dcfg` comment as published when nothing publishes it. A hand-written keyword literal or delimiter in a provider module, or a hand-edited generated grammar, is a build failure |
 | 6 | The server has no network surface and executes no workspace-supplied code | Standard input/output transport only, no listening socket; the one import path that loads plugins resolves installed entry points, so a source file can name an extension but cannot introduce one |
 | 7 | Untrusted input is bounded and the server refuses rather than hangs | Named document-size (4 MiB) and ConfigDSL nesting-depth (64) ceilings enforced in the server layer, each derived from measured corpus maxima; an exceeded bound is a diagnostic and the server stays responsive to other documents |
 | 8 | Cross-file navigation cannot escape the workspace | A resolved config path outside the workspace root yields no location and no existence probe, proven by a traversal fixture whose target genuinely exists |
 | 9 | Neither logs nor diagnostics carry document content | Config keys can name secret references, so diagnostic text is the parser's own message plus a location, never an echo of the buffer; logs never reach standard output, which is the protocol transport |
 | 10 | The launched executable is never workspace-configurable | The client resolves `datrix lsp` from the user's `PATH` only; no workspace- or folder-scoped setting can influence which binary starts |
 
-`datrix-common`'s blast radius for this decision is one file: a public `CONFIGDSL_KEYWORDS`
-frozenset naming the complete ConfigDSL keyword vocabulary (distinct from the module's
-private `_KEYWORDS` reserved-identifier subset), plus its drift test. No AST, model, or
-parser structure is touched.
+`datrix-common`'s blast radius for this decision is two files: the ConfigDSL parser, which
+publishes `CONFIGDSL_KEYWORDS` (the complete keyword vocabulary, distinct from the module's
+private `_KEYWORDS` reserved-identifier subset) plus `CONFIGDSL_COMMENT_SYNTAX` /
+`CONFIGDSL_STRING_SYNTAX` (the delimiters its own scanning methods consume), and
+`datrix_common.source_syntax`, holding the two delimiter types those constants and their
+`.dtrx` counterparts share. Each carries a drift test. No AST, model, or parser structure is
+touched.
 
 Full decision log: [Architecture Overview — Decision 41](./architecture-overview.md#decision-41-datrix-language-server--editor-intelligence-over-lsp-adopted).
 
