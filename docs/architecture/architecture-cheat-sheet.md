@@ -292,6 +292,54 @@ executable gates.
 
 Full decision log: [Architecture Overview — Decision 42](./architecture-overview.md#decision-42-gendsl-engine-hardening--output-path-containment-sanitized-path-attributes-one-escaping-home-and-the-interpolation-rule-adopted).
 
+## Frontend API Client Generation
+
+Browser clients — request/response types, enums, one client class per `rest_api`, and a route/provider
+manifest — emitted from the same validated `Application` that emits the backend, in the same generation
+pass. **Components, pages, forms, validation schemas, routing, guards and view-model state are NOT
+generated**; they stay hand-written, and error responses are deliberately not typed yet. Split in two,
+because "frontend" is not one target: a framework-neutral **client contract** in `datrix-codegen-common`
+(routes, params carrying DSL name *and* wire name, response type refs, provider sets, body encoding,
+pagination flags — knows the backend's language plugin, nothing about any frontend), and a **renderer**
+per frontend target as its own package (knows its own framework, nothing about any other). Same shape as
+gateway realizations: one shared route enumeration, one renderer per platform, no target named in the
+shared code. **Approved — implementation in progress.**
+
+The renderer is an **artifact-phase `datrix.generators` plugin, not a `datrix.languages` plugin** — a
+`LanguagePlugin` aggregates six backend contributions and a browser client has none of the last four, and
+a second `--language` pass would re-parse the application and land a second, disagreeing generation stamp.
+Activation is a **declared config fact**, not a language guess and not a CLI flag: the system config's
+**base block only** names the frontend targets it wants, under open identifiers registry-validated against
+the installed client-target plugin set (Decision 22's pattern). A flag would leave a stale client tree on
+disk, since manifest reconciliation is per target. **The emitted client's language belongs to the target
+package** — declared in its own GenDSL target contribution, with its own type map; the application names a
+*target*, never a language, and the run's `--language` selects the **backend** only.
+
+| # | Invariant | Check |
+|---|---|---|
+| 1 | The client and the gateway never disagree about what is publicly reachable | Two-directional set comparison against the shared public-route enumeration. Containment alone would pass a client that emitted nothing — the load-bearing half is the reverse: every browser-reachable route is a client method or a declared, counted exemption |
+| 2 | A machine-only surface is never emitted into a browser client | Classification branches on `AuthMode` with a fail-loud default, **never** on provider-tuple emptiness (public, webhook, and an undeclared route all carry an empty tuple; only the first is legitimately unauthenticated). Hidden / service / webhook endpoints appear in no client; an unclassified mode raises |
+| 3 | Response-body wire naming is one declared rule, not one realization per language | Runtime-derived cross-target gate enumerating `datrix.languages` at run time, self-testing non-vacuity, refusing to pass under two targets. Compares **effective wire names**, not the presence of an alias generator |
+| 4 | Query-param names are derived from the backend's plugin, never hardcoded | Same shared wire-name helper the backend emitter uses, from the run's resolved backend language; proven for two casers so a hardcoded casing fails |
+| 5 | Client method names cannot drift from backend handler names | Both call the one shared handler-name helper (collision guard + resource case); each renderer applies only its own caser |
+| 6 | No secret, token, credential, tenant id, environment URL, or per-profile value in any generated client file | Base URL *injected* via a declared token, never emitted; pagination emits optional skip/limit with no default, no bound, no value-bearing comment. Proven by regenerating against every declared profile and requiring byte-identical manifest hashes |
+| 7 | A caller value never reaches a URL by concatenation | Every path parameter percent-encoded at the call site; gated with a parameter valued `a/b?c=d`, which must round-trip as one path segment |
+| 8 | Request-body encoding is decided, never assumed | A request struct with a file-upload field binds multipart, not JSON, by the same detection the backend uses; an undecidable encoding raises |
+| 9 | Every emitted type is mapped and every referenced type is emitted | Complete map over the canonical builtin scalars + every `CollectionKind` + the renderer's extension maps, with a generation-time completeness check naming the unmapped type — no default mapping, no `any`, no silent `string`. Models emitted over the transitive type closure reachable from the emitted routes, so a dangling type ref is a generation error |
+| 10 | Two frontend targets over one backend never disagree about what exists | The contract builder is pure and deterministic with explicitly ordered iteration; every activated renderer's manifest carries the same route key set, proven with a **fixture client target** in the testkit rather than a second real renderer |
+| 11 | Adding a frontend target is one new package | No frontend-target name in any shared type, field, or alias; the file language is declared by the target package, so a frontend target never needs the backend language package that shares its file language |
+| 12 | The provider manifest is metadata, not an authorization control | It ships in a bundle the user controls; the server stays the only enforcement point. It turns an unreachable-route call into a build-time lint failure. **Never narrow a client per consuming application** — that reads as an access control and is not one |
+
+**One wire rule is corrected, not encoded.** Bodies are camelCase on every registered target, so a DSL
+field name already *is* the body wire name — except a CQRS view response schema, emitted with no alias
+generator, which serialized snake_case. The template is fixed rather than special-cased in the client;
+**this is a breaking wire change for existing consumers of a CQRS view endpoint.** **One asymmetry is
+encoded faithfully:** query keys carry the *backend* language's identifier casing while bodies are
+camelCase in the same request — a genuine wart whose correction would break every deployed API, so the
+client derives it rather than hardcoding it, and the wart becomes invisible at every call site.
+
+Full decision log: [Architecture Overview — Decision 43](./architecture-overview.md#decision-43-frontend-api-client-generation--browser-clients-emitted-from-the-same-dsl-as-the-backend-approved--implementation-in-progress).
+
 ## Transpiler pipeline (per file)
 
 ```
