@@ -17,9 +17,9 @@ semantic analysis -> stdlib placeholders + lazy module injection -> continuing p
 
 No IR layer. Parser produces `Application` directly. Named `GenerationPipeline.run` stages include: `parse` → `resolve_service_configs` → `analyze` → `resolve_infrastructure_configs` → `validate_deployment` → `apply_cli_overrides` → `normalize_service_memory_limits` → `discover_generators` / `discover_platforms` → `generate:{name}` (per generator) → file write → migrations (when configured) → language hooks + JSON format → `snapshot` (service filter and incremental merge sit between infra resolution and discovery when enabled). There is **no** `platform_validation` stage; cross-model and `(provider, DeploymentProvider)` realization checks run inside `resolve_infrastructure_configs` (the Stage 2 cross-model hook), and deployment-presence checks run in `validate_deployment`.
 
-## Packages (14)
+## Packages (15)
 
-Optional **datrix-extensions** (domain packs, `datrix.extensions` entry points) plus thirteen core packages below.
+Optional **datrix-extensions** (domain packs, `datrix.extensions` entry points) plus fourteen core packages below.
 
 | Package | Purpose |
 |---------|---------|
@@ -35,6 +35,7 @@ Optional **datrix-extensions** (domain packs, `datrix.extensions` entry points) 
 | datrix-codegen-docker | Docker/Compose generation. YAML builders |
 | datrix-codegen-aws | AWS infrastructure (CDK/CloudFormation): VPC, ECS, RDS, ElastiCache, SNS/SQS, MSK (Kafka), DynamoDB, S3 |
 | datrix-codegen-azure | Azure infrastructure (Bicep/ARM): App Service, Functions, Flexible Server, Cosmos DB, Service Bus, Event Hubs (Kafka), Redis, Blob, APIM, Front Door, AI Search |
+| datrix-codegen-angular | Frontend API client generation (Angular). Artifact-phase companion generator: TypeScript request/response types, enums, and injectable HTTP clients from the shared client contract. Activates only when the application declares a `clients { angular { ... } }` config block |
 | datrix-cli | CLI. Discovers generator plugins dynamically via entry points |
 | datrix-extensions | Optional domain extension packs (`datrix.extensions`). Depends on datrix-common |
 
@@ -322,7 +323,8 @@ package** — declared in its own GenDSL target contribution, with its own type 
 | 3 | Response-body wire naming is one declared rule, not one realization per language | Runtime-derived cross-target gate enumerating `datrix.languages` at run time, self-testing non-vacuity, refusing to pass under two targets. Compares **effective wire names**, not the presence of an alias generator |
 | 4 | Query-param names are derived from the backend's plugin, never hardcoded | Same shared wire-name helper the backend emitter uses, from the run's resolved backend language; proven for two casers so a hardcoded casing fails |
 | 5 | Client method names cannot drift from backend handler names | Both call the one shared handler-name helper (collision guard + resource case); each renderer applies only its own caser |
-| 6 | No secret, token, credential, tenant id, environment URL, or per-profile value in any generated client file | Base URL *injected* via a declared token, never emitted; pagination emits optional skip/limit with no default, no bound, no value-bearing comment. Proven by regenerating against every declared profile and requiring byte-identical manifest hashes |
+| 6 | No secret, token, credential, tenant id, environment URL, or per-profile value in any generated client file | Base URL *injected* via a declared token, never emitted; pagination emits its two parameters optional, with no default, no bound, no value-bearing comment. Proven by regenerating against every declared profile and requiring byte-identical manifest hashes |
+| 6a | Pagination parameter NAMES are the backend's own, derived like every other wire key | Each language declares the pair its paginated handlers bind on its `LanguageCapabilityDeclaration` (`offset_pagination_param_names`); the contract reads it from the resolved backend plugin. This is not cosmetic: python/typescript/.NET bind row-offset `skip`/`limit` while Spring java binds page-number `page`/`size`, and the semantics travel with the names — a consumer sends what the declared pair means for that backend and never converts between them (converting needs the page size, a per-profile value). A shared `("skip","limit")` constant asserted universality over an enumeration that omitted java, so a client generated against a java backend sent two keys the server never reads and silently received the default first page. Gated by a runtime-derived check over the installed `datrix.languages` set that also refuses to pass with fewer than two targets or one distinct pair |
 | 7 | A caller value never reaches a URL by concatenation | Every path parameter percent-encoded at the call site; gated with a parameter valued `a/b?c=d`, which must round-trip as one path segment |
 | 8 | Request-body encoding is decided, never assumed | A request struct with a file-upload field binds multipart, not JSON, by the same detection the backend uses; an undecidable encoding raises |
 | 9 | Every emitted type is mapped and every referenced type is emitted | Complete map over the canonical builtin scalars + every `CollectionKind` + the renderer's extension maps, with a generation-time completeness check naming the unmapped type — no default mapping, no `any`, no silent `string`. Models emitted over the transitive type closure reachable from the emitted routes, so a dangling type ref is a generation error |

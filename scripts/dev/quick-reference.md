@@ -446,11 +446,13 @@ Generates `.project-structure.md` files containing annotated ASCII directory tre
 
 Extracts logic map markers from Python source files into a SQLite database (`d:\datrix\.logic-map\markers.db`). Markers are structured comments (`@canonical`, `@pattern`, `@boundary`, `@invariant`) that document canonical implementations and patterns.
 
+**Every invocation drops and recreates the whole database** — it never merges into what is already there. A scoped run therefore leaves a database containing *only* the scanned projects, and every other project's markers are gone until the next `-All`. Use a scoped run to inspect one project's markers in isolation; **after adding or changing a marker, refresh the shared database with `-All`**, or the next agent's `@see` lookups resolve against a truncated map.
+
 | Mode | Command | Description |
 |------|---------|-------------|
-| **All projects** | `.\dev\logic-map.ps1 -All` | Rebuild entire database |
-| **One project** | `.\dev\logic-map.ps1 datrix-language` | Scan one project |
-| **Multiple projects** | `.\dev\logic-map.ps1 datrix-language datrix-common` | Scan several |
+| **All projects** | `.\dev\logic-map.ps1 -All` | Rebuild entire database — the only mode that leaves it complete |
+| **One project** | `.\dev\logic-map.ps1 datrix-language` | Replace the database with just this project's markers |
+| **Multiple projects** | `.\dev\logic-map.ps1 datrix-language datrix-common` | Replace the database with just these projects' markers |
 | **Src only** | `.\dev\logic-map.ps1 -All -Src` | Only src/ directories |
 | **Tests only** | `.\dev\logic-map.ps1 -All -Tests` | Only tests/ directories |
 | **Debug** | `.\dev\logic-map.ps1 -All -Dbg` | Debug logging |

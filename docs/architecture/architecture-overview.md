@@ -16,7 +16,7 @@ Datrix is a code generation system that transforms `.dtrx` domain specifications
 ✅ **Multi-Language Support** - Python, TypeScript, SQL, .NET, Java — the language set is open
 ✅ **Multi-Platform Support** - Docker, AWS, Azure
 ✅ **Type-Safe** - Exhaustive type mappings with validation
-✅ **Modular Architecture** - 14 installable packages (13 core toolchain + optional **datrix-extensions**) plus showcase and projects repos
+✅ **Modular Architecture** - 15 installable packages (14 core toolchain + optional **datrix-extensions**) plus showcase and projects repos
 ✅ **Specification-Level Testing** - DSL `test` blocks transpile to pytest under `tests/spec/` (Python) and Jest under `test/spec/` (TypeScript); see the [spec testing documentation](../guide/spec-testing.md)
 ✅ **Event contracts** - `ensure` clauses on `publish` events enforce publisher-side validation before `dispatch`
 ✅ **External library interfacing** - `extern service` declarations generate typed HTTP clients and deployment wiring for user-built services
@@ -31,7 +31,7 @@ Datrix is a code generation system that transforms `.dtrx` domain specifications
 This overview was split into focused sub-documents for easier navigation. Each sub-document preserves the original section headings.
 
 - **[Pipeline Flow & Capabilities](architecture/pipeline-and-capabilities.md)** — System architecture, pipeline stages, standard library, phase 01/02/03 capabilities, search engine integration, CDN / content delivery, managed API gateway
-- **[Repository Architecture & Plugins](architecture/repository-architecture.md)** — 15 repos (14 installable packages + the showcase repo), plugin system, domain extension system, extern services, application containers, adding a new language
+- **[Repository Architecture & Plugins](architecture/repository-architecture.md)** — 16 repos (15 installable packages + the showcase repo), plugin system, domain extension system, extern services, application containers, adding a new language
 - **[Builtin Traits & Enums](architecture/builtin-traits-enums.md)** — 10 builtin traits, 2 builtin enums, injection mechanism
 
 Related:
@@ -78,6 +78,9 @@ graph TD
  CGC --> N[datrix-codegen-java]
  A --> F[datrix-codegen-sql]
  CGC --> G[datrix-codegen-docker]
+ A --> ANG[datrix-codegen-angular]
+ CGC --> ANG
+ ANG --> K
  A --> I[datrix-codegen-aws]
  A --> J[datrix-codegen-azure]
  B --> K[datrix-cli]
@@ -1487,7 +1490,7 @@ pip install datrix-cli datrix-codegen-python datrix-codegen-docker
 # Full stack
 pip install datrix-cli \
  datrix-codegen-python datrix-codegen-typescript datrix-codegen-sql datrix-codegen-java \
- datrix-codegen-docker datrix-codegen-aws datrix-codegen-azure
+ datrix-codegen-docker datrix-codegen-aws datrix-codegen-azure datrix-codegen-angular
 
 # Additional language generators
 pip install datrix-cli datrix-codegen-dotnet datrix-codegen-java

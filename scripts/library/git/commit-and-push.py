@@ -40,6 +40,14 @@ from dev.customer_domain_isolation import (  # noqa: E402
     scan_paths,
     self_test,
 )
+from test.ignored_source import (  # noqa: E402
+    IgnoredSourceGateError,
+    ShadowedPath,
+    exemption_path,
+    load_exemptions,
+    violations_in,
+)
+from test.ignored_source import self_test as ignored_source_self_test  # noqa: E402
 
 TEXT_SNIPPET_EXTENSIONS = {
     ".cfg",
@@ -64,6 +72,11 @@ TEXT_SNIPPET_EXTENSIONS = {
 # Git identity used for the commits this script creates.
 GIT_USER_EMAIL = "kercan@outlook.com"
 GIT_USER_NAME = "Kamil Ercan Turkarslan"
+
+# Git's empty tree. Every repository resolves this object without it ever being
+# written, which makes it the one diff base available in a repo that has no
+# commit yet. See diff_base().
+EMPTY_TREE_OBJECT = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 # A message-generating backend: (user_prompt, system_prompt) -> raw model text.
 Generator = Callable[[str, str], str]
@@ -152,12 +165,26 @@ def parse_name_status_paths(name_status: str) -> list[str]:
     return paths
 
 
-def build_diff_sample(repo_path: Path, name_status: str, max_chars: int) -> str:
+def diff_base(repo_path: Path) -> str:
+    """The revision to diff a repo's working tree against.
+
+    ``HEAD`` normally. A repo whose first commit has not been made yet has no
+    HEAD, and ``git diff HEAD`` fails outright there -- which aborted the whole
+    multi-repo run on the one repo whose content is entirely new, before any
+    pre-commit check could even be reached. Git's empty tree object exists in
+    every repository without being written, so it is the correct base for that
+    case: the initial import reads as an all-additions diff instead of an error.
+    """
+    resolved = run_git(repo_path, ["rev-parse", "--verify", "--quiet", "HEAD"], check=False)
+    return "HEAD" if resolved.strip() else EMPTY_TREE_OBJECT
+
+
+def build_diff_sample(repo_path: Path, name_status: str, max_chars: int, base: str) -> str:
     """Build a balanced diff payload so late files are not lost to prefix truncation."""
     paths = parse_name_status_paths(name_status)
     if not paths:
         return truncate_text(
-            run_git(repo_path, ["-c", "core.autocrlf=false", "diff", "HEAD"]),
+            run_git(repo_path, ["-c", "core.autocrlf=false", "diff", base]),
             max_chars,
         )
 
@@ -170,7 +197,7 @@ def build_diff_sample(repo_path: Path, name_status: str, max_chars: int) -> str:
             break
         diff = run_git(
             repo_path,
-            ["-c", "core.autocrlf=false", "diff", "HEAD", "--", path],
+            ["-c", "core.autocrlf=false", "diff", base, "--", path],
             check=False,
         )
         if not diff.strip():
@@ -223,9 +250,10 @@ def collect_dirty_repos(workspace_root: Path, max_diff_chars_per_repo: int) -> l
 
         print(f"{repo_name}: collecting changes")
         branch = run_git(repo_path, ["branch", "--show-current"], check=False) or "(unknown branch)"
-        diff_stat = run_git(repo_path, ["-c", "core.autocrlf=false", "diff", "HEAD", "--stat"])
-        name_status = run_git(repo_path, ["-c", "core.autocrlf=false", "diff", "HEAD", "--name-status"])
-        diff_sample = build_diff_sample(repo_path, name_status, max_diff_chars_per_repo)
+        base = diff_base(repo_path)
+        diff_stat = run_git(repo_path, ["-c", "core.autocrlf=false", "diff", base, "--stat"])
+        name_status = run_git(repo_path, ["-c", "core.autocrlf=false", "diff", base, "--name-status"])
+        diff_sample = build_diff_sample(repo_path, name_status, max_diff_chars_per_repo, base)
         untracked_raw = run_git(repo_path, ["ls-files", "--others", "--exclude-standard"])
         untracked_paths = [line.strip() for line in untracked_raw.splitlines() if line.strip()]
         dirty_repos.append(
@@ -943,6 +971,65 @@ def enforce_customer_domain_isolation(dirty_repos: list[DirtyRepo], datrix_root:
     )
 
 
+def enforce_ignored_source(dirty_repos: list[DirtyRepo], datrix_root: Path) -> None:
+    """Refuse the whole run if a `.gitignore` rule keeps a source file out of the commit.
+
+    Same seam as the isolation check above, asked in the opposite direction:
+    that one asks what a ``git add -A`` must not carry IN, this one asks what it
+    silently leaves OUT. An unanchored stock pattern once swallowed a package's
+    shipped templates -- the files sat on disk, every test passed, the emitted
+    output compiled, and the loss only appeared after a clone, by which point
+    the templates were absent from history. ``git add -A`` is where that
+    decision is actually made, so this is where it is checked.
+
+    Checked BEFORE a message is generated or anything is staged, and across ALL
+    dirty repos at once: a package silently losing a file must not be pushed
+    that way because the repo before it committed cleanly. Scoped to the dirty
+    repos this run is about to commit -- a clean repo is not this run's
+    business, and scanning it would cost time the commit path should not spend.
+
+    See ``test/ignored_source.py`` for why git itself is the oracle and why
+    exemptions are scoped to a path rather than granted per rule.
+    """
+    try:
+        exemptions = load_exemptions(exemption_path(datrix_root))
+    except IgnoredSourceGateError as exc:
+        raise ScriptError(f"Ignored-source check could not run: {exc}") from exc
+
+    try:
+        failures = ignored_source_self_test(exemptions)
+    except IgnoredSourceGateError as exc:
+        raise ScriptError(f"Ignored-source check could not run its self-test: {exc}") from exc
+    if failures:
+        raise ScriptError(
+            "Ignored-source scanner failed its own non-vacuity self-test, so its verdict "
+            "cannot be trusted and no commit is safe to make: " + "; ".join(failures)
+        )
+
+    shadowed: list[ShadowedPath] = []
+    for dr in dirty_repos:
+        try:
+            shadowed.extend(violations_in(dr.path, exemptions))
+        except IgnoredSourceGateError as exc:
+            raise ScriptError(f"Ignored-source check failed in {dr.name}: {exc}") from exc
+
+    if not shadowed:
+        print(f"Ignored-source: clean across {len(dirty_repos)} dirty repo(s).")
+        return
+
+    detail = "\n".join(f"  {entry.render()}" for entry in shadowed)
+    raise ScriptError(
+        f"Ignored-source check FAILED: {len(shadowed)} file(s) are present on disk but a "
+        f".gitignore rule stops 'git add -A' from staging them. Nothing was committed or "
+        f"pushed. Committing now would publish a package missing these files, and the loss "
+        f"is invisible until someone clones it -- fix the named .gitignore line (anchor the "
+        f"pattern to the repo root as '/PATTERN', or narrow it), or, if the output is "
+        f"deliberately unpublished, add a scoped entry with a written reason to "
+        f"{exemption_path(datrix_root)} and move its pinned_count in the same change.\n"
+        + detail
+    )
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -977,6 +1064,15 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
             "the check is what keeps customer names out of the framework repos."
         ),
     )
+    parser.add_argument(
+        "--skip-ignored-source-check",
+        action="store_true",
+        help=(
+            "Skip the ignored-source check. Only for a confirmed false positive: the check "
+            "is what keeps a .gitignore rule from silently deleting a package's source from "
+            "every clone."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -998,6 +1094,15 @@ def main(argv: list[str]) -> int:
         )
     else:
         enforce_customer_domain_isolation(dirty_repos, workspace_root / "datrix")
+
+    if args.skip_ignored_source_check:
+        print(
+            "WARNING: --skip-ignored-source-check was passed. Files a .gitignore rule "
+            "shadows are NOT being checked for; a package whose source is being silently "
+            "dropped from every clone will be committed and pushed exactly that way."
+        )
+    else:
+        enforce_ignored_source(dirty_repos, workspace_root / "datrix")
 
     if not args.dry_run:
         set_git_identity()

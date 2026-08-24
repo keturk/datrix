@@ -5,7 +5,7 @@
 
 .DESCRIPTION
  Extracts repo-relative path references and Python module references from the
- curated 37-file architecture-doc set and fails if any reference does not
+ curated 38-file architecture-doc set and fails if any reference does not
  resolve to a real file/directory/module in the tree, unless it is recorded
  in the committed exceptions baseline at
  scripts/config/docs-conformance-exceptions.json.
@@ -36,7 +36,7 @@
 
 .EXAMPLE
  .\check-docs-conformance.ps1
- Scan all 37 architecture docs, fail on unresolved references (self-test runs first, automatically).
+ Scan all 38 architecture docs, fail on unresolved references (self-test runs first, automatically).
 
 .EXAMPLE
  .\check-docs-conformance.ps1 -SelfTest

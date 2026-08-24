@@ -382,6 +382,15 @@ BOUNDARY_RULES: dict[str, BoundaryRule] = {
     "datrix_codegen_component": BoundaryRule(
         forbidden_prefixes=(*LANGUAGE_PACKAGES, "datrix_cli"),
     ),
+    # Angular client-target generator: forbidden from every backend language generator and
+    # datrix_cli -- a frontend client target is not a language generator, but (like Component)
+    # legitimately imports datrix_codegen_common freely (the shared client contract builder,
+    # GenDSL registrations), so datrix_codegen_common is NOT on its forbidden list. Without
+    # this entry the scanner has NO rule for this package at all ("no rule means no
+    # restrictions", :945-948) -- silently unguarded, not merely permissive by design.
+    "datrix_codegen_angular": BoundaryRule(
+        forbidden_prefixes=(*LANGUAGE_PACKAGES, "datrix_cli"),
+    ),
     # Platform generators keep datrix_codegen_common on forbidden_prefixes but carry
     # PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES to admit the language-agnostic
     # subtrees they legitimately consume. The transpiler and language-shaped

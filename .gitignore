@@ -24,7 +24,14 @@ share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-MANIFEST
+# Anchored to the repo root and to setuptools' own generated file. The stock
+# unanchored `MANIFEST` pattern matches at ANY depth, and git ignore matching is
+# case-insensitive here (core.ignorecase=true on Windows), so it silently
+# swallows any file or directory named `manifest` anywhere in the tree --
+# shipped template directories included. That is invisible locally (the files
+# exist and the tests pass) and only surfaces as a package that cannot generate
+# after a clone or a wheel install.
+/MANIFEST
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -215,11 +222,27 @@ __marimo__/
 # Generated project structure metadata
 .project-structure.md
 
-# RDBMS migration-ledger state. Examples set `migrations { enabled = false }`
-# in their config, so generation writes no migration state; this guard keeps any
-# stray `.datrix/rdbms-migrations/` (e.g. from an ad-hoc default-config run) out
-# of the showcase repo, which holds only docs, examples, and scripts.
+# RDBMS migration-ledger state. This is NOT build output: unlike the manifest,
+# snapshot, and audit trees (which hang off the generated OUTPUT dir, and so land
+# in .generated/, outside this repo), `.datrix/rdbms-migrations/` is written back
+# into the APPLICATION SOURCE dir and is version-controlled by design. The ledger
+# is a deterministic function of the schema so regeneration never churns it,
+# revisions are immutable once written, and the documented recovery from a
+# wrongly-reset baseline is to restore ledger.json / schema.json / the revision
+# file to their COMMITTED bytes. Discarding it would leave a clone unable to
+# continue the example's migration chain -- the next run would emit a fresh
+# `0001_initial` that a deployed database has already recorded and will never
+# apply.
+#
+# The blanket ignore stays as the stray guard: `commit-and-push` runs
+# `git add -A`, so state written by an ad-hoc run against an example that sets
+# `migrations { enabled = false }` would otherwise be committed unlooked-at.
+# Every example that deliberately sets `enabled = true` is re-negated below.
+# Adding another such example means adding a line here -- and this list cannot
+# go stale silently, because ignored-source-gate.ps1 fails the commit run until
+# it does.
 .datrix/
+!/examples/03-domains/ecommerce/.datrix/
 
 # Crash / stack dump files
 *.stackdump

@@ -1,7 +1,13 @@
 ﻿config system library.System {
   base {
     migrations {
-      enabled = false;
+      // `false` is for projects that are generated fresh and never deployed,
+      // where a tracked migration lifecycle is meaningless. This example is
+      // deployed: the wire-shape round-trip gate boots its emitted stack and
+      // calls the generated browser client against it. Without a migration
+      // lifecycle the deployment comes up against a database holding the
+      // enum types and not one table, and every read answers 500.
+      enabled = true;
     }
     deployment {
       runtime = "docker-compose";
@@ -61,6 +67,12 @@
             retryDelaySeconds = 2;
           }
           multiRdbmsStartPeriodSeconds = 120;
+          // Desktop Docker hosts mount `/` privately, so the container-metrics
+          // collector's host-tree binds are refused and the whole stack fails to
+          // start. This example is documentation people run, most of them on such a
+          // host, so it declares the host it targets rather than the Linux default.
+          // A product deploying to a Linux host omits this and keeps the binds.
+          sharedMountPropagation = false;
         }
       }
     }
@@ -138,6 +150,12 @@
             Boolean debugMode : description("Enable debug mode.") = false;
           }
         }
+      }
+    }
+    clients {
+      angular {
+        packageScope = "@ecommerce";
+        baseUrlToken = "ECOMMERCE_API_BASE_URL";
       }
     }
   }

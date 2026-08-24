@@ -34,6 +34,13 @@ Runs tests for one or more Datrix projects.
 
 **Log output:** Unless `-NoSave` is used, `test.ps1` creates one timestamped log folder for each project it runs under that project's `.test_results` directory. AI agents do not need to capture full console output; read the final console lines to find the saved log folder, then inspect the files in that folder.
 
+**Never run two `test.ps1` invocations at once — batch the projects into ONE call instead.** `-Projects` is variadic and iterates sequentially, so `test.ps1 a b c` is the supported way to cover several packages. Before running anything, `test.ps1` calls `Ensure-DatrixPackagesInstalled`, which takes a **workspace-wide exclusive package lock** (`scripts/common/venv.ps1:1547`, 120s acquisition timeout) shared with `generate.ps1` — it guards the install/repair phase against concurrent writers of the one shared venv. A second concurrent invocation therefore blocks for up to two minutes and then dies with `Could not acquire package lock - another process may be installing packages`, having run **no** tests.
+
+Two consequences worth knowing before you parallelize anything:
+
+- **Concurrency here buys nothing and costs a lot.** The runs serialize on the lock whatever you do, and the loser fails outright rather than queueing. A sweep launched as N parallel invocations finishes later than the same sweep as one invocation, and reports failures that are pure contention.
+- **Contention also breaks `npm`-dependent suites in a way that looks like a real defect.** Integration tests that shell out to `npm install` (`datrix-codegen-typescript`, `datrix-codegen-angular`) run under a fixed subprocess timeout and contend for CPU and npm's own cache locks. Oversubscribe the machine and they hit that timeout and report as **errors on setup**, indistinguishable at a glance from a genuine failure. `datrix-codegen-typescript` and `datrix-codegen-angular` both bound this deliberately: a `pytest_collection_modifyitems` hook in each package's `tests/conftest.py` pools every `@pytest.mark.npm_tsc` item into one of `DATRIX_TS_NPM_TSC_POOLS` (default 4) `xdist_group`s keyed by the test's file, and the runner's parallel phase distributes with `--dist loadgroup`, so at most that many npm/tsc chains run at once per session (the runner iterates packages sequentially, so that is the bound in practice). Set `DATRIX_TS_NPM_TSC_POOLS=1` to serialize them completely on a busy machine. Other packages do not bound this at all. If a run shows `npm install ... timed out` or a package-lock error, re-run the affected files on a quiet machine before believing the result — and treat the counts, not the exit code, as the signal.
+
 ### Node suites (`datrix-vscode`)
 
 A package is testable when it carries a `tests/` folder (pytest) **or** a `package.json`
@@ -554,6 +561,30 @@ Declaration-driven service ingress migration conformance gate. Repo-level, indep
 
 ---
 
+### `test\check-handler-name-dedup.ps1`
+
+**Hard-zero gate: no `datrix-codegen-*` package may de-duplicate a handler name.** AST-scans every `datrix-codegen-*` package's `src/` tree for the retired `while <name> in used: <name> = f"{base}{suffix}"; suffix += 1` shape over a derived REST handler / controller method name. Every handler name is derived ONCE, in the shared API-level derivation (`datrix_common.generation.api_helpers` — `compute_rest_api_handler_names` / `rest_api_handler_names_by_endpoint`), which refuses to hand two endpoints of one `rest_api` a single name: it raises, naming both routes. A package-local de-duplicator does the opposite — it renames one side of the collision (`getOrders` / `getOrders2`) while the browser client, the API test generator and every other language target keep calling that route by the un-numbered name, so the collision is hidden rather than resolved. This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
+
+**A match needs all three parts together**, which is what keeps the gate off the retired shape's legitimate neighbours: (1) the numeric-suffix allocation loop; (2) an **accumulating** container — named like a claim set (`used`, `used_names`, `seen`, `taken`, `claimed`, `existing`, …) or mutated by the enclosing function (`.add`/`.append`/`.update`/`.extend`/`|=`/item assignment) — which is what makes the rename order-dependent and invisible to other consumers; (3) a **handler-shaped subject** — a `handler`/`controller`/`endpoint`/`route`/`action` token in the module path, the enclosing function's name, or an identifier the loop touches. Part 2 clears deterministic shadow avoidance against a fixed set of other symbols (a serverless handler `def` renamed away from a service function's name); part 3 clears local-variable, generated-test-method and temp-file name allocation, which no second emitter consumes.
+
+**There is no exemption file, on purpose.** A REST handler name that needs local de-duplication is a name that should have come from the shared table. The baseline is zero and only zero passes.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\test\check-handler-name-dedup.ps1` | Scan every `datrix-codegen-*` package, fail on any violation |
+| **Self-test only** | `.\test\check-handler-name-dedup.ps1 -SelfTest` | Prove the scanner detects every retired form and clears every near-miss; skip the real scan |
+| **Show files** | `.\test\check-handler-name-dedup.ps1 -ShowFiles` | Print each file as it is scanned |
+| **Custom base dir** | `.\test\check-handler-name-dedup.ps1 -BaseDir D:\datrix` | Specify monorepo root explicitly |
+| **Debug** | `.\test\check-handler-name-dedup.ps1 -Dbg` | Debug logging |
+
+**Parameters:** `-BaseDir`, `-SelfTest`, `-ShowFiles`, `-Dbg`
+
+**Self-test runs automatically, every invocation.** It plants each retired form (java's path-fold de-duplicator, java's nested-handler de-duplicator, .NET's nested-action de-duplicator whose function name says "method" rather than "handler" and is caught by the module path) and requires each to be detected, then plants each legitimate near-miss (serverless shadow avoidance, generated-test-method disambiguation, local-variable allocation) and requires each to be reported clean — so neither a scanner that can only return zero nor one that flags everything is believed. A run that discovers fewer than two `datrix-codegen-*` packages with a `src/` tree, or no Python source in them, fails rather than passing vacuously.
+
+**Exit codes:** 0 = clean (or a successful `-SelfTest`), 1 = a violation was found, 2 = usage error, too few packages discovered, or the self-test failed.
+
+---
+
 ### `test\check-generated-file-ratchet.ps1`
 
 GenDSL 2 Invariant I5 ratchet: AST-counts direct `GeneratedFile(...)` constructor calls per `datrix-*` package's `src/` tree and fails if any package's count exceeds its frozen baseline at `scripts/config/generated-file-ratchet.json`. Every emitted file should eventually be declared in genDSL rather than hand-constructed; this ratchet freezes the current count per package and only ever allows it to shrink as later migrations convert hand-coded construction into genDSL declarations. This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix), following the same AST-scan-and-ratchet shape as `dev\check-import-boundaries.ps1`'s I1/I6 ratchets.
@@ -584,7 +615,7 @@ GenDSL 2 Invariant I5 ratchet: AST-counts direct `GeneratedFile(...)` constructo
 
 ### `test\check-docs-conformance.ps1`
 
-Docs-conformance Invariant I5 gate: extracts repo-relative path references and Python module references from the curated 37-file architecture-doc set (each package's `docs/architecture.md` and/or `docs/architecture/` tree — `datrix-extensions` has neither and contributes zero) and fails if any reference does not resolve to a real file/directory/module in the tree, unless it is recorded in the committed exceptions baseline at `scripts/config/docs-conformance-exceptions.json` (a "what was removed" migration-history claim, a "must never exist" prohibition claim, or another confirmed-intentional non-existence). This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix), following the same scan-and-baseline shape as `check-generated-file-ratchet.ps1`'s I5 ratchet, except the exceptions baseline is hand-edited and reviewed (no `-UpdateBaseline` flag — every entry needs a human-authored reason a script cannot synthesize).
+Docs-conformance Invariant I5 gate: extracts repo-relative path references and Python module references from the curated 38-file architecture-doc set (each package's `docs/architecture.md` and/or `docs/architecture/` tree — `datrix-extensions` has neither and contributes zero) and fails if any reference does not resolve to a real file/directory/module in the tree, unless it is recorded in the committed exceptions baseline at `scripts/config/docs-conformance-exceptions.json` (a "what was removed" migration-history claim, a "must never exist" prohibition claim, or another confirmed-intentional non-existence). This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix), following the same scan-and-baseline shape as `check-generated-file-ratchet.ps1`'s I5 ratchet, except the exceptions baseline is hand-edited and reviewed (no `-UpdateBaseline` flag — every entry needs a human-authored reason a script cannot synthesize).
 
 `ARCHITECTURE_DOC_FILES` is a literal, reviewable constant in the script (never a directory glob) — "architecture docs" is a curated concept, and a new architecture doc added later is a deliberate, reviewed one-line addition to that constant. This v1 only checks path-reference candidates that are fully package-qualified (start with a known package name or `D:\datrix\`) and module-reference candidates that are fully import-qualified (start with a known Python import name) — a bare, package-relative shorthand span with no anchor at all is never a candidate (deliberate scope boundary, not a gap).
 
@@ -592,7 +623,7 @@ Docs-conformance Invariant I5 gate: extracts repo-relative path references and P
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Run gate** | `.\test\check-docs-conformance.ps1` | Scan all 37 architecture docs, fail on unresolved references |
+| **Run gate** | `.\test\check-docs-conformance.ps1` | Scan all 38 architecture docs, fail on unresolved references |
 | **Warning mode** | `.\test\check-docs-conformance.ps1 -Warn` | Report unresolved references but exit 0 |
 | **Show files** | `.\test\check-docs-conformance.ps1 -ShowFiles` | Print each architecture doc file being scanned |
 | **Self-test only** | `.\test\check-docs-conformance.ps1 -SelfTest` | Run only the scanner's own edge-case self-test suite; skip the real docs scan |
@@ -604,7 +635,7 @@ Docs-conformance Invariant I5 gate: extracts repo-relative path references and P
 **Self-test runs automatically, every invocation.** A plain-Python self-test suite (`--self-test` on the underlying `.py`; no pytest -- real `tempfile.TemporaryDirectory()` fixtures and `assert` statements, per the datrix showcase boundary) covers `extract_path_candidates`, `extract_module_candidates`, `resolve_path_candidate` (Tier 1 + Tier 2, including the adversarial ambiguous-Tier-2-match case, which must stay unresolved), `resolve_module_candidate`, `load_exceptions`, and `check_against_exceptions`. This suite runs, unconditionally, as step 1 of every invocation (self-test failure aborts before the real scan, exit 2); `-SelfTest` runs it in isolation and skips the real scan. `--harness-self-test` (no `.ps1` switch -- diagnostic only) registers one intentionally-failing dummy check to prove the `[OK]`/`[FAIL]` harness itself is not vacuous.
 
 **Assertions:**
-- Every single-backtick inline code span in each of the 37 architecture docs is extracted as a path-reference or module-reference candidate per the fixed extraction rules (package/drive-prefixed for paths, import-name-prefixed dotted chains for modules); a span containing `...`, `<`/`>`, or `*` is rejected outright.
+- Every single-backtick inline code span in each of the 38 architecture docs is extracted as a path-reference or module-reference candidate per the fixed extraction rules (package/drive-prefixed for paths, import-name-prefixed dotted chains for modules); a span containing `...`, `<`/`>`, or `*` is rejected outright.
 - A path candidate resolves via Tier 1 (exact path exists under the monorepo root; a trailing-slash candidate must be a directory) or Tier 2 (an unambiguous `src/`/`tests/`-relative suffix match — never attempted when the candidate already starts with `src`/`tests`, and never resolved when the suffix matches 2+ files).
 - A module candidate resolves when any decreasing-length prefix of its segments after the import name matches a real `.py` file or package `__init__.py` (tolerating a trailing symbol/attribute/function name).
 - A candidate unresolved by both tiers is checked against the exceptions baseline (span text -> reason); present spans never fail the gate, absent spans do.
@@ -1147,6 +1178,170 @@ fewer than 2 languages are registered.
 
 ---
 
+### `test\wire-shape-round-trip-gate.ps1`
+
+Wire-shape round-trip gate. Generates BOTH a backend service and a browser client for the adopted
+ecommerce fixture application (`datrix/examples/03-domains/ecommerce/`), boots the backend with
+`docker compose up -d --build --wait`, invokes every generated client method against it through a
+Node harness that executes the emitted client classes **as shipped** (real TypeScript compilation,
+real framework dependency injection, real `fetch`-backed HTTP), and compares every response body
+against the interface the client generator emitted for it. This is the only check that exercises the
+emitted client against a *running* backend rather than reasoning about either artifact in isolation —
+the one that catches a response field transcribed in the wrong case, or a query parameter cased
+against the wrong rule, at the source.
+
+It is a repo-level script and not a renderer-package pytest suite because it asserts on the COMBINED
+output of two generator packages — a backend language package's service and the browser-client
+renderer's tree — which `.claude/rules/repo-boundaries.md` forbids inside any single package.
+
+Derives its BACKEND target set from `importlib.metadata.entry_points(group="datrix.languages")` at
+runtime — never a hardcoded language literal. A backend that fails to generate or boot is reported as
+SKIPPED by name with its reason, and an emitted client target the gate has no harness for is reported
+the same way; the target set is never narrowed in silence. The browser-facing base URL is read from
+the generated `docker-compose.yml` (the service on the front-end network that publishes a host port,
+whose live host port is then resolved with `docker compose port`) — no port or URL is assumed, and an
+unresolvable one fails loud naming the compose file. Requires a running Docker daemon plus `node`/`npm`
+on PATH; the pinned harness toolchain installs once into `D:\datrix\.tmp\wire-shape-round-trip\`.
+
+Before building anything it runs five pre-flight comparisons over the emitted artifacts, so a boot
+that cannot succeed says why in seconds instead of after an image build: the Host header the gate
+will dial against the trusted hosts every emitted service will accept; the container names the
+compose file fixes against the names the Docker daemon already holds; the host ports it fixes as
+literals against the ports already bound; the compose variables that declare themselves required
+against the ones `.env.example` supplies (each remaining one is given a freshly generated value,
+reported by name); and the provisioned JWT signing key against the JWKS documents the stack's own
+identity providers will verify against. A name or port conflict is reported with the container that
+holds it — both are machine-global namespaces, so the holder is the actionable half. Where the
+compose file draws the browser-facing host port from an environment substitution, the gate reserves
+a free port for it rather than taking the template default, so a busy port is not reported as a
+generator defect.
+
+**The Host header is a seam, not a constant.** Every emitted service installs trusted-host
+enforcement over the author-declared `httpSecurity.allowedHosts`, and the emitted gateway forwards
+the client's Host verbatim to the upstream service *and* to the JWT auth subrequest — so one name
+has to satisfy every service at once. The gate intersects the trusted-host lists of every service in
+the fixture's *resolved* configuration (the language-neutral producer each backend transcribes into
+its own emitted service), narrows that to the names this machine resolves to loopback, and dials one
+of those. An empty intersection fails the gate before anything is generated, naming every declared
+list and what each candidate resolved to. It is never closed by widening `allowedHosts`, which is a
+trust boundary of the application under test.
+
+**Authenticated routes are called authenticated.** The gate signs a short-lived bearer token with
+the stack's **own provisioned private key** — the one the compose file mounts as the framework's
+`jwt_private_key` secret — after proving that key's public half is in the JWKS an emitted identity
+provider will fetch, and stamps the issuer, key id, algorithm and roles that provider's plan entry
+and surfaces require. A real Angular interceptor attaches it, so the emitted client classes run
+exactly as shipped and no auth check anywhere is bypassed, stubbed or relaxed. An absent provisioned
+key, an absent provider plan, or no provider whose JWKS holds that key **fails the gate** rather
+than falling back to unauthenticated calls, which would report every authenticated route as
+unexercised and check nothing. A route that answers 401/403 with a valid token is still reported
+UNEXERCISED, with its status — that is the application's own authorization decision.
+
+**Requests are paced to the emitted rate limit, never around it.** The generated gateway declares
+one address-keyed zone shared by every route (`rate=100r/m`, `burst=10`), so firing the whole route
+manifest at once lets eleven requests through and answers the rest 429. The harness paces at one
+request per 700 ms, honours the `Retry-After` the gateway sends on a 429, and retries within a
+bounded, run-wide wait budget; only when that budget is spent is a route reported UNEXERCISED, with
+the reason. The emitted limit itself is untouched.
+
+| Mode | Command | Description |
+|------|---------|--------------|
+| **Run gate** | `.\test\wire-shape-round-trip-gate.ps1` | Generate, boot, call, and compare for every registered backend language |
+| **Debug** | `.\test\wire-shape-round-trip-gate.ps1 -Dbg` | Debug logging |
+| **Self-test only** | `.\test\wire-shape-round-trip-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real generate-boot-call-compare run |
+| **Reuse the generated tree** | `.\test\wire-shape-round-trip-gate.ps1 -ReuseGenerated` | Boot and exercise the tree a previous run already generated, skipping generation |
+
+**Parameters:** `-Dbg`, `-SelfTest`, `-ReuseGenerated`
+
+`-ReuseGenerated` exists for the gate's own negative proof: plant a mis-cased property into an
+emitted response interface and the gate must catch it, which a fresh generation would overwrite
+before the first request. It fails loud when no previously generated tree is present.
+
+**Two self-tests run automatically, every invocation, before anything is generated.** The first is a
+diagnostic-durability check: every configured log stream is asked to encode a character outside the
+console code page, because a stream that refuses one DROPS the whole record — and the records this
+gate writes quote build transcripts and container logs it did not author, so a backend's SKIPPED
+reason can vanish and look exactly like a backend with nothing to say. A stream left on `strict`
+fails the gate in milliseconds instead of eating a diagnostic an hour in.
+
+The second drives the SHARED response-shape comparator —
+the same function the live path calls, not a copy — over synthetic payloads seven times. Three prove
+it catches what it must: a matching synthetic interface (must report parsed), one whose single
+property has been re-spelled in a different case (must report unparsed, naming that property), and one
+declaring the wrong value kind for a nested property (must report unparsed, naming that property).
+Severing the comparator turns `-SelfTest` red.
+
+Four more prove it does not OVER-trigger, each paired with a negative leg so the permissive half
+cannot pass by switching comparison off:
+
+- an object under a field declared `unknown` parses (that is the generator's marker for a DSL `JSON`
+  value, which constrains nothing) — while a mis-cased sibling field beside it still fails;
+- a JSON `null` body parses against a `void` declaration (what the generator emits for `-> Void`) —
+  while an interface declaring a required property still rejects `null`.
+
+Both over-triggers were live: `NonNullable<unknown>` is `{}`, not `unknown`, so descending into a
+correct `pagination: unknown` reported all six of its inner keys as undeclared properties; and
+`null extends void` is false, so two correct `-> Void` routes were reported as mismatches. Neither
+could ever have been fixed generator-side.
+
+A route the backend answers with a non-2xx status is reported as **UNEXERCISED**, by name and with the
+status, rather than as a mismatch: the generated interface describes the success body only (error
+responses are deliberately untyped in this design), so an error body is a route the gate could not
+exercise, not a shape disagreement. A method declaring `Observable<unknown>` is reported as **UNTYPED**
+the same way. Both counts are printed on every run, and a run in which *nothing* could be compared
+fails rather than passing vacuously.
+
+**Exit codes:** 0 = every response that carried a typed success body parsed against its generated
+interface, for at least one backend that booted; 1 = a wire-shape mismatch, a declared route with no
+reachable client method, a method whose emitted shape could not be read or whose response type could
+not be resolved, an argument no value could be constructed for, an emitted client tree that does not
+compile, a client method issuing a route the generated manifest does not declare, an emitted client
+target the gate cannot drive at all, or a run in which nothing at all could be compared; 2 = either
+self-test failed (diagnostic durability or comparator non-vacuity), no `datrix.languages` targets are
+registered, no host every emitted service trusts reaches this machine's loopback, or every registered
+backend failed before a single route could be called.
+
+---
+
+### `test\body-wire-naming-conformance-gate.ps1`
+
+Cross-language response-body wire-naming conformance gate. Generates the real CQRS example project
+(`datrix/examples/02-features/03-infrastructure-blocks/cqrs/`) once per registered
+`datrix.languages` plugin and proves every emitted response-body schema serializes under ONE
+declared rule -- camelCase wire keys -- by reading each language's OWN generated response classes'
+EFFECTIVE wire names, never the mere presence of a wire-renaming mechanism (a template with no
+alias generator but single-word fields, e.g. `problem_details.py.j2`, is not a divergence -- its
+effective wire name is unchanged either way).
+
+A language whose response surface genuinely diverges declares it via a reviewed, pinned-count entry
+in `datrix/scripts/config/body-wire-naming-exemptions.json` (`{language, schema_kind, template,
+reason}`, pinned `expected_count`).
+
+Derives its target language set from `importlib.metadata.entry_points(group="datrix.languages")`
+at runtime -- never a hardcoded `python`/`typescript`/`dotnet`/`java` literal.
+
+**Built-in non-vacuity self-test, every invocation.** Proves the comparator flags a genuinely
+divergent field, does not flag a genuinely conformant one, does not flag a single-word field with
+no wire-renaming mechanism (the real `problem_details.py.j2` shape), correctly suppresses a
+divergence covered by a real exemption entry, and reads the EFFECTIVE serialization wire name
+(never an `alias`-only read) against a real Pydantic model whose field carries only
+`Field(serialization_alias=...)`. Fails loud (exit 2) if fewer than 2 languages are registered.
+
+| Mode | Command | Description |
+|------|---------|--------------|
+| **Run gate** | `.\test\body-wire-naming-conformance-gate.ps1` | Generate the CQRS example for every registered language and compare effective wire names |
+| **Debug** | `.\test\body-wire-naming-conformance-gate.ps1 -Dbg` | Debug logging |
+| **Self-test only** | `.\test\body-wire-naming-conformance-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip real generation |
+
+**Parameters:** `-Dbg`, `-SelfTest`
+
+**Exit codes:** 0 = every registered language's response bodies serialize camelCase (or every
+divergence is exempted), 1 = an unexempted divergence was found (or a registered language has no
+implemented extractor), 2 = the non-vacuity self-test failed or fewer than 2 languages are
+registered.
+
+---
+
 ### `test\enum-classifier-conformance-gate.ps1`
 
 Cross-target enum-classifier conformance gate (D11, G10). Proves every registered
@@ -1395,16 +1590,21 @@ suite (per the datrix showcase boundary).
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Run the gate** | `.\test\shared-library-gate.ps1` | Run all 50 absorbed checks |
+| **Run the gate** | `.\test\shared-library-gate.ps1` | Run all 51 absorbed checks |
 | **Harness self-test** | `.\test\shared-library-gate.ps1 -HarnessSelfTest` | Prove the harness detects a forced failure (always reports [FAIL], exits 1) |
 | **Debug** | `.\test\shared-library-gate.ps1 -Dbg` | Print the python invocation before running |
 
 **Parameters:** `-HarnessSelfTest`, `-Dbg`
 
-**Assertions:** 50 named checks covering `structured_log_writer.py`, `test_runner.py`,
+**Assertions:** 51 named checks covering `structured_log_writer.py`, `test_runner.py`,
 `codegen_hint_mapper.py`, `deploy_test_aggregate_writer.py`, `generated_test_log_writer.py`,
 `aggregate_test_writer.py`, `deploy_test_log_writer.py`, and `logging_utils.py`'s log-content and
-cleanup functions. Several are inherently adversarial (corrupt/truncated/empty JUnit XML →
+cleanup functions. One of them pins the parallel phase's distribution mode to `-n auto --dist
+loadgroup` (and the serial phase to neither flag): `loadgroup` is the only xdist mode that honours
+an `xdist_group` mark, and both `datrix-codegen-typescript` and `datrix-codegen-angular` pool their
+`npm_tsc` tests through such marks — a downgrade to plain `--dist load` would silently un-bound
+both pools without failing anything else. Several checks are inherently adversarial
+(corrupt/truncated/empty JUnit XML →
 INCOMPLETE, missing/corrupt per-project `index.json` skipped without error, a
 Docker-unavailable-with-no-markers or fully empty deploy dir → FAILED never PASSED,
 `add_project_results` raising `FileNotFoundError`/`JSONDecodeError` on bad input), which already
@@ -1441,6 +1641,49 @@ reported `[FAIL]` with a nonzero exit.
 **Also enforced at the commit seam.** `git\commit-and-push.ps1` runs the same scanner over every dirty repo's pending changes before it generates a message or stages anything, and refuses the whole run on a violation (`-SkipCustomerDomainCheck` overrides, loudly). This gate is the tracked-tree counterpart: it also catches what is already committed.
 
 **Exit codes:** 0 = no violations (or zero terms registered, reported as `NOT ENFORCED`), 1 = at least one violation or a failing self-test, 2 = usage error or a missing/malformed corpus.
+
+---
+
+### `test\ignored-source-gate.ps1`
+
+**The repo's proof that no `.gitignore` rule is silently deleting a publishable file.** For the `datrix` showcase repo and every `datrix-*` clone in the workspace (discovered from disk at runtime — a new package is covered with no edit to the gate), it computes the set difference between the working tree and what a `git add -A` would stage. Every element of that difference must be a reviewed, scoped entry in `scripts/config/ignored-source-exemptions.json`; anything else is a source file that exists locally and will not survive a clone. This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix), and the gate's own self-test is its coverage.
+
+**Why it exists.** A package carried the stock Python `.gitignore`'s **unanchored** `MANIFEST` line — intended for setuptools' root `MANIFEST` file. Git matches an unanchored pattern at *any depth*, and `core.ignorecase=true` on this platform makes the match case-insensitive, so it also matched a `templates/manifest/` directory and swallowed both Jinja2 templates inside. Nothing was visible locally: the files were on disk, every test passed, the emitted output compiled. The loss appears only after a clone or a wheel install, as a package that cannot generate — and by then the templates are gone from history. It was found by hand, by comparing a file count against a `git add -A --dry-run` count. This gate is that comparison, living in code.
+
+**Git is the oracle.** Ignore matching is never re-implemented. `git ls-files -o -i --exclude-standard` produces the difference at *file* granularity (directories are not collapsed), and `git check-ignore -v` names the `.gitignore` file, line number, and pattern responsible for each element. Anchoring, negation (`!`), nested `.gitignore` files, `.git/info/exclude`, global excludes and `core.ignorecase` interact in ways a hand-rolled matcher gets wrong — and a wrong matcher returns a confident "clean" that will be believed, which is how the original defect survived. A path git refuses to stage but attributes to no rule is reported with a placeholder rule and fails the gate; it can never match an exemption.
+
+**Every finding names the rule, not just the file.** Output is grouped as `<gitignore>:<line>: <pattern> -- shadows N publishable file(s)`, then the paths. Reporting only the file leaves the fix a hunt through several hundred `.gitignore` lines.
+
+**Exemptions are scoped, and the scope is load-bearing.** Each entry excuses **one** rule (identified by the `.gitignore` file plus the pattern text git reports) over **one** path scope, and carries a written reason. An entry for the root `build/` tree does not excuse the same unanchored `build/` rule swallowing a `templates/build/` directory full of source — that is the same defect wearing a different name, and the self-test proves the scope rejects it. `repos` is a list of repo names or `["*"]` for every framework repo; `path_glob` is segment-aware (`**/` spans whole segments, `**` spans the remainder, `*`/`?` stay inside one segment). `pinned_count` is enforced against `len(exemptions)`, so an entry cannot be added or removed without the reviewed number moving in the same change.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the gate** | `.\test\ignored-source-gate.ps1` | Scan every framework repo in the workspace |
+| **One repo** | `.\test\ignored-source-gate.ps1 -Repo datrix-language` | Scan only the named repo(s) |
+| **Several repos** | `.\test\ignored-source-gate.ps1 -Repo datrix-language,datrix-vscode` | Scan the named repos only |
+| **Self-test only** | `.\test\ignored-source-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real scan |
+| **Show exemptions** | `.\test\ignored-source-gate.ps1 -ShowExempt` | Print every reviewed entry with its written reason, then scan |
+| **Debug** | `.\test\ignored-source-gate.ps1 -Dbg` | DEBUG logging; print the python invocation before running |
+
+**Parameters:** `-Repo <name[,name...]>`, `-SelfTest`, `-ShowExempt`, `-Dbg`
+
+**Self-test runs automatically, every invocation.** Before any real scan, real `git init` repos are created in a temp directory and the scanner must reach the correct verdict on each planted path — a scan that can only return zero is not evidence, which is precisely how the original defect survived. It asserts:
+
+- an unanchored `MANIFEST` rule shadowing `src/pkg/templates/MANIFEST/entry.j2` is **detected**, and blamed on the right `.gitignore` **file, line number and pattern**;
+- that finding is **not** excused by any entry in the real exemption file;
+- a planted publishable file (`src/pkg/keep.py`) is **not** reported;
+- a `__pycache__/` file and a root `build/` file **are** excused by their real entries, while the same `build/` rule shadowing `src/pkg/templates/build/template.j2` is **not** — proving the path scope is load-bearing;
+- an empty exemption set excuses nothing (the exemption matcher is not vacuously true);
+- git's own semantics are honoured: a `!`-re-included path is not reported, and a lowercase `manifest` directory under an uppercase `MANIFEST` rule is detected **iff** `core.ignorecase` is true in that repo;
+- the scope glob is segment-aware across nine positive and negative cases.
+
+A self-test failure aborts before any real result is trusted (exit 1).
+
+**Unused exemption entries are reported, never failed.** An entry covers output a tool writes only once it has run (a coverage report, an `npm install`), so its absence on a clean checkout is normal and is not evidence the entry is stale.
+
+**Also enforced at the commit seam.** `git\commit-and-push.ps1` runs the same scanner over every dirty repo before it generates a message or stages anything, and refuses the whole run on a violation (`-SkipIgnoredSourceCheck` overrides, loudly); a scanner that fails its own self-test aborts the run rather than returning a verdict nobody can trust. That is the seam this defect is actually about — `git add -A` is where the file is or is not published. This gate is the whole-workspace counterpart: it also covers repos the current run is not committing.
+
+**Exit codes:** 0 = every unstaged working-tree path is a reviewed exemption, 1 = at least one publishable file is shadowed or the self-test failed, 2 = usage error (unknown `-Repo` name, no framework repo found) or a missing/malformed/miscounted exemption file.
 
 ---
 
