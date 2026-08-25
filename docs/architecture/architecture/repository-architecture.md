@@ -6,7 +6,7 @@
 
 ## Repository Architecture
 
-The project is split into **fourteen** installable packages (thirteen core toolchain packages plus optional **datrix-extensions**), plus the **datrix** showcase repo (docs, examples, scripts). This structure provides clear boundaries, independent versioning/releases, selective installation, and per-repo CI/CD pipelines.
+The project is split into **fifteen** installable packages (fourteen core toolchain packages plus optional **datrix-extensions**), plus the **datrix** showcase repo (docs, examples, scripts). This structure provides clear boundaries, independent versioning/releases, selective installation, and per-repo CI/CD pipelines.
 
 > **`datrix-codegen-dotnet` is a real generator**, not a scaffold. Increments 0-3 (scaffold/transpiler/entities/REST), increments 4-6 (persistence & migrations, identity & auth, messaging & workers), and increments 7-8 (data & integrations, GraphQL/websockets/geo) have all **landed** and are proven (increments 0-6: full suite 1347/0/0, docker/cli generation unchanged, all G1-G8 conformance checks green), joining python, typescript, and `datrix-codegen-java` (real since its Phase 3 project generator, and a fully realized generator at parity with python and typescript — see [datrix-codegen-java/docs/architecture.md](../../../datrix-codegen-java/docs/architecture.md)) as real generators. Repo tooling keys off what is on disk: a package joins `test.ps1 -All`, `mypy.ps1 -All`, `status-tests.ps1`, the shared-venv install set, and the import-boundary / dead-code / docs-conformance scans automatically once it has a `pyproject.toml`, `src/`, and `tests/`. No hand-maintained package list needs updating. dotnet's increments 9-10 (test generation, package docs, serverless cloud wiring) are not yet implemented. The container-hosting platform work (Azure Container Apps / ECS Fargate best-native targets) is separate and language-agnostic — it does not own dotnet's serverless authoring.
 
@@ -141,9 +141,16 @@ Generates Azure infrastructure (Bicep) including App Service (native PaaS runtim
 
 ---
 
+### Frontend Client Generators (1)
+
+#### 13. datrix-codegen-angular
+Generates a TypeScript Angular client from the shared frontend client contract: request/response types, enums, and injectable HTTP services built from the same contract-builder every frontend target consumes. An artifact-phase companion generator — activates only when the application declares a `clients { angular { ... } }` config block. Depends on `datrix-common` and `datrix-codegen-common` like every other codegen-* target; imports no backend language generator.
+
+---
+
 ### CLI (1)
 
-#### 13. datrix-cli
+#### 14. datrix-cli
 Command-line interface for code generation and seed management
 
 **Responsibilities:**
@@ -164,7 +171,7 @@ Command-line interface for code generation and seed management
 
 ### Extension packs (optional)
 
-#### 14. datrix-extensions
+#### 15. datrix-extensions
 Optional package of **domain extension** entry points registered under the `datrix.extensions` group. Each pack contributes language-agnostic scalar definitions, builtin objects, and value struct definitions via the **`value_struct_definitions()`** surface on the `DatrixExtension` protocol, database extension names, extra dependency hints, and optional template directories. **Language-specific type mappings** live in `datrix-codegen-python`, `datrix-codegen-typescript`, `datrix-codegen-sql`, not in the extension pack (split ownership).
 
 **Current extensions:**
@@ -183,13 +190,13 @@ Optional package of **domain extension** entry points registered under the `datr
 
 ### Showcase (1)
 
-#### 15. datrix
+#### 16. datrix
 Public repository with documentation, examples, and scripts.
 
 ### Client artifact outside this registry: `datrix-vscode`
 
 One further repository, `datrix-vscode`, exists and is deliberately **not** one of the
-fifteen above: it is the thin VS Code client for the Datrix language server, hosts no
+sixteen above: it is the thin VS Code client for the Datrix language server, hosts no
 framework tests and no framework code, and its packaging CI proves the published `.vsix`
 bundles none of the framework packages. Its **source repository is private; the extension
 it publishes to the marketplace is public** — a `.vsix` is a readable archive regardless of

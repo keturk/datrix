@@ -1,0 +1,6 @@
+{
+  "0001_initial": {
+    "language": "sql",
+    "relative_path": "ecommerce_payment_service/src/main/resources/changelog/payment-db/changelog/0001_initial.sql"
+  }
+}

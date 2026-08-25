@@ -3,16 +3,26 @@
 Read this before creating a directory, adding a test outside the package you are fixing, or
 writing anything into `D:\datrix\datrix`.
 
-## The 16 package repos
+## The 17 package repos
 
 Each of these is its own **git repository**. Anything dropped inside one gets committed and
 pushed unless a human notices:
 
-`datrix`, `datrix-cli`, `datrix-codegen-aws`, `datrix-codegen-azure`,
-`datrix-codegen-common`, `datrix-codegen-component`, `datrix-codegen-docker`,
-`datrix-codegen-dotnet`, `datrix-codegen-java`, `datrix-codegen-python`,
-`datrix-codegen-sql`, `datrix-codegen-typescript`, `datrix-common`, `datrix-extensions`,
-`datrix-language`, `datrix-vscode`
+`datrix`, `datrix-cli`, `datrix-codegen-angular`, `datrix-codegen-aws`,
+`datrix-codegen-azure`, `datrix-codegen-common`, `datrix-codegen-component`,
+`datrix-codegen-docker`, `datrix-codegen-dotnet`, `datrix-codegen-java`,
+`datrix-codegen-python`, `datrix-codegen-sql`, `datrix-codegen-typescript`,
+`datrix-common`, `datrix-extensions`, `datrix-language`, `datrix-vscode`
+
+**The count is not a constant.** This list grows as targets are added — a new language, a
+new platform, or a new frontend target is a new repo. Update the list and the heading in
+the same edit; never leave a package out to preserve the number.
+
+**`datrix-codegen-angular` is a frontend TARGET, not a language.** It emits TypeScript but
+registers as an artifact-phase `datrix.generators` plugin, so it never appears in
+`registered_language_names()` and `--language` never selects it. It activates only when an
+application declares a `clients { angular { … } }` block, and it owns its own manifest
+target so its stale-file pruning is confined to `clients/angular/`.
 
 **`datrix-vscode` is not a Python package.** It is the TypeScript VS Code client: no
 `pyproject.toml`, so it is absent from the venv install set and from every Python scan, but

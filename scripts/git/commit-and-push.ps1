@@ -52,6 +52,20 @@ repo cannot leave the first four already pushed. Customer/project domain languag
 must never enter a framework repo, and prose alone did not stop it. Pass this only
 for a confirmed false positive -- it prints a warning and commits regardless.
 
+.PARAMETER SkipIgnoredSourceCheck
+Skip the ignored-source check that runs before anything is staged.
+
+The same seam asked in the opposite direction: the isolation check asks what a
+`git add -A` must not carry IN, this one asks what it silently leaves OUT. Every
+dirty repo's working tree is compared against what `git add -A` would stage, and
+any file git refuses to stage must be a reviewed, scoped entry in
+scripts/config/ignored-source-exemptions.json. One unexplained file aborts the
+whole run with nothing committed, naming the file AND the .gitignore line
+responsible. An unanchored stock `MANIFEST` pattern once swallowed a package's
+shipped templates -- invisible locally, the files on disk and the tests green,
+and only visible after a clone as a package that cannot generate. Pass this only
+for a confirmed false positive -- it prints a warning and commits regardless.
+
 .EXAMPLE
 .\commit-and-push.ps1
 Auto-detect backend, generate messages, commit and push every dirty repo.
@@ -93,7 +107,9 @@ param(
 
     [switch]$DryRun,
 
-    [switch]$SkipCustomerDomainCheck
+    [switch]$SkipCustomerDomainCheck,
+
+    [switch]$SkipIgnoredSourceCheck
 )
 
 $ErrorActionPreference = 'Stop'
@@ -129,6 +145,10 @@ if ($DryRun) {
 
 if ($SkipCustomerDomainCheck) {
     $pyArgs += '--skip-customer-domain-check'
+}
+
+if ($SkipIgnoredSourceCheck) {
+    $pyArgs += '--skip-ignored-source-check'
 }
 
 & $pythonExe @pyArgs

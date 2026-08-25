@@ -1,0 +1,16 @@
+{
+  "_comment": [
+    "Every (language, schema_kind) whose response-body fields do NOT currently serialize under",
+    "the declared camelCase rule, catalogued so the body-wire-naming-conformance-gate can run",
+    "green while the underlying divergence is fixed on its own schedule.",
+    "",
+    "This is a DELIBERATELY MAINTAINED SCOPE BOUNDARY, not an auto-heal: every entry is a real,",
+    "reviewed divergence in a language's response-schema template, catalogued here until its owning",
+    "fix removes both the divergence and this entry IN THE SAME CHANGE.",
+    "",
+    "expected_count is a pinned, reviewed value: change it only in the same change that adds or",
+    "removes an entry."
+  ],
+  "expected_count": 0,
+  "exemptions": []
+}

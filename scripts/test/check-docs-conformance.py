@@ -2,7 +2,7 @@
 r"""Docs-conformance gate for Datrix architecture documentation (Invariant I5).
 
 Extracts repo-relative path references and Python module references from
-every package's **architecture documentation** (the curated 37-file set in
+every package's **architecture documentation** (the curated 38-file set in
 ``ARCHITECTURE_DOC_FILES`` below) and fails if any reference does not resolve
 to a real file/directory/module in the tree, unless the reference is recorded
 in the committed exceptions baseline
@@ -59,7 +59,7 @@ from pathlib import Path
 from typing import Literal
 
 # ---------------------------------------------------------------------------
-# The curated 37-file architecture-doc set (see module docstring for why this
+# The curated 38-file architecture-doc set (see module docstring for why this
 # is a literal constant, never a directory glob). Verified against the live
 # tree: datrix-common and datrix-language each ship BOTH a top-level
 # docs/architecture.md AND a docs/architecture/ directory of further .md
@@ -76,6 +76,7 @@ ARCHITECTURE_DOC_FILES: tuple[str, ...] = (
     "datrix/docs/architecture/architecture/pipeline-and-capabilities.md",
     "datrix/docs/architecture/architecture/repository-architecture.md",
     "datrix-cli/docs/architecture.md",
+    "datrix-codegen-angular/docs/architecture.md",
     "datrix-codegen-aws/docs/architecture.md",
     "datrix-codegen-azure/docs/architecture.md",
     "datrix-codegen-common/docs/architecture.md",

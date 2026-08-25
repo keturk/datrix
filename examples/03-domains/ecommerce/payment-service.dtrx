@@ -49,7 +49,6 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
 
     struct StripeWebhookRequest {
         JSON payload;
-        String stripeSignature;
     }
 
     // ': audit' on the rdbms block enables audit logging for all entities
@@ -267,9 +266,14 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
             return refund;
         }
 
-        // Webhook endpoint for external payment gateway callbacks
+        // Inbound payment-gateway callback. The sender is an external machine,
+        // so the endpoint carries no user auth — authenticity comes from the
+        // gateway's payload signature, verified against a logical secret handle
+        // declared in config/payment-service.dcfg before the body is trusted.
         @path('/webhook/stripe')
-        post(StripeWebhookRequest request) : auth(public) -> Void {
+        post(StripeWebhookRequest request) : auth(webhook),
+            verify(signature, provider: stripe, secretRef: payment_webhook_secret)
+            -> Void {
 
             let String eventType = request.payload.type;
             let JSON data = request.payload.data.object;

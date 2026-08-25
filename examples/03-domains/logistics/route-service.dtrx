@@ -256,7 +256,12 @@ service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), 
 
     rest_api RouteAPI : basePath('/api/v1/routes'), rdbms(routeDb) {
 
-        resource routeDb.Route : auth(required, providers: [identity]);
+        // Creation is not a plain resource verb here: the explicit post(...) below
+        // claims POST /api/v1/routes so it can generate the unique routeCode and
+        // take a CreateRouteRequest rather than the whole Route entity. Leaving
+        // 'create' in the expansion would give one route two declarations, and
+        // only the first would be reachable.
+        resource routeDb.Route : auth(required, providers: [identity]), only(list, get, update, delete);
 
         post(CreateRouteRequest request) : auth(required, providers: [identity]) -> routeDb.Route {
             let Route route = routeDb.Route.create({

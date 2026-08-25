@@ -80,6 +80,10 @@
         required = true;
         purpose = "Stripe secret API key for payment processing.";
       }
+      secret payment_webhook_secret {
+        required = true;
+        purpose = "Signing key for inbound payment-gateway webhook signature verification.";
+      }
     }
     integrations {
       payment {

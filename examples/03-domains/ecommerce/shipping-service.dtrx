@@ -398,9 +398,17 @@ service ecommerce.ShippingService('config/shipping-service.dcfg') : version('1.0
             return rates;
         }
 
-        // Webhook for external carrier status updates
+        // Inbound carrier status callback. The sender is an external machine, so
+        // the endpoint carries no user auth — authenticity comes from a keyed
+        // hash over the raw body, verified against a logical secret handle
+        // declared in config/shipping-service.dcfg before the body is trusted.
+        // The carrier publishes no registry signature envelope, so the
+        // sender-generic hmac scheme declares every wire detail here.
         @path('/webhook/fedex')
-        post(FedExWebhookRequest request) : auth(public) -> Void {
+        post(FedExWebhookRequest request) : auth(webhook),
+            verify(hmac, header: 'X-Carrier-Signature', algorithm: hmacSha256,
+                   encoding: hex, secretRef: carrier_webhook_secret)
+            -> Void {
             let String trackingNumber = request.payload.trackingNumber;
             let String eventType = request.payload.eventType;
             let String location = request.payload.location ?? "Unknown";

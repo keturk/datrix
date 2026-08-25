@@ -893,6 +893,48 @@ def check_test_runner_junit_xml_with_coverage_and_verbose_marker() -> None:
     assert "-m" in args_verbose_marker
 
 
+def check_test_runner_parallel_phase_uses_loadgroup_distribution() -> None:
+    """The parallel phase must run ``-n auto`` with ``--dist loadgroup``.
+
+    ``loadgroup`` is the ONLY xdist distribution mode that honours an
+    ``xdist_group`` mark: it is what makes every item sharing a group name land
+    on one worker. Two mechanisms in the tree depend on that and are silently
+    inert without it -- ``datrix-codegen-typescript`` and
+    ``datrix-codegen-angular`` both pool their ``npm_tsc`` tests into
+    ``DATRIX_TS_NPM_TSC_POOLS`` groups from their ``tests/conftest.py``
+    collection hooks, so that at most that many real ``npm install`` + ``tsc``
+    chains run at once. Downgrading this flag to plain ``--dist load`` would
+    turn both pools back into unbounded concurrency without failing anything.
+
+    The serial phase is checked too: it must NOT carry the parallel flags,
+    because ``serial`` means strictly one at a time.
+    """
+    runner = _make_test_runner(has_xdist=True)
+
+    parallel = runner._build_pytest_args(python_exe="python", coverage=False, verbose=False)
+    assert "-n" in parallel, "the parallel phase lost its -n worker flag"
+    assert parallel[parallel.index("-n") + 1] == "auto"
+    assert "--dist" in parallel, (
+        "the parallel phase does not pass --dist at all, so xdist falls back to "
+        "its default 'load' mode and every xdist_group mark in the tree is inert"
+    )
+    assert parallel[parallel.index("--dist") + 1] == "loadgroup", (
+        f"the parallel phase distributes with "
+        f"{parallel[parallel.index('--dist') + 1]!r}, not 'loadgroup'; "
+        f"xdist_group marks only bind under loadgroup"
+    )
+
+    # The serial phase is built with has_xdist temporarily forced off (see
+    # TestRunner.run); that path must not emit the parallel flags.
+    serial_runner = _make_test_runner(has_xdist=False)
+    serial = serial_runner._build_pytest_args(
+        python_exe="python", coverage=False, verbose=False
+    )
+    assert "-n" not in serial and "--dist" not in serial, (
+        f"the serial phase emitted parallel flags: {serial}"
+    )
+
+
 # ===========================================================================
 # shared.codegen_hint_mapper
 # ===========================================================================
@@ -3033,6 +3075,7 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_test_runner_junit_xml_flag_only_when_given,
     check_test_runner_junit_xml_coexists_with_addopts_override,
     check_test_runner_junit_xml_with_coverage_and_verbose_marker,
+    check_test_runner_parallel_phase_uses_loadgroup_distribution,
     # shared.codegen_hint_mapper
     check_codegen_hint_python_patterns,
     check_codegen_hint_typescript_patterns,

@@ -294,7 +294,11 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
 
         resource productDb.Product : auth(public), only(list, get);
 
-        resource productDb.Product : auth(required, providers: [identity], roles: [admin]), only(create, update, delete);
+        // Creation is not a plain resource verb here: the explicit post(...) below
+        // claims POST /api/v1/products so it can generate the slug and dispatch
+        // ProductCreated. Listing 'create' as well would give one route two
+        // declarations, and only the first would be reachable.
+        resource productDb.Product : auth(required, providers: [identity], roles: [admin]), only(update, delete);
 
         @path('/slug/:slug')
         get(String slug) : auth(public) -> productDb.Product {

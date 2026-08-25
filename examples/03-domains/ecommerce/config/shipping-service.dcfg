@@ -99,6 +99,12 @@
         }
       }
     }
+    secrets {
+      secret carrier_webhook_secret {
+        required = true;
+        purpose = "Keyed-hash key for inbound carrier webhook signature verification.";
+      }
+    }
     httpSecurity {
       allowedHosts = ["shipping-service.example.com", "localhost"];
       corsOrigins = ["https://app.example.com"];
