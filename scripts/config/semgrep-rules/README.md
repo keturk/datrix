@@ -21,6 +21,7 @@ Each file contains one (or a closely related set of) semgrep rule(s).
 | `todo-comment.yaml` | `# TODO` comments | INFO |
 | `magic-number-status.yaml` | Bare `200`/`404`/`500` in comparisons | WARNING |
 | `redundant-case-conversion.yaml` | `to_*_case(str(x))`, nested `to_*_case(to_*_case(x))`, `to_*_case(extract_simple_name(x))` | WARNING |
+| `module-scope-logging-config.yaml` | `logging.basicConfig(...)` / `dictConfig` / root `setLevel` at module scope | ERROR |
 
 ## Usage
 

@@ -1,0 +1,31 @@
+rules:
+  - id: datrix.module-scope-logging-config
+    patterns:
+      - pattern-either:
+          - pattern: logging.basicConfig(...)
+          - pattern: logging.config.dictConfig(...)
+          - pattern: logging.config.fileConfig(...)
+          - pattern: logging.root.setLevel(...)
+          - pattern: logging.getLogger().setLevel(...)
+      - pattern-not-inside: |
+          def $F(...):
+              ...
+      - pattern-not-inside: |
+          async def $F(...):
+              ...
+      - pattern-not-inside: |
+          class $C:
+              ...
+      - pattern-not-inside: |
+          if __name__ == "__main__":
+              ...
+    message: >
+      Root-logger configuration at module scope. This runs on IMPORT, so it
+      reconfigures the logging of every process that imports the module --
+      including the generator, which imports far more than it executes. One
+      such call reconfigured every `datrix generate` run and put plugin INFO
+      records on the generator's stdout. Configure logging from an entry point
+      (a `main()`, a CLI callback, or `datrix_common.logging.configure_logging`),
+      never at import time.
+    languages: [python]
+    severity: ERROR
