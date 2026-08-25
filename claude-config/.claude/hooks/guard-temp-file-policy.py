@@ -53,7 +53,15 @@ _SCRATCH_EXT_RE = re.compile(r"\.(log|tmp|bak|orig|out|dump|swp)$")
 # Unambiguous scratch signatures — filename-based (basename only).
 _SCRATCH_NAME_RE = re.compile(
     r"^("
-    r"(tmp|temp|scratch|debug|dbg|junk|foo|bar|baz|test123|asdf)[-_.\w]*"
+    # The keyword must be a WHOLE token, not a prefix: `(?![a-z])` (IGNORECASE, so it
+    # covers both cases) forbids a following letter, so the keyword may only be followed
+    # by a separator, a digit, or end-of-name. Without it the trailing `[-_.\w]*` swallowed
+    # the rest of any word that merely STARTED with a keyword, blocking real source files
+    # (`template_generator.py`, `temperature.py`, `debugger.py`, `barnacle.py`) — exactly
+    # the false positives this hook's own docstring promises never to produce. The
+    # separator-less compounds are spelled out so tightening the boundary loses no coverage.
+    r"(tmpfile|tempfile|tmp|temp|scratch|debug|dbg|junk|foo|bar|baz|test123|asdf)"
+    r"(?![a-z])[-_.\w]*"
     r"|[-_\w]*(_|-)(scratch|tmpfile|debug_output|dump)[-_.\w]*"
     r"|(check|verify|repro|run|try|quick|oneoff|one_off)[-_]?\d*\.(py|ps1|sh|js|ts)"
     r"|(results?|output|findings|summary|notes|analysis)[-_]?\d*\.(json|txt|md|csv)"

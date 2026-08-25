@@ -340,6 +340,30 @@ client derives it rather than hardcoding it, and the wart becomes invisible at e
 
 Full decision log: [Architecture Overview — Decision 43](./architecture-overview.md#decision-43-frontend-api-client-generation--browser-clients-emitted-from-the-same-dsl-as-the-backend-approved--implementation-in-progress).
 
+## Boot-Path Contracts (Reaching the Database)
+
+Generating a service that compiles is not generating a service that runs. Three of the four registered backend targets emit an application that builds its image and then fails during startup — a pool that never connects, a migration naming a type nothing creates, an unset environment variable — and none is visible to the owning package's suite, because each emitted artifact is internally consistent and disagrees only with an artifact emitted by a *different* package or with a dependency's runtime behaviour. That is the **seam** class, and each rule below lands as an executable comparison rather than prose. **Approved — implementation in progress.**
+
+| # | Invariant | Enforcement |
+|---|---|---|
+| 1 | A readiness probe exercises the transport its dependents connect over | Asserted over each surviving probe-command registry as a whole, not the one corrected entry, so a later-registered engine is covered. A socket probe gating TCP dependents is the defect; `depends_on: service_healthy` releases them on the probe's word |
+| 2 | A probe command has one home; a registry no target consumes does not survive | Zero-consumer registries are deleted rather than left disagreeing with the value actually emitted |
+| 3 | Every target's migration entrypoint waits for the database over a bounded retry before any DDL | Required on every target — a compose health check is container-only, and a managed instance has none, so correcting a probe does not discharge it |
+| 4 | The readiness bound is one declaration, not one per language | Attempt count + delay live once in the shared codegen layer; a per-language copy is drift |
+| 5 | A migration failure reports the driver's diagnosis, not the pool's timeout | Failure carries the driver exception as its cause **and** the entrypoint prints the chain — either alone truncates at the outermost frame. The URL a failure names is built without the credential |
+| 6 | Every type an emitted migration references is created by that same chain | Parse the revision: `referenced − created` must be empty. Computed, not eyeballed |
+| 7 | A native type's name and labels have one home per language package | Column configuration, creation statement, and runtime mapping call one function. Proven with a multi-word-member enum so a casing divergence cannot pass |
+| 8 | Schema DDL is never emitted outside the migration chain | A container init directory exists only on the container platform; a managed instance has no hook, so init-script DDL works on one platform and fails on the rest. Deleted, not deprecated, and pinned |
+| 9 | An unrecognised migration operation kind raises | A dispatch chain with no final branch renders it as nothing — a silently dropped step in an append-only history. The fail-loud branch lands **before** any new kind is added |
+| 10 | No generated service resolves a connection fact or credential from the process environment | Decision 14 restated as a per-target obligation, not a property one target happens to have. Fails closed: no default host, port, database, or credential. Legitimate container-runtime keys are a typed, counted exemption |
+| 11 | The emitted service can read the secret backend its platform declares | A declared backend with no renderer raises naming it — never falls back to an environment reader, which is a fail-open credential path wearing a working service's appearance |
+
+**Two declared holes (invariants 3, 10, 11 are stated over every target and not yet enforced on all):** the .NET target has no migration-entrypoint readiness loop, and its emitted service still resolves several connection facts — and an identity token — from the process environment across cache, document-store, discovery and identity surfaces. Out of this decision's scope (it spans four unrelated infrastructure surfaces and needs its own decision), recorded as counted holes with coordinates rather than silence.
+
+**The timing change is intended:** dependents wait longer on a first start because they now wait for a condition that is actually true. And closing a boot-path seam reveals what that startup path was masking — it does not promise a clean boot.
+
+Full decision log: [Architecture Overview — Decision 44](./architecture-overview.md#decision-44-a-generated-service-must-be-able-to-reach-its-database--probe-transport-migration-readiness-and-chain-owned-schema-approved--implementation-in-progress) · migration specifics: [RDBMS Migration Decisions D39–D41](./rdbms-migration-decisions.md#boot-path-readiness-and-chain-owned-schema-d39d41).
+
 ## Transpiler pipeline (per file)
 
 ```

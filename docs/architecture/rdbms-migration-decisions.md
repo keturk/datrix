@@ -212,9 +212,42 @@ A guarded, idempotent `relocate-state` operation seeds the target-scoped layout 
 
 ---
 
+## Boot-Path Readiness and Chain-Owned Schema (D39–D41)
+
+D1–D38 govern what a migration *contains* and how its history is kept. They say nothing about the two moments where a correct migration still fails: the moment the runner first opens a connection, and the moment a revision references a database object that the chain never created. Both were contracts recorded in a docstring or in a neighbouring target's behaviour, with nothing in code comparing the two sides — so both shipped as silent disagreements between artifacts emitted by different packages, invisible to every package's own suite.
+
+## D39: Every Target's Migration Entrypoint Owns a Bounded Readiness Contract
+
+A migration runner waits for the database to accept connections, over a bounded retry, before running any DDL. This is required on **every** language target and is not discharged by a container health check: a health check is a container-platform mechanism, and a managed relational instance on a cloud platform has none, so per-runner readiness is the only mechanism there.
+
+The bound is **one declaration** — an attempt count and a delay between attempts, living once in the shared codegen layer and consumed by each target's migration renderer. It is not re-spelled per language: two targets independently grew the same two values without either being wrong, which is precisely the drift this rule exists to close, and a third target having no loop at all is what made the omission visible.
+
+**A readiness failure carries the driver's own exception as its cause, and the entrypoint that reports it prints the exception chain.** A connection pool configured not to fail fast surfaces an unreachable database as an opaque timeout with the real error discarded; the operator then sees a pool's stopwatch instead of `Connection refused`, `password authentication failed`, or `database "…" does not exist`. Propagating the cause and printing the chain are a pair — either alone still truncates the diagnosis at the outermost frame. The message a failure names must be built without the credential; it is never "improved" by interpolating a resolved one.
+
+## D40: The Migration Chain Is the Only Schema-Creation Mechanism
+
+Schema DDL is emitted into the migration chain and nowhere else. A database container's initialisation directory exists only for a container-hosted database; a managed instance has no such hook, so a target that depended on initialisation-script DDL would work on one platform and fail on every other. This is the same reasoning that makes the migration adapter the sole owner of foreign-key action DDL.
+
+A schema surface emitted outside the chain is therefore not merely redundant, it is unrealizable as a general mechanism, and it is **deleted rather than deprecated** — the standing rule for a config or generated surface no target consumes. Deletion is pinned by a check that the generated initialisation script contains no type-creation statement, so a platform-local schema mechanism cannot return through the one platform that has somewhere to put it.
+
+## D41: Every Type an Emitted Migration References Is Created by That Migration Chain
+
+For an emitted revision, the set of non-builtin type names referenced by a column declaration minus the set created by a type-creation statement is **empty**. The comparison is computed by parsing the emitted artifact, not by reading it, so it holds for any type added later rather than for the one that motivated it.
+
+Where a dialect represents an enumeration as a native database type, the baseline creates each distinct type it references **before** the first table that references it, ordered deterministically by type name so the emitted revision is stable across runs, and in an idempotent form so a re-applied baseline against a database that already carries the type does not abort the chain. The corresponding downgrade drops the type **after** the table drops that reference it. Type-creation ordering is a property of the emitted revision, not of the canonical vocabulary: this adds no operation to D11's fixed ledger vocabulary, changes no snapshot or ledger format, and is confined to the adapter whose dialect needs it. The member labels the snapshot already carries are the input; nothing has to be threaded into a shared contract consumed by every adapter.
+
+Two obligations travel with the type. **The language-runtime mapping is registered wherever the emitted service constructs its data source** — creating the type while leaving every query on those columns failing is not a fix, and the mapping must use the same type name and the same label spelling the migration emitted. And **the type name and its labels have one home per language package**: the resolver that puts the type name in a column and the builder that creates the type call one function, and the persisted label literal is a per-language fact with a per-language home, since importing another language package's copy would cross a package boundary to share a convention rather than a contract.
+
+**Labels and type names are DSL-authored text interpolated into SQL**, emitted through the canonical literal-quoting home and as a quoted identifier respectively — never by concatenation. The statement is emitted once into a migration that ships with every generated project and runs with schema-modifying privileges, which is the whole reason this is stated as a rule rather than left to the call site.
+
+**A renderer that meets an operation kind it does not recognise raises.** An operation-dispatch chain with no final branch renders an unrecognised kind as nothing at all — a silently dropped migration step, which is the worst available outcome for an append-only history. The fail-loud branch lands *before* any new operation kind is added to that renderer, never in the same change and never after.
+
+---
+
 ## See Also
 
 - [Architecture Overview — Decision 8](architecture-overview.md#decision-8-incremental-rdbms-schema-migrations) — Rationale and summary
+- [Architecture Overview — Decision 44](architecture-overview.md#decision-44-a-generated-service-must-be-able-to-reach-its-database--probe-transport-migration-readiness-and-chain-owned-schema-approved--implementation-in-progress) — Boot-path contracts these decisions detail
 - [RDBMS Migration API](../../../datrix-common/docs/architecture/migration.md) — Shared module documentation
 - [RdbmsMigrationAdapter Protocol](../../../datrix-codegen-common/docs/migration-adapter.md) — Adapter contract
 - [CLI Migrations Commands](../../../datrix-cli/docs/commands/migrations.md) — CLI surface
