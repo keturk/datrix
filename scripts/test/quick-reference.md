@@ -732,6 +732,40 @@ files; must be two *different* files — the default pair is the one from the or
 **The gate judges SELECTION, not test health:** a `-Specific` run of a file whose tests fail still passes
 the gate, as long as the file that ran is the file that was asked for.
 
+---
+
+### `test\run-log-exclusivity-gate.ps1`
+
+**The repo's proof that two concurrent runs never share one log file.** Same defect class as the gate
+above, one surface over: `generate.ps1` named its log `generate-results-<YYYYMMDD-HHMMSS>-<language>.log`
+and wrote the header with a truncating write, so two runs started together **for two different config
+profiles** computed one name — the second truncated the first's log and both appended into it, each
+pointing its caller at a log describing the other run's generation. Adding the profile as a third segment
+would only move the collision to two runs of one profile, exactly as adding the language segment left the
+profile case open, so uniqueness comes from *claiming* the name (`common/DatrixRunLog.psm1`,
+`FileMode.CreateNew`). Pure PowerShell, no venv, ~2 s.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the gate** | `.\test\run-log-exclusivity-gate.ps1` | 8 racers (default) |
+| **More racers** | `.\test\run-log-exclusivity-gate.ps1 -Racers 32` | Widen the forced collision (2–64) |
+
+**Parameters:** `-Racers` (default: `8`, range 2–64)
+
+**Assertions (5 steps):**
+- **Non-vacuity (runs first).** The distinct-count comparator is fed names composed the way the defect
+  composed them (one pinned timestamp, one label set) and must see **1** name; fed genuinely different
+  label sets it must see all of them. A comparator that cannot see the forced collision fails the gate
+  before any real result is trusted.
+- **Sequential exclusivity.** N claims on a **pinned** base name yield N distinct files that all exist —
+  a name is never reused.
+- **Concurrent exclusivity.** The same N claims made simultaneously yield N distinct files — the claim is
+  atomic. This is the step that fails against any name-only scheme.
+- **Label containment.** A label carrying `..`, a separator, a drive letter, or a wildcard cannot steer the
+  log out of its results directory.
+- **Wiring.** `generate.ps1`'s own **syntax tree** must call `New-DatrixRunLogFile` and must contain no
+  inline interpolated `generate-results-…` name. Without this the gate would prove a library nobody calls.
+
 **Exit codes:** 0 = `-Specific` selects only the requested file and the check is non-vacuous, 1 = wrong-file
 selection, shared run directory, or a vacuous comparator, 2 = usage error (`test.ps1` or the named test
 files not found).

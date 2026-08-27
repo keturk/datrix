@@ -10,6 +10,7 @@ Shared PowerShell modules and utilities used by all scripts.
 | `DatrixScriptCommon.psm1` | Shared project lists and `ConvertTo-DatrixProjectName` (imports `DatrixPaths.psm1`) |
 | `venv.ps1` | Virtual environment management (creation, activation, package installation) |
 | `CleanupUtils.psm1` | Cleanup utilities (empty parents, confirmation, folder tree display, size formatting) |
+| `DatrixRunLog.psm1` | Run-log file naming and **exclusive** claiming — two runs never share one log file |
 
 ## DatrixPaths.psm1
 
@@ -124,3 +125,27 @@ Scripts that only need `DatrixPaths.psm1` can import it alone; otherwise prefer 
 - `Format-CleanupSize` — human-readable byte sizes
 - `Get-CleanupFolderSize` — recursive file size sum
 - `Get-CleanupFolderContents` — tree listing; use `-WarnOnFolderReadError` for non-fatal read warnings (tasks cleanup)
+
+## DatrixRunLog.psm1
+
+Names a run's log file, and claims it so no other run can be handed the same one.
+
+```powershell
+$base = Get-DatrixRunLogBaseName -Prefix "generate-results" -Segment @($Language, $ConfigProfile)
+$logFile = New-DatrixRunLogFile -Directory $resultsDir -BaseName $base
+```
+
+- `ConvertTo-DatrixRunLogSegment` — reduce one label to name-safe characters (a label from a command line can never traverse out of the results directory)
+- `Get-DatrixRunLogBaseName` — `<prefix>-<timestamp>[-<label>...]`, timestamp leading so name-sorting stays chronological; pass `-Timestamp` to compose deterministically
+- `New-DatrixRunLogFile` — creates and returns a log file this run owns alone
+
+**The labels are not what makes the name unique.** Two runs agreeing on every label
+(two profiles of one project started in the same second, or two runs of one profile)
+compute one name; `New-DatrixRunLogFile` claims it with `FileMode.CreateNew`, an atomic
+create-or-fail, and falls through to `<base>-2`, `<base>-3`, … when a name is taken.
+Never relax that to `Create`/`OpenOrCreate` — both succeed on an existing file, which is
+how two runs end up truncating and interleaving one log.
+
+File-level twin of `TeeLogger._claim_run_dir` (`scripts/library/shared/logging_utils.py`),
+which does the same for test run *directories*. Held by
+`scripts/test/run-log-exclusivity-gate.ps1`.

@@ -545,14 +545,6 @@ def main():
         log_dir = datrix_root / ".generated" / ".results"
         log_dir.mkdir(parents=True, exist_ok=True)
 
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        # The language segment keeps concurrent invocations (the same example
-        # generated for several languages at once) from opening the same log
-        # file and failing on a sharing violation, and says which run each log
-        # belongs to. The timestamp stays leading so sorting by name remains
-        # chronological for the consumers that glob generate-results-*.log.
-        log_file_path = log_dir / f"generate-results-{timestamp}-{args.language}.log"
-
         log_config = LogConfig(
             log_dir=str(log_dir),
             prefix="generate-results",
@@ -562,6 +554,13 @@ def main():
         )
         logger = TeeLogger(log_config, datrix_root)
         logger.__enter__()
+        # The log path is the one the logger opened, never a name recomputed
+        # here. TeeLogger claims a run directory of its own atomically (see
+        # TeeLogger._claim_run_dir) and writes full.log inside it, so a name
+        # composed here would both point at a file that does not exist and --
+        # being derived from a second-granularity timestamp -- name the SAME
+        # file for two runs that start in the same second.
+        log_file_path = logger.get_log_path()
 
         logger.write("Generate Results Log")
         logger.write(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")

@@ -39,7 +39,7 @@ Read the category-specific file for the script you need:
 
 | Category | File | Scripts |
 |----------|------|---------|
-| **Testing** | [test/quick-reference.md](test/quick-reference.md) | test.ps1, run-complete.ps1, dual-target.ps1, test-single.ps1, mypy.ps1, compare-tests.ps1, cleanup.ps1, status-*.ps1, collect-failure-data.ps1, extract-warnings.ps1, classify-run-delta.ps1, gate-verdict.ps1, affected-set.ps1, affected-gate.ps1, type-mapping-completeness.ps1, reference-example-parity-gate.ps1, regen-parity-baselines.ps1, parity-bless-mode-parity-gate.ps1, typescript-whole-system-gate.ps1, ingress-migration-conformance-gate.ps1, check-generated-file-ratchet.ps1, check-docs-conformance.ps1, check-observability-native-only.ps1, test-specific-selection-gate.ps1, supported-domain-parity-gate.ps1, gendsl-corpus-resolution-gate.ps1, review-library-gate.ps1, test-tooling-parsing-gate.ps1, shared-library-gate.ps1, toolchain-free-suites-gate.ps1, customer-domain-isolation-gate.ps1, ignored-source-gate.ps1 |
+| **Testing** | [test/quick-reference.md](test/quick-reference.md) | test.ps1, run-complete.ps1, dual-target.ps1, test-single.ps1, mypy.ps1, compare-tests.ps1, cleanup.ps1, status-*.ps1, collect-failure-data.ps1, extract-warnings.ps1, classify-run-delta.ps1, gate-verdict.ps1, affected-set.ps1, affected-gate.ps1, type-mapping-completeness.ps1, reference-example-parity-gate.ps1, regen-parity-baselines.ps1, parity-bless-mode-parity-gate.ps1, typescript-whole-system-gate.ps1, ingress-migration-conformance-gate.ps1, check-generated-file-ratchet.ps1, check-docs-conformance.ps1, check-observability-native-only.ps1, test-specific-selection-gate.ps1, run-log-exclusivity-gate.ps1, supported-domain-parity-gate.ps1, gendsl-corpus-resolution-gate.ps1, review-library-gate.ps1, test-tooling-parsing-gate.ps1, shared-library-gate.ps1, toolchain-free-suites-gate.ps1, customer-domain-isolation-gate.ps1, ignored-source-gate.ps1 |
 | **Development** | [dev/quick-reference.md](dev/quick-reference.md) | generate.ps1, syntax-checker.ps1, config-linter.ps1, compile.ps1, libcst.ps1, semgrep.ps1, ast-grep.ps1, audit.ps1, check-docs.ps1, generate-doc-fragments.ps1, cleanup-temps.ps1, byte-identity-generate.ps1, conformance-gate.ps1, gendsl-census.ps1, evaluate-generated-scan.ps1, evaluate-service-scan.ps1, ... |
 | **Git** | [git/quick-reference.md](git/quick-reference.md) | status.ps1, pull.ps1, commit-and-push.ps1 (refuses to commit customer domain language — see `test/customer-domain-isolation-gate.ps1` — or a tree where a `.gitignore` rule shadows a source file — see `test/ignored-source-gate.ps1`) |
 | **Metrics** | [metrics/quick-reference.md](metrics/quick-reference.md) | complexity.ps1, ruff.ps1, bandit.ps1, vulture.ps1, coverage.ps1, test-gen.ps1, duplicate.ps1, loc.ps1, ... |
@@ -123,7 +123,7 @@ Most scripts support:
 | What | Where |
 |------|-------|
 | Virtual environment | `D:\datrix\.venv` |
-| Generation logs | `.generated/.results/` |
+| Generation logs | `.generated/.results/generate-results-<timestamp>-<language>[-<profile>][-N].log` — the `-N` suffix appears when another run already claimed that name |
 | Test results | `<project>/.test_results/test-results-YYYYMMDD-HHMMSS/` for package tests; generated projects also use `unit-tests-YYYYMMDD-HHMMSS/` and `deploy-test-YYYYMMDD-HHMMSS/` |
 | Ruff check logs | `<project>/.ruff_check/` |
 | Test config | `scripts/config/test-projects.json` |
@@ -137,6 +137,7 @@ Most scripts support:
 | Python implementations | `scripts/library/` |
 | Cleanup utilities | `scripts/common/CleanupUtils.psm1` |
 | Shared helpers | `scripts/common/DatrixScriptCommon.psm1` |
+| Run-log naming/claiming | `scripts/common/DatrixRunLog.psm1` |
 
 ---
 
