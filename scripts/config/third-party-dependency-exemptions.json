@@ -1,0 +1,22 @@
+{
+  "_comment": [
+    "Reviewed exemptions for third-party-dependency-parity-gate.ps1.",
+    "An entry belongs here only when a package is CORRECT to declare a third-party",
+    "distribution its src/ tree never imports -- i.e. the package needs the",
+    "distribution's EXECUTABLE (it runs it as a subprocess) rather than its Python",
+    "API. A distribution that is merely 'used by the projects this package",
+    "generates' is never exempted: that is the generated project's dependency.",
+    "Each entry names the package, the distribution and the reason. An entry",
+    "that no longer matches a declared-but-unimported distribution is stale and",
+    "fails the gate. expected_count must equal the number of entries: remediation",
+    "removes the entry and decrements the count in the same change."
+  ],
+  "expected_count": 1,
+  "exemptions": [
+    {
+      "package": "datrix-codegen-python",
+      "distribution": "ruff",
+      "reason": "hooks/language_hooks.py runs `ruff check --fix` / `ruff format` as a subprocess over the generated Python project (the language post-processing hook); the ruff module is never imported. The executable must be installed with the generator, so it is declared."
+    }
+  ]
+}

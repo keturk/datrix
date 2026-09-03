@@ -15,7 +15,7 @@ semantic analysis -> stdlib placeholders + lazy module injection -> continuing p
 
 **Load order:** builtins → stdlib placeholder registration → user parse/transform → semantic analysis (lazy stdlib deserialization when a stdlib export is first resolved).
 
-No IR layer. Parser produces `Application` directly. Named `GenerationPipeline.run` stages include: `parse` → `resolve_service_configs` → `analyze` → `resolve_infrastructure_configs` → `validate_deployment` → `apply_cli_overrides` → `normalize_service_memory_limits` → `discover_generators` / `discover_platforms` → `generate:{name}` (per generator) → file write → migrations (when configured) → language hooks + JSON format → `snapshot` (service filter and incremental merge sit between infra resolution and discovery when enabled). There is **no** `platform_validation` stage; cross-model and `(provider, DeploymentProvider)` realization checks run inside `resolve_infrastructure_configs` (the Stage 2 cross-model hook), and deployment-presence checks run in `validate_deployment`.
+No IR layer. Parser produces `Application` directly. `GenerationPipeline` lives in `datrix-cli` (`datrix-cli/src/datrix_cli/pipeline/generation.py`); `run()` walks an ordered registry of typed `Stage` values through one runner. The named stages, in order: `parse` → `discover_and_parse_seeds` → `resolve_service_configs` → `inject_identity_system_entities` → `analyze` → `apply_service_filter` (skipped without `--service`) → `validate_deployment` → `resolve_incremental` → `build_codegen_context` → `build_deployment_plan` → `resolve_config_surfaces` → `discover_generators` → `validate_type_completeness` → `discover_platforms` → `sort_generators` → `select_generation_targets` (skipped without `--only`) → `attach_runtime_bootstrap` → `generate:{name}` (one per generator) → `resolve_intra_group_conflicts` → `detect_file_conflicts` → `assert_deploy_binding_conformance` → `write:{target}` (one per target) → `migrations` → `discover_language_hooks` → `run_language_post_processing` → `format_json_files` → `update_append_only_hashes` → `snapshot`. Infrastructure-config resolution and service memory-limit normalization are **not** stages: they run inside `analyze` as `SemanticAnalyzer.analyze()` pre-seal hooks, because both depend on nodes analysis itself may synthesize. There is **no** `platform_validation` or `apply_cli_overrides` stage; `--language` is a required generation parameter resolved before the run, and cross-model and `(provider, DeploymentProvider)` realization checks run inside the pre-seal infrastructure-config hook, with deployment-presence checks in `validate_deployment`.
 
 ## Packages (15)
 
@@ -24,7 +24,7 @@ Optional **datrix-extensions** (domain packs, `datrix.extensions` entry points) 
 | Package | Purpose |
 |---------|---------|
 | datrix-common | Foundation: AST model, types, semantic analysis, config resolution, generation framework. ZERO deps on other Datrix packages |
-| datrix-language | Parser (Tree-sitter) + CST-to-AST transformers; shipped stdlib sources in `src/datrix_language/stdlib/` (eight `.dtrx` modules, pre-parsed at build time, lazy-loaded in analysis). Depends on datrix-common |
+| datrix-language | Parser (Tree-sitter) + CST-to-AST transformers; implements the `StdlibParserProtocol` that pre-parses the seven stdlib `.dtrx` modules shipped under `datrix-common/src/datrix_common/stdlib/`. Depends on datrix-common |
 | datrix-codegen-common | Shared codegen intelligence: transpiler, `LanguageProfile` + `SyntaxEmitters`, context builders, genDSL. Consumed by EVERY language generator |
 | datrix-codegen-component | Platform-agnostic artifacts (docs, config, scripts) |
 | datrix-codegen-python | Python generation (FastAPI). Jinja2 + ruff format |
@@ -123,7 +123,7 @@ Lifts telemetry export-volume control and platform-collected diagnostics out of 
 | 4 | A knob a target accepts is a knob it realizes | Per-package perturb/regenerate/diff conformance: Tier 1 catches a byte-identical (inert) field, Tier 2 catches a change confined to comments and strings (cosmetic-only) |
 | 5 | A legitimately-inert field is a reviewed exemption with a pinned count, never silence | Package-owned exemption baseline, each entry carrying a written reason; the count is enforced against the entry list |
 | 6 | The conformance gate proves its own non-vacuity every run | A known-realized knob must pass and a deliberately severed one must fail, checked before the real comparison |
-| 7 | (provider × target) realization is one fact assembled from the registered target set | Each target declares its realized provider set across the five observability categories; the matrix is derived from the language and platform entry-point groups, never a hardcoded literal; declaring an unsupported pair is a loud validation error on every target |
+| 7 | (provider × target) realization is one fact per target, read from the registered target set | Each target declares its realized provider set across the five observability categories; every consumer reads the declaration through `capability_resolution.declaration_for_language` / `declaration_for_provider` over the entry-point groups — no assembled table in shared code, never a hardcoded literal; declaring an unsupported pair is a loud validation error on every target; cross-target agreement is the repo-level `observability-axis-parity-gate.ps1` |
 
 Full decision log: [Architecture Overview — Decision 32](./architecture-overview.md#decision-32-portable-telemetry-volume-and-platform-diagnostics-contracts-with-realization-conformance).
 
@@ -138,7 +138,7 @@ Moves target-agnostic logic out of the language generator packages and into the 
 | 3 | No type, field, or type alias in `datrix-codegen-common` carries a registered **language** name | `powershell -File "d:/datrix/datrix/scripts/dev/check-import-boundaries.ps1" -CheckSharedTargetNames` — baseline holds exactly **one** reviewed exemption, the scope-fenced `PYTHON_BASE_IMAGE_DIR` that `datrix-codegen-docker` consumes directly (`datrix/scripts/config/shared-target-name-baseline.toml`), down from 76 matched declarations. Complements I1, which matches a frozen name list rather than the identifier shape. Scoped to languages (not platforms — `local` collides with the English word) and to `datrix-codegen-common` (not `datrix-common`/`datrix-cli`, which hold platform config schemas and canonical-import API). `sql`/`nosql`-substring identifiers are **not** hits — `sql` is not a registered `datrix.languages` entry — and the ratchet's own self-test proves each as a non-match rather than baselining it |
 | 4 | No package hand-rolls a service-body walk — `Service.iter_callable_bodies()` is the only enumeration | Zero private body-enumeration helpers survive; a `datrix-codegen-python` regression test proves a typed cross-service call inside a CQRS handler materializes its response module (observed red before the fix) |
 | 5 | Every hoist is behavior-preserving | Each affected package's targeted suites pass unchanged |
-| 6 | The scope fence holds for `datrix-codegen-component` | `datrix-codegen-component`'s runtime dependencies still exclude `datrix-codegen-common`. `datrix-codegen-sql`'s fence was retired by Decision 42 |
+| 6 | Every hoist lands inside an already-declared dependency edge | No hoist added an edge; the Decision 34 scope fence has since been retired for both `datrix-codegen-sql` (Decision 42) and `datrix-codegen-component`, each of which now declares the `datrix-codegen-common` dependency its production modules carry. `powershell -File "d:/datrix/datrix/scripts/test/manifest-import-parity-gate.ps1"` holds every package's manifest equal to its import set, in both directions, as a hard zero |
 
 Both ratchets self-test their own non-vacuity as step 1 of every invocation, including a CLI mutation proof that plants a violation, sees the exact count delta, and sees the revert clear it.
 
@@ -198,7 +198,7 @@ eight invariants hold today as executable checks.
 | 1 | An attached comment is never silently lost between parse and emission | Produced-runs minus consumed-runs asserted zero over a fixture documenting every documentable construct; attached-but-unemitted runs measured per target by the documentation-realization gate's coverage census, held at a decrease-only baseline (`datrix/scripts/config/documentation-coverage-baseline.json`) |
 | 2 | An unmarked comment never reaches a published documentation surface | Two channels decided once at capture: every comment becomes a **source comment**; only `///` / `/** … */` becomes **published documentation** (OpenAPI summary/description, schema field description, GraphQL descriptions, generated README). Fail-closed — publication is opt-in |
 | 3 | Capture requires no grammar change | Doc-vs-note is a function of the comment's text, not a lexer token; both marker forms are already legal and already meaningless today |
-| 4 | The summary/description split has one definition | It lives in `datrix-common`, reachable by every generator including the one still fenced out of `datrix-codegen-common` (`datrix-codegen-component`, Decision 34/42); emission-only surfaces stay in `datrix-codegen-common` |
+| 4 | The summary/description split has one definition | It lives in `datrix-common` (a pure function over the model, Decision 34 D2), reachable by every generator through the foundation dependency; emission-only surfaces stay in `datrix-codegen-common` |
 | 5 | Author text cannot break the construct it is emitted into | Per-language sanitizer + planted-hostile-text test (comment terminators, triple quotes, backslash, CR, line/paragraph separators) |
 | 6 | A documented construct documents on every language target, or the target declares the surface unsupported with a reason | Runtime-derived, self-testing documentation-realization parity gate with typed, counted exemptions |
 | 7 | A documentation-only edit regenerates its service | Service-level documentation digest in the incremental hash; the schema differ never reads that key, so no documentation edit plans a migration on its account |
@@ -228,7 +228,7 @@ A `keywords('PU', 'IT')` attribute on an enum value, plus two generated static c
 | 7 | Keywords never reach the storage or DDL layer | SQL and Docker output byte-identical for a keyword-bearing enum versus the same enum without keywords |
 | 8 | A classifier call routes ahead of enum-member access on every language | Per-language routing at each property-access seam, with a unit test per target proving the member-access path no longer claims `EnumName.equalsKeyword` |
 
-Full decision log: [Architecture Overview — Decision 40](./architecture-overview.md#decision-40-enum-keyword-classification-and-generated-classifiers-approved--implementation-in-progress).
+Full decision log: [Architecture Overview — Decision 40](./architecture-overview.md#decision-40-enum-keyword-classification-and-generated-classifiers-adopted).
 
 ## Datrix Language Server (Editor Intelligence over LSP)
 
@@ -289,7 +289,7 @@ executable gates.
 | 3 | Generic cross-target literal escaping has one home; dialect-specific encoding lives behind the owning package's Protocol method | `replace("'", "''")` is zero across the affected packages' `src`; every concrete `SQLDialect` implements `quote_literal` |
 | 4 | A dialect that cannot encode a literal fails closed | Missing `quote_literal` raises `GenerationError` naming the dialect and method, never falls back to quote-doubling |
 | 5 | DSL `#{}` interpolation flows only through the validated expression visitor | Runtime-derived, self-testing conformance test over every registered generator package, with a reviewed, counted exemption baseline for known pre-existing violations |
-| 6 | The Decision 34 scope fence retires for `datrix-codegen-sql`; `datrix-codegen-component` remains fenced | `datrix-codegen-sql` declares a real `datrix-codegen-common` runtime dependency; `datrix-codegen-component` still excludes it |
+| 6 | The Decision 34 scope fence retires for `datrix-codegen-sql` | `datrix-codegen-sql` declares the bare `datrix-codegen-common` runtime dependency (the `[testkit]` extra only under `dev`); `datrix-codegen-component`'s fence was retired afterwards on the same reasoning |
 
 Full decision log: [Architecture Overview — Decision 42](./architecture-overview.md#decision-42-gendsl-engine-hardening--output-path-containment-sanitized-path-attributes-one-escaping-home-and-the-interpolation-rule-adopted).
 
@@ -341,6 +341,21 @@ camelCase in the same request — a genuine wart whose correction would break ev
 client derives it rather than hardcoding it, and the wart becomes invisible at every call site.
 
 Full decision log: [Architecture Overview — Decision 43](./architecture-overview.md#decision-43-frontend-api-client-generation--browser-clients-emitted-from-the-same-dsl-as-the-backend-approved--implementation-in-progress).
+
+## Zero-Environment Runtime — Declared Per Language
+
+Decision 14's contract (every deployment-static value baked at generation time; the running
+service consults no environment variable) is portable; its realization is per language and is
+**declared, never assumed**. Each language plugin carries
+`LanguageCapabilityDeclaration.zero_environment_runtime` — realized or not, the regular
+expressions that spell an environment read in that language's templates, and a written reason
+when unrealized. `powershell -File "d:/datrix/datrix/scripts/test/zero-environment-runtime-gate.ps1"`
+censuses every registered language's templates against its own idioms: a realized language
+(python) fails on an unlisted or stale exemption in
+`datrix/scripts/config/zero-environment-runtime-baseline.json`; an unrealized language
+(typescript, java, dotnet today) carries a decrease-only pinned count; an undeclared language
+fails by name. A missing value is never defaulted on any language — the MSK region raises when
+unset on python and typescript alike.
 
 ## Transpiler pipeline (per file)
 

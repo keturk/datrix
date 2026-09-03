@@ -1,0 +1,48 @@
+{
+  "_comment": [
+    "Reviewed exemptions for app-probe-path-literal-gate.ps1.",
+    "An entry belongs here only when a platform package is CORRECT to carry a",
+    "string literal equal to a route some registered language declares as its",
+    "readiness or liveness probe -- i.e. the literal is NOT an application probe",
+    "target at all (an infrastructure container's own probe, a gateway",
+    "framework-path list). An application probe is never exempted: it reads",
+    "LanguageRuntimeSpec.readiness_probe_path() / app_service_liveness_probe_path().",
+    "Each entry pins the file AND the exact matched line, so it cannot widen into",
+    "a whole-file allowance; an entry whose line no longer exists fails the gate.",
+    "expected_count must equal the number of entries: remediation removes the entry",
+    "and decrements the count in the same change."
+  ],
+  "expected_count": 6,
+  "exemptions": [
+    {
+      "file": "datrix-codegen-docker/src/datrix_codegen_docker/generators/config/gateway/_health.py",
+      "snippet": "\"loki\": (\"loki\", 3100, \"/ready\")",
+      "reason": "Loki's own readiness endpoint: a probe for an infrastructure container the docker platform provisions, whose route is Loki's, not a generated application's. gateway_routes.py records that infra-container probes are owned by the provisioning platform."
+    },
+    {
+      "file": "datrix-codegen-docker/src/datrix_codegen_docker/generators/infra/observability_infra.py",
+      "snippet": "_LOKI_HC_TEST = ",
+      "reason": "The compose healthcheck for the Loki infrastructure container, probing Loki's own /ready endpoint. Infrastructure-container probe owned by the provisioning platform; no generated application is behind it."
+    },
+    {
+      "file": "datrix-codegen-docker/src/datrix_codegen_docker/generators/infra/observability_infra.py",
+      "snippet": "'printf \"GET /ready HTTP/1.1",
+      "reason": "The raw-socket readiness probe for the Promtail infrastructure container (its image ships no HTTP client), targeting Promtail's own /ready endpoint. Infrastructure-container probe owned by the provisioning platform."
+    },
+    {
+      "file": "datrix-codegen-docker/src/datrix_codegen_docker/templates/zitadel/test_jwks_server.py.j2",
+      "snippet": "GET /health                  — 200 OK health probe",
+      "reason": "Module docstring of the emitted ZITADEL test JWKS fixture server, describing the /health route the same file mounts below. The template IS the server that mounts the route, so the literal is the route's definition, not a platform assumption about a language's application."
+    },
+    {
+      "file": "datrix-codegen-docker/src/datrix_codegen_docker/templates/zitadel/test_jwks_server.py.j2",
+      "snippet": "if self.path in (_JWKS_PATH, \"/\", \"/health\"):",
+      "reason": "The emitted ZITADEL test JWKS fixture server's own request router mounting its /health route. The template IS the server; the literal defines the route rather than assuming one on a generated application's behalf."
+    },
+    {
+      "file": "datrix-codegen-docker/src/datrix_codegen_docker/generators/config/gateway/_auth.py",
+      "snippet": "\"/health\",",
+      "reason": "_NGINX_INFRA_EXCLUDE_PATHS: the fixed set of framework-owned gateway paths that bypass JWT auth on the nginx side. It is an auth-exemption list, not a probe target; the per-service public health route the gateway forwards is minted by gateway_routes from the service's declared health_check.path."
+    }
+  ]
+}

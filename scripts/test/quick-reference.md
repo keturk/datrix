@@ -176,6 +176,8 @@ Compares timestamped test runs inside one explicit `.test_results` folder. It do
 
 Runs mypy type checking for one or more Datrix projects. Accepts the same flags as `test.ps1` for command-line symmetry, but most test-selection flags (`-Unit`, `-Integration`, `-E2E`, `-Fast`, `-Slow`, `-Keyword`) are accepted for parity and silently ignored by the underlying mypy runner.
 
+**A human-only tool.** No skill, hook, orchestrator, or other script runs it: its only caller is `affected-gate.ps1`'s opt-in `-Mypy` switch, which the verification strategy forbids agents to pass, and the agent contract forbids agents to run any standalone type-checker (`CLAUDE.md`, "Running Python"). The package test suites are the declared gate for type correctness; this wrapper exists so a person can run a full type-check on demand.
+
 | Mode | Command | Description |
 |------|---------|-------------|
 | **One project** | `.\test\mypy.ps1 datrix-common` | Type-check one project |
@@ -948,6 +950,91 @@ Cross-target observability-AXIS parity gate: proves every registered language ag
 
 ---
 
+### `test\manifest-import-parity-gate.ps1`
+
+Manifest / import parity gate: for every `datrix-*` package at the workspace root carrying a `pyproject.toml`, the `datrix-*` distributions its `[project] dependencies` declare must equal the `datrix_*` import roots its `src/` tree actually imports (mapped by the `_` → `-` spelling every package uses). `imported − declared` is an undeclared dependency; `declared − imported` is a dead declaration; a runtime requirement carrying a test-only extra (`[testkit]`, `[dev]`, `[testing]`) drags a test surface into production. All three are violations, and the gate is a **hard zero** with no baseline — there is no legitimate steady state in which a manifest disagrees with the import set. Exists because the shared editable venv makes every package importable from every other, so a manifest can lie in either direction with every suite green (a package documented as fenced out of `datrix-codegen-common` imported it from twelve production modules; a platform package ran on an undeclared dependency; three language packages carried a dead dependency; one pulled `[testkit]` into production). `TYPE_CHECKING`-only imports count: a type-checking install needs the package too. The package set is discovered from disk, never a hardcoded list. Repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\test\manifest-import-parity-gate.ps1` | Compare every `datrix-*` package's manifest against its `src/` imports |
+| **Debug** | `.\test\manifest-import-parity-gate.ps1 -Dbg` | Debug logging (prints each package's declared and imported sets) |
+| **Self-test only** | `.\test\manifest-import-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real comparison |
+
+**Parameters:** `-Dbg`, `-SelfTest`
+
+**Assertions:**
+- For every discovered package, `imported − declared = ∅` and `declared − imported = ∅` over Datrix distributions, and no `[project] dependencies` entry naming a Datrix distribution carries a test-only extra. An import satisfied only by one of the package's **own** non-dev extras (for example `datrix-codegen-common`'s `testkit/` subtree importing `datrix-language`, declared by its `[testkit]` extra) is a declared optional dependency: logged, never a violation. A `dev`/`testing` extra never satisfies a `src/` import.
+- Non-vacuity self-test (every invocation): a synthetic dirty package yields exactly its five planted violations (one plain undeclared import, one `TYPE_CHECKING`-only undeclared import, one import declared only by a `dev` extra, one dead declaration, one test-only extra) while its import declared by a non-dev extra is not reported; a synthetic clean package yields none; a workspace with fewer than two packages is refused; and the **live** scan sees every package registering `datrix.languages` import `datrix-codegen-common` — a real edge, so the scanner is proven against the tree it guards, not only against fixtures.
+
+**Exit codes:** 0 = every manifest agrees with its imports (or a successful `-SelfTest`), 1 = a violation was found, 2 = the self-test failed, fewer than two packages were discovered, or a manifest/module could not be parsed.
+
+---
+
+### `test\third-party-dependency-parity-gate.ps1`
+
+Third-party dependency parity gate: for every `datrix-*` package with a `src/` tree, the **third-party** distributions its `[project] dependencies` declare must equal the third-party distributions its `src/` tree imports (`ast`, nested imports included, mapped to distributions through the installed metadata via `importlib.metadata.packages_distributions`). `imported − declared` is an undeclared dependency that works here only because something else installed it into the shared venv; `declared − imported` is a dead declaration. Extras other than `dev` are optional runtime surfaces (a shipped `testing` helper subpackage, an `lsp` server) that may satisfy a `src/` import; the `dev` extra never does. A root several distributions provide (`ruamel`) is satisfied by any declared candidate; a root no installed distribution provides is itself a violation. A distribution the package **invokes as a subprocess** rather than imports is a reviewed executable exemption in `datrix/scripts/config/third-party-dependency-exemptions.json` (package + distribution + reason, `expected_count` pinned; a stale entry fails the gate) — a distribution merely used by the projects the package generates is never exempted. The sibling `manifest-import-parity-gate.ps1` holds the same invariant for the Datrix distributions. Exists because four packages imported a password hasher no framework manifest declared (present only because generated customer projects installed into the venv required it), five packages declared a template engine only a sixth (undeclared) imported, and one generator declared the web framework and ORM of the projects it generates. Repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\test\third-party-dependency-parity-gate.ps1` | Compare every `datrix-*` manifest's third-party dependencies against its `src/` imports |
+| **Self-test only** | `.\test\third-party-dependency-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real comparison |
+| **Show files** | `.\test\third-party-dependency-parity-gate.ps1 -ShowFiles` | Print each package's declared set as it is scanned |
+| **Debug** | `.\test\third-party-dependency-parity-gate.ps1 -Dbg` | Print the python invocation |
+
+**Parameters:** `-BaseDir <path>`, `-SelfTest`, `-ShowFiles`, `-Dbg`
+
+**Assertions:**
+- For every discovered package, `imported − declared = ∅` and `declared − imported = ∅` over third-party distributions, where `declared` is `[project] dependencies` plus every non-`dev` extra and a dead declaration is excused only by a reviewed executable exemption.
+- Non-vacuity self-test (every invocation): a planted dirty package yields exactly its four violations (an undeclared import, a `dev`-extra-only import, an import no distribution provides, a dead declaration) while its non-`dev`-extra import, its ambiguous root satisfied by one declared candidate, and its exempted executable are accepted and its stale exemption is left unused; a planted clean package yields none; a workspace with fewer than two packages is refused; and the **live** scan sees at least one real package both declare and import the same distribution.
+
+**Exit codes:** 0 = every manifest agrees with its imports (or a successful `-SelfTest`), 1 = a violation or a stale exemption was found, 2 = the self-test failed, fewer than two packages were discovered, or a manifest/exemption file could not be parsed.
+
+---
+
+### `test\app-probe-path-literal-gate.ps1`
+
+Application probe-path literal gate: no platform package may hardcode a route a registered language declares as its readiness or liveness probe. The route a traffic-routing probe consults (Compose `healthcheck`, ECS / App Runner health check, ALB / NLB target-group health check, Front Door origin probe, App Service health monitor) is a route the LANGUAGE's generated application mounts, declared on `LanguageRuntimeSpec.readiness_probe_path()` / `app_service_liveness_probe_path()`; every platform reads it from the resolved plugin. Platform packages are discovered from disk (every `datrix-*/pyproject.toml` registering `datrix.platforms`); the declared routes come from the installed `datrix.languages` plugins; each platform `src/` tree is scanned for Python string constants (`ast`, docstrings excluded) and quoted `.j2` literals (comment lines excluded) equal to a declared route. Exists because a shared `"/ready"` constant was once consumed identically by every platform while one registered language never mounted `/ready`, so its containers were probed at a 404 on three platforms and never became healthy. Repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\test\app-probe-path-literal-gate.ps1` | Scan every platform package, fail on any unexempted probe-route literal |
+| **Self-test only** | `.\test\app-probe-path-literal-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real scan |
+| **Show files** | `.\test\app-probe-path-literal-gate.ps1 -ShowFiles` | Print each file as it is scanned |
+| **Debug** | `.\test\app-probe-path-literal-gate.ps1 -Dbg` | Print the python invocation |
+
+**Parameters:** `-BaseDir <path>`, `-SelfTest`, `-ShowFiles`, `-Dbg`
+
+**Assertions:**
+- Every literal hit is either absent or covered by a reviewed entry in `datrix/scripts/config/app-probe-path-exemptions.json` (file + exact snippet + written reason; `expected_count` pinned to the entry count). An exemption is legitimate only for a literal that is NOT an application probe target (an infrastructure container's own probe, a gateway framework-path list); an application probe is never exempted. A stale entry whose snippet no longer matches a hit fails the gate.
+- Non-vacuity self-test (every invocation): a planted platform package yields exactly its code-line hits (a docstring and a template comment carrying the same route are NOT reported), a clean planted package yields none, a workspace with fewer than two platform packages or fewer than two registered languages is refused, and the **live** scan of the language packages' own `src/` trees finds every declared route — so the matcher is proven against the real literals the languages mount, not only against fixtures.
+
+**Exit codes:** 0 = clean (or a successful `-SelfTest`), 1 = an unexempted hit or a stale exemption was found, 2 = the self-test failed, too few packages/languages were discovered, or a manifest/exemption file could not be parsed.
+
+---
+
+### `test\zero-environment-runtime-gate.ps1`
+
+Zero-environment runtime census gate: every registered language is held to the `zero_environment_runtime` posture it declares on its `LanguageCapabilityDeclaration`. The zero-environment architecture (every deployment-static value baked as a literal constant at generation time; the running service consults no environment variable) is a portable decision whose realization is per language, so each language plugin declares whether it realizes the contract, the regular expressions that spell an environment read in its own templates, and — when unrealized — a written reason. The gate censuses every `.j2` template under each registered language package's `src/` tree against that language's own idioms. A language declaring the contract **realized** may carry environment reads only as reviewed exemptions with a written reason in `scripts/config/zero-environment-runtime-baseline.json` (an unlisted read and a stale entry are both violations); a language declaring it **unrealized** carries a decrease-only `pinned_count` that may never rise; a registered language that declares nothing fails, named. Language set from the installed `datrix.languages` entry points; idioms from each language's declaration — never a table in the script. Test-harness templates count too (a harness that reads the environment is still emitted into the generated project); a realized language lists them as exemptions with that reason. Repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\test\zero-environment-runtime-gate.ps1` | Census every registered language against its declared posture and the baseline |
+| **Debug** | `.\test\zero-environment-runtime-gate.ps1 -Dbg` | Debug logging (lists every environment-reading template) |
+| **Self-test only** | `.\test\zero-environment-runtime-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real census |
+| **Re-pin counts** | `.\test\zero-environment-runtime-gate.ps1 -UpdateBaseline` | Re-pin every unrealized language's count to its live census (the only writer of `pinned_count`; exemption lists are hand-authored and untouched) |
+
+**Parameters:** `-Dbg`, `-SelfTest`, `-UpdateBaseline`
+
+**Assertions:**
+- Realized language: `reads − exemptions = ∅` and `exemptions − reads = ∅`; every exemption carries a non-empty reason.
+- Unrealized language: `len(reads) ≤ pinned_count`; a count below the pin is reported with the re-pin hint, never silently accepted as the new floor.
+- Undeclared language (`zero_environment_runtime is None`): a violation naming the language.
+- Non-vacuity self-test (every invocation): a synthetic template tree yields exactly the planted read (the clean template and a non-`.j2` file are not counted); the comparator reports exactly one problem for a missing exemption, a stale exemption, a count above the pin, and a missing pin, and none for an exact match or a count at/below the pin; a reasonless exemption is rejected; an unrealized declaration without a reason and a declaration with no idiom are rejected at construction; the **live** census finds a known real read (`python: templates/api/identity.py.j2`); a single-language set is refused.
+
+**Exit codes:** 0 = every language matches its declaration and baseline (or a successful `-SelfTest` / `-UpdateBaseline`), 1 = a violation was found, 2 = the self-test failed, fewer than two languages are registered, or the baseline is malformed.
+
+---
+
 ### `test\artifact-role-parity-gate.ps1`
 
 Cross-language artifact-role parity gate (D7) -- the G-A closure: detects a language silently emitting nothing for a construct another language realizes, without generating anything. For every example with >= 2 blessed language baselines under `scripts/config/parity-baselines/`, classifies each blessed manifest's paths by domain role via that language's own derived `DomainDeclaration.structural_pattern` set (the same fnmatch globs the domain self-consistency gate uses) and asserts the role set is identical across the example's blessed languages. Paths matching no pattern are reported in an "unclassified" bucket but never compared -- template-level naming legitimately differs by language; the role SET is the contract. Replaces nothing: `reference-example-parity-gate.ps1` still pins byte-level CONTENT per pair; this gate pins cross-language PRESENCE. Its coverage grows automatically as later phases bless more of the `(example, language)` matrix -- no code change needed here when that happens.
@@ -1564,21 +1651,28 @@ case). It additionally covers `scripts/library/test/run_complete.py`'s Java gene
 handling — `_find_java_service_dirs`/`_is_java_project` service detection (Maven modules with
 `src/test/java`, with the project-level `deployment-tests` module excluded because deploy tests
 run in Step 4) and `_merge_surefire_reports`/`_count_junit_testcases`, including the adversarial
-cases where a build never reached surefire and so must NOT read as a clean run. Repo-level
-validation **script**, not a pytest suite (per the datrix showcase boundary).
+cases where a build never reached surefire and so must NOT read as a clean run. It also covers
+`scripts/library/shared/logging_utils.py`'s quiet-mode stream liveness — under quiet mode the
+streamed subprocess output reaches the log file and never the console, so a long phase printed
+nothing at all and read as a hang; the checks hold the liveness line to what the stream actually
+reported (pytest's per-test progress lines only, never the closing short-summary repeats), prove
+verbose mode gains no extra line, and prove the line never enters the log file the other parsers
+read. Repo-level validation **script**, not a pytest suite (per the datrix showcase boundary).
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Run the gate** | `.\test\test-tooling-parsing-gate.ps1` | Run all 26 absorbed checks |
+| **Run the gate** | `.\test\test-tooling-parsing-gate.ps1` | Run all 50 absorbed checks |
 | **Harness self-test** | `.\test\test-tooling-parsing-gate.ps1 -HarnessSelfTest` | Prove the harness detects a forced failure (always reports [FAIL], exits 1) |
 | **Debug** | `.\test\test-tooling-parsing-gate.ps1 -Dbg` | Print the python invocation before running |
 
 **Parameters:** `-HarnessSelfTest`, `-Dbg`
 
-**Assertions:** 26 named checks covering `compare_tests.py`, `status_tests.py`, and
-`run_complete.py`'s Java project detection / surefire report merging. Several are
+**Assertions:** 50 named checks covering `compare_tests.py`, `status_tests.py`,
+`run_complete.py`'s Java project detection / surefire report merging, and `logging_utils.py`'s
+quiet-mode stream liveness. Several are
 inherently adversarial (nested/archived run dirs excluded from discovery, corrupt JSON → `None`,
-INCOMPLETE result → `None`/fallback, missing `counts` → `None`), which already demonstrates
+INCOMPLETE result → `None`/fallback, missing `counts` → `None`, a short-summary `FAILED` repeat
+that must not count a test twice, verbose mode that must gain no liveness line), which already demonstrates
 discriminating power; `-HarnessSelfTest` additionally proves the pass/fail harness itself is not
 vacuous by registering one deliberately-failing dummy check and confirming it is reported
 `[FAIL]` with a nonzero exit.

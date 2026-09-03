@@ -8,7 +8,10 @@ to each other, and one of them -- the Python CQRS view response schema
 so it serializes its raw snake_case attribute names instead of camelCase.
 This gate generates a real example project once per registered language and
 compares each language's OWN emitted response classes' EFFECTIVE wire names
-against `to_camel_case(field_name)`.
+against `datrix_common.generation.wire_naming.body_wire_name(field_name)` --
+the one home of the declared rule, called rather than restated, so the gate
+and the frontend client contract that computes body wire keys can never be
+measuring two different rules.
 
 The comparison is over EFFECTIVE wire names, never the mere presence of a
 wire-renaming mechanism: `problem_details.py.j2` also has no alias
@@ -47,7 +50,12 @@ from shared.registered_targets import registered_language_names  # noqa: E402
 from datrix_cli.pipeline.contract import PipelineConfig, PipelineResult  # noqa: E402
 from datrix_cli.pipeline.generation import GenerationPipeline  # noqa: E402
 from datrix_common.generation.validation_level import ValidationLevel  # noqa: E402
+from datrix_common.generation.wire_naming import body_wire_name  # noqa: E402
 from datrix_common.plugin.identity import LanguageId  # noqa: E402
+# `to_camel_case` survives here for ONE purpose: modelling ASP.NET Core's own
+# `JsonNamingPolicy.CamelCase` inside the dotnet extractor, which reads what
+# that runtime does, not what Datrix's rule says. The rule itself is
+# `body_wire_name` and is never restated.
 from datrix_common.utils.text import to_camel_case  # noqa: E402
 from datrix_language.registration import register_all  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
@@ -696,18 +704,21 @@ _EXTRACTORS: Final[dict[str, ResponseFieldExtractor]] = {
 def is_wire_name_conformant(field: ResponseField) -> bool:
     """Return True iff *field*'s effective wire name matches the declared rule.
 
-    The declared rule is camelCase. `to_camel_case` is case-variant-
-    idempotent, so this holds regardless of which case convention the
-    emitting language's own attribute/property identifier uses -- the
-    original DSL spelling is never needed.
+    The declared rule is `datrix_common.generation.wire_naming.body_wire_name`
+    -- camelCase -- and this gate calls THAT function rather than restating
+    the rule, so a gate that passes and a contract that computes a wire key
+    can never be measuring two different rules. It is case-variant-idempotent,
+    so this holds regardless of which case convention the emitting language's
+    own attribute/property identifier uses -- the original DSL spelling is
+    never needed.
 
     Args:
         field: One extracted response-body field.
 
     Returns:
-        True if `field.effective_wire_name == to_camel_case(field.field_name)`.
+        True if `field.effective_wire_name == body_wire_name(field.field_name)`.
     """
-    return field.effective_wire_name == to_camel_case(field.field_name)
+    return field.effective_wire_name == body_wire_name(field.field_name)
 
 
 # ---------------------------------------------------------------------------
@@ -1006,7 +1017,7 @@ def _check_language(
             "equivalent), or add a reviewed entry to %s.",
             field.language, field.schema_kind,
             field.template or "<unclassified>", field.field_name,
-            field.effective_wire_name, to_camel_case(field.field_name),
+            field.effective_wire_name, body_wire_name(field.field_name),
             field.file_path, EXEMPTIONS_PATH,
         )
     return ok, excluded

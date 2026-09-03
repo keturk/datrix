@@ -477,7 +477,6 @@ class TestRunner:
 
     # ── Phase 2: Serial tests ────────────────────────────────────
     phase_num_serial = phase_num + 1
-    logger.write(f"\nPhase {phase_num_serial}: Checking for serial tests...")
     # Temporarily disable xdist and exclude_markers to build args
     # without parallel flags and without conflicting -m flags.
     # Pass marker_expr=None so _build_pytest_args does NOT add a CLI
@@ -505,48 +504,32 @@ class TestRunner:
 
     test_args_serial.extend(["-o", f'addopts=-v --strict-markers --tb=short -p no:benchmark --no-cov -m "{serial_marker}"'])
 
-    # Check if there are any serial tests to run
-    check_args = test_args_serial + ["--collect-only", "-q"]
+    # There is no separate "are there any serial tests?" probe, because pytest's
+    # own exit code answers that for free: a run whose every item is deselected
+    # collects zero and exits NO_TESTS_COLLECTED (5), which is mapped to success
+    # immediately below. A --collect-only probe instead pays the project's FULL
+    # collection cost a second time -- 167s for datrix-codegen-python's 8803
+    # items -- to learn the same fact, and it carried a fixed 30s timeout that no
+    # large project can meet. Its except-branch then guessed has_serial_tests =
+    # True, so a timeout printed a hang-shaped warning and ran the phase anyway:
+    # pure overhead in exactly the case the probe existed to skip, and 3 minutes
+    # of a 45-minute run spent proving nothing.
+    executed_phases.append("Serial")
+    logger.write(f"\nPhase {phase_num_serial}: Running serial tests (sequential execution)...")
     try:
-     check_process = subprocess.run(
-      check_args,
+     process = subprocess.Popen(
+      test_args_serial,
       cwd=self.config.project_root,
-      capture_output=True,
+      stdout=subprocess.PIPE,
+      stderr=subprocess.STDOUT,
       text=True,
+      bufsize=1,
       env=env,
-      timeout=30,
      )
-     output = check_process.stdout + check_process.stderr
-     has_serial_tests = (
-      check_process.returncode == 0 and
-      ("test" in output.lower() or "collected" in output.lower() or any(char.isdigit() for char in output.split() if "/" in char))
-     ) or (
-      check_process.returncode == 2 and "collected" in output.lower()
-     )
+     returncode_serial, _ = logger.stream_process(process)
     except Exception as e:
-     logger.write(f"Warning: Could not check for serial tests: {e}")
-     has_serial_tests = True
-
-    if has_serial_tests:
-     executed_phases.append("Serial")
-     logger.write(f"Phase {phase_num_serial}: Running serial tests (sequential execution)...")
-     try:
-      process = subprocess.Popen(
-       test_args_serial,
-       cwd=self.config.project_root,
-       stdout=subprocess.PIPE,
-       stderr=subprocess.STDOUT,
-       text=True,
-       bufsize=1,
-       env=env,
-      )
-      returncode_serial, _ = logger.stream_process(process)
-     except Exception as e:
-      logger.write_error(f"Error running serial tests: {e}")
-      returncode_serial = 1
-    else:
-     logger.write(f"Phase {phase_num_serial}: No serial tests found, skipping.")
-     returncode_serial = 0
+     logger.write_error(f"Error running serial tests: {e}")
+     returncode_serial = 1
 
     # Exit code 5 = no tests collected (not an error for this phase alone)
     if returncode_serial == 5:
@@ -598,14 +581,20 @@ class TestRunner:
       StructuredLogWriter,
      )
 
+     # Expect a phase's JUnit XML only if that phase actually executed.
+     # A phase that never launched pytest wrote no --junitxml file, so
+     # unconditionally expecting one here produced a
+     # structured_log_writer_xml_missing warning when nothing was wrong.
+     # Every executed phase writes its file even when it selects nothing:
+     # pytest emits the XML (with zero testcases) before exiting 5.
      xml_paths: list[Path] = []
      if self.has_xdist and not coverage:
-      if junit_parallel_path:
+      if junit_parallel_path and "Parallel" in executed_phases:
        xml_paths.append(junit_parallel_path)
-      if junit_serial_path:
+      if junit_serial_path and "Serial" in executed_phases:
        xml_paths.append(junit_serial_path)
      else:
-      if junit_path:
+      if junit_path and "Tests" in executed_phases:
        xml_paths.append(junit_path)
 
      writer = StructuredLogWriter(

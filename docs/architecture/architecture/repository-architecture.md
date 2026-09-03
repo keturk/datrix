@@ -8,7 +8,7 @@
 
 The project is split into **fifteen** installable packages (fourteen core toolchain packages plus optional **datrix-extensions**), plus the **datrix** showcase repo (docs, examples, scripts). This structure provides clear boundaries, independent versioning/releases, selective installation, and per-repo CI/CD pipelines.
 
-> **`datrix-codegen-dotnet` is a real generator**, not a scaffold. Increments 0-3 (scaffold/transpiler/entities/REST), increments 4-6 (persistence & migrations, identity & auth, messaging & workers), and increments 7-8 (data & integrations, GraphQL/websockets/geo) have all **landed** and are proven (increments 0-6: full suite 1347/0/0, docker/cli generation unchanged, all G1-G8 conformance checks green), joining python, typescript, and `datrix-codegen-java` (real since its Phase 3 project generator, and a fully realized generator at parity with python and typescript — see [datrix-codegen-java/docs/architecture.md](../../../datrix-codegen-java/docs/architecture.md)) as real generators. Repo tooling keys off what is on disk: a package joins `test.ps1 -All`, `mypy.ps1 -All`, `status-tests.ps1`, the shared-venv install set, and the import-boundary / dead-code / docs-conformance scans automatically once it has a `pyproject.toml`, `src/`, and `tests/`. No hand-maintained package list needs updating. dotnet's increments 9-10 (test generation, package docs, serverless cloud wiring) are not yet implemented. The container-hosting platform work (Azure Container Apps / ECS Fargate best-native targets) is separate and language-agnostic — it does not own dotnet's serverless authoring.
+> **`datrix-codegen-dotnet` is a real generator**, not a scaffold. Increments 0-3 (scaffold/transpiler/entities/REST), increments 4-6 (persistence & migrations, identity & auth, messaging & workers), and increments 7-8 (data & integrations, GraphQL/websockets/geo) have all **landed** and are proven (increments 0-6: full suite 1347/0/0, docker/cli generation unchanged, all G1-G8 conformance checks green), joining python, typescript, and `datrix-codegen-java` (real since its Phase 3 project generator, and a fully realized generator at parity with python and typescript — see [datrix-codegen-java/docs/architecture.md](../../../datrix-codegen-java/docs/architecture.md)) as real generators. Repo tooling keys off what is on disk: a package joins `test.ps1 -All`, `mypy.ps1 -All`, `status-tests.ps1`, the shared-venv install set, and the import-boundary / dead-code / docs-conformance scans automatically once it has a `pyproject.toml`, `src/`, and `tests/`. No hand-maintained package list needs updating. dotnet's increments 9-10 (test generation, package docs, serverless cloud wiring) have also landed: `DotnetTestSpecGenerator` renders xUnit specs from DSL `test(...)` blocks, `templates/service/readme.md.j2` renders package docs, and the serverless hooks emit Lambda and Azure Functions adapters over the platform-agnostic handler classes. The container-hosting platform work (Azure Container Apps / ECS Fargate best-native targets) is separate and language-agnostic — it does not own dotnet's serverless authoring.
 
 > **The datrix showcase repo holds only docs, examples, and scripts — it is not an installable toolchain package and hosts no test suite.** It must never contain a `tests/` pytest suite, product tests, cross-package tests, or language/provider matrix tests. Datrix is a **multi-language, multi-platform generator** (not limited to Python/TypeScript, not limited to Docker/AWS/Azure), so no test that enumerates specific languages or providers belongs in it. Each `datrix-*` package tests only its own surface; genuine repo-level cross-cutting validation lives as **scripts under `datrix/scripts/test/`**, never as `datrix/tests/`.
 
@@ -59,7 +59,7 @@ The project is split into **fifteen** installable packages (fourteen core toolch
 **Purpose:** Language-agnostic algorithms, context models, profile-driven transpiler, field analysis, and parity checking consumed by language codegen packages.
 
 **Responsibilities:**
-- **Profile-driven transpiler:** `LanguageProfile` (7 sub-profiles), `SharedTranspiler` (final, no subclassing), `SyntaxEmitters` protocol with `CBraceSyntaxEmitters` and `IndentBlockSyntaxEmitters`
+- **Profile-driven transpiler:** `LanguageProfile` (nine sub-profiles: syntax, operators, builtins, types, naming, orm, scope, docs, errors), `SharedTranspiler` (final, no subclassing), `SyntaxEmitters` protocol with `CBraceSyntaxEmitters` and `IndentBlockSyntaxEmitters`
 - **Algorithms:** `build_*_context()` functions that compute language-agnostic semantic contexts from AST
 - **Context models:** Frozen dataclasses (`EntityContext`, `ServiceContext`, `SchemaContext`, etc.) carrying semantic data from algorithms to micro-generators
 - **Field analysis:** Reusable entity/field analysis (lookup methods, cascade checks, sortable/filterable classification, lifecycle hooks)
@@ -84,13 +84,13 @@ The language generators below are the set that ships **today**. Datrix is a mult
 Generates platform-agnostic components: documentation (README, API reference, architecture), configuration (Alembic, pytest, coverage), scripts (entrypoint, dev scripts), and shared templates (Mermaid diagrams)
 
 #### 5. datrix-codegen-python
-Generates Python code (FastAPI, Django, Flask). Includes SeedDSL-backed seed runner generation with SQLAlchemy Core dialect DML for RDBMS, motor/pymongo for NoSQL, and provider SDK for Storage targets. Extends `PythonBuiltinMethodMapper` with `Seed.*` method mappings.
+Generates Python code (FastAPI). Includes SeedDSL-backed seed runner generation with SQLAlchemy Core dialect DML for RDBMS, motor/pymongo for NoSQL, and provider SDK for Storage targets. Extends `PythonBuiltinMethodMapper` with `Seed.*` method mappings.
 
 #### 6. datrix-codegen-typescript
-Generates TypeScript code (Express, NestJS, Next.js). Includes SeedDSL-backed seed runner generation with MikroORM/SQL driver for RDBMS, Mongo driver for NoSQL, and AWS/Azure SDK for Storage targets. Extends `TsBuiltinMethodMapper` with `Seed.*` method mappings.
+Generates TypeScript code (NestJS on Express). Includes SeedDSL-backed seed runner generation with MikroORM/SQL driver for RDBMS, Mongo driver for NoSQL, and AWS/Azure SDK for Storage targets. Extends `TsBuiltinMethodMapper` with `Seed.*` method mappings.
 
 #### 7. datrix-codegen-dotnet
-Generates .NET server applications (ASP.NET Core): data models, API routes, request/response schemas, persistence (EF Core + FluentMigrator migrations), seeds, identity/JWT-JWKS/auth, gateway, trusted-caller, webhook, rate-limit, tenancy, pubsub, queue, CQRS, jobs (Quartz.NET), and data & integrations (HTTP clients for inter-service calls, caching/nosql/storage/search and other providers, GraphQL/websockets/geo — **landed**), plus project scaffolding with entry points and dependencies. A real generator, at parity with python/typescript/java for this surface. Increments 9-10 (test generation, package docs, serverless cloud wiring) are not yet implemented. The container-hosting platform work (Azure Container Apps / ECS Fargate best-native targets) is separate and language-agnostic, not dotnet's serverless authoring.
+Generates .NET server applications (ASP.NET Core): data models, API routes, request/response schemas, persistence (EF Core + FluentMigrator migrations), seeds, identity/JWT-JWKS/auth, gateway, trusted-caller, webhook, rate-limit, tenancy, pubsub, queue, CQRS, jobs (Quartz.NET), and data & integrations (HTTP clients for inter-service calls, caching/nosql/storage/search and other providers, GraphQL/websockets/geo — **landed**), plus project scaffolding with entry points and dependencies, xUnit spec generation from DSL `test(...)` blocks, package docs, and Lambda / Azure Functions / container serverless adapters over platform-agnostic handler classes. A real generator, at parity with python/typescript/java for this surface. The container-hosting platform work (Azure Container Apps / ECS Fargate best-native targets) is separate and language-agnostic, not dotnet's serverless authoring.
 
 #### 8. datrix-codegen-java
 Generates Java code (Spring Boot 4.1 / Java 25, Spring MVC on virtual threads) at
@@ -109,10 +109,14 @@ Generates SQL DDL (PostgreSQL, MySQL). Extends `SQLDialect` protocol with seed-s
 - `datrix-codegen-common` (shared transpiler, algorithms, context models, field analysis)
 - `datrix-common` (AST model, type system, template rendering, generation framework)
 - `jinja2` (for template rendering)
+- `datrix-codegen-typescript` additionally depends on `datrix-codegen-sql`: its MikroORM migration adapter renders DDL through the SQL package's dialect protocol, index constants, naming, and type map. It is the only language→SQL edge; a language package never depends on a sibling language package.
 
 **Dependencies (component, SQL):**
 - `datrix-common` (AST model, type system, template rendering, generation framework)
+- `datrix-codegen-common` (GenDSL runtime and registrations; component also consumes derived domain declarations and the shared serverless plan, SQL the migration-adapter contract and a closed set of language-agnostic subtrees)
 - `jinja2` (for template rendering)
+
+Every edge is held equal to the import set by `datrix/scripts/test/manifest-import-parity-gate.ps1`.
 
 ---
 
@@ -123,7 +127,7 @@ Generate infrastructure and deployment configurations. Under the [Deployment Tar
 - **Runtime generators** (`datrix-codegen-docker`) — owns the deployable artifact shape for the `docker-compose` runtime, and DECLARES (`PlatformCapabilityDeclaration.container_scaffold_runtimes`) the other runtimes it also supplies per-service Dockerfiles for: `ecs-fargate`, `app-runner`, and `azure-app-service-container`. The shared deployment plan asks every installed platform for that declared set rather than consulting a runtime-keyed table
 - **Provider generators** (`datrix-codegen-aws`, `datrix-codegen-azure`) — own provider-managed infrastructure, and also own provider-native runtimes (`ecs-fargate`, `app-runner` for AWS; `azure-app-service` for Azure)
 
-Provider generators own the cloud infrastructure for provider-native runtimes. Where the docker platform declares a cloud runtime in its `container_scaffold_runtimes` (`ecs-fargate`, `app-runner`, `azure-app-service-container`), the docker generator supplies the per-service Dockerfiles that runtime packages into images — the provider generator still owns all infrastructure. The `docker-compose` runtime's container artifacts always come from the docker runtime generator regardless of provider: the `local` provider augments nothing, and an approved provider, `azure-vm` (Decision 35, not yet implemented), pairs the runtime with cloud-hosted compute — emitting its own infrastructure (VM, managed PostgreSQL/Blob/Service Bus via Bicep) alongside the unchanged Compose output. For `runtime: azure-app-service` (code-based, no containers), the Azure generator produces all infrastructure directly — there is no separate runtime generator and no Dockerfile involvement.
+Provider generators own the cloud infrastructure for provider-native runtimes. Where the docker platform declares a cloud runtime in its `container_scaffold_runtimes` (`ecs-fargate`, `app-runner`, `azure-app-service-container`), the docker generator supplies the per-service Dockerfiles that runtime packages into images — the provider generator still owns all infrastructure. The `docker-compose` runtime's container artifacts always come from the docker runtime generator regardless of provider: the `local` provider augments nothing, and the `azure-vm` provider (Decision 35, adopted and registered from the Azure platform package) pairs the runtime with cloud-hosted compute — emitting its own infrastructure (VM, managed PostgreSQL/Blob/Service Bus via Bicep) alongside the unchanged Compose output. For `runtime: azure-app-service` (code-based, no containers), the Azure generator produces all infrastructure directly — there is no separate runtime generator and no Dockerfile involvement.
 
 #### 10. datrix-codegen-docker
 Generates Dockerfiles and docker-compose.yml, including optional **job worker** services for Python services with jobs, **Elasticsearch** infrastructure plus index-init containers when search integration and searchable fields are present, **Varnish** cache proxy containers when `cdn` blocks are configured (simulates edge caching for local development), **PgBouncer** containers when `connectionPooler.enabled: true` on RDBMS blocks (one PgBouncer container per consolidated database, with health check and dependency wiring), an **NGINX reverse-proxy** gateway container when `gateway.type` is `nginx` (the only self-hosted gateway; `managed` is cloud-only and rejected for Docker), and **seed services** that run profile-gated seed scripts after migration completion (production profiles run reference data only by default)
@@ -165,6 +169,7 @@ Command-line interface for code generation and seed management
 **Dependencies:**
 - `datrix-common` (AST model, type system, configuration, semantic analysis, generation framework, generator discovery)
 - `datrix-language` (parser, CST-to-AST transformers, `ParserProtocol` implementation)
+- `datrix-codegen-common` (the migration and generator-inspection commands import migration state and render, the migration CQRS algorithm, and GenDSL definitions lazily inside their command bodies)
 - Discovers installed generator *plugins* dynamically (datrix-codegen-python, etc.)
 
 ---
@@ -334,7 +339,7 @@ Adding a new target language (e.g., Go, Rust, Java) requires a new `datrix-codeg
 
 1. Create `datrix-codegen-{lang}` package (depends on `datrix-common` and `datrix-codegen-common`).
 2. Subclass **`LanguageGenerator`** — implement the ten abstract methods; wire sub-generators and project-level output through the shared `generate()` implementation.
-3. Define a **`LanguageProfile`** instance (`datrix_codegen_common.transpiler.profile`) with the 7 sub-profiles (Syntax, Operators, Builtins, Types, Naming, ORM, Scope). For C-style languages, inherit from `CBraceSyntaxEmitters`.
+3. Define a **`LanguageProfile`** instance (`datrix_codegen_common.transpiler.profile`) with the nine sub-profiles (Syntax, Operators, Builtins, Types, Naming, ORM, Scope, Docs, Errors). For C-style languages, inherit from `CBraceSyntaxEmitters`.
 4. Wire the **`SharedTranspiler`** from `datrix-codegen-common` with the language profile. Implement an ORM-specific entity query module for the language's framework.
 5. Implement **micro-generators** (`MicroGenerator[TContext]` from `datrix_codegen_common`) for each domain, using shared context models.
 6. Add **`type_mappings.py`** — map every canonical type; register with `global_registry.register_language()`.

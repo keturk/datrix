@@ -27,7 +27,7 @@
     "added or removed together with this number, in the same change; the gate",
     "refuses to run when the two disagree."
   ],
-  "pinned_count": 24,
+  "pinned_count": 25,
   "exemptions": [
     {
       "repos": ["*"],
@@ -154,6 +154,13 @@
       "pattern": "claude-config/.claude/hooks/.state/",
       "path_glob": "claude-config/.claude/hooks/.state/**",
       "reason": "runtime state written by the versioned agent hooks; per-machine, never part of the hook definitions themselves."
+    },
+    {
+      "repos": ["datrix"],
+      "gitignore": ".gitignore",
+      "pattern": "claude-config/.claude/scheduled_tasks.lock",
+      "path_glob": "claude-config/.claude/scheduled_tasks.lock",
+      "reason": "Claude Code's scheduled-tasks lock: a live pid plus session id, written by the running editor session and rewritten on every start. Machine- and session-local, meaningless in any other clone; hidden by an anchored single-path rule, so this excuses exactly that file."
     },
     {
       "repos": ["datrix"],

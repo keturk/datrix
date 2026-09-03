@@ -20,6 +20,12 @@ modules with src/test/java, with the project-level deployment-tests module exclu
 deploy tests run in Step 4 -- and _merge_surefire_reports/_count_junit_testcases, including the
 adversarial cases where a build never reached surefire and so must NOT read as a clean run.
 
+It also covers shared/logging_utils.py's quiet-mode stream liveness: under quiet mode the
+subprocess stream reaches the log file and never the console, so a long phase printed nothing
+at all and read as a hang. The checks hold the liveness line to what the stream actually
+reported -- pytest's per-test progress lines only, never the closing short-summary repeats --
+and prove verbose mode gains no extra line, since it already echoes the stream.
+
 Repo-level validation script, not a pytest suite (per the datrix showcase boundary). Uses only
 ``assert`` + a small harness that catches ``AssertionError`` per check and prints [OK]/[FAIL] --
 no pytest, no mocks/fakes, real ``tempfile.TemporaryDirectory()`` fixtures for every filesystem
@@ -31,6 +37,7 @@ Exit codes: 0 = every check passed, 1 = at least one check (or the harness self-
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import re
 import subprocess
@@ -38,6 +45,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
+from contextlib import redirect_stdout
 from pathlib import Path
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
@@ -49,6 +57,12 @@ from test.compare_tests import (  # noqa: E402
     build_service_comparisons,
     find_runs,
     parse_unit_run,
+)
+from shared.logging_utils import (  # noqa: E402
+    _PROGRESS_INTERVAL_SECONDS,
+    LogConfig,
+    TeeLogger,
+    _StreamProgress,
 )
 from shared.node_test_runner import _format_summary, merge_junit_xml  # noqa: E402
 from shared.package_suites import testable_package_names  # noqa: E402
@@ -1100,6 +1114,113 @@ def _check_node_suite_marker_is_load_bearing() -> None:
 
 
 # ---------------------------------------------------------------------------
+# shared/logging_utils.py -- quiet-mode stream liveness
+# ---------------------------------------------------------------------------
+
+
+def _stream_lines_under(*, quiet: bool) -> list[str]:
+    """Stream one real subprocess through TeeLogger, returning its console lines.
+
+    Real Popen, real stream, real TeeLogger -- the only thing substituted is the
+    liveness interval, so the check does not have to wait 30 seconds.
+    """
+    emitter = (
+        "import sys\n"
+        "sys.stdout.write('[gw0] [ 50%] PASSED tests/unit/test_a.py::test_one\\n')\n"
+        "sys.stdout.flush()\n"
+    )
+    process = subprocess.Popen(  # noqa: S603 -- fixed argv, this interpreter
+        [sys.executable, "-c", emitter],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    config = LogConfig(
+        project_name="datrix-codegen-python",
+        save_to_file=False,
+        quiet_mode=quiet,
+    )
+    captured = io.StringIO()
+    with TeeLogger(config) as logger, redirect_stdout(captured):
+        returncode, _ = logger.stream_process(process, progress_interval_seconds=0.0)
+    assert returncode == 0, f"emitter subprocess exited {returncode}"
+    return [line for line in captured.getvalue().splitlines() if line.strip()]
+
+
+def _check_quiet_stream_prints_a_console_liveness_line() -> None:
+    """A phase running under quiet mode must prove on the console that it is alive.
+
+    Quiet mode routes every streamed line to the log file and none to the
+    console, so datrix-codegen-python's 42-minute parallel phase printed
+    nothing at all between its banner and its summary -- indistinguishable
+    from a hang, and reported as one.
+    """
+    emitted = _stream_lines_under(quiet=True)
+    liveness = [line for line in emitted if line.lstrip().startswith("...")]
+    assert liveness, f"quiet stream printed no liveness line: {emitted}"
+    assert not any("PASSED" in line for line in emitted), (
+        f"quiet mode must not echo the stream itself to the console: {emitted}"
+    )
+
+
+def _check_verbose_stream_echoes_the_stream_and_adds_no_liveness_line() -> None:
+    """Adversarial: verbose mode already shows progress, so it gets no extra line."""
+    emitted = _stream_lines_under(quiet=False)
+    assert any("PASSED" in line for line in emitted), emitted
+    assert not any(line.lstrip().startswith("...") for line in emitted), emitted
+
+
+def _check_stream_progress_counts_only_pytest_progress_lines() -> None:
+    """Only pytest's per-test progress lines count as finished tests.
+
+    The runner always passes -v, so every finished test prints a line carrying
+    the progress column. The closing "short test summary info" section repeats
+    each failure WITHOUT that column and pytest's final tally spells the
+    verdicts in lowercase -- counting either would claim more tests than ran.
+    """
+    progress = _StreamProgress(interval_seconds=0.0)
+    for line in (
+        "tests/unit/test_a.py::test_one ",
+        "[gw3] [  5%] PASSED tests/unit/test_a.py::test_one",
+        "[gw1] [ 10%] FAILED tests/unit/test_b.py::test_two",
+        "tests/unit/test_c.py::test_three SKIPPED [ 15%]",
+        "FAILED tests/unit/test_b.py::test_two - AssertionError: nope",
+        "========== 1 failed, 1 passed, 1 skipped in 12.34s ==========",
+    ):
+        progress.observe(line)
+
+    rendered = progress.due_line("datrix-codegen-python")
+    assert rendered is not None, "a zero interval makes the first line due immediately"
+    assert "3 tests reported" in rendered, rendered
+    assert "15% complete" in rendered, rendered
+    assert "datrix-codegen-python" in rendered, rendered
+
+
+def _check_stream_progress_is_silent_before_its_interval_elapses() -> None:
+    """A short suite must print no liveness line at all."""
+    progress = _StreamProgress(interval_seconds=_PROGRESS_INTERVAL_SECONDS)
+    progress.observe("[gw0] [100%] PASSED tests/unit/test_a.py::test_one")
+    assert progress.due_line("datrix-extensions") is None
+
+
+def _check_stream_progress_reports_elapsed_with_no_pytest_markers() -> None:
+    """A stream carrying neither a percentage nor a verdict still reports elapsed time.
+
+    Collection is exactly that stream: 167 seconds of silence on the largest
+    package, which is the stretch most in need of a liveness line.
+    """
+    progress = _StreamProgress(interval_seconds=0.0)
+    progress.observe("collecting ... ")
+    rendered = progress.due_line(None)
+    assert rendered is not None
+    assert "elapsed" in rendered, rendered
+    assert "complete" not in rendered, rendered
+    assert "tests reported" not in rendered, rendered
+    assert rendered.strip().startswith("... tests:"), rendered
+
+
+# ---------------------------------------------------------------------------
 # Harness
 # ---------------------------------------------------------------------------
 
@@ -1149,6 +1270,11 @@ _CHECKS: list[tuple[str, Callable[[], None]]] = [
     ("node_summary_line_matches_the_shape_test_ps1_parses", _check_node_summary_line_matches_the_shape_test_ps1_parses),
     ("powershell_and_python_agree_on_testable_packages", _check_powershell_and_python_agree_on_testable_packages),
     ("node_suite_marker_is_load_bearing", _check_node_suite_marker_is_load_bearing),
+    ("quiet_stream_prints_a_console_liveness_line", _check_quiet_stream_prints_a_console_liveness_line),
+    ("verbose_stream_echoes_the_stream_and_adds_no_liveness_line", _check_verbose_stream_echoes_the_stream_and_adds_no_liveness_line),
+    ("stream_progress_counts_only_pytest_progress_lines", _check_stream_progress_counts_only_pytest_progress_lines),
+    ("stream_progress_is_silent_before_its_interval_elapses", _check_stream_progress_is_silent_before_its_interval_elapses),
+    ("stream_progress_reports_elapsed_with_no_pytest_markers", _check_stream_progress_reports_elapsed_with_no_pytest_markers),
 ]
 
 

@@ -11,6 +11,7 @@ Shared configuration files used by scripts.
 | `test-projects.json` | Project definitions for testing and code generation |
 | `customer-term-hashes.json` | Hashed denylist of customer/project terms banned from every framework repo |
 | `ignored-source-exemptions.json` | Reviewed, scoped list of `.gitignore` rules allowed to hide build output rather than source |
+| `zero-environment-runtime-baseline.json` | Per-language zero-environment runtime census: reviewed exemptions (template + reason) for a language declaring the contract realized, a decrease-only `pinned_count` for one declaring it unrealized; read by `test/zero-environment-runtime-gate.ps1`, whose `-UpdateBaseline` is the only writer of counts |
 | `semgrep-rules/` | Individual YAML rule files for the Semgrep anti-pattern scanner |
 | `ast-grep-rules/` | Individual YAML rule files for the ast-grep structural scanner |
 

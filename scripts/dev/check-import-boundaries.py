@@ -15,7 +15,8 @@ increases past its frozen baseline (scripts/config/target-literal-baseline.toml)
 
 Also implements the I6 successor ratchet (invariant I6, DI-4/DI-5):
 opt-in via --check-provider-conditionals, it AST-scans the LANGUAGE
-package src/ trees (LANGUAGE_PACKAGES, the declared taxonomy) for
+package src/ trees (the packages whose manifests register a
+``datrix.languages`` entry point -- see discover_generator_taxonomy) for
 platform-identity CONDITIONALS -- the successor forms of the removed
 DeploymentProvider branches (`== ProviderId(...)`, `.value == "..."`,
 `match`/`case` over a provider), PLUS a second AST pattern class (D5): a
@@ -51,7 +52,7 @@ and overwrites that baseline.
 
 Also implements the G1 shared-vocabulary ratchet (Decision D3, Invariant I2):
 opt-in via --check-shared-vocabulary, it AST-scans the LANGUAGE package src/
-trees (LANGUAGE_PACKAGES, the declared taxonomy) for a module-level
+trees (the ``datrix.languages`` packages the manifests declare) for a module-level
 frozenset/set/dict whose normalized member set duplicates a vocabulary
 already declared in datrix_codegen_common.enums (read live from the
 installed package at scan time, never mirrored) -- the DSL vocabulary
@@ -106,7 +107,8 @@ any file's count increases past its frozen baseline
 --update-baseline (combined with --check-cross-package-vocabulary)
 recomputes and overwrites that baseline.
 
-Self-test (--self-test): proves the rule model (BOUNDARY_RULES, the allowed-
+Self-test (--self-test): proves the rule model (the manifest-discovered
+generator taxonomy, build_boundary_rules over it, the allowed-
 subtree carve-outs), the AST scanners (provider-conditional,
 function-level-import, shared-vocabulary, shared-target-name,
 cross-package-vocabulary), and the ratchet comparators are non-vacuous --
@@ -139,6 +141,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -229,7 +232,7 @@ PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
         # azure (its ACR site-config image reference). A platform plugin may
         # never import a sibling platform plugin to get it (that would make
         # AWS uninstallable without Docker -- see the platform->platform
-        # prohibition in BOUNDARY_RULES below), so the algorithm lives in the
+        # prohibition in build_boundary_rules below), so the algorithm lives in the
         # shared codegen layer and every platform imports it from here.
         # Redundant with the broader ``datrix_codegen_common.platform`` entry
         # above; listed explicitly so this edge is reviewable on its own.
@@ -295,36 +298,144 @@ SQL_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
         # capability harness are target-neutral); SQL's kit-CI test consumes the
         # shared domain-self-consistency gate the same way platform kit-CI tests do.
         "datrix_codegen_common.testkit",
+        # Two algorithms modules that are pure SQL facts, not language-shaped:
+        # the PostgreSQL ``to_tsvector(...)`` expression text and GIN method every
+        # RDBMS target must emit identically, and the naming/ordering rule for
+        # fulltext and spatial snapshot indexes -- the identity of the database
+        # object, which the SQL reflector must recognise exactly as the migration
+        # adapters name it. Exact-or-child matching admits these two modules and
+        # nothing else under ``algorithms``.
+        "datrix_codegen_common.algorithms.postgresql_fulltext",
+        "datrix_codegen_common.algorithms.snapshot_index_naming",
     ]
 )
 
 # ---------------------------------------------------------------------------
-# Generator taxonomy -- the ONE place the package roles are declared.
+# Generator taxonomy -- DISCOVERED from the manifests on disk, never declared.
 #
 # Datrix is a multi-language, multi-platform generator: these sets grow. A
 # package's ROLE cannot be inferred from its name (datrix_codegen_sql and
-# datrix_codegen_component are neither language nor platform generators), so the
-# taxonomy is declared rather than discovered -- but it is declared ONCE, and
-# every boundary rule below is DERIVED from it. Adding a language is one entry
-# here, not an edit to eight scattered forbidden-prefix tuples.
+# datrix_codegen_component are neither language nor platform generators), and a
+# hand-written list of roles is exactly the closed-world inventory the parity
+# program forbids ("gate inventories are derived from registration, never
+# hand-authored lists"). The role IS registration: a package is a language
+# generator iff its pyproject.toml registers a ``datrix.languages`` entry point
+# and a platform generator iff it registers ``datrix.platforms`` -- the same
+# groups PluginRegistry resolves at runtime -- so the scanner reads every
+# ``datrix-*/pyproject.toml`` under the monorepo root and classifies from that.
+# No installed environment is needed, and a package is classified, and guarded,
+# from the commit that registers its entry point.
 #
-# Omitting a language package here is NOT a silent no-op. A package absent from
-# LANGUAGE_PACKAGES gets no BoundaryRule at all, so the scanner would happily let
-# it import a sibling language generator or datrix_cli -- "a silent checker
-# mistaken for an approving one", the same defect the platform rules once had
-# (see the sibling-platform note below).
-LANGUAGE_PACKAGES: tuple[str, ...] = (
-    "datrix_codegen_python",
-    "datrix_codegen_typescript",
-    "datrix_codegen_dotnet",
-    "datrix_codegen_java",
-)
+# Every boundary rule below is DERIVED from the discovered taxonomy
+# (build_boundary_rules). Two fail-loud conditions replace the old "absent from
+# the list, silently unguarded" hole: a package registering BOTH groups is
+# rejected (rules are per class), and main() refuses to scan while any
+# discovered package has no rule at all -- a generator that registers neither
+# group (SQL, Component, Angular today) must carry an explicit entry.
+LANGUAGES_ENTRY_POINT_GROUP = "datrix.languages"
+PLATFORMS_ENTRY_POINT_GROUP = "datrix.platforms"
 
-PLATFORM_PACKAGES: tuple[str, ...] = (
-    "datrix_codegen_docker",
-    "datrix_codegen_aws",
-    "datrix_codegen_azure",
-)
+
+class GeneratorTaxonomyError(ValueError):
+    """A manifest cannot be classified (unparseable, or in both classes)."""
+
+
+@dataclass(frozen=True)
+class GeneratorTaxonomy:
+    """The language and platform generator packages a monorepo declares.
+
+    Both tuples hold IMPORT package names (``datrix_codegen_python``), sorted,
+    derived from each entry point's object reference
+    (``datrix_codegen_python.language_plugin:PythonLanguagePlugin`` ->
+    ``datrix_codegen_python``); a distribution registering several entries in
+    one group (docker's ``docker`` + ``local``, azure's ``azure`` +
+    ``azure-vm``) folds into one package.
+    """
+
+    language_packages: tuple[str, ...]
+    platform_packages: tuple[str, ...]
+
+
+def _entry_point_import_roots(entry_points: object, manifest: Path, group: str) -> set[str]:
+    """The import-package roots named by one entry-point group's values."""
+    if not isinstance(entry_points, dict):
+        raise GeneratorTaxonomyError(
+            f"{manifest}: [project.entry-points.\"{group}\"] must be a table of "
+            f"name = \"module:attr\" entries, got {type(entry_points).__name__}."
+        )
+    roots: set[str] = set()
+    for entry_name, reference in entry_points.items():
+        if not isinstance(reference, str) or not reference:
+            raise GeneratorTaxonomyError(
+                f"{manifest}: entry point {group}.{entry_name} must be a non-empty "
+                f"\"module:attr\" string, got {reference!r}."
+            )
+        module_path = reference.split(":", 1)[0].strip()
+        root = module_path.split(".", 1)[0]
+        if not root:
+            raise GeneratorTaxonomyError(
+                f"{manifest}: entry point {group}.{entry_name} = {reference!r} names "
+                f"no module; expected \"package.module:Attribute\"."
+            )
+        roots.add(root)
+    return roots
+
+
+def discover_generator_taxonomy(base_dir: Path) -> GeneratorTaxonomy:
+    """Classify every ``datrix-*`` package under *base_dir* from its manifest.
+
+    Args:
+        base_dir: Monorepo root holding the ``datrix-*`` package directories.
+
+    Returns:
+        The discovered taxonomy. A directory with no ``pyproject.toml`` (the
+        VS Code client, the showcase repo) contributes nothing.
+
+    Raises:
+        GeneratorTaxonomyError: If a manifest is unparseable, an entry-point
+            value is malformed, or one package registers BOTH groups.
+    """
+    languages: set[str] = set()
+    platforms: set[str] = set()
+    for candidate in sorted(base_dir.iterdir()):
+        manifest = candidate / "pyproject.toml"
+        if not candidate.is_dir() or not candidate.name.startswith("datrix-"):
+            continue
+        if not manifest.is_file():
+            continue
+        try:
+            with manifest.open("rb") as handle:
+                data = tomllib.load(handle)
+        except tomllib.TOMLDecodeError as e:
+            raise GeneratorTaxonomyError(f"{manifest}: cannot parse manifest: {e}") from e
+        project = data.get("project")
+        groups = project.get("entry-points", {}) if isinstance(project, dict) else {}
+        if not isinstance(groups, dict):
+            raise GeneratorTaxonomyError(
+                f"{manifest}: [project.entry-points] must be a table, got "
+                f"{type(groups).__name__}."
+            )
+        if LANGUAGES_ENTRY_POINT_GROUP in groups:
+            languages |= _entry_point_import_roots(
+                groups[LANGUAGES_ENTRY_POINT_GROUP], manifest, LANGUAGES_ENTRY_POINT_GROUP
+            )
+        if PLATFORMS_ENTRY_POINT_GROUP in groups:
+            platforms |= _entry_point_import_roots(
+                groups[PLATFORMS_ENTRY_POINT_GROUP], manifest, PLATFORMS_ENTRY_POINT_GROUP
+            )
+    both = sorted(languages & platforms)
+    if both:
+        raise GeneratorTaxonomyError(
+            f"Package(s) {both} register BOTH {LANGUAGES_ENTRY_POINT_GROUP!r} and "
+            f"{PLATFORMS_ENTRY_POINT_GROUP!r} entry points. The boundary rules are "
+            f"per class (a language forbids sibling languages; a platform forbids "
+            f"sibling platforms and language packages), so one package cannot be "
+            f"both. Fix: split the package, one class per distribution."
+        )
+    return GeneratorTaxonomy(
+        language_packages=tuple(sorted(languages)),
+        platform_packages=tuple(sorted(platforms)),
+    )
 
 
 def _siblings(package: str, group: tuple[str, ...]) -> tuple[str, ...]:
@@ -332,104 +443,123 @@ def _siblings(package: str, group: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(name for name in group if name != package)
 
 
-# Boundary rules: source package -> BoundaryRule
-# forbidden_prefixes: imports whose prefix matches are forbidden
-# allowed_subtrees: specific sub-prefixes that override the broader forbidden prefix
-BOUNDARY_RULES: dict[str, BoundaryRule] = {
-    "datrix_common": BoundaryRule(
-        forbidden_prefixes=(
-            "datrix_language",
-            "datrix_cli",
-            "datrix_codegen_",  # Wildcard: any package starting with datrix_codegen_
-            "datrix_extensions",
-        ),
-    ),
-    "datrix_language": BoundaryRule(
-        forbidden_prefixes=(
-            "datrix_cli",
-            "datrix_codegen_",  # Wildcard
-        ),
-    ),
-    "datrix_codegen_common": BoundaryRule(
-        forbidden_prefixes=(*LANGUAGE_PACKAGES, *PLATFORM_PACKAGES, "datrix_cli"),
-    ),
-    # Language generators: each forbids every SIBLING language package. They share
-    # code through datrix-codegen-common, never through direct imports -- importing a
-    # sibling re-introduces the O(N^2) coupling the shared layer exists to prevent
-    # (see "Cross-language parity is verified by per-language conformance, never by
-    # comparison" in datrix-common/docs/architecture/import-boundaries.md).
-    **{
-        language: BoundaryRule(forbidden_prefixes=_siblings(language, LANGUAGE_PACKAGES))
-        for language in LANGUAGE_PACKAGES
-    },
-    # SQL generator: forbidden from sibling language packages and from the bulk of
-    # datrix_codegen_common (it is not a language generator, so the transpiler and
-    # language-shaped subtrees are off-limits).  SQL_CODEGEN_COMMON_ALLOWED_SUBTREES
-    # carves out the narrow language-agnostic subtrees SQL legitimately uses.
-    "datrix_codegen_sql": BoundaryRule(
-        forbidden_prefixes=(
-            *LANGUAGE_PACKAGES,
-            "datrix_codegen_common",
-            "datrix_cli",
-        ),
-        allowed_subtrees=SQL_CODEGEN_COMMON_ALLOWED_SUBTREES,
-    ),
-    # Component generator: forbidden from sibling language packages and datrix_cli.
-    # Component is a language-agnostic scaffolding generator — it is not a language
-    # generator, but unlike SQL it legitimately imports datrix_codegen_common freely
-    # (gendsl, algorithms.serverless, context_models.serverless, etc.), so
-    # datrix_codegen_common is NOT on its forbidden list.
-    "datrix_codegen_component": BoundaryRule(
-        forbidden_prefixes=(*LANGUAGE_PACKAGES, "datrix_cli"),
-    ),
-    # Angular client-target generator: forbidden from every backend language generator and
-    # datrix_cli -- a frontend client target is not a language generator, but (like Component)
-    # legitimately imports datrix_codegen_common freely (the shared client contract builder,
-    # GenDSL registrations), so datrix_codegen_common is NOT on its forbidden list. Without
-    # this entry the scanner has NO rule for this package at all ("no rule means no
-    # restrictions", :945-948) -- silently unguarded, not merely permissive by design.
-    "datrix_codegen_angular": BoundaryRule(
-        forbidden_prefixes=(*LANGUAGE_PACKAGES, "datrix_cli"),
-    ),
-    # Platform generators keep datrix_codegen_common on forbidden_prefixes but carry
-    # PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES to admit the language-agnostic
-    # subtrees they legitimately consume. The transpiler and language-shaped
-    # context_models/algorithms subtrees remain forbidden.
-    #
-    # SIBLING PLATFORM PLUGINS ARE FORBIDDEN TOO. Each platform
-    # forbids every OTHER platform. This edge was once missing from every
-    # platform's rule -- not because it was permitted, but because nobody had
-    # written it, so a silent checker was mistaken for an approving one. A platform
-    # plugin importing a sibling platform plugin (e.g. aws importing docker to
-    # reuse the base-image tag algorithm) means the importing platform can no
-    # longer be installed without the imported one, and would grow into a
-    # three-way coupling the moment a second platform needed the same code.
-    # The correct home for anything two platforms share is the shared codegen
-    # layer (PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES above): shared layers
-    # ask, target plugins answer (design principle 16; CLAUDE.md's
-    # generality-preserving design rule).
-    **{
-        platform: BoundaryRule(
+def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]:
+    """Boundary rules: source package -> BoundaryRule, derived from *taxonomy*.
+
+    forbidden_prefixes: imports whose prefix matches are forbidden.
+    allowed_subtrees: specific sub-prefixes that override the broader forbidden prefix.
+    """
+    language_packages = taxonomy.language_packages
+    platform_packages = taxonomy.platform_packages
+    return {
+        "datrix_common": BoundaryRule(
             forbidden_prefixes=(
+                "datrix_language",
+                "datrix_cli",
+                "datrix_codegen_",  # Wildcard: any package starting with datrix_codegen_
+                "datrix_extensions",
+            ),
+        ),
+        "datrix_language": BoundaryRule(
+            forbidden_prefixes=(
+                "datrix_cli",
+                "datrix_codegen_",  # Wildcard
+            ),
+        ),
+        "datrix_codegen_common": BoundaryRule(
+            forbidden_prefixes=(*language_packages, *platform_packages, "datrix_cli"),
+        ),
+        # Language generators: each forbids every SIBLING language package. They share
+        # code through datrix-codegen-common, never through direct imports -- importing a
+        # sibling re-introduces the O(N^2) coupling the shared layer exists to prevent
+        # (see "Cross-language parity is verified by per-language conformance, never by
+        # comparison" in datrix-common/docs/architecture/import-boundaries.md).
+        **{
+            language: BoundaryRule(forbidden_prefixes=_siblings(language, language_packages))
+            for language in language_packages
+        },
+        # SQL generator: forbidden from sibling language packages and from the bulk of
+        # datrix_codegen_common (it is not a language generator, so the transpiler and
+        # language-shaped subtrees are off-limits).  SQL_CODEGEN_COMMON_ALLOWED_SUBTREES
+        # carves out the narrow language-agnostic subtrees SQL legitimately uses.
+        "datrix_codegen_sql": BoundaryRule(
+            forbidden_prefixes=(
+                *language_packages,
                 "datrix_codegen_common",
-                *LANGUAGE_PACKAGES,
-                *_siblings(platform, PLATFORM_PACKAGES),
                 "datrix_cli",
             ),
-            allowed_subtrees=PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES,
-        )
-        for platform in PLATFORM_PACKAGES
-    },
-    "datrix_extensions": BoundaryRule(
-        forbidden_prefixes=(
-            "datrix_cli",
-            *LANGUAGE_PACKAGES,
-            "datrix_codegen_common",
-            *PLATFORM_PACKAGES,
-            "datrix_language",
+            allowed_subtrees=SQL_CODEGEN_COMMON_ALLOWED_SUBTREES,
         ),
-    ),
-}
+        # Component generator: forbidden from sibling language packages and datrix_cli.
+        # Component is a language-agnostic scaffolding generator — it is not a language
+        # generator, but unlike SQL it legitimately imports datrix_codegen_common freely
+        # (gendsl, algorithms.serverless, context_models.serverless, etc.), so
+        # datrix_codegen_common is NOT on its forbidden list.
+        "datrix_codegen_component": BoundaryRule(
+            forbidden_prefixes=(*language_packages, "datrix_cli"),
+        ),
+        # Angular client-target generator: forbidden from every backend language generator and
+        # datrix_cli -- a frontend client target is not a language generator, but (like Component)
+        # legitimately imports datrix_codegen_common freely (the shared client contract builder,
+        # GenDSL registrations), so datrix_codegen_common is NOT on its forbidden list. Without
+        # this entry the scanner would have NO rule for this package at all, which main()
+        # now refuses to run with -- silently unguarded is not a state this gate allows.
+        "datrix_codegen_angular": BoundaryRule(
+            forbidden_prefixes=(*language_packages, "datrix_cli"),
+        ),
+        # Platform generators keep datrix_codegen_common on forbidden_prefixes but carry
+        # PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES to admit the language-agnostic
+        # subtrees they legitimately consume. The transpiler and language-shaped
+        # context_models/algorithms subtrees remain forbidden.
+        #
+        # SIBLING PLATFORM PLUGINS ARE FORBIDDEN TOO. Each platform
+        # forbids every OTHER platform. This edge was once missing from every
+        # platform's rule -- not because it was permitted, but because nobody had
+        # written it, so a silent checker was mistaken for an approving one. A platform
+        # plugin importing a sibling platform plugin (e.g. aws importing docker to
+        # reuse the base-image tag algorithm) means the importing platform can no
+        # longer be installed without the imported one, and would grow into a
+        # three-way coupling the moment a second platform needed the same code.
+        # The correct home for anything two platforms share is the shared codegen
+        # layer (PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES above): shared layers
+        # ask, target plugins answer (design principle 16; CLAUDE.md's
+        # generality-preserving design rule).
+        **{
+            platform: BoundaryRule(
+                forbidden_prefixes=(
+                    "datrix_codegen_common",
+                    *language_packages,
+                    *_siblings(platform, platform_packages),
+                    "datrix_cli",
+                ),
+                allowed_subtrees=PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES,
+            )
+            for platform in platform_packages
+        },
+        "datrix_extensions": BoundaryRule(
+            forbidden_prefixes=(
+                "datrix_cli",
+                *language_packages,
+                "datrix_codegen_common",
+                *platform_packages,
+                "datrix_language",
+            ),
+        ),
+        # The CLI is the composition root: it may import any installed package
+        # (generator and platform packages are still reached through entry
+        # points, never imported by name -- see datrix-cli's own tests). The
+        # rule is explicit and empty so the "every discovered package has a
+        # rule" check in main() can tell "deliberately unrestricted" from
+        # "nobody wrote one".
+        "datrix_cli": BoundaryRule(forbidden_prefixes=()),
+    }
+
+
+def unruled_packages(
+    packages: dict[str, PackageInfo], rules: dict[str, BoundaryRule]
+) -> list[str]:
+    """Discovered packages with no boundary rule -- silently unguarded if scanned."""
+    return sorted(set(packages) - set(rules))
 
 
 # ---------------------------------------------------------------------------
@@ -495,11 +625,11 @@ TARGET_LITERAL_ENUM_MEMBERS: dict[str, frozenset[str]] = {
 # owners of target identity (D1), so the defect is the CONDITIONAL shape
 # itself (branch-per-provider, DI-5's job to collapse), not package location.
 #
-# Derived from LANGUAGE_PACKAGES (the single taxonomy declaration above) so a new
-# language generator is policed by this ratchet from its first commit, rather than
-# silently accumulating provider conditionals until someone remembers this tuple.
-# A package with no src/ tree yet contributes no files and no baseline entries.
-PROVIDER_CONDITIONAL_LANGUAGE_PACKAGES: tuple[str, ...] = LANGUAGE_PACKAGES
+# The policed set is the discovered taxonomy's ``language_packages``
+# (discover_generator_taxonomy), threaded into scan_provider_conditionals by
+# main(), so a new language generator is policed by this ratchet from the
+# commit that registers its ``datrix.languages`` entry point. A package with
+# no src/ tree yet contributes no files and no baseline entries.
 
 
 # D6.1 second half: the SHARED packages the provider-literal pattern's scan
@@ -967,6 +1097,7 @@ def scan_package_for_violations(
     package_info: PackageInfo,
     monorepo_root: Path,
     verbose: bool,
+    rules: dict[str, BoundaryRule],
 ) -> list[Violation]:
     """Scan a single package for import boundary violations.
 
@@ -974,16 +1105,22 @@ def scan_package_for_violations(
         package_info: Package metadata
         monorepo_root: Monorepo root for relative path calculation
         verbose: Print each file being scanned
+        rules: The boundary rules (``build_boundary_rules`` over the discovered
+            taxonomy). Every scanned package must have an entry -- main()
+            refuses to run otherwise (``unruled_packages``), so a missing rule
+            here is a programming error, not a permissive default.
 
     Returns:
         List of violations found
     """
     violations: list[Violation] = []
 
-    # Get the boundary rule for this package; no rule means no restrictions
-    rule = BOUNDARY_RULES.get(package_info.name)
-    if rule is None:
-        return violations
+    if package_info.name not in rules:
+        raise KeyError(
+            f"No boundary rule for package {package_info.name!r}. main() must reject "
+            f"unruled packages before scanning; got rules for {sorted(rules)}."
+        )
+    rule = rules[package_info.name]
 
     # Directories to scan: src/, tests/, fixtures/, helpers/
     scan_dirs = [package_info.src_dir]
@@ -1406,16 +1543,19 @@ def scan_file_for_provider_conditionals(
 def scan_provider_conditionals(
     packages: dict[str, PackageInfo],
     monorepo_root: Path,
+    language_packages: tuple[str, ...],
 ) -> dict[Path, list[ProviderConditionalHit]]:
-    """Scan every ``.py`` file under each of ``PROVIDER_CONDITIONAL_LANGUAGE_PACKAGES``'
-    ``src/`` tree (via *packages*, as already discovered by ``discover_packages``)
-    for platform-identity conditionals. Provider ids are derived once per
-    call via ``registered_platform_names()`` -- never hardcoded -- and passed
-    to every per-file scan.
+    """Scan every ``.py`` file under each language package's ``src/`` tree
+    (via *packages*, as already discovered by ``discover_packages``) for
+    platform-identity conditionals. Provider ids are derived once per call
+    via ``registered_platform_names()`` -- never hardcoded -- and passed to
+    every per-file scan.
 
     Args:
         packages: Package name -> PackageInfo, as returned by discover_packages().
         monorepo_root: Monorepo root for relative path reporting.
+        language_packages: The discovered taxonomy's language packages
+            (``GeneratorTaxonomy.language_packages``).
 
     Returns:
         Mapping of file path -> hits in that file (files with zero hits omitted).
@@ -1423,7 +1563,7 @@ def scan_provider_conditionals(
     results: dict[Path, list[ProviderConditionalHit]] = {}
     provider_ids = registered_platform_names()
 
-    for package_name in PROVIDER_CONDITIONAL_LANGUAGE_PACKAGES:
+    for package_name in language_packages:
         package_info = packages.get(package_name)
         if package_info is None:
             continue
@@ -1578,7 +1718,7 @@ def scan_shared_package_provider_literals(
     ``scan_file_for_provider_conditionals`` (the two D5 sub-patterns plus the
     pre-existing ``ProviderId``/``match``-case forms) unmodified; only the
     package SCOPE differs from ``scan_provider_conditionals`` (which targets
-    ``PROVIDER_CONDITIONAL_LANGUAGE_PACKAGES``).
+    the discovered taxonomy's language packages).
 
     Args:
         packages: Package name -> PackageInfo, as returned by discover_packages().
@@ -1873,11 +2013,10 @@ def check_function_level_import_ratchet(
 #
 # Fails when a datrix-codegen-{lang} module declares a module-level
 # frozenset/set/dict whose normalized member set equals a member set already
-# declared in datrix_codegen_common.enums. The four LANGUAGE packages this
-# ratchet polices -- reuses LANGUAGE_PACKAGES (the single taxonomy
-# declaration near the top of this file) so a new language generator is
-# policed from its first commit, with no edit here.
-SHARED_VOCABULARY_LANGUAGE_PACKAGES: tuple[str, ...] = LANGUAGE_PACKAGES
+# declared in datrix_codegen_common.enums. The LANGUAGE packages this ratchet
+# polices are the discovered taxonomy's ``language_packages``
+# (discover_generator_taxonomy), threaded in by main(), so a new language
+# generator is policed from the commit that registers its entry point.
 
 
 def _import_shared_enums_module() -> ModuleType:
@@ -2302,14 +2441,17 @@ def scan_file_for_shared_vocabulary(
 def scan_shared_vocabulary(
     packages: dict[str, PackageInfo],
     monorepo_root: Path,
+    language_packages: tuple[str, ...],
 ) -> dict[Path, list[SharedVocabularyHit]]:
-    """Scan every ``.py`` file under each of
-    ``SHARED_VOCABULARY_LANGUAGE_PACKAGES``' ``src/`` tree for module-level
-    vocabulary duplication against ``datrix_codegen_common.enums``.
+    """Scan every ``.py`` file under each language package's ``src/`` tree
+    for module-level vocabulary duplication against
+    ``datrix_codegen_common.enums``.
 
     Args:
         packages: Package name -> PackageInfo, as returned by discover_packages().
         monorepo_root: Monorepo root for relative path reporting.
+        language_packages: The discovered taxonomy's language packages
+            (``GeneratorTaxonomy.language_packages``).
 
     Returns:
         Mapping of file path -> hits in that file (files with zero hits omitted).
@@ -2318,7 +2460,7 @@ def scan_shared_vocabulary(
     enum_members = _shared_enum_members()
     non_enum_vocabularies = _shared_non_enum_vocabularies()
 
-    for package_name in SHARED_VOCABULARY_LANGUAGE_PACKAGES:
+    for package_name in language_packages:
         package_info = packages.get(package_name)
         if package_info is None:
             continue
@@ -2880,7 +3022,7 @@ def check_shared_target_name_ratchet(
 # declares?"), G3 is keyed on duplication ACROSS packages with no notion of
 # a canonical source -- it catches a vocabulary hand-copied between two
 # packages that have no shared enum to key off at all. Scope is every
-# package discover_packages() finds (not just LANGUAGE_PACKAGES), since a
+# package discover_packages() finds (not just the language packages), since a
 # cross-package duplicate can involve any two datrix-* packages, including
 # a language package and a shared layer.
 # ---------------------------------------------------------------------------
@@ -3066,7 +3208,7 @@ def scan_cross_package_vocabulary(
     monorepo_root: Path,
 ) -> dict[Path, list[CrossPackageVocabularyHit]]:
     """AST-walk EVERY discovered datrix-* package's src/ tree (not just
-    LANGUAGE_PACKAGES) for module-level set/frozenset/dict/tuple literals;
+    the language packages) for module-level set/frozenset/dict/tuple literals;
     group by normalized member set across ALL packages; report one hit per
     (file, container) whose normalized set is also declared, with a bare
     string literal, in >=1 OTHER package. Applies the same qualified-
@@ -3425,16 +3567,28 @@ def _check(label: str, condition: bool) -> bool:
     return condition
 
 
-def _rule_forbids(source_package: str, imported_module: str) -> bool:
+def _rule_forbids(
+    rules: dict[str, BoundaryRule], source_package: str, imported_module: str
+) -> bool:
     """True if any of source_package's forbidden_prefixes flags imported_module."""
-    rule = BOUNDARY_RULES[source_package]
+    rule = rules[source_package]
     return any(
         is_forbidden_import(source_package, imported_module, prefix, rule.allowed_subtrees)
         for prefix in rule.forbidden_prefixes
     )
 
 
-def _self_test_allowed_denied_subtrees() -> bool:
+def _real_repo_rules() -> tuple[GeneratorTaxonomy, dict[str, BoundaryRule]]:
+    """The taxonomy discovered from THIS monorepo's manifests, and its rules.
+
+    The rule-model self-tests (1-4) assert over the real repository, so they
+    resolve it the same way main() does for a no-``--base-dir`` run.
+    """
+    taxonomy = discover_generator_taxonomy(auto_detect_base_dir(Path(__file__)))
+    return taxonomy, build_boundary_rules(taxonomy)
+
+
+def _self_test_allowed_denied_subtrees(rules: dict[str, BoundaryRule]) -> bool:
     """The platform allowed-subtree carve-out constant is frozen exactly, and
     every representative allowed/denied import is classified correctly."""
     _step("Self-test 1/17: platform allowed/denied codegen-common subtrees")
@@ -3487,13 +3641,13 @@ def _self_test_allowed_denied_subtrees() -> bool:
     for imported in allowed_cases:
         ok &= _check(
             f"allowed subtree not forbidden: {platform_source} -> {imported}",
-            not _rule_forbids(platform_source, imported),
+            not _rule_forbids(rules, platform_source, imported),
         )
 
     for platform in ("datrix_codegen_docker", "datrix_codegen_aws", "datrix_codegen_azure"):
         ok &= _check(
             f"gendsl carve-out applies to platform package {platform}",
-            not _rule_forbids(platform, "datrix_codegen_common.gendsl"),
+            not _rule_forbids(rules, platform, "datrix_codegen_common.gendsl"),
         )
 
     denied_cases = (
@@ -3515,13 +3669,13 @@ def _self_test_allowed_denied_subtrees() -> bool:
     for imported in denied_cases:
         ok &= _check(
             f"denied subtree flagged: {platform_source} -> {imported}",
-            _rule_forbids(platform_source, imported),
+            _rule_forbids(rules, platform_source, imported),
         )
 
     return ok
 
 
-def _self_test_dotted_precision_and_carveout() -> bool:
+def _self_test_dotted_precision_and_carveout(rules: dict[str, BoundaryRule]) -> bool:
     """Subtree matching is exact-or-child (not raw prefix), and the carve-out
     never leaks to a package that did not opt in."""
     _step("Self-test 2/17: dotted-boundary precision and carve-out non-leakage")
@@ -3530,53 +3684,55 @@ def _self_test_dotted_precision_and_carveout() -> bool:
 
     ok &= _check(
         "'enums_other' is NOT a child of 'enums' -> forbidden",
-        _rule_forbids(platform_source, "datrix_codegen_common.enums_other"),
+        _rule_forbids(rules, platform_source, "datrix_codegen_common.enums_other"),
     )
     ok &= _check(
         "'enums.DatabaseEngine' IS a child of 'enums' -> allowed",
-        not _rule_forbids(platform_source, "datrix_codegen_common.enums.DatabaseEngine"),
+        not _rule_forbids(rules, platform_source, "datrix_codegen_common.enums.DatabaseEngine"),
     )
     ok &= _check(
         "'algorithms.serverless.plan' IS a child of 'algorithms.serverless' -> allowed",
-        not _rule_forbids(platform_source, "datrix_codegen_common.algorithms.serverless.plan"),
+        not _rule_forbids(
+            rules, platform_source, "datrix_codegen_common.algorithms.serverless.plan"
+        ),
     )
     ok &= _check(
         "'algorithms.serverlessX' is a SIBLING, not a child -> forbidden",
-        _rule_forbids(platform_source, "datrix_codegen_common.algorithms.serverlessX"),
+        _rule_forbids(rules, platform_source, "datrix_codegen_common.algorithms.serverlessX"),
     )
 
     ok &= _check(
         "datrix_common's BoundaryRule has empty allowed_subtrees",
-        BOUNDARY_RULES["datrix_common"].allowed_subtrees == frozenset(),
+        rules["datrix_common"].allowed_subtrees == frozenset(),
     )
     ok &= _check(
         "datrix_common still forbids datrix_codegen_python (no carve-out to leak from)",
-        _rule_forbids("datrix_common", "datrix_codegen_python"),
+        _rule_forbids(rules, "datrix_common", "datrix_codegen_python"),
     )
     ok &= _check(
         "datrix_codegen_common itself still forbids datrix_codegen_python",
-        _rule_forbids("datrix_codegen_common", "datrix_codegen_python"),
+        _rule_forbids(rules, "datrix_codegen_common", "datrix_codegen_python"),
     )
     for platform in ("datrix_codegen_docker", "datrix_codegen_aws", "datrix_codegen_azure"):
         ok &= _check(
             f"platform rule for {platform} carries a non-empty allowed_subtrees",
-            bool(BOUNDARY_RULES[platform].allowed_subtrees),
+            bool(rules[platform].allowed_subtrees),
         )
 
     return ok
 
 
-def _self_test_sql_and_component_coverage() -> bool:
-    """BOUNDARY_RULES covers datrix_codegen_sql and datrix_codegen_component,
+def _self_test_sql_and_component_coverage(rules: dict[str, BoundaryRule]) -> bool:
+    """The rule table covers datrix_codegen_sql and datrix_codegen_component,
     each enforcing the sibling-language prohibition absolutely."""
     _step("Self-test 3/17: SQL and Component boundary rule coverage")
     ok = True
 
     ok &= _check(
-        "datrix_codegen_sql has a BOUNDARY_RULES entry",
-        "datrix_codegen_sql" in BOUNDARY_RULES,
+        "datrix_codegen_sql has a boundary-rule entry",
+        "datrix_codegen_sql" in rules,
     )
-    sql_rule = BOUNDARY_RULES["datrix_codegen_sql"]
+    sql_rule = rules["datrix_codegen_sql"]
     ok &= _check(
         "datrix_codegen_sql carries SQL_CODEGEN_COMMON_ALLOWED_SUBTREES exactly",
         sql_rule.allowed_subtrees == SQL_CODEGEN_COMMON_ALLOWED_SUBTREES,
@@ -3584,7 +3740,7 @@ def _self_test_sql_and_component_coverage() -> bool:
     for imported in ("datrix_codegen_typescript", "datrix_codegen_python", "datrix_cli"):
         ok &= _check(
             f"SQL sibling-language/CLI import forbidden: {imported}",
-            _rule_forbids("datrix_codegen_sql", imported),
+            _rule_forbids(rules, "datrix_codegen_sql", imported),
         )
     for imported in (
         "datrix_codegen_common.gendsl",
@@ -3593,7 +3749,7 @@ def _self_test_sql_and_component_coverage() -> bool:
     ):
         ok &= _check(
             f"SQL allowed codegen_common subtree NOT forbidden: {imported}",
-            not _rule_forbids("datrix_codegen_sql", imported),
+            not _rule_forbids(rules, "datrix_codegen_sql", imported),
         )
     for imported in (
         "datrix_codegen_common.transpiler.parity_checker",
@@ -3602,21 +3758,21 @@ def _self_test_sql_and_component_coverage() -> bool:
     ):
         ok &= _check(
             f"SQL denied codegen_common subtree forbidden: {imported}",
-            _rule_forbids("datrix_codegen_sql", imported),
+            _rule_forbids(rules, "datrix_codegen_sql", imported),
         )
 
     ok &= _check(
-        "datrix_codegen_component has a BOUNDARY_RULES entry",
-        "datrix_codegen_component" in BOUNDARY_RULES,
+        "datrix_codegen_component has a boundary-rule entry",
+        "datrix_codegen_component" in rules,
     )
     ok &= _check(
         "datrix_codegen_component has empty allowed_subtrees (codegen_common unrestricted)",
-        BOUNDARY_RULES["datrix_codegen_component"].allowed_subtrees == frozenset(),
+        rules["datrix_codegen_component"].allowed_subtrees == frozenset(),
     )
     for imported in ("datrix_codegen_typescript", "datrix_codegen_python", "datrix_cli"):
         ok &= _check(
             f"Component sibling-language/CLI import forbidden: {imported}",
-            _rule_forbids("datrix_codegen_component", imported),
+            _rule_forbids(rules, "datrix_codegen_component", imported),
         )
     for imported in (
         "datrix_codegen_common.gendsl.compiler",
@@ -3625,63 +3781,176 @@ def _self_test_sql_and_component_coverage() -> bool:
     ):
         ok &= _check(
             f"Component codegen_common import NOT forbidden: {imported}",
-            not _rule_forbids("datrix_codegen_component", imported),
+            not _rule_forbids(rules, "datrix_codegen_component", imported),
         )
 
     return ok
 
 
-#: The three platform generator packages. Each must forbid the OTHER TWO.
-_PLATFORM_PACKAGES: tuple[str, ...] = (
-    "datrix_codegen_docker",
-    "datrix_codegen_aws",
-    "datrix_codegen_azure",
-)
+#: A cross-target rule model proven over fewer than two members of a class is
+#: vacuous (there is no sibling to forbid), so discovery must find at least
+#: this many of each class in the real repository.
+_MIN_DISCOVERED_PER_CLASS = 2
 
 
-def _self_test_platform_to_platform_prohibition() -> bool:
+def _self_test_write_manifest(
+    tmp_root: Path,
+    dist_name: str,
+    import_package: str,
+    *,
+    entry_point_groups: dict[str, dict[str, str]],
+) -> Path:
+    """Write a minimal ``pyproject.toml`` for a fixture package.
+
+    Creates ``<tmp_root>/<dist_name>/pyproject.toml`` declaring *dist_name*
+    and the given ``[project.entry-points."<group>"]`` tables (each value is
+    an object reference rooted at *import_package*). The scanner's taxonomy
+    discovery reads exactly this shape.
+    """
+    package_dir = tmp_root / dist_name
+    package_dir.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "[project]",
+        f'name = "{dist_name}"',
+        'version = "0.0.0"',
+        "",
+    ]
+    for group, entries in entry_point_groups.items():
+        lines.append(f'[project.entry-points."{group}"]')
+        for entry_name, attribute in entries.items():
+            lines.append(f'{entry_name} = "{import_package}.plugin:{attribute}"')
+        lines.append("")
+    manifest = package_dir / "pyproject.toml"
+    manifest.write_text("\n".join(lines), encoding="utf-8")
+    return manifest
+
+
+def _self_test_taxonomy_discovery_fixture() -> bool:
+    """Discovery classifies from manifests, folds multi-entry groups, rejects
+    a both-classes package, and leaves an entry-point-less package unclassed."""
+    ok = True
+    tmp_root = _SELF_TEST_SCRATCH_ROOT / f"taxonomy-{uuid.uuid4().hex}"
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    try:
+        _self_test_write_manifest(
+            tmp_root, "datrix-codegen-lang-a", "datrix_codegen_lang_a",
+            entry_point_groups={LANGUAGES_ENTRY_POINT_GROUP: {"lang_a": "LangAPlugin"}},
+        )
+        _self_test_write_manifest(
+            tmp_root, "datrix-codegen-plat-b", "datrix_codegen_plat_b",
+            entry_point_groups={
+                PLATFORMS_ENTRY_POINT_GROUP: {"plat_b": "PlatB", "plat_b_vm": "PlatBVm"}
+            },
+        )
+        _self_test_write_manifest(
+            tmp_root, "datrix-codegen-neither", "datrix_codegen_neither",
+            entry_point_groups={"datrix.generators": {"neither": "NeitherGenerator"}},
+        )
+        taxonomy = discover_generator_taxonomy(tmp_root)
+        ok &= _check(
+            "a datrix.languages manifest is classified as a language package",
+            taxonomy.language_packages == ("datrix_codegen_lang_a",),
+        )
+        ok &= _check(
+            "two datrix.platforms entries in one manifest fold into ONE platform package",
+            taxonomy.platform_packages == ("datrix_codegen_plat_b",),
+        )
+        rules = build_boundary_rules(taxonomy)
+        ok &= _check(
+            "a manifest registering neither group gets no derived rule",
+            "datrix_codegen_neither" not in rules,
+        )
+        ok &= _check(
+            "the derived platform rule forbids the discovered language package",
+            _rule_forbids(rules, "datrix_codegen_plat_b", "datrix_codegen_lang_a"),
+        )
+
+        _self_test_write_manifest(
+            tmp_root, "datrix-codegen-both", "datrix_codegen_both",
+            entry_point_groups={
+                LANGUAGES_ENTRY_POINT_GROUP: {"both": "BothLang"},
+                PLATFORMS_ENTRY_POINT_GROUP: {"both": "BothPlat"},
+            },
+        )
+        try:
+            discover_generator_taxonomy(tmp_root)
+            both_rejected = False
+        except GeneratorTaxonomyError as e:
+            both_rejected = "datrix_codegen_both" in str(e)
+        ok &= _check(
+            "a manifest registering BOTH groups is rejected by name",
+            both_rejected,
+        )
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+    return ok
+
+
+def _self_test_platform_to_platform_prohibition(
+    taxonomy: GeneratorTaxonomy, rules: dict[str, BoundaryRule]
+) -> bool:
     """A platform plugin may never import a SIBLING platform plugin.
 
     The pre-existing self-tests only ever proved platform -> LANGUAGE imports
     are flagged; the platform -> PLATFORM edge was absent from every rule, so
     an aws -> docker import passed the checker in silence. This check pins the
-    prohibition in the rule model for all six ordered sibling pairs, and
-    proves the shared-layer escape route (importing the same algorithm from
+    prohibition in the rule model for every ordered sibling pair of the
+    DISCOVERED platform set, and proves the shared-layer escape route
+    (importing the same algorithm from
     ``datrix_codegen_common.platform.container_image_supply``) is NOT flagged
     -- otherwise the rule would forbid the correct fix along with the wrong one.
+
+    It also proves discovery itself is non-vacuous: the real repository must
+    yield at least two languages and two platforms, and a synthetic fixture
+    monorepo must classify exactly as its manifests say.
     """
-    _step("Self-test 4/17: platform -> sibling-platform import prohibition")
+    _step(
+        "Self-test 4/17: taxonomy discovery + platform -> sibling-platform "
+        "import prohibition"
+    )
     ok = True
 
-    for source in _PLATFORM_PACKAGES:
-        siblings = [p for p in _PLATFORM_PACKAGES if p != source]
-        for sibling in siblings:
+    ok &= _check(
+        f"discovery finds >= {_MIN_DISCOVERED_PER_CLASS} language packages in the real "
+        f"repository, got {list(taxonomy.language_packages)}",
+        len(taxonomy.language_packages) >= _MIN_DISCOVERED_PER_CLASS,
+    )
+    ok &= _check(
+        f"discovery finds >= {_MIN_DISCOVERED_PER_CLASS} platform packages in the real "
+        f"repository, got {list(taxonomy.platform_packages)}",
+        len(taxonomy.platform_packages) >= _MIN_DISCOVERED_PER_CLASS,
+    )
+    ok &= _self_test_taxonomy_discovery_fixture()
+
+    platforms = taxonomy.platform_packages
+    for source in platforms:
+        for sibling in _siblings(source, platforms):
             ok &= _check(
                 f"sibling platform import forbidden: {source} -> {sibling}",
-                _rule_forbids(source, sibling),
+                _rule_forbids(rules, source, sibling),
             )
             ok &= _check(
                 f"sibling platform submodule import forbidden: {source} -> "
                 f"{sibling}.generators.images.base_image_builder",
-                _rule_forbids(source, f"{sibling}.generators.images.base_image_builder"),
+                _rule_forbids(rules, source, f"{sibling}.generators.images.base_image_builder"),
             )
 
     # The correct home for shared platform logic must stay importable, or the
     # rule above would forbid the fix as well as the defect.
-    for source in _PLATFORM_PACKAGES:
+    for source in platforms:
         ok &= _check(
             f"shared container-image-supply layer NOT forbidden: {source} -> "
             "datrix_codegen_common.platform.container_image_supply",
             not _rule_forbids(
-                source, "datrix_codegen_common.platform.container_image_supply"
+                rules, source, "datrix_codegen_common.platform.container_image_supply"
             ),
         )
 
     # A platform importing ITSELF is not a sibling import.
-    for source in _PLATFORM_PACKAGES:
+    for source in platforms:
         ok &= _check(
             f"self-import not flagged: {source} -> {source}.generators",
-            not _rule_forbids(source, f"{source}.generators"),
+            not _rule_forbids(rules, source, f"{source}.generators"),
         )
 
     return ok
@@ -3694,8 +3963,19 @@ def _self_test_build_platform_fixture_monorepo(
 
     Its one module imports either a SIBLING PLATFORM (docker -- a violation)
     or the shared codegen-common container-image-supply layer (the correct,
-    permitted edge), so the same fixture proves both directions.
+    permitted edge), so the same fixture proves both directions. Both
+    packages carry a manifest registering ``datrix.platforms`` -- that is
+    what makes them platforms to the scanner, which discovers the taxonomy
+    from manifests rather than from a declared list.
     """
+    _self_test_write_manifest(
+        tmp_root, "datrix-codegen-aws", "datrix_codegen_aws",
+        entry_point_groups={PLATFORMS_ENTRY_POINT_GROUP: {"aws": "AwsPlatform"}},
+    )
+    _self_test_write_manifest(
+        tmp_root, "datrix-codegen-docker", "datrix_codegen_docker",
+        entry_point_groups={PLATFORMS_ENTRY_POINT_GROUP: {"docker": "DockerPlatform"}},
+    )
     package_src = tmp_root / "datrix-codegen-aws" / "src" / "datrix_codegen_aws"
     package_src.mkdir(parents=True, exist_ok=True)
     (package_src / "__init__.py").write_text("", encoding="utf-8")
@@ -3794,8 +4074,13 @@ def _self_test_platform_cli_non_vacuity() -> bool:
 
 def _self_test_provider_literal_build_fixture_monorepo(tmp_root: Path) -> Path:
     """Build a minimal isolated monorepo: one datrix-codegen-python package
+    (a LANGUAGE package by its manifest's ``datrix.languages`` entry point)
     with a module carrying NO provider-literal conditional, plus a baseline
     TOML freezing that file at count 0."""
+    _self_test_write_manifest(
+        tmp_root, "datrix-codegen-python", "datrix_codegen_python",
+        entry_point_groups={LANGUAGES_ENTRY_POINT_GROUP: {"python": "PythonLanguagePlugin"}},
+    )
     package_src = tmp_root / "datrix-codegen-python" / "src" / "datrix_codegen_python"
     package_src.mkdir(parents=True, exist_ok=True)
     (package_src / "__init__.py").write_text("", encoding="utf-8")
@@ -4200,8 +4485,13 @@ def _self_test_shared_vocabulary_scanner() -> bool:
 
 def _self_test_shared_vocabulary_build_fixture_monorepo(tmp_root: Path) -> Path:
     """Build a minimal isolated monorepo: one datrix-codegen-python package
+    (a LANGUAGE package by its manifest's ``datrix.languages`` entry point)
     whose module IMPORTS QueryTerminal (clean, no local redeclaration), plus
     a baseline TOML freezing that file at count 0."""
+    _self_test_write_manifest(
+        tmp_root, "datrix-codegen-python", "datrix_codegen_python",
+        entry_point_groups={LANGUAGES_ENTRY_POINT_GROUP: {"python": "PythonLanguagePlugin"}},
+    )
     package_src = tmp_root / "datrix-codegen-python" / "src" / "datrix_codegen_python"
     package_src.mkdir(parents=True, exist_ok=True)
     (package_src / "__init__.py").write_text("", encoding="utf-8")
@@ -5218,7 +5508,18 @@ def _self_test_cross_package_vocabulary_build_fixture_monorepo(
     """Build a minimal isolated monorepo with TWO fixture packages
     (datrix-codegen-alpha, datrix-codegen-beta), neither importing anything
     from datrix_codegen_common.enums, and a baseline TOML freezing both
-    files at count 0. Returns (alpha_module_path, beta_module_path)."""
+    files at count 0. Returns (alpha_module_path, beta_module_path).
+
+    Both register a ``datrix.languages`` entry point so the scanner classifies
+    them (a discovered package with no rule at all stops the scan by design)."""
+    _self_test_write_manifest(
+        tmp_root, "datrix-codegen-alpha", "datrix_codegen_alpha",
+        entry_point_groups={LANGUAGES_ENTRY_POINT_GROUP: {"alpha": "AlphaLanguagePlugin"}},
+    )
+    _self_test_write_manifest(
+        tmp_root, "datrix-codegen-beta", "datrix_codegen_beta",
+        entry_point_groups={LANGUAGES_ENTRY_POINT_GROUP: {"beta": "BetaLanguagePlugin"}},
+    )
     alpha_src = tmp_root / "datrix-codegen-alpha" / "src" / "datrix_codegen_alpha"
     beta_src = tmp_root / "datrix-codegen-beta" / "src" / "datrix_codegen_beta"
     alpha_src.mkdir(parents=True, exist_ok=True)
@@ -5333,11 +5634,16 @@ def run_self_test() -> bool:
     proof), so a change that silently breaks any of them is caught before
     the checker's findings are trusted.
     """
+    try:
+        taxonomy, rules = _real_repo_rules()
+    except (FileNotFoundError, GeneratorTaxonomyError) as e:
+        print(f"{_RED}[FAIL]{_RESET} cannot discover the real repository's taxonomy: {e}")
+        return False
     results = [
-        _self_test_allowed_denied_subtrees(),
-        _self_test_dotted_precision_and_carveout(),
-        _self_test_sql_and_component_coverage(),
-        _self_test_platform_to_platform_prohibition(),
+        _self_test_allowed_denied_subtrees(rules),
+        _self_test_dotted_precision_and_carveout(rules),
+        _self_test_sql_and_component_coverage(rules),
+        _self_test_platform_to_platform_prohibition(taxonomy, rules),
         _self_test_provider_conditional_scanner(),
         _self_test_function_level_import_scanner(),
         _self_test_ratchets(),
@@ -5532,10 +5838,38 @@ def main() -> int:
         print(f"Error: No datrix packages found in {monorepo_root}", file=sys.stderr)
         return 2
 
+    # Discover the generator taxonomy from the manifests and derive the rules.
+    # A discovered package with no rule would be scanned against nothing and
+    # read as clean, so that state is refused rather than tolerated.
+    try:
+        taxonomy = discover_generator_taxonomy(monorepo_root)
+    except GeneratorTaxonomyError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 2
+    rules = build_boundary_rules(taxonomy)
+    unruled = unruled_packages(packages, rules)
+    if unruled:
+        print(
+            f"Error: discovered package(s) {unruled} have no boundary rule. A package "
+            f"is classified from its pyproject.toml entry points -- register "
+            f"'{LANGUAGES_ENTRY_POINT_GROUP}' (language generator) or "
+            f"'{PLATFORMS_ENTRY_POINT_GROUP}' (platform generator) -- or, for a "
+            f"generator that is neither (SQL, Component, Angular), add an explicit "
+            f"entry to build_boundary_rules(). Refusing to scan a package against no "
+            f"rule: that would report it clean without checking anything.",
+            file=sys.stderr,
+        )
+        return 2
+
     if args.verbose:
         print(f"Found {len(packages)} packages:", file=sys.stderr)
         for pkg_name in sorted(packages.keys()):
             print(f"  - {pkg_name}", file=sys.stderr)
+        print(
+            f"Taxonomy (from manifests): languages={list(taxonomy.language_packages)} "
+            f"platforms={list(taxonomy.platform_packages)}",
+            file=sys.stderr,
+        )
         print("", file=sys.stderr)
 
     # Scan all packages
@@ -5545,6 +5879,7 @@ def main() -> int:
             package_info,
             monorepo_root,
             args.verbose,
+            rules,
         )
         all_violations.extend(violations)
 
@@ -5630,7 +5965,9 @@ def main() -> int:
         # requested (preserves the pre-existing --update-baseline-alone =>
         # target-literal behavior for existing callers).
         if args.check_provider_conditionals:
-            provider_hits_by_file = scan_provider_conditionals(packages, monorepo_root)
+            provider_hits_by_file = scan_provider_conditionals(
+                packages, monorepo_root, taxonomy.language_packages
+            )
             current_counts = {
                 str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
                 for file_path, hits in provider_hits_by_file.items()
@@ -5660,7 +5997,9 @@ def main() -> int:
             updated_any = True
 
         if args.check_shared_vocabulary:
-            shared_vocabulary_hits_by_file = scan_shared_vocabulary(packages, monorepo_root)
+            shared_vocabulary_hits_by_file = scan_shared_vocabulary(
+                packages, monorepo_root, taxonomy.language_packages
+            )
             current_counts = {
                 str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
                 for file_path, hits in shared_vocabulary_hits_by_file.items()
@@ -5773,7 +6112,9 @@ def main() -> int:
         baseline = load_provider_conditional_baseline(
             provider_conditional_baseline_path
         )
-        provider_hits_by_file = scan_provider_conditionals(packages, monorepo_root)
+        provider_hits_by_file = scan_provider_conditionals(
+            packages, monorepo_root, taxonomy.language_packages
+        )
         current_counts = {
             str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
             for file_path, hits in provider_hits_by_file.items()
@@ -5819,7 +6160,9 @@ def main() -> int:
             return 2
 
         baseline = load_shared_vocabulary_baseline(shared_vocabulary_baseline_path)
-        shared_vocabulary_hits_by_file = scan_shared_vocabulary(packages, monorepo_root)
+        shared_vocabulary_hits_by_file = scan_shared_vocabulary(
+            packages, monorepo_root, taxonomy.language_packages
+        )
         current_counts = {
             str(file_path.relative_to(monorepo_root)).replace("\\", "/"): len(hits)
             for file_path, hits in shared_vocabulary_hits_by_file.items()

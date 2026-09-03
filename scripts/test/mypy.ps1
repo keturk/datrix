@@ -7,6 +7,12 @@
  Activates the Datrix virtual environment and runs mypy.py for one or more
  projects. Accepts the same parameters as test.ps1 for command-line symmetry.
 
+ A human-only tool: no skill, hook, orchestrator, or other script invokes it
+ (its only caller is affected-gate.ps1's opt-in -Mypy switch, which agents
+ are forbidden to pass), and the agent contract forbids agents to run any
+ standalone type-checker. The package test suites are the declared gate for
+ type correctness; this wrapper exists so a person can type-check on demand.
+
 .PARAMETER Projects
  One or more project names or folder paths to type-check.
 
