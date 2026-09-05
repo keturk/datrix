@@ -74,6 +74,19 @@ def resolve_specific_targets(project_root: Path, specific: str | None) -> list[s
  return targets
 
 
+def resolve_cache_dir(project_root: Path) -> Path:
+ """mypy's incremental cache, kept OUTSIDE every package repository.
+
+ mypy writes `.mypy_cache/` into its working directory, and the working
+ directory here is the package root. Left at that default, one sweep of the
+ installable packages drops a cache tree inside each of 15 separate git
+ repositories -- roughly 51,400 files and a gigabyte, which the repo-level
+ ignored-source gate fails on. The cache is pure derived state, so it belongs
+ in the workspace temp tree with everything else that is regenerable.
+ """
+ return get_datrix_root() / ".tmp" / "mypy-cache" / project_root.name
+
+
 def write_log(project_root: Path, output: str) -> Path:
  results_dir = project_root / ".test_results"
  results_dir.mkdir(exist_ok=True)
@@ -114,12 +127,15 @@ def run_mypy(
  save_log: bool,
 ) -> int:
  extra_args, extra_env = resolve_extra_mypy_env(project_root)
- cmd = [python_exe, "-m", "mypy", *extra_args, *targets]
+ cache_dir = resolve_cache_dir(project_root)
+ cache_dir.mkdir(parents=True, exist_ok=True)
+ cmd = [python_exe, "-m", "mypy", "--cache-dir", str(cache_dir), *extra_args, *targets]
  if verbose:
   cmd.append("--show-error-context")
 
  print(f"Running: {' '.join(cmd)}")
  print(f"Working directory: {project_root}")
+ print(f"Cache directory: {cache_dir}")
  print("")
 
  process = subprocess.Popen(

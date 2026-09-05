@@ -154,7 +154,6 @@
     }
     clients {
       angular {
-        packageScope = "@ecommerce";
         baseUrlToken = "ECOMMERCE_API_BASE_URL";
       }
     }

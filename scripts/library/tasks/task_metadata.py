@@ -81,18 +81,88 @@ HOW_SOLVED_REDFLAG_MARKERS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("not yet wired", re.compile(r"\bnot yet wired\b", re.IGNORECASE)),
 )
 
-_TASK_FILENAME_PATTERN = re.compile(r"^task-(\d{2,})-(\d{2,}[a-z]?)(?=[-.])")
-_TASK_ID_PATTERN = re.compile(r"^task-(\d{2,})-(\d{2,}[a-z]?)$")
-# Token extraction from free text: `31-05`, `task-31-05`, `task-31-05-slug`,
-# `09-15b`. The lookbehind rejects tokens embedded in words, paths, decimals
-# and ISO dates (e.g. `2026-07-13`); the lookahead rejects longer digit runs.
-_TASK_ID_TOKEN_PATTERN = re.compile(
-    r"(?<![\w./\\-])(?:task-)?(\d{2})-(\d{2}[a-z]?)(?!\d)"
+# ---------------------------------------------------------------------------
+# THE TASK-ID GRAMMAR — one definition, every pattern below built from it.
+#
+#     task-{phase}-{number}[{suffix}]
+#
+# `phase` and `number` are decimal integers written zero-padded to a MINIMUM
+# width of two digits, with NO maximum: the 100th task of phase 43 is
+# `task-43-100`. That is not a new rule, it is the rule the number DISPENSER
+# has always implemented -- `-NextTaskNumber` formats with `{n:02d}`, a minimum
+# width, so it emits `100` the moment a phase passes 99 tasks. What was new was
+# a free-text scanner capped at exactly two digits: it rejected the very value
+# the dispenser handed out, and (worse, because it is silent) `extract_
+# dependency_ids` dropped a dependency on such a task instead of raising.
+#
+# `suffix` is a single lowercase letter marking a SUB-TASK split out of an
+# existing task (`43-99b` is a piece of `43-99`). It is NOT an overflow counter
+# for a full phase: it is unordered, it holds 26 values, and nothing dispenses
+# it -- when two agents used it that way they both minted `task-43-99e`.
+_PHASE_RE = r"\d{2,}"
+_NUMBER_RE = r"\d{2,}"
+_SUFFIX_RE = r"[a-z]?"
+#: Optional trailing slug on a filename or a slugged reference. The first slug
+#: character must be a LETTER: that is what stops `2026-07-13` from parsing as
+#: `task-2026-07` with a `-13` tail.
+_SLUG_RE = r"(?:-[a-z][a-z0-9-]*)?"
+
+_TASK_FILENAME_PATTERN = re.compile(
+    rf"^task-({_PHASE_RE})-({_NUMBER_RE}{_SUFFIX_RE})(?=[-.])"
 )
+_TASK_ID_PATTERN = re.compile(rf"^task-({_PHASE_RE})-({_NUMBER_RE}{_SUFFIX_RE})$")
+#: A whole string that is MEANT to be an ID: canonical `task-NN-TT`, bare
+#: `NN-TT`, either carrying a `-slug` and/or a `.md` tail. Anchored on purpose
+#: -- the caller hands over a value that must BE an ID (a dependencies.md
+#: `task_id`), so anything else is an error to raise, never text to mine.
+_TASK_ID_REFERENCE_PATTERN = re.compile(
+    rf"^(?:task-)?({_PHASE_RE})-({_NUMBER_RE}{_SUFFIX_RE}){_SLUG_RE}(?:\.md)?$"
+)
+# Token extraction from FREE TEXT (a `**Depends on:**` field), where anything
+# may sit beside an ID: `31-05`, `task-31-05`, `task-31-05-slug`, `09-15b`.
+#
+# The lookbehind rejects tokens embedded in words, paths and decimals. Dates
+# are rejected STRUCTURALLY, by the trailing `(?!-?\d)`: both `2026-07-13` and
+# `13-07-2026` are `<digits>-<digits>-<digits>`, and a third dash-number group
+# disqualifies the match. That replaces a digit-count guard whose comment
+# claimed to reject ISO dates but which read `13-07-2026` as a dependency on
+# `task-13-07` -- measured, not assumed.
+#
+# The `task-`-prefixed branch takes the full grammar. The BARE branch bounds
+# the phase at three digits, which is a prose-disambiguation bound and not a
+# grammar bound: an unprefixed `8080-9090` in prose is a port range, not a task
+# reference, while `task-8080-9090` is unambiguous. A phase past 999 is
+# therefore still referenceable in prose -- with the `task-` prefix.
+_TASK_ID_TOKEN_PATTERN = re.compile(
+    r"(?<![\w./\\-])"
+    rf"(?:task-(?P<qualified_phase>{_PHASE_RE})-"
+    rf"(?P<qualified_number>{_NUMBER_RE}{_SUFFIX_RE})"
+    rf"|(?P<bare_phase>\d{{2,3}})-(?P<bare_number>{_NUMBER_RE}{_SUFFIX_RE}))"
+    r"(?!-?\d)"
+)
+
+
+def _token_match_to_id(match: re.Match[str]) -> str:
+    """Normalized ``task-NN-TT`` for either alternative of the token pattern.
+
+    The pattern has two branches and therefore two group PAIRS. Reading
+    positional ``group(1)``/``group(2)`` silently yields ``None``/``None``
+    whenever the BARE branch matched, producing the literal id
+    ``task-None-None`` -- which then collapses every bare-form dependency in a
+    field to one bogus entry, dropping the real edges rather than failing.
+    Always resolve through the named groups.
+    """
+    phase = match.group("qualified_phase") or match.group("bare_phase")
+    number = match.group("qualified_number") or match.group("bare_number")
+    return f"task-{phase}-{number}"
+
+
 _INLINE_BOLD_LABEL_PATTERN = re.compile(r"\*\*[A-Z][^*\n]{0,80}:\*\*")
 _HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 _STATUS_PREFIX_PATTERN = re.compile(r"^([A-Z][A-Z0-9_-]*):\s+(.*)$")
-_TASK_TITLE_PATTERN = re.compile(r"^Task\s+\d{2,}-\d{2,}[a-z]?\s*:\s*(.*)$")
+_TASK_TITLE_PATTERN = re.compile(
+    rf"^Task\s+{_PHASE_RE}-{_NUMBER_RE}{_SUFFIX_RE}\s*:\s*(.*)$"
+)
 _FIELD_LABEL_PATTERN = re.compile(
     r"^\*\*(" + "|".join(re.escape(name) for name in _KNOWN_FIELDS) + r"):\*\*\s*(.*)$"
 )
@@ -237,7 +307,7 @@ def normalize_task_id(token: str) -> str:
             f"'{token}' is not a task ID. Expected 'NN-TT' or 'task-NN-TT' "
             "(two-digit phase and task numbers, e.g. 'task-31-05')."
         )
-    return f"task-{match.group(1)}-{match.group(2)}"
+    return _token_match_to_id(match)
 
 
 def task_id_phase(task_id: str) -> int:
@@ -277,7 +347,7 @@ def extract_dependency_ids(depends_text: str) -> list[str]:
     scan = depends_text[: label.start()] if label else depends_text
     ids: list[str] = []
     for match in _TASK_ID_TOKEN_PATTERN.finditer(scan):
-        task_id = f"task-{match.group(1)}-{match.group(2)}"
+        task_id = _token_match_to_id(match)
         if task_id not in ids:
             ids.append(task_id)
     return ids

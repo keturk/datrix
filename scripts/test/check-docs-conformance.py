@@ -21,7 +21,19 @@ generated-project example paths, not real repo-path claims, and scanning
 them would drown real drift in noise. A NEW architecture doc file added
 later is a deliberate, reviewed addition to this constant.
 
-This is a v1 scanner with a **deliberate scope boundary**: it only checks
+Beyond path and module spans, two claim families are checked whose rot no
+path check can see. **Anchor links** (``[text](<doc>.md#anchor)`` and
+``[text](#anchor)``) must name a heading that exists in the target doc, by
+the GitHub-flavoured slug the heading produces -- a heading gaining a status
+suffix silently breaks every link to it. **Decision status**: every
+``### Decision N:`` heading carries a status from a closed vocabulary; a
+``**Status:**`` paragraph, when present, agrees with the heading; an
+in-progress decision must carry one (it is the checklist of what remains);
+and every ``*.ps1`` gate a decision section names exists under
+``datrix/scripts/test`` or ``datrix/scripts/dev``.
+
+For path and module spans this is a v1 scanner with a **deliberate scope
+boundary**: it only checks
 path-reference candidates that are **fully package-qualified** (start with
 one of the 13 known package directory names, or a ``D:\datrix\`` /
 ``d:/datrix/`` absolute prefix) and module-reference candidates that are
@@ -480,12 +492,240 @@ def load_exceptions(baseline_path: Path) -> dict[str, str]:
 
 @dataclass(frozen=True)
 class UnresolvedReference:
-    """One backtick span that failed resolution against the live tree."""
+    """One documentation claim that failed resolution against the live tree.
+
+    ``kind`` names the check family: a backtick path or module span, a
+    Markdown anchor link whose target heading does not exist, or a decision
+    whose heading status, status paragraph, and named checks disagree.
+    """
 
     doc: str
     line: int
     span: str
-    kind: Literal["path", "module"]
+    kind: Literal["path", "module", "anchor", "decision"]
+
+
+# ---------------------------------------------------------------------------
+# Anchor links: every ``[text](<doc>.md#anchor)`` / ``[text](#anchor)`` link in a
+# curated doc must name a heading that exists in the target doc. Path/module
+# spans catch a file that moved; only this catches a heading that was renamed
+# (a decision heading gaining a status suffix changes its slug), which is how
+# several links to a decision's old heading text rotted unnoticed.
+# ---------------------------------------------------------------------------
+
+_MD_ANCHOR_LINK_RE = re.compile(r"\]\(([^)\s#]*\.md)?#([^)\s]+)\)")
+_SLUG_STRIP_RE = re.compile(r"[^\w\s-]")
+#: An explicit heading id in the ``## Title {#custom-id}`` form these docs use
+#: for stable cross-doc anchors. The id is an anchor in its own right, and the
+#: heading's text slug is computed WITHOUT the ``{#...}`` suffix.
+_EXPLICIT_HEADING_ID_RE = re.compile(r"\s*\{#([^}\s]+)\}\s*$")
+
+
+def github_heading_slug(heading_text: str) -> str:
+    """The anchor GitHub-flavoured Markdown derives from a heading's text.
+
+    Lower-case; every character that is not a word character, whitespace, or
+    a hyphen is dropped (so ``&``, ``—``, ``:``, backticks, ``*`` and
+    parentheses vanish, leaving the double hyphens the repo's existing links
+    carry); whitespace becomes hyphens. Duplicate headings get ``-1``, ``-2``
+    suffixes in document order, handled by :func:`heading_slugs`.
+    """
+    stripped = _SLUG_STRIP_RE.sub("", heading_text.strip().lower())
+    return re.sub(r"\s", "-", stripped)
+
+
+def heading_slugs(doc_text: str) -> set[str]:
+    """Every anchor the headings of *doc_text* produce, duplicates suffixed.
+
+    A heading carrying an explicit ``{#custom-id}`` contributes that id as
+    well as the slug of its remaining text.
+    """
+    slugs: set[str] = set()
+    seen: dict[str, int] = {}
+    for line in doc_text.splitlines():
+        if not line.startswith("#"):
+            continue
+        text = line.lstrip("#")
+        if not text.startswith(" "):
+            continue
+        explicit = _EXPLICIT_HEADING_ID_RE.search(text)
+        if explicit is not None:
+            slugs.add(explicit.group(1))
+            text = text[: explicit.start()]
+        base = github_heading_slug(text)
+        count = seen.get(base, 0)
+        seen[base] = count + 1
+        slugs.add(base if count == 0 else f"{base}-{count}")
+    return slugs
+
+
+def extract_anchor_links(doc_text: str) -> list[tuple[int, str | None, str]]:
+    """Every ``(line, target_doc_or_None, anchor)`` Markdown anchor link in *doc_text*."""
+    links: list[tuple[int, str | None, str]] = []
+    for line_number, line in enumerate(doc_text.splitlines(), start=1):
+        for match in _MD_ANCHOR_LINK_RE.finditer(line):
+            target = match.group(1) or None
+            links.append((line_number, target, match.group(2)))
+    return links
+
+
+def check_anchor_links(doc_rel: str, doc_text: str, monorepo_root: Path) -> list[UnresolvedReference]:
+    """Anchor links in *doc_text* whose target heading (or target doc) does not exist."""
+    failures: list[UnresolvedReference] = []
+    doc_path = monorepo_root / doc_rel
+    slug_cache: dict[Path, set[str] | None] = {}
+    for line_number, target, anchor in extract_anchor_links(doc_text):
+        target_path = doc_path if target is None else (doc_path.parent / target).resolve()
+        if target_path not in slug_cache:
+            slug_cache[target_path] = (
+                heading_slugs(target_path.read_text(encoding="utf-8-sig"))
+                if target_path.is_file()
+                else None
+            )
+        slugs = slug_cache[target_path]
+        span = f"{target or ''}#{anchor}"
+        if slugs is None:
+            failures.append(
+                UnresolvedReference(doc=doc_rel, line=line_number, span=span, kind="anchor")
+            )
+        elif anchor not in slugs:
+            failures.append(
+                UnresolvedReference(doc=doc_rel, line=line_number, span=span, kind="anchor")
+            )
+    return failures
+
+
+# ---------------------------------------------------------------------------
+# Decision status: every ``### Decision N: ... (Status)`` heading carries a
+# status from the closed vocabulary; a ``**Status:**`` paragraph in the section,
+# when present, agrees with it; an in-progress decision MUST carry one (it is
+# the checklist of what remains); and every ``*.ps1`` gate the section names
+# exists under the repo's script trees. A heading that says "in progress" over
+# a paragraph that says everything landed, and a decision with no status
+# paragraph at all, are the two shapes that shipped unnoticed.
+# ---------------------------------------------------------------------------
+
+_DECISION_HEADING_RE = re.compile(r"^### Decision (\d+): (.+?)(?: \(([^()]+)\))?\s*$")
+_STATUS_PARAGRAPH_RE = re.compile(r"^\*\*Status:\*\*\s*(.+)$")
+_HEADING_STATUS_CLASS: dict[str, str] = {
+    "Adopted": "adopted",
+    "Implemented": "adopted",
+    "Stable": "adopted",
+    "Approved — Implementation In Progress": "in-progress",
+}
+_STATUS_PARAGRAPH_CLASS_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("Adopted", "adopted"),
+    ("Landed", "adopted"),
+    ("Implemented", "adopted"),
+    ("Stable", "adopted"),
+    ("Approved", "in-progress"),
+)
+_NAMED_SCRIPT_RE = re.compile(r"`([a-z0-9-]+\.ps1)`")
+_SCRIPT_DIRS: tuple[str, ...] = ("datrix/scripts/test", "datrix/scripts/dev")
+
+
+@dataclass(frozen=True)
+class DecisionSection:
+    """One ``### Decision N:`` section of an architecture doc."""
+
+    number: int
+    line: int
+    heading_status: str | None
+    status_line: int | None
+    status_text: str | None
+    body: str
+
+
+def extract_decision_sections(doc_text: str) -> list[DecisionSection]:
+    """Every decision section: heading facts, the first status paragraph, the body."""
+    lines = doc_text.splitlines()
+    starts = [
+        (index, match)
+        for index, line in enumerate(lines)
+        for match in [_DECISION_HEADING_RE.match(line)]
+        if match is not None
+    ]
+    sections: list[DecisionSection] = []
+    for position, (index, match) in enumerate(starts):
+        end = starts[position + 1][0] if position + 1 < len(starts) else len(lines)
+        body_lines = lines[index + 1 : end]
+        status_line: int | None = None
+        status_text: str | None = None
+        for offset, line in enumerate(body_lines):
+            status_match = _STATUS_PARAGRAPH_RE.match(line)
+            if status_match is not None:
+                status_line = index + 2 + offset
+                status_text = status_match.group(1).strip()
+                break
+        sections.append(
+            DecisionSection(
+                number=int(match.group(1)),
+                line=index + 1,
+                heading_status=match.group(3),
+                status_line=status_line,
+                status_text=status_text,
+                body="\n".join(body_lines),
+            )
+        )
+    return sections
+
+
+def _status_paragraph_class(status_text: str) -> str | None:
+    for prefix, status_class in _STATUS_PARAGRAPH_CLASS_PREFIXES:
+        if status_text.startswith(prefix):
+            return status_class
+    return None
+
+
+def check_decision_status(
+    doc_rel: str, doc_text: str, monorepo_root: Path
+) -> list[UnresolvedReference]:
+    """Decision sections whose heading, status paragraph, or named checks disagree."""
+    failures: list[UnresolvedReference] = []
+
+    def fail(line: int, message: str) -> None:
+        failures.append(UnresolvedReference(doc=doc_rel, line=line, span=message, kind="decision"))
+
+    for section in extract_decision_sections(doc_text):
+        label = f"Decision {section.number}"
+        heading_class = (
+            _HEADING_STATUS_CLASS.get(section.heading_status)
+            if section.heading_status is not None
+            else None
+        )
+        if heading_class is None:
+            fail(
+                section.line,
+                f"{label}: heading carries no status from {sorted(_HEADING_STATUS_CLASS)} "
+                f"(found {section.heading_status!r})",
+            )
+        if section.status_text is None:
+            if heading_class == "in-progress":
+                fail(
+                    section.line,
+                    f"{label}: an in-progress decision must carry a **Status:** paragraph "
+                    "naming what has landed and what remains",
+                )
+        else:
+            paragraph_class = _status_paragraph_class(section.status_text)
+            status_line = section.status_line if section.status_line is not None else section.line
+            if paragraph_class is None:
+                fail(
+                    status_line,
+                    f"{label}: **Status:** paragraph starts with an unrecognized status "
+                    f"({section.status_text[:40]!r}); expected one of "
+                    f"{[prefix for prefix, _ in _STATUS_PARAGRAPH_CLASS_PREFIXES]}",
+                )
+            elif heading_class is not None and paragraph_class != heading_class:
+                fail(
+                    status_line,
+                    f"{label}: heading says {section.heading_status!r} but the **Status:** "
+                    f"paragraph says {section.status_text[:40]!r}",
+                )
+        for script in sorted(set(_NAMED_SCRIPT_RE.findall(section.body))):
+            if not any((monorepo_root / directory / script).is_file() for directory in _SCRIPT_DIRS):
+                fail(section.line, f"{label}: names `{script}`, which exists under none of {_SCRIPT_DIRS}")
+    return failures
 
 
 def scan_docs(
@@ -531,6 +771,9 @@ def scan_docs(
                 unresolved.append(
                     UnresolvedReference(doc=doc_rel, line=line_number, span=span, kind="module")
                 )
+
+        unresolved.extend(check_anchor_links(doc_rel, doc_text, monorepo_root))
+        unresolved.extend(check_decision_status(doc_rel, doc_text, monorepo_root))
 
     return unresolved
 
@@ -898,7 +1141,10 @@ def _check_load_exceptions_raises_when_file_missing() -> None:
         raise AssertionError("load_exceptions() must raise FileNotFoundError for a missing baseline")
 
 
-_SELF_TEST_CHECKS: list[tuple[str, Callable[[], None]]] = [
+def _self_test_checks() -> list[tuple[str, Callable[[], None]]]:
+    """Every named self-test check, resolved at call time so a check may be
+    defined anywhere in this module."""
+    return [
     ("windows_absolute_span_is_a_candidate", _check_windows_absolute_span_is_a_candidate),
     ("package_prefixed_span_is_a_candidate", _check_package_prefixed_span_is_a_candidate),
     ("bare_span_with_no_package_prefix_is_excluded", _check_bare_span_with_no_package_prefix_is_excluded),
@@ -968,7 +1214,132 @@ _SELF_TEST_CHECKS: list[tuple[str, Callable[[], None]]] = [
         _check_load_exceptions_reads_span_to_reason_mapping,
     ),
     ("load_exceptions_raises_when_file_missing", _check_load_exceptions_raises_when_file_missing),
-]
+    (
+        "heading_slug_matches_github_for_punctuated_headings",
+        _check_heading_slug_matches_github_for_punctuated_headings,
+    ),
+    ("duplicate_headings_get_numbered_slugs", _check_duplicate_headings_get_numbered_slugs),
+    (
+        "explicit_heading_id_is_an_anchor_and_text_slug_excludes_it",
+        _check_explicit_heading_id_is_an_anchor_and_text_slug_excludes_it,
+    ),
+    (
+        "anchor_link_to_existing_heading_resolves_across_docs",
+        _check_anchor_link_to_existing_heading_resolves_across_docs,
+    ),
+    ("anchor_link_to_missing_heading_or_doc_fails", _check_anchor_link_to_missing_heading_or_doc_fails),
+    ("decision_heading_without_status_fails", _check_decision_heading_without_status_fails),
+    (
+        "adopted_decision_without_status_paragraph_is_accepted",
+        _check_adopted_decision_without_status_paragraph_is_accepted,
+    ),
+    (
+        "in_progress_decision_requires_status_paragraph",
+        _check_in_progress_decision_requires_status_paragraph,
+    ),
+    (
+        "heading_and_status_paragraph_disagreement_fails",
+        _check_heading_and_status_paragraph_disagreement_fails,
+    ),
+    ("landed_status_paragraph_counts_as_adopted", _check_landed_status_paragraph_counts_as_adopted),
+    ("named_gate_script_must_exist_on_disk", _check_named_gate_script_must_exist_on_disk),
+    ]
+
+
+def _check_heading_slug_matches_github_for_punctuated_headings() -> None:
+    cases = {
+        "Decision 14: Runtime Configuration & Secrets — Zero-Environment Architecture": (
+            "decision-14-runtime-configuration--secrets--zero-environment-architecture"
+        ),
+        "Decision 2: `datrix-codegen-*` Naming": "decision-2-datrix-codegen--naming",
+        "Decision 25: .NET / ASP.NET Core Language Generator (Adopted)": (
+            "decision-25-net--aspnet-core-language-generator-adopted"
+        ),
+    }
+    for heading, expected in cases.items():
+        assert github_heading_slug(heading) == expected, (heading, github_heading_slug(heading))
+
+
+def _check_duplicate_headings_get_numbered_slugs() -> None:
+    slugs = heading_slugs("## Result\n\ntext\n\n## Result\n")
+    assert slugs == {"result", "result-1"}, slugs
+
+
+def _check_explicit_heading_id_is_an_anchor_and_text_slug_excludes_it() -> None:
+    slugs = heading_slugs("## Transpiler modules {#transpiler-modules}\n")
+    assert slugs == {"transpiler-modules"}, slugs
+    slugs = heading_slugs("## Target-Rendering Contract {#target-rendering-contract}\n")
+    assert slugs == {"target-rendering-contract"}, slugs
+
+
+def _check_anchor_link_to_existing_heading_resolves_across_docs() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "docs").mkdir()
+        (root / "docs" / "target.md").write_text("## Real Heading\n", encoding="utf-8")
+        (root / "docs" / "source.md").write_text(
+            "See [it](target.md#real-heading) and [self](#local).\n\n## Local\n",
+            encoding="utf-8",
+        )
+        failures = check_anchor_links("docs/source.md", (root / "docs" / "source.md").read_text(), root)
+        assert failures == [], failures
+
+
+def _check_anchor_link_to_missing_heading_or_doc_fails() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "docs").mkdir()
+        (root / "docs" / "target.md").write_text("## Real Heading\n", encoding="utf-8")
+        source = "See [a](target.md#renamed-heading) and [b](gone.md#anything).\n"
+        (root / "docs" / "source.md").write_text(source, encoding="utf-8")
+        failures = check_anchor_links("docs/source.md", source, root)
+        assert [f.span for f in failures] == ["target.md#renamed-heading", "gone.md#anything"], failures
+        assert all(f.kind == "anchor" for f in failures)
+
+
+def _check_decision_heading_without_status_fails() -> None:
+    doc = "### Decision 7: Extension Naming\n\nbody\n"
+    failures = check_decision_status("d.md", doc, Path("."))
+    assert len(failures) == 1 and "carries no status" in failures[0].span, failures
+
+
+def _check_adopted_decision_without_status_paragraph_is_accepted() -> None:
+    doc = "### Decision 1: No Separate IR Layer (Adopted)\n\n**Rationale:** because.\n"
+    assert check_decision_status("d.md", doc, Path(".")) == []
+
+
+def _check_in_progress_decision_requires_status_paragraph() -> None:
+    doc = "### Decision 43: Frontend (Approved — Implementation In Progress)\n\nbody\n"
+    failures = check_decision_status("d.md", doc, Path("."))
+    assert len(failures) == 1 and "must carry a **Status:**" in failures[0].span, failures
+
+
+def _check_heading_and_status_paragraph_disagreement_fails() -> None:
+    doc = (
+        "### Decision 25: Language Generator (Approved — Implementation In Progress)\n\n"
+        "**Status:** Adopted. Every increment landed.\n"
+    )
+    failures = check_decision_status("d.md", doc, Path("."))
+    assert len(failures) == 1 and "heading says" in failures[0].span, failures
+    assert failures[0].line == 3
+
+
+def _check_landed_status_paragraph_counts_as_adopted() -> None:
+    doc = "### Decision 30: Floor (Adopted)\n\n**Status:** Landed across every platform.\n"
+    assert check_decision_status("d.md", doc, Path(".")) == []
+
+
+def _check_named_gate_script_must_exist_on_disk() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "datrix" / "scripts" / "test").mkdir(parents=True)
+        (root / "datrix" / "scripts" / "test" / "real-gate.ps1").write_text("", encoding="utf-8")
+        doc = (
+            "### Decision 9: Store (Adopted)\n\n"
+            "Held by `real-gate.ps1` and by `imaginary-gate.ps1`.\n"
+        )
+        failures = check_decision_status("d.md", doc, root)
+        assert len(failures) == 1 and "imaginary-gate.ps1" in failures[0].span, failures
 
 
 def _dummy_intentionally_failing_check() -> None:
@@ -1085,7 +1456,7 @@ def main() -> int:
         return 0 if harness_ok else 1
 
     _step("Self-test: I5 docs-conformance gate scanner edge cases")
-    self_test_passed = run_self_test_checks(_SELF_TEST_CHECKS)
+    self_test_passed = run_self_test_checks(_self_test_checks())
     if args.self_test:
         return 0 if self_test_passed else 1
     if not self_test_passed:

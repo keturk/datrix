@@ -1,0 +1,166 @@
+{
+  "_comment": [
+    "Reviewed corpus-vacuity records for the cross-language artifact-role parity",
+    "gate (datrix/scripts/test/artifact-role-parity-gate.ps1). Each entry names one",
+    "(language, domain) coordinate where that language declares the domain",
+    "'supported' and its declared structural_pattern matches ZERO paths anywhere in",
+    "that language's ENTIRE blessed footprint under scripts/config/parity-baselines/.",
+    "",
+    "The gate SKIPS such a domain when comparing role sets -- correctly, since a",
+    "single-example 'missing' verdict over a construct no example declares carries no",
+    "information. The skip used to be silent, and silence is the defect these records",
+    "close: a generator no reference example reaches has no end-to-end signal at all,",
+    "and nothing distinguished 'no example CAN reach this' from 'no example HAPPENS",
+    "to'. Every skip now carries a status and a reason, and the gate fails on an",
+    "unrecorded pair AND on a record whose pair is no longer vacuous.",
+    "",
+    "The three statuses are never interchangeable -- each carries a different remedy:",
+    "  unreachable-by-design  No reference example can produce a matching file at",
+    "                         all, whatever it declares and whatever it targets;",
+    "                         something outside the example's control gates the",
+    "                         emission. Adding an example is never the remedy.",
+    "  cloud-platform-only    Reachable only by an example whose deployment profile",
+    "                         resolves to a cloud provider. Every example resolves",
+    "                         provider = \"local\" (108 declarations across the example",
+    "                         configs; zero aws/azure in any profile of any example),",
+    "                         so this is not a missing DSL block -- it is the corpus",
+    "                         having no cloud-targeting example at all, which would",
+    "                         swap that example's ENTIRE infrastructure output.",
+    "  unexercised            Reachable under the corpus's own local/docker shape;",
+    "                         no example declares the triggering construct. Ordinary",
+    "                         corpus-coverage debt, closed by one DSL addition.",
+    "",
+    "Never close a record by weakening the language's declaration. Flipping a domain",
+    "to 'unsupported' so the census stops seeing it is a false stance, not a fix.",
+    "",
+    "Every reason below was established by reading the gating code and by running the",
+    "stated matcher against a known instance first, so an absence count is evidence",
+    "rather than a matcher that silently matches nothing.",
+    "",
+    "expected_count is a pinned, reviewed value: change it only in the same change",
+    "that adds or removes a record."
+  ],
+  "expected_count": 20,
+  "records": [
+    {
+      "language": "dotnet",
+      "domain": "cdn",
+      "status": "cloud-platform-only",
+      "reason": "Pattern */src/*/Infrastructure/*.cs. CDN-module emission requires all three of: the resolved platform realizing CDN cache invalidation, a declared cdn block, and that block enabled (datrix-codegen-common/src/datrix_codegen_common/platform/cdn_emission.py, service_needs_cdn_module). provides_cdn_cache_invalidation is True only on the aws and azure platform capability declarations (datrix-codegen-aws/src/datrix_codegen_aws/plugin/capability.py, datrix-codegen-azure/src/datrix_codegen_azure/plugin/capability.py); azure-vm declares it False and the local docker target does not declare it at all. Both preconditions are missing from the corpus: zero cdn blocks in the 201 example .dtrx files (the matcher finds the cdn-*.dtrx transformer fixtures in datrix-language, so it is not silently matching nothing), and every example config resolves deployment.provider = \"local\". Closing this needs the corpus's first cloud-targeting example, not a cdn block."
+    },
+    {
+      "language": "dotnet",
+      "domain": "extern_client",
+      "status": "unexercised",
+      "reason": "Pattern */src/*/Clients/*Errors.cs -- the per-extern-service errors file the extern-client generator emits alongside its client/models/contracts. No reference example declares an extern service: zero matches across all 201 example .dtrx files, with the same matcher finding the real declarations in datrix-codegen-dotnet/tests/e2e/fixtures/extern-client-wiring/pricing-engine-extern.dtrx and datrix-codegen-typescript/tests/fixtures/system-full-domain-surface.dtrx. Nothing platform-gated stands in the way -- an extern service is wired on the local docker target (compose entry, health check, environment). NOTE for anyone reading the census: this is not a dotnet-only gap. Because no example declares an extern service in ANY language, no language's blessed footprint contains a real extern client. java's, python's and typescript's extern_client patterns used to be broad enough to match neighbouring inter-service client output in the same directory, so those three read as non-vacuous off another domain's files and never reached this file; each is now suffix-scoped to its own models family and carries its own record below."
+    },
+    {
+      "language": "dotnet",
+      "domain": "migration",
+      "status": "unreachable-by-design",
+      "reason": "Pattern */src/*/Migrations/*/*.cs. Every blessed baseline is produced by scripts/library/test/reference_example_parity.py's generate_example, which builds PipelineConfig(target_language=..., profile=\"test\") and so inherits PipelineConfig.migrations = False (datrix-cli/src/datrix_cli/pipeline/contract.py) -- the pipeline's migrations stage never runs on the blessing path, in any language. No DSL an example could declare changes that: the one example config that sets migrations.enabled = true (03-domains/ecommerce, whose test profile inherits that base block) still has no migration artifact in any of its blessed manifests, and the other 53 set it false. The remedy is a decision about whether baselines should be blessed with migrations on -- migration output is schema-delta dependent, which is why the blessing path does not -- never an added example."
+    },
+    {
+      "language": "dotnet",
+      "domain": "search",
+      "status": "unexercised",
+      "reason": "Pattern */src/*/Search/*/*.cs. The dotnet search orchestrator gates only on service.search_blocks being non-empty (datrix-codegen-dotnet/src/datrix_codegen_dotnet/generators/persistence/_dotnet_search_orchestrator.py, generate_for_service) -- no platform or provider condition anywhere in the chain -- and the local docker target realizes a search block end-to-end (Elasticsearch cluster plus per-service index-init containers, datrix-codegen-docker/.../compose/_wiring_nosql.py). No reference example declares a search block: zero `search <name> {` matches across all 201 example .dtrx files, with the same matcher finding `search elastic {` in datrix-language's own grammar corpus. dotnet is the only language with a standalone search domain -- python, typescript and java fold search into their already-exercised integration domain -- so this is dotnet's only search coverage signal."
+    },
+    {
+      "language": "dotnet",
+      "domain": "serverless",
+      "status": "cloud-platform-only",
+      "reason": "Pattern */src/*/Serverless/*/Handlers/*Handler.cs names the platform-agnostic handler classes DotnetServerlessMicroGen.render emits, and that method returns [] for a CONTAINER-platform block by explicit design (datrix-codegen-dotnet/src/datrix_codegen_dotnet/micro_generators/serverless.py): the container broker entrypoints carry each transpiled body inline, so emitting handler classes as well would duplicate the same DSL body with the second copy referenced by nothing. The serverless platform is a pure function of the deployment provider (datrix-common/src/datrix_common/config/serverless/hosting_validation.py, derive_serverless_platform: aws -> lambda, azure -> functions, local -> container), and every example resolves provider = \"local\". Unlike the other cloud-only entries this domain is NOT without corpus signal: the serverless example's dotnet baseline pins the CONTAINER realization under Serverless/{Block}/ (IngestionHandlersContainerConsumer.cs, QueueWorkersContainerQueueWorker.cs, DailyOrderReportJob.cs), and the LAMBDA path carries its own package-level coverage in datrix-codegen-dotnet/tests/integration/test_lambda_serverless_pipeline.py. A contrived example is not warranted; only the corpus's cloud-example decision would make this pattern match."
+    },
+    {
+      "language": "dotnet",
+      "domain": "soft_delete",
+      "status": "unexercised",
+      "reason": "Pattern */src/*/SoftDelete/*/*.cs names the soft-delete CASCADE file family, which is driven by the onSoftDelete relationship modifier (datrix-common/src/datrix_common/datrix_model/entity.py, Relationship.has_soft_delete_cascade -> has_modifier(\"onSoftDelete\"); consumed by build_soft_delete_cascades in datrix-codegen-common/src/datrix_codegen_common/algorithms/entity_relationships.py). The corpus DOES exercise the SoftDeletable trait -- 31 declarations across the example .dtrx files -- but declares the onSoftDelete modifier zero times, and the same matcher finds it in datrix-codegen-dotnet/tests/e2e/fixtures/combined-surface/ and datrix-codegen-java/tests/fixtures/audit-soft-delete-entities.dtrx. The remedy is one `: onSoftDelete` modifier on an existing hasMany between two entities that already carry `with SoftDeletable`; no platform dependency."
+    },
+    {
+      "language": "java",
+      "domain": "cdn",
+      "status": "cloud-platform-only",
+      "reason": "Pattern */src/main/java/*/infrastructure/*.java. CDN-module emission requires all three of: the resolved platform realizing CDN cache invalidation, a declared cdn block, and that block enabled (datrix-codegen-common/src/datrix_codegen_common/platform/cdn_emission.py, service_needs_cdn_module). provides_cdn_cache_invalidation is True only on the aws and azure platform capability declarations; azure-vm declares it False and the local docker target does not declare it at all. Both preconditions are missing from the corpus: zero cdn blocks in the 201 example .dtrx files (matcher proven against datrix-language's cdn-*.dtrx transformer fixtures), and every example config resolves deployment.provider = \"local\". Closing this needs the corpus's first cloud-targeting example, not a cdn block."
+    },
+    {
+      "language": "java",
+      "domain": "extern_client",
+      "status": "unexercised",
+      "reason": "Pattern */src/main/java/*/clients/*Models.java -- the per-extern-service models file JavaExternClientGenerator.generate_models emits (datrix-codegen-java/src/datrix_codegen_java/generators/extern/extern_client_generator.py:345) alongside its client/errors/contracts. The gate for the whole family is extern_service_dependencies(service) (same file, line 234), which reads service.uses_directives and keeps only ExternService targets -- never service.depends_on(), which structurally excludes them. No reference example declares an extern service: zero matches across all 201 example .dtrx files, with the same matcher finding the real declarations in datrix-codegen-dotnet/tests/e2e/fixtures/extern-client-wiring/pricing-engine-extern.dtrx and datrix-codegen-typescript/tests/fixtures/system-full-domain-surface.dtrx. Nothing platform-gated stands in the way -- an extern service is wired on the local docker target. This coordinate was invisible until the pattern was suffix-scoped: the former directory-wide */src/main/java/*/clients/*.java matched 207 blessed paths, every one of them emitted by micro_generators/resilience.py ({Dep}Client.java, ResilientClientSupport.java, ResilienceMetrics.java) or generators/api/response_struct_generator.py ({Dep}Responses.java), so the domain read as corpus-realized off another domain's output. The remedy is one extern service declaration plus a uses directive in an existing example, not a pattern change."
+    },
+    {
+      "language": "java",
+      "domain": "migration",
+      "status": "unreachable-by-design",
+      "reason": "Pattern */src/main/resources/changelog/*/changelog-master.yaml. Every blessed baseline is produced by scripts/library/test/reference_example_parity.py's generate_example, which builds PipelineConfig(target_language=..., profile=\"test\") and so inherits PipelineConfig.migrations = False (datrix-cli/src/datrix_cli/pipeline/contract.py) -- the pipeline's migrations stage never runs on the blessing path, in any language. No DSL an example could declare changes that: the one example config that sets migrations.enabled = true (03-domains/ecommerce, whose test profile inherits that base block) still has no migration artifact in any of its blessed manifests, and the other 53 set it false. The remedy is a decision about whether baselines should be blessed with migrations on -- migration output is schema-delta dependent, which is why the blessing path does not -- never an added example."
+    },
+    {
+      "language": "java",
+      "domain": "soft_delete",
+      "status": "unexercised",
+      "reason": "Pattern */src/main/java/*/model/*/*SoftDeleteCascadeListener.java names the soft-delete CASCADE file family, which is driven by the onSoftDelete relationship modifier (datrix-common/src/datrix_common/datrix_model/entity.py, Relationship.has_soft_delete_cascade -> has_modifier(\"onSoftDelete\"); consumed by build_soft_delete_cascades in datrix-codegen-common/src/datrix_codegen_common/algorithms/entity_relationships.py). The corpus DOES exercise the SoftDeletable trait -- 31 declarations across the example .dtrx files -- but declares the onSoftDelete modifier zero times, and the same matcher finds it in datrix-codegen-java/tests/fixtures/audit-soft-delete-entities.dtrx. The remedy is one `: onSoftDelete` modifier on an existing hasMany between two entities that already carry `with SoftDeletable`; no platform dependency."
+    },
+    {
+      "language": "python",
+      "domain": "cdn",
+      "status": "cloud-platform-only",
+      "reason": "Pattern */src/*/infrastructure/cdn.py. CDN-module emission requires all three of: the resolved platform realizing CDN cache invalidation, a declared cdn block, and that block enabled (datrix-codegen-common/src/datrix_codegen_common/platform/cdn_emission.py, service_needs_cdn_module). provides_cdn_cache_invalidation is True only on the aws and azure platform capability declarations; azure-vm declares it False and the local docker target does not declare it at all. Both preconditions are missing from the corpus: zero cdn blocks in the 201 example .dtrx files (matcher proven against datrix-language's cdn-*.dtrx transformer fixtures), and every example config resolves deployment.provider = \"local\". Closing this needs the corpus's first cloud-targeting example, not a cdn block."
+    },
+    {
+      "language": "python",
+      "domain": "extern_client",
+      "status": "unexercised",
+      "reason": "Pattern */src/*/clients/*_models.py -- the per-extern-service models module ExternClientGenerator.generate_models emits (datrix-codegen-python/src/datrix_codegen_python/generators/extern/extern_client_generator.py:480) alongside its client/errors/contracts. The gate for the whole family is extern_service_dependencies(service) (same file, line 297), which reads service.uses_directives and keeps only ExternService targets -- never service.depends_on(), which structurally excludes them. No reference example declares an extern service: zero matches across all 201 example .dtrx files, with the same matcher finding the real declarations in datrix-codegen-dotnet/tests/e2e/fixtures/extern-client-wiring/pricing-engine-extern.dtrx and datrix-codegen-typescript/tests/fixtures/system-full-domain-surface.dtrx. Nothing platform-gated stands in the way -- an extern service is wired on the local docker target. This coordinate was invisible until the pattern was suffix-scoped: the former directory-wide */src/*/clients/*.py matched 236 blessed paths, every one of them emitted by micro_generators/resilience.py ({dep}_client.py, resilient_client.py, resilience_metrics.py), generators/api/response_struct_generator.py ({dep}_responses.py), or the clients package __init__.py, so the domain read as corpus-realized off another domain's output. The remedy is one extern service declaration plus a uses directive in an existing example, not a pattern change."
+    },
+    {
+      "language": "python",
+      "domain": "migration",
+      "status": "unreachable-by-design",
+      "reason": "Pattern */alembic-*.ini. Every blessed baseline is produced by scripts/library/test/reference_example_parity.py's generate_example, which builds PipelineConfig(target_language=..., profile=\"test\") and so inherits PipelineConfig.migrations = False (datrix-cli/src/datrix_cli/pipeline/contract.py) -- the pipeline's migrations stage never runs on the blessing path, in any language. No DSL an example could declare changes that: the one example config that sets migrations.enabled = true (03-domains/ecommerce, whose test profile inherits that base block) still has no alembic ini and no migrations-{block}/ content in its blessed python manifest, and the other 53 set it false. The remedy is a decision about whether baselines should be blessed with migrations on -- migration output is schema-delta dependent, which is why the blessing path does not -- never an added example."
+    },
+    {
+      "language": "python",
+      "domain": "soft_delete",
+      "status": "unexercised",
+      "reason": "Pattern */src/*/models/*/soft_delete_cascade_listeners.py names the soft-delete CASCADE file family, which is driven by the onSoftDelete relationship modifier (datrix-common/src/datrix_common/datrix_model/entity.py, Relationship.has_soft_delete_cascade -> has_modifier(\"onSoftDelete\"); consumed by build_soft_delete_cascades in datrix-codegen-common/src/datrix_codegen_common/algorithms/entity_relationships.py). The corpus DOES exercise the SoftDeletable trait -- 31 declarations across the example .dtrx files -- but declares the onSoftDelete modifier zero times, and the same matcher finds it in datrix-codegen-dotnet/tests/e2e/fixtures/combined-surface/ and datrix-codegen-java/tests/fixtures/audit-soft-delete-entities.dtrx. The remedy is one `: onSoftDelete` modifier on an existing hasMany between two entities that already carry `with SoftDeletable`; no platform dependency."
+    },
+    {
+      "language": "python",
+      "domain": "tenancy",
+      "status": "unexercised",
+      "reason": "Pattern */src/*/middleware/tenant_middleware.py. No reference example declares the Tenantable entity trait: zero matches across the example .dtrx files, with the same matcher finding the trait in datrix-language's own builtins.dtrx. No example config declares a tenancy { identifier { ... } enforcement: ... } block either: zero matches across the example .dcfg files, with the same matcher finding real tenancy blocks in service configs outside the corpus. Nothing platform-gated stands in the way. dotnet and java declare tenancy unsupported, so this gap is python and typescript only; the remedy is one entity gaining `with Tenantable` plus a tenancy block in that service's config."
+    },
+    {
+      "language": "typescript",
+      "domain": "cdn",
+      "status": "cloud-platform-only",
+      "reason": "Pattern */src/*/infrastructure/cdn.ts. CDN-module emission requires all three of: the resolved platform realizing CDN cache invalidation, a declared cdn block, and that block enabled (datrix-codegen-common/src/datrix_codegen_common/platform/cdn_emission.py, service_needs_cdn_module). provides_cdn_cache_invalidation is True only on the aws and azure platform capability declarations; azure-vm declares it False and the local docker target does not declare it at all. Both preconditions are missing from the corpus: zero cdn blocks in the 201 example .dtrx files (matcher proven against datrix-language's cdn-*.dtrx transformer fixtures), and every example config resolves deployment.provider = \"local\". Closing this needs the corpus's first cloud-targeting example, not a cdn block."
+    },
+    {
+      "language": "typescript",
+      "domain": "extern_client",
+      "status": "unexercised",
+      "reason": "Pattern */src/clients/*-models.ts -- the per-extern-service models module ExternClientGenerator.generate_models emits alongside its client/errors/contracts (datrix-codegen-typescript/src/datrix_codegen_typescript/generators/extern/extern_client_generator.py). The gate for the whole family is extern_service_dependencies(service), which reads service.uses_directives and keeps only ExternService targets. No reference example declares an extern service: zero matches across all 201 example .dtrx files, with the same matcher finding the real declarations in datrix-codegen-dotnet/tests/e2e/fixtures/extern-client-wiring/pricing-engine-extern.dtrx and datrix-codegen-typescript/tests/fixtures/system-full-domain-surface.dtrx. Nothing platform-gated stands in the way -- an extern service is wired on the local docker target. This coordinate was invisible until the pattern was suffix-scoped: extern_client's former glob was */src/clients/*.ts, BYTE-IDENTICAL to the client domain's own (TsClientMicroGen.STRUCTURAL_DECLARATION), so all 322 blessed src/clients/ paths -- ClientGenerator's {service}-client.ts, ResponseStructGenerator's {dep}-responses.ts, ResilienceGenerator's resilient-client.service.ts and {dep}-client.service.ts -- were credited to BOTH domains and extern_client read as corpus-realized while emitting nothing anywhere. The remedy is one extern service declaration plus a uses directive in an existing example, not a pattern change."
+    },
+    {
+      "language": "typescript",
+      "domain": "migration",
+      "status": "unreachable-by-design",
+      "reason": "Pattern */src/migrations/*/*.ts. Every blessed baseline is produced by scripts/library/test/reference_example_parity.py's generate_example, which builds PipelineConfig(target_language=..., profile=\"test\") and so inherits PipelineConfig.migrations = False (datrix-cli/src/datrix_cli/pipeline/contract.py) -- the pipeline's migrations stage never runs on the blessing path, in any language. No DSL an example could declare changes that: the one example config that sets migrations.enabled = true (03-domains/ecommerce, whose test profile inherits that base block) still has no migration artifact in its blessed typescript manifest, and the other 53 set it false. The remedy is a decision about whether baselines should be blessed with migrations on -- migration output is schema-delta dependent, which is why the blessing path does not -- never an added example."
+    },
+    {
+      "language": "typescript",
+      "domain": "soft_delete",
+      "status": "unexercised",
+      "reason": "Pattern */src/*/entities/*/*-soft-delete.subscriber.ts names the soft-delete CASCADE file family, which is driven by the onSoftDelete relationship modifier (datrix-common/src/datrix_common/datrix_model/entity.py, Relationship.has_soft_delete_cascade -> has_modifier(\"onSoftDelete\"); consumed by build_soft_delete_cascades in datrix-codegen-common/src/datrix_codegen_common/algorithms/entity_relationships.py). The corpus DOES exercise the SoftDeletable trait -- 31 declarations across the example .dtrx files -- but declares the onSoftDelete modifier zero times, and the same matcher finds it in datrix-codegen-dotnet/tests/e2e/fixtures/combined-surface/ and datrix-codegen-java/tests/fixtures/audit-soft-delete-entities.dtrx. The remedy is one `: onSoftDelete` modifier on an existing hasMany between two entities that already carry `with SoftDeletable`; no platform dependency."
+    },
+    {
+      "language": "typescript",
+      "domain": "tenancy",
+      "status": "unexercised",
+      "reason": "Pattern */src/auth/tenant.guard.ts -- one fixed-name file per service, the TenantGenerator's own structural declaration. No reference example declares the Tenantable entity trait: zero matches across the example .dtrx files, with the same matcher finding the trait in datrix-language's own builtins.dtrx. No example config declares a tenancy { identifier { ... } enforcement: ... } block either: zero matches across the example .dcfg files, with the same matcher finding real tenancy blocks in service configs outside the corpus. Nothing platform-gated stands in the way. dotnet and java declare tenancy unsupported, so this gap is python and typescript only; the remedy is one entity gaining `with Tenantable` plus a tenancy block in that service's config."
+    }
+  ]
+}

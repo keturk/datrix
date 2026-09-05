@@ -259,9 +259,11 @@ PLATFORM_CODEGEN_COMMON_ALLOWED_SUBTREES: frozenset[str] = frozenset(
         # their receiver set from one function or the consumer binds entities
         # nothing created -- the defect this module's own canonical marker
         # records. Split out of ``algorithms.cqrs`` for this rule rather than
-        # admitted through it: that module also builds ``CqrsContext``, a
-        # language-shaped surface, and carving out the whole module to reach
-        # the neutral half would have handed every platform the other half.
+        # admitted through it: that module also carries the CQRS block
+        # resolution and ``CqrsOperationKind`` classification a language
+        # micro-generator branches on -- a language-shaped surface -- and
+        # carving out the whole module to reach the neutral half would have
+        # handed every platform the other half.
         "datrix_codegen_common.algorithms.cqrs_projection_receivers",
         # Shared raise-site bodies for the W5 guards. The rate-limit guard here
         # exists BECAUSE aws, azure and docker each wrote their own copy of it;

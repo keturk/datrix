@@ -39,21 +39,6 @@ _ANSI_ESCAPE_PATTERN = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]|\x1b\[\?[0-9;]*[a-zA-Z
 # plausible number of same-second runs of one package.
 _MAX_RUN_DIR_CLAIM_ATTEMPTS = 1000
 
-# Quiet mode sends every streamed line to the log file and nothing to the
-# console, so a long phase is indistinguishable from a hung one:
-# datrix-codegen-python's parallel phase runs 42 minutes in total silence,
-# which is what makes a healthy run look stuck. stream_process therefore
-# emits a liveness line at this interval. The interval is longer than any
-# short suite, so a fast package still prints nothing at all.
-_PROGRESS_INTERVAL_SECONDS = 30.0
-
-# Both figures in that line are read off the stream, never estimated: the
-# runner always passes -v, so pytest reports one verdict per finished test,
-# and its progress column carries the percentage (xdist prefixes it with the
-# worker id). A stream carrying neither still reports elapsed time.
-_TEST_VERDICT_PATTERN = re.compile(r"\b(?:PASSED|FAILED|ERROR|SKIPPED|XFAIL|XPASS)\b")
-_TEST_PERCENT_PATTERN = re.compile(r"\[\s*(\d{1,3})%\]")
-
 
 def strip_ansi(text: str) -> str:
 	"""Remove ANSI escape codes from text.
@@ -97,51 +82,6 @@ def colorize(text: str, color: str) -> str:
 	if sys.stdout.isatty():
 		return f"{color}{text}{ColorCodes.RESET}"
 	return text
-
-
-class _StreamProgress:
-	"""Liveness accounting for one streamed subprocess under quiet mode.
-
-	Carries only what the stream itself reported -- a finished-test count and
-	the last progress percentage -- so a rendered line never claims more than
-	was actually read.
-	"""
-
-	def __init__(self, interval_seconds: float = _PROGRESS_INTERVAL_SECONDS) -> None:
-		self._interval_seconds = interval_seconds
-		self._started_at = time.monotonic()
-		self._next_line_at = self._started_at + interval_seconds
-		self._verdicts = 0
-		self._percent: int | None = None
-
-	def observe(self, line: str) -> None:
-		"""Record what one streamed line says about progress."""
-		percent_match = _TEST_PERCENT_PATTERN.search(line)
-		if percent_match is None:
-			# Only pytest's per-test progress lines carry the percentage
-			# column, and every one of them does -- under xdist as
-			# "[gw3] [ 45%] PASSED nodeid" and without it as
-			# "nodeid PASSED [ 45%]". Requiring the column is what keeps a
-			# bare "FAILED tests/x.py::y" in the closing short-summary
-			# section from counting a test that was already counted.
-			return
-		self._percent = int(percent_match.group(1))
-		if _TEST_VERDICT_PATTERN.search(line):
-			self._verdicts += 1
-
-	def due_line(self, label: str | None) -> str | None:
-		"""Return the next liveness line, or None until the interval elapses."""
-		now = time.monotonic()
-		if now < self._next_line_at:
-			return None
-		self._next_line_at = now + self._interval_seconds
-		minutes, seconds = divmod(int(now - self._started_at), 60)
-		parts = [f"{minutes}m{seconds:02d}s elapsed"]
-		if self._percent is not None:
-			parts.append(f"{self._percent}% complete")
-		if self._verdicts:
-			parts.append(f"{self._verdicts} tests reported")
-		return colorize(f"  ... {label or 'tests'}: {', '.join(parts)}", ColorCodes.GRAY)
 
 
 class TeeLogger:
@@ -330,11 +270,7 @@ class TeeLogger:
 		colored = colorize(text, ColorCodes.YELLOW)
 		self.write(colored)
 
-	def stream_process(
-		self,
-		process,
-		progress_interval_seconds: float = _PROGRESS_INTERVAL_SECONDS,
-	) -> tuple[int, str]:
+	def stream_process(self, process) -> tuple[int, str]:
 		"""
 		Stream output from a subprocess to console and log file.
 
@@ -343,16 +279,12 @@ class TeeLogger:
 
 		Args:
 			process: subprocess.Popen instance with stdout=PIPE
-			progress_interval_seconds: How often to print a console-only
-				liveness line while in quiet mode, where the stream itself
-				reaches the log file and never the console.
 
 		Returns:
 			Tuple of (returncode, output_text)
 		"""
 		output_lines = []
 		output_queue = queue.Queue()
-		progress = _StreamProgress(progress_interval_seconds)
 
 		def read_output(stream, q):
 			"""Read lines from stream and put them in queue."""
@@ -376,15 +308,6 @@ class TeeLogger:
 
 		# Process output from queue
 		while True:
-			# Checked on every iteration rather than only when a line arrives:
-			# a phase can be genuinely silent for minutes (collection alone
-			# takes 167s on the largest package), and that is exactly when a
-			# liveness line is worth printing.
-			if self.quiet_mode:
-				due = progress.due_line(self.config.project_name)
-				if due is not None:
-					print(due, flush=True)
-
 			try:
 				# Wait for output with timeout to detect hangs
 				line = output_queue.get(timeout=0.1)
@@ -396,7 +319,6 @@ class TeeLogger:
 				line = line.rstrip()
 				self.write_line(line)
 				output_lines.append(line)
-				progress.observe(line)
 
 			except queue.Empty:
 				# No output available, check if process is still running

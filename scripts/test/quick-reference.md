@@ -176,7 +176,9 @@ Compares timestamped test runs inside one explicit `.test_results` folder. It do
 
 Runs mypy type checking for one or more Datrix projects. Accepts the same flags as `test.ps1` for command-line symmetry, but most test-selection flags (`-Unit`, `-Integration`, `-E2E`, `-Fast`, `-Slow`, `-Keyword`) are accepted for parity and silently ignored by the underlying mypy runner.
 
-**A human-only tool.** No skill, hook, orchestrator, or other script runs it: its only caller is `affected-gate.ps1`'s opt-in `-Mypy` switch, which the verification strategy forbids agents to pass, and the agent contract forbids agents to run any standalone type-checker (`CLAUDE.md`, "Running Python"). The package test suites are the declared gate for type correctness; this wrapper exists so a person can run a full type-check on demand.
+**A human-only tool, enforced.** No skill, hook, orchestrator, or other script runs it: its only caller is `affected-gate.ps1`'s opt-in `-Mypy` switch. The agent contract forbids agents to run any standalone type-checker (`CLAUDE.md`, "Running Python"), and that is now a harness block rather than prose -- `guard-forbidden-commands.py` refuses `mypy`/`dmypy`/`pyright`, the `python -m mypy` form, this wrapper, `library/mypy.py`, and `affected-gate.ps1 -Mypy` from any agent tool call. A person running it in his own terminal is not a tool call and is unaffected. The package test suites are the declared gate for type correctness; this wrapper exists so a person can run a full type-check on demand.
+
+**The cache never lands in a package repo.** mypy writes `.mypy_cache/` into its working directory, which here is the package root, so the runner passes an explicit `--cache-dir D:\datrix\.tmp\mypy-cache\<project>`. Left at the default, one sweep of the installable packages buried ~51,400 cache files in 15 separate git repositories and failed `ignored-source-gate.ps1`. Run logs still go to `<project>/.test_results/mypy-results-<timestamp>.log`, which is the sanctioned in-repo location the test runner already owns.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -641,6 +643,8 @@ Docs-conformance Invariant I5 gate: extracts repo-relative path references and P
 - A path candidate resolves via Tier 1 (exact path exists under the monorepo root; a trailing-slash candidate must be a directory) or Tier 2 (an unambiguous `src/`/`tests/`-relative suffix match — never attempted when the candidate already starts with `src`/`tests`, and never resolved when the suffix matches 2+ files).
 - A module candidate resolves when any decreasing-length prefix of its segments after the import name matches a real `.py` file or package `__init__.py` (tolerating a trailing symbol/attribute/function name).
 - A candidate unresolved by both tiers is checked against the exceptions baseline (span text -> reason); present spans never fail the gate, absent spans do.
+- Every Markdown anchor link (`[text](<doc>.md#anchor)` or `[text](#anchor)`) in a curated doc names a heading that exists in the target doc, by the GitHub-flavoured slug the heading text produces (duplicates numbered); a missing target doc fails the same way. Reported with kind `anchor`, span `<target>#<anchor>`.
+- Every `### Decision N:` heading in a curated doc carries a status from the closed vocabulary (`Adopted`, `Implemented`, `Stable`, `Approved — Implementation In Progress`); a `**Status:**` paragraph in the section, when present, opens with a status of the same class (`Adopted`/`Landed`/`Implemented`/`Stable` vs `Approved`); an in-progress decision must carry a `**Status:**` paragraph; and every `` `*.ps1` `` a decision section names exists under `datrix/scripts/test` or `datrix/scripts/dev`. Reported with kind `decision`. The self-test plants each disagreement and each accepted shape.
 
 **Exit codes:** 0 = no unresolved references (or a successful `-Warn` or `-SelfTest` run), 1 = at least one unresolved, non-excepted reference found (or `-SelfTest`/`--harness-self-test` reports a failing check), 2 = usage error, missing exceptions baseline, a doc in `ARCHITECTURE_DOC_FILES` that no longer exists, or the automatic self-test step failing on a normal invocation.
 
@@ -776,23 +780,26 @@ files not found).
 
 ### `test\supported-domain-parity-gate.ps1`
 
-G3 final cross-language parity proof: EVERY registered `datrix.languages` plugin's derived SUPPORTED domain set — the **FULL set** (every domain a plugin declares `status == "supported"`, no pre-filtering to any subset) sourced from `datrix_codegen_common.parity.domain_registry.SHARED_CONTEXT_TYPES` (currently 39 domain ids) — must be identical. Derives its target LANGUAGE set from `importlib.metadata.entry_points(group="datrix.languages")` at runtime — never a hardcoded language literal — so a future `datrix-codegen-<lang>` package is covered automatically with no edit to this gate. The DOMAIN scope is likewise never a hardcoded literal: it comes directly from each language's own `domain_declarations`, compared unrestricted (a domain a plugin has no declaration for is simply absent from its set — every declared domain id is itself validated against `SHARED_CONTEXT_TYPES` elsewhere, by each language package's own domain self-consistency gate). An earlier revision restricted the compared scope to the seven "rich" cross-language domains on the stated rationale that the remaining domains belonged only to individual languages — that rationale was verifiably false (`function`/`helper` are registered by all four languages, `dev_scripts` by three) and hid real divergence the gate exists to catch; the restriction was removed so the full 39-domain universe is compared. Compares the union of all registered languages' supported sets against each language's own set and reports, per language, which domains its set is missing relative to the union. With all four registered languages' declarations landed, the gate agrees on 37 of the 39 shared domains (`discovery` and `resilience` are supported by no registered language and are simply absent from every set — no exemption list is needed for that; set identity already covers it).
+Two checks, in order, both against a live-computed universe never a fixed count quoted here (the universe grows as domains are added — run the gate for its live output):
 
-**Supersedes `shared39-supported-parity-gate.ps1`** (java<->python only, restricted to the seven rich/shared-39 domains, now deleted): this gate's N-language FULL-set identity comparison strictly implies that narrower 2-language restricted comparison (a subset of two identical sets is itself identical) — a strict generalization of both targets and scope, not a narrower reproduction.
+1. **Domain-universe closure.** Before checking stances, computes the union of every registered language's COMPILED GenDSL IR domain ids (`get_definitions(<lang>)`, read directly — independent of any supported/unsupported stance a plugin later commits) and asserts it equals `datrix_codegen_common.parity.domain_registry.SHARED_CONTEXT_TYPES.keys()` exactly. A domain id some language's compiled IR declares but the registry omits fails naming the declaring language(s); a registry id no registered language's compiled IR declares fails as a dead entry (dead surfaces are deleted, never deprecated in place). Zero tolerance, no exemption file — this check short-circuits the gate (exit 1) before the stance-completeness check runs, since a wrong universe makes that check meaningless.
+2. **Per-language stance completeness.** EVERY registered `datrix.languages` plugin must declare a stance — `supported` or `unsupported(reason)` — for every id in the closed universe, and no stance for an id outside it. Derives its target LANGUAGE set from `importlib.metadata.entry_points(group="datrix.languages")` at runtime — never a hardcoded language literal — so a future `datrix-codegen-<lang>` package is covered automatically with no edit to this gate. This is a completeness check, never an agreement check: a per-language `supported`/`unsupported(reason)` split is the designed state — most `unsupported` stances are permanent "realized elsewhere on this target" facts (e.g. a domain folded into another domain, or architecturally inapplicable to that target's runtime), not capability gaps awaiting work. A language with no stance for a universe id, or a stance for an id outside the universe, is a fail-loud `STANCE COMPLETENESS VIOLATION`.
+
+On success, the gate prints every registered language's full stance table (one row per universe id) plus a divergence report for every id whose stance is not unanimous across languages — including unanimous `unsupported` — quoting each unsupported language's declared reason verbatim. Divergence-with-a-reason is the designed per-target-realization state; the report is diagnostic and never itself a failure condition.
 
 **The MariaDB engine boundary needs no special-case code** — it is an engine choice inside the `rdbms`/migration domains, not a withheld domain, so it never shows up as a domain-id-level diff at all (this script compares at `domain_id` grain, coarser than per-engine).
 
-**Built-in non-vacuity self-test, every invocation.** Before any real comparison is trusted, the script feeds the comparator a synthetic matching pair (must report zero divergence) and a synthetic forced-mismatch pair (must report the missing domain); a comparator that cannot detect the forced mismatch aborts the gate (exit 2) before any real comparison runs. Fails loud (exit 2) if fewer than 2 languages are registered — a cross-language comparison over 0 or 1 language is vacuous.
+**Built-in non-vacuity self-test, every invocation.** Before any real comparison is trusted, the script runs two self-tests: one feeds the domain-universe closure comparator a synthetic matching registry/compiled-IR pair (must report zero divergence), a synthetic compiled id absent from the registry (must be reported, naming the declaring language), and a synthetic registry id no synthetic language declares (must be reported as a dead entry); the other feeds the stance-completeness comparator a complete synthetic stance table (must report zero findings), a synthetic language missing one universe id's stance (must be reported, naming that language and id), and a synthetic language declaring a stance for an out-of-universe id (must be reported, naming that language and id). Either self-test failing aborts the gate (exit 2) before any real comparison runs. Fails loud (exit 2) if fewer than 2 languages are registered — a cross-language comparison over 0 or 1 language is vacuous.
 
 | Mode | Command | Description |
 |------|---------|--------------|
-| **Run gate** | `.\test\supported-domain-parity-gate.ps1` | Compare every registered language's derived supported-domain set |
+| **Run gate** | `.\test\supported-domain-parity-gate.ps1` | Check domain-universe closure and every registered language's stance completeness |
 | **Debug** | `.\test\supported-domain-parity-gate.ps1 -Dbg` | Debug logging |
 | **Self-test only** | `.\test\supported-domain-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real comparison |
 
 **Parameters:** `-Dbg`, `-SelfTest`
 
-**Exit codes:** 0 = every registered language's supported-domain set is identical, 1 = a divergence was found for at least one language, 2 = the non-vacuity self-test failed or fewer than 2 languages are registered.
+**Exit codes:** 0 = the domain-universe closure holds and every registered language's stance table is complete over the full universe, 1 = a domain-universe closure violation was found (checked first) or a stance-completeness violation was found for at least one language, 2 = a non-vacuity self-test failed or fewer than 2 languages are registered.
 
 ---
 
@@ -821,6 +828,34 @@ Parallel-implementation drift REPORT (D10.1): a strictly weaker, more general in
 **Self-test additions for the two-axis form:** beyond the five original assertions, every run also proves that two names sharing one package fold into a single labelled entry, that an axis whose every name shares one package is refused as vacuous even with two registered names, and that the entry-point module root this scanner resolves packages by equals the resolved plugin class's module root for every registered language — the substitution that lets the platform axis avoid constructing a plugin that needs generation context is therefore re-proven on every run rather than assumed once.
 
 **Exit codes:** 0 = the report ran and the drifted count is at or below the baseline (or a successful `-SelfTest`/`-UpdateBaseline`), 1 = the drifted count exceeds the baseline, 2 = the non-vacuity self-test failed, fewer than 2 languages are registered, or a discovery/parse error occurred.
+
+**Terminal floor as of Decision 44, language axis:** the live `drifted_count` reads **561**, not
+the design's originally-stated 190 — the 190 figure was a design-time miscalculation, retracted
+once the collapse work that would have reached it was actually attempted and measured against
+live source, before the true number was known. `parallel-implementation-drift-classification.json`
+holds exactly 561 entries, matching the live count as the classification gate requires. Of those,
+529 carry `mechanism: "none"` (the audited irreducible core) and 32 still carry a named mechanism
+with no disposition recorded yet — 16 `signature-alignment`, 13 `shared-predicate-hoist`,
+1 `rename`, 1 `capability-gap-defect`, 1 `shared-raise-site`. Further decrease below 561 requires a
+real hoist (deleting per-language duplication), not a relabel; it is not a target this phase or its
+successors chase by default without a new decision identifying a genuinely new collapsibility
+mechanism.
+
+**This is a design-expectation miss, not a bookkeeping gap.** The remaining-mechanism collapse work
+read every language's live source for each mechanism's population before dispositioning it, per its
+own read-before-folding rule, and found most of that population was mislabeled: a real
+signature-only or vocabulary-spelling difference that the design's arithmetic assumed, versus a
+genuine per-language *decision* (a different produced shape, a different downstream API, a
+capability gap, orchestration over already-distinct helpers) that no listed mechanism collapses
+without dropping or inventing behaviour. This entry applies the verdicts that work already reached
+in its own completion notes but had not yet written into the classification file: 131 entries
+relabeled `mechanism: "none"` with a reason distinct from each entry's own legitimacy reason (69
+from the two signature-alignment mechanism passes, 42 from the shared-vocabulary pass
+at zero collapses, 16 from the shared-predicate-hoist task, 20 from the shared-jinja-macro task at
+zero collapses — plus the 4 already-collapsed entries those same tasks' own hoists had already
+removed from the live file before this task ran, confirmed absent here rather than double-counted).
+**A reclassification is a label change, never a decrement** — `drifted_count` did not move as a
+result of this task's edits, and did not move (confirmed by a live gate run before and after).
 
 ---
 
@@ -923,6 +958,51 @@ Classification-reason symbol-existence gate: asserts that every code symbol and 
 **Assertions:** every backtick-quoted, identifier- or `file.py:NN`-shaped candidate extracted from every classification entry's `reason` and `collapsibility.reason`, on the invoked axis, resolves against that axis's own registered package `src/` trees.
 
 **Exit codes:** 0 = clean (or a successful `-SelfTest`), 1 = at least one dead-symbol reference found, 2 = the non-vacuity self-test failed or a discovery/parse error occurred.
+
+---
+
+### `test\shared-builder-reachability-gate.ps1`
+
+Shared-builder reachability gate: every module-level `build_*` function declared in `datrix_codegen_common`'s `algorithms/` and `context_models/` modules must have at least one production caller outside its own defining module, across the defining package itself, every registered language package, and `datrix-cli`. A shared context builder that is written, exported and unit-tested but never called looks complete by every signal except the one that matters — it never executes on a real generation run — and that shape recurs as machinery gets hoisted into the shared layer for several languages to share, because every other gate asks whether the code is CORRECT, never whether it RUNS. Whole-tree AST import/call-graph resolution, never text matching: it follows aliased imports (`import X as Y`, `from X import Y as Z`), attribute calls (`module.build_x(...)`), and package `__init__` re-exports (bounded chase, so a cyclic re-export cannot loop). It also counts a **thin delegation** as live — a wrapper whose entire body is one context construction delegating to a callee some module OUTSIDE the defining package binds, and whose constructed type another production module builds — which is what keeps the registered test-axis domains' `build_<kind>_test_context` wrappers from reading as dead when the production path builds the identical value generically inside `TestGeneratorOrchestrator`. A builder that branches, walks the model, logs, or returns `None` has more than one statement and is never a thin delegation, whatever types it touches. **Hard zero: no exemption file, no pinned baseline** — a baseline on a gate whose entire job is "notice code nobody wired in" would exempt exactly the defect class it exists to catch. Language package set from the installed `datrix.languages` entry points at runtime, never a literal list; the gate refuses to run against fewer than two languages rather than passing vacuously. Repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix, and a unit test importing several generator packages is the cross-package coupling `check-import-boundaries.ps1` forbids).
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\test\shared-builder-reachability-gate.ps1` | Census the real installed package tree |
+| **Debug** | `.\test\shared-builder-reachability-gate.ps1 -Dbg` | Debug logging (names each self-test check as it passes) |
+| **Self-test only** | `.\test\shared-builder-reachability-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real census |
+| **Census** | `.\test\shared-builder-reachability-gate.ps1 -Census` | Print every builder with its calling packages, every live thin delegation with the delegate and context type it resolved through, and every dead builder; exit 0 |
+
+**Parameters:** `-Dbg`, `-SelfTest`, `-Census`
+
+**Assertions:**
+- Zero `build_*` definitions under the scanned subpackages have neither a resolved external caller nor a live thin delegation.
+- **Correctness floors (over-reporting is as much a failure as under-reporting):** five named genuinely-wired builders are never flagged dead; `build_api_context`'s resolved callers span several language packages (cross-package resolution); `extract_max_length` resolves through its aliased same-named private wrappers (alias resolution); and every registered test-axis wrapper is live through its OWN `plan_<kind>_tests` delegate and constructs `TestPlanContext` — a rule folding every wrapper onto one delegate would pass a bare "something was rescued" check while proving nothing. A floor whose expected caller package is not installed is a loud configuration error (exit 2), never a silent skip.
+- Non-vacuity self-test (every invocation, before any real census): a planted orphan `build_*` is flagged by name and clears once a real cross-module caller is wired; a caller reached ONLY through an aliased private wrapper is still resolved (the shape no text search can see); a thin wrapper over a production-bound plan is recognized as live with its delegate and context type recorded; a **multi-statement** builder touching the same production-bound plan and constructing the same production-built context type is STILL dead (the half that matters most — a delegation rule that rescued it would have quietly disabled the whole gate); and a thin wrapper whose delegate nothing outside the defining package binds is still dead.
+
+**Exit codes:** 0 = every shared builder is reachable and every floor holds (or a successful `-SelfTest` / `-Census`), 1 = a dead builder or a violated correctness floor, 2 = the self-test failed, a scanned package could not be located, or fewer than two languages are registered.
+
+---
+
+### `test\migration-upgrade-op-family-gate.ps1`
+
+Migration upgrade-op family gate: the cross-package half of the upgrade-op duplication census. Six `_build_upgrade_op_for_*` symbols exist once per migration target (python's Alembic migration generator, dotnet's FluentMigrator ops); the census read both bodies of each and concluded they are genuinely divergent, so each carries `collapsibility.mechanism: "none"` in `scripts/config/parallel-implementation-drift-classification.json` and **both private copies must survive** — a later "cleanup" deleting one would be deleting a target's real behaviour. The `_build_upgrade_op_for_field_added` entry additionally recorded a behaviour gap that is now CLOSED (dotnet emitted no backfill default, so a non-nullable `FIELD_ADDED` the shared change policy classifies *safe* rendered a migration that failed at apply time on any populated table); the gate holds both halves of that — the entry's `intentional` status, and the default-bearing `FluentMigratorColumn` field that earns it, since `tracked` is what an entry says while a gap is open. One genuinely shared fact WAS hoisted: both targets reassembled the `INDEX_ADDED` JSON detail into its `SnapshotIndex` with byte-identical semantics and error text, so that parse now lives once in `datrix_codegen_common.algorithms.migration_upgrade_op_index`, each target calls it the exact number of times its own paths need, and neither may redefine it. Structural resolution only, never a text match. The two languages are named (a fact about which targets carry this family, not a claim about which targets exist) but their packages resolve through the installed `datrix.languages` entry points, so a named language that is not installed fails loud instead of letting its half pass vacuously. Repo-level validation **script** — a unit test importing two generator packages to compare their bodies is the shape the repo boundary forbids outright; the shared parser's own input/output behaviour stays as a unit test in `datrix-codegen-common`, which owns the function.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\test\migration-upgrade-op-family-gate.ps1` | Run every cross-package check in this family |
+| **Debug** | `.\test\migration-upgrade-op-family-gate.ps1 -Dbg` | Debug logging (names each self-test check as it passes) |
+| **Self-test only** | `.\test\migration-upgrade-op-family-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real comparison |
+
+**Parameters:** `-Dbg`, `-SelfTest`
+
+**Assertions:**
+- Each of the six reclassified symbols keeps a classification entry with `collapsibility.mechanism == "none"` whose collapsibility reason is not a verbatim repeat of its legitimacy reason (an entry repeating one string has answered only one of the two questions).
+- Each of the six is still defined exactly once per target.
+- `_build_upgrade_op_for_field_added` carries `status: intentional`, and `FluentMigratorColumn` declares a default-bearing annotated field.
+- Each target has exactly the pinned number of resolved call sites for `parse_index_added_detail` (a count, not a `>= 1`: a path silently losing its call is the regression this pins), and neither target defines `parse_index_added_detail` or the retired `_index_from_index_added_detail`.
+- Non-vacuity self-test (every invocation): the resolver finds a planted direct call, follows a `from … import … as …` alias, and finds a module-qualified `alias.symbol(...)` call; and it does NOT count a same-suffix private wrapper (`_parse_index_added_detail`) or a bare docstring/string mention — both false-positive shapes this chain has been bitten by. The definition scan is proven in both directions too: it finds a planted definition and invents none.
+
+**Exit codes:** 0 = every check holds (or a successful `-SelfTest`), 1 = at least one violation, 2 = the self-test failed, a named language is not registered/installable, or the classification file is missing/malformed.
 
 ---
 
@@ -1035,24 +1115,71 @@ Zero-environment runtime census gate: every registered language is held to the `
 
 ---
 
+### `test\framework-header-parity-gate.ps1`
+
+Framework header parity gate: every registered language spells the framework-minted HTTP headers from datrix-common's one registry (`datrix_common.generation.http_headers` — the trusted-caller token, the delegated-user envelope, the three rate-limit response headers, the inbound webhook secret, the outbound webhook delivery headers) and realizes every header family or declares the hole with a reason on its `LanguageCapabilityDeclaration.unrealized_framework_headers`. The gate censuses every `.py` and `.j2` source under each registered language package's `src/` tree for `X-`-prefixed header tokens and registry-constant references. **Spelling:** a header under a framework prefix (`X-Datrix-`, `X-RateLimit-`, `X-Webhook-`) is an exact registered name (case-insensitively — Node lowercases header names) or a reviewed, counted entry in `scripts/config/framework-header-exemptions.json`; a retired name (`X-Internal-Token`) is a violation with no exemption path. **Realization:** a family is realized when the exact name is spelled or its registry constant is referenced from python; otherwise it must be declared unrealized with a reason. A family that is neither fails naming the language; one that is both is a stale declaration and fails; a family no language realizes is a dead registry entry and fails; an unused exemption is stale and fails. Language set from the installed `datrix.languages` entry points; registry and declarations read from the packages — never a table in the script. Repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\test\framework-header-parity-gate.ps1` | Census every registered language against the registry, its declaration and the exemption file; prints the family × language realized/declared/MISSING table |
+| **Debug** | `.\test\framework-header-parity-gate.ps1 -Dbg` | Debug logging (per-language spelling and constant-reference counts) |
+| **Self-test only** | `.\test\framework-header-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real census |
+
+**Parameters:** `-Dbg`, `-SelfTest`
+
+**Assertions:**
+- Spelling: `framework-prefixed spellings − registered names − exemptions = ∅`; `retired spellings = ∅`; `exemptions − live spellings = ∅` (no stale entry); `expected_count` equals the entry count and every entry carries package, header, a registered family and a non-empty reason.
+- Realization, per language and family: exactly one of `realized` / `declared unrealized (non-empty reason)`; a declared family must be registered.
+- Registry: every family is realized by at least one language.
+- Non-vacuity self-test (every invocation): a planted source tree yields exactly its two template spellings plus one python constant reference (a Markdown file and a `__pycache__` entry are not counted); the comparator reports exactly one problem for a retired spelling, an unregistered framework-prefixed spelling, a stale exemption, an undeclared hole, a reasonless hole, a stale declaration, an unknown declared family and a family nobody realizes, and none for a clean pair, an exempted spelling, a non-framework `X-` header, a declared hole, or a constant-realized family; the exemption parser rejects a miscount, an unknown family, a non-framework header and a reasonless entry; the **live** census finds the caller-token header on at least two languages; a single-language set is refused.
+
+**Exit codes:** 0 = every language passes both rules (or a successful `-SelfTest`), 1 = a violation was found, 2 = the self-test failed, fewer than two languages are registered, or the exemption file is missing/malformed/miscounted.
+
+---
+
+### `test\problem-type-parity-gate.ps1`
+
+Problem-type parity gate: every registered language answers errors with RFC 7807 `type` URNs from datrix-common's one registry (`datrix_common.generation.problem_types` — `urn:datrix:error:<slug>`; a declared DSL exception derives its slug from its class name through the shared exception-declaration algorithm, a framework error uses a registered family) and realizes every framework family or declares the hole with a reason on its `LanguageCapabilityDeclaration.unrealized_problem_types`. The gate censuses every `.py` and `.j2` source under each registered language package's `src/` tree for `urn:datrix:error:` literals. **Spelling:** every literal slug is a registered family; a private slug has no exemption path (register it or spell the registered one). The bare prefix, a composition site for runtime-built URNs, is not a spelling. **Realization:** a family is realized when its URN is spelled; otherwise it must be declared unrealized with a reason. Neither fails naming the language; both is a stale declaration and fails; a family no language spells is a dead registry entry and fails. Language set from the installed `datrix.languages` entry points; registry and declarations read from the packages — never a table in the script. Repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\test\problem-type-parity-gate.ps1` | Census every registered language against the registry and its declaration; prints the family × language realized/declared/MISSING table |
+| **Debug** | `.\test\problem-type-parity-gate.ps1 -Dbg` | Debug logging (per-language spelling counts) |
+| **Self-test only** | `.\test\problem-type-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real census |
+
+**Parameters:** `-Dbg`, `-SelfTest`
+
+**Assertions:**
+- Spelling: `literal slugs − registered families = ∅`.
+- Realization, per language and family: exactly one of `spelled` / `declared unrealized (non-empty reason)`; a declared family must be registered.
+- Registry: every family is spelled by at least one language.
+- Non-vacuity self-test (every invocation): a planted source tree yields exactly its two literal slugs (the bare prefix, a Markdown file and a `__pycache__` entry are not counted); the comparator reports exactly one problem for an unregistered slug, an undeclared hole, a reasonless hole, a stale declaration, an unknown declared family and a family nobody spells, and none for a clean pair or a declared hole; the **live** census finds the `internal` type on at least two languages; a single-language set is refused.
+
+**Exit codes:** 0 = every language passes both rules (or a successful `-SelfTest`), 1 = a violation was found, 2 = the self-test failed or fewer than two languages are registered.
+
+---
+
 ### `test\artifact-role-parity-gate.ps1`
 
-Cross-language artifact-role parity gate (D7) -- the G-A closure: detects a language silently emitting nothing for a construct another language realizes, without generating anything. For every example with >= 2 blessed language baselines under `scripts/config/parity-baselines/`, classifies each blessed manifest's paths by domain role via that language's own derived `DomainDeclaration.structural_pattern` set (the same fnmatch globs the domain self-consistency gate uses) and asserts the role set is identical across the example's blessed languages. Paths matching no pattern are reported in an "unclassified" bucket but never compared -- template-level naming legitimately differs by language; the role SET is the contract. Replaces nothing: `reference-example-parity-gate.ps1` still pins byte-level CONTENT per pair; this gate pins cross-language PRESENCE. Its coverage grows automatically as later phases bless more of the `(example, language)` matrix -- no code change needed here when that happens.
+Cross-language artifact-role parity gate (D7) -- the G-A closure: detects a language silently emitting nothing for a construct another language realizes, without generating anything. For every example with >= 2 blessed language baselines under `scripts/config/parity-baselines/`, classifies each blessed manifest's paths by domain role via that language's own derived `DomainDeclaration.structural_pattern` set (the same fnmatch globs the domain self-consistency gate uses) and asserts the role set is identical across the example's blessed languages, EXCLUDING two cases the gate resolves structurally rather than through the exemption file. First, any domain the "missing" language declares globally `unsupported` -- a declared absence explained once at the language level, read directly off the declaration, never a per-example fact. Second, any domain whose `structural_pattern` matches nothing anywhere in that language's ENTIRE blessed footprint (corpus-vacuous): if no example exercises the construct, its absence from one example is not drift. Both rules are consulted BEFORE the exemption file, so neither needs an exemption entry -- but the second is no longer silent: every corpus-vacuous `(language, domain)` must carry a typed, counted record in `scripts/config/corpus-vacuity-records.json` saying why nothing exercises it, since a generator no example reaches has no end-to-end signal at all. Paths matching no pattern are reported in an "unclassified" bucket but never compared -- template-level naming legitimately differs by language; the role SET is the contract. Replaces nothing: `reference-example-parity-gate.ps1` still pins byte-level CONTENT per pair; this gate pins cross-language PRESENCE. Its coverage grows automatically as later phases bless more of the `(example, language)` matrix -- no code change needed here when that happens.
 
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Run gate** | `.\test\artifact-role-parity-gate.ps1` | Compare role sets for every example with >= 2 blessed language baselines |
 | **Debug** | `.\test\artifact-role-parity-gate.ps1 -Dbg` | Debug logging |
 | **Self-test only** | `.\test\artifact-role-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real comparison |
+| **Corpus-vacuity census** | `.\test\artifact-role-parity-gate.ps1 -Census` | Print every `(language, domain)` the blessed corpus exercises nowhere, with its reviewed status; exit 0 |
 
-**Parameters:** `-Dbg`, `-SelfTest`
+**Parameters:** `-Dbg`, `-SelfTest`, `-Census`
 
 **Assertions:**
 - Every example directory under `scripts/config/parity-baselines/` with >= 2 registered-language `.sha256` manifests is compared.
-- A domain role present (>= 1 matching path) in one blessed language's manifest for an example and absent from another blessed language's manifest for the SAME example is a violation, unless a reviewed entry exists in `scripts/config/artifact-role-exemptions.json`.
-- Non-vacuity self-test (every invocation): a synthetic matching role-set pair reports zero divergence; a synthetic forced-mismatch pair reports exactly the planted gap; a synthetic manifest/declaration pair proves `classify_paths` buckets matched vs. unclassified paths correctly.
+- A domain role present (>= 1 matching path) in one blessed language's manifest for an example and absent from another blessed language's manifest for the SAME example is a violation, UNLESS the missing language declares that domain globally `unsupported` (`_is_declared_unsupported`, skipped directly), OR the domain's pattern matches nothing across that language's entire blessed footprint (`_is_corpus_vacuous_for_language`, skipped directly), OR a reviewed entry exists in `scripts/config/artifact-role-exemptions.json` -- the last being reserved for a domain the missing language declares `supported`, whose pattern DOES match elsewhere in the corpus, but which this specific example's blessed manifest still lacks.
+- `load_exemptions` refuses (raises `ValueError`, exit 2) an exemption entry naming a `(domain, language)` pair that language currently declares `unsupported` -- such an entry would duplicate a declared absence the gate already reads directly; delete it instead of keeping it.
+- **Corpus vacuity is skipped but never silent.** `check_corpus_vacuity_records` censuses EVERY registered language against EVERY domain it declares `supported` (not just the pairs the blessed matrix happens to exercise) and holds each corpus-vacuous `(language, domain)` to a reviewed record in `scripts/config/corpus-vacuity-records.json`. The comparison runs in both directions: a censused pair with no record fails (exit 1), and a record whose pair is no longer vacuous fails as stale (exit 1). Each record carries one of three statuses, which are never interchangeable because each carries a different remedy -- `unreachable-by-design` (no example can produce a matching file at all, whatever it declares or targets), `cloud-platform-only` (only an example resolving `deployment.provider` to a cloud provider could, and the corpus has none), `unexercised` (an ordinary local/docker example could and none declares the construct). `load_corpus_vacuity_records` refuses (exit 2) a missing/malformed file, a status outside those three, a duplicated `(language, domain)`, or an entry count that does not match the pinned `expected_count`.
+- Non-vacuity self-test (every invocation): a synthetic matching role-set pair reports zero divergence; a synthetic forced-mismatch pair reports exactly the planted gap; a synthetic manifest/declaration pair proves `classify_paths` buckets matched vs. unclassified paths correctly; `_is_declared_unsupported` correctly distinguishes a declared-unsupported domain, a declared-supported domain, and an undeclared domain id; `_is_corpus_vacuous_for_language` is proven against a pre-populated synthetic cache (never touching real baselines); `_reject_exemptions_for_unsupported_domains` correctly rejects a synthetic entry duplicating a declared-unsupported domain; and `compare_vacuity_records` reports nothing for an agreeing census/record pair, reports a censused pair carrying no record, and reports a record whose pair is no longer censused -- with `_parse_vacuity_record` accepting each declared status and refusing an undeclared one.
 
-**Exit codes:** 0 = every comparable example's role sets agree modulo reviewed exemptions (or a successful `-SelfTest`), 1 = an un-exempted role drift was found, 2 = the self-test failed, zero examples have >= 2 blessed language baselines, or the exemption file is missing/malformed/miscounted.
+**Exit codes:** 0 = every comparable example's role sets agree modulo declared-unsupported skips, recorded corpus-vacuous skips and reviewed exemptions (or a successful `-SelfTest` / `-Census`), 1 = an un-exempted role drift was found over a domain the missing language declares `supported` and whose pattern is non-vacuous corpus-wide, or a corpus-vacuous `(language, domain)` carries no reviewed record (or a record carries no corpus-vacuous pair), 2 = the self-test failed, zero examples have >= 2 blessed language baselines, or the exemption / corpus-vacuity-record file is missing/malformed/miscounted (or, for exemptions, contains an entry duplicating a declared-unsupported domain).
 
 ---
 
@@ -1268,34 +1395,41 @@ registered.
 
 ### `test\builtin-claims-parity-gate.ps1`
 
-Cross-language builtin-claims parity gate (D2). Two independent surfaces: (1) every registered
-`datrix.languages` plugin's `CLAIMED_BUILTIN_GROUPS` must be identical — no exemption path; (2) for
-every builtin in the full `BUILTIN_REGISTRY`, **including `group=None` ("optional everywhere")
-members** (Log, Seed, Microservice, Crypto, Auth, JSON, Array — structurally invisible to the
-existing per-package `validate_builtin_coverage`), a builtin mapped by at least one registered
-language and unmapped by another must carry a reviewed entry in
-`datrix/scripts/config/builtin-mapping-exemptions.json` (`{language, category, method, reason}`,
-pinned `expected_count`).
+Cross-language builtin-claims parity gate (D2). Reads every registered `datrix.languages`
+plugin's `LanguageCapabilityDeclaration.builtin_group_stances` and checks two surfaces, neither
+with a reviewed-gap path (a divergence is always a real defect):
+
+1. **Stance key-set identity** — every language declares a stance for exactly the same set of
+   `BuiltinGroup` names. A non-vacuity proof: per-language completeness is already enforced at
+   each language's own plugin import; this repo-level check exists to catch a future decoupling.
+2. **Per-group stance-vs-mapper coherence** — every group has a declared stance, and every group
+   a language declares `supported` has every one of its `BUILTIN_REGISTRY` rows actually mapped
+   by that language's profile. Re-derives, as an independent backstop, the same judgment
+   `register_builtin_capability` enforces at each language's own plugin import.
+
+A `supported` stance is fully mapped by construction, so there is no "mapped by some languages,
+not all" state left to catalogue as a reviewed exception — unlike the hand-typed claimed-group
+set plus per-method reviewed-gap design this gate replaced, this one has no such config file.
 
 Derives its target language set from `importlib.metadata.entry_points(group="datrix.languages")`
 at runtime — never a hardcoded `python`/`typescript`/`dotnet`/`java` literal.
 
 **Built-in non-vacuity self-test, every invocation.** Feeds both comparators a synthetic matching
 pair (must report zero divergence) and a synthetic forced-mismatch pair (must report the planted
-gap) — plus a synthetic "mapped by neither language" case that must never be flagged. Fails loud
-(exit 2) if fewer than 2 languages are registered.
+gap), using real `BuiltinGroup`/`BUILTIN_REGISTRY` data for surface 2. Fails loud (exit 2) if
+fewer than 2 languages are registered.
 
 | Mode | Command | Description |
 |------|---------|--------------|
-| **Run gate** | `.\test\builtin-claims-parity-gate.ps1` | Compare every registered language's claimed groups and mapped-builtin sets |
+| **Run gate** | `.\test\builtin-claims-parity-gate.ps1` | Compare every registered language's stance key sets and stance-vs-mapper coherence |
 | **Debug** | `.\test\builtin-claims-parity-gate.ps1 -Dbg` | Debug logging |
 | **Self-test only** | `.\test\builtin-claims-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real comparison |
 
 **Parameters:** `-Dbg`, `-SelfTest`
 
-**Exit codes:** 0 = claim sets identical and every mapped-set hole is exempted, 1 = a claim-set
-divergence or an unexempted mapped-set hole was found, 2 = the non-vacuity self-test failed or
-fewer than 2 languages are registered.
+**Exit codes:** 0 = stance key sets identical and every `supported` group is fully mapped, 1 = a
+stance key-set divergence or an unmapped row in a `supported` group was found, 2 = the
+non-vacuity self-test failed or fewer than 2 languages are registered.
 
 ---
 
@@ -1651,28 +1785,21 @@ case). It additionally covers `scripts/library/test/run_complete.py`'s Java gene
 handling — `_find_java_service_dirs`/`_is_java_project` service detection (Maven modules with
 `src/test/java`, with the project-level `deployment-tests` module excluded because deploy tests
 run in Step 4) and `_merge_surefire_reports`/`_count_junit_testcases`, including the adversarial
-cases where a build never reached surefire and so must NOT read as a clean run. It also covers
-`scripts/library/shared/logging_utils.py`'s quiet-mode stream liveness — under quiet mode the
-streamed subprocess output reaches the log file and never the console, so a long phase printed
-nothing at all and read as a hang; the checks hold the liveness line to what the stream actually
-reported (pytest's per-test progress lines only, never the closing short-summary repeats), prove
-verbose mode gains no extra line, and prove the line never enters the log file the other parsers
-read. Repo-level validation **script**, not a pytest suite (per the datrix showcase boundary).
+cases where a build never reached surefire and so must NOT read as a clean run. Repo-level
+validation **script**, not a pytest suite (per the datrix showcase boundary).
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Run the gate** | `.\test\test-tooling-parsing-gate.ps1` | Run all 50 absorbed checks |
+| **Run the gate** | `.\test\test-tooling-parsing-gate.ps1` | Run all 45 absorbed checks |
 | **Harness self-test** | `.\test\test-tooling-parsing-gate.ps1 -HarnessSelfTest` | Prove the harness detects a forced failure (always reports [FAIL], exits 1) |
 | **Debug** | `.\test\test-tooling-parsing-gate.ps1 -Dbg` | Print the python invocation before running |
 
 **Parameters:** `-HarnessSelfTest`, `-Dbg`
 
-**Assertions:** 50 named checks covering `compare_tests.py`, `status_tests.py`,
-`run_complete.py`'s Java project detection / surefire report merging, and `logging_utils.py`'s
-quiet-mode stream liveness. Several are
+**Assertions:** 45 named checks covering `compare_tests.py`, `status_tests.py`, and
+`run_complete.py`'s Java project detection / surefire report merging. Several are
 inherently adversarial (nested/archived run dirs excluded from discovery, corrupt JSON → `None`,
-INCOMPLETE result → `None`/fallback, missing `counts` → `None`, a short-summary `FAILED` repeat
-that must not count a test twice, verbose mode that must gain no liveness line), which already demonstrates
+INCOMPLETE result → `None`/fallback, missing `counts` → `None`), which already demonstrates
 discriminating power; `-HarnessSelfTest` additionally proves the pass/fail harness itself is not
 vacuous by registering one deliberately-failing dummy check and confirming it is reported
 `[FAIL]` with a nonzero exit.
@@ -1815,6 +1942,58 @@ A self-test failure aborts before any real result is trusted (exit 1).
 
 ---
 
+### `test\design-task-reference-gate.ps1`
+
+**The repo's proof that no committed artifact cites a design document or a task file.** `design/` and `.tasks/` are gitignored and are developed on more than one machine, so their numbering collides: two different `044-*` documents can exist, and after a clone neither is present. A reference to one from anything committed is a dangling pointer — it resolves to nothing, or to a different artifact elsewhere. The gate scans the committed trees for the SHAPE of such a reference and fails on any hit. This is a repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
+
+**Roots are derived from disk, never hand-authored.** Every `datrix*` directory contributes its `src`, `tests`, `docs` and `scripts` subtrees (the `datrix` showcase repo contributes `scripts`, `docs`, `examples` instead — it has no `src`), so a new package is scanned the day it appears. The gitignored orchestration trees themselves (`.tasks/`, `.bugs/`, `design/`) plus build noise are skipped: design and task files referencing **each other** is allowed and expected.
+
+**Four reference shapes are matched, over all of `.py .ps1 .json .md .j2 .ts .mts .cts .js .mjs .cjs .cs .java .toml .yaml .yml .dtrx`** (spelled here with `N`/`M` placeholders so this page is not itself a hit): a task-file id (`task-NN-MM`, the prose `task NN-MM`, and the three-digit `task-NN-MMM`, case-insensitively), a design path (`design/NNN-slug`), a design number (`design NNN`, `design-NNN`, `design doc NNN` — the word `doc` is optional), and a phase directory (`.tasks/phase-NN`). A **bare** `Phase NN` is deliberately NOT matched: the committed architecture docs use it as product vocabulary for delivery waves, self-contained text rather than a pointer into a gitignored tree.
+
+**The terminal state is zero.** There is no baseline and no count to ratchet down. `ALLOWLIST` in `scripts/library/test/design_task_references.py` is the only escape hatch and is for files that document the ID *format* itself (the task-ID parser, the review runner's usage examples, this gate's own patterns) — never for a file that merely happens to carry a reference.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the gate** | `.\test\design-task-reference-gate.ps1` | Scan every committed tree in the workspace |
+| **One tree** | `.\test\design-task-reference-gate.ps1 -Roots D:/datrix/datrix/scripts/config` | Scan only the named directories |
+| **Several trees** | `.\test\design-task-reference-gate.ps1 -Roots D:/datrix/datrix-common/src,D:/datrix/datrix-common/docs` | Comma-separated roots |
+| **Self-test only** | `.\test\design-task-reference-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real scan |
+
+**Parameters:** `-Roots <dir[,dir...]>` (default: every committed tree), `-SelfTest`
+
+**Self-test runs automatically, every invocation.** One line per reference shape is planted in a temp directory and every one must be flagged; a clean file must produce zero; and a bare `### Phase 01 capabilities` heading must NOT be flagged. A scan that silently matches nothing returns a confident "clean" that will be believed — which is exactly how two holes in this gate let whole phases' worth of references through: matching only the hyphenated `task-NN-MM` form missed the prose `task NN-MM` an agent actually writes, and requiring the literal word `doc` missed the bare `design NNN` entirely.
+
+**Exit codes:** 0 = no references found (or a successful `-SelfTest`), 1 = at least one reference found or the self-test failed.
+
+---
+
+### `test\import-name-existence-gate.ps1`
+
+**The repo's proof that no `from <datrix module> import <name>` names something that does not exist.** A half-completed rename leaves a module importing one name and defining another. At runtime that announces itself — the first test to touch the module raises `ImportError`. Inside `if TYPE_CHECKING:` it announces nothing, ever: the block never executes, every package still imports cleanly, and this repo runs no standalone type-checker by policy (`CLAUDE.md`, "Running Python"), so every annotation written against the dead name is silently meaningless. Three half-completed renames landed in one phase and all three were found by accident. This gate looks for them on purpose. Repo-level validation **script** (per the datrix showcase boundary — no pytest suite lives in datrix).
+
+**Resolution, three routes, in order.** (1) A module-level binding in the target module's own source, by AST — `def`/`class`/assignment/import alias, including inside its own top-level `if`/`try`/`with` and its own `TYPE_CHECKING` block, so this gate is never stricter than a type checker. (2) A **submodule** of the target — `from datrix_cli.commands import lsp` imports a module, not an attribute; skipping this step is what made a first attempt report 102 findings of which 100 were not defects. (3) A runtime attribute, by importing the module — reached only for names routes 1 and 2 miss, covering `from x import *` re-exports and module-level `__getattr__`. An import that raises is reported with its exception text, never treated as resolved.
+
+**Roots are derived from disk.** Every `datrix*` package repo contributes its `src/` and `tests/` trees; the `datrix` showcase repo contributes `scripts/`. Relative imports are resolved, and a package's `__init__.py` is resolved as its own package (one dot there means THIS package, not the parent). Relative imports in `tests/`/`scripts/` trees, which have no unambiguous dotted name, are counted and reported rather than silently dropped.
+
+**Deliberate negative-existence assertions are excluded and counted.** An import inside `pytest.raises(ImportError)` / `pytest.raises(ModuleNotFoundError)` or a `try/except ImportError`, written to prove a deleted symbol is really gone, is not a defect. A `raises` naming some other exception tolerates nothing, and the import inside it is still checked.
+
+**The terminal state is zero.** No baseline, no ratchet, no allowlist. A name resolving by none of the three routes is a defect in the importing module — fix the import or the definition.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the gate** | `.\test\import-name-existence-gate.ps1` | Scan every datrix package tree |
+| **One tree** | `.\test\import-name-existence-gate.ps1 -Roots D:/datrix/datrix-common/src` | Scan only the named directories |
+| **Several trees** | `.\test\import-name-existence-gate.ps1 -Roots D:/datrix/datrix-common/src,D:/datrix/datrix-codegen-common/src` | Comma-separated roots |
+| **Self-test only** | `.\test\import-name-existence-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real scan |
+
+**Parameters:** `-Roots <dir[,dir...]>` (default: every datrix package tree), `-SelfTest`
+
+**Self-test runs automatically, every invocation.** A synthetic package is built in a temp directory carrying four dead names that MUST be reported (two under `if TYPE_CHECKING:`, one behind a package-relative import, one inside a non-import `raises`) and five shapes that must NOT be: a submodule import, a name re-exported only inside the target module's own `TYPE_CHECKING` block, a single-dot import in a package `__init__.py`, the same statement in a sibling module, and an import written to fail under `pytest.raises(ImportError)`. In-scope and TYPE_CHECKING counts are asserted too, so a walker that stops seeing a shape fails here rather than reporting a confident clean.
+
+**Exit codes:** 0 = every import name resolves (or a successful `-SelfTest`), 1 = at least one dead name found or the self-test failed, 2 = no datrix `src/` tree found to resolve against.
+
+---
+
 ### `test\affected-set.ps1`
 
 Derives the reverse-dependency closure of every `datrix-*` package from actual imports (never a hand-maintained table). Discovers packages from disk by `pyproject.toml` presence, builds the import graph from each package's `src/`, `tests/`, and root-level `conftest.py` (the file class that hides test-time-only edges like datrix-common's consumption of datrix-language/datrix-cli) unioned with declared `pyproject.toml` dependencies, and computes each requested package's transitive reverse closure -- the set of packages that must also be tested whenever it changes. `affected-gate.ps1` consumes this module directly. This is a repo-level validation **script** (per the datrix showcase boundary -- no pytest suite lives in datrix).
@@ -1850,7 +2029,7 @@ Runs the affected set of Datrix package suites concurrently and returns one GREE
 | **Changed packages** | `.\test\affected-gate.ps1 -Projects datrix-common` | Run datrix-common + its full reverse closure concurrently |
 | **Everything** | `.\test\affected-gate.ps1 -All` | Run every discovered package concurrently |
 | **Custom budget** | `.\test\affected-gate.ps1 -Projects datrix-cli -MaxConcurrent 2` | Fewer concurrent slots, more workers each |
-| **With mypy** | `.\test\affected-gate.ps1 -Projects datrix-common -Mypy` | Also type-check the changed packages, same budget |
+| **With mypy** | `.\test\affected-gate.ps1 -Projects datrix-common -Mypy` | Also type-check the changed packages, same budget. **Human-only** -- `guard-forbidden-commands.py` refuses this switch from an agent tool call |
 | **Force past an in-progress run** | `.\test\affected-gate.ps1 -Projects datrix-cli -Force` | Start even if a requested package's newest run looks in-progress |
 | **Self-test only** | `.\test\affected-gate.ps1 -SelfTest` | Run only the scheduler's own edge-case self-test suite |
 | **Debug** | `.\test\affected-gate.ps1 -Projects datrix-common -Dbg` | Debug logging |

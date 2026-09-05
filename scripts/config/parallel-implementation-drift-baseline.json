@@ -11,5 +11,5 @@
     "parallel-implementation-drift-gate.ps1 -UpdateBaseline is",
     "the only writer; do not hand-guess the number."
   ],
-  "drifted_count": 596
+  "drifted_count": 561
 }

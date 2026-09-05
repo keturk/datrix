@@ -26,7 +26,7 @@ language absent from the dispatch table is a loud `RuntimeError`, never a silent
 
 A known, reviewed gap is a typed, counted entry in
 `d:\\datrix\\datrix\\scripts\\config\\enum-classifier-conformance-exemptions.json` with a written
-reason -- never silence (mirrors `builtin-mapping-exemptions.json`, D11's own wording).
+reason -- never silence (D11's own wording).
 
 Run with `--self-test` to verify the comparator is non-vacuous before trusting a real run.
 """

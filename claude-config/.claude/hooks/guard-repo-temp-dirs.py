@@ -21,7 +21,7 @@ This hook blocks two ways in:
     blocked by the hook that objects to it.
 
 Detection is by directory NAME, not by guesswork: the banned names below appear
-nowhere in any of the 15 repos' tracked files, so a match is unambiguous.
+nowhere in any repo's tracked files, so a match is unambiguous.
 
 Exit codes:
   0 -- allow
@@ -32,11 +32,14 @@ import json
 import re
 import sys
 
-# The 15 git repositories under the workspace root. Longest-first so the
+# Every git repository under the workspace root. The list grows with each new
+# language, platform or frontend target -- add the repo here in the same change
+# that clones it, or its temp directories go unguarded. Longest-first so the
 # alternation cannot match `datrix` where `datrix-codegen-aws` was meant.
 _REPOS = (
     "datrix-codegen-typescript",
     "datrix-codegen-component",
+    "datrix-codegen-angular",
     "datrix-codegen-common",
     "datrix-codegen-docker",
     "datrix-codegen-dotnet",
@@ -48,6 +51,7 @@ _REPOS = (
     "datrix-codegen-sql",
     "datrix-language",
     "datrix-common",
+    "datrix-vscode",
     "datrix-cli",
     "datrix",
 )

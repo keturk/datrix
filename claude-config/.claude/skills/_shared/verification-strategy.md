@@ -5,7 +5,9 @@ Selection is by provable non-impact (dependency closure), never by sampling or
 "probably fine". This governs which package suites a gate runs; it does not relax
 any other verification a task requires (design-acceptance checks, parity gates).
 Type-checking is **not** part of any tier: never run `mypy` or any standalone
-type-checker.
+type-checker. `guard-forbidden-commands.py` enforces this — the binaries, the
+`python -m mypy` form, `test\mypy.ps1`, `library/mypy.py` and
+`affected-gate.ps1 -Mypy` are all refused from an agent tool call.
 
 This file is git-tracked in the `datrix` repository via the `d:\datrix\.claude` ->
 `d:\datrix\datrix\claude-config\.claude` symlink, so an edit through either path
@@ -44,7 +46,7 @@ sequential sum even though concurrent runs of *different* packages are safe (see
    affected set (changed packages + reverse-dependency closure, via
    `affected-set.ps1`'s own closure module) and runs it CONCURRENTLY under a
    worker budget, returning one verdict. Never pass `-Mypy` — type-checking is
-   not part of regular verification.
+   not part of regular verification, and the harness refuses the switch.
 3. **Phase boundary / pre-commit:** `affected-gate.ps1 -Projects <all changes
    so far>` + the repo-level gates whose surface was touched (see "Repo
    gates"). NOT an unconditional `-All`.

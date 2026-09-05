@@ -915,13 +915,60 @@ def _remove_tree(target: Path) -> None:
 #: shorter than ``CACHE_ROOT/ex_id/language`` was, not longer.
 _PRIVATE_GEN_ROOT: Path = WORKSPACE_ROOT / ".test-output" / ".gen"
 
+#: Environment variable that raises the publish-rename attempt budget.
+#: The ceiling below is a DEFAULT, never a limit: a hardcoded budget with no
+#: override turns a healthy tree into a generation failure on a machine slower
+#: or busier than the one it was measured on, and the only remedy is then a
+#: source edit. Same discipline the language hooks apply to their own budgets.
+_PUBLISH_RENAME_ATTEMPTS_ENV_VAR: str = "DATRIX_PARITY_PUBLISH_RENAME_ATTEMPTS"
+
 #: Bounded retry for the publish rename on Windows only (see
 #: :func:`_publish_generated_tree`). Sized for a child process's handles to be
 #: released after it exits -- observed with the ``pnpm install`` the TypeScript
 #: language hook runs inside the staging tree -- not for a contended resource.
-#: Total wait is under two seconds; a genuine lock outlives it and still raises.
-_PUBLISH_RENAME_ATTEMPTS: int = 6
+#:
+#: The original budget was 6 attempts (~1.5s total), measured against the
+#: single-service corpus example. It is not enough for a MULTI-service
+#: TypeScript example: `03-domains/logistics` generates three services, each
+#: with its own `node_modules`, and its publish failed `[WinError 5]` on three
+#: consecutive runs at that budget while every other language published fine.
+#: The tree was correct each time -- only the handle release was slower than
+#: the window. A genuine lock still outlives the larger budget and raises.
+_PUBLISH_RENAME_ATTEMPTS: int = 30
 _PUBLISH_RENAME_BACKOFF_SECONDS: float = 0.1
+
+#: Ceiling on one backoff step, so a raised attempt count grows the total wait
+#: linearly rather than quadratically.
+_PUBLISH_RENAME_MAX_BACKOFF_SECONDS: float = 1.0
+
+
+def _publish_rename_attempts() -> int:
+    """Resolve the publish-rename attempt budget.
+
+    Returns:
+        The value of :data:`_PUBLISH_RENAME_ATTEMPTS_ENV_VAR` when it is a
+        positive integer, else :data:`_PUBLISH_RENAME_ATTEMPTS`. An unparseable
+        or non-positive override falls back to the default rather than
+        disabling the retry, since zero attempts would make every publish fail.
+    """
+    raw = os.environ.get(_PUBLISH_RENAME_ATTEMPTS_ENV_VAR)
+    if raw is None:
+        return _PUBLISH_RENAME_ATTEMPTS
+    try:
+        parsed = int(raw)
+    except ValueError:
+        logger.warning(
+            "publish_rename_attempts_unparseable env=%s value=%r using_default=%d",
+            _PUBLISH_RENAME_ATTEMPTS_ENV_VAR, raw, _PUBLISH_RENAME_ATTEMPTS,
+        )
+        return _PUBLISH_RENAME_ATTEMPTS
+    if parsed < 1:
+        logger.warning(
+            "publish_rename_attempts_not_positive env=%s value=%d using_default=%d",
+            _PUBLISH_RENAME_ATTEMPTS_ENV_VAR, parsed, _PUBLISH_RENAME_ATTEMPTS,
+        )
+        return _PUBLISH_RENAME_ATTEMPTS
+    return parsed
 
 
 def _private_scratch_dir(output_dir: Path) -> Path:
@@ -1011,14 +1058,20 @@ def _publish_generated_tree(private_dir: Path, output_dir: Path) -> None:
     # Retry only that condition, and only briefly. A losing publish race is a
     # DIFFERENT error (the destination exists) and must stay loud and immediate,
     # so it is never retried and never absorbed here.
-    for attempt in range(_PUBLISH_RENAME_ATTEMPTS):
+    attempts = _publish_rename_attempts()
+    for attempt in range(attempts):
         try:
             os.rename(src, dst)
             return
         except PermissionError:
-            if attempt == _PUBLISH_RENAME_ATTEMPTS - 1:
+            if attempt == attempts - 1:
                 raise
-            time.sleep(_PUBLISH_RENAME_BACKOFF_SECONDS * (attempt + 1))
+            time.sleep(
+                min(
+                    _PUBLISH_RENAME_BACKOFF_SECONDS * (attempt + 1),
+                    _PUBLISH_RENAME_MAX_BACKOFF_SECONDS,
+                )
+            )
 
 
 def generate_example(system_dtrx: Path, output_dir: Path, language: str) -> None:

@@ -20,6 +20,11 @@ through while it reported clean:
   the far more common prose form an agent actually writes -- ``task 50-22`` --
   and any task number that reached three digits (``task-06-103``). Both are
   covered now, case-insensitively.
+* **Design-doc shape.** The design-side pattern required the literal word
+  ``doc`` (``design doc 046``), so the shape people actually write --
+  ``design 048``, ``design-019``, ``design 021 Section 5`` -- passed straight
+  through, and fifteen of them accumulated across five packages while this
+  gate reported clean. The word ``doc`` is optional now.
 * **Coverage.** A hand-authored list of five trees silently excluded ten
   packages and every ``tests/`` tree in the workspace. Roots are derived from
   what is on disk, so a new package is scanned the day it appears.
@@ -40,13 +45,40 @@ import os
 import re
 import tempfile
 
-# A reference looks like `task-07-42`, `task 50-22`, `design/044-foo`,
-# `design doc 046`, or a `.tasks/phase-07` path. Matching the *shape* is
-# deliberate: a number alone is far too common to flag.
+# A reference looks like `task-07-42`, `task 50-22`, `tasks 09-21 and 09-22`,
+# `design/044-foo`, `design 048`, `design-019`, `design doc 046`, or a
+# `.tasks/phase-07` path.
+# Matching the *shape* is deliberate: a number alone is far too common to flag.
+#
+# Both the noun and the separator run are permissive, and both had to be. Each
+# pattern here was once written with a SINGULAR noun and exactly ONE separator,
+# and each was blind to a whole family of the thing it exists to catch while
+# reporting clean:
+#
+#   * the singular-only task pattern missed the plural entirely -- `tasks 09-21
+#     and 09-22` is the natural way to cite more than one, and five real
+#     references (including every one in `datrix-codegen-docker`, a package that
+#     therefore looked clean because the pattern was blind, not the repo) were
+#     invisible until `tasks?` and a `*`-quantified separator class landed;
+#   * the one-separator task pattern missed `task  43-01`, `Task_43-01` and
+#     `task43-01`;
+#   * requiring the literal word `doc` missed `design 048` and `design-019`
+#     for fifteen references across five packages.
+#
+# Hence `s?` on both nouns, `[-_\s]*` (zero or more) for every separator run,
+# and a plural-tolerant `doc` group. `\b` on both ends keeps this from firing
+# on `subtask43-01` or on an identifier like `DESIGN2024`.
+_SEP = r"[-_\s]*"
 PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("task-file id", re.compile(r"\btask[-\s]\d{2}-\d{2,3}\b", re.IGNORECASE)),
-    ("design path", re.compile(r"design[/\\]\d{3}-[a-z0-9-]+")),
-    ("design doc number", re.compile(r"\bdesign\s+doc(?:ument)?\s+\d{3}\b", re.IGNORECASE)),
+    ("task-file id", re.compile(rf"\btasks?{_SEP}\d{{2}}-\d{{2,3}}\b", re.IGNORECASE)),
+    ("design path", re.compile(r"designs?[/\\]\d{3}-[a-z0-9-]+", re.IGNORECASE)),
+    (
+        "design doc number",
+        re.compile(
+            rf"\bdesigns?{_SEP}(?:(?:doc|docs|document|documents){_SEP})?\d{{3}}\b",
+            re.IGNORECASE,
+        ),
+    ),
     ("phase dir", re.compile(r"\.tasks[/\\]phase-\d{2}")),
 )
 
@@ -165,14 +197,29 @@ def self_test() -> int:
             print("SELF-TEST FAILED: detector reported a hit on a clean file")
             return 1
 
-        # One planted line per shape, including the three the gate used to miss:
-        # the prose form, a three-digit task number, and a non-.py extension.
+        # One planted line per shape. NON-VACUITY MEANS ENUMERATING THE SHAPES
+        # A PATTERN MUST CATCH, not proving it fires once: every entry below
+        # from `plural` onward is a form this gate reported clean on while real
+        # references sat in the tree. Add a shape here before widening a
+        # pattern, never after.
         shapes = {
             "hyphenated.py": "# Implements task-07-42 per design/044-language-parity.\n",
             "prose.py": "# Realized for task 50-22, the enum-value surface.\n",
             "three_digit.py": "# Mirrors task-06-103's own coercion cascade.\n",
             "phase_dir.md": "See .tasks/phase-31 for the ordering that produced this.\n",
             "fixture.dtrx": "// documentation realization (task 50-22): one documented member\n",
+            "bare_design.py": "# Covers design 048 Section 5's host/port hole.\n",
+            "hyphen_design.py": "# Unit tests for design-019 D1's native-only validator.\n",
+            "design_doc.md": "The split is settled in design doc 046.\n",
+            # The plural is the natural way to cite more than one, and it hid
+            # five real references -- every one in datrix-codegen-docker.
+            "plural.py": "# After tasks 09-21 and 09-22, the target emits no .env file.\n",
+            "plural_slashed.py": "# Build the plan first (see tasks 08-07/08-09).\n",
+            "plural_design.md": "Both splits are settled in design docs 046.\n",
+            # Separator runs other than exactly one hyphen or one space.
+            "wide_sep.py": "# Implements task  43-01 across the two emitters.\n",
+            "underscore_sep.py": "# Mirrors Task_31-07's own base-image skip.\n",
+            "no_sep.py": "# See task43-01 for the universe widening.\n",
         }
         for filename, body in shapes.items():
             _write(os.path.join(tmp, filename), body)
@@ -189,10 +236,12 @@ def self_test() -> int:
             return 1
 
     print(
-        "INFO: Non-vacuity self-test passed: the detector flags every planted "
-        "reference shape (hyphenated, prose, three-digit, phase dir, .dtrx), "
-        "reports zero for a clean file, and leaves a bare delivery-wave "
-        "heading alone."
+        "INFO: Non-vacuity self-test passed: the detector flags all 14 planted "
+        "reference shapes (hyphenated, prose, three-digit, phase dir, .dtrx, "
+        "bare 'design NNN', hyphenated 'design-NNN', 'design doc NNN', plural "
+        "'tasks NN-NN', slashed plural, plural 'design docs NNN', "
+        "multi-space, underscore and zero separators), reports zero for a "
+        "clean file, and leaves a bare delivery-wave heading alone."
     )
     return 0
 

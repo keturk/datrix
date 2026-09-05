@@ -8,10 +8,19 @@
  projects. Accepts the same parameters as test.ps1 for command-line symmetry.
 
  A human-only tool: no skill, hook, orchestrator, or other script invokes it
- (its only caller is affected-gate.ps1's opt-in -Mypy switch, which agents
- are forbidden to pass), and the agent contract forbids agents to run any
- standalone type-checker. The package test suites are the declared gate for
- type correctness; this wrapper exists so a person can type-check on demand.
+ (its only caller is affected-gate.ps1's opt-in -Mypy switch), and the agent
+ contract forbids agents to run any standalone type-checker. That is enforced,
+ not advisory -- guard-forbidden-commands.py refuses this script, library/mypy.py,
+ the mypy/dmypy/pyright binaries, the `python -m mypy` form and
+ `affected-gate.ps1 -Mypy` from any agent tool call. A person running it in his
+ own terminal is not a tool call and is unaffected. The package test suites are
+ the declared gate for type correctness; this wrapper exists so a person can
+ type-check on demand.
+
+ mypy.py passes an explicit --cache-dir under D:\datrix\.tmp\mypy-cache so the
+ incremental cache never lands inside a package repository: mypy writes
+ .mypy_cache into its working directory, and one sweep at the default once left
+ ~51,400 cache files across 15 git repos and failed the ignored-source gate.
 
 .PARAMETER Projects
  One or more project names or folder paths to type-check.

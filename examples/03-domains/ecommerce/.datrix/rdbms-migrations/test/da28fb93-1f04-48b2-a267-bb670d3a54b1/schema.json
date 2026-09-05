@@ -692,6 +692,11 @@
   "enums": [
     {
       "database_name": "product_status",
+      "member_values": [
+        null,
+        null,
+        null
+      ],
       "name": "ProductStatus",
       "values": [
         "Draft",
@@ -701,6 +706,12 @@
     },
     {
       "database_name": "reservation_status",
+      "member_values": [
+        null,
+        null,
+        null,
+        null
+      ],
       "name": "ReservationStatus",
       "values": [
         "Reserved",
@@ -713,10 +724,10 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "da28fb93-1f04-48b2-a267-bb670d3a54b1",
-  "schema_hash": "8f480af232ed6c41aeb4ed6581fd6af015ae260a06cd67ecbb7cc671e5e96ac7",
+  "schema_hash": "521e6b73a9ebd5f46dfd34825332f62ddeccf96602cf76431ccefa6a001106d3",
   "service": {
     "name": "ecommerce.ProductService",
     "version": "1.0.0"
   },
-  "version": 4
+  "version": 5
 }

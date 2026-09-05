@@ -1,0 +1,12 @@
+{
+  "_comment": "Reviewed exemptions for framework-header-parity-gate.py. Each entry is one framework-prefixed header spelling a language package emits that is NOT a registered wire name (datrix_common.generation.http_headers). A private spelling of a framework contract is a defect; an entry here records the one reviewed reason it is still allowed and pins the count so a new spelling can never hide behind an old one. Remove the entry and decrement expected_count in the same change that fixes the package.",
+  "expected_count": 1,
+  "exemptions": [
+    {
+      "package": "datrix-codegen-java",
+      "header": "X-Datrix-Trusted-Caller",
+      "family": "caller_token",
+      "reason": "java's trusted-caller filter validates a shared secret on this private header instead of the managed-identity JWT on the registered caller-token header, and its dependency client sends no caller header. The family is declared unrealized on JAVA_CAPABILITY_DECLARATION; realizing the shared contract removes this spelling and this entry together."
+    }
+  ]
+}

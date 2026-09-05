@@ -110,7 +110,7 @@ doing the wrong thing.
 | `PreToolUse(Bash\|PowerShell)` | `guard-predeploy-analysis.py` | a deploy with no fresh seam census in `.tmp/predeploy/` (dry-run/`--what-if` forms are always allowed) |
 | `PreToolUse(Bash\|PowerShell)` | `guard-full-suite-runs.py` | whole-suite `test.ps1` runs (unconditional for subagents) |
 | `PreToolUse(Bash\|PowerShell)` | `validate-script-invocation.py` | `generate.ps1` with `-All`/`-Domains`/`-TestSet` (no override) |
-| `PreToolUse(Bash\|PowerShell)` | `guard-forbidden-commands.py` | git reverts and other prohibited commands |
+| `PreToolUse(Bash\|PowerShell)` | `guard-forbidden-commands.py` | git reverts, standalone type-checkers (`mypy` and equivalents, wrappers included), and other prohibited commands |
 | `PreToolUse(Bash\|PowerShell)` | `guard-shell-file-writes.py` | authoring file content from a shell — heredocs, `>`/`>>` into a file, `Set-Content`/`Out-File`, and `python -c`/`python - <<` bodies that write files |
 | `PreToolUse(Bash\|PowerShell)` | `guard-repo-temp-dirs.py` | opening a temp/scratch dir inside a package repo from a shell — the `mkdir`, the redirect, and the `-Output*` argument |
 | `PreToolUse(Write\|Edit\|NotebookEdit)` | `guard-repo-temp-dirs.py`, `guard-temp-file-policy.py` | temp/scratch dirs and files inside package repos |

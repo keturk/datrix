@@ -832,6 +832,11 @@
   "enums": [
     {
       "database_name": "user_role",
+      "member_values": [
+        null,
+        null,
+        null
+      ],
       "name": "UserRole",
       "values": [
         "Customer",
@@ -841,6 +846,12 @@
     },
     {
       "database_name": "user_status",
+      "member_values": [
+        null,
+        null,
+        null,
+        null
+      ],
       "name": "UserStatus",
       "values": [
         "Active",
@@ -853,10 +864,10 @@
   "format": "datrix.rdbms.schema",
   "latest_revision": "0001_initial",
   "rdbms_id": "7b1b4bfd-288a-4152-afb4-1272464aa557",
-  "schema_hash": "6894ef154b5cffd0937fb2b2bc84c8eb8369bae2a29bc65e9a8dfc39a8f9a225",
+  "schema_hash": "1a6f1198f31befcc24d08ee62c053fb2470f073a63418fb75d9da8744a41ce60",
   "service": {
     "name": "ecommerce.UserService",
     "version": "1.0.0"
   },
-  "version": 4
+  "version": 5
 }

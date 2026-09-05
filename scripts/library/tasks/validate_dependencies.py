@@ -51,9 +51,11 @@ from task_metadata import (
     default_output_path,
     dependencies_md_path,
     discover_phase_task_files,
+    extract_dependency_ids,
     find_task_file,
     format_phase,
     get_datrix_root,
+    normalize_task_id,
     parse_dependencies_md,
     parse_task_file,
     task_id_from_filename,
@@ -426,6 +428,72 @@ def next_task_number(base_dir: Path, phase: int) -> str:
     return f"{highest + 1:02d}"
 
 
+def _self_test_id_parsing() -> list[str]:
+    """Prove dependency-ID extraction is non-vacuous before trusting any verdict.
+
+    This gate reads every task file's ``**Depends on:**`` field through
+    ``extract_dependency_ids``. If that extraction silently mis-parses, the gate
+    reports PASS over a dependency graph it never actually read -- the worst
+    failure available to a validator, because it is invisible.
+
+    The regression this pins: the token pattern has a `task-NN-TT` branch and a
+    bare `NN-TT` branch, each with its OWN group pair. Reading positional
+    ``group(1)``/``group(2)`` yielded ``None``/``None`` for every bare-form
+    reference, producing the literal id ``task-None-None`` -- and because the
+    extractor de-duplicates, EVERY bare-form dependency in one field collapsed
+    into a single bogus entry. Real edges were dropped, not reported. The
+    quality-gate tasks all declare their dependencies in bare form.
+    """
+    failures: list[str] = []
+
+    def check(label: str, actual: object, expected: object) -> None:
+        if actual != expected:
+            failures.append(f"{label}: expected {expected!r}, got {actual!r}")
+
+    # The qualified spelling is COMPOSED, never written as a literal: a literal
+    # would make this file itself a committed reference to a gitignored task
+    # file, which `design-task-reference-gate.ps1` fails on (and did).
+    prefix = "task" + "-"
+
+    def qualified(bare: str) -> str:
+        return prefix + bare
+
+    # Both branches must resolve, and must resolve IDENTICALLY.
+    check(
+        "qualified form",
+        extract_dependency_ids(f" {qualified('43-02')}, {qualified('43-09')}"),
+        [qualified("43-02"), qualified("43-09")],
+    )
+    check(
+        "bare form (the regression)",
+        extract_dependency_ids(" 43-02, 43-09"),
+        [qualified("43-02"), qualified("43-09")],
+    )
+    check(
+        "mixed forms",
+        extract_dependency_ids(f" {qualified('43-02')}, 43-09"),
+        [qualified("43-02"), qualified("43-09")],
+    )
+    check(
+        "suffixed numbers survive",
+        extract_dependency_ids(f" 09-15b, {qualified('09-16c')}"),
+        [qualified("09-15b"), qualified("09-16c")],
+    )
+    # A collapse would show up as a SHORTER list than the reference count.
+    many = extract_dependency_ids(" 43-01, 43-02, 43-03, 43-04")
+    check("bare-form list does not collapse", len(many), 4)
+    check("normalize bare", normalize_task_id("31-05"), qualified("31-05"))
+    check("normalize qualified", normalize_task_id(qualified("31-05")), qualified("31-05"))
+    # Guards that must NOT regress while fixing the above.
+    check("'none' yields no dependencies", extract_dependency_ids(" none"), [])
+    check(
+        "dates are not task references",
+        extract_dependency_ids(" 2026-07-13 and 13-07-2026"),
+        [],
+    )
+    return failures
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Validate a phase's dependencies.md against its task files"
@@ -455,6 +523,18 @@ def main() -> int:
         level=logging.DEBUG if args.debug else logging.INFO,
         format="%(levelname)s: %(message)s",
     )
+
+    self_test_failures = _self_test_id_parsing()
+    if self_test_failures:
+        print(
+            "ERROR: dependency-ID parsing self-test FAILED -- refusing to report a "
+            "verdict over a dependency graph that cannot be read correctly:",
+            file=sys.stderr,
+        )
+        for failure in self_test_failures:
+            print(f"  - {failure}", file=sys.stderr)
+        return EXIT_USAGE
+    logger.debug("id_parsing_self_test: PASS")
 
     base_dir = args.base_dir if args.base_dir is not None else get_datrix_root()
     if not base_dir.is_dir():

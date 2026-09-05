@@ -15,7 +15,7 @@ semantic analysis -> stdlib placeholders + lazy module injection -> continuing p
 
 **Load order:** builtins → stdlib placeholder registration → user parse/transform → semantic analysis (lazy stdlib deserialization when a stdlib export is first resolved).
 
-No IR layer. Parser produces `Application` directly. `GenerationPipeline` lives in `datrix-cli` (`datrix-cli/src/datrix_cli/pipeline/generation.py`); `run()` walks an ordered registry of typed `Stage` values through one runner. The named stages, in order: `parse` → `discover_and_parse_seeds` → `resolve_service_configs` → `inject_identity_system_entities` → `analyze` → `apply_service_filter` (skipped without `--service`) → `validate_deployment` → `resolve_incremental` → `build_codegen_context` → `build_deployment_plan` → `resolve_config_surfaces` → `discover_generators` → `validate_type_completeness` → `discover_platforms` → `sort_generators` → `select_generation_targets` (skipped without `--only`) → `attach_runtime_bootstrap` → `generate:{name}` (one per generator) → `resolve_intra_group_conflicts` → `detect_file_conflicts` → `assert_deploy_binding_conformance` → `write:{target}` (one per target) → `migrations` → `discover_language_hooks` → `run_language_post_processing` → `format_json_files` → `update_append_only_hashes` → `snapshot`. Infrastructure-config resolution and service memory-limit normalization are **not** stages: they run inside `analyze` as `SemanticAnalyzer.analyze()` pre-seal hooks, because both depend on nodes analysis itself may synthesize. There is **no** `platform_validation` or `apply_cli_overrides` stage; `--language` is a required generation parameter resolved before the run, and cross-model and `(provider, DeploymentProvider)` realization checks run inside the pre-seal infrastructure-config hook, with deployment-presence checks in `validate_deployment`.
+No IR layer. Parser produces `Application` directly. `GenerationPipeline` lives in `datrix-cli` (`datrix-cli/src/datrix_cli/pipeline/generation.py`); `run()` walks an ordered registry of typed `Stage` values through one runner. The named stages, in order: `parse` → `discover_and_parse_seeds` → `resolve_service_configs` → `inject_identity_system_entities` → `analyze` → `apply_service_filter` (skipped without `--service`) → `validate_deployment` → `resolve_incremental` → `build_codegen_context` → `build_deployment_plan` → `resolve_config_surfaces` → `discover_generators` → `validate_type_completeness` → `validate_builtin_realization` → `discover_platforms` → `sort_generators` → `select_generation_targets` (skipped without `--only`) → `attach_runtime_bootstrap` → `generate:{name}` (one per generator) → `resolve_intra_group_conflicts` → `detect_file_conflicts` → `assert_deploy_binding_conformance` → `write:{target}` (one per target) → `migrations` → `discover_language_hooks` → `run_language_post_processing` → `format_json_files` → `update_append_only_hashes` → `snapshot`. Infrastructure-config resolution and service memory-limit normalization are **not** stages: they run inside `analyze` as `SemanticAnalyzer.analyze()` pre-seal hooks, because both depend on nodes analysis itself may synthesize. There is **no** `platform_validation` or `apply_cli_overrides` stage; `--language` is a required generation parameter resolved before the run, and cross-model and `(provider, DeploymentProvider)` realization checks run inside the pre-seal infrastructure-config hook, with deployment-presence checks in `validate_deployment`.
 
 ## Packages (15)
 
@@ -125,7 +125,7 @@ Lifts telemetry export-volume control and platform-collected diagnostics out of 
 | 6 | The conformance gate proves its own non-vacuity every run | A known-realized knob must pass and a deliberately severed one must fail, checked before the real comparison |
 | 7 | (provider × target) realization is one fact per target, read from the registered target set | Each target declares its realized provider set across the five observability categories; every consumer reads the declaration through `capability_resolution.declaration_for_language` / `declaration_for_provider` over the entry-point groups — no assembled table in shared code, never a hardcoded literal; declaring an unsupported pair is a loud validation error on every target; cross-target agreement is the repo-level `observability-axis-parity-gate.ps1` |
 
-Full decision log: [Architecture Overview — Decision 32](./architecture-overview.md#decision-32-portable-telemetry-volume-and-platform-diagnostics-contracts-with-realization-conformance).
+Full decision log: [Architecture Overview — Decision 32](./architecture-overview.md#decision-32-portable-telemetry-volume-and-platform-diagnostics-contracts-with-realization-conformance-adopted).
 
 ## Codegen Shared-Layer Consolidation
 
@@ -179,7 +179,7 @@ Decision 36 measures parallel implementations; this decision asks what would *re
 | 4 | Pure predicates over the sealed model live once in the shared layer, not once per platform | `datrix-codegen-common/src/datrix_codegen_common/generation/service_predicates.py`; where a predicate genuinely differs per platform, the difference becomes a **declared per-platform set read by one shared predicate** — never a per-platform copy of the algorithm |
 | 5 | A hoist that does not move the ratchet did not remove a parallel implementation | Both drift baselines are decrease-only counts, and the decrease is pinned in the **same change** as the hoist that produced it |
 | 6 | These are refactors, so their whole claim is that nothing changed | Behaviour preservation proven by **byte-identical generated output**, not a green suite alone; a deliberate behavioural change is re-blessed as a diff, never landed silently |
-| 7 | A shared raise site is parameterized by the caller's own exception class, never forced onto a new declared-exception-type hook | `algorithms.declared_table_lookup`, `algorithms.entity_query_chain.transpile_where_comparison`, `transpiler.skeleton.nosql_dispatch.nosql_sort_direction`, `generation.raise_site_guards.reject_unrealizable_gateway_fields` all take the exception class as a parameter — python's own `ValueError` on the entity-query path is load-bearing, caught by its own chain-step fallback |
+| 7 | A shared raise site is parameterized by the caller's own exception class, never forced onto a new declared-exception-type hook | `algorithms.declared_table_lookup`, `algorithms.entity_query_chain.transpile_where_comparison`, `transpiler.skeleton.nosql_dispatch.nosql_sort_direction`, `transpiler.skeleton.nosql_dispatch.validate_nosql_sort_positional_arity`, `generation.raise_site_guards.reject_unrealizable_gateway_fields` all take the exception class as a parameter — python's own `ValueError` on the entity-query path is load-bearing, caught by its own chain-step fallback. The arity guard is the pattern applied to a rule that had drifted into four per-language copies: every registered NoSQL-emitting target routes its positional `orderBy(...)` empty/odd check through it, passing its own `NoSqlFilterSyntax`, so the rule and its wording are one fact while each target keeps raising the class it declares |
 | 8 | No classification entry claims `status: intentional` while its own reason describes a capability or emission gap | The classification gate hard-rejects `mechanism: capability-gap-defect` + `status: intentional`; the five entries this was ever true for are fixed against a named reference target, not just reclassified to `tracked` |
 
 **A mechanism label is a hypothesis about code, not a fact about it.** Roughly half the names once labelled collapsible-by-casing carried divergences beyond casing — an absent branch, a different return arity, a missing parameter — and reclassifying those to their real mechanism, before any hoist touched them, is what kept the eventual casing pass from silently dropping behaviour. Read the implementations before collapsing on a label. One name remains labelled collapsible-by-casing but unreached: `NamingProfile.structural_rule` is still populated as identity by every language, so a structural-rather-than-case-based convention (a leading-underscore private-field prefix, a directory's kebab-case convention) has no home in the profile as it stands, and inventing one needs a decision family to justify it, not a hoist.
@@ -342,6 +342,27 @@ client derives it rather than hardcoding it, and the wart becomes invisible at e
 
 Full decision log: [Architecture Overview — Decision 43](./architecture-overview.md#decision-43-frontend-api-client-generation--browser-clients-emitted-from-the-same-dsl-as-the-backend-approved--implementation-in-progress).
 
+## Parity by Construction — Closing the Hand-Written Feature Surface
+
+Parity **measurement** on the language axis is mature; **prevention** is not. A feature lands once in the shared model and then once by hand in every language package, and the gates report the drift after it exists. Two declaration universes are open on one side, so a target can silently opt out: the shared GenDSL domain registry was seeded from the python/typescript-era shared registration table and never re-derived from what the languages declare (the four languages declare 62 domain ids; 23 are outside the registry, twelve of them declared by all four — realized everywhere, compared nowhere), and 314 of 522 builtin registry rows are ungrouped ("optional everywhere"), so the resulting capability holes accumulate as 475 per-method reason strings in a JSON exemption file rather than as a stance on the plugin. **A feature is authored once as a shared plan and N times as a rendering, never N times as a decision.** **Approved — implementation in progress.**
+
+| # | Invariant | Check |
+|---|---|---|
+| 1 | The shared domain universe is the **union** of every domain any registered language declares, and every language declares `supported`/`unsupported(reason)` for every id in it | Supported-domain parity gate computes the union before comparing supported sets and requires union == registry — zero tolerance, no exemption file; a registered id outside the universe is a derivation error |
+| 2 | Every builtin registry row belongs to a group, and `group=None` cannot be expressed | Registry and constructor tests; the ungrouped rows cluster into capability groups by category family |
+| 3 | A language's builtin capability is a **stance per group on its capability declaration**, not a hand-typed claim set plus per-method exemptions | `supported`/`unsupported(reason)` mapping on `LanguageCapabilityDeclaration`, keyed by group **name** because `datrix-common` must not import `datrix-codegen-common`; completeness enforced in `datrix-codegen-common` at plugin registration, where builtin obligation already lives; the per-method exemption file is deleted |
+| 4 | A `supported` group with an unmapped row fails when the package loads; an application using an `unsupported` group's builtin fails **before any file is written** | Import-time coverage validation at plugin registration; a pre-generation pipeline stage after `validate_type_completeness` raising once with every offending use, its group's declared reason, service and location |
+| 5 | Every shared domain has one shared context builder and one typed frozen context model — the parity registry compares the **input**, not just a digest | One `build_<domain>_context` per universe domain; the fingerprint context is retired when the last domain leaves it; no third state between rich and explicitly pending |
+| 6 | A per-language difference inside a shared builder is a **declared parameter**, never a branch | A `LanguageProfile` value, a typed parameter from the language's thin adapter, or a per-language render step — never a target-name conditional in the shared layer (the target-literal ratchet stays at its empty baseline) |
+| 7 | Every hoist is behaviour-preserving and moves the ratchet in the same change | Byte-identical generated output on the foundation set for every affected language, plus a drift-baseline decrement equal to the groups removed; a hoist that does not move the count is not accepted |
+| 8 | Every single-step routing decision is a declared row, and the declared table is the **first** dispatch stop | `emit_function_for` is consulted before any hand-written branch at every chain-step call site, and a branch duplicating a row's predicate is deleted in the same change — a declaration replaces a branch, never joins it |
+| 9 | Each language's visit floor equals the count of functions its floor documentation names, for **all four** languages | Floor-doc completeness gate extended to dotnet and java, ending the "tracked separately" carve-out |
+| 10 | A routing row for a capability the language declares it lacks is a contradiction that fails loud | Emit-table validation rejects a row whose builtin's group this language declares `unsupported` |
+| 11 | Every new declaration surface **fails closed** | Absent group stance → construction/registration error; unregistered domain id → derivation error; row for an unsupported group → registration error. No fallback, no default stance |
+| 12 | A pre-generation diagnostic never discloses application source text | The new stage reports the builtin key, service and location only — never the surrounding expression or a literal argument, since DSL bodies can carry configuration references |
+
+Full decision log: [Architecture Overview — Decision 44](./architecture-overview.md#decision-44-parity-by-construction--declared-universes-shared-plan-modules-and-declared-routing-on-the-language-axis-approved--implementation-in-progress).
+
 ## Zero-Environment Runtime — Declared Per Language
 
 Decision 14's contract (every deployment-static value baked at generation time; the running
@@ -356,6 +377,36 @@ censuses every registered language's templates against its own idioms: a realize
 (typescript, java, dotnet today) carries a decrease-only pinned count; an undeclared language
 fails by name. A missing value is never defaulted on any language — the MSK region raises when
 unset on python and typescript alike.
+
+## Framework HTTP Headers — One Registry, Declared Holes
+
+Every header Datrix itself mints on a generated service's wire — the trusted-caller token, the
+delegated-user envelope, the three rate-limit response headers, the inbound webhook secret and
+the outbound webhook delivery headers — is a cross-language contract with one home,
+`datrix_common.generation.http_headers` (`FRAMEWORK_HEADERS`, keyed by family; retired names
+under `RETIRED_HEADERS`). A language package spells a framework header with the exact registered
+name or references its registry constant, never a private re-typing, and either realizes every
+family or declares the hole with a reason on
+`LanguageCapabilityDeclaration.unrealized_framework_headers`.
+`powershell -File "d:/datrix/datrix/scripts/test/framework-header-parity-gate.ps1"` censuses
+every registered language's `.py`/`.j2` sources: an unregistered framework-prefixed spelling
+needs a reviewed, counted entry in `datrix/scripts/config/framework-header-exemptions.json`, a
+retired spelling has no exemption path, a family neither realized nor declared fails by name, a
+declared-but-realized family is a stale declaration, and a family no language realizes is a dead
+registry entry. This is how java's private `X-Datrix-Trusted-Caller` (a shared secret, no
+outbound token — declared unrealized today, with the one reviewed spelling exemption) and a
+typescript test template still sending the retired `X-Internal-Token` became red checks instead
+of facts someone had to notice.
+
+The RFC 7807 `type` member has the same shape of contract and the same enforcement:
+`datrix_common.generation.problem_types` mints every problem type as `urn:datrix:error:<slug>`
+(`FRAMEWORK_PROBLEM_TYPES` for framework errors; a declared DSL exception derives its slug
+from its class name through the shared exception-declaration algorithm), each language
+declares its holes on `LanguageCapabilityDeclaration.unrealized_problem_types`, and
+`powershell -File "d:/datrix/datrix/scripts/test/problem-type-parity-gate.ps1"` holds every
+literal slug to the registry and every family to realized-or-declared. Before it, python and
+java spelled the URNs, typescript composed an `https://api.example.com/…/errors/<slug>` URL and
+.NET answered everything with `https://httpstatuses.com/<status>`.
 
 ## Transpiler pipeline (per file)
 
@@ -451,7 +502,7 @@ held.
 | 6 | A stored enum value has one home per language | `persisted_enum_member_literal` is shared by the enum generator and the recovery emitter, so the value matched can never drift from the value written |
 | 7 | The contract is language-neutral | It lives in `datrix-common` (`datrix_model/work.py`); python realizes `onOrphan: failAtStartup` today, and any other target either realizes it or declares it unsupported with a reason |
 
-Full syntax, keys and diagnostics: [datrix-syntax-reference.md — Work Contracts](../../../datrix-language/docs/reference/datrix-syntax-reference.md#work-contracts-work-).
+Full syntax, keys and diagnostics: [datrix-syntax-reference.md — Work Contracts](../../../datrix-language/docs/reference/datrix-syntax-reference.md#work-contracts-work--).
 
 ## DSL grammar snapshot (`.dtrx`)
 

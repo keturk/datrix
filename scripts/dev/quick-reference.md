@@ -328,7 +328,7 @@ Finds string literals in Datrix Python projects and writes a grouped Markdown re
 
 ### `dev\byte-identity-generate.ps1`
 
-Proves a code change is **output-neutral**: generates a corpus of examples twice — once under a "before" code state, once under the working tree — and byte-diffs the two trees (per-file sha256; reports EVERY added/removed/changed path). Replaces the hand-rolled `byte_identity_*` scripts from `D:\datrix\.scripts`. Handles the two proven traps internally: equal-length output roots (`bef`/`aft` — unequal path lengths cause phantom ruff-batching diffs) and subprocess-isolated PYTHONPATH shadowing for the "before" generation. Uses `git archive` only (read-only — never checkout). Reuses the parity gate's pipeline + manifest code.
+Proves a code change is **output-neutral**: generates a corpus of examples twice — once under a "before" code state, once under the working tree — and byte-diffs the two trees (per-file sha256; reports EVERY added/removed/changed path). Replaces the hand-rolled `byte_identity_*` scripts from `D:\datrix\.scripts`. Handles the three proven traps internally: equal-length output roots (`bef`/`aft` — unequal path lengths cause phantom ruff-batching diffs), subprocess-isolated PYTHONPATH shadowing for the "before" generation, and per-invocation run-root isolation (concurrent invocations never share a generation tree, git-archive snapshot dir, or report file). Uses `git archive` only (read-only — never checkout). Reuses the parity gate's pipeline + manifest code.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -338,7 +338,7 @@ Proves a code change is **output-neutral**: generates a corpus of examples twice
 
 **Parameters:** `-Example <rel-path>` (repeatable/comma) OR `-TestSet <name>`; exactly one of `-BeforeRef <git-ref>` + `-Packages <pkg,pkg>` or `-BeforeTree <dir>`; `-Language <lang>` (any registered `datrix.languages` target, **mandatory** — both the BEFORE and AFTER sides generate in this language; language is orthogonal to the code change being diffed); `-Output <path>`; `-Dbg`
 
-**Output:** `D:\datrix\.test-output\byte-identity\report.json` + `report.md` (unified diffs of changed text files). **Exit codes:** 0 = byte-identical, 1 = differences, 2 = usage / generation failure.
+**Output:** `D:\datrix\.test-output\byte-identity\<run-id>.report.json` + `<run-id>.report.md` (unified diffs of changed text files) unless `-Output` overrides the path; the printed `Details:` line names the exact file. Generation trees live per-invocation at `D:\datrix\.test-output\byte-identity\<run-id>\{bef,aft}`, removed on a successful run and left on disk (named in the error) on a failed one. **Exit codes:** 0 = byte-identical, 1 = differences, 2 = usage / generation failure.
 
 ### `dev\conformance-gate.ps1`
 

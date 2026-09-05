@@ -7,8 +7,12 @@
  Activates the datrix virtual environment and runs the library ruff.py
  for each project. Modes: check (lint), format. Supports output-format,
  fix, diff, statistics for check; check (dry run), diff for format.
- Console output is written to a timestamped log under each project's
- .ruff_check folder (e.g. .ruff_check/ruff-20260207-143022.log).
+ Console output is written to a timestamped log under the workspace-level
+ .test-output\ruff\<project>\ folder
+ (e.g. D:\datrix\.test-output\ruff\datrix-common\ruff-20260207-143022.log).
+ The logs live OUTSIDE every package repo on purpose: each datrix-* package
+ is its own git repository, so a log folder created inside one is committed
+ and pushed unless a human notices.
 
 .PARAMETER Projects
  One or more project names or folder paths.
@@ -127,20 +131,24 @@ try {
  & pip install "ruff>=0.1.0"
  }
 
- $RUFF_CHECK_FOLDER = ".ruff_check"
+ # Run logs go to the workspace-level output tree, never inside a package repo:
+ # every datrix-* package is its own git repository, and anything dropped in one
+ # is committed and pushed unless a human notices. See repo-boundaries in the
+ # agent rules; the ignored-source gate fails on any such stray output.
+ $RUFF_LOG_ROOT = Join-Path $workspaceRoot ".test-output\ruff"
  $results = @{}
  foreach ($project in $projectsToAnalyze) {
  Write-Host ""
  $targetLabel = if ($Test) { "tests" } else { "src" }
  Write-Host "======== $project (mode=$Mode, $targetLabel) ========" -ForegroundColor Cyan
  $projectRoot = Join-Path $workspaceRoot $project
- $ruffCheckDir = Join-Path $projectRoot $RUFF_CHECK_FOLDER
- if (-not (Test-Path $ruffCheckDir)) {
- New-Item -Path $ruffCheckDir -ItemType Directory -Force | Out-Null
+ $ruffLogDir = Join-Path $RUFF_LOG_ROOT $project
+ if (-not (Test-Path $ruffLogDir)) {
+ New-Item -Path $ruffLogDir -ItemType Directory -Force | Out-Null
  }
  $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
  $logFileName = "ruff-$timestamp.log"
- $logFile = Join-Path $ruffCheckDir $logFileName
+ $logFile = Join-Path $ruffLogDir $logFileName
  Write-Host "Log file: $logFile" -ForegroundColor Gray
 
  $projectArgs = @(

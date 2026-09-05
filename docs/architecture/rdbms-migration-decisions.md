@@ -214,7 +214,7 @@ A guarded, idempotent `relocate-state` operation seeds the target-scoped layout 
 
 ## See Also
 
-- [Architecture Overview — Decision 8](architecture-overview.md#decision-8-incremental-rdbms-schema-migrations) — Rationale and summary
+- [Architecture Overview — Decision 8](architecture-overview.md#decision-8-incremental-rdbms-schema-migrations-adopted) — Rationale and summary
 - [RDBMS Migration API](../../../datrix-common/docs/architecture/migration.md) — Shared module documentation
 - [RdbmsMigrationAdapter Protocol](../../../datrix-codegen-common/docs/migration-adapter.md) — Adapter contract
 - [CLI Migrations Commands](../../../datrix-cli/docs/commands/migrations.md) — CLI surface
