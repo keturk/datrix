@@ -1,7 +1,7 @@
 {
   "format": "datrix.rdbms.ledger",
-  "hash": "170bcde9a6f5b41bfa7a9791a0e446a2a1ad8a8b48654aba47dd71aa131a4360",
-  "latest_revision": "0001_initial",
+  "hash": "6ccb9e75cf61f41610513508271ec1f66a5f05b9a76502db4f37ce7daff9873c",
+  "latest_revision": "0002_add_index_and_4_more",
   "rdbms_id": "7b1b4bfd-288a-4152-afb4-1272464aa557",
   "revisions": [
     {
@@ -19,6 +19,46 @@
       "schema_hash_after": "1a6f1198f31befcc24d08ee62c053fb2470f073a63418fb75d9da8744a41ce60",
       "schema_hash_before": "",
       "sequence": 1
+    },
+    {
+      "classification": "safe",
+      "operations": [
+        {
+          "details": {
+            "entity": "User"
+          },
+          "op": "add_index"
+        },
+        {
+          "details": {
+            "entity": "User"
+          },
+          "op": "add_index"
+        },
+        {
+          "details": {
+            "entity": "UserSession"
+          },
+          "op": "add_index"
+        },
+        {
+          "details": {
+            "entity": "UserSession"
+          },
+          "op": "add_index"
+        },
+        {
+          "details": {
+            "entity": "UserSession"
+          },
+          "op": "add_index"
+        }
+      ],
+      "previous_revision": "0001_initial",
+      "revision": "0002_add_index_and_4_more",
+      "schema_hash_after": "1a6f1198f31befcc24d08ee62c053fb2470f073a63418fb75d9da8744a41ce60",
+      "schema_hash_before": "e68526c7725a5c6858d3ebd2fef3178144b14d5182cb14dbfc40669df51fdbb5",
+      "sequence": 2
     }
   ],
   "version": 4

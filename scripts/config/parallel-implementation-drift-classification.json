@@ -27,20 +27,6 @@
         "reason": "the two differ in return architecture, not a swappable fact -- python threads mutable row dicts by reference (matching the existing wire_name-is-defined pattern its own docstring cites from `_endpoint_handler_params.py`) and distinguishes 'not declared' from 'declared but multipart-absorbed' as two raise sites, while typescript builds and returns fresh row lists with one collapsed raise site; reconciling mutate-vs-return and a raise-site python has that typescript lacks needs the shared function itself to branch on which data-flow style to produce, which no listed mechanism (casing, type-map, dependency table, signature shape, or raise-site text) addresses."
       }
     },
-    "_build_fields_context": {
-      "reason": "Both are two-line delegates to the already-shared `datrix_codegen_common.algorithms.nosql_fields_context.build_fields_context`, whose own docstring names `resolve_python_type` as the one genuine per-language fact this hoist takes as an explicit parameter. Python passes its bound `self._resolve_nosql_python_type`, which resolves a canonical DSL type to a Pydantic runtime type name + `import_stmt` and raises `GenerationError` on an unmapped canonical type (python's document model embeds a runtime type string in the class body); typescript passes `resolve_python_type=None` because its plain TS interface needs only the canonical DSL type name, resolved later by the template's own type-mapping lookup.",
-      "status": "intentional",
-      "collapsibility": {
-        "mechanism": "shared-predicate-hoist"
-      }
-    },
-    "_build_registry": {
-      "reason": "All three bodies are byte-identical single-line delegates -- `return build_seed_registry(seed_documents)` -- to the shared `datrix_codegen_common.algorithms.seed_registry.build_seed_registry`. The only observed difference is Python-source type-hint precision: dotnet's parameter is typed `tuple[SeedDocument, ...]` while java's and python's are typed `tuple[Any, ...]`, plus trivially different docstring wording.",
-      "status": "intentional",
-      "collapsibility": {
-        "mechanism": "shared-predicate-hoist"
-      }
-    },
     "_build_upgrade_op_for_entity_comment_changed": {
       "reason": "FluentMigrator (dotnet) has no cross-dialect 'set table comment' operation, so dotnet hand-builds raw SQL via `_set_table_comment_sql` (dialect-branching MySQL `ALTER TABLE...COMMENT` vs Postgres `COMMENT ON TABLE`), wraps both the new- and old-value statements as `_csharp_verbatim` strings for `Execute.Sql`/reverse `Execute.Sql`, and needs an `orm_resolver: EfCoreTypeResolver` purely to read `.dialect`. Alembic (python) has a native `create_table_comment`/`drop_table_comment` operation, so python's adapter -- per its own docstring, \"never hand-writes DDL for it\" -- just returns `comment_literal`/`existing_comment_literal` via Python's `repr()`, needs no dialect parameter at all, and its `UpgradeOp.kind` is the distinctly-named `set_table_comment` versus dotnet's shared generic `set_comment` kind (reused for both table- and column-comment ops).",
       "status": "intentional",
@@ -57,41 +43,12 @@
         "reason": "unlike the entity-comment pair, the column case additionally forces dotnet to thread type AND nullability through a MySQL-specific column-restatement workaround that Alembic's native `alter_column(comment=...)` op absorbs internally -- a second, column-specific ORM-capability gap layered on the same table-vs-native-op split, so collapsing it would need the shared function to know MySQL's restate-on-comment quirk, which is a raw-SQL-synthesis fact no listed mechanism owns."
       }
     },
-    "_collect_type_imports": {
-      "reason": "The two functions share a name but perform unrelated operations in unrelated subsystems. Java's version recursively walks a `DatrixType` AST node (entity/struct types) via a `TestValueContext` carrying a `type_resolver`, returns a fresh `set[str]` of Java import statements needed to compile a generated JUnit test-value expression, recurses into nested `StructType` fields with cycle protection via a `seen: frozenset[str]`, and raises `GenerationError` when no `type_resolver` was supplied. Python's version takes an already-rendered SQLAlchemy type-expression STRING (`sa_expr: str`, e.g. `sa.Integer()` or `geoalchemy2.Geography(...)`), string-matches it against `DIALECT_SA_IMPORTS` (or a `geoalchemy2.` prefix check) to find the needed migration-file import, and mutates a caller-supplied `into: set[str]` in place (returns `None`) -- no AST traversal, no recursion, no context object, no resolver, no exceptions.",
-      "status": "intentional",
-      "collapsibility": {
-        "mechanism": "rename",
-        "reason": "there is no shared operation to hoist -- java collects compile-time import statements for a generated test-value expression by recursing an AST type, while python extracts a migration-file import from an already-rendered SQLAlchemy type string by pattern-matching; disjoint input types (`DatrixType` vs `str`), disjoint output conventions (return a fresh set vs mutate a passed-in set), and disjoint domains (entity test generation vs DB migration schema). The two are only lexically identical; the fix is renaming one (e.g. java's to `_collect_test_value_type_imports`, or python's to `_collect_sa_type_imports`) so the drift detector stops pairing unrelated functions."
-      }
-    },
     "_column_default_sql": {
       "reason": "dotnet's version (4 params: col, default, sql_type, table_name, dialect) checks default.kind first (server_function/generated -> local _translate_server_function_default) and only then checks col.type.kind == 'enum', because FluentMigrator's caller already resolved a single raw sql_type string per column via EfCoreTypeResolver; it classifies literals by lowercase-prefix-matching that already-resolved sql_type string and raises GenerationError. typescript's version (6 params, with an added snapshot and a second sql_dialect string alongside the SQLDialect object) checks col_def.type.kind == enum FIRST -- before even looking at default.kind -- because MikroORM's CREATE TABLE spans multiple SQL dialects and needs the snapshot to resolve enum members; its literal classification goes through _literal_default_class, which cross-checks SQL_TYPE_MAP consistency across every SUPPORTED_DIALECTS entry (falling back to 'unsupported' if dialects disagree) rather than string-matching one resolved type, and it raises ValueError instead of GenerationError, and routes server-evaluated defaults through the shared datrix_codegen_sql.column_builder.call_source_default_to_sql rather than a local translator.",
       "status": "intentional",
       "collapsibility": {
         "mechanism": "none",
         "reason": "the two functions differ in dispatch ORDER (kind-then-type vs type-then-kind), in exception type raised (GenerationError vs ValueError), in how a literal's SQL class is decided (single resolved-type string match vs a dialect-consistency check over every supported dialect), and in parameter count/shape (typescript needs snapshot+dual dialect reps dotnet doesn't carry) -- there is no shared classification table or predicate left to hoist once each language's own dialect-resolution architecture is subtracted out."
-      }
-    },
-    "_connection_surface_declared_types": {
-      "reason": "Both build the identical {ck.key: ck.value_type} mapping over surface.keys with no branching; python writes it as an explicit loop into a pre-declared dict with an inline comment noting the two real values ('String'/'Integer'), typescript writes the same mapping as a one-line dict comprehension -- identical semantics, differing only in loop-vs-comprehension authoring style.",
-      "status": "intentional",
-      "collapsibility": {
-        "mechanism": "shared-predicate-hoist"
-      }
-    },
-    "_connection_surface_defaults": {
-      "reason": "The function bodies are byte-identical (build defaults[ck.key] = ck.default for every key with a non-None default); typescript's docstring adds an extra paragraph explaining that a credential/secret key can never appear here (secrets resolve through ConnectionSecret handles instead), a documentation-only addition with no corresponding code difference, and python's surface parameter is typed as a bare DerivedConnectionSurface while typescript's is a quoted forward reference (both resolve to the same shared datrix_common domain type).",
-      "status": "intentional",
-      "collapsibility": {
-        "mechanism": "shared-predicate-hoist"
-      }
-    },
-    "_connection_value_type": {
-      "reason": "java and typescript declare byte-identical bodies -- both look up ck.value_type in their own private module-level _VALUE_TYPE_FOR_CONNECTION_KEY dict (String/Integer/Boolean -> ConfigValueType) and raise the same-shaped GenerationError on a miss; the only textual difference is the language name embedded in the error message ('Java ConfigValueType mapping' vs 'TypeScript ConfigValueType mapping') and the ck parameter's type annotation (bare ConnectionKey vs a quoted forward reference). Both docstrings explicitly note this is a deliberate fail-loud mirror of each other and NOT of python's own same-named helper, which silently falls back an unmapped type to STRING instead of raising.",
-      "status": "intentional",
-      "collapsibility": {
-        "mechanism": "shared-predicate-hoist"
       }
     },
     "_create_enum_type_sql": {
@@ -116,13 +73,6 @@
       "collapsibility": {
         "mechanism": "none",
         "reason": "the two functions don't just differ in signature shape -- they differ in which CASES each one is responsible for handling at all (dotnet's is literal-only by construction of its caller's dispatch order; typescript's must also cover server-evaluated defaults), so no shared predicate or signature-alignment fix closes the gap without first unifying the outer dispatch order these two functions are downstream of."
-      }
-    },
-    "_extract_max_length": {
-      "reason": "All three wrap the same shared `datrix_codegen_common.algorithms.scalar_defaults.extract_max_length`, which takes two optional resolver callables. Dotnet's `test_factory_generator.py` instance method supplies both -- `self._scalar_declaration_for_field` for CustomScalarType lookups and `max_length_from_efcore_column_type` against `self._dotnet_type_map()` for EF Core column-type-derived length -- because it runs inside a generator instance with those resolvers bound. Dotnet's second declaration in `_spec_hook_placeholders.py` is a free function (no generator instance at that call site) that supplies the identical EF-Core resolver but against the module-level `DOTNET_TYPE_MAP` constant and an explicit `scalar_index: Mapping[str, ScalarDeclaration]` parameter instead of `self`. Python passes `scalar_declaration_for=None, max_length_for_scalar_type=None` because python has neither a custom-scalar-index concept nor an EF-Core-style column-type-to-length derivation -- the shared function's own docstring documents this exact `None` case as matching python's pre-hoist behaviour exactly.",
-      "status": "intentional",
-      "collapsibility": {
-        "mechanism": "signature-alignment"
       }
     },
     "_migration_target_name": {
@@ -206,14 +156,6 @@
       "collapsibility": {
         "mechanism": "none",
         "reason": "the hazard sets are structurally different in kind, not just count -- python's docstring is a string-literal construct with an escape-character grammar (hence the trailing-backslash rule and two delimiter flavors), while typescript's block comment has no escape grammar at all (hence neither concern exists there); no shared vocabulary/casing/table mechanism collapses 'has an escape grammar' vs 'has none'."
-      }
-    },
-    "service_declares_keyword_bearing_enum": {
-      "reason": "Both bodies are functionally identical AST-closure walks with zero language-specific logic: dotnet factors the per-enum check into a private `_enum_declares_keyword` helper (reused a third time by `_first_keyword_bearing_enum_name`'s error-message lookup), while java inlines the identical `any(ev.keywords for ev in enum.values)` expression twice directly in the loop instead of factoring it out. Both walk the SAME shared `collect_enums_for_service`/`collect_block_enums_for_service` closure imported from `datrix_codegen_common.algorithms.enum_collection` and read the same language-agnostic AST attribute (`EnumValue.keywords`) -- no C#/Java-specific fact appears anywhere in either function body.",
-      "status": "tracked",
-      "collapsibility": {
-        "mechanism": "shared-predicate-hoist",
-        "reason": "both bodies already walk the identical shared enum-collection closure and test the identical language-agnostic AST attribute with zero remaining per-language fact -- java's only divergence from dotnet is an un-factored inline expression rather than a private helper, so nothing structurally blocks folding both into one shared predicate; the hoist itself is not yet landed."
       }
     },
     "service_needs_domain_exceptions": {
@@ -780,22 +722,6 @@
       "collapsibility": {
         "mechanism": "none",
         "reason": "each body's whole content is its own query builder's composition rule (one variadic call, one anonymous-type key, or one call per field); after factoring those out nothing is left to share but the argument resolution, which transpile_group_by_args already holds."
-      }
-    },
-    "_chain_step_limit": {
-      "reason": "All three targets now share one empty-argument posture: each raises the byte-identical TranspilationError message on a missing value argument (typescript's silent None return, which emitted no clause and produced an UNBOUNDED query, has been corrected). What still differs is the emitted method name (.limit( vs .Take( ) and typescript's extra_constants list for raw-SQL constant hoisting -- python and dotnet remain body-for-body identical apart from that name.",
-      "status": "tracked",
-      "collapsibility": {
-        "mechanism": "shared-predicate-hoist",
-        "reason": "with the empty-argument postures unified, nothing blocks a three-way collapse onto one shared builder in datrix_codegen_common.algorithms.entity_query_chain parameterized by the emitted method name, the caller's exception class (as transpile_where_comparison already is) and an optional constants accumulator; the hoist itself is not yet landed."
-      }
-    },
-    "_chain_step_offset": {
-      "reason": "Same shape as _chain_step_limit for the offset/skip step: python (.offset() ) and dotnet (.Skip() ) are body-for-body identical apart from the emitted method name, and all three targets now share one fail-loud empty-argument guard raising the byte-identical message (typescript's silent None return has been corrected). Typescript additionally threads extra_constants.",
-      "status": "tracked",
-      "collapsibility": {
-        "mechanism": "shared-predicate-hoist",
-        "reason": "identical to _chain_step_limit's: with typescript's silent-None branch corrected, only the emitted method name and the constants accumulator remain, both declared parameters rather than a per-target body; the hoist itself is not yet landed."
       }
     },
     "_chain_step_order_by": {
@@ -1419,7 +1345,7 @@
       }
     },
     "_generate_document_model": {
-      "reason": "Java builds fields_ctx via _field_template_context per-field with import collection (Java's typed POJO fields need explicit imports for e.g. java.util.UUID/BigDecimal); Python instead delegates to self._build_fields_context (a method-level helper) and threads DSL_CONCEPT_MAP-derived engine terminology (pk_field_name, engine_collection_term) that Java's document-model template does not need because Java's MongoDB/DynamoDB annotations are engine-uniform at the class-annotation level.",
+      "reason": "Java builds fields_ctx via _field_template_context per-field with import collection (Java's typed POJO fields need explicit imports for e.g. java.util.UUID/BigDecimal); Python instead calls the shared `build_fields_context` directly (passing its own `_resolve_nosql_python_type` bound method as the resolver) and threads DSL_CONCEPT_MAP-derived engine terminology (pk_field_name, engine_collection_term) that Java's document-model template does not need because Java's MongoDB/DynamoDB annotations are engine-uniform at the class-annotation level.",
       "status": "intentional",
       "collapsibility": {
         "mechanism": "none",
@@ -2172,14 +2098,6 @@
       "collapsibility": {
         "mechanism": "none",
         "reason": "returns `str | None` in one language and a `(class, import)` tuple in another -- a different return type, not a signature spelling."
-      }
-    },
-    "_resolve_plan_json": {
-      "reason": "python's, typescript's and java's bodies are BYTE-IDENTICAL as ASTs (same six statements, same three already-shared calls, same lazy-cache idiom around self._plan_json); the only textual divergence is that python quotes its parameter annotations as strings where the other two do not. Each caches into its own class's instance attribute on three independently-designed IdentityPlanArtifact-owning classes.",
-      "status": "intentional",
-      "collapsibility": {
-        "mechanism": "signature-alignment",
-        "reason": "the bodies do not differ at all, so no plan module is missing -- what keeps the three apart in the drift report is purely the annotation spelling in the signature, which is the signature-alignment mechanism's surface, not this one's."
       }
     },
     "_resolve_queue_fields": {

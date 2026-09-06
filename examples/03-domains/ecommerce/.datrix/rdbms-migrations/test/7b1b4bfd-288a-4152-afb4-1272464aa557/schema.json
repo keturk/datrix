@@ -862,7 +862,7 @@
     }
   ],
   "format": "datrix.rdbms.schema",
-  "latest_revision": "0001_initial",
+  "latest_revision": "0002_add_index_and_4_more",
   "rdbms_id": "7b1b4bfd-288a-4152-afb4-1272464aa557",
   "schema_hash": "1a6f1198f31befcc24d08ee62c053fb2470f073a63418fb75d9da8744a41ce60",
   "service": {
