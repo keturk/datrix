@@ -29,6 +29,9 @@ OLLAMA_DEFAULT_URL = str(_ollama_utils.OLLAMA_DEFAULT_URL)
 call_ollama = _ollama_utils.call_ollama
 parse_ollama_response = _ollama_utils.parse_ollama_response
 
+_venv_utils = importlib.import_module("shared.venv")
+get_datrix_root = _venv_utils.get_datrix_root
+
 DEFAULT_UNCOVERED_RATIO = 0.5
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_MAX_PROMPT_TOKENS = 6000
@@ -285,8 +288,20 @@ def _candidate_manifest_key(project_root: Path, candidate: FunctionCandidate) ->
     return f"{rel_file.as_posix()}:{candidate.start_line}:{class_prefix}{candidate.function_name}"
 
 
+def _output_dir(project_root: Path) -> Path:
+    """Workspace-level output folder holding this project's test-gen state.
+
+    Never inside the package repo. Every datrix-* package is its own git
+    repository, so a manifest or report written into one is committed and pushed
+    unless a human notices; the repo-level ignored-source gate fails on any such
+    stray output. Losing this folder is only a slowdown -- an already-generated
+    test is also skipped because its output file exists.
+    """
+    return get_datrix_root() / ".test-output" / "test-gen" / project_root.name
+
+
 def _manifest_path(project_root: Path) -> Path:
-    return project_root / ".generated" / "test-gen-manifest.json"
+    return _output_dir(project_root) / "test-gen-manifest.json"
 
 
 def _load_manifest(project_root: Path) -> dict[str, object]:
@@ -1327,7 +1342,8 @@ def main() -> int:
         )
         return 1
 
-    report_path = project_root / ".coverage_test_gen.json"
+    report_path = _output_dir(project_root) / "coverage.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
     ok, err = _run_coverage_json(project_root, report_path)
     if not ok:
         print(err, file=sys.stderr)

@@ -86,7 +86,7 @@ Two-pass Vulture dead-code report: classifies findings as "never referenced" or 
 
 ## `metrics\ruff.ps1`
 
-Ruff linter/formatter. Logs output to `.ruff_check/` per project.
+Ruff linter/formatter. Logs output to `D:\datrix\.test-output\ruff\<project>\ruff-YYYYMMDD-HHMMSS.log` — outside every package repo, because a log folder created inside one gets committed and pushed unless a human notices.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -158,7 +158,7 @@ Pytest coverage reports via pytest-cov.
 
 ## `metrics\test-gen.ps1`
 
-Coverage-driven unit test generation via local Ollama. Finds uncovered functions from coverage JSON, ranks candidates, and can generate validated `_generated` test files. Generated files are kept only after target-reference checks, Ruff auto-fix/check, the generated test file, and the full project test suite pass; failures are deleted. Prompts are compacted for local models with selective imports, summarized related tests, minimal class context, target literals/attributes, and short retry prompts. Successful generated tests are tracked in `.generated/test-gen-manifest.json`, and already tracked/output-existing candidates are skipped.
+Coverage-driven unit test generation via local Ollama. Finds uncovered functions from coverage JSON, ranks candidates, and can generate validated `_generated` test files. Generated files are kept only after target-reference checks, Ruff auto-fix/check, the generated test file, and the full project test suite pass; failures are deleted. Prompts are compacted for local models with selective imports, summarized related tests, minimal class context, target literals/attributes, and short retry prompts. Successful generated tests are tracked in `D:\datrix\.test-output\test-gen\<project>\test-gen-manifest.json` — outside the package repo — and already tracked/output-existing candidates are skipped.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -242,7 +242,7 @@ Lines-of-code counting using pygount.
 
 ## `metrics\cleanup-ruff.ps1`
 
-Cleans up Ruff check log files from `.ruff_check/` folders.
+Cleans up Ruff check log files from the workspace-level `D:\datrix\.test-output\ruff\<project>\` folders.
 
 | Mode | Command | Description |
 |------|---------|-------------|

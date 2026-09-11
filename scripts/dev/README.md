@@ -75,7 +75,13 @@ The output-path provider segment (`local`/`existing`/`aws`/`azure`) is read from
 
 ### Logs
 
-Generation logs are saved to `.generated/.results/generate-results-TIMESTAMP.log`. Old logs are not deleted automatically.
+Generation logs are saved to `.generated/.results/generate-results-TIMESTAMP-LANGUAGE[-PROFILE].log`. Old logs are not deleted automatically.
+
+The language and profile segments are labels, not what keeps two runs apart: each run
+**claims** its log file (`common/DatrixRunLog.psm1`), so two runs that compute the same
+name — two profiles generated in the same second, or two runs of one profile — get
+`…-2.log`, `…-3.log`, … rather than truncating and interleaving one file. Held by
+`test/run-log-exclusivity-gate.ps1`.
 
 ## rebuild-parser.ps1
 

@@ -283,14 +283,12 @@ def load_exemptions(path: Path) -> ExemptionSet:
 
     A missing or malformed file is an error, never an empty exemption set:
     silently scanning with zero entries would report every build artifact as a
-    violation and train the next reader to ignore the gate. The pinned count is
-    enforced against the live entry list so an entry can never be added or
-    removed without the reviewed number moving in the same change.
+    violation and train the next reader to ignore the gate.
     """
     if not path.is_file():
         raise IgnoredSourceGateError(
             f"Ignored-source exemption file not found at {path}. Expected a JSON object "
-            f'{{"pinned_count": <int>, "exemptions": [...]}}. Restore it from version '
+            f'{{"exemptions": [...]}}. Restore it from version '
             f"control; the gate cannot distinguish deliberate build output without it."
         )
     try:
@@ -304,20 +302,6 @@ def load_exemptions(path: Path) -> ExemptionSet:
             f"Exemption file at {path} has no 'exemptions' list. Expected a JSON array of "
             f"entry objects (an empty array is legal and means nothing is excused)."
         )
-    pinned = data.get("pinned_count")
-    if not isinstance(pinned, int) or isinstance(pinned, bool):
-        raise IgnoredSourceGateError(
-            f"Exemption file at {path} has pinned_count={pinned!r}. Expected an integer "
-            f"equal to the number of entries in 'exemptions'."
-        )
-    if pinned != len(raw_entries):
-        raise IgnoredSourceGateError(
-            f"Exemption file at {path} pins pinned_count={pinned} but holds "
-            f"{len(raw_entries)} entrie(s). An entry is only added or removed together "
-            f"with the reviewed count -- set pinned_count to {len(raw_entries)} in the "
-            f"same change that altered the list."
-        )
-
     entries = tuple(
         _parse_entry(entry, path, position) for position, entry in enumerate(raw_entries, start=1)
     )
@@ -726,7 +710,7 @@ def run_scan(repos: list[Path], exemptions: ExemptionSet) -> int:
         f"{len(violating)} repo(s) would not survive a clone. Fix the named .gitignore line "
         f"-- anchor the pattern to the repo root ('/PATTERN') or narrow it -- or, if the "
         f"output is deliberately unpublished, add a scoped entry with a written reason to "
-        f"{exemption_path(DATRIX_ROOT)} and move its pinned_count in the same change."
+        f"{exemption_path(DATRIX_ROOT)}."
     )
     for result in violating:
         report_repo(result)

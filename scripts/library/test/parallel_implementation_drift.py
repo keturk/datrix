@@ -6,17 +6,15 @@ or more registered target packages' src/ trees, and NOWHERE else
 in the monorepo -- a candidate that was never hoisted to datrix-codegen-common
 (or was hoisted and one copy left behind). Classifies each such name as
 IDENTICAL (every definition's source text is byte-for-byte equal) or DRIFTED
-(at least one definition differs), and records a decrease-only baseline of
-the DRIFTED count.
+(at least one definition differs).
 
 **Two axes, one scanner.** `--axis languages` (the default, and the only
 behaviour this script had originally) compares the registered
 `datrix.languages` packages; `--axis platforms` compares the registered
-`datrix.platforms` packages. Each axis carries its OWN baseline file; nothing
-is shared between them but the scan itself. Writing a second copy of this
-scanner to measure the platform axis would be self-refuting -- a duplicated
-implementation inside the instrument that exists to find duplicated
-implementations.
+`datrix.platforms` packages. Nothing is shared between them but the scan
+itself. Writing a second copy of this scanner to measure the platform axis
+would be self-refuting -- a duplicated implementation inside the instrument
+that exists to find duplicated implementations.
 
 **The platform axis is MANY-TO-ONE, and that is why the comparison unit is the
 PACKAGE, not the registered name.** Five platform names resolve to three
@@ -29,13 +27,17 @@ sharing a package are therefore folded into ONE entry labelled with the joined
 names (e.g. `azure+azure-vm`). For the 1:1 language axis this folding is a
 no-op, so the language report is unchanged.
 
-This is deliberately a REPORT with a count baseline, not a pass/fail gate on
-individual names: a name-keyed check cannot distinguish an intentional
-per-language emission difference (e.g. a `_render_endpoint_handler` method,
-which must legitimately differ per target language) from a genuine
-unreconciled divergence, and a gate that cannot make that distinction gets
-turned off. Classification of drifted groups is a separate, deliberate,
-human-reviewed pass over this report's output.
+This is deliberately a REPORT, not a gate: a name-keyed check cannot
+distinguish an intentional per-language emission difference (e.g. a
+`_render_endpoint_handler` method, which must legitimately differ per target
+language) from a genuine unreconciled divergence. It once carried a
+decrease-only count baseline and a per-name classification file beside it;
+both were retired because the count never pointed at a defect -- four
+generators sharing a function name and differing in body is what four
+generators look like -- while every rename in any language package had to
+touch them. Run it when you want the list; the guards that catch real
+cross-language drift are the byte-identity parity gate, the supported-domain
+union check and the closed compilation of each package's declared tables.
 
 The target set is derived from shared.registered_targets at runtime --
 never a hardcoded list -- so installing a fifth datrix-codegen-<lang> package
@@ -51,14 +53,12 @@ Usage:
     python parallel_implementation_drift.py                        # languages
     python parallel_implementation_drift.py --axis platforms
     python parallel_implementation_drift.py --self-test            # non-vacuity only
-    python parallel_implementation_drift.py --axis platforms --update-baseline
 """
 
 from __future__ import annotations
 
 import argparse
 import ast
-import json
 import logging
 import shutil
 import sys
@@ -93,12 +93,9 @@ logger = logging.getLogger(__name__)
 _HERE = Path(__file__).resolve()
 DATRIX_DIR: Path = _HERE.parents[3]
 WORKSPACE_ROOT: Path = _HERE.parents[4]
-DRIFT_BASELINE_PATH: Path = DATRIX_DIR / "scripts" / "config" / "parallel-implementation-drift-baseline.json"
-PLATFORM_DRIFT_BASELINE_PATH: Path = DATRIX_DIR / "scripts" / "config" / "platform-implementation-drift-baseline.json"
 
-#: The two comparison axes. Each carries its own registered-name resolver, its
-#: own entry-point group (for on-disk package resolution), and its OWN baseline
-#: file -- the axes never share a ratchet.
+#: The two comparison axes. Each carries its own registered-name resolver and
+#: its own entry-point group (for on-disk package resolution).
 AXIS_LANGUAGES: Final[str] = "languages"
 AXIS_PLATFORMS: Final[str] = "platforms"
 _AXIS_NAME_RESOLVERS: Final[dict[str, Callable[[], frozenset[str]]]] = {
@@ -108,10 +105,6 @@ _AXIS_NAME_RESOLVERS: Final[dict[str, Callable[[], frozenset[str]]]] = {
 _AXIS_ENTRY_POINT_GROUPS: Final[dict[str, str]] = {
     AXIS_LANGUAGES: LANGUAGES_GROUP,
     AXIS_PLATFORMS: PLATFORM_GROUP,
-}
-_AXIS_BASELINE_PATHS: Final[dict[str, Path]] = {
-    AXIS_LANGUAGES: DRIFT_BASELINE_PATH,
-    AXIS_PLATFORMS: PLATFORM_DRIFT_BASELINE_PATH,
 }
 
 #: Separator joining the registered names that share ONE package into a single
@@ -132,7 +125,6 @@ _SRC_SUBDIR_NAME: Final[str] = "src"
 _CONTAINER_BODY_ATTRS: Final[tuple[str, ...]] = ("body", "orelse", "finalbody")
 
 EXIT_OK: Final[int] = 0
-EXIT_FAIL: Final[int] = 1
 EXIT_USAGE: Final[int] = 2
 
 #: Self-test-only synthetic package names, chosen to be unmistakably not one
@@ -529,95 +521,6 @@ def _require_min_targets(axis: str, comparable_labels: frozenset[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Baseline (decrease-only ratchet)
-# ---------------------------------------------------------------------------
-
-
-def load_drift_baseline(path: Path = DRIFT_BASELINE_PATH) -> int:
-    """Load the decrease-only `drifted_count` baseline.
-
-    Args:
-        path: The baseline file. Defaults to the real committed file; tests
-            pass a synthetic temp path.
-
-    Returns:
-        The recorded count, or 0 if the file does not exist yet (first-ever
-        run, before `--update-baseline` freezes it).
-
-    Raises:
-        ValueError: If the file exists but is malformed (not an object with
-            a non-negative integer `drifted_count` field).
-    """
-    if not path.exists():
-        return 0
-    data = json.loads(path.read_text(encoding="utf-8"))
-    count = data.get("drifted_count")
-    if not isinstance(count, int) or isinstance(count, bool) or count < 0:
-        raise ValueError(
-            f"Malformed {path}: expected an object with a non-negative integer 'drifted_count' field, got {data!r}."
-        )
-    return count
-
-
-def write_drift_baseline(count: int, path: Path = DRIFT_BASELINE_PATH, axis: str = AXIS_LANGUAGES) -> None:
-    """Write `count` to the baseline JSON. Called ONLY by `--update-baseline`,
-    a deliberate, manual re-freeze (mirrors `write_blessed_count`'s role for
-    `regen-parity-baselines.ps1` -- the check side of the ratchet is
-    `check_drift_ratchet`, applied on every ordinary run against whatever was
-    last frozen here).
-
-    Args:
-        count: The freshly computed drifted-group count.
-        path: The baseline file to write. Defaults to the real committed
-            file; tests pass a synthetic temp path.
-        axis: The axis this baseline belongs to, named in the file's comment
-            so the two baselines can never be mistaken for each other.
-    """
-    axis_flag = "" if axis == AXIS_LANGUAGES else f" -Axis {axis}"
-    payload = {
-        "_comment": [
-            "Decrease-only ratchet: the count of DRIFTED parallel-implementation",
-            f"groups reported by parallel-implementation-drift-gate.ps1{axis_flag} (a",
-            "function name defined identically-in-shape but divergent-in-source",
-            f"across two or more registered datrix.{axis} PACKAGES, and nowhere",
-            "else in the monorepo). Registered names sharing one package are",
-            "folded into a single comparison entry, so this counts packages, not",
-            "names. A run whose LIVE drifted count is HIGHER than this value",
-            "fails -- new drift appeared with nothing reconciling it.",
-            f"parallel-implementation-drift-gate.ps1{axis_flag} -UpdateBaseline is",
-            "the only writer; do not hand-guess the number.",
-        ],
-        "drifted_count": count,
-    }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-
-
-def check_drift_ratchet(current_drifted_count: int, baseline_count: int) -> str | None:
-    """Compare the live drifted-group count against the recorded ratchet.
-
-    Args:
-        current_drifted_count: Freshly computed drifted-group count.
-        baseline_count: The pinned count (`load_drift_baseline`).
-
-    Returns:
-        A failure message if `current_drifted_count > baseline_count`, else
-        None. Never flags a DECREASE -- the ratchet only tightens; drift
-        reconciled by a later fix re-pins the baseline lower via
-        `--update-baseline`.
-    """
-    if current_drifted_count > baseline_count:
-        return (
-            f"PARALLEL-IMPLEMENTATION DRIFT REGRESSION: {current_drifted_count} "
-            f"drifted parallel-implementation group(s) found, but the recorded "
-            f"baseline expects at most {baseline_count}. New drift appeared "
-            f"with nothing reconciling it -- reconcile the new divergence(s), "
-            f"or if reviewed and intentional, re-run with --update-baseline."
-        )
-    return None
-
-
-# ---------------------------------------------------------------------------
 # Non-vacuity self-test
 # ---------------------------------------------------------------------------
 
@@ -812,38 +715,27 @@ def main() -> int:
     """CLI entry point.
 
     Returns:
-        0 (report ran and drifted count <= baseline, a successful
-        `--update-baseline`, or `--self-test` passed), 1 (drifted count
-        exceeds baseline), or 2 (self-test failed, fewer than two registered
-        languages, or a discovery/parse error).
+        0 (report ran, or `--self-test` passed) or 2 (self-test failed,
+        fewer than two registered targets, or a discovery/parse error).
     """
     parser = argparse.ArgumentParser(
         description=(
             "Parallel-implementation drift report: every function/method name "
-            "defined in >= 2 registered 'datrix.languages' packages and nowhere "
-            "else in the monorepo, with a per-name identical/drifted verdict "
-            "and a decrease-only drifted-count baseline."
+            "defined in >= 2 registered target packages and nowhere else in "
+            "the monorepo, with a per-name identical/drifted verdict."
         ),
     )
     parser.add_argument(
         "--axis",
         choices=(AXIS_LANGUAGES, AXIS_PLATFORMS),
         default=AXIS_LANGUAGES,
-        help=(
-            "Which registered target set to compare. Each axis has its own "
-            "baseline file; the axes never share a ratchet."
-        ),
+        help="Which registered target set to compare.",
     )
     parser.add_argument("--debug", action="store_true", help="Enable DEBUG logging")
     parser.add_argument(
         "--self-test",
         action="store_true",
         help="Run only the non-vacuity self-test and skip the real report",
-    )
-    parser.add_argument(
-        "--update-baseline",
-        action="store_true",
-        help="Write the live drifted-group count as the new baseline",
     )
     args = parser.parse_args()
 
@@ -861,7 +753,6 @@ def main() -> int:
         return EXIT_OK
 
     axis: str = args.axis
-    baseline_path = _AXIS_BASELINE_PATHS[axis]
     target_names = _AXIS_NAME_RESOLVERS[axis]()
     try:
         target_src_dirs = discover_target_package_src_dirs(axis, target_names, WORKSPACE_ROOT)
@@ -873,30 +764,6 @@ def main() -> int:
         return EXIT_USAGE
 
     _log_report(groups, len(target_src_dirs), axis)
-    drifted_count = sum(1 for g in groups if g.verdict == "drifted")
-
-    if args.update_baseline:
-        write_drift_baseline(drifted_count, baseline_path, axis)
-        logger.info(
-            "Baseline updated: axis=%s drifted_count=%d written to %s",
-            axis,
-            drifted_count,
-            baseline_path,
-        )
-        return EXIT_OK
-
-    baseline_count = load_drift_baseline(baseline_path)
-    failure = check_drift_ratchet(drifted_count, baseline_count)
-    if failure:
-        logger.error(failure)
-        return EXIT_FAIL
-
-    logger.info(
-        "Drift ratchet holds (axis=%s): %d drifted group(s) <= baseline %d.",
-        axis,
-        drifted_count,
-        baseline_count,
-    )
     return EXIT_OK
 
 

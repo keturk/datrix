@@ -8,10 +8,17 @@
  PowerShell wrapper for byte_identity_generate.py. The BEFORE state comes from
  a READ-ONLY git archive snapshot of the named packages at a ref (-BeforeRef +
  -Packages), or from a caller-supplied prebuilt source overlay (-BeforeTree);
- either is applied via PYTHONPATH in a dedicated worker subprocess. The two
- output roots are fixed equal-length paths (.test-output/byte-identity/bef and
- aft) -- the ruff post-format hook batches by command-line length, so unequal
- roots would produce phantom diffs.
+ either is applied via PYTHONPATH in a dedicated worker subprocess. Every
+ invocation generates into its own per-run root
+ (.test-output/byte-identity/<run-id>/{bef,aft}), so concurrent invocations
+ never collide -- bef/aft stay fixed, equal-length SIBLING NAMES within that
+ root because the ruff post-format hook batches by command-line length, so
+ unequal roots would produce phantom diffs. The run root is removed once a
+ run completes successfully and left on disk (named in the error) when it
+ fails, so a genuine failure stays diagnosable. The report likewise defaults
+ to a per-run filename (<run-id>.report.json / .report.md) directly under
+ .test-output/byte-identity/ unless -Output overrides it, so two concurrent
+ runs never overwrite each other's report either.
 
 .PARAMETER Example
  One or more example dirs relative to datrix/examples (repeatable or
@@ -38,7 +45,8 @@
  diffed, so both sides always use the same one.
 
 .PARAMETER Output
- Override the report.json path (report.md lands next to it).
+ Override the report.json path (report.md lands next to it). Default: a
+ per-invocation <run-id>.report.json under .test-output/byte-identity/.
 
 .PARAMETER Dbg
  Enable debug logging in the Python script.

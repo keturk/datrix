@@ -31,9 +31,8 @@
 
  A target that does not yet realize a (construct_kind, surface) cell must
  carry a typed, reviewed exemption in
- `datrix/scripts/config/documentation-realization-exemptions.json`, whose
- `pinned_count` must equal the file's live entry count -- an unexempted hole
- fails the gate naming the target, construct kind and surface; a STALE
+ `datrix/scripts/config/documentation-realization-exemptions.json` -- an
+ unexempted hole fails the gate naming the target, construct kind and surface; a STALE
  exemption (the artifact now carries the text) also fails, naming the entry
  to remove.
 

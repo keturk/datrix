@@ -1,6 +1,0 @@
-{
-  "0001_initial": {
-    "language": "sql",
-    "relative_path": "ecommerce_notification_service/src/main/resources/changelog/notification-db/changelog/0001_initial.sql"
-  }
-}

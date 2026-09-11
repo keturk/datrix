@@ -1,6 +1,0 @@
-{
-  "0001_initial": {
-    "language": "sql",
-    "relative_path": "ecommerce_shipping_service/src/main/resources/changelog/shipping-db/changelog/0001_initial.sql"
-  }
-}

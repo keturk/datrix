@@ -370,6 +370,7 @@ Skills that support delegation:
     fix-extensions/SKILL.md
     fix-language/SKILL.md
     fix-vscode/SKILL.md
+    fix-codegen-angular/SKILL.md
     fix-codegen-aws/SKILL.md
     fix-codegen-azure/SKILL.md
     fix-codegen-common/SKILL.md

@@ -1025,7 +1025,7 @@ def enforce_ignored_source(dirty_repos: list[DirtyRepo], datrix_root: Path) -> N
         f"is invisible until someone clones it -- fix the named .gitignore line (anchor the "
         f"pattern to the repo root as '/PATTERN', or narrow it), or, if the output is "
         f"deliberately unpublished, add a scoped entry with a written reason to "
-        f"{exemption_path(datrix_root)} and move its pinned_count in the same change.\n"
+        f"{exemption_path(datrix_root)}.\n"
         + detail
     )
 

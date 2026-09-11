@@ -1,36 +1,48 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Cross-language SUPPORTED-domain-set parity gate (G3 final).
+ Cross-language domain-universe closure and stance-completeness gate.
 
 .DESCRIPTION
- Proves every registered `datrix.languages` plugin's derived SUPPORTED
- domain set -- the FULL set (every domain a plugin declares
- `status == "supported"`), not pre-filtered to any subset -- is identical
- across ALL registered languages, zero symmetric difference.
+ Proves two properties for every registered `datrix.languages` plugin, over
+ the full shared domain universe:
+
+ 1. Domain-universe closure -- the union of every registered language's
+    COMPILED GenDSL IR domain ids equals the shared registry
+    (`SHARED_CONTEXT_TYPES`) exactly. A domain id some language's compiled
+    IR declares but the registry omits, or a registry id no registered
+    language's compiled IR declares (a dead entry), fails loud and
+    short-circuits before anything downstream runs.
+ 2. Per-language stance completeness -- every registered language declares
+    a stance (`supported` or `unsupported(reason)`) for every id in that
+    closed universe, and no stance for an id outside it. A missing or
+    out-of-universe stance is a fail-loud `STANCE COMPLETENESS VIOLATION`.
+    This is a completeness check, never an agreement check: languages are
+    free to take opposite stances on the same domain id, most commonly
+    because a domain is realized elsewhere on that target (e.g. folded into
+    another domain, or architecturally inapplicable to that target's
+    runtime) rather than left as an unclaimed gap.
+
+ On success, prints every registered language's full stance table (one row
+ per universe id) plus a divergence report quoting each unsupported
+ language's declared reason verbatim -- diagnostic only, never itself a
+ failure condition.
 
  Derives its target language set from
  `importlib.metadata.entry_points(group="datrix.languages")` at runtime --
  never a hardcoded language literal -- so a future `datrix-codegen-<lang>`
  package is covered automatically with no edit to this gate.
 
- Supersedes `shared39-supported-parity-gate.ps1` (java<->python only,
- restricted to the seven rich cross-language domains that are also
- shared-39 members): this gate's FULL-set identity comparison strictly
- implies that narrower restricted comparison (a subset of an identical set
- is itself identical), and the old gate's second check (8 infra-family
- `_test` domains excluded from the restricted set) was already vacuous by
- construction -- those 8 domains are provably disjoint from the seven rich
- domains, so they could never appear in the restricted set regardless of
- what either language declares. `shared39_supported_parity.py` and this
- gate's predecessor `.ps1` were deleted as superseded rather than kept as a
- redundant, narrower gate.
-
  Runs a built-in non-vacuity self-test on every invocation, before trusting
- any real comparison: feeds the comparator a synthetic matching pair (must
- report zero divergence) and a synthetic forced-mismatch pair (must report
- the missing domain). Fails loud (exit 2) if fewer than 2 languages are
- registered -- a cross-language comparison over 0 or 1 language is vacuous.
+ any real comparison: feeds the stance-completeness comparator a complete
+ synthetic table (must report zero findings), a synthetic language missing
+ one universe id's stance (must be reported), and a synthetic language
+ declaring an out-of-universe stance (must be reported); and feeds the
+ closure comparator a synthetic matching pair (must report zero
+ divergence), a synthetic compiled id absent from the registry (must be
+ reported), and a synthetic dead registry entry (must be reported). Fails
+ loud (exit 2) if fewer than 2 languages are registered -- a cross-language
+ comparison over 0 or 1 language is vacuous.
 
  Repo-level validation script (per the datrix showcase boundary -- no
  pytest suite lives in datrix).
@@ -103,7 +115,7 @@ try {
         $pythonArgs += "--self-test"
     }
 
-    Write-Host "Running supported-domain SUPPORTED parity gate (all registered languages, G3 final)" -ForegroundColor Cyan
+    Write-Host "Running domain-universe closure + stance-completeness gate (all registered languages)" -ForegroundColor Cyan
     python @pythonArgs
     $exitCode = $LASTEXITCODE
 

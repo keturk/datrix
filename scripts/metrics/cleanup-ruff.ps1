@@ -1,11 +1,14 @@
 # Cleanup Ruff Check Output
-# Lists all files under .ruff_check folders of each datrix project.
-# If -Force is provided, deletes those files and removes .ruff_check if empty.
+# Lists all log files under the workspace-level .test-output\ruff\<project>\ folders
+# written by metrics\ruff.ps1. Those logs live outside every package repo on purpose:
+# each datrix-* package is its own git repository, so run output created inside one
+# is committed and pushed unless a human notices.
+# If -Force is provided, deletes those files and removes each per-project folder if empty.
 # Usage: .\scripts\metrics\cleanup-ruff.ps1 [-BaseDir <path>] [-Force] [-KeepLatest] [-Dbg]
 
 [CmdletBinding()]
 param(
- [string]$BaseDir = (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))),
+ [string]$BaseDir,
  [switch]$Force,
  [switch]$KeepLatest,
  [switch]$Dbg
@@ -13,14 +16,27 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# $PSScriptRoot is empty while param() defaults are bound under `powershell -File`,
+# so the workspace root is resolved here from the script's own path instead --
+# the same shape ruff.ps1 uses. As a param default it made every invocation abort
+# on "Cannot bind argument to parameter 'Path' because it is an empty string".
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (-not $BaseDir) {
+ $BaseDir = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $scriptDir))
+}
+
 # Import common cleanup utilities
-$commonModulePath = Join-Path (Split-Path -Parent $PSScriptRoot) "common\CleanupUtils.psm1"
+$commonModulePath = Join-Path (Split-Path -Parent $scriptDir) "common\CleanupUtils.psm1"
 Import-Module $commonModulePath -Force
 
-$RUFF_CHECK_FOLDER = ".ruff_check"
+$RUFF_LOG_ROOT = Join-Path $BaseDir ".test-output\ruff"
 
-# Find all datrix projects
-$projects = Get-ChildItem -Path $BaseDir -Directory | Where-Object { $_.Name -like "datrix*" }
+# One folder per project under the workspace-level ruff log root
+$projects = if (Test-Path $RUFF_LOG_ROOT) {
+ Get-ChildItem -Path $RUFF_LOG_ROOT -Directory
+} else {
+ @()
+}
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Ruff Check Output Cleanup" -ForegroundColor Cyan
@@ -30,18 +46,18 @@ Write-Host ""
 $allFiles = [System.Collections.ArrayList]@()
 $totalSize = 0
 
-# Function to collect files under .ruff_check for a project
+# Function to collect a project's ruff log files
 function Get-RuffCheckFiles {
  param(
- [string]$RuffCheckPath,
+ [string]$RuffLogPath,
  [string]$ProjectName
  )
 
- if (-not (Test-Path $RuffCheckPath)) {
+ if (-not (Test-Path $RuffLogPath)) {
  return
  }
 
- $files = Get-ChildItem -Path $RuffCheckPath -File -ErrorAction SilentlyContinue
+ $files = Get-ChildItem -Path $RuffLogPath -File -ErrorAction SilentlyContinue
  if ($null -eq $files -or $files.Count -eq 0) {
  return
  }
@@ -61,17 +77,16 @@ function Get-RuffCheckFiles {
  Name = $file.Name
  Size = $file.Length
  IsLatest = $isFirst
- ParentDir = $RuffCheckPath
+ ParentDir = $RuffLogPath
  }
  $null = $script:allFiles.Add($fileInfo)
  $isFirst = $false
  }
 }
 
-# Process all datrix projects
+# Process every per-project log folder
 foreach ($project in $projects) {
- $ruffCheckPath = Join-Path $project.FullName $RUFF_CHECK_FOLDER
- Get-RuffCheckFiles -RuffCheckPath $ruffCheckPath -ProjectName $project.Name
+ Get-RuffCheckFiles -RuffLogPath $project.FullName -ProjectName $project.Name
 }
 
 # Display all files
@@ -154,7 +169,7 @@ if ($Force) {
  }
  }
 
- # Remove .ruff_check folder if empty
+ # Remove the per-project log folder if empty
  foreach ($parentDir in $parentDirsToCheck.Keys) {
  if (-not (Test-Path $parentDir)) {
  continue
@@ -183,7 +198,7 @@ if ($Force) {
  Write-Host "To delete these files, run with -Force parameter" -ForegroundColor Cyan
  Write-Host ""
  Write-Host "Options:" -ForegroundColor Gray
- Write-Host " .\cleanup-ruff.ps1 -Force # Delete all log files and empty .ruff_check folders" -ForegroundColor Gray
+ Write-Host " .\cleanup-ruff.ps1 -Force # Delete all log files and empty per-project folders" -ForegroundColor Gray
  Write-Host " .\cleanup-ruff.ps1 -Force -KeepLatest # Keep latest log per project" -ForegroundColor Gray
  Write-Host "========================================" -ForegroundColor Cyan
 }

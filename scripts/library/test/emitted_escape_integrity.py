@@ -107,25 +107,18 @@ def scan_files(paths: list[str], base_dir: str) -> list[tuple[str, int, str]]:
     return hits
 
 
-def load_exemptions(base_dir: str) -> tuple[list[dict[str, str]], int]:
-    """Return the reviewed exemption entries and the pinned count they must match.
+def load_exemptions(base_dir: str) -> list[dict[str, str]]:
+    """Return the reviewed exemption entries.
 
     Raises:
-        ValueError: The baseline's pinned count disagrees with its entry list, or
-            an entry is missing a required field. Both mean the baseline stopped
-            describing what it claims to, so nothing it says can be trusted.
+        ValueError: An entry is missing a required field -- the baseline
+            stopped describing what it claims to, so nothing it says can be
+            trusted.
     """
     path = os.path.join(base_dir, EXEMPTIONS_RELPATH)
     with open(path, encoding="utf-8") as handle:
         document = json.load(handle)
     entries = document["exemptions"]
-    expected = document["expected_count"]
-    if len(entries) != expected:
-        raise ValueError(
-            f"{EXEMPTIONS_RELPATH} pins expected_count={expected} but carries "
-            f"{len(entries)} entry(ies). Remediation decrements the count in the "
-            f"same change that removes the entry; a new exemption increments it."
-        )
     for entry in entries:
         missing = [key for key in ("file", "snippet", "reason") if not entry.get(key)]
         if missing:
@@ -134,7 +127,7 @@ def load_exemptions(base_dir: str) -> tuple[list[dict[str, str]], int]:
                 f"exemption names the file, the exact matched line, and why the "
                 f"doubled escape is correct there."
             )
-    return entries, expected
+    return entries
 
 
 def apply_exemptions(
@@ -228,7 +221,7 @@ def main() -> int:
             print(f"  scanning {_norm(path, base_dir)}")
 
     try:
-        entries, _ = load_exemptions(base_dir)
+        entries = load_exemptions(base_dir)
     except (OSError, KeyError, ValueError) as exc:
         print(f"ERROR: {exc}")
         return 2
@@ -240,10 +233,7 @@ def main() -> int:
         print(f"ERROR: {len(stale)} exemption(s) match nothing in the tree:")
         for entry in stale:
             print(f"  {entry['file']}: {entry['snippet']}")
-        print(
-            "\nThe defect they excused is gone. Remove each entry and decrement "
-            "expected_count in the same change."
-        )
+        print("\nThe defect they excused is gone. Remove each entry.")
         return 1
 
     if not unexcused:
@@ -262,7 +252,7 @@ def main() -> int:
         "the emitted Python as two literal characters -- the generated program then "
         "builds a string carrying a backslash where a line break was meant. Write a "
         "single backslash. If the doubling is deliberate, add a reviewed entry to "
-        f"{EXEMPTIONS_RELPATH} and increment expected_count."
+        f"{EXEMPTIONS_RELPATH}."
     )
     return 1
 

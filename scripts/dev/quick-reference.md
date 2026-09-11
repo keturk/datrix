@@ -328,7 +328,7 @@ Finds string literals in Datrix Python projects and writes a grouped Markdown re
 
 ### `dev\byte-identity-generate.ps1`
 
-Proves a code change is **output-neutral**: generates a corpus of examples twice — once under a "before" code state, once under the working tree — and byte-diffs the two trees (per-file sha256; reports EVERY added/removed/changed path). Replaces the hand-rolled `byte_identity_*` scripts from `D:\datrix\.scripts`. Handles the two proven traps internally: equal-length output roots (`bef`/`aft` — unequal path lengths cause phantom ruff-batching diffs) and subprocess-isolated PYTHONPATH shadowing for the "before" generation. Uses `git archive` only (read-only — never checkout). Reuses the parity gate's pipeline + manifest code.
+Proves a code change is **output-neutral**: generates a corpus of examples twice — once under a "before" code state, once under the working tree — and byte-diffs the two trees (per-file sha256; reports EVERY added/removed/changed path). Replaces the hand-rolled `byte_identity_*` scripts from `D:\datrix\.scripts`. Handles the three proven traps internally: equal-length output roots (`bef`/`aft` — unequal path lengths cause phantom ruff-batching diffs), subprocess-isolated PYTHONPATH shadowing for the "before" generation, and per-invocation run-root isolation (concurrent invocations never share a generation tree, git-archive snapshot dir, or report file). Uses `git archive` only (read-only — never checkout). Reuses the parity gate's pipeline + manifest code.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -338,7 +338,7 @@ Proves a code change is **output-neutral**: generates a corpus of examples twice
 
 **Parameters:** `-Example <rel-path>` (repeatable/comma) OR `-TestSet <name>`; exactly one of `-BeforeRef <git-ref>` + `-Packages <pkg,pkg>` or `-BeforeTree <dir>`; `-Language <lang>` (any registered `datrix.languages` target, **mandatory** — both the BEFORE and AFTER sides generate in this language; language is orthogonal to the code change being diffed); `-Output <path>`; `-Dbg`
 
-**Output:** `D:\datrix\.test-output\byte-identity\report.json` + `report.md` (unified diffs of changed text files). **Exit codes:** 0 = byte-identical, 1 = differences, 2 = usage / generation failure.
+**Output:** `D:\datrix\.test-output\byte-identity\<run-id>.report.json` + `<run-id>.report.md` (unified diffs of changed text files) unless `-Output` overrides the path; the printed `Details:` line names the exact file. Generation trees live per-invocation at `D:\datrix\.test-output\byte-identity\<run-id>\{bef,aft}`, removed on a successful run and left on disk (named in the error) on a failed one. **Exit codes:** 0 = byte-identical, 1 = differences, 2 = usage / generation failure.
 
 ### `dev\conformance-gate.ps1`
 
@@ -365,6 +365,18 @@ Per-domain census of a language's compiled genDSL definitions: file-clause count
 | **Self-test only** | `.\dev\gendsl-census.ps1 -SelfTest` | Run only the non-vacuity self-test; no `-Language` needed |
 
 **Parameters:** `-Language <name>` (required unless `-SelfTest`), `-Output <path>`, `-Dbg`, `-SelfTest`. **Exit codes:** 0 = no double-emit offenders AND no bridgeless-declaring domains, 1 = double-emit offenders OR bridgeless-declaring domains found, 2 = usage / unknown target / the non-vacuity self-test failed.
+
+### `dev\parallel-implementation-drift-report.ps1`
+
+Lists every function/method name defined in two or more registered target packages (`datrix.languages` by default, `datrix.platforms` with `-Axis platforms`) and nowhere else in the monorepo, each IDENTICAL (every definition byte-for-byte equal) or DRIFTED. A report for reading when a hoist is being considered — no baseline, no count, never fails on what it finds. Full description under [test/quick-reference.md](../test/quick-reference.md#devparallel-implementation-drift-reportps1).
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the report** | `.\dev\parallel-implementation-drift-report.ps1` | Drifted names across every registered language package |
+| **Platform axis** | `.\dev\parallel-implementation-drift-report.ps1 -Axis platforms` | Same over every registered platform package |
+| **Self-test only** | `.\dev\parallel-implementation-drift-report.ps1 -SelfTest` | Run only the non-vacuity self-test |
+
+**Parameters:** `-Axis <languages\|platforms>`, `-Dbg`, `-SelfTest`. **Exit codes:** 0 = the report ran, 2 = self-test failure / fewer than two registered targets / a parse error.
 
 ---
 

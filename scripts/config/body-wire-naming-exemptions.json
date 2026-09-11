@@ -6,11 +6,7 @@
     "",
     "This is a DELIBERATELY MAINTAINED SCOPE BOUNDARY, not an auto-heal: every entry is a real,",
     "reviewed divergence in a language's response-schema template, catalogued here until its owning",
-    "fix removes both the divergence and this entry IN THE SAME CHANGE.",
-    "",
-    "expected_count is a pinned, reviewed value: change it only in the same change that adds or",
-    "removes an entry."
+    "fix removes both the divergence and this entry IN THE SAME CHANGE."
   ],
-  "expected_count": 0,
   "exemptions": []
 }

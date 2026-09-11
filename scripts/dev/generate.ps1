@@ -132,10 +132,12 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $commonDir = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptDir)) "scripts\common"
 Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
+# DatrixRunLog imports nothing, so importing it after DatrixPaths cannot displace
+# DatrixPaths' exports the way a nested -Force import would.
+Import-Module (Join-Path $commonDir "DatrixRunLog.psm1") -Force
 . (Join-Path $commonDir "venv.ps1")
 
-# Get datrix root and workspace root
-$datrixRoot = Get-DatrixRoot
+# Get workspace root (the monorepo root; every path this script builds hangs off it)
 $datrixWorkspaceRoot = Get-DatrixWorkspaceRoot
 
 # Function to handle cleanup on exit
@@ -146,27 +148,32 @@ function Invoke-Cleanup {
 # Register cleanup on script exit
 Register-EngineEvent PowerShell.Exiting -Action { Invoke-Cleanup } | Out-Null
 
-# Function to get log file path (timestamped file under $LogResultsDir)
+# Function to create this run's log file under $LogResultsDir and return its path
 function Get-LogFilePath {
  param(
  [Parameter(Mandatory = $true)]
  [string]$LogResultsDir,
 
  [Parameter(Mandatory = $true)]
- [string]$LogLanguage
- )
- if (-not (Test-Path $LogResultsDir)) {
- $null = New-Item -ItemType Directory -Path $LogResultsDir -Force
- }
+ [string]$LogLanguage,
 
- $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
- # The language segment keeps concurrent invocations (the same example generated
- # for several languages at once) from opening the same log file and failing on a
- # sharing violation, and says which run each log belongs to. The timestamp stays
- # leading so sorting by name remains chronological for the consumers that glob
- # generate-results-*.log.
- $logFileName = "generate-results-$timestamp-$LogLanguage.log"
- return Join-Path $LogResultsDir $logFileName
+ [Parameter()]
+ [AllowEmptyString()]
+ [string]$LogConfigProfile = ""
+ )
+ # The language and config-profile segments say which run each log belongs to,
+ # and the timestamp stays leading so sorting by name remains chronological for
+ # the consumers that glob generate-results-*.log.
+ #
+ # They are LABELS, not the uniqueness mechanism. Two runs that agree on all of
+ # them -- two profiles of one project generated in the same second, or two runs
+ # of one profile -- compute one name, and the header write below truncates,
+ # so the second run would erase the first run's log and both would then append
+ # into it. New-DatrixRunLogFile is what keeps them apart: it claims the name
+ # atomically (FileMode.CreateNew) and falls through to the next candidate when
+ # a name is taken, so the path returned here is owned by this run alone.
+ $baseName = Get-DatrixRunLogBaseName -Prefix "generate-results" -Segment @($LogLanguage, $LogConfigProfile)
+ return New-DatrixRunLogFile -Directory $LogResultsDir -BaseName $baseName
 }
 
 # Function to show help message
@@ -480,7 +487,7 @@ try {
  $logResultsDir = Join-Path (Join-Path $datrixWorkspaceRoot ".generated") ".results"
 
  # Set up logging
- $logFilePath = Get-LogFilePath -LogResultsDir $logResultsDir -LogLanguage $Language
+ $logFilePath = Get-LogFilePath -LogResultsDir $logResultsDir -LogLanguage $Language -LogConfigProfile $ConfigProfile
  
  # Write header to log file (UTF-8)
  $header = @"
@@ -490,10 +497,9 @@ $("=" * 80)
 
 "@
  $utf8Encoding = New-Object System.Text.UTF8Encoding($false)
+ # Safe to truncate: Get-LogFilePath already created this file exclusively, so
+ # the only content being overwritten is the zero bytes that claimed the name.
  [System.IO.File]::WriteAllText($logFilePath, $header, $utf8Encoding)
-
-  # Let the Python generator append verbose context directly to the same log file
-  $env:DATRIX_GENERATE_LOG_FILE = $logFilePath
 
  Write-TeeHost "Log file: $logFilePath" -ForegroundColor Cyan -LogFilePath $logFilePath
  Write-TeeHost "" -LogFilePath $logFilePath
@@ -670,7 +676,6 @@ $("=" * 80)
  $exitCode = $LASTEXITCODE
  } finally {
  Remove-Item env:DATRIX_DISABLE_LOG -ErrorAction SilentlyContinue
-  Remove-Item env:DATRIX_GENERATE_LOG_FILE -ErrorAction SilentlyContinue
  }
 
  # Append Errors section and Generation Summary to the log file

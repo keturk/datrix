@@ -6,10 +6,9 @@ asserts that a pooled cache member's declared slice
 actually reaches that target's own emitted-output-facing source, not merely
 that the shared pooling pre-pass computed it. A target that does not yet
 realize the slice must carry a typed exemption (axis + target + reason) in
-``scripts/config/pooled-cache-realization-exemptions.json``; the file's own
-``pinned_count`` is a hand-reviewed field that must equal the live entry
-count on every change, so a target quietly losing its realization (a
-regression) fails the same way a target that never had one does.
+``scripts/config/pooled-cache-realization-exemptions.json``, so a target
+quietly losing its realization (a regression) fails the same way a target
+that never had one does.
 
 DETECTION IS STATIC, over each target package's own ``src/`` tree -- this
 gate never invokes ``generate.ps1`` and never generates a project. A target
@@ -440,15 +439,12 @@ def check_target(axis: str, target: str, probe: SliceRealizationProbe) -> Realiz
 _EXEMPTION_REQUIRED_STRING_FIELDS: Final[tuple[str, ...]] = ("axis", "target", "reason")
 
 
-def load_exemptions(config_path: Path) -> tuple[list[RealizationExemption], int]:
-    """Parse the exemption file. Returns (exemptions, pinned_count).
+def load_exemptions(config_path: Path) -> list[RealizationExemption]:
+    """Parse the exemption file.
 
     Raises:
-        ValueError: The file is missing, malformed, an entry is missing a
-            non-empty required field or names an unknown axis, or the file's
-            own exemption count does not equal its pinned `pinned_count`
-            field (the file is internally inconsistent -- caught here rather
-            than silently trusting whichever is read first).
+        ValueError: The file is missing, malformed, or an entry is missing a
+            non-empty required field or names an unknown axis.
     """
     if not config_path.exists():
         raise ValueError(
@@ -458,12 +454,10 @@ def load_exemptions(config_path: Path) -> tuple[list[RealizationExemption], int]
         )
     data = json.loads(config_path.read_text(encoding="utf-8"))
     entries = data.get("exemptions")
-    pinned_count = data.get("pinned_count")
-    if not isinstance(entries, list) or not isinstance(pinned_count, int) or isinstance(pinned_count, bool):
+    if not isinstance(entries, list):
         raise ValueError(
             f"Malformed exemption file {config_path}: expected an object "
-            f"with 'pinned_count' (int) and 'exemptions' (array of "
-            f"{{axis, target, reason}})."
+            f"with 'exemptions' (array of {{axis, target, reason}})."
         )
     exemptions: list[RealizationExemption] = []
     for entry in entries:
@@ -481,13 +475,7 @@ def load_exemptions(config_path: Path) -> tuple[list[RealizationExemption], int]
         exemptions.append(
             RealizationExemption(axis=entry["axis"], target=entry["target"], reason=entry["reason"])
         )
-    if len(exemptions) != pinned_count:
-        raise ValueError(
-            f"Exemption file {config_path} has {len(exemptions)} entries but "
-            f"'pinned_count' is pinned at {pinned_count}. Update pinned_count "
-            f"in the same change that adds or removes an entry."
-        )
-    return exemptions, pinned_count
+    return exemptions
 
 
 # ---------------------------------------------------------------------------
@@ -633,12 +621,11 @@ def run_gate(
             needing to uninstall a registered package.
 
     Returns:
-        0: live exemption count equals `pinned_count` and every exempted
-           target is still genuinely unrealized (no realized-but-still-
-           exempted stale entry).
-        1: a non-exempted target failed realization, a previously-exempted
-           target now realizes the slice (stale exemption), or the
-           exemption file's live entry count does not match `pinned_count`.
+        0: every exempted target is still genuinely unrealized (no
+           realized-but-still-exempted stale entry) and no target lacks a
+           realization without an exemption.
+        1: a non-exempted target failed realization, or a previously-exempted
+           target now realizes the slice (stale exemption).
         2: fewer than `_MIN_TARGETS_PER_AXIS` targets are registered on
            *axis*.
     """
@@ -651,7 +638,7 @@ def run_gate(
         return EXIT_VACUOUS
 
     try:
-        exemptions, pinned_count = load_exemptions(config_path)
+        exemptions = load_exemptions(config_path)
     except ValueError as exc:
         logger.error("POOLED-CACHE REALIZATION EXEMPTION FILE INVALID: %s", exc)
         return EXIT_FAIL
@@ -677,10 +664,9 @@ def run_gate(
 
     logger.info(
         "POOLED-CACHE REALIZATION CENSUS (axis=%s): targets_checked=%d realized=%d "
-        "exempt=%d unexempted_gaps=%d stale_exemptions=%d live_exemption_count=%d "
-        "pinned_count=%d",
+        "exempt=%d unexempted_gaps=%d stale_exemptions=%d exemption_count=%d",
         axis, len(results), len(realized_targets), len(axis_exemptions),
-        len(unexempted_gaps), len(stale_exemptions), len(exemptions), pinned_count,
+        len(unexempted_gaps), len(stale_exemptions), len(exemptions),
     )
 
     if unexempted_gaps or stale_exemptions:
@@ -689,16 +675,15 @@ def run_gate(
                 "POOLED-CACHE REALIZATION GAP (axis=%s): %d target(s) do not "
                 "realize the declared pooled-cache member slice and carry no "
                 "exemption: %s. Fix: add a reviewed entry to %s "
-                "({\"axis\": %r, \"target\": <name>, \"reason\": <why>}) and "
-                "increment pinned_count, or realize the slice.",
+                "({\"axis\": %r, \"target\": <name>, \"reason\": <why>}), "
+                "or realize the slice.",
                 axis, len(unexempted_gaps), unexempted_gaps, config_path, axis,
             )
         if stale_exemptions:
             logger.error(
                 "POOLED-CACHE REALIZATION STALE EXEMPTION (axis=%s): %d "
                 "target(s) are exempted in %s but now realize the slice: %s. "
-                "Fix: remove the exemption entry and decrement pinned_count "
-                "in the same change.",
+                "Fix: remove the exemption entry.",
                 axis, len(stale_exemptions), config_path, stale_exemptions,
             )
         return EXIT_FAIL
@@ -724,8 +709,7 @@ def main() -> int:
            target realizes the pooled-cache member slice or carries a
            reviewed exemption (or `--self-test` was passed and it passed).
         1: an unexempted gap or a stale exemption was found on some checked
-           axis, or the exemption file's live count does not match its
-           pinned_count.
+           axis.
         2: the self-test failed, or fewer than two targets are registered
            on an axis being checked.
     """

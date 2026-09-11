@@ -43,6 +43,9 @@ check("tmp under tests/", write(r"d:\datrix\datrix-codegen-aws\tests\tmp\out.jso
 check("suffixed test-output", write(r"d:\datrix\datrix-cli\.test-output-foundation-check\a.txt"), BLOCK)
 check("scratch dir", write("d:/datrix/datrix-language/scratch/notes.md"), BLOCK)
 check(".scripts inside a repo", write("d:/datrix/datrix-extensions/.scripts/run.ps1"), BLOCK)
+# The repo list is not a constant: a target added without updating it goes unguarded.
+check("angular (frontend target repo)", write("d:/datrix/datrix-codegen-angular/.tmp/out.log"), BLOCK)
+check("vscode (non-Python repo)", write(r"d:\datrix\datrix-vscode\temp\a.json"), BLOCK)
 
 print("== Write/Edit: legitimate paths stay writable ==")
 check("workspace .tmp (sanctioned)", write(r"d:\datrix\.tmp\ratchet.txt"), ALLOW)

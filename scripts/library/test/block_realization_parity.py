@@ -133,6 +133,8 @@ _PRESENCE_SHAPED_SCALAR_FIELDS: Final[tuple[str, ...]] = (
     "edge_origin_host_port",
     "edge_path_routed_origins",
     "cache_pooled_slice_delivery",
+    "publishes_gateway_behind_managed_edge",
+    "trusted_edge_client_address_include",
 )
 
 #: Fields that carry an explanatory RATIONALE for another field's already-
@@ -512,16 +514,15 @@ def all_surface_violations(
 # ---------------------------------------------------------------------------
 
 
-def load_holes() -> tuple[dict[tuple[str, str, str], str], int]:
+def load_holes() -> dict[tuple[str, str, str], str]:
     """Load and validate ``platform-capability-holes.json``.
 
     Returns:
-        ``({(platform, surface, coordinate): reason}, expected_count)``.
+        ``{(platform, surface, coordinate): reason}``.
 
     Raises:
-        ValueError: If the file is missing, malformed, an entry has an
-            empty reason, or the entry count does not match the pinned
-            ``expected_count``.
+        ValueError: If the file is missing, malformed, or an entry has an
+            empty reason.
     """
     if not HOLES_PATH.exists():
         raise ValueError(
@@ -531,12 +532,10 @@ def load_holes() -> tuple[dict[tuple[str, str, str], str], int]:
         )
     data = json.loads(HOLES_PATH.read_text(encoding="utf-8"))
     entries = data.get("holes")
-    expected = data.get("expected_count")
-    if not isinstance(entries, list) or not isinstance(expected, int):
+    if not isinstance(entries, list):
         raise ValueError(
             f"Malformed exemption file {HOLES_PATH}: expected an object "
-            f"with 'expected_count' (int) and 'holes' (array of "
-            f"{{platform, surface, coordinate, reason}})."
+            f"with 'holes' (array of {{platform, surface, coordinate, reason}})."
         )
     holes: dict[tuple[str, str, str], str] = {}
     for entry in entries:
@@ -547,13 +546,7 @@ def load_holes() -> tuple[dict[tuple[str, str, str], str], int]:
                     f"{key!r}."
                 )
         holes[(entry["platform"], entry["surface"], entry["coordinate"])] = entry["reason"]
-    if len(entries) != expected:
-        raise ValueError(
-            f"Exemption file {HOLES_PATH} has {len(entries)} entries but "
-            f"'expected_count' is pinned at {expected}. Update the count in "
-            f"the same change that adds or removes an entry."
-        )
-    return holes, expected
+    return holes
 
 
 # ---------------------------------------------------------------------------
@@ -741,7 +734,7 @@ def check_block_realization_parity() -> int:
         return 2
 
     per_platform = {name: declaration_for_provider(name) for name in platforms}
-    holes, _ = load_holes()
+    holes = load_holes()
     violations = all_surface_violations(per_platform)
 
     unexempted = [

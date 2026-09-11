@@ -13,9 +13,9 @@
  mechanism) against the camelCase form of the declared field name.
 
  A language target that cannot support a given response surface declares it
- unsupported with a reason via the typed, counted exemption file at
+ unsupported with a reason via the typed exemption file at
  datrix/scripts/config/body-wire-naming-exemptions.json (coordinates +
- reason + pinned expected_count).
+ reason).
 
  Derives its target language set from
  `importlib.metadata.entry_points(group="datrix.languages")` at runtime --

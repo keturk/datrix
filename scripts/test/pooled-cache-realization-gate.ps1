@@ -16,8 +16,7 @@
 
  A target that does not yet realize the slice must carry a typed exemption
  (axis + target + reason) in
- `datrix/scripts/config/pooled-cache-realization-exemptions.json`, whose
- `pinned_count` must equal the file's live entry count on every change --
+ `datrix/scripts/config/pooled-cache-realization-exemptions.json` --
  a target quietly losing its realization fails the gate the same way a
  target that never had one does.
 

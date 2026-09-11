@@ -222,27 +222,19 @@ __marimo__/
 # Generated project structure metadata
 .project-structure.md
 
-# RDBMS migration-ledger state. This is NOT build output: unlike the manifest,
-# snapshot, and audit trees (which hang off the generated OUTPUT dir, and so land
-# in .generated/, outside this repo), `.datrix/rdbms-migrations/` is written back
-# into the APPLICATION SOURCE dir and is version-controlled by design. The ledger
-# is a deterministic function of the schema so regeneration never churns it,
-# revisions are immutable once written, and the documented recovery from a
-# wrongly-reset baseline is to restore ledger.json / schema.json / the revision
-# file to their COMMITTED bytes. Discarding it would leave a clone unable to
-# continue the example's migration chain -- the next run would emit a fresh
-# `0001_initial` that a deployed database has already recorded and will never
-# apply.
-#
-# The blanket ignore stays as the stray guard: `commit-and-push` runs
-# `git add -A`, so state written by an ad-hoc run against an example that sets
-# `migrations { enabled = false }` would otherwise be committed unlooked-at.
-# Every example that deliberately sets `enabled = true` is re-negated below.
-# Adding another such example means adding a line here -- and this list cannot
-# go stale silently, because ignored-source-gate.ps1 fails the commit run until
-# it does.
+# RDBMS migration-ledger state. In a real project `.datrix/rdbms-migrations/` is
+# written back into the APPLICATION SOURCE dir and version-controlled by design:
+# it is the append-only record of what each deployed database ran. No example
+# under this repo is that: an example is generated in every registered language
+# and only ever meets a fresh database, so it has nothing to migrate FROM, and a
+# ledger would record one language's rendering of each revision and seal the
+# store against every other language. Every example that keeps the migration
+# lifecycle on therefore declares `migrations { ledger = false; }`, the pipeline
+# writes no state for it, and nothing under examples/ is ever re-negated here.
+# The blanket ignore is the stray guard: `commit-and-push` runs `git add -A`, so
+# state an ad-hoc run left behind would otherwise be committed unlooked-at, and
+# ignored-source-gate.ps1 requires a reviewed exemption for anything it hides.
 .datrix/
-!/examples/03-domains/ecommerce/.datrix/
 
 # Crash / stack dump files
 *.stackdump

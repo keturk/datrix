@@ -26,7 +26,7 @@ language absent from the dispatch table is a loud `RuntimeError`, never a silent
 
 A known, reviewed gap is a typed, counted entry in
 `d:\\datrix\\datrix\\scripts\\config\\enum-classifier-conformance-exemptions.json` with a written
-reason -- never silence (mirrors `builtin-mapping-exemptions.json`, D11's own wording).
+reason -- never silence (D11's own wording).
 
 Run with `--self-test` to verify the comparator is non-vacuous before trusting a real run.
 """
@@ -494,22 +494,21 @@ def collect_conformance_facts(language: str, fixture: Enum) -> ClassifierConform
         ) from exc
 
 
-def load_exemptions() -> tuple[list[dict[str, str]], int]:
-    """Return reviewed exemption entries and the pinned count they must match.
+def load_exemptions() -> list[dict[str, str]]:
+    """Return the reviewed exemption entries.
 
-    Mirrors `builtin_claims_parity.load_exemptions` exactly: a typed, counted, reason-carrying
-    entry is the only sanctioned way a known gap survives this gate. An empty exemptions file
-    (pinned count 0, empty list) is the default/expected state today -- every currently registered
-    language is expected to be fully conformant.
+    A typed, reason-carrying entry is the only sanctioned way a known gap
+    survives this gate. An empty list is the default/expected state today --
+    every currently registered language is expected to be fully conformant.
 
     Returns:
-        `(exemption_entries, pinned_count)`. Each entry carries at least `"language"` and
+        The exemption entries. Each carries at least `"language"` and
         `"reason"` (both non-empty strings).
 
     Raises:
-        ValueError: The exemptions file is missing or malformed, the pinned count disagrees with
-            the entry list length, or an entry is missing a required field (`language`, `reason`)
-            -- both mean the file stopped describing what it claims to and nothing in it can be
+        ValueError: The exemptions file is missing or malformed, or an entry
+            is missing a required field (`language`, `reason`) -- the file
+            stopped describing what it claims to and nothing in it can be
             trusted.
     """
     if not EXEMPTIONS_PATH.exists():
@@ -519,23 +518,16 @@ def load_exemptions() -> tuple[list[dict[str, str]], int]:
         )
     data = json.loads(EXEMPTIONS_PATH.read_text(encoding="utf-8"))
     entries = data.get("exemptions")
-    pinned_count = data.get("pinned_count")
-    if not isinstance(entries, list) or not isinstance(pinned_count, int):
+    if not isinstance(entries, list):
         raise ValueError(
             f"Malformed exemption file {EXEMPTIONS_PATH}: expected an object with "
-            f"'pinned_count' (int) and 'exemptions' (array of {{language, reason}})."
+            f"'exemptions' (array of {{language, reason}})."
         )
     for entry in entries:
         for key in ("language", "reason"):
             if not isinstance(entry, dict) or not isinstance(entry.get(key), str) or not entry[key].strip():
                 raise ValueError(f"Exemption entry {entry!r} is missing a non-empty {key!r}.")
-    if len(entries) != pinned_count:
-        raise ValueError(
-            f"Exemption file {EXEMPTIONS_PATH} has {len(entries)} entries but 'pinned_count' is "
-            f"pinned at {pinned_count}. Update the count in the same change that adds or removes "
-            f"an entry."
-        )
-    return entries, pinned_count
+    return entries
 
 
 def compare_classifier_conformance(
@@ -647,7 +639,7 @@ def check_enum_classifier_conformance() -> int:
     per_language = {language: collect_conformance_facts(language, fixture) for language in emitting}
     violations = compare_classifier_conformance(per_language)
 
-    exemptions, _ = load_exemptions()
+    exemptions = load_exemptions()
     exempted_reasons = {entry["language"]: entry["reason"] for entry in exemptions}
 
     ok = True

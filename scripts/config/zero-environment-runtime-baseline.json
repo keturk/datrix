@@ -1,0 +1,88 @@
+{
+  "_comment": [
+    "Zero-environment runtime census, per registered datrix.languages package.",
+    "A language whose LanguageCapabilityDeclaration.zero_environment_runtime",
+    "is realized=True lists every template that reads the environment as a",
+    "reviewed exemption with a written reason (hand-authored; the gate fails",
+    "on an unlisted read and on a stale entry). A language declaring",
+    "realized=False carries a decrease-only pinned_count of environment-",
+    "reading templates; a live count above it fails.",
+    "zero-environment-runtime-gate.ps1 -UpdateBaseline is the only writer of",
+    "pinned_count values; do not hand-guess the numbers."
+  ],
+  "languages": {
+    "dotnet": {
+      "pinned_count": 8
+    },
+    "java": {
+      "pinned_count": 7
+    },
+    "python": {
+      "exemptions": [
+        {
+          "template": "templates/api/_provider_metadata_cognito.py.j2",
+          "reason": "The Cognito user-pool id is an app setting the AWS deployment delivers; read once at import via os.environ[...] and fails loud (KeyError) when absent."
+        },
+        {
+          "template": "templates/api/_provider_metadata_graph.py.j2",
+          "reason": "The Entra extension-property prefix is a deploy-time app setting the ARM deployment delivers; read once at import and fails loud when absent."
+        },
+        {
+          "template": "templates/api/_service_credential.py.j2",
+          "reason": "The machine-identity audience GUID is an ARM deployment output delivered as an app setting; _machine_identity_audience raises RuntimeError when it is unset or empty."
+        },
+        {
+          "template": "templates/api/identity.py.j2",
+          "reason": "allowedAudienceRefs name deploy-time app settings that hold audience values; an unset ref raises JwksValidationError, never an empty audience."
+        },
+        {
+          "template": "templates/persistence/cache_connection_redis.py.j2",
+          "reason": "Pooled-Redis env-var slice delivery, selected only when the resolved platform's cache_pooled_slice_delivery capability declares env-var; the non-pooled path reads AppSettings."
+        },
+        {
+          "template": "templates/serverless/container_http_app.py.j2",
+          "reason": "The container-platform serverless HTTP entrypoint binds the port the compose runtime injects as PORT; fails loud (KeyError) when absent."
+        },
+        {
+          "template": "templates/service/settings.py.j2",
+          "reason": "_require_env reads trusted-caller and shared-UAI Redis app settings delivered as ARM outputs on Azure and raises when a required one is missing; emitted only when those features are declared."
+        },
+        {
+          "template": "templates/project/_deploy_test_endpoints.py.j2",
+          "reason": "Emits the deploy-test harness, not service runtime."
+        },
+        {
+          "template": "templates/project/_deploy_test_main.py.j2",
+          "reason": "Emits the deploy-test harness, not service runtime."
+        },
+        {
+          "template": "templates/project/_deploy_test_pytest_phases.py.j2",
+          "reason": "Emits the deploy-test harness, not service runtime."
+        },
+        {
+          "template": "templates/project/_deploy_test_reporting.py.j2",
+          "reason": "Emits the deploy-test harness, not service runtime."
+        },
+        {
+          "template": "templates/project/project_conftest.py.j2",
+          "reason": "Emits the generated project's pytest conftest, not service runtime."
+        },
+        {
+          "template": "templates/project/unit_tests.py.j2",
+          "reason": "Emits generated unit tests, not service runtime."
+        },
+        {
+          "template": "templates/service/test_integration_conftest.py.j2",
+          "reason": "Emits the generated integration-test conftest, not service runtime."
+        },
+        {
+          "template": "templates/service/tests_conftest.py.j2",
+          "reason": "Emits the generated test-suite conftest, not service runtime."
+        }
+      ]
+    },
+    "typescript": {
+      "pinned_count": 66
+    }
+  }
+}

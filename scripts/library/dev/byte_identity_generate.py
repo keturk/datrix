@@ -23,8 +23,33 @@ equal-length absolute paths. Python's post-generation hooks batch ruff
 invocations by total command-line CHARACTER count
 (``hooks/language_hooks.py::_run_ruff_batched``), so a longer output path
 shifts ruff's batch boundaries and produces phantom formatting diffs. The
-roots are therefore baked in as ``.../byte-identity/bef`` and
-``.../byte-identity/aft`` -- the caller can never choose unequal roots.
+directory NAMES are therefore baked in as ``bef`` and ``aft`` -- equal-length
+siblings under one PER-INVOCATION run root (see below) -- the caller can never
+choose unequal names.
+
+CONCURRENT-SAFE (per-invocation run root): every invocation gets its own
+``.../byte-identity/<pid>-<micros>/`` root holding ``bef``/``aft`` and, on a
+generation failure, the worker logs -- so two agents running this tool at the
+same time never write into each other's generation trees. This is the same
+PID-scoped-scratch pattern ``test/reference_example_parity.py`` uses for its
+own concurrently-shared roots (see its ``_private_scratch_dir`` /
+``run_blessed_coverage_self_test`` docstrings); ``_remove_tree`` is imported
+from there rather than re-implemented, so both modules share one
+Windows-file-in-use-tolerant deletion routine. The run root is removed once a
+run completes successfully (best-effort -- a stuck delete never turns a
+correct run into a reported failure); it is deliberately LEFT ON DISK, and
+named in the error, when the run fails before producing a trustworthy
+report -- it is the only evidence available to diagnose the failure. Because
+concurrent invocations must produce genuinely INDEPENDENT reports too (not
+just independent generation trees), ``report.json``/``report.md`` default to
+a per-run-id filename under the shared ``.../byte-identity/`` directory
+(``<run-id>.report.json`` / ``<run-id>.report.md``) rather than the old fixed
+``report.json`` -- a fixed shared report path would let one concurrent
+invocation's finish silently overwrite another's before its caller ever reads
+it back, the exact defect class this whole change fixes, just relocated to
+the report instead of the generation trees. An explicit ``--output`` still
+names an exact path, unchanged, since that is the caller's own choice, not a
+default collision surface.
 
 Generation and hashing REUSE ``test/reference_example_parity.py`` -- the real
 ``GenerationPipeline`` invocation with the same ``PipelineConfig`` defaults,
@@ -50,10 +75,10 @@ import io
 import json
 import logging
 import os
-import shutil
 import subprocess
 import sys
 import tarfile
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -77,6 +102,7 @@ from test.reference_example_parity import (  # noqa: E402
     EXAMPLES_ROOT,
     ManifestDiff,
     _register_language_plugins,
+    _remove_tree,
     build_manifest,
     diff_manifests,
     example_id,
@@ -91,15 +117,25 @@ EXIT_IDENTICAL = 0
 EXIT_DIFFERENCES = 1
 EXIT_USAGE = 2
 
-#: Output home: <workspace>/.test-output/byte-identity/{bef,aft,report.json,report.md}
+#: Output home: <workspace>/.test-output/byte-identity/. Every invocation gets
+#: its own <run-id> subdirectory holding {bef,aft} (and worker logs, on a
+#: generation failure); report.json/report.md default to a <run-id>-prefixed
+#: filename directly under this home -- see module docstring's
+#: CONCURRENT-SAFE paragraph for why the report is not also fixed-named.
 OUTPUT_SUBDIRS: tuple[str, ...] = (".test-output", "byte-identity")
-#: The two generation roots. EQUAL LENGTH is load-bearing -- see module docstring.
+#: The two generation root NAMES, nested under one per-invocation run root
+#: (<OUTPUT_SUBDIRS>/<run-id>/{bef,aft}). EQUAL LENGTH is load-bearing -- see
+#: module docstring.
 BEFORE_DIRNAME = "bef"
 AFTER_DIRNAME = "aft"
 REPORT_JSON_NAME = "report.json"
 REPORT_MD_NAME = "report.md"
 
 #: Where --before-ref package snapshots are extracted (scratch, per policy).
+#: A <run-id> leaf is appended by the caller (see build_before_strategy) --
+#: this is a shared prefix, not a shared directory: two concurrent -BeforeRef
+#: invocations must never extract into the same physical directory, the same
+#: defect class the {bef,aft} run root fixes.
 SNAPSHOT_SUBDIRS: tuple[str, ...] = (".tmp", "byte-identity", "before-src")
 
 SIDE_BEFORE = "BEFORE"
@@ -138,6 +174,10 @@ class BeforeStrategy:
     pythonpath: str
     description: str
     detail: dict[str, object]
+    #: The per-run git-archive snapshot directory to clean up once BEFORE
+    #: generation has consumed it, or ``None`` for a -BeforeTree strategy
+    #: (the caller's own tree is used as-is and is never ours to remove).
+    snapshot_root: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -352,8 +392,7 @@ def snapshot_packages(
         UsageError: On a missing/non-git package, a failing ``git archive``
             (bad ref, no ``src/`` at that ref), or a missing git executable.
     """
-    if snapshot_root.exists():
-        shutil.rmtree(snapshot_root)
+    _remove_tree(snapshot_root)
     snapshot_root.mkdir(parents=True)
 
     src_paths: list[Path] = []
@@ -400,6 +439,7 @@ def build_before_strategy(
     packages_arg: str | None,
     before_tree: str | None,
     workspace: Path,
+    run_id: str,
 ) -> BeforeStrategy:
     """Validate the BEFORE selector and materialize its PYTHONPATH overlay.
 
@@ -408,6 +448,11 @@ def build_before_strategy(
         packages_arg: ``--packages`` comma-separated value.
         before_tree: ``--before-tree`` value.
         workspace: Monorepo root.
+        run_id: This invocation's unique run id (:func:`_make_run_id`), used
+            to give a ``-BeforeRef`` snapshot its own extraction directory so
+            two concurrent invocations never extract into the same physical
+            path (the same collision class the ``bef``/``aft`` run root
+            fixes for generation output).
 
     Returns:
         The strategy carrying the worker PYTHONPATH and report metadata.
@@ -429,7 +474,7 @@ def build_before_strategy(
                 "-BeforeRef requires -Packages <pkg,pkg>: the packages (own git "
                 "repos) whose src/ is snapshotted at the ref."
             )
-        snapshot_root = workspace.joinpath(*SNAPSHOT_SUBDIRS)
+        snapshot_root = workspace.joinpath(*SNAPSHOT_SUBDIRS) / run_id
         src_paths = snapshot_packages(before_ref, packages, workspace, snapshot_root)
         return BeforeStrategy(
             pythonpath=os.pathsep.join(str(p) for p in src_paths),
@@ -440,6 +485,7 @@ def build_before_strategy(
                 "packages": packages,
                 "snapshot_src_paths": [str(p) for p in src_paths],
             },
+            snapshot_root=snapshot_root,
         )
     if packages:
         raise UsageError(
@@ -549,8 +595,7 @@ def run_side(
         GenerationError: If the worker exits non-zero; carries the tail of the
             worker's verbatim output.
     """
-    if output_root.exists():
-        shutil.rmtree(output_root)
+    _remove_tree(output_root)
     output_root.mkdir(parents=True)
 
     env = dict(os.environ)
@@ -756,12 +801,84 @@ def write_report_md(
 # ---------------------------------------------------------------------------
 
 
+def _make_run_id() -> str:
+    """Return a run id unique to this invocation: PID plus a microsecond timestamp.
+
+    PID alone is not sufficient: the OS recycles process ids, so a later,
+    unrelated invocation could otherwise reuse one still naming a FAILED
+    prior run's deliberately-kept directory (see
+    :func:`_leave_run_root_on_failure`). The timestamp resolves that and,
+    unlike a GUID, still sorts and reads naturally alongside the worker logs
+    and reports it names.
+
+    Returns:
+        A filesystem-safe, unique run id, e.g. ``"12345-1735849201123456"``.
+    """
+    return f"{os.getpid()}-{int(time.time() * 1_000_000)}"
+
+
+def _cleanup_best_effort(path: Path, context: str) -> None:
+    """Remove *path*, never raising -- a cleanup failure must never fail the run.
+
+    Used for directories that are pure scratch by the time this is called
+    (already fully consumed, and never themselves the diagnostic evidence for
+    a failure or a real difference): the git-archive snapshot overlay once
+    BEFORE generation has read it, and the run root once a run has completed
+    successfully. ``_remove_tree`` already retries a transient Windows
+    file-in-use error (WinError 5/32); if it still fails after retrying, this
+    logs a warning and leaves the directory rather than raising -- one of the
+    incidents this task was filed for was exactly a cleanup failure crashing
+    an otherwise-correct run, which is worse than a leftover scratch
+    directory under ``.test-output``/``.tmp`` (both cleared regularly, per
+    the repo's temp-file policy).
+
+    Args:
+        path: Directory to remove.
+        context: Human-readable label for the warning (e.g. ``"snapshot
+            overlay"``, ``"run root"``).
+    """
+    try:
+        _remove_tree(path)
+    except OSError as exc:
+        logger.warning(
+            "Could not remove %s at %s (%s: %s) -- left on disk.",
+            context, path, type(exc).__name__, exc,
+        )
+
+
+def _leave_run_root_on_failure(run_root: Path, exc: Exception) -> None:
+    """Ensure a failed run's evidence survives and is named in its error.
+
+    Called from :func:`orchestrate`'s failure path. *run_root* (``bef/``,
+    ``aft/``, and any worker logs beside them) is the only evidence available
+    to diagnose a generation failure or an unexpected error mid-run; only a
+    run that reaches the end without raising removes it (best-effort, via
+    :func:`_cleanup_best_effort`).
+
+    Args:
+        run_root: This invocation's private run root -- deliberately NOT
+            removed here.
+        exc: The exception ending the run early. A :class:`GenerationError`
+            has its ``detail`` (what ``main()`` prints) annotated in place;
+            any other exception is logged, since its own message is not
+            controlled by this module.
+    """
+    note = f"Run root left on disk for diagnosis: {run_root}"
+    if isinstance(exc, GenerationError):
+        exc.detail = f"{exc.detail}\n{note}"
+    else:
+        logger.error("%s (%s: %s)", note, type(exc).__name__, exc)
+
+
 def _assert_equal_length_roots(before_root: Path, after_root: Path) -> None:
     """Enforce the equal-length output-root invariant.
 
     The ruff post-format hook batches files by command-line character count,
-    so unequal root path lengths yield phantom formatting diffs. The roots are
-    module constants; this guard fails loud if a future edit breaks them.
+    so unequal root path lengths yield phantom formatting diffs. *before_root*
+    and *after_root* are siblings under the same per-invocation run root
+    (differing only in the trailing ``BEFORE_DIRNAME``/``AFTER_DIRNAME``, both
+    module constants), so their absolute lengths are equal regardless of the
+    run id; this guard fails loud if a future edit breaks that.
 
     Args:
         before_root: BEFORE side root.
@@ -782,6 +899,15 @@ def _assert_equal_length_roots(before_root: Path, after_root: Path) -> None:
 def orchestrate(args: argparse.Namespace) -> int:
     """Run the full byte-identity flow (both sides, diff, reports, console).
 
+    Every invocation generates into its own run root
+    (``.../byte-identity/<run-id>/{bef,aft}``, see :func:`_make_run_id`), so
+    concurrent invocations never share a generation tree. The run root is
+    removed (best-effort) once the run completes successfully; on failure it
+    is left on disk and named in the raised error (see
+    :func:`_leave_run_root_on_failure`) -- the module docstring's
+    CONCURRENT-SAFE paragraph explains why the default report path is also
+    per-run rather than fixed.
+
     Args:
         args: Parsed CLI arguments.
 
@@ -794,25 +920,43 @@ def orchestrate(args: argparse.Namespace) -> int:
     """
     workspace = get_datrix_root()
     examples = resolve_examples(args.example, args.test_set)
+    run_id = _make_run_id()
     strategy = build_before_strategy(
-        args.before_ref, args.packages, args.before_tree, workspace
+        args.before_ref, args.packages, args.before_tree, workspace, run_id
     )
 
     output_home = workspace.joinpath(*OUTPUT_SUBDIRS)
-    before_root = output_home / BEFORE_DIRNAME
-    after_root = output_home / AFTER_DIRNAME
+    run_root = output_home / run_id
+    before_root = run_root / BEFORE_DIRNAME
+    after_root = run_root / AFTER_DIRNAME
     _assert_equal_length_roots(before_root, after_root)
 
-    run_side(SIDE_BEFORE, before_root, examples, strategy.pythonpath, args.language, bool(args.debug))
-    run_side(SIDE_AFTER, after_root, examples, None, args.language, bool(args.debug))
+    try:
+        run_side(
+            SIDE_BEFORE, before_root, examples, strategy.pythonpath, args.language, bool(args.debug)
+        )
+        if strategy.snapshot_root is not None:
+            # Pure input scratch for BEFORE generation, already fully
+            # consumed by the run_side call above -- never diagnostic
+            # evidence for a generation failure (the worker log is) or a
+            # real difference (the bef/aft trees are), so it is always
+            # cleared once BEFORE is done with it, independent of how the
+            # rest of the run turns out.
+            _cleanup_best_effort(strategy.snapshot_root, "git-archive snapshot overlay")
+        run_side(SIDE_AFTER, after_root, examples, None, args.language, bool(args.debug))
 
-    comparisons = compare_examples(examples, before_root, after_root)
-    report_json = (
-        Path(args.output).resolve() if args.output else output_home / REPORT_JSON_NAME
-    )
-    report_md = report_json.with_name(REPORT_MD_NAME)
-    totals = write_report_json(report_json, strategy, comparisons, before_root, after_root)
-    write_report_md(report_md, strategy, comparisons, before_root, after_root)
+        comparisons = compare_examples(examples, before_root, after_root)
+        if args.output:
+            report_json = Path(args.output).resolve()
+            report_md = report_json.with_name(REPORT_MD_NAME)
+        else:
+            report_json = output_home / f"{run_id}.{REPORT_JSON_NAME}"
+            report_md = output_home / f"{run_id}.{REPORT_MD_NAME}"
+        totals = write_report_json(report_json, strategy, comparisons, before_root, after_root)
+        write_report_md(report_md, strategy, comparisons, before_root, after_root)
+    except Exception as exc:
+        _leave_run_root_on_failure(run_root, exc)
+        raise
 
     total = totals["added"] + totals["removed"] + totals["changed"]
     if total == 0:
@@ -824,6 +968,11 @@ def orchestrate(args: argparse.Namespace) -> int:
             f"project(s)"
         )
     print(f"Details: {report_json}")
+    # The reports above are already durably written outside anything removed
+    # here (either an explicit --output path, or the run-id-prefixed default
+    # directly under output_home) -- only the (now fully consumed) bef/aft
+    # generation trees and this run's own directory go away.
+    _cleanup_best_effort(run_root, "run root")
     return EXIT_IDENTICAL if total == 0 else EXIT_DIFFERENCES
 
 
@@ -879,8 +1028,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--output", default=None,
-        help="Override the report.json path (report.md lands next to it). The two "
-        "generation roots are fixed and equal-length -- never configurable.",
+        help="Override the report.json path (report.md lands next to it). Default: "
+        "a per-invocation <run-id>.report.json under .test-output/byte-identity/, so "
+        "concurrent invocations never overwrite each other's report. The bef/aft "
+        "generation root NAMES are fixed and equal-length -- never configurable -- "
+        "but each invocation gets its own run root, so two invocations never share "
+        "a generation tree either.",
     )
     parser.add_argument("--debug", action="store_true", help="Enable DEBUG logging.")
     parser.add_argument(

@@ -28,6 +28,12 @@
 .PARAMETER SelfTest
  Run only the non-vacuity self-test and skip the real comparison.
 
+.PARAMETER Census
+ Print every (language, domain) the blessed corpus exercises nowhere, with
+ its reviewed status from corpus-vacuity-records.json (or UNRECORDED), and
+ exit 0. A measurement, not a verdict -- the gate's own verdict on the same
+ data runs as part of a normal invocation.
+
 .EXAMPLE
  .\artifact-role-parity-gate.ps1
  Run the gate for every example with >= 2 blessed language baselines.
@@ -35,6 +41,10 @@
 .EXAMPLE
  .\artifact-role-parity-gate.ps1 -SelfTest
  Run only the non-vacuity self-test.
+
+.EXAMPLE
+ .\artifact-role-parity-gate.ps1 -Census
+ Report the corpus-vacuity census against the reviewed records.
 #>
 
 [CmdletBinding()]
@@ -43,7 +53,10 @@ param(
     [switch]$Dbg,
 
     [Parameter()]
-    [switch]$SelfTest
+    [switch]$SelfTest,
+
+    [Parameter()]
+    [switch]$Census
 )
 
 $ErrorActionPreference = "Stop"
@@ -78,6 +91,7 @@ try {
     $pythonArgs = @($runnerScript)
     if ($Dbg) { $pythonArgs += "--debug" }
     if ($SelfTest) { $pythonArgs += "--self-test" }
+    if ($Census) { $pythonArgs += "--census" }
 
     Write-Host "Running artifact-role parity gate (D7, blessed baselines only)" -ForegroundColor Cyan
     python @pythonArgs

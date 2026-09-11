@@ -246,8 +246,8 @@ Two obligations travel with the type. **The language-runtime mapping is register
 
 ## See Also
 
-- [Architecture Overview — Decision 8](architecture-overview.md#decision-8-incremental-rdbms-schema-migrations) — Rationale and summary
-- [Architecture Overview — Decision 44](architecture-overview.md#decision-44-a-generated-service-must-be-able-to-reach-its-database--probe-transport-migration-readiness-and-chain-owned-schema-approved--implementation-in-progress) — Boot-path contracts these decisions detail
+- [Architecture Overview — Decision 8](architecture-overview.md#decision-8-incremental-rdbms-schema-migrations-adopted) — Rationale and summary
+- [Architecture Overview — Decision 45](architecture-overview.md#decision-45-a-generated-service-must-be-able-to-reach-its-database--probe-transport-migration-readiness-and-chain-owned-schema-approved--implementation-in-progress) — Boot-path contracts these decisions detail
 - [RDBMS Migration API](../../../datrix-common/docs/architecture/migration.md) — Shared module documentation
 - [RdbmsMigrationAdapter Protocol](../../../datrix-codegen-common/docs/migration-adapter.md) — Adapter contract
 - [CLI Migrations Commands](../../../datrix-cli/docs/commands/migrations.md) — CLI surface
